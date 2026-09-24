@@ -211,6 +211,24 @@ to it. A `calledWith(1)` miss answers `undefined`, not the real method: configur
 whole method over. Use it to assert an interaction on a real collaborator; use a plain double when
 the test must not touch the real one.
 
+**`spyOnOwnMethod(sut, 'method')` is that whitelist-plus-passthrough shape packed into one call.**
+`createSpyFromInstance(sut, { onlyMethodsToSpyOn: ['method'], passthrough: true }).method` is
+verbose for the most common thing it says — _observe one method of the object under test and let it
+run_ — so the helper says exactly that and hands back the single spy. It is also the drop-in for a
+bare `vi.spyOn(component, 'method')` where a preset's `no-restricted-properties` bans `vi.spyOn`:
+same default semantics, record and call through, and `restoreSpiedInstance` puts it back.
+
+**Do not `createSpyFromInstance` a DOM node that must keep living a DOM life.** Discovery walks the
+node's prototype chain, and past the component's own class that chain is the engine's: happy-dom's
+`Node.removeChild` calls an internal Symbol-keyed method on the child, and once discovery has
+patched it the strict guard refuses that call — the node cannot be removed from `document.body` at
+all, and the leak then fails later tests in the file far from the cause. For a still-attached
+element, spy one property with `mockValueProp(el, 'addEventListener', vi.fn())` (§9) — the node
+stays otherwise real and removable. For a native void method the handler is meant to call
+(`preventDefault`, `stopPropagation`, `focus`), `spyOnVoidMethod(event, 'preventDefault')` packs
+the whitelist and the `returns: { preventDefault: undefined }` seed a strict suite otherwise needs,
+naming the method once instead of twice.
+
 **`createFixture<T>(defaults, overrides?)` / `createFixtureFactory<T>(defaults)` are for the model
 that more than one spec builds.** The difference from `createMock` is the `defaults` argument: it is
 a **complete** `T`, checked in full, in one place — so a field the model dropped fails there instead
@@ -1204,11 +1222,15 @@ question is whether the code under test called `next` on a property, the double 
 const forceRequery$ = new Subject<number>();
 
 mockValueProp(state, 'forceRequeryAndStartPlaybackAt$', forceRequery$);
-const next = vi.spyOn(forceRequery$, 'next');
+const next = spyOnOwnMethod(forceRequery$, 'next');
 
 service.seek(1000);
 expect(next).toHaveBeenCalledWith(1000);
 ```
+
+`spyOnOwnMethod` is the same record-and-call-through a bare `vi.spyOn` gives, and it is the form to
+reach for when a preset bans `vi.spyOn` outright (`no-restricted-properties`): the emission still
+reaches subscribers, because the real `next` runs.
 
 `Spy<T>` types an Observable property as `AddObservableSpyMethods<O> & T[K]`, so `next` is there on
 the type either way — which is exactly why this is worth saying: the code compiles against the spy

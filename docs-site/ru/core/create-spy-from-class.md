@@ -577,6 +577,50 @@ expect(cart.add).toHaveBeenCalledWith(5); // выполнился настоящ
 `restoreSpiedInstance(obj)` — или `using` — возвращает настоящие члены на место, а `setupAutoSpy()`
 делает это после каждого теста.
 
+### Один метод — `spyOnOwnMethod` {#spy-on-own-method}
+
+Самый частый случай во всём этом укладывается в одну строку: понаблюдать за **одним** методом
+объекта под тестом и дать ему работать. `spyOnOwnMethod(sut, 'method')` — этот сценарий
+в упакованном виде:
+
+```ts
+import { spyOnOwnMethod } from 'vitest-auto-spy';
+
+const seek = spyOnOwnMethod(player, 'seek');
+
+player.seek(1000); // настоящий seek выполнился
+expect(seek).toHaveBeenCalledWith(1000);
+```
+
+Это белый список `onlyMethodsToSpyOn` со сложенным внутрь `passthrough`: все остальные члены
+остаются настоящими, настоящий метод работает, пока тест не настроит спай, а `restoreSpiedInstance`
+/ `setupAutoSpy()` возвращают всё на место. Это же замена голому `vi.spyOn(component, 'method')`
+там, где пресет запрещает `vi.spyOn` через `no-restricted-properties`: та же семантика «записать
+и вызвать настоящий метод», на любом раннере.
+
+### Живой DOM-узел — не коллаборатор {#live-dom-node}
+
+`createSpyFromInstance(el)` обходит цепочку прототипов узла, а выше собственного класса компонента
+это цепочка самого DOM-движка. `Node.removeChild` в happy-dom вызывает внутренний метод под
+Symbol-ключом у ребёнка, которого снимает; после патча этот вызов становится вызовом спая, который
+никто не настраивал, — в строгой сюите узел вообще невозможно снять с `document.body`, и утечка
+валит последующие тесты файла далеко от настоящей причины. Для элемента, которому предстоит
+жить обычной DOM-жизнью, спайте одно свойство: `mockValueProp(el, 'addEventListener', vi.fn())`
+оставляет узел настоящим и снимаемым. А для нативного void-метода, который обработчик и должен
+вызвать (`preventDefault`, `stopPropagation`, `focus`), есть `spyOnVoidMethod(event,
+'preventDefault')` — белый список и сид `returns: { preventDefault: undefined }`, без которого
+строгая сюита бросает, упакованные в один вызов, где метод назван один раз, а не дважды:
+
+```ts
+import { spyOnVoidMethod } from 'vitest-auto-spy';
+
+const preventDefault = spyOnVoidMethod(event, 'preventDefault');
+
+handler(event);
+
+expect(preventDefault).toHaveBeenCalledTimes(1);
+```
+
 ## Одна функция — `createFunctionSpy` {#a-single-function-—-createfunctionspy}
 
 Когда класса нет вовсе, `createFunctionSpy<Fn>(name)` строит один спай с тем же набором хелперов,

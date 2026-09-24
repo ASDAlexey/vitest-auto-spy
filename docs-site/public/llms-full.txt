@@ -1179,6 +1179,49 @@ expect(cart.add).toHaveBeenCalledWith(5); // the real CartService ran, with its 
 `restoreSpiedInstance(obj)` — or `using` — puts the real members back, and `setupAutoSpy()` does it
 after every test.
 
+### One method — `spyOnOwnMethod`
+
+The common call through all of that is one line long: observe **one** method of the object under
+test and let it run. `spyOnOwnMethod(sut, 'method')` is that shape packed:
+
+```ts
+import { spyOnOwnMethod } from 'vitest-auto-spy';
+
+const seek = spyOnOwnMethod(player, 'seek');
+
+player.seek(1000); // the real seek ran
+expect(seek).toHaveBeenCalledWith(1000);
+```
+
+It is the `onlyMethodsToSpyOn` whitelist with `passthrough` folded in — every other member stays
+real, the real method runs until the test configures the spy, and `restoreSpiedInstance` /
+`setupAutoSpy()` put it back. It is also the drop-in for a bare `vi.spyOn(component, 'method')`
+where a preset's `no-restricted-properties` bans `vi.spyOn`: the same record-and-call-through,
+on every runtime.
+
+### A live DOM node is not a collaborator
+
+`createSpyFromInstance(el)` walks the node's prototype chain, and past the component's own class
+that chain is the DOM engine's. happy-dom's `Node.removeChild` calls an internal Symbol-keyed method
+on the child it is removing; once discovery has patched it, that call is a call to a spy nobody
+configured — under a strict suite the node cannot be removed from `document.body` at all, and the
+leak then fails later tests in the file far from the cause. For an element that must keep living a
+DOM life, spy one property instead — `mockValueProp(el, 'addEventListener', vi.fn())` leaves the
+node otherwise real and removable. And for a native void method the handler is meant to call
+(`preventDefault`, `stopPropagation`, `focus`), `spyOnVoidMethod(event, 'preventDefault')` packs
+the whitelist and the `returns: { preventDefault: undefined }` seed a strict suite otherwise
+needs, naming the method once instead of twice:
+
+```ts
+import { spyOnVoidMethod } from 'vitest-auto-spy';
+
+const preventDefault = spyOnVoidMethod(event, 'preventDefault');
+
+handler(event);
+
+expect(preventDefault).toHaveBeenCalledTimes(1);
+```
+
 ## A single function — `createFunctionSpy`
 
 When there is no class at all, `createFunctionSpy<Fn>(name)` builds one spy with the same
@@ -25003,6 +25046,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `createSpyFromClass(Class, methodsOrConfig?)`                                                                | Build a fully-typed `Spy<T>` from a class                                                                                                                                                                                                                                                 |
 | `createSpyFromInstance(instance, methodsOrConfig?)`                                                          | Spy an object the test already holds — patched **in place**, so everything that captured it sees the spies; `{ passthrough: true }` keeps the real methods running until configured                                                                                                       |
+| `spyOnOwnMethod(instance, method)`                                                                           | One method of the object under test, recorded and still calling through — the packed `onlyMethodsToSpyOn` + `passthrough` whitelist, and the drop-in for a bare banned `vi.spyOn`                                                                                                         |
 | `restoreSpiedInstance(instance)`                                                                             | Undo one instance patch; `restoreMockedProps()` and `using` reach the same journal                                                                                                                                                                                                        |
 | `createAutoMock<T>(overrides?)`                                                                              | Build a `Spy<T>` from a **type/interface** alone (Proxy, no class)                                                                                                                                                                                                                        |
 | `createMock<T>(partial?)`                                                                                    | Build a plain, spy-free `T` from the fields a test seeds — for data shapes, not collaborators                                                                                                                                                                                             |
@@ -25026,6 +25070,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `setupFakeTimers(config?, opts?)` / `advanceTimers(ms?)`                                                     | Paired fake-timer install/restore — the configuration this call passes is the one installed, nested calls included — and an advance that settles queued microtasks, refusing a run where only `Date` is faked (`/setup`)                                                                  |
 | `setSpyEngine(engine)` / `getSpyEngine()`                                                                    | Build method spies from this library's own mock (`'auto-spy'`, the default) or from `vi.fn()` (`'runner'`); Vitest only (`/setup`)                                                                                                                                                        |
 | `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()` / `stubObserver(name)`      | Replace an observer global with one the spec drives; restored by `restoreMockedProps()`                                                                                                                                                                                                   |
+| `spyOnVoidMethod(target, method)`                                                                            | One native void method of a real event or element (`preventDefault`, `focus`, …), recorded without a strict-mode trap — the whitelist and the `returns` seed packed into one call naming the method once                                                                                  |
 | `intersectionEntry(target, isIntersecting, overrides?)`                                                      | Build one `IntersectionObserverEntry` without the fields nothing reads; a rect in `overrides` can be a plain `{ x, y, width, height }`                                                                                                                                                    |
 | `mockResourceProp(object, prop, initial, options?)`                                                          | Replace a resource-valued property with a whole `ResourceRef` double the spec drives — `set` / `fail` / `loading` / `idle`, spied `reload` answering `false` while idle or loading, `value()` throwing a `ResourceValueError` after `fail()`, `{ status }` to open elsewhere (`/angular`) |
 | `mockSignalProp(object, prop, initial)`                                                                      | Drive a signal-valued property with a real writable signal, and hand back the handle; an `asReadonly()` member is driven in place, so a `computed()` that already read it follows (`/angular`)                                                                                            |

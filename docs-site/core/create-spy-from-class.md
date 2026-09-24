@@ -579,6 +579,49 @@ expect(cart.add).toHaveBeenCalledWith(5); // the real CartService ran, with its 
 `restoreSpiedInstance(obj)` — or `using` — puts the real members back, and `setupAutoSpy()` does it
 after every test.
 
+### One method — `spyOnOwnMethod` {#spy-on-own-method}
+
+The common call through all of that is one line long: observe **one** method of the object under
+test and let it run. `spyOnOwnMethod(sut, 'method')` is that shape packed:
+
+```ts
+import { spyOnOwnMethod } from 'vitest-auto-spy';
+
+const seek = spyOnOwnMethod(player, 'seek');
+
+player.seek(1000); // the real seek ran
+expect(seek).toHaveBeenCalledWith(1000);
+```
+
+It is the `onlyMethodsToSpyOn` whitelist with `passthrough` folded in — every other member stays
+real, the real method runs until the test configures the spy, and `restoreSpiedInstance` /
+`setupAutoSpy()` put it back. It is also the drop-in for a bare `vi.spyOn(component, 'method')`
+where a preset's `no-restricted-properties` bans `vi.spyOn`: the same record-and-call-through,
+on every runtime.
+
+### A live DOM node is not a collaborator {#live-dom-node}
+
+`createSpyFromInstance(el)` walks the node's prototype chain, and past the component's own class
+that chain is the DOM engine's. happy-dom's `Node.removeChild` calls an internal Symbol-keyed method
+on the child it is removing; once discovery has patched it, that call is a call to a spy nobody
+configured — under a strict suite the node cannot be removed from `document.body` at all, and the
+leak then fails later tests in the file far from the cause. For an element that must keep living a
+DOM life, spy one property instead — `mockValueProp(el, 'addEventListener', vi.fn())` leaves the
+node otherwise real and removable. And for a native void method the handler is meant to call
+(`preventDefault`, `stopPropagation`, `focus`), `spyOnVoidMethod(event, 'preventDefault')` packs
+the whitelist and the `returns: { preventDefault: undefined }` seed a strict suite otherwise
+needs, naming the method once instead of twice:
+
+```ts
+import { spyOnVoidMethod } from 'vitest-auto-spy';
+
+const preventDefault = spyOnVoidMethod(event, 'preventDefault');
+
+handler(event);
+
+expect(preventDefault).toHaveBeenCalledTimes(1);
+```
+
 ## A single function — `createFunctionSpy`
 
 When there is no class at all, `createFunctionSpy<Fn>(name)` builds one spy with the same
