@@ -371,6 +371,8 @@ export default defineConfig({
           'mockReset calls real method, bun test restore mocks between tests, bun mock.module preload, spy vs stub vs mock, ' +
           'stubResponse, mock fetch Response vitest, as Response cast, msw and blockNetwork, msw handlers not applied, ' +
           'passthrough, spy on real service keep implementation, vi.mock spy true, spy on module but call real function, ' +
+          'spyOnOwnMethod, spyOnVoidMethod, spy on one method only, vi.spyOn banned no-restricted-properties, ' +
+          'spy on preventDefault, assert stopPropagation was called, spy focus on element, ' +
           'adoptMock, calledWith on vi.mock factory, vi.mocked calledWith, mockFn vitest-mock-extended, ' +
           'mockDeep array, deep mock array map is not a function, mock prisma client vitest, prisma $transaction mock, ' +
           'mockValueProp only works in the first test, property mock stops applying, patch in beforeAll not reapplied, ' +

@@ -654,29 +654,29 @@ npm run bench:suite --help       # стенд масштаба сюиты сам
 
 ## Размер бандла {#bundle-size}
 
-Бейдж говорит 22,5 кБ min+gzip, и это вся корневая точка входа, собранная вместе. Это же и самое
+Бейдж говорит 23,2 кБ min+gzip, и это вся корневая точка входа, собранная вместе. Это же и самое
 большое число, которое потребитель может заплатить за ядро, потому что точки входа — отдельные
 подпути, и проект платит только за те, что импортирует:
 
 | Импортировано                                    |    min+gzip |
 | ------------------------------------------------ | ----------: |
-| `.` — корневая точка входа, то, что меряет бейдж | **22,5 кБ** |
-| `vitest-auto-spy/angular`                        |     26,3 кБ |
-| `vitest-auto-spy/angular/doubles`                |      9,6 кБ |
+| `.` — корневая точка входа, то, что меряет бейдж | **23,2 кБ** |
+| `vitest-auto-spy/angular`                        |     27,1 кБ |
+| `vitest-auto-spy/angular/doubles`                |      9,7 кБ |
 | `vitest-auto-spy/angular/diagnostics`            |      6,0 кБ |
 | `vitest-auto-spy/angular/matchers`               |      1,7 кБ |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`     |     22,5 кБ |
-| `vitest-auto-spy/setup`                          |     19,5 кБ |
-| `vitest-auto-spy/node`                           |     21,3 кБ |
-| `vitest-auto-spy/dom-stubs`                      |      6,4 кБ |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`     |     23,2 кБ |
+| `vitest-auto-spy/setup`                          |     21,8 кБ |
+| `vitest-auto-spy/node`                           |     22,0 кБ |
+| `vitest-auto-spy/dom-stubs`                      |      7,1 кБ |
 | `vitest-auto-spy/rxjs`                           |      2,6 кБ |
-| `vitest-auto-spy/angular-router`                 |      9,4 кБ |
+| `vitest-auto-spy/angular-router`                 |      9,6 кБ |
 | `vitest-auto-spy/signal-forms`                   |      1,4 кБ |
 | `vitest-auto-spy/zone`                           |      1,1 кБ |
 
 **Три строки Angular-компаньонов — это не добавка, это разобранный `/angular`.** Проект, который
 раньше импортировал всё из `vitest-auto-spy/angular`, платил 30,4 кБ в каждом Angular-спеке; теперь
-он платит там 26,3 кБ, а строки компаньонов — один раз, в файле настройки, который вызывает
+он платит там 27,1 кБ, а строки компаньонов — один раз, в файле настройки, который вызывает
 `enableAngularDiagnostics`, `registerSignalMatchers` или двойники материального диалога.
 
 **Строки фреймворков — это не налог за фреймворк.** `react`, `vue` и `svelte` весят столько же,

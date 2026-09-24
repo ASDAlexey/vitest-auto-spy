@@ -666,29 +666,29 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 22.5 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 23.2 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **22.5 kB** |
-| `vitest-auto-spy/angular`                     |     26.3 kB |
-| `vitest-auto-spy/angular/doubles`             |      9.6 kB |
+| `.` — the core entry, what the badge measures | **23.2 kB** |
+| `vitest-auto-spy/angular`                     |     27.1 kB |
+| `vitest-auto-spy/angular/doubles`             |      9.7 kB |
 | `vitest-auto-spy/angular/diagnostics`         |      6.0 kB |
 | `vitest-auto-spy/angular/matchers`            |      1.7 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     22.5 kB |
-| `vitest-auto-spy/setup`                       |     19.5 kB |
-| `vitest-auto-spy/node`                        |     21.3 kB |
-| `vitest-auto-spy/dom-stubs`                   |      6.4 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     23.2 kB |
+| `vitest-auto-spy/setup`                       |     21.8 kB |
+| `vitest-auto-spy/node`                        |     22.0 kB |
+| `vitest-auto-spy/dom-stubs`                   |      7.1 kB |
 | `vitest-auto-spy/rxjs`                        |      2.6 kB |
-| `vitest-auto-spy/angular-router`              |      9.4 kB |
+| `vitest-auto-spy/angular-router`              |      9.6 kB |
 | `vitest-auto-spy/signal-forms`                |      1.4 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
 **The three Angular companion rows are not an addition, they are `/angular` taken apart.** A project
 that used to import everything from `vitest-auto-spy/angular` paid 30.4 kB in every Angular spec
-file; it now pays 26.3 kB there and the companion rows once, in the setup file that calls
+file; it now pays 27.1 kB there and the companion rows once, in the setup file that calls
 `enableAngularDiagnostics`, `registerSignalMatchers` or the Material dialog doubles.
 
 **The framework rows are not a framework tax.** `react`, `vue` and `svelte` weigh what the core

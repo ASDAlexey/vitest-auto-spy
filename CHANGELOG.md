@@ -10,6 +10,21 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`spyOnOwnMethod` and `spyOnVoidMethod` — one method of a real object, one call.** The shape a
+  spec reached for to observe a single member of the object under test was
+  `createSpyFromInstance(sut, { onlyMethodsToSpyOn: ['method'], passthrough: true })` plus a
+  destructuring, all of it saying nothing more than "record calls to this method and still run it".
+  `spyOnOwnMethod(sut, 'method')` is that call — every other member stays real, the real method runs
+  until the test configures the spy, and the one spy comes back directly. It is also the drop-in for
+  a bare `vi.spyOn(component, 'method')` where a preset's `no-restricted-properties` bans it — the
+  same record-and-call-through on every runtime. `spyOnVoidMethod(event, 'preventDefault')` is the
+  same call for a native void method a handler is meant to call (`preventDefault`,
+  `stopPropagation`, `focus`): the `returns: { preventDefault: undefined }` seed a strict suite
+  needs, so the observed call does not trip the guard, is packed in, and the method is named once
+  instead of twice. Restore stays `restoreSpiedInstance` / `setupAutoSpy()`.
+
 ## [5.28.0] - 2026-09-23
 
 ### Changed
