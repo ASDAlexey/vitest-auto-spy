@@ -249,12 +249,12 @@ function getAllAccessorNames(prototype: object): AccessorNames {
  * Decide which accessors to spy: the explicit lists, plus everything discovered when
  * `autoSpyAccessors` is on — and, either way, **the other half of a pair the prototype declares**.
  *
- * That last part is the rule worth stating. `gettersToSpyOn: ['manualSwitchKidMode']` on a class
+ * That last part is the rule worth stating. `gettersToSpyOn: ['toggleSafeMode']` on a class
  * that declares both a getter and a setter used to install the getter spy alone, and the double
  * came out poorer than the original exactly where the code under test expects symmetry: the
- * assignment `service.manualSwitchKidMode = false` landed on the no-op setter the spy scaffolding
+ * assignment `service.toggleSafeMode = false` landed on the no-op setter the spy scaffolding
  * installs, so the write vanished *and* there was nothing to assert on —
- * `accessorSpies.setters.manualSwitchKidMode` was `undefined`, and the failure said
+ * `accessorSpies.setters.toggleSafeMode` was `undefined`, and the failure said
  * `Cannot read properties of undefined`, three steps from the configuration that caused it.
  *
  * Mirroring is the whole of the fix, and it only ever adds what the class already has: a name is

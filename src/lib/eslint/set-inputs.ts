@@ -9,7 +9,7 @@
  * component really has, and an alias resolves from either of its two spellings. It types the value
  * as well: over an Angular suite of 1771 spec files, rewriting the 650 calls it can rewrite turns 72
  * fixtures that had drifted from the model they claim to be into compile errors, in 21 files — a
- * `{}` for a `CardButtonExtra`, a partial literal still written in the previous shape of an
+ * `{}` for a `CardActionExtra`, a partial literal still written in the previous shape of an
  * interface, an `imageUrl` for a model whose field is `imgUrl`.
  *
  * **A run of calls is reported, not a call**, because that is the shape of the repair: one

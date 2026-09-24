@@ -32,7 +32,7 @@ function capturing(assertions: string, declaration = 'let chips = [];'): string 
 
 describe('no-vacuous-absence-assertion', () => {
   it('flags a test whose every assertion holds on the value the declaration left behind', () => {
-    const code = capturing('expect(chips).toEqual([]);\nexpect(music.getMusicShelfById).not.toHaveBeenCalled();');
+    const code = capturing('expect(chips).toEqual([]);\nexpect(catalog.getSectionById).not.toHaveBeenCalled();');
     const text = message(code);
 
     expect(count(code)).toBe(1);

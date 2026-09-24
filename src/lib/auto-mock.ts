@@ -398,8 +398,8 @@ function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown,
  * ```ts
  * const logger = autoMocked<LogMethods>();
  *
- * detectVpnClient(url, logger);                       // accepted as LogMethods
- * expect(logger.err).toHaveBeenCalledWith('VPN detection failed', expect.any(Error));
+ * checkEndpoint(url, logger);                       // accepted as LogMethods
+ * expect(logger.err).toHaveBeenCalledWith('Endpoint check failed', expect.any(Error));
  * ```
  *
  * Use {@link createAutoMock} when the double only ever travels as a spy; the intersection is

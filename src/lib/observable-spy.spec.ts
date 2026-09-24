@@ -85,7 +85,7 @@ describe('observable helpers, publishing over a previous configuration', () => {
 
 describe('the backing subject does not outlive the configuration that filled it', () => {
   class AccountService {
-    createSeamlessTransition(): Observable<string> {
+    createTransition(): Observable<string> {
       throw new Error('not implemented in the double');
     }
   }
@@ -111,11 +111,11 @@ describe('the backing subject does not outlive the configuration that filled it'
     const service = createSpyFromClass(AccountService);
     const failure = new Error('boom');
 
-    service.createSeamlessTransition.nextWith('uri://stale');
+    service.createTransition.nextWith('uri://stale');
     resetAutoSpy(service);
-    service.createSeamlessTransition.throwWith(failure);
+    service.createTransition.throwWith(failure);
 
-    const seen = record(service.createSeamlessTransition());
+    const seen = record(service.createTransition());
 
     expect(seen.values).toEqual([]);
     expect(seen.error).toBe(failure);
@@ -126,28 +126,28 @@ describe('the backing subject does not outlive the configuration that filled it'
     // a dead subject and emitted nothing at all — silence where the spec had configured a value.
     const service = createSpyFromClass(AccountService);
 
-    service.createSeamlessTransition.throwWith(new Error('boom'));
-    service.createSeamlessTransition.nextWith('uri://after');
+    service.createTransition.throwWith(new Error('boom'));
+    service.createTransition.nextWith('uri://after');
 
-    expect(record(service.createSeamlessTransition()).values).toEqual(['uri://after']);
+    expect(record(service.createTransition()).values).toEqual(['uri://after']);
   });
 
   it('starts a new stream after `complete()` too', () => {
     const service = createSpyFromClass(AccountService);
 
-    service.createSeamlessTransition.complete();
-    service.createSeamlessTransition.nextWith('uri://after');
+    service.createTransition.complete();
+    service.createTransition.nextWith('uri://after');
 
-    expect(record(service.createSeamlessTransition()).values).toEqual(['uri://after']);
+    expect(record(service.createTransition()).values).toEqual(['uri://after']);
   });
 
   it('starts a new stream after `nextOneTimeWith`, which completes as well', () => {
     const service = createSpyFromClass(AccountService);
 
-    service.createSeamlessTransition.nextOneTimeWith('first');
-    service.createSeamlessTransition.nextOneTimeWith('second');
+    service.createTransition.nextOneTimeWith('first');
+    service.createTransition.nextOneTimeWith('second');
 
-    expect(record(service.createSeamlessTransition()).values).toEqual(['second']);
+    expect(record(service.createTransition()).values).toEqual(['second']);
   });
 
   it('keeps "emit, then fail" working inside one test', () => {
@@ -156,10 +156,10 @@ describe('the backing subject does not outlive the configuration that filled it'
     const service = createSpyFromClass(AccountService);
     const failure = new Error('later');
 
-    service.createSeamlessTransition.nextWith('a');
-    service.createSeamlessTransition.throwWith(failure);
+    service.createTransition.nextWith('a');
+    service.createTransition.throwWith(failure);
 
-    const seen = record(service.createSeamlessTransition());
+    const seen = record(service.createTransition());
 
     expect(seen.values).toEqual(['a']);
     expect(seen.error).toBe(failure);
@@ -184,19 +184,19 @@ describe('the backing subject does not outlive the configuration that filled it'
     // so the next `nextWith` pushed into a dead subject and its value was lost without a word.
     const service = createSpyFromClass(AccountService);
 
-    service.createSeamlessTransition.returnSubject().complete();
-    service.createSeamlessTransition.nextWith('uri://after');
+    service.createTransition.returnSubject().complete();
+    service.createTransition.nextWith('uri://after');
 
-    expect(record(service.createSeamlessTransition()).values).toEqual(['uri://after']);
+    expect(record(service.createTransition()).values).toEqual(['uri://after']);
   });
 
   it('starts a new stream after a spec errored the subject it was handed', () => {
     const service = createSpyFromClass(AccountService);
 
-    service.createSeamlessTransition.returnSubject().error(new Error('closed by the spec'));
-    service.createSeamlessTransition.nextWith('uri://after');
+    service.createTransition.returnSubject().error(new Error('closed by the spec'));
+    service.createTransition.nextWith('uri://after');
 
-    const seen = record(service.createSeamlessTransition());
+    const seen = record(service.createTransition());
 
     expect(seen.values).toEqual(['uri://after']);
     expect(seen.error).toBeUndefined();

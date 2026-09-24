@@ -3,12 +3,12 @@
  *
  * ```ts
  * it('yields an empty list when no sub-genre resolved to an address', () => {
- *   let chips: MusicGenreChip[] = [];
+ *   let chips: GenreChip[] = [];
  *
  *   load$(quickLinks).subscribe((result) => (chips = result));
  *
  *   expect(chips).toEqual([]);
- *   expect(music.getMusicShelfById).not.toHaveBeenCalled();
+ *   expect(catalog.getSectionById).not.toHaveBeenCalled();
  * });
  * ```
  *
@@ -20,7 +20,7 @@
  * **Proved by mutation, twice, on a 2 030-file consumer.** Replacing the production source with one
  * that never emits left this test green while three of its siblings in the same file failed; the
  * same swap in a promo-banner service failed four tests and left two — both of this shape — green.
- * Two tests further down that same music file capture into `let chips: … | null = null` and assert
+ * Two tests further down that same file capture into `let chips: … | null = null` and assert
  * `toEqual([])`, which *does* fail on silence: the author knew the idiom and did not apply it
  * everywhere, which is what a linter is for.
  *

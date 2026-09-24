@@ -49,7 +49,7 @@ describe('no-import-time-spread', () => {
   const imported = "import { BaseEvents } from './base-events';\n";
 
   it('flags a module-scope spread of an imported binding', () => {
-    const spread = `${imported}export const webosEvents = [...BaseEvents];`;
+    const spread = `${imported}export const platformEvents = [...BaseEvents];`;
 
     expect(lint(spread)).toEqual(['vitest-auto-spy/no-import-time-spread']);
     expect(firstMessage(spread)).toContain('`BaseEvents`');
@@ -64,7 +64,7 @@ describe('no-import-time-spread', () => {
 
   it('tells an object spread apart, because that one fails without an error', () => {
     const object = `${imported}export const config = { ...BaseEvents };`;
-    const array = `${imported}export const webosEvents = [...BaseEvents];`;
+    const array = `${imported}export const platformEvents = [...BaseEvents];`;
     const argumentList = `${imported}register(...BaseEvents);`;
 
     // `{ ...undefined }` is `{}`, so a reader sent looking for `Spread syntax requires …` finds no
@@ -92,11 +92,11 @@ describe('no-import-time-spread', () => {
   });
 
   it('offers the lazy value, and nothing where there is no value to defer', () => {
-    const spread = `${imported}export const webosEvents = [...BaseEvents];`;
+    const spread = `${imported}export const platformEvents = [...BaseEvents];`;
     const deferred = applySuggestion(spread);
 
     expect(suggestionsFor(spread)).toEqual(['Build the value lazily: wrap the initialiser in an arrow, and call it where it is read']);
-    expect(deferred).toBe(`${imported}export const webosEvents = () => ([...BaseEvents]);`);
+    expect(deferred).toBe(`${imported}export const platformEvents = () => ([...BaseEvents]);`);
     // Accepting it puts the spread inside a function body, so the rule falls silent — and every use
     // of the name is now a call the type checker will point at.
     expect(lint(deferred)).toEqual([]);
@@ -105,7 +105,7 @@ describe('no-import-time-spread', () => {
   });
 
   it('never fixes on its own — the safe rewrite is not decidable from this file', () => {
-    const spread = `${imported}export const webosEvents = [...BaseEvents];`;
+    const spread = `${imported}export const platformEvents = [...BaseEvents];`;
 
     expect(autofix(spread)).toBe(spread);
   });

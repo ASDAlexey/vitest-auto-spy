@@ -9,7 +9,7 @@
  * what a caller can actually do.
  *
  * **The whole rule is the type check.** The same brackets are ordinary and everywhere:
- * `process.env['APP_KM_ENABLED']`, `dataset['error']`, `queryParams['isShowPurchaseModal']` are index
+ * `process.env['APP_FEATURE_ENABLED']`, `dataset['error']`, `queryParams['isCheckoutModalOpen']` are index
  * signatures, and `ProductOffer['subscription']` in a type position is an indexed access type. A
  * syntactic version of this rule would report all of them, be switched off within a day, and leave
  * the suite worse off than with no rule — so nothing is reported unless the checker resolves the

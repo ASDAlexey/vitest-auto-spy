@@ -135,7 +135,7 @@ function programOf(node: EsNode): EsNode {
  * Whether a statement is reached by **every** test of its suite.
  *
  * True only for something written directly in a `beforeEach` / `beforeAll` body. A statement inside
- * a helper the suite declares — `const setRemoteConfig = (on) => TestBed.overrideProvider(…)` — runs
+ * a helper the suite declares — `const setFlagsConfig = (on) => TestBed.overrideProvider(…)` — runs
  * where it is called, and the call sites are the fact that decides the outcome; a statement inside an
  * `it` decides for that test alone. `no-overridden-provider` needs this before it may call a
  * registration dead, and the file that taught it is real: three tests of thirty-four called such a

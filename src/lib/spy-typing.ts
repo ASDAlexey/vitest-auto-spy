@@ -24,7 +24,7 @@ import type { ClassSpyConfiguration, ClassType, DeepMockProxy, Func, Spy, SpyOpt
  * as the real class:
  *
  * ```
- * TS2739: Type 'Spy<PlayerLayerService>' is missing the following properties from type 'PlayerLayerService': …
+ * TS2739: Type 'Spy<PlayerOverlayService>' is missing the following properties from type 'PlayerOverlayService': …
  * TS2740: Type 'Spy<PlayerStateService>' is missing the following properties …
  * TS2345: Argument of type 'Spy<RemoteInput>' is not assignable to parameter of type 'RemoteInput'.
  * ```
@@ -70,7 +70,7 @@ export type AsInstances<Spies> = { -readonly [K in keyof Spies]: Spies[K] extend
  * {@link asInstance} for a whole argument list at once.
  *
  * ```ts
- * factory = webSsoAuthCheckFactory(...asInstances(account, authCheck, domainEvents, storage), document);
+ * factory = authCheckFactory(...asInstances(account, authCheck, appEvents, storage), document);
  * ```
  *
  * The version with one wrapper per argument is not merely longer — it is *discovered* one argument

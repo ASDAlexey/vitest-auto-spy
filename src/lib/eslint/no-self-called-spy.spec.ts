@@ -69,8 +69,8 @@ describe('no-self-called-spy', () => {
     // production path is what the assertion is about.
     const code = `
       it('does not update state when the id is stale', () => {
-        service.updateShelfState(slug, stale);
-        const updateSpy = vi.spyOn(service, 'updateShelfState');
+        service.updateSectionState(slug, stale);
+        const updateSpy = vi.spyOn(service, 'updateSectionState');
         run();
         expect(updateSpy).toHaveBeenCalled();
       });

@@ -45,11 +45,11 @@ function providerMessage(code: string): string {
 }
 
 /** The shape the whole thing exists for, verbatim from the suite it was measured on. */
-const STUB = ['class NewCardServiceMock {', '  getTrailerPlayUrl = vi.fn().mockReturnValue(of(url));', '  load = vi.fn();', '}'].join('\n');
+const STUB = ['class PaymentCardServiceMock {', '  getPreviewUrl = vi.fn().mockReturnValue(of(url));', '  load = vi.fn();', '}'].join('\n');
 
 describe('no-stub-class-double', () => {
   it('flags a class whose fields are vi.fn()s', () => {
-    expect(lines(`${STUB}\nconst mock = new NewCardServiceMock();`)).toEqual([1]);
+    expect(lines(`${STUB}\nconst mock = new PaymentCardServiceMock();`)).toEqual([1]);
   });
 
   it('flags it at a single field, which is where the object-literal rule stops', () => {
@@ -89,17 +89,17 @@ describe('no-stub-class-double', () => {
   });
 
   it('leaves a class expression in a property slot alone — that one replaces a module export', () => {
-    // Verbatim from `context-menu.service.spec.ts`, and the one false positive the first draft had:
+    // A real-world shape, and the one false positive the first draft had:
     // the object is a `const` the factory only names, so `insideModuleMock` never sees the class.
     const moduleShape = [
       'const contextMenuModule = {',
-      '  KdsWebContextMenuComponent: class MockContextMenu { open = vi.fn(); },',
+      '  ContextMenuComponent: class MockContextMenu { open = vi.fn(); },',
       '};',
-      "vi.mock('@kion/kds-web', () => contextMenuModule);",
+      "vi.mock('@acme/ui-kit', () => contextMenuModule);",
     ].join('\n');
 
     expect(count(moduleShape)).toBe(0);
-    expect(count("vi.mock('@kion/kds-web', () => ({ C: class Inline { open = vi.fn(); } }));")).toBe(0);
+    expect(count("vi.mock('@acme/ui-kit', () => ({ C: class Inline { open = vi.fn(); } }));")).toBe(0);
   });
 
   it('leaves a class inside one of this library’s own factory seeds alone', () => {
@@ -110,11 +110,11 @@ describe('no-stub-class-double', () => {
     const single = 'class M {\n  a = vi.fn();\n}\nconst m = new M();';
 
     expect(count(single, { minRunnerFns: 2 })).toBe(0);
-    expect(count(`${STUB}\nconst m = new NewCardServiceMock();`, { minRunnerFns: 2 })).toBe(1);
+    expect(count(`${STUB}\nconst m = new PaymentCardServiceMock();`, { minRunnerFns: 2 })).toBe(1);
   });
 
   it('stands down on a class the same file hands to DI, which is the provider rule’s report', () => {
-    const provided = `${STUB}\nconst p = { provide: NewCardService, useClass: NewCardServiceMock };`;
+    const provided = `${STUB}\nconst p = { provide: PaymentCardService, useClass: PaymentCardServiceMock };`;
 
     expect(count(provided)).toBe(0);
     expect(providerCount(provided)).toBe(1);
@@ -123,16 +123,16 @@ describe('no-stub-class-double', () => {
   it('does not stand down where the provider rule stays silent', () => {
     // A `multi: true` registration has no `provideAutoSpy` form, so that rule says nothing about it
     // — standing down there would leave the class reported by nobody.
-    const multi = `${STUB}\nconst p = { provide: HOOKS, useClass: NewCardServiceMock, multi: true };`;
+    const multi = `${STUB}\nconst p = { provide: HOOKS, useClass: PaymentCardServiceMock, multi: true };`;
 
     expect(providerCount(multi)).toBe(0);
     expect(count(multi)).toBe(1);
     // And an object with a `useClass` but no `provide` is not a provider at all.
-    expect(count(`${STUB}\nconst p = { useClass: NewCardServiceMock };`)).toBe(1);
+    expect(count(`${STUB}\nconst p = { useClass: PaymentCardServiceMock };`)).toBe(1);
   });
 
   it('stands down on a class handed over as a hand-built instance too', () => {
-    const provided = `${STUB}\nconst p = { provide: NewCardService, useValue: new NewCardServiceMock() };`;
+    const provided = `${STUB}\nconst p = { provide: PaymentCardService, useValue: new PaymentCardServiceMock() };`;
 
     expect(count(provided)).toBe(0);
     expect(providerCount(provided)).toBe(1);
@@ -142,24 +142,24 @@ describe('no-stub-class-double', () => {
     // `useExisting` aliases the token rather than constructing the stub per injector; the repair is
     // the same and belongs in the provider rule's message, which is the one that knows DI is
     // involved. Two of one consumer's stubs enter DI this way.
-    const existing = `${STUB}\nconst p = { provide: NewCardService, useExisting: NewCardServiceMock };`;
+    const existing = `${STUB}\nconst p = { provide: PaymentCardService, useExisting: PaymentCardServiceMock };`;
 
     expect(count(existing)).toBe(0);
     expect(providerCount(existing)).toBe(1);
 
     // `TestBed.overrideProvider` is the same substitution with the token in argument 0.
-    const overridden = `${STUB}\nTestBed.overrideProvider(NewCardService, { useClass: NewCardServiceMock });`;
+    const overridden = `${STUB}\nTestBed.overrideProvider(PaymentCardService, { useClass: PaymentCardServiceMock });`;
 
     expect(count(overridden)).toBe(0);
     expect(providerCount(overridden)).toBe(1);
 
     // An override that hands over something this cannot read leaves the class to this rule.
-    expect(count(`${STUB}\nTestBed.overrideProvider(NewCardService, descriptor);`)).toBe(1);
+    expect(count(`${STUB}\nTestBed.overrideProvider(PaymentCardService, descriptor);`)).toBe(1);
   });
 
   it('does not stand down on a registration that hands over something else', () => {
-    expect(count(`${STUB}\nconst p = { provide: NewCardService, useValue: someObject };`)).toBe(1);
-    expect(count(`${STUB}\nconst p = { provide: NewCardService, useFactory: () => new NewCardServiceMock() };`)).toBe(1);
+    expect(count(`${STUB}\nconst p = { provide: PaymentCardService, useValue: someObject };`)).toBe(1);
+    expect(count(`${STUB}\nconst p = { provide: PaymentCardService, useFactory: () => new PaymentCardServiceMock() };`)).toBe(1);
   });
 
   it('reports every stub class of a file, not the first', () => {
@@ -171,21 +171,21 @@ describe('no-stub-class-double', () => {
 
 describe('prefer-provide-auto-spy — the stub-class arm', () => {
   it('flags a useClass naming a stub class the file declares', () => {
-    expect(providerCount(`${STUB}\nconst p = { provide: NewCardService, useClass: NewCardServiceMock };`)).toBe(1);
+    expect(providerCount(`${STUB}\nconst p = { provide: PaymentCardService, useClass: PaymentCardServiceMock };`)).toBe(1);
   });
 
   it('flags it through a quoted key too', () => {
-    expect(providerCount(`${STUB}\nconst p = { 'provide': NewCardService, 'useClass': NewCardServiceMock };`)).toBe(1);
+    expect(providerCount(`${STUB}\nconst p = { 'provide': PaymentCardService, 'useClass': PaymentCardServiceMock };`)).toBe(1);
   });
 
   it('flags a stub class instantiated by hand in a useValue', () => {
     // The object reading cannot see this one: `providedDouble` answers for an `ObjectExpression`,
     // and a `new` expression is not one.
-    expect(providerCount(`${STUB}\nconst p = { provide: NewCardService, useValue: new NewCardServiceMock() };`)).toBe(1);
+    expect(providerCount(`${STUB}\nconst p = { provide: PaymentCardService, useValue: new PaymentCardServiceMock() };`)).toBe(1);
   });
 
   it('names the stub class in the message, not the useValue object', () => {
-    const message = providerMessage(`${STUB}\nconst p = { provide: NewCardService, useClass: NewCardServiceMock };`);
+    const message = providerMessage(`${STUB}\nconst p = { provide: PaymentCardService, useClass: PaymentCardServiceMock };`);
 
     expect(message).toContain('stub class');
     expect(message).toContain('provideAutoSpy(Class)');
@@ -204,7 +204,7 @@ describe('prefer-provide-auto-spy — the stub-class arm', () => {
     // A shared `*.mock.ts` is out of reach, and nothing in the linted file says what its fields are.
     expect(providerCount("import { CardMock } from './card.mock';\nconst p = { provide: Card, useClass: CardMock };")).toBe(0);
     // Nor is a class reached through a namespace a name this can resolve.
-    expect(providerCount(`${STUB}\nconst p = { provide: Card, useClass: mocks.NewCardServiceMock };`)).toBe(0);
+    expect(providerCount(`${STUB}\nconst p = { provide: Card, useClass: mocks.PaymentCardServiceMock };`)).toBe(0);
   });
 
   it('leaves a hand-built instance of something that is not a stub class alone', () => {
@@ -214,8 +214,8 @@ describe('prefer-provide-auto-spy — the stub-class arm', () => {
 
   it('leaves the exempt shapes alone here too, and a multi registration', () => {
     expect(providerCount('class M implements Api { a = vi.fn(); }\nconst p = { provide: Api, useClass: M };')).toBe(0);
-    expect(providerCount(`${STUB}\nconst p = { provide: HOOKS, useClass: NewCardServiceMock, multi: true };`)).toBe(0);
-    expect(providerCount(`${STUB}\nconst p = { useClass: NewCardServiceMock };`)).toBe(0);
+    expect(providerCount(`${STUB}\nconst p = { provide: HOOKS, useClass: PaymentCardServiceMock, multi: true };`)).toBe(0);
+    expect(providerCount(`${STUB}\nconst p = { useClass: PaymentCardServiceMock };`)).toBe(0);
   });
 
   it('still reports the two shapes it reported before', () => {

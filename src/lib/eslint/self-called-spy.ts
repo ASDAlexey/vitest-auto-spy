@@ -21,7 +21,7 @@
  * would report it. So a finding needs the spy installed **first**, the direct call **after** it, and
  * a positive call assertion **after that** — three ranges in order, inside one test body. The
  * consumer this was measured on has one file of each: three findings in the first shape, and a
- * `service.updateShelfState(…)` written above its own `vi.spyOn(service, 'updateShelfState')` in the
+ * `service.updateSectionState(…)` written above its own `vi.spyOn(service, 'updateSectionState')` in the
  * second.
  *
  * **Two more discriminations came out of that measurement**, and both are the spec saying in its own

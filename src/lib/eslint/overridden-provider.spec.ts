@@ -87,14 +87,14 @@ describe('no-overridden-provider', () => {
   it('separates the exact duplicate, and offers to delete it', () => {
     // The larger half of the first field data: 20 reports across an 8 673-file workspace, most of
     // them a token registered twice in the same words.
-    const duplicate = 'const p = [provideAutoSpy(KidsModeService), provideAutoSpy(KidsModeService)];';
+    const duplicate = 'const p = [provideAutoSpy(SafeModeService), provideAutoSpy(SafeModeService)];';
     const message = firstMessage(duplicate);
 
-    expect(message).toContain('`KidsModeService` is provided twice in this array, in the same words');
+    expect(message).toContain('`SafeModeService` is provided twice in this array, in the same words');
     expect(message).toContain('the copy on line 1');
-    expect(suggestionsFor(duplicate)).toEqual(['Delete this duplicate provider for KidsModeService']);
+    expect(suggestionsFor(duplicate)).toEqual(['Delete this duplicate provider for SafeModeService']);
     // The comma goes with it, or the array is left holding a hole.
-    expect(applySuggestion(duplicate)).toBe('const p = [ provideAutoSpy(KidsModeService)];');
+    expect(applySuggestion(duplicate)).toBe('const p = [ provideAutoSpy(SafeModeService)];');
   });
 
   it('says which provider survives, and that it is the barer of the two', () => {
@@ -162,8 +162,8 @@ describe('no-overridden-provider', () => {
    * over a module provider whenever it runs, so a registration for the same token is dead.
    *
    * Found in a migration and reproduced on the consumer it came from: 9 reports in 5 files, and the
-   * shape of them is the interesting one — `provideAutoSpy(TvDevicesService, { instanceMethodsToSpyOn:
-   * ['getDevices'] })` in the array, buried by a bare `provideAutoSpy(TvDevicesService)` in the
+   * shape of them is the interesting one — `provideAutoSpy(DevicesListService, { instanceMethodsToSpyOn:
+   * ['getDevices'] })` in the array, buried by a bare `provideAutoSpy(DevicesListService)` in the
    * override, so the spy the spec configured is not the spy it got.
    */
   const overridden = (registration: string, override: string, hook = 'beforeEach'): string =>
@@ -177,10 +177,10 @@ describe('no-overridden-provider', () => {
     ].join('\n');
 
   it('flags a registration a TestBed.overrideProvider in the same hook replaces', () => {
-    const buried = overridden('provideAutoSpy(TvDevicesService)', 'overrideProvider(TvDevicesService, { useValue: devices })');
+    const buried = overridden('provideAutoSpy(DevicesListService)', 'overrideProvider(DevicesListService, { useValue: devices })');
 
     expect(lines(buried)).toEqual([3]);
-    expect(firstMessage(buried)).toContain('`TestBed.overrideProvider(TvDevicesService)` on line 4');
+    expect(firstMessage(buried)).toContain('`TestBed.overrideProvider(DevicesListService)` on line 4');
     // Whatever the registration is spelled as, and whatever the override hands over.
     expect(lint(overridden('{ provide: A, useValue: mock }', 'overrideProvider(A, provideAutoSpy(A))'))).toHaveLength(1);
     expect(lint(overridden('provideAutoSpyForToken(TOKEN)', 'overrideProvider(TOKEN, { useValue: {} })'))).toHaveLength(1);
@@ -194,12 +194,12 @@ describe('no-overridden-provider', () => {
     // each of them from a helper three of its thirty-four tests call.
     const helper = [
       "describe('page', () => {",
-      '  const setRemoteConfig = (on) => TestBed.overrideProvider(RemoteConfigService, { useValue: { isKeyEnabled: () => on } });',
+      '  const setFlagsConfig = (on) => TestBed.overrideProvider(FlagsConfigService, { useValue: { isKeyEnabled: () => on } });',
       '  beforeEach(() => {',
-      '    TestBed.configureTestingModule({ providers: [{ provide: RemoteConfigService, useValue: { isKeyEnabled: () => false } }] });',
+      '    TestBed.configureTestingModule({ providers: [{ provide: FlagsConfigService, useValue: { isKeyEnabled: () => false } }] });',
       '  });',
       "  it('reads the default', () => { expect(1).toBe(1); });",
-      "  it('reads the override', () => { setRemoteConfig(true); });",
+      "  it('reads the override', () => { setFlagsConfig(true); });",
       '});',
     ].join('\n');
 

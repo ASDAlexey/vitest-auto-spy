@@ -842,11 +842,11 @@ describe('accessor pairs', () => {
   class LayoutStateService {
     private kid = false;
 
-    get manualSwitchKidMode(): boolean {
+    get toggleSafeMode(): boolean {
       return this.kid;
     }
 
-    set manualSwitchKidMode(value: boolean) {
+    set toggleSafeMode(value: boolean) {
       this.kid = value;
     }
 
@@ -860,27 +860,27 @@ describe('accessor pairs', () => {
     // code under test expects symmetry: the assignment landed on the no-op setter the scaffolding
     // installs, so the write vanished and `accessorSpies.setters.x` was `undefined` — the failure
     // read `Cannot read properties of undefined`, three steps from the configuration behind it.
-    const service = createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['manualSwitchKidMode'] });
+    const service = createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['toggleSafeMode'] });
 
-    service.manualSwitchKidMode = false;
+    service.toggleSafeMode = false;
 
-    expect(service.accessorSpies.setters.manualSwitchKidMode).toHaveBeenCalledWith(false);
+    expect(service.accessorSpies.setters.toggleSafeMode).toHaveBeenCalledWith(false);
   });
 
   it('keeps the getter spy working alongside it', () => {
-    const service = createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['manualSwitchKidMode'] });
+    const service = createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['toggleSafeMode'] });
 
-    service.accessorSpies.getters.manualSwitchKidMode.mockReturnValue(true);
+    service.accessorSpies.getters.toggleSafeMode.mockReturnValue(true);
 
-    expect(service.manualSwitchKidMode).toBe(true);
+    expect(service.toggleSafeMode).toBe(true);
   });
 
   it('mirrors the other way too, from a named setter to its getter', () => {
-    const service = createSpyFromClass(LayoutStateService, { settersToSpyOn: ['manualSwitchKidMode'] });
+    const service = createSpyFromClass(LayoutStateService, { settersToSpyOn: ['toggleSafeMode'] });
 
-    service.accessorSpies.getters.manualSwitchKidMode.mockReturnValue(true);
+    service.accessorSpies.getters.toggleSafeMode.mockReturnValue(true);
 
-    expect(service.manualSwitchKidMode).toBe(true);
+    expect(service.toggleSafeMode).toBe(true);
   });
 
   it('adds nothing the prototype does not declare', () => {

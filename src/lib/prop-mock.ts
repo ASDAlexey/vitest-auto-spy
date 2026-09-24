@@ -226,7 +226,7 @@ type PatchDescriptor = Omit<PropertyDescriptor, 'set'> & { set?: ((value: never)
 /**
  * Overwrite one property, record the undo, and say something useful when the property refuses.
  *
- * A bare `TypeError: Cannot redefine property: injectDomainMetrics` names neither the object, nor
+ * A bare `TypeError: Cannot redefine property: injectAppMetrics` names neither the object, nor
  * the reason the property is locked, nor the repair. The accessor spies behind the adapter have
  * explained that failure for a while; these helpers reach the same `Object.defineProperty` and used
  * to hand the unhelpful text straight back.

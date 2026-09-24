@@ -175,9 +175,9 @@ describe(RULE, () => {
     // the only check of the behaviour it names — found rolling the rule out over a 1771-file suite.
     const live = [
       "it('resolves the type', () => { expect(createService().resolve(type)).toBeTruthy(); });",
-      "it('is a child role', () => { expect(isChildProfile(FAMILY_ROLE.CHILD)).toBeTruthy(); });",
+      "it('is a child role', () => { expect(isRestrictedProfile(MEMBER_ROLE.CHILD)).toBeTruthy(); });",
       "it('builds a transport', () => { expect(consoleTransport(true)).toBeTruthy(); });",
-      "it('offsets the periods', () => { expect(component.periodsOffset()).not.toBeNull(); });",
+      "it('offsets the periods', () => { expect(component.rangeOffset()).not.toBeNull(); });",
       "it('renders the card', () => { expect(fixture.nativeElement.querySelector('expand-card')).toBeTruthy(); });",
       "it('applies the directive', () => { expect(fixture.debugElement.query(By.directive(Dir))).toBeTruthy(); });",
       "it('stays in range', () => { expect(samples.every((x) => x >= 0 && x <= 100)).toBeTruthy(); });",

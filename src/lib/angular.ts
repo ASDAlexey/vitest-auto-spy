@@ -51,8 +51,8 @@ export type AngularValueProvider<T> = { provide: ClassType<T>; useValue: Spy<T> 
  *
  * ```ts
  * providers: [
- *   provideAutoSpy(RemoteConfigService, {
- *     overrides: { remoteConfig: { theme: 'dark' }, updates$: of(undefined) },
+ *   provideAutoSpy(FlagsConfigService, {
+ *     overrides: { flagsConfig: { theme: 'dark' }, updates$: of(undefined) },
  *     returns: { load: of([]) },
  *   }),
  * ];
@@ -60,12 +60,12 @@ export type AngularValueProvider<T> = { provide: ClassType<T>; useValue: Spy<T> 
  *
  * **A generic class keeps its declared default, whatever the configuration names.** TypeScript
  * checks a generic class argument after the configuration, so the core factory reads `T` back from
- * `gettersToSpyOn` or `overrides` first: `createSpyFromClass(RemoteConfigService, { gettersToSpyOn:
- * ['remoteConfig'], returns: { isKeyEnabled: false } })` fails with `'isKeyEnabled' does not exist in
- * type 'MethodReturns<{ remoteConfig: any; }>'`. Here `T` comes from the class alone (`NoInfer`:
+ * `gettersToSpyOn` or `overrides` first: `createSpyFromClass(FlagsConfigService, { gettersToSpyOn:
+ * ['flagsConfig'], returns: { isKeyEnabled: false } })` fails with `'isKeyEnabled' does not exist in
+ * type 'MethodReturns<{ flagsConfig: any; }>'`. Here `T` comes from the class alone (`NoInfer`:
  * TypeScript 5.4, which every Angular this entry supports already requires), so the same
  * configuration compiles. The core factories still need the argument spelled out:
- * `createSpyFromClass<RemoteConfigService>(…)`.
+ * `createSpyFromClass<FlagsConfigService>(…)`.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- read only while the generic class argument is deferred, so the configuration passes that first check; the class then decides `T`.
 export function provideAutoSpy<T = any>(
@@ -122,7 +122,7 @@ export function provideAutoSpyForToken<T>(
  * @example
  * ```ts
  * const users = injectSpy(UserService);                   // Spy<UserService>
- * const facade = injectSpy(FAVORITES_FACADE_TOKEN);       // an InjectionToken works too
+ * const facade = injectSpy(BOOKMARKS_FACADE_TOKEN);       // an InjectionToken works too
  * ```
  *
  * For a **generic** class, name the type argument. `TestBed.inject` infers from the constructor and
@@ -156,8 +156,8 @@ export function provideAutoSpyForToken<T>(
  *
  * Inference gives up on a default the moment the parameter is a union: `class Config<T = Defaults>`
  * handed to a `ClassType<T> | InjectionToken<T> | …` parameter infers `T` as `unknown`, and every
- * member typed against it then reads as `unknown` — `injectSpy(RemoteConfigService)` came back with
- * `read(): unknown` where the class says `read(): RemoteConfigDefaults`. Splitting the class case
+ * member typed against it then reads as `unknown` — `injectSpy(FlagsConfigService)` came back with
+ * `read(): unknown` where the class says `read(): FlagsConfigDefaults`. Splitting the class case
  * into its own overload is the whole fix; the union survives underneath it for tokens.
  */
 export function injectSpy<T, Options extends SpyOptions = SpyOptions>(

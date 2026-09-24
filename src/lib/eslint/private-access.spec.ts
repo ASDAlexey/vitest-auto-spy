@@ -63,8 +63,8 @@ const FIXTURES: Record<string, string> = {
   'index-signatures.spec.ts':
     'declare const env: Record<string, string>;\n' +
     'declare const params: { [key: string]: unknown };\n' +
-    "void env['APP_KM_ENABLED'];\n" +
-    "void params['isShowPurchaseModal'];\n",
+    "void env['APP_FEATURE_ENABLED'];\n" +
+    "void params['isCheckoutModalOpen'];\n",
   'indexed-access-type.spec.ts': "import { Card } from './card';\ntype Open = Card['open'];\ndeclare const open: Open;\nvoid open;\n",
   'library-declaration.spec.ts': "declare const when: Date;\nvoid when['getTime']();\n",
   'cast-any.spec.ts': "import { Card } from './card';\ndeclare const card: Card;\nvoid (card as any).secret;\n",

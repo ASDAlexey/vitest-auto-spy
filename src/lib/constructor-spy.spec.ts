@@ -49,9 +49,9 @@ describe('mockConstructor', () => {
   });
 
   it('names the mistake when it is called without `new`', () => {
-    const Client = mockConstructor<TrackingPixel>(() => ({ src: '' }), 'MTSPay');
+    const Client = mockConstructor<TrackingPixel>(() => ({ src: '' }), 'PaymentSdk');
 
-    expect(() => Client()).toThrow(/MTSPay is a constructor double and was called without `new`/);
+    expect(() => Client()).toThrow(/PaymentSdk is a constructor double and was called without `new`/);
   });
 
   it('refuses a factory that produces a primitive, which `new` would discard', () => {

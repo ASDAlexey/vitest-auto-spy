@@ -202,7 +202,7 @@ describe('provideAutoSpy / injectSpy', () => {
     // checks against the class, so a field the class drops fails here rather than in the spec that
     // reads it. `mockReadonlyProp(spy, 'focusStrategies', …)` is the other answer, and the one to
     // reach for when the value has to change between tests rather than be seeded once.
-    class NewCardService {
+    class PaymentCardService {
       readonly focusStrategies: Record<string, number> = { poster: 1 };
 
       load(): number {
@@ -211,18 +211,18 @@ describe('provideAutoSpy / injectSpy', () => {
     }
 
     TestBed.configureTestingModule({
-      providers: [provideAutoSpy(NewCardService, { overrides: { focusStrategies: { poster: 9, button: 8 } } })],
+      providers: [provideAutoSpy(PaymentCardService, { overrides: { focusStrategies: { poster: 9, button: 8 } } })],
     });
 
-    const cards = injectSpy(NewCardService);
+    const cards = injectSpy(PaymentCardService);
 
     expect(cards.focusStrategies).toEqual({ poster: 9, button: 8 });
     expect(cards.load).toHaveBeenCalledTimes(0);
   });
 
   describe('seeding a getter the double spies', () => {
-    class RemoteConfigService {
-      get remoteConfig(): { theme: string } {
+    class FlagsConfigService {
+      get flagsConfig(): { theme: string } {
         return { theme: 'light' };
       }
 
@@ -237,56 +237,54 @@ describe('provideAutoSpy / injectSpy', () => {
 
     it('answers the seed from a getter named in gettersToSpyOn, and keeps the getter a spy', () => {
       TestBed.configureTestingModule({
-        providers: [
-          provideAutoSpy(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], overrides: { remoteConfig: { theme: 'dark' } } }),
-        ],
+        providers: [provideAutoSpy(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], overrides: { flagsConfig: { theme: 'dark' } } })],
       });
 
-      const config = injectSpy(RemoteConfigService);
+      const config = injectSpy(FlagsConfigService);
 
-      expect(config.remoteConfig).toEqual({ theme: 'dark' });
-      expect(config.accessorSpies.getters['remoteConfig']).toHaveBeenCalledTimes(1);
+      expect(config.flagsConfig).toEqual({ theme: 'dark' });
+      expect(config.accessorSpies.getters['flagsConfig']).toHaveBeenCalledTimes(1);
     });
 
     it('answers the seed when a class default is what spies the getter', () => {
-      registerAutoSpyDefaults(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'] });
+      registerAutoSpyDefaults(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'] });
 
       try {
-        expect(createSpyFromClass(RemoteConfigService, { overrides: { remoteConfig: { theme: 'dark' } } }).remoteConfig).toEqual({
+        expect(createSpyFromClass(FlagsConfigService, { overrides: { flagsConfig: { theme: 'dark' } } }).flagsConfig).toEqual({
           theme: 'dark',
         });
       } finally {
-        clearAutoSpyDefaults(RemoteConfigService);
+        clearAutoSpyDefaults(FlagsConfigService);
       }
     });
 
     it('answers the seed through provideAutoSpy when a registered table spies the getter', () => {
-      registerAutoSpyDefaults([[RemoteConfigService, { gettersToSpyOn: ['remoteConfig'] }]]);
+      registerAutoSpyDefaults([[FlagsConfigService, { gettersToSpyOn: ['flagsConfig'] }]]);
 
       try {
         TestBed.configureTestingModule({
-          providers: [provideAutoSpy(RemoteConfigService, { overrides: { remoteConfig: { theme: 'dark' } } })],
+          providers: [provideAutoSpy(FlagsConfigService, { overrides: { flagsConfig: { theme: 'dark' } } })],
         });
 
-        expect(injectSpy(RemoteConfigService).remoteConfig).toEqual({ theme: 'dark' });
+        expect(injectSpy(FlagsConfigService).flagsConfig).toEqual({ theme: 'dark' });
       } finally {
-        clearAutoSpyDefaults(RemoteConfigService);
+        clearAutoSpyDefaults(FlagsConfigService);
       }
     });
 
     it('answers the seed from a spied accessor pair', () => {
-      expect(createSpyFromClass(RemoteConfigService, { autoSpyAccessors: true, overrides: { retries: 5 } }).retries).toBe(5);
+      expect(createSpyFromClass(FlagsConfigService, { autoSpyAccessors: true, overrides: { retries: 5 } }).retries).toBe(5);
     });
 
     it('lets a later mockReturnValue on the getter spy win over the seed', () => {
-      const config = createSpyFromClass(RemoteConfigService, {
-        gettersToSpyOn: ['remoteConfig'],
-        overrides: { remoteConfig: { theme: 'dark' } },
+      const config = createSpyFromClass(FlagsConfigService, {
+        gettersToSpyOn: ['flagsConfig'],
+        overrides: { flagsConfig: { theme: 'dark' } },
       });
 
-      config.accessorSpies.getters['remoteConfig']?.mockReturnValue({ theme: 'contrast' });
+      config.accessorSpies.getters['flagsConfig']?.mockReturnValue({ theme: 'contrast' });
 
-      expect(config.remoteConfig).toEqual({ theme: 'contrast' });
+      expect(config.flagsConfig).toEqual({ theme: 'contrast' });
     });
 
     it('turns a seed on a setter-only spy into a plain value, instead of recording it and reading undefined', () => {

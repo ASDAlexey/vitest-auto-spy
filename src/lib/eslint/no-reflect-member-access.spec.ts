@@ -32,11 +32,11 @@ function applied(code: string): string {
 
 describe('no-reflect-member-access', () => {
   it('flags a read of a member off a subject the test holds', () => {
-    const code = `const component = fixture.componentInstance;\nexpect(Reflect.get(component, 'viewTimeMin')()).toBe(0);`;
+    const code = `const component = fixture.componentInstance;\nexpect(Reflect.get(component, 'minDwellTime')()).toBe(0);`;
     const text = message(code);
 
     expect(count(code)).toBe(1);
-    expect(text).toContain('`viewTimeMin`');
+    expect(text).toContain('`minDwellTime`');
     expect(text).toContain('nothing checks it');
     expect(text).toContain('no-private-member-access');
     expect(text).toContain('stubbed with `createComponentStub` and read off its input');
@@ -55,7 +55,7 @@ describe('no-reflect-member-access', () => {
   });
 
   it('names the literal as the place for the key when the target is a fixture the spec built', () => {
-    const code = `const link: MusicLink = {};\nReflect.set(link, 'linkType', linkType);`;
+    const code = `const link: ContentLink = {};\nReflect.set(link, 'linkType', linkType);`;
     const text = message(code);
 
     expect(count(code)).toBe(1);
@@ -109,7 +109,7 @@ describe('no-reflect-member-access', () => {
   });
 
   it('leaves a module namespace alone — patching one is vi.mock’s business', () => {
-    const code = `import * as vpnDetector from './vpn';\nReflect.set(vpnDetector, 'initializeVPNDetector', mock);`;
+    const code = `import * as probe from './probe';\nReflect.set(probe, 'initializeProbe', mock);`;
 
     expect(count(code)).toBe(0);
     expect(count(`import { helpers } from './h';\nReflect.get(helpers, 'build');`)).toBe(0);

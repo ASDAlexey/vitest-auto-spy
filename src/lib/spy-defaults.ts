@@ -6,8 +6,8 @@
  * repeats that is a file that can get it wrong. Measured in one Angular suite: 739 of 2228
  * `provideAutoSpy` calls carry a configuration, and the same class collects incompatible opinions —
  * `Router` 122 calls in 109 files with **23 distinct configurations**, `AccountService` 70/62/27,
- * `PurchaseStateService` 53/52/25. The `*RemoteConfigService` family is 205 calls, 120 of them
- * repeating `{ gettersToSpyOn: ['remoteConfig'] }` word for word.
+ * `CheckoutStateService` 53/52/25. The `*FlagsConfigService` family is 205 calls, 120 of them
+ * repeating `{ gettersToSpyOn: ['flagsConfig'] }` word for word.
  *
  * That is not only repetition. The list options are **additive and do not complain about a name
  * they cannot find**, which is deliberate — they exist to name members no prototype carries — so

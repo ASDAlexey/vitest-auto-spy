@@ -38,7 +38,7 @@ function message(code: string): string {
 
 describe('no-structural-double', () => {
   it('flags the shape it exists for — a declared stand-in filled in a beforeEach', () => {
-    // Verbatim from `dev-mode.guard.spec.ts`, and the shape all 120 of that suite's occurrences take.
+    // The shape all 120 occurrences in a measured suite take.
     const shape = [
       'let devModeService: { devMode: Mock };',
       'beforeEach(() => {',

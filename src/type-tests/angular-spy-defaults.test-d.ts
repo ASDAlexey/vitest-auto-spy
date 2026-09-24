@@ -22,7 +22,7 @@ import { describe, expectTypeOf, it } from 'vitest';
 import { type AutoSpyTokenDefaults, provideAutoSpyForToken, registerAutoSpyDefaults } from '../angular';
 import { createAutoMock, createSpyFromClass, registerAutoSpyDefaults as registerCoreDefaults } from '../auto-spy';
 
-interface ChannelLogger {
+interface EventLogger {
   readonly name: string;
   info(message: string): void;
 }
@@ -31,7 +31,7 @@ interface AppLogger {
   level: string;
   info(message: string): void;
   err(message: string): void;
-  channel(name: string): ChannelLogger;
+  channel(name: string): EventLogger;
 }
 
 class RouterLike {

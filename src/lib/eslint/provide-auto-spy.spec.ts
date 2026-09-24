@@ -322,8 +322,8 @@ describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
     const providers = [
       'TestBed.configureTestingModule({',
       '  providers: [',
-      '    { provide: NewCardService, useValue: { load: vi.fn(), save: vi.fn() } },',
-      '    { provide: DomainEventsService, useValue: { emit: vi.fn(), listen: vi.fn() } },',
+      '    { provide: PaymentCardService, useValue: { load: vi.fn(), save: vi.fn() } },',
+      '    { provide: AppEventsService, useValue: { emit: vi.fn(), listen: vi.fn() } },',
       '    { provide: FocusService, useValue: { focus: vi.fn() } },',
       '  ],',
       '});',
@@ -336,8 +336,8 @@ describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
     const converted = [
       'TestBed.configureTestingModule({',
       '  providers: [',
-      '    provideAutoSpy(NewCardService),',
-      '    { provide: DomainEventsService, useValue: { emit: vi.fn(), listen: vi.fn() } },',
+      '    provideAutoSpy(PaymentCardService),',
+      '    { provide: AppEventsService, useValue: { emit: vi.fn(), listen: vi.fn() } },',
       '    { provide: FocusService, useValue: { focus: vi.fn() } },',
       '  ],',
       '});',
@@ -365,7 +365,7 @@ describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
 
   it('points at overrides for a data member, on both halves of the message', () => {
     // The rule was read as asking for something the class factory could not express — a double
-    // whose `remoteConfig` has to *be* an object rather than answer with one — and the reader
+    // whose `flagsConfig` has to *be* an object rather than answer with one — and the reader
     // reached for `gettersToSpyOn`, which is not that. `overrides` has been on the class
     // configuration for as long as it has been on the token factory; only the message was silent.
     expect(firstMessage('const p = { provide: CartService, useValue: { total: vi.fn() } };')).toContain('{ overrides: … }');
@@ -412,7 +412,7 @@ describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
     expect(lint(existing)).toHaveLength(1);
     expect(firstMessage(existing)).toContain('stub class whose fields are `vi.fn()`s');
     // Aliasing to a real class is the ordinary use of the slot.
-    expect(lint('const p = { provide: SPECIAL_OFFER_OPENER, useExisting: SpecialOfferOpenService };')).toEqual([]);
+    expect(lint('const p = { provide: PROMO_OPENER, useExisting: PromoOpenService };')).toEqual([]);
     // …and so is aliasing to a class this file cannot read.
     expect(lint("import { NavMock } from './nav.mock';\nconst p = { provide: NavService, useExisting: NavMock };")).toEqual([]);
   });
@@ -452,7 +452,7 @@ describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
     // Nothing to read: no descriptor, a descriptor that is a name, and an empty double.
     expect(lint('TestBed.overrideProvider(Cart);')).toEqual([]);
     expect(lint('TestBed.overrideProvider(Cart, descriptor);')).toEqual([]);
-    expect(lint('TestBed.overrideProvider(KdsTvDomUtilsService, { useValue: {} });')).toEqual([]);
+    expect(lint('TestBed.overrideProvider(ElementUtilsService, { useValue: {} });')).toEqual([]);
   });
 
   it('points at the README recipe', () => {

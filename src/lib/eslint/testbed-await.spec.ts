@@ -109,8 +109,8 @@ describe(RULE, () => {
   });
 
   it('leaves inject and runInInjectionContext alone, whatever they hand back', () => {
-    // Verbatim from the consumer: a token whose value is a promise, awaited on purpose.
-    expect(count('const result = await TestBed.inject(VPN_DETECT_RESULT);')).toBe(0);
+    // A real-world shape: a token whose value is a promise, awaited on purpose.
+    expect(count('const result = await TestBed.inject(STARTUP_CHECK_RESULT);')).toBe(0);
     expect(count('await TestBed.inject(ApplicationInitStatus).donePromise;')).toBe(0);
     expect(count('await TestBed.runInInjectionContext(() => loadProfile());')).toBe(0);
   });
@@ -138,12 +138,12 @@ describe(RULE, () => {
   });
 
   it('reports one await of a hook and leaves its neighbour alone', () => {
-    // Verbatim from the consumer: the reset waits for nothing, the chain below it ends in a promise.
+    // A real-world shape: the reset waits for nothing, the chain below it ends in a promise.
     const code = `
       it('does not create the view on the server', async () => {
         await TestBed.resetTestingModule();
         await TestBed.configureTestingModule({
-          declarations: [HostComponent, IfIsBrowserDirective],
+          declarations: [HostComponent, BrowserOnlyDirective],
         }).compileComponents();
       });
     `;

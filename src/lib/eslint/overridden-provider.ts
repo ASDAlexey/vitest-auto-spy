@@ -24,7 +24,7 @@
  *
  * **The pair is classified, because the two halves of the field data are not the same defect.** In
  * the first workspace this ran over, 20 reports split in two. Most were literal duplicates —
- * `[provideAutoSpy(KidsModeService), …, provideAutoSpy(KidsModeService)]` — where deleting the
+ * `[provideAutoSpy(SafeModeService), …, provideAutoSpy(SafeModeService)]` — where deleting the
  * earlier one cannot change behaviour, because Angular had already ignored it; that half is offered
  * an edit. The rest were the interesting kind: an earlier `provideAutoSpy(AccountService, { … })`
  * carrying `gettersToSpyOn` and `instanceMethodsToSpyOn`, buried by a later bare

@@ -178,11 +178,11 @@ describe('a member typed as a union of call signatures', () => {
   });
 
   it('takes the signal of an optional slice, which `@ngrx/signals` gives as `DeepSignal<A> | Signal<undefined>`', () => {
-    interface SlidesStore {
+    interface CarouselStore {
       readonly currentSlide: Signal<undefined> | (Signal<Angle> & { readonly id: Signal<string> });
     }
 
-    createAutoMock<SlidesStore>({ currentSlide: writableSignal<Angle | undefined>(undefined) });
+    createAutoMock<CarouselStore>({ currentSlide: writableSignal<Angle | undefined>(undefined) });
   });
 
   it('takes one signal of the whole union for union state, `DeepSignal<A> | DeepSignal<B>`', () => {
@@ -190,14 +190,14 @@ describe('a member typed as a union of call signatures', () => {
       readonly kind: 'tool';
     }
 
-    interface ControlModesStore {
+    interface ControlStateStore {
       readonly mode: (Signal<Angle> & { readonly id: Signal<string> }) | (Signal<Tool> & { readonly kind: Signal<'tool'> });
     }
 
-    createAutoMock<ControlModesStore>({ mode: writableSignal<Angle | Tool>({ id: '1' }) });
+    createAutoMock<ControlStateStore>({ mode: writableSignal<Angle | Tool>({ id: '1' }) });
 
     // @ts-expect-error -- a signal of something outside the union is still rejected
-    createAutoMock<ControlModesStore>({ mode: writableSignal(42) });
+    createAutoMock<ControlStateStore>({ mode: writableSignal(42) });
   });
 });
 
@@ -392,18 +392,18 @@ describe('Spy<T, { overload }>', () => {
 });
 
 /** The generic-with-a-default shape, at module scope: `declare class` is not legal inside a block. */
-interface RemoteConfigDefaults {
+interface FlagsConfigDefaults {
   theme: string;
 }
 
-declare class RemoteConfigService<T = RemoteConfigDefaults> {
+declare class FlagsConfigService<T = FlagsConfigDefaults> {
   read(): T;
 }
 
 /**
  * A declared default type argument reaches the double.
  *
- * `class RemoteConfigService<T = RemoteConfigDefaults>` handed to a parameter typed as a *union*
+ * `class FlagsConfigService<T = FlagsConfigDefaults>` handed to a parameter typed as a *union*
  * infers `T` as `unknown`, and every member typed against it then reads as `unknown` — a double
  * that types nothing, on a class that declared exactly what it should be. Two shapes caused it and
  * both are fixed: the index-signature intersection that `ClassType<T>` used to carry, and the union
@@ -411,11 +411,11 @@ declare class RemoteConfigService<T = RemoteConfigDefaults> {
  */
 describe('a generic class with a default type argument', () => {
   it('keeps the declared default through createSpyFromClass', () => {
-    expectTypeOf(createSpyFromClass(RemoteConfigService).read).returns.toEqualTypeOf<RemoteConfigDefaults>();
+    expectTypeOf(createSpyFromClass(FlagsConfigService).read).returns.toEqualTypeOf<FlagsConfigDefaults>();
   });
 
   it('still takes an explicit instantiation', () => {
-    expectTypeOf(createSpyFromClass<RemoteConfigService<{ id: number }>>(RemoteConfigService).read).returns.toEqualTypeOf<{
+    expectTypeOf(createSpyFromClass<FlagsConfigService<{ id: number }>>(FlagsConfigService).read).returns.toEqualTypeOf<{
       id: number;
     }>();
   });

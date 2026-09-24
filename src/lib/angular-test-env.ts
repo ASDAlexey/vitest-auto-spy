@@ -21,7 +21,7 @@
  * import { setupZoneTestEnv, setupZonelessTestEnv } from 'jest-preset-angular/setup-env';
  *
  * setupAngularTestEnv({
- *   zoneless: (testPath) => testPath.includes('/libs/music/') || testPath.includes('/apps/kion-top/'),
+ *   zoneless: (testPath) => testPath.includes('/libs/widgets/') || testPath.includes('/apps/storefront/'),
  *   initZone: setupZoneTestEnv,
  *   initZoneless: setupZonelessTestEnv,
  * });

@@ -72,11 +72,11 @@ describe.each(factories)('mock*Prop over %s', (_name, build) => {
 
     mockAccessorsProp(location, 'href', { set: (value) => written.push(value) });
 
-    location.href = 'https://kion.ru';
+    location.href = 'https://example.com';
 
     // Straight through the setter — not into the value store, which would shadow the getter and
     // turn the pair into a plain field from the next read on.
-    expect(written).toEqual(['https://kion.ru']);
+    expect(written).toEqual(['https://example.com']);
   });
 
   it('restoreMockedProps puts the seeded value back', () => {

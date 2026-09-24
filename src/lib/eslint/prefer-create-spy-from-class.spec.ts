@@ -179,7 +179,7 @@ describe('prefer-create-spy-from-class', () => {
       expect(lintWith('const modalClose = vi.fn();\nconst providers = [{ provide: MODAL_CLOSE, useValue: modalClose }];', one)).toEqual([]);
       expect(
         lintWith(
-          'let closeFn;\nbeforeEach(() => {\n  closeFn = vi.fn();\n  render([{ provide: GEO_PANEL_CLOSE, useValue: closeFn }]);\n});',
+          'let closeFn;\nbeforeEach(() => {\n  closeFn = vi.fn();\n  render([{ provide: SIDE_PANEL_CLOSE, useValue: closeFn }]);\n});',
           one,
         ),
       ).toEqual([]);

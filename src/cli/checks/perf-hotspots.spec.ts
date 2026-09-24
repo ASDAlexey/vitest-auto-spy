@@ -39,10 +39,10 @@ const ordinary = (): PerfFile[] =>
 const suite = (): PerfRun =>
   run([
     ...ordinary(),
-    file('libs/player/wrapper/src/lib/ads/ads.controller.spec.ts', {
+    file('libs/media/src/lib/banner/banner.controller.spec.ts', {
       tests: 7_500,
       testCount: 12,
-      cases: [{ name: 'AdsController > plays the pre-roll', ms: 2_900 }],
+      cases: [{ name: 'BannerController > plays the pre-roll', ms: 2_900 }],
     }),
     file('apps/web/src/app/profile/profile.component.spec.ts', {
       tests: 5_500,
@@ -59,7 +59,7 @@ const plain = { colors: false } as const;
 describe('filesOverBudget', () => {
   it('lists exactly the files the gate would take, the most expensive first', () => {
     expect(filesOverBudget(suite(), ROOT, GATE_DEFAULTS, 10).map((entry) => entry.file)).toEqual([
-      'libs/player/wrapper/src/lib/ads/ads.controller.spec.ts',
+      'libs/media/src/lib/banner/banner.controller.spec.ts',
       'libs/api/src/lib/catalog.service.spec.ts',
       'libs/shared/retry.interceptor.spec.ts',
     ]);
@@ -75,7 +75,7 @@ describe('filesOverBudget', () => {
     const [ads] = filesOverBudget(suite(), ROOT, GATE_DEFAULTS, 1);
 
     expect(ads).toEqual({
-      file: 'libs/player/wrapper/src/lib/ads/ads.controller.spec.ts',
+      file: 'libs/media/src/lib/banner/banner.controller.spec.ts',
       ms: 7_500,
       budget: 5_000,
       testCount: 12,
@@ -116,7 +116,7 @@ describe('filesOverBudget', () => {
 describe('bodiesOverBudget', () => {
   it('lists the bodies at or over --max-test-ms and nothing under it', () => {
     expect(bodiesOverBudget(suite(), ROOT, GATE_DEFAULTS, 10)).toEqual([
-      { file: 'libs/player/wrapper/src/lib/ads/ads.controller.spec.ts', name: 'AdsController > plays the pre-roll', ms: 2_900 },
+      { file: 'libs/media/src/lib/banner/banner.controller.spec.ts', name: 'BannerController > plays the pre-roll', ms: 2_900 },
     ]);
     expect(bodiesOverBudget(suite(), ROOT, { ...GATE_DEFAULTS, maxTestMs: 300 }, 10)).toHaveLength(2);
   });
@@ -163,13 +163,13 @@ describe('formatHotspots', () => {
       [
         'files over budget — 3 of 14; the gate re-measures these and fails on them',
         '   time  budget  over  tests  ms/test  ×median  file',
-        '  7.50s   5.00s  1.5×     12    625ms     250×  libs/player/wrapper/src/lib/ads/ads.controller.spec.ts',
+        '  7.50s   5.00s  1.5×     12    625ms     250×  libs/media/src/lib/banner/banner.controller.spec.ts',
         '  6.00s   5.00s  1.2×      3    2.00s     800×  libs/api/src/lib/catalog.service.spec.ts',
         '  5.20s   5.00s  1.0×      0        —        —  libs/shared/retry.interceptor.spec.ts',
         '',
         'test bodies over budget — 1, each over --max-test-ms 1.00s',
-        '  libs/player/wrapper/src/lib/ads/ads.controller.spec.ts',
-        '    2.90s  AdsController > plays the pre-roll',
+        '  libs/media/src/lib/banner/banner.controller.spec.ts',
+        '    2.90s  BannerController > plays the pre-roll',
       ].join('\n'),
     );
   });
@@ -238,9 +238,9 @@ describe('formatHotspots', () => {
   });
 
   it('adds how much each file grew against a committed baseline, and "new" for a file it does not know', () => {
-    const baseline = { version: 1, median: 100, files: { 'libs/player/wrapper/src/lib/ads/ads.controller.spec.ts': 25 } };
+    const baseline = { version: 1, median: 100, files: { 'libs/media/src/lib/banner/banner.controller.spec.ts': 25 } };
     const text = formatHotspots(suite(), ROOT, { ...plain, baseline });
-    const ads = text.split('\n').find((line) => line.endsWith('ads.controller.spec.ts'));
+    const ads = text.split('\n').find((line) => line.endsWith('banner.controller.spec.ts'));
     const retry = text.split('\n').find((line) => line.endsWith('retry.interceptor.spec.ts'));
 
     expect(text).toContain('vs base');

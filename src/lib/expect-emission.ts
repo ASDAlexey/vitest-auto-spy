@@ -821,13 +821,13 @@ function rejectAsNotCompleted(error: unknown, options: AnyEmissionOptions | unde
  * The assertion the other helpers cannot make. A stream that errors rejects them with a *new*
  * `Error` whose message names the stream, which is right for a helper whose job is to report an
  * unexpected failure — and useless when the failure is the thing under test:
- * `rejects.toBe(originalError)`, `rejects.toBeInstanceOf(UdmsStatusError)` and an exact
+ * `rejects.toBe(originalError)`, `rejects.toBeInstanceOf(UpstreamStatusError)` and an exact
  * `expect(err.message).toBe('websso fail')` all fail against the wrapper. Here the error is the
  * resolved value, so every one of them is an ordinary assertion:
  *
  * ```ts
  * await expect(expectError(service.load())).resolves.toBe(originalError);
- * expect(await expectError(process$)).toBeInstanceOf(UdmsStatusError);
+ * expect(await expectError(process$)).toBeInstanceOf(UpstreamStatusError);
  * ```
  *
  * It waits for the error however late it is — a stream that emits first and then fails still

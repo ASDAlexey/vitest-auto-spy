@@ -33,7 +33,7 @@ function message(code: string): string {
 
 describe('prefer-provide-activated-route', () => {
   it('flags the hand-built snapshot half this rule exists for', () => {
-    // Verbatim shape from the monorepo: only the half the author read first.
+    // A real-world shape: only the half the author read first.
     const code = `
       TestBed.configureTestingModule({
         providers: [{ provide: ActivatedRoute, useValue: { snapshot: { queryParams: { ['q']: 'mock' } } } }],
@@ -48,7 +48,7 @@ describe('prefer-provide-activated-route', () => {
     const code = `
       TestBed.configureTestingModule({
         providers: [
-          { provide: MainHtmlPreloaderService, useValue: {} },
+          { provide: PagePreloaderService, useValue: {} },
           { provide: ActivatedRoute, useValue: {} },
         ],
       });
@@ -79,7 +79,7 @@ describe('prefer-provide-activated-route', () => {
   });
 
   it('flags a spy factory, which reads the prototype the route keeps nothing on', () => {
-    // Verbatim: the most common spelling in the monorepo, four occurrences and counting.
+    // The most common spelling in a measured suite, four occurrences and counting.
     const code = `
       TestBed.configureTestingModule({
         providers: [{ provide: ActivatedRoute, useValue: createSpyFromClass(ActivatedRoute, { observablePropsToSpyOn: ['queryParams'] }) }],

@@ -1,7 +1,7 @@
 /**
  * The one failure no double library can work around, said in words that name the way out.
  *
- * `TypeError: Cannot redefine property: injectDomainMetrics` is technically accurate and practically
+ * `TypeError: Cannot redefine property: injectAppMetrics` is technically accurate and practically
  * useless: it names neither the object, nor the reason the property is locked, nor the one thing
  * that resolves it. Two seams in this package end in the same `Object.defineProperty` and therefore
  * in that same `TypeError` — the accessor spies behind {@link MockAdapter}, and the `mock*Prop`

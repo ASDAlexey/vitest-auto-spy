@@ -126,8 +126,8 @@ function containsCall(node: EsNode): boolean {
  * each other, which is wiring rather than existence.
  *
  * Measured on an Angular suite of 1771 spec files: it takes the rule from 581 findings to 548, and
- * every one of the 33 it drops is a real assertion — \`expect(isChildProfile(FAMILY_ROLE.CHILD))\`,
- * \`expect(consoleTransport(true))\`, \`expect(component.periodsOffset()).not.toBeNull()\`,
+ * every one of the 33 it drops is a real assertion — \`expect(isRestrictedProfile(MEMBER_ROLE.CHILD))\`,
+ * \`expect(consoleTransport(true))\`, \`expect(component.rangeOffset()).not.toBeNull()\`,
  * \`expect(createService().resolve(type))\` under an \`it.each\` over seven content types,
  * \`expect(samples.every((x) => x >= 0 && x <= 100))\`.
  */
@@ -146,7 +146,7 @@ function namesSubject(subject: EsNode, matcher: string): boolean {
 
   // A builder plus `toBeInstanceOf` is not "it exists", it is "this name resolves to that class" —
   // two different names, and often nothing else in the file connects them. The one that showed this
-  // was the only test that `provideBetaTesters()` wires its token to the service behind it; its
+  // was the only test that `providePreviewAccess()` wires its token to the service behind it; its
   // sibling exercised the behaviour and would have passed against any other implementation.
   if (matcher === 'toBeInstanceOf') {
     return false;
@@ -176,7 +176,7 @@ function namesSubject(subject: EsNode, matcher: string): boolean {
  *
  * For a name or a path it is the **whole** path, not the name it starts with. A barrel spec showed
  * why: `expect(publicApi.FocusModule).toBeDefined()` beside
- * `expect(publicApi.smartPlayerSettings).toBeDefined()` shares the root `publicApi` and nothing else
+ * `expect(publicApi.viewerSettings).toBeDefined()` shares the root `publicApi` and nothing else
  * — the sibling would not have failed first, because it never touches `FocusModule`, and removing
  * the test removed the only check that the symbol is exported at all.
  *

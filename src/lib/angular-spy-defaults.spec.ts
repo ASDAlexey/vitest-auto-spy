@@ -14,7 +14,7 @@ import { injectSpy, provideAutoSpy, provideAutoSpyForToken } from './angular';
 import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './angular-spy-defaults';
 import { takeStrictViolations } from './function-spy';
 
-interface ChannelLogger {
+interface EventLogger {
   info(message: string): void;
 }
 
@@ -22,7 +22,7 @@ interface AppLogger {
   level: string;
   info(message: string): void;
   err(message: string): void;
-  channel(name: string): ChannelLogger;
+  channel(name: string): EventLogger;
 }
 
 interface Navigation {
@@ -161,7 +161,7 @@ describe('registerAutoSpyDefaults with an InjectionToken', () => {
   });
 
   it('lets a seed at the call site replace a registered selfReturning link with a plain function', () => {
-    const channel: ChannelLogger = { info: (): void => undefined };
+    const channel: EventLogger = { info: (): void => undefined };
 
     registerAutoSpyDefaults(LOGGER, { returns: { info: undefined, err: undefined }, selfReturning: ['channel'] });
 

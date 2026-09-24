@@ -386,10 +386,10 @@ describe('setEmissionTimeout', () => {
 });
 
 describe('expectError', () => {
-  class UdmsStatusError extends Error {}
+  class UpstreamStatusError extends Error {}
 
   it('resolves with the error itself, so identity survives', async () => {
-    const original = new UdmsStatusError('websso fail');
+    const original = new UpstreamStatusError('websso fail');
     const source$ = new Subject<number>();
 
     setTimeout(() => source$.error(original), 1);
@@ -401,11 +401,11 @@ describe('expectError', () => {
   it('keeps the class and the exact message reachable', async () => {
     const source$ = new Subject<number>();
 
-    setTimeout(() => source$.error(new UdmsStatusError('websso fail')), 1);
+    setTimeout(() => source$.error(new UpstreamStatusError('websso fail')), 1);
 
     const error = await expectError(source$, { timeout: 50 });
 
-    expect(error).toBeInstanceOf(UdmsStatusError);
+    expect(error).toBeInstanceOf(UpstreamStatusError);
     expect(error).toHaveProperty('message', 'websso fail');
   });
 

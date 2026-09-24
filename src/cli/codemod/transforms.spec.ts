@@ -62,8 +62,8 @@ function notesPlain(source: string, transform: TransformSpec): string[] {
 
 describe('jest-types — the argument-order trap', () => {
   it('transposes the return type and the argument tuple into a call signature', () => {
-    expect(apply('let f: jest.Mock<void, [AdjustedSubscriptionDetails]>;', jestTypes)).toContain(
-      'let f: Mock<(arg0: AdjustedSubscriptionDetails) => void>;',
+    expect(apply('let f: jest.Mock<void, [AdjustedPlanDetails]>;', jestTypes)).toContain(
+      'let f: Mock<(arg0: AdjustedPlanDetails) => void>;',
     );
   });
 

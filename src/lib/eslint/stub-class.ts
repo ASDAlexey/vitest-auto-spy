@@ -6,12 +6,12 @@
  * blind to for four minor versions:
  *
  * ```ts
- * class NewCardServiceMock {
- *   getTrailerPlayUrl = vi.fn().mockReturnValue(of(url));
+ * class PaymentCardServiceMock {
+ *   getPreviewUrl = vi.fn().mockReturnValue(of(url));
  *   load = vi.fn();
  * }
  *
- * TestBed.configureTestingModule({ providers: [{ provide: NewCardService, useClass: NewCardServiceMock }] });
+ * TestBed.configureTestingModule({ providers: [{ provide: PaymentCardService, useClass: PaymentCardServiceMock }] });
  * ```
  *
  * Nothing reported it. `prefer-create-spy-from-class` matches an `ObjectExpression` and a class
@@ -99,8 +99,8 @@ export function isExemptClass(node: EsClass): boolean {
  * A class expression sitting in a property slot is left alone, and the one that taught this is real:
  *
  * ```ts
- * const contextMenuModule = { KdsWebContextMenuComponent: class MockContextMenu { open = vi.fn() } };
- * vi.mock('@kion/kds-web', () => contextMenuModule);
+ * const contextMenuModule = { ContextMenuComponent: class MockContextMenu { open = vi.fn() } };
+ * vi.mock('@acme/ui-kit', () => contextMenuModule);
  * ```
  *
  * That class replaces a module *export*, which is then used as a DI token, and a token has to be a

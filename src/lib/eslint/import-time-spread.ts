@@ -4,7 +4,7 @@
  * ```ts
  * import { BaseEvents } from './base-events';
  *
- * export const webosEvents = [...BaseEvents]; // fine under tsc, a TypeError under a bundler
+ * export const platformEvents = [...BaseEvents]; // fine under tsc, a TypeError under a bundler
  * ```
  *
  * Under `tsc` and under a browser's ESM loader this cannot fail: a module never runs before its

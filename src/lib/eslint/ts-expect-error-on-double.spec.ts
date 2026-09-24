@@ -6,7 +6,7 @@ import { runRule } from './run-rule';
 const RULE = 'no-ts-expect-error-on-double';
 
 function verify(code: string): LintMessage[] {
-  return runRule(RULE, code, { filename: 'shelf.component.spec.ts' });
+  return runRule(RULE, code, { filename: 'list.component.spec.ts' });
 }
 
 const lines = (code: string): number[] => verify(code).map((message) => message.line);
@@ -83,7 +83,7 @@ describe(RULE, () => {
     );
 
     expect(lines(code)).toEqual([2]);
-    expect(lines('await injectSpy(ShelvesService)\n  // @ts-expect-error\n  .getShelf.resolveWith(page);')).toEqual([2]);
+    expect(lines('await injectSpy(SectionsService)\n  // @ts-expect-error\n  .getShelf.resolveWith(page);')).toEqual([2]);
   });
 
   it('reports once for a chain, naming the helper that ends it', () => {

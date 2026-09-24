@@ -64,7 +64,7 @@ describe('mock adapter registry', () => {
  */
 describe('guardAccessorSpies', () => {
   const cannotRedefine = (): never => {
-    throw new TypeError('Cannot redefine property: injectDomainMetrics');
+    throw new TypeError('Cannot redefine property: injectAppMetrics');
   };
 
   /** An adapter whose accessor spies always hit a non-configurable property. */
@@ -79,19 +79,19 @@ describe('guardAccessorSpies', () => {
   });
 
   it('names the property, the accessor and the way out, keeping the original as the cause', () => {
-    const namespace = Object.freeze({ [Symbol.toStringTag]: 'Module', injectDomainMetrics: (): undefined => undefined });
+    const namespace = Object.freeze({ [Symbol.toStringTag]: 'Module', injectAppMetrics: (): undefined => undefined });
 
     let thrown: unknown;
 
     try {
-      guardAccessorSpies(refusing).spyOnGetter(namespace, 'injectDomainMetrics');
+      guardAccessorSpies(refusing).spyOnGetter(namespace, 'injectAppMetrics');
     } catch (error) {
       thrown = error;
     }
 
     expect(thrown).toBeInstanceOf(Error);
     expect((thrown as Error).message).toBe(
-      "[vitest-auto-spy] Cannot spy on the 'get' accessor of 'injectDomainMetrics': the property is not configurable, " +
+      "[vitest-auto-spy] Cannot spy on the 'get' accessor of 'injectAppMetrics': the property is not configurable, " +
         'so it cannot be redefined. The target is an ES module namespace.\n' +
         'An ES module namespace is what a bundler leaves behind once it has inlined a barrel or a workspace alias ' +
         '(`@angular/build:unit-test`, a pre-bundled `vite-node` entry): the export is a live binding, not a writable ' +

@@ -1047,7 +1047,7 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
    *
    * ```ts
    * provideAutoSpy(FavoritesService, {
-   *   overrides: { favoritesCacheUpdated$: of(undefined), favoriteItems: [] },
+   *   overrides: { savedItemsChanged$: of(undefined), favoriteItems: [] },
    *   returns: { load: of([]) },
    * });
    * ```

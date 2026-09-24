@@ -33,7 +33,7 @@ function message(code: string): string {
 
 describe('prefer-observer-stub', () => {
   it('flags the twenty-line hand-rolled stub this rule exists for', () => {
-    // Verbatim shape from the monorepo: save, class of empty methods with a spy in `disconnect`,
+    // A real-world shape: save, class of empty methods with a spy in `disconnect`,
     // double cast, restore. One report, on the assignment.
     const code = `
       let originalIntersectionObserver: typeof IntersectionObserver;

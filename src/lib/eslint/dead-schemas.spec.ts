@@ -97,7 +97,7 @@ describe('no-dead-schemas', () => {
    */
   it('says nothing about a schema added through overrideComponent, which is compensating a real removal', () => {
     const compensating = [
-      'TestBed.overrideComponent(TicketQrCodeComponent, {',
+      'TestBed.overrideComponent(BadgeQrComponent, {',
       '  remove: { imports: [QRCodeComponent] },',
       '  add: { schemas: [NO_ERRORS_SCHEMA] },',
       '});',
@@ -116,8 +116,8 @@ describe('no-dead-schemas', () => {
    */
   it('still reports the module-level schema of a file that also overrides a component', () => {
     const both = [
-      bed('imports: [TicketQrCodeComponent], schemas: [NO_ERRORS_SCHEMA]'),
-      'TestBed.overrideComponent(TicketQrCodeComponent, {',
+      bed('imports: [BadgeQrComponent], schemas: [NO_ERRORS_SCHEMA]'),
+      'TestBed.overrideComponent(BadgeQrComponent, {',
       '  remove: { imports: [QRCodeComponent] },',
       '  add: { schemas: [NO_ERRORS_SCHEMA] },',
       '});',

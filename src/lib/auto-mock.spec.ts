@@ -234,7 +234,7 @@ describe('autoMocked', () => {
 
   /** Takes the collaborator as a parameter rather than injecting it — the shape the helper is for. */
   function detect(logger: LogMethods): void {
-    logger.err('VPN detection failed', new Error('FAKE ERROR'));
+    logger.err('Endpoint check failed', new Error('FAKE ERROR'));
   }
 
   it('is accepted as `T` and asserted on as a spy, with no bridge call', () => {
@@ -242,7 +242,7 @@ describe('autoMocked', () => {
 
     detect(logger);
 
-    expect(logger.err).toHaveBeenCalledWith('VPN detection failed', expect.any(Error));
+    expect(logger.err).toHaveBeenCalledWith('Endpoint check failed', expect.any(Error));
     expect(logger.debug).not.toHaveBeenCalled();
   });
 
@@ -450,14 +450,14 @@ describe('createAutoMock — strict mode', () => {
 });
 
 describe('createAutoMock — selfReturning', () => {
-  interface ChannelLogger {
+  interface EventLogger {
     info(message: string): void;
   }
 
   interface AppLogger {
     info(message: string): void;
     err(message: string): void;
-    channel(name: string): ChannelLogger;
+    channel(name: string): EventLogger;
   }
 
   it('answers the double itself from a named method, so a chained call reaches the same spies', () => {
@@ -479,7 +479,7 @@ describe('createAutoMock — selfReturning', () => {
   });
 
   it('stays a default that a later calledWith or mockReturnValue wins over', () => {
-    const other = createAutoMock<ChannelLogger>();
+    const other = createAutoMock<EventLogger>();
     const logger = createAutoMock<AppLogger>(undefined, { selfReturning: ['channel'] });
 
     logger.channel.calledWith('player').mockReturnValue(other);
@@ -493,7 +493,7 @@ describe('createAutoMock — selfReturning', () => {
   });
 
   it('gives way to returns for a method named in both', () => {
-    const other = createAutoMock<ChannelLogger>();
+    const other = createAutoMock<EventLogger>();
     const logger = createAutoMock<AppLogger>(undefined, { selfReturning: ['channel'], returns: { channel: other } });
 
     expect(logger.channel('auth')).toBe(other);
@@ -517,7 +517,7 @@ describe('createAutoMock — selfReturning', () => {
   });
 
   it('gives way to a seeded override that is a plain function, rather than configuring it as a mock', () => {
-    const channel = createAutoMock<ChannelLogger>();
+    const channel = createAutoMock<EventLogger>();
     const logger = createAutoMock<AppLogger>({ channel: () => channel }, { selfReturning: ['channel'] });
 
     expect(logger.channel('auth')).toBe(channel);
