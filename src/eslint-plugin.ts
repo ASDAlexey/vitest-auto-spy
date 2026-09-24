@@ -102,6 +102,10 @@ const PLUGIN_NAME = 'vitest-auto-spy';
  * reading that grades `prefer-render-shallow` — and a zoneless suite turns it up to `error` in the
  * one line everything else here is turned down in.
  *
+ * **`prefer-spy-on-own-method` is graded on the kind of thing it says**, as `prefer-render-shallow` is: the
+ * `createSpyFromInstance` call it reports is correct and does exactly what `spyOnOwnMethod` / `spyOnVoidMethod`
+ * does. It names a shorter spelling, not a defect, and the exact shapes carry a fix, so `error` is one `eslint --fix` away.
+ *
  * **The three console rules decide on facts, not on a reading of the code**, so they are `error`: on the
  * 1759-file consumer they report 0, 6 in 2 files, and 32 of the 39 files that import `/console`.
  *
@@ -200,6 +204,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-redundant-mock-reset`]: 'error',
   [`${PLUGIN_NAME}/no-unasserted-argument`]: 'warn',
   [`${PLUGIN_NAME}/prefer-set-inputs`]: 'warn',
+  [`${PLUGIN_NAME}/prefer-spy-on-own-method`]: 'warn',
   [`${PLUGIN_NAME}/jasmine-namespace-without-entry`]: 'error',
   [`${PLUGIN_NAME}/no-jasmine-globals`]: 'error',
   [`${PLUGIN_NAME}/no-save-arguments-by-value`]: 'error',

@@ -103,6 +103,7 @@ import {
 import { noSelfCalledSpy } from './self-called-spy';
 import { preferSetInputs } from './set-inputs';
 import { noRedundantSmokeTest } from './smoke-test';
+import { preferSpyOnOwnMethod } from './spy-on-own-method';
 import { noStubClassDouble } from './stub-class';
 import { preferStubResponse } from './stub-response';
 import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
@@ -649,5 +650,6 @@ export const rules: Record<string, RuleModule> = {
   'no-redundant-smoke-test': noRedundantSmokeTest,
   'no-self-called-spy': noSelfCalledSpy,
   'prefer-set-inputs': preferSetInputs,
+  'prefer-spy-on-own-method': preferSpyOnOwnMethod,
   ...jasmineRules,
 };

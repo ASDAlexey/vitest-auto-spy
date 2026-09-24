@@ -30,8 +30,9 @@ describe('the plugin', () => {
       'prefer-as-spy',
       'prefer-native-spy-api',
       'prefer-provide-auto-spy',
+      'prefer-spy-on-own-method',
     ]);
-    // `no-mocked-for-spy`, `no-redundant-mock-reset` and `prefer-native-spy-api` declare both: the
+    // `no-mocked-for-spy`, `no-redundant-mock-reset`, `prefer-native-spy-api` and `prefer-spy-on-own-method` declare both: the
     // same edit is applied where the file settles it and offered where something outside the file —
     // or, for the reset, somewhere else inside it — has to agree.
     expect(named((rule) => rule.meta.hasSuggestions !== undefined)).toEqual([
@@ -53,6 +54,7 @@ describe('the plugin', () => {
       'prefer-render-shallow',
       'prefer-set-inputs',
       'prefer-settle-dynamic-import',
+      'prefer-spy-on-own-method',
     ]);
   });
 
@@ -68,13 +70,16 @@ describe('the plugin', () => {
     // itself wherever it cannot read a file's registrations in full, and `prefer-native-spy-api`
     // flags a bridge that is still needed. Documented overrides, not severities.
     //
-    // Seven rules are graded, and the reason differs between them.
+    // Eight rules are graded, and the reason differs between them.
     //
     // `prefer-render-shallow` is graded on the *kind* of thing it says: the others name something
     // wrong or dead, while this one names a file that could render more cheaply. Moving onto
     // `renderShallow` is a choice a suite makes, and at `error` the plugin would gate it — 491
     // findings across 398 of one consumer's 1759 spec files, i.e. a `recommended` that exists to be
     // overridden.
+    //
+    // `prefer-spy-on-own-method` is graded on the same reading: the call it reports is correct and does
+    // exactly what the helper does, so it names a shorter spelling rather than a defect.
     //
     // `no-stub-class-double` and `no-structural-double` are graded on the *evidence*. Both report a
     // real defect, the same drift `prefer-create-spy-from-class` reports, but both decide it on a
@@ -121,7 +126,8 @@ describe('the plugin', () => {
     expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-set-inputs']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-create-mock']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-unasserted-argument']).toBe('warn');
-    expect(levels.filter((level) => level !== 'error')).toHaveLength(7);
+    expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-spy-on-own-method']).toBe('warn');
+    expect(levels.filter((level) => level !== 'error')).toHaveLength(8);
     expect(levels).toHaveLength(Object.keys(rules).length);
   });
 
