@@ -367,6 +367,8 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   SpyDisposable: '0 1 2 3 4 20 21 22',
   SpyEngine: '23',
   SpyObj: '9',
+  spyOnOwnMethod: '0 1 2 3 4 20 21 22',
+  spyOnVoidMethod: '0 1 2 3 4 20 21 22',
   SpyOptions: '0 1 2 3 4 20 21 22',
   SpyRegistry: '2 12',
   stable: '2 12',
