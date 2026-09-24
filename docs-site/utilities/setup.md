@@ -175,8 +175,11 @@ withoutStrayTimerTracking(() => seedStorage()); // what this schedules is neithe
 ```
 
 `onStrayTimers` is the same count without leaving `setupAutoSpy`, plus **where each stray came from**:
-`timers` lists every one with its kind, the spec file that was running when it was scheduled, and up
-to five frames of the scheduling call, those outside `node_modules` first.
+`timers` lists every one with its kind, the delay a timeout or interval was given, the spec file that
+was running when it was scheduled, and up to five frames of the scheduling call. The frames start at
+the caller: those outside `node_modules` first, dependency frames when there are no others, and never
+the library's own — neither from source nor from `dist`. A handler that prints its own message should
+print `kind`, `delay` and `frames[0]`.
 
 ```ts
 setupAutoSpy({ strayTimers: true, onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0) });
@@ -189,14 +192,17 @@ setupAutoSpy({
 
 The file is what makes a stray charged to the wrong file traceable: a callback scheduled after the
 previous file's sweep is counted against the next file, and its `file` says which one really
-scheduled it. The stack is captured when the callback is scheduled — twelve frames at most, formatted
-only for the ones that turn out to be strays — and `describeStrayTimers()` returns the same list for
+scheduled it. The stack is captured when the callback is scheduled — forty frames below the tracking wrapper at
+most, so a zone or an rxjs scheduler in between does not use them all up, formatted only for the ones
+that turn out to be strays — and `describeStrayTimers()` returns the same list for
 a suite that sweeps by hand.
 
 That capture is what `strayTimers` costs. A `setTimeout` + `clearTimeout` pair on Node's real timers
 takes 70 ns untracked, 116 ns tracked in 5.5.0 and about 1.75 µs tracked now, and a pending timer
-holds about 0.9 kB more until it fires or is swept (Node v24.19.0, Apple M4 Max). The cap is not the
-lever: V8 pays about 0.9 µs for any stack at all, twelve frames or five. A file that schedules 10 000
+holds about 0.9 kB more until it fires or is swept (Node v24.19.0, Apple M4 Max). On a shallow stack the
+cap changes nothing: V8 pays about 0.9 µs for any stack at all. Behind a deep framework chain each
+frame taken costs about 60 ns, so a timer scheduled there costs about 3 µs where twelve frames cost
+1.4 µs. A file that schedules 10 000
 timers pays about 16 ms for knowing where each came from.
 
 ### With Vitest 4.1's `--detect-async-leaks`

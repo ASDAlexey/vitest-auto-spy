@@ -1,6 +1,6 @@
 ---
 title: ESLint rules
-description: A reference section for each of the forty-eight rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
+description: A reference section for each of the forty-nine rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
 ---
 
 # ESLint rules
@@ -34,10 +34,10 @@ Every section answers the same six questions:
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## The forty-eight rules {#the-twenty-five-rules}
+## The forty-nine rules {#the-twenty-five-rules}
 
 Grouped by subject, the same grouping the [setup page](/utilities/eslint-plugin) uses. Every rule is
-an `error` except five.
+an `error` except eight.
 
 | Rule                                                                  | In `recommended` | Reports                                                                                          |
 | --------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------ |
@@ -56,6 +56,7 @@ an `error` except five.
 | [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)       | `error`          | an object literal of two or more `vi.fn()`s                                                      |
 | [`no-stub-class-double`](#no-stub-class-double)                       | `warn`           | a class whose fields are `vi.fn()`s — the same double with a `new` in front of it                |
 | [`no-structural-double`](#no-structural-double)                       | `warn`           | an object of `vi.fn()`s bound to a name declared as an object of Vitest `Mock`s                  |
+| [`prefer-spy-on-own-method`](#prefer-spy-on-own-method)               | `warn`           | a `createSpyFromInstance` that spies one method and is read for it alone                         |
 | [`no-shared-module-level-mock`](#no-shared-module-level-mock)         | `error`          | an **exported** value that builds `vi.fn()`s while the module loads                              |
 | [`no-object-define-property`](#no-object-define-property)             | `error`          | `Object.defineProperty` / `defineProperties` in a spec                                           |
 | [`no-import-time-spread`](#no-import-time-spread)                     | `error`          | a spread of an imported binding evaluated at module scope                                        |
@@ -884,6 +885,80 @@ release at 115 reports across 74 of one consumer's 1759 spec files; once the DI 
 in it is 5 in 4, and 110 of those doubles moved to `prefer-provide-auto-spy` at `error`, where a
 `provide:` is the evidence. The severity did not change with the count, because the count was never
 the argument for it — the evidence was.
+
+## prefer-spy-on-own-method
+
+**`warn`** · `--fix` and suggestion · syntax only
+
+**Reports.** A `createSpyFromInstance(target, options)` call whose options are one of the two shapes
+[`spyOnOwnMethod` and `spyOnVoidMethod`](/core/create-spy-from-class#spy-on-own-method) pack, and whose result is used
+for that one method alone:
+
+- `{ onlyMethodsToSpyOn: ['m'], passthrough: true }` → `spyOnOwnMethod(target, 'm')`;
+- `{ onlyMethodsToSpyOn: ['m'], returns: { m: undefined } }` → `spyOnVoidMethod(target, 'm')`;
+- `{ returns: { m: undefined } }` alone, on a real event or element → `spyOnVoidMethod(target, 'm')`.
+
+"Used for that one method alone" is one of four spellings, on one line or across ten: `.m` (or
+`['m']`) read off the call, `const { m } = …`, the call as a statement of its own, or a name written
+once with the call and read only as `name.m` — a `const`, or a `let` a `beforeEach` assigns.
+
+**Decides on.** The call and the reads of its result. A second method in the list, `methodsToSpyOn`
+(which adds to discovery rather than replacing it), any other option, a spread, a result handed on,
+exported, written to as `spy.m = …` or read for another member, and nothing is reported. The bare
+void seed also needs the target to be real, read from the expression or one name away: `new
+MouseEvent(…)` and every global `…Event` constructor, `document` and `window`,
+`document.createElement(…)` / `createElementNS` / `createEvent` / `querySelector` / `getElementById`,
+`document.body`, `fixture.nativeElement`, `….debugElement.nativeElement` and
+`….query(…).nativeElement`. A double — `createAutoMock<Event>()`, `createSpyFromClass(Event)`, a cast
+literal, a name nothing in the file settles — is never reported.
+
+**Finding, and the repair.**
+
+```ts
+const seek = createSpyFromInstance(player, {
+  onlyMethodsToSpyOn: ['seek'],
+  passthrough: true,
+}).seek; // ❌
+
+let spy: Spy<Player>;
+beforeEach(() => {
+  spy = createSpyFromInstance(player, { onlyMethodsToSpyOn: ['seek'], passthrough: true }); // ❌
+});
+it('seeks', () => expect(spy.seek).toHaveBeenCalled());
+```
+
+```ts
+const seek = spyOnOwnMethod(player, 'seek'); // ✅
+
+let spy: Spy<Player>['seek'];
+beforeEach(() => {
+  spy = spyOnOwnMethod(player, 'seek'); // ✅
+});
+it('seeks', () => expect(spy).toHaveBeenCalled());
+```
+
+The first two shapes are exactly what the helpers do, so `--fix` applies them: the call, every
+`name.m` read becoming `name`, the helper imported beside the factory (from the same entry when it
+is one that exports the helper, from the root otherwise) and the factory's import dropped once the
+rewrite took its last use. A `Spy<X>` annotation on the name becomes `Spy<X>['m']` in a suggestion
+rather than a fix; any other annotation, explicit type arguments, or a `spyOnOwnMethod` the file
+declares itself leave the report without an edit.
+
+**Why it is recommended.** The helpers exist because this call is the common one, and a suite
+migrated before they existed carries it everywhere. A text search for it misses every call written
+across lines — the consumer that asked for this rule converted about sixty by hand and found ten more
+only here.
+
+**Limits.** The bare void seed is a suggestion, not a fix: without `onlyMethodsToSpyOn`, discovery
+spies every other method of the target too, and a test that relies on one of them being stubbed
+changes under `spyOnVoidMethod`. That is also why a component instance is not on the list of real
+targets — its other methods are the likeliest to be relied on. Several rewrites of one file in a
+single `--fix` pass can leave the `createSpyFromInstance` import unused; a pass that rewrites the
+last use removes it, and an unused-import rule the project runs catches the rest.
+
+**Severity.** `warn`, for the reason [`prefer-render-shallow`](#prefer-render-shallow) is: the call it
+reports is correct and does exactly what the helper does. The rule names a shorter spelling, not a
+defect, and since the exact shapes carry a fix, turning it up is one `eslint --fix` away.
 
 ## no-shared-module-level-mock
 

@@ -7629,8 +7629,11 @@ withoutStrayTimerTracking(() => seedStorage()); // what this schedules is neithe
 ```
 
 `onStrayTimers` is the same count without leaving `setupAutoSpy`, plus **where each stray came from**:
-`timers` lists every one with its kind, the spec file that was running when it was scheduled, and up
-to five frames of the scheduling call, those outside `node_modules` first.
+`timers` lists every one with its kind, the delay a timeout or interval was given, the spec file that
+was running when it was scheduled, and up to five frames of the scheduling call. The frames start at
+the caller: those outside `node_modules` first, dependency frames when there are no others, and never
+the library's own — neither from source nor from `dist`. A handler that prints its own message should
+print `kind`, `delay` and `frames[0]`.
 
 ```ts
 setupAutoSpy({ strayTimers: true, onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0) });
@@ -7643,14 +7646,17 @@ setupAutoSpy({
 
 The file is what makes a stray charged to the wrong file traceable: a callback scheduled after the
 previous file's sweep is counted against the next file, and its `file` says which one really
-scheduled it. The stack is captured when the callback is scheduled — twelve frames at most, formatted
-only for the ones that turn out to be strays — and `describeStrayTimers()` returns the same list for
+scheduled it. The stack is captured when the callback is scheduled — forty frames below the tracking wrapper at
+most, so a zone or an rxjs scheduler in between does not use them all up, formatted only for the ones
+that turn out to be strays — and `describeStrayTimers()` returns the same list for
 a suite that sweeps by hand.
 
 That capture is what `strayTimers` costs. A `setTimeout` + `clearTimeout` pair on Node's real timers
 takes 70 ns untracked, 116 ns tracked in 5.5.0 and about 1.75 µs tracked now, and a pending timer
-holds about 0.9 kB more until it fires or is swept (Node v24.19.0, Apple M4 Max). The cap is not the
-lever: V8 pays about 0.9 µs for any stack at all, twelve frames or five. A file that schedules 10 000
+holds about 0.9 kB more until it fires or is swept (Node v24.19.0, Apple M4 Max). On a shallow stack the
+cap changes nothing: V8 pays about 0.9 µs for any stack at all. Behind a deep framework chain each
+frame taken costs about 60 ns, so a timer scheduled there costs about 3 µs where twelve frames cost
+1.4 µs. A file that schedules 10 000
 timers pays about 16 ms for knowing where each came from.
 
 ### With Vitest 4.1's `--detect-async-leaks`
@@ -10943,7 +10949,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the forty-eight are about a dialect you may not speak.
+Vitest-only project asks — four of the forty-nine are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -10979,7 +10985,7 @@ There is a second config, `configs.typeErrors` — the subset whose findings are
 red CI. Both of its rules are already `error` in `recommended`, so a project adopting the plugin
 outright needs only the one above.
 
-`configs.strict` is `recommended` with its seven `warn` rules raised to `error` — the config for a
+`configs.strict` is `recommended` with its eight `warn` rules raised to `error` — the config for a
 suite that has adopted the plugin and wants every finding to stop the build. `no-compile-components`
 and `no-redundant-mock-reset` still report nothing until their options describe the builder and the
 runner.
@@ -11006,7 +11012,7 @@ need different severities.
 
 ### 3. Type information is optional, and three rules want it
 
-Forty-five of the forty-eight are syntactic: they read the file's own AST and never ask the type checker.
+Forty-six of the forty-nine are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -11032,7 +11038,7 @@ languageOptions: {
 
 ### 4. What the first run looks like
 
-Every rule but seven is an `error`, so on an existing suite the first run is likely to be red — that
+Every rule but eight is an `error`, so on an existing suite the first run is likely to be red — that
 is the point of the default, not a misconfiguration. The exceptions are
 [`prefer-render-shallow`](#the-render-nobody-reads), which reports a cost rather than a defect, and
 [`no-stub-class-double`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-stub-class-double),
@@ -11041,7 +11047,7 @@ is the point of the default, not a misconfiguration. The exceptions are
 defect on heuristic evidence, and [`prefer-create-mock`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-create-mock),
 [`prefer-set-inputs`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-set-inputs) and
 [`no-unasserted-argument`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-unasserted-argument), whose
-repair is a migration rather than a line to swap; all seven show up in the output without holding the build. Two things make the
+repair is a migration rather than a line to swap, and [`prefer-spy-on-own-method`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-spy-on-own-method), which names a shorter spelling of a correct call; all eight show up in the output without holding the build. Two things make the
 first pass short:
 
 ```bash
@@ -11052,7 +11058,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the forty-eight apply to you
+## Which of the forty-nine apply to you
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -11062,7 +11068,7 @@ principle — it is that they cannot fire on your code.
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the forty-four core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                           |
-| migrating off `jasmine-auto-spies`         | all forty-eight, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
+| migrating off `jasmine-auto-spies`         | all forty-nine, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                    |
 
 ### If you never used Jasmine
 
@@ -11131,7 +11137,7 @@ that file needs). See [Migrating from jest-auto-spies](https://asdalexey.github.
 
 ### If you are coming from Jasmine
 
-All forty-eight apply, and the four in the last group are the ones written for you. Two are pure
+All forty-nine apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -11146,12 +11152,12 @@ autofix. See [Migrating from jasmine-auto-spies](https://asdalexey.github.io/vit
 
 ## Rules
 
-Every rule is an `error` bar seven. Until 4.0.0 this table was a graded mix of `error` / `warn` / `off`,
+Every rule is an `error` bar eight. Until 4.0.0 this table was a graded mix of `error` / `warn` / `off`,
 which meant the plugin decided how much each project cared; a `warn` that nothing reads is `off` with
 extra output, and which findings block a merge is a project's call, not a library's. Turning one down
 is [one line](#turn-one-rule-down).
 
-One of the seven exceptions is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a
+One of the eight exceptions is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a
 **`warn`**, and its reason is the kind of thing it says rather than how much it matters. Every other rule in these
 tables names something wrong or dead — a double that drifts from its class, an assertion that never
 runs, a provider the container already dropped, a schema guarding nothing. That one names a file that
@@ -11161,6 +11167,10 @@ gating it. On the 1759-file suite the rule was measured against it reports **491
 files** — a first run every consumer would have to answer with a project-wide `warn` of its own. So the
 default is the `warn`, and a project that has decided to make the move sets it to `'error'` in the same
 [one line](#turn-one-rule-down) that turns the others down.
+
+[`prefer-spy-on-own-method`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-spy-on-own-method) is graded on the same reading. The
+`createSpyFromInstance` call it reports is correct and does exactly what `spyOnOwnMethod` / `spyOnVoidMethod` does:
+the rule names a shorter spelling, not a defect, and its exact shapes carry a fix.
 
 The other two, `no-stub-class-double` and `no-structural-double` (5.5.0), are graded on the
 _evidence_ rather than on the kind of finding. Both report the same drift
@@ -11211,18 +11221,19 @@ never awaited, the callback returned first — or was reached and could not fail
 
 Not about a single test but about what one file leaves behind for the next.
 
-| Rule                                                                                                 | Flags                                                                                                                                               | Fix     |       Without it        |
-| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | :---------------------: |
-| [`prefer-create-spy-from-class`](#two-things-these-rules-learned-the-hard-way)                       | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed                            | —       |           red           |
-| [`no-stub-class-double`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-stub-class-double)                               | a class whose fields are `vi.fn()`s → `createSpyFromClass` / `provideAutoSpy`, the stub class deleted; `warn`                                       | —       |           red           |
-| [`no-structural-double`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-structural-double)                               | an object of `vi.fn()`s bound to a name declared `{ load: Mock }` → `createAutoMock<T>()`; `warn`                                                   | —       |           red           |
-| [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | an **exported** value holding `vi.fn()`s → export a factory that returns it                                                                         | —       |          green          |
-| [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                            | suggest |          green          |
-| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError`, or a silently empty object, while the bundle loads                                | suggest | red _(by construction)_ |
-| [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends       | —       |          green          |
-| [`no-hand-assigned-global`](#a-global-assigned-by-hand)                                              | `global.fetch = vi.fn(…)` and any other double assigned to a global with no teardown restore → `mockValueProp` / `vi.stubGlobal` / `blockNetwork()` | —       |          green          |
-| [`prefer-stub-response`](#a-response-written-by-hand)                                                | an object literal cast to `Response`, or `createMock<Response>(…)` → `stubResponse({ body })`                                                       | —       |          green          |
-| [`no-redundant-mock-reset`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-redundant-mock-reset)                         | a reset in a hook the runner already performs between tests → delete it; silent until the flags are known                                           |
+| Rule                                                                                                 | Flags                                                                                                                                                 | Fix               |       Without it        |
+| ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | :---------------------: |
+| [`prefer-create-spy-from-class`](#two-things-these-rules-learned-the-hard-way)                       | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed                              | —                 |           red           |
+| [`no-stub-class-double`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-stub-class-double)                               | a class whose fields are `vi.fn()`s → `createSpyFromClass` / `provideAutoSpy`, the stub class deleted; `warn`                                         | —                 |           red           |
+| [`no-structural-double`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-structural-double)                               | an object of `vi.fn()`s bound to a name declared `{ load: Mock }` → `createAutoMock<T>()`; `warn`                                                     | —                 |           red           |
+| [`prefer-spy-on-own-method`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-spy-on-own-method)                       | a one-method `createSpyFromInstance` → `spyOnOwnMethod(x, 'm')` / `spyOnVoidMethod(x, 'm')`; a bare void seed only on a real event or element; `warn` | `--fix` / suggest |          green          |
+| [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | an **exported** value holding `vi.fn()`s → export a factory that returns it                                                                           | —                 |          green          |
+| [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                              | suggest           |          green          |
+| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError`, or a silently empty object, while the bundle loads                                  | suggest           | red _(by construction)_ |
+| [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends         | —                 |          green          |
+| [`no-hand-assigned-global`](#a-global-assigned-by-hand)                                              | `global.fetch = vi.fn(…)` and any other double assigned to a global with no teardown restore → `mockValueProp` / `vi.stubGlobal` / `blockNetwork()`   | —                 |          green          |
+| [`prefer-stub-response`](#a-response-written-by-hand)                                                | an object literal cast to `Response`, or `createMock<Response>(…)` → `stubResponse({ body })`                                                         | —                 |          green          |
+| [`no-redundant-mock-reset`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-redundant-mock-reset)                         | a reset in a hook the runner already performs between tests → delete it; silent until the flags are known                                             |
 
 ### Angular DI and the TestBed
 
@@ -12246,7 +12257,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](https://asdalexey.gi
 
 ## Which rules fix, and why so few
 
-Five of the forty-eight rewrite the source on their own, eighteen offer the rewrite as a suggestion, and
+Six of the forty-nine rewrite the source on their own, nineteen offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -12876,10 +12887,10 @@ Every section answers the same six questions:
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## The forty-eight rules
+## The forty-nine rules
 
 Grouped by subject, the same grouping the [setup page](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) uses. Every rule is
-an `error` except five.
+an `error` except eight.
 
 | Rule                                                                  | In `recommended` | Reports                                                                                          |
 | --------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------ |
@@ -12898,6 +12909,7 @@ an `error` except five.
 | [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)       | `error`          | an object literal of two or more `vi.fn()`s                                                      |
 | [`no-stub-class-double`](#no-stub-class-double)                       | `warn`           | a class whose fields are `vi.fn()`s — the same double with a `new` in front of it                |
 | [`no-structural-double`](#no-structural-double)                       | `warn`           | an object of `vi.fn()`s bound to a name declared as an object of Vitest `Mock`s                  |
+| [`prefer-spy-on-own-method`](#prefer-spy-on-own-method)               | `warn`           | a `createSpyFromInstance` that spies one method and is read for it alone                         |
 | [`no-shared-module-level-mock`](#no-shared-module-level-mock)         | `error`          | an **exported** value that builds `vi.fn()`s while the module loads                              |
 | [`no-object-define-property`](#no-object-define-property)             | `error`          | `Object.defineProperty` / `defineProperties` in a spec                                           |
 | [`no-import-time-spread`](#no-import-time-spread)                     | `error`          | a spread of an imported binding evaluated at module scope                                        |
@@ -13726,6 +13738,80 @@ release at 115 reports across 74 of one consumer's 1759 spec files; once the DI 
 in it is 5 in 4, and 110 of those doubles moved to `prefer-provide-auto-spy` at `error`, where a
 `provide:` is the evidence. The severity did not change with the count, because the count was never
 the argument for it — the evidence was.
+
+## prefer-spy-on-own-method
+
+**`warn`** · `--fix` and suggestion · syntax only
+
+**Reports.** A `createSpyFromInstance(target, options)` call whose options are one of the two shapes
+[`spyOnOwnMethod` and `spyOnVoidMethod`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#spy-on-own-method) pack, and whose result is used
+for that one method alone:
+
+- `{ onlyMethodsToSpyOn: ['m'], passthrough: true }` → `spyOnOwnMethod(target, 'm')`;
+- `{ onlyMethodsToSpyOn: ['m'], returns: { m: undefined } }` → `spyOnVoidMethod(target, 'm')`;
+- `{ returns: { m: undefined } }` alone, on a real event or element → `spyOnVoidMethod(target, 'm')`.
+
+"Used for that one method alone" is one of four spellings, on one line or across ten: `.m` (or
+`['m']`) read off the call, `const { m } = …`, the call as a statement of its own, or a name written
+once with the call and read only as `name.m` — a `const`, or a `let` a `beforeEach` assigns.
+
+**Decides on.** The call and the reads of its result. A second method in the list, `methodsToSpyOn`
+(which adds to discovery rather than replacing it), any other option, a spread, a result handed on,
+exported, written to as `spy.m = …` or read for another member, and nothing is reported. The bare
+void seed also needs the target to be real, read from the expression or one name away: `new
+MouseEvent(…)` and every global `…Event` constructor, `document` and `window`,
+`document.createElement(…)` / `createElementNS` / `createEvent` / `querySelector` / `getElementById`,
+`document.body`, `fixture.nativeElement`, `….debugElement.nativeElement` and
+`….query(…).nativeElement`. A double — `createAutoMock<Event>()`, `createSpyFromClass(Event)`, a cast
+literal, a name nothing in the file settles — is never reported.
+
+**Finding, and the repair.**
+
+```ts
+const seek = createSpyFromInstance(player, {
+  onlyMethodsToSpyOn: ['seek'],
+  passthrough: true,
+}).seek; // ❌
+
+let spy: Spy<Player>;
+beforeEach(() => {
+  spy = createSpyFromInstance(player, { onlyMethodsToSpyOn: ['seek'], passthrough: true }); // ❌
+});
+it('seeks', () => expect(spy.seek).toHaveBeenCalled());
+```
+
+```ts
+const seek = spyOnOwnMethod(player, 'seek'); // ✅
+
+let spy: Spy<Player>['seek'];
+beforeEach(() => {
+  spy = spyOnOwnMethod(player, 'seek'); // ✅
+});
+it('seeks', () => expect(spy).toHaveBeenCalled());
+```
+
+The first two shapes are exactly what the helpers do, so `--fix` applies them: the call, every
+`name.m` read becoming `name`, the helper imported beside the factory (from the same entry when it
+is one that exports the helper, from the root otherwise) and the factory's import dropped once the
+rewrite took its last use. A `Spy<X>` annotation on the name becomes `Spy<X>['m']` in a suggestion
+rather than a fix; any other annotation, explicit type arguments, or a `spyOnOwnMethod` the file
+declares itself leave the report without an edit.
+
+**Why it is recommended.** The helpers exist because this call is the common one, and a suite
+migrated before they existed carries it everywhere. A text search for it misses every call written
+across lines — the consumer that asked for this rule converted about sixty by hand and found ten more
+only here.
+
+**Limits.** The bare void seed is a suggestion, not a fix: without `onlyMethodsToSpyOn`, discovery
+spies every other method of the target too, and a test that relies on one of them being stubbed
+changes under `spyOnVoidMethod`. That is also why a component instance is not on the list of real
+targets — its other methods are the likeliest to be relied on. Several rewrites of one file in a
+single `--fix` pass can leave the `createSpyFromInstance` import unused; a pass that rewrites the
+last use removes it, and an unused-import rule the project runs catches the rest.
+
+**Severity.** `warn`, for the reason [`prefer-render-shallow`](#prefer-render-shallow) is: the call it
+reports is correct and does exactly what the helper does. The rule names a shorter spelling, not a
+defect, and since the exact shapes carry a fix, turning it up is one `eslint --fix` away.
 
 ## no-shared-module-level-mock
 
@@ -17733,7 +17819,7 @@ cheap to fix while the cursor is still on the line and expensive to find afterwa
 one of them **passes**.
 
 There is one channel, and it is already in the package:
-[`vitest-auto-spy/eslint-plugin`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin). Forty-eight rules over a real syntax tree,
+[`vitest-auto-spy/eslint-plugin`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin). Forty-nine rules over a real syntax tree,
 with a fix or a suggestion where the rewrite is decidable — the same rules in the editor and in CI,
 so nothing passes locally and fails on the build. No editor needs a plugin of this package's own;
 it needs its ESLint integration switched on, which every IDE below has.
@@ -17741,7 +17827,7 @@ it needs its ESLint integration switched on, which every IDE below has.
 ## WebStorm and the other JetBrains IDEs
 
 WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine all run ESLint
-natively, so the rules light up **inline, with no plugin to install** — the same forty-eight checks, in
+natively, so the rules light up **inline, with no plugin to install** — the same forty-nine checks, in
 the editor, in the Problems tool window, and under **Code → Inspect Code** for the whole project.
 
 Install and configure once:
@@ -17785,14 +17871,14 @@ still hand-rolls its doubles" question actually needs.
 
 **A native JetBrains plugin is not planned**
 A plugin in the JetBrains Marketplace would duplicate an integration the IDE already has, and would
-then have to keep a second copy of forty-eight rules — in Kotlin — in step with the TypeScript ones.
+then have to keep a second copy of forty-nine rules — in Kotlin — in step with the TypeScript ones.
 Where the ESLint route genuinely cannot reach (a repository with no ESLint at all), the honest fix
 is four lines of `eslint.config.js`, not a second implementation.
 
 ## VS Code, Cursor, Windsurf, VSCodium
 
 Install the [ESLint extension](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint)
-and the flat config above is enough: the same forty-eight rules, inline and in the Problems panel.
+and the flat config above is enough: the same forty-nine rules, inline and in the Problems panel.
 
 ```jsonc
 // .vscode/settings.json
@@ -22854,7 +22940,7 @@ Beyond the runner swap, everything the old API did not have:
 [`renderShallow` and `createWithAutoSpies`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular),
 [observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions),
 [fake timers that settle](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers),
-[console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console), [forty-eight ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin),
+[console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console), [forty-nine ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin),
 Bun and `node:test` support — and [Angular's `TestBed` under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
 
 ## Did the migration lose a test?
@@ -24076,7 +24162,7 @@ Short and factual.
   ways an AOT test bundle fails half an hour later in someone else's spec.
 - **Beyond Vitest**, the same API runs on `bun:test` and `node:test`, and Angular's `TestBed` runs
   [under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
-- **[Forty-eight lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Forty-nine lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Did the migration lose a test?
 
@@ -24741,7 +24827,7 @@ Nothing in this package's spy path touches `NgZone` either, so the two coexist w
   rather than typing the real service as a double.
 - **The same API off Angular** — [`bun:test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun), [`node:test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/node), NestJS,
   React, Vue, Svelte, and Angular's `TestBed` [under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
-- **[Forty-eight lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Forty-nine lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Versions this was written against
 
@@ -25089,7 +25175,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `guardDocumentPollution(reaction \| { reaction, nodes, ignoreAttributes, ignoreNodes })`                     | Name the test that left an attribute (or, with `nodes`, a child) on `<html>` / `<head>` / `<body>`, and put it back (`/setup`)                                                                                                                                                            |
 | `guardStrayConsole(reaction \| { reaction, allow })`                                                         | Fail a test that wrote to the console without absorbing it, and a file that wrote outside any test (`/setup`)                                                                                                                                                                             |
 | `withoutStrayTimerTracking(work, host?)`                                                                     | Run setup work whose timers the stray-timer tracker must neither count nor cancel (`/setup`)                                                                                                                                                                                              |
-| `describeStrayTimers(host?)`                                                                                 | Each timer still pending, with its kind, the spec file that scheduled it and up to five frames — the list `onStrayTimers` gets (`/setup`)                                                                                                                                                 |
+| `describeStrayTimers(host?)`                                                                                 | Each timer still pending, with its kind and delay, the spec file that scheduled it and up to five frames — the list `onStrayTimers` gets (`/setup`)                                                                                                                                       |
 | `trackStrayListeners()` / `baselineStrayListeners()`                                                         | Take off `window` / `document` listeners a file leaves registered; the baseline keeps what the module graph added (`/setup`)                                                                                                                                                              |
 | `removeStrayListeners()` / `countStrayListeners()` / `describeStrayListeners()`                              | Count, describe and take off the listeners added since the baseline — what `strayListeners` runs at the file boundary (`/setup`)                                                                                                                                                          |
 | `captureGlobalBaseline()` / `restoreGlobals()`                                                               | One snapshot of `globalThis` per worker; every changed global put back at the file boundary, the accessor-forwarding trap included (`/setup`)                                                                                                                                             |
@@ -25148,7 +25234,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `consoleDebugSpy` … `consoleWarnSpy`                                                                         | Silent typed spies replacing the global `console` methods on import (`/console`)                                                                                                                                                                                                          |
 | `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()`                                         | Install / clear / undo the console spies (`/console`)                                                                                                                                                                                                                                     |
 | `errorHandler`                                                                                               | The `mustBeCalledWith` argument-mismatch error helper                                                                                                                                                                                                                                     |
-| `vitest-auto-spy/eslint-plugin`                                                                              | Forty-eight flat-config lint rules that steer a suite onto these helpers                                                                                                                                                                                                                  |
+| `vitest-auto-spy/eslint-plugin`                                                                              | Forty-nine flat-config lint rules that steer a suite onto these helpers                                                                                                                                                                                                                   |
 
 ## Helper surface by return type
 
@@ -25912,7 +25998,7 @@ alongside it:
   of, kept to the mocks that outlive a file. On `isolate: false` it is what makes `clearMocks` cost
   more with every test already run, and what keeps a whole run's recorded arguments — and the
   component trees behind them — alive in one worker.
-- [Forty-eight ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
+- [Forty-nine ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#where-a-spec-spends-its-time) — which specs
   actually pay for `TestBed`, and by how much.

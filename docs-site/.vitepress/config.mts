@@ -463,6 +463,8 @@ export default defineConfig({
           'Reflect.get private member test, Reflect.set on component, no-reflect-member-access, ' +
           'read a private field from a spec, write a private field from a spec, Reflect.set dead property, ' +
           'test calls the spy itself, spyOn then emit then toHaveBeenCalled, no-self-called-spy, ' +
+          'prefer-spy-on-own-method, createSpyFromInstance onlyMethodsToSpyOn passthrough one method, spyOnOwnMethod lint, ' +
+          'spyOnVoidMethod preventDefault returns undefined, find createSpyFromInstance calls to migrate, ' +
           'test that proves emit calls emit, assert a call the test made, ' +
           'vi.clearAllMocks in beforeEach redundant, clearMocks true already resets, restoreMocks vs clearMocks, ' +
           'no-redundant-mock-reset, mockClear in a hook, remove vi.restoreAllMocks afterEach, ' +

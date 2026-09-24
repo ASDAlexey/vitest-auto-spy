@@ -10,6 +10,38 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`prefer-spy-on-own-method`, in `recommended` at `warn`.** It finds the long spelling of the two
+  5.29 helpers, which a text search misses once the call spans several lines:
+  `createSpyFromInstance(x, { onlyMethodsToSpyOn: ['m'], passthrough: true })` read for `m` alone —
+  `.m` on the call, `const { m } = …`, a bare statement, or a name read only as `v.m` — is
+  `spyOnOwnMethod(x, 'm')`, and the same whitelist with `returns: { m: undefined }` is
+  `spyOnVoidMethod(x, 'm')`. Both are exact, so `--fix` rewrites the call and every `v.m` read, imports
+  the helper beside the factory and drops the factory's import once nothing else uses it. A
+  `Spy<X>` annotation becomes `Spy<X>['m']` in a suggestion. A bare `returns: { m: undefined }` seed,
+  whose discovery also spies every other method, is offered as a suggestion only on a real event or
+  element (`new MouseEvent(…)`, `document.createElement(…)`, `fixture.nativeElement`, one name away
+  included), never on a double. `warn`, because the call it reports is correct.
+
+### Fixed
+
+- **A stray timer's origin names the code that scheduled it, not the tracking wrapper.** Built from
+  `dist`, the report quoted `at captureOrigin (…/node_modules/vitest-auto-spy/dist/setup.js)`: the
+  filter for the wrapper's own frames matched the source file name, which the bundle does not have,
+  and twelve frames ran out inside a zone or an rxjs scheduler before the first line outside
+  dependencies, so the fallback quoted the wrapper. The stack is now cut at the installed
+  `setTimeout` / `setInterval` / `requestAnimationFrame` wrapper and taken forty frames deep below it;
+  the package's own frames are never quoted, and when the call came from dependencies only, their
+  frames stand in. The same `dist` filter now applies to stray listeners, console calls and
+  rejections. A flaky stray that shows up only under a slow coverage run is now actionable from the
+  first report.
+- **`StrayTimer` carries the `delay`, and the `--detect-async-leaks` warning prints it.** Each
+  timeout and interval in `describeStrayTimers()` and in `onStrayTimers`' `timers` now has the delay
+  it was scheduled with (a frame has none), and the warning reads `timeout (300 ms) from …` instead
+  of `timeout from …`. An additive field; a handler that prints its own message should print `kind`,
+  `delay` and `frames[0]`.
+
 ### Docs
 
 - **`AGENTS.md` says which entry `spyOnOwnMethod` and `spyOnVoidMethod` come from.** The §2
