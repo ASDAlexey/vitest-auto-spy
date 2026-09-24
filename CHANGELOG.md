@@ -459,7 +459,7 @@ The latest released version here must always match the one published on
   `querySelector`, `query`/`queryAll`, `getElement*`, `closest` or `By.*` is no longer treated as the
   setup subject.
 - **An unnamed strict double is named by the line that built it.** A `createAutoMock` or `autoMocked`
-  double without a `name` reported "Nothing configured goToLiveMode", and an `onUnstubbedCall` handler
+  double without a `name` reported "Nothing configured jumpToLatest", and an `onUnstubbedCall` handler
   received `className: undefined`, so with several unnamed doubles in a file nothing said which one it
   was. The message and the handler now get `createAutoMock(users.spec.ts:12)`; the stack is captured
   only for a double that strict mode or a handler will report on. A `createSpyFromClass` over a fully
@@ -621,7 +621,7 @@ reduced to a minimal case in the rule's spec first.
 
 - **`no-unasserted-argument` took two test-local spies of one name for one subject.** Identity was
   the source text alone, so `const emit = vi.spyOn(component.setFocus, 'emit')` asserted bare in
-  one test was "pinned elsewhere" by `const emit = vi.spyOn(component.seasonSelected, 'emit')` with
+  one test was "pinned elsewhere" by `const emit = vi.spyOn(component.entrySelected, 'emit')` with
   `toHaveBeenCalledWith` in the next — the one direction the rule promised never to err in. A name
   holding `vi.spyOn(obj, 'm')` is now read as that member whatever it is called, and a name holding
   a `vi.fn()` as nobody but itself. On the consumer: six findings gone, two gained where two
@@ -755,8 +755,8 @@ edit are the two that ship at `warn`.
   **Order is the whole rule.** The same three shapes in another order are ordinary arrangement, so a
   finding needs the spy installed first, the direct call after it, and a positive `toHaveBeenCalled*`
   after that — three ranges in order, inside one test body. Without that check the measured consumer
-  produced a false positive immediately: a `service.updateShelfState(…)` written *above* its own
-  `vi.spyOn(service, 'updateShelfState')`.
+  produced a false positive immediately: a `service.updateSectionState(…)` written *above* its own
+  `vi.spyOn(service, 'updateSectionState')`.
 
   **Two more discriminations came out of the measurement**, and both are the spec saying in its own
   text that the call is not what its assertion reads. A `mockClear` / `mockReset` / `mockRestore` /
@@ -855,12 +855,12 @@ edit are the two that ship at `warn`.
 
   ```ts
   it('yields an empty list when no sub-genre resolved to an address', () => {
-    let chips: MusicGenreChip[] = [];
+    let chips: GenreChip[] = [];
 
     load$(quickLinks).subscribe((result) => (chips = result));
 
     expect(chips).toEqual([]);
-    expect(music.getMusicShelfById).not.toHaveBeenCalled();
+    expect(catalog.getSectionById).not.toHaveBeenCalled();
   });
   ```
 
@@ -873,7 +873,7 @@ edit are the two that ship at `warn`.
   **Proved by mutation, twice.** On an Angular monorepo of 2 030 spec files, the production source
   of the file above was replaced with one that never emits: three of its siblings failed and this
   test stayed green. The same swap in a promo-banner service failed four tests and left two, both of
-  this shape. Two tests further down that same music file capture into
+  this shape. Two tests further down that same file capture into
   `let chips: … | null = null` and assert `toEqual([])`, which *does* fail on silence — the author
   knew the idiom and did not apply it everywhere, which is what a linter is for. The rule reports
   **39 times across 33 files** there, 22 of them a written capture and 17 a `vi.fn()` handed to
@@ -983,7 +983,7 @@ edit are the two that ship at `warn`.
   monorepo of 2 030 spec files, the rule reports **81 times across 32 files** — and four of those
   reports, in one file, carry a hand-written `await Promise.resolve()` on the line underneath, which
   is `flushEventLoop(1)` spelled out. Eleven further sites of the same shape had already been lifted
-  into spec-local helpers named `flushPinCodeChunk`, `settleProfileSelectImport`,
+  into spec-local helpers named `flushCodeInputChunk`, `settleAccountPickerImport`,
   `settleModalImports`, `settleModalComponentImport` and `flushLazyImport`, two of them with a loop
   of five `await Promise.resolve()` under the import, each with a comment explaining that the module
   loader runs outside the zone and outside fake timers. The suite wrote this helper by hand eleven
@@ -2239,7 +2239,7 @@ every read (53 ns against 7 ns), which leaves it nothing but build time — see 
   but the two fail nothing alike. `[...undefined]` and `f(...undefined)` throw; `{ ...undefined }`
   is `{}`. So the object form raises nothing, the bundle loads, and the constant it built is short
   of every key it meant to copy, each one reading `undefined` for the rest of the run. Found on a
-  consumer workspace whose `export const MusicItemType = { ...ShelfItemTypeEnum, ...MusicOnlyItemType }`
+  consumer workspace whose `export const CatalogItemType = { ...SectionItemType, ...ExtraItemType }`
   the rule flagged correctly and described wrongly — the reader searched the log for a
   `Spread syntax requires …` that was never going to be there, and the finding read as a false
   positive. An object spread is now reported through `noImportTimeSpreadObject`, whose message opens
@@ -2304,7 +2304,7 @@ every read (53 ns against 7 ns), which leaves it nothing but build time — see 
 ### Changed
 
 - **The `perf` hotspot tables name the file before its bodies.** A body's label was one `file › name`
-  column, and a long path ate it from the left: `…ponent.spec.ts › MediaPremiumBenefitsComponent › …`
+  column, and a long path ate it from the left: `…ponent.spec.ts › PlanBenefitsComponent › …`
   answered neither which file nor which test. The bodies table prints the file once, whole, with its
   bodies indented under it — a name that still does not fit loses its head, where the suites around
   the test are, and keeps the test. A path too wide for its column is cut in the middle on segment
@@ -2381,7 +2381,7 @@ every read (53 ns against 7 ns), which leaves it nothing but build time — see 
   against the compiled definition before it writes the first one, and it types the value — which is
   the half that pays: rewriting the 650 calls the rule can rewrite on an Angular suite of 1771 spec
   files turned **72 fixtures that had drifted from the model they claim to be into compile errors,
-  across 21 files** — a `{}` for a `CardButtonExtra`, a literal still written in the previous shape
+  across 21 files** — a `{}` for a `CardActionExtra`, a literal still written in the previous shape
   of an interface, an `imageUrl` for a model whose field is `imgUrl`. It reports a **run** rather
   than a call, because that is the shape of the repair: one `setInputs` carrying every input the run
   sets, with the `detectChanges()` under it removed, since `stable()` flushes effects and awaits the
@@ -2547,8 +2547,8 @@ Angular surface is unchanged.
   deleted:
 
   - **Any expression counted as "the subject existing".** `toBeTruthy` reads the same over a name and
-    over a call, so `expect(isChildProfile(FAMILY_ROLE.CHILD))`, `expect(consoleTransport(true))`,
-    `expect(component.periodsOffset()).not.toBeNull()`,
+    over a call, so `expect(isRestrictedProfile(MEMBER_ROLE.CHILD))`, `expect(consoleTransport(true))`,
+    `expect(component.rangeOffset()).not.toBeNull()`,
     `expect(fixture.nativeElement.querySelector('expand-card'))`,
     `expect(samples.every((x) => x >= 0 && x <= 100))` and an `it.each` over seven content types
     asserting `expect(createService().resolve(type))` were all reported as generated smoke tests. The
@@ -2566,7 +2566,7 @@ Angular surface is unchanged.
     timestamps — no sibling would have failed first, and the claim was simply false. A running test
     in the block must now reach the subject.
   - **Sharing the root name is not sharing the subject.** `expect(publicApi.FocusModule).toBeDefined()`
-    beside `expect(publicApi.smartPlayerSettings).toBeDefined()` has `publicApi` in common and
+    beside `expect(publicApi.viewerSettings).toBeDefined()` has `publicApi` in common and
     nothing else; removing it removed the only check that three symbols are exported at all. The
     reference compared is the whole path.
 
@@ -3194,10 +3194,10 @@ no test bundle imports.
 ### Fixed
 
 - **`provideAutoSpy` keeps a generic class's declared default next to an accessor list and
-  `returns`.** `provideAutoSpy(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: {
+  `returns`.** `provideAutoSpy(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: {
   isKeyEnabled: false } })` failed with `'isKeyEnabled' does not exist in type 'MethodReturns<{
-  remoteConfig: any; }>'`: TypeScript checks a generic class argument after the configuration, reads
-  `T` back from the list as `{ remoteConfig: any }`, and rejects the call before the class is read —
+  flagsConfig: any; }>'`: TypeScript checks a generic class argument after the configuration, reads
+  `T` back from the list as `{ flagsConfig: any }`, and rejects the call before the class is read —
   either half alone inferred the default, and `overrides` with `returns` failed the same way. The
   consumer spelled the type argument out at eight call sites. `provideAutoSpy`, `overrideAutoSpy`
   and `overrideComponentProvider` now take `T` from the class alone (`NoInfer`, TypeScript 5.4 — every
@@ -3502,7 +3502,7 @@ reaches the doubles a spec builds: it used to live in a copy of the module no sp
 - **`overrides` on a spied getter was silently dropped.** A member named in `gettersToSpyOn` — or
   by a `registerAutoSpyDefaults` registration, which is how the consumer met it — is an accessor
   whose setter records the assignment and whose getter keeps answering `undefined`, so
-  `provideAutoSpy(RemoteConfigService, { overrides: { remoteConfig } })` did nothing and nothing said
+  `provideAutoSpy(FlagsConfigService, { overrides: { flagsConfig } })` did nothing and nothing said
   so. The seed is now what the getter spy returns, and a later `accessorSpies.getters.x.mockReturnValue(…)`
   still wins. A seed on a member that only has a spied setter becomes a plain value.
 
@@ -3589,7 +3589,7 @@ not see — stub classes, doubles typed `{ m: Mock }`, and a `let` a `beforeEach
   double is by definition one no rule could see.
 
   `no-stub-class-double` (**`warn`**) reports a class whose own fields are `vi.fn()`s —
-  `class NewCardServiceMock { load = vi.fn(); }`, which is an object of `vi.fn()`s with a `new` in
+  `class PaymentCardServiceMock { load = vi.fn(); }`, which is an object of `vi.fn()`s with a `new` in
   front of it and drifts from its class the same way. `prefer-create-spy-from-class` matched an
   `ObjectExpression` and a class declaration is not one; that blind spot held **112 `vi.fn()` fields
   in 46 classes across 32 files**. It reports at **one** field, where the object rule needs two,
@@ -3615,7 +3615,7 @@ not see — stub classes, doubles typed `{ m: Mock }`, and a `let` a `beforeEach
   and **115 across 74**.
 
 - **`prefer-provide-auto-spy` reads `useClass:` and `useValue: new StubMock()`.** The string
-  `useClass` appeared nowhere in the plugin, so `{ provide: NewCardService, useClass: NewCardServiceMock }`
+  `useClass` appeared nowhere in the plugin, so `{ provide: PaymentCardService, useClass: PaymentCardServiceMock }`
   — the shape 22 of that consumer's stub classes are registered through — was reported by nothing, and
   a stub instantiated by hand in a `useValue` slipped past for the adjacent reason (the object reading
   answers for an `ObjectExpression`, and a `new` expression is not one). One `vi.fn()` field is enough
@@ -4031,9 +4031,9 @@ and `overload` is chosen per method rather than for a whole type.
 
   The reason is not repetition. Measured over one Angular suite: 739 of 2228 `provideAutoSpy` calls
   carry a configuration, and one class collects incompatible opinions — `Router` 122 calls in 109
-  files with **23 distinct configurations**, `AccountService` 70/62/**27**, `PurchaseStateService`
-  53/52/**25**, and the `*RemoteConfigService` family 205 calls with 120 repeating
-  `{ gettersToSpyOn: ['remoteConfig'] }` word for word. The list options are additive and never
+  files with **23 distinct configurations**, `AccountService` 70/62/**27**, `CheckoutStateService`
+  53/52/**25**, and the `*FlagsConfigService` family 205 calls with 120 repeating
+  `{ gettersToSpyOn: ['flagsConfig'] }` word for word. The list options are additive and never
   complain about a name they cannot find — deliberately, since they exist to name members no
   prototype carries — so 23 opinions about `Router` means most of those files do not spy `events` at
   all, and the day production grows a subscription to it not one of them says so. **By class
@@ -4061,7 +4061,7 @@ and `overload` is chosen per method rather than for a whole type.
   `enableAngularDiagnostics({ deadSchemas })`, which knows more but throws inside `it()` — a suite
   yields its list one red run at a time, where the rule hands over all of it at once. Measured over
   one Angular suite: of 333 files mentioning a schema, **230 entries in 204 files** are dead
-  (`apps/smart` 63, `libs/purchase` 61, `apps/web` 22, `libs/gamification` 22). Nothing is being
+  (`apps/portal` 63, `libs/checkout` 61, `apps/web` 22, `libs/rewards` 22). Nothing is being
   silenced, so this is not a green-and-wrong test — what the line costs is a false sense of
   protection, and the day somebody adds `declarations` it starts being true and a template typo
   quietly stops being an error. **The file decides, not the call**: Angular merges successive
@@ -4106,7 +4106,7 @@ and `overload` is chosen per method rather than for a whole type.
 
   The default stays `'last'`, and that is a decision rather than an omission: "the useful signature"
   is not decidable from the type. A generated `observe` client wants the first, a four-overload
-  `api-mgw` client wants the last, and both live in one suite; separating them structurally would
+  `api-gateway` client wants the last, and both live in one suite; separating them structurally would
   mean naming Angular's `HttpEvent` in a declaration this package ships, which nothing here is
   allowed to do. What the docs now say out loud is the reason to name the method rather than trust
   the default at all: **overload order is not always the author's.** A `declare global` in a
@@ -4146,7 +4146,7 @@ and `overload` is chosen per method rather than for a whole type.
   being shared between members: a flag whose body is the constant `false`, with no overload
   detection at all, already takes `types:budget` from a delta of **9 665 to 11 769** against a
   ceiling of 11 000, and detection adds ~840 more (the cheapest probe measured 12 605, the most
-  obvious one 16 355). Precision — on a four-overload `api-mgw` client, where `'last'` is already
+  obvious one 16 355). Precision — on a four-overload `api-gateway` client, where `'last'` is already
   right, an honestly wrong stub reads `OverloadCollapsed_UseSpyOverloadOption<Movie[]>` and is sent
   to an option that would change nothing. Coverage — `mockReturnValue` is typed by
   `MockInstance<Method>`, the runner's own surface, which nothing this package wraps can reach.
@@ -4202,7 +4202,7 @@ and `overload` is chosen per method rather than for a whole type.
   do under `isolate: false`.
 
 - **A generic class's declared default type argument reaches the double.** `class
-  RemoteConfigService<T = RemoteConfigDefaults>` handed to `createSpyFromClass` or `injectSpy`
+  FlagsConfigService<T = FlagsConfigDefaults>` handed to `createSpyFromClass` or `injectSpy`
   inferred `T` as `unknown`, so every member typed against it read as `unknown` — on a class that
   had declared exactly what it should be, with nothing in the failure naming a type parameter. Two
   shapes caused it and both are gone: `ClassType<T>` carried an `& { [key: string]: any }`
@@ -5861,7 +5861,7 @@ renamed, and no runtime behaviour changed.
   than two that drift, and the core imports no framework at all.
 
 - **ESLint: `no-import-time-spread` (`error`, suggestion), the thirteenth rule.** A module-scope
-  spread of an imported binding — `export const webosEvents = [...BaseEvents]` — is safe under `tsc`
+  spread of an imported binding — `export const platformEvents = [...BaseEvents]` — is safe under `tsc`
   and under a browser's ESM loader, and raises
   `Spread syntax requires ...iterable[Symbol.iterator] to be a function` while a spec _bundle_ loads,
   because a shared chunk can be evaluated while a binding it re-exports is still `undefined`. An AST
@@ -5953,7 +5953,7 @@ renamed, and no runtime behaviour changed.
 - **`mockReadonlyProp` / `mockValueProp` / `mockReadonlyPropGetter` / `mockAccessorsProp` explain a
   property that refuses to be replaced.** They reach the same `Object.defineProperty` as the accessor
   spies behind the adapter, which have named the target and the way out for a while, and used to hand
-  the bare `TypeError: Cannot redefine property: injectDomainMetrics` straight back. The shared
+  the bare `TypeError: Cannot redefine property: injectAppMetrics` straight back. The shared
   explanation now lives in one place and both seams use it. The second half of the fix is the one
   that was costing a second failure: the undo journal is written **after** the define succeeds rather
   than before it, so a patch that never happened no longer sits there until the next
@@ -6288,7 +6288,7 @@ has no gap against npm — see [CONTRIBUTING.md → Release checklist](./CONTRIB
 - **`expectError(source$, options?)` — the error, unwrapped.** The emission helpers wrap a stream
   failure in a new `Error` whose message names the stream, which is right for reporting a failure
   nobody expected and useless when the failure is the subject: `rejects.toBe(originalError)`,
-  `rejects.toBeInstanceOf(UdmsStatusError)` and an exact message comparison all fail against the
+  `rejects.toBeInstanceOf(UpstreamStatusError)` and an exact message comparison all fail against the
   wrapper, and three migrated specs lost the assertion they had. `expectError` resolves *with* the
   error as it was thrown, waits for it however late it arrives, and fails — naming the stream — when
   the stream completes or stays quiet instead. The wrapped failures now also carry the original on

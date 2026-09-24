@@ -488,7 +488,7 @@ error  perf-gate-slow-file libs/player/src/lib/vod/vod.component.spec.ts
        │              █████░░░░░░░░░░░░░░░  25%  @angular/core
        │              ██░░░░░░░░░░░░░░░░░░  10%  zone.js
        │ in the spec  setUpWith 38%  ·  VodComponent_Template 17%  ·  assertFocus 8%
-       │ your code    FocusCollectionDirective 4%  ·  TimelineComponent_Template 3%  ·  platformFactory 1%
+       │ your code    FocusGroupDirective 4%  ·  TimelineComponent_Template 3%  ·  platformFactory 1%
        │ hottest      (garbage collector) 3%  ·  onScheduleTask (zone.js) 2%  ·  refreshView (@angular/core) 2%
        ├─ likely cause ────────────────────────────────────────────────
        │ Most of the time is set-up that every test repeats: 54% is in hooks — setUpWith alone is 38%. Build what does not change once, in a beforeAll, or render less per test.
@@ -589,8 +589,8 @@ error  perf-gate-slow-test libs/a/src/lib/thing.spec.ts
 ```
 files over budget — 2 of 2015; the gate re-measures these and fails on them
    time  budget  over  tests  ms/test  ×median  vs base  file
-  1.90s   634ms  3.0×    101     19ms     9.0×     0.8×  apps/web/src/app/tv/channel-card.component.spec.ts
-  1.43s   418ms  3.4×      5    285ms     136×      new  apps/web/src/app/purchase/thanks-page.factory.spec.ts
+  1.90s   634ms  3.0×    101     19ms     9.0×     0.8×  apps/web/src/app/catalog/item-card.component.spec.ts
+  1.43s   418ms  3.4×      5    285ms     136×      new  apps/web/src/app/checkout/receipt-page.factory.spec.ts
 ```
 
 Под `--gate` за подтверждающим проходом идёт **таблица вердикта**: по строке на кандидата — `kind`

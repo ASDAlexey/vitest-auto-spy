@@ -685,7 +685,7 @@ httpMock.expectOne(url).flush(payload);
 await expect(emission).resolves.toEqual(payload);
 
 // 3. ассерт в ветке ошибки — `expectEmission` разрешается на значении
-await expect(firstValueFrom(source$)).rejects.toBeInstanceOf(UdmsStatusError);
+await expect(firstValueFrom(source$)).rejects.toBeInstanceOf(UpstreamStatusError);
 ```
 
 Признак для второго случая чисто синтаксический: после инструкции с `subscribe` есть ещё одна
@@ -714,12 +714,12 @@ source$.subscribe((data) => assertShape(data)); // всё ещё ассерт, �
 
 ```ts
 it('yields an empty list when no sub-genre resolved to an address', () => {
-  let chips: MusicGenreChip[] = [];
+  let chips: GenreChip[] = [];
 
   load$(quickLinks).subscribe((result) => (chips = result));
 
   expect(chips).toEqual([]); // ❌ верно и когда поток выдал `[]`, и когда не выдал ничего
-  expect(music.getMusicShelfById).not.toHaveBeenCalled();
+  expect(catalog.getSectionById).not.toHaveBeenCalled();
 });
 ```
 
@@ -826,7 +826,7 @@ Spread syntax requires ...iterable[Symbol.iterator] to be a function
 ```ts
 import { BaseEvents } from './base-events';
 
-export const webosEvents = [...BaseEvents]; // ❌ безопасно под tsc, TypeError внутри бандла
+export const platformEvents = [...BaseEvents]; // ❌ безопасно под tsc, TypeError внутри бандла
 ```
 
 Под `tsc` и под браузерным ESM-загрузчиком это упасть не может — модуль никогда не выполняется раньше
@@ -846,10 +846,10 @@ export const webosEvents = [...BaseEvents]; // ❌ безопасно под tsc
 собиралась скопировать:
 
 ```ts
-import { ShelfItemTypeEnum } from '@acme/api';
+import { SectionItemType } from '@acme/api';
 
 // ❌ ничего не бросается; `ItemType.COVER` просто читается как `undefined` до конца прогона
-export const ItemType = { ...ShelfItemTypeEnum, ...LocalItemType } as const;
+export const ItemType = { ...SectionItemType, ...LocalItemType } as const;
 ```
 
 Разделение сообщений — это и есть смысл правила, а не деталь: читатель, отправленный искать
@@ -1006,7 +1006,7 @@ providers: [
 словами:
 
 ```ts
-providers: [provideAutoSpy(KidsModeService), provideRouter([]), provideAutoSpy(KidsModeService)];
+providers: [provideAutoSpy(SafeModeService), provideRouter([]), provideAutoSpy(SafeModeService)];
 ```
 
 Angular и так уже игнорировал первый, так что удаление не может изменить то, что получает тест. Это
@@ -1207,7 +1207,7 @@ module has already been instantiated_. Подсказку жмут по одно
 ничего.
 
 `prefer-as-spy` — тот же вопрос строкой ниже, и именно его переезд встречает массово:
-`devicesService = TestBed.inject(DeviceListService) as Spy<DeviceListService>` пишется по разу на каждый
+`hardwareService = TestBed.inject(DeviceListService) as Spy<DeviceListService>` пишется по разу на каждый
 внедрённый дубль в `jest-auto-spies`-сюите, и каждый из них падает с `TS2352` в этой библиотеке —
 [самая частая ошибка компиляции у переехавшей Angular-сюиты](/ru/migrating#reading-a-spy-back-out-of-the-container).
 `asSpy(...)` — то же утверждение без каста, поэтому правило чинит это под `--fix`.
@@ -1371,9 +1371,9 @@ register = { contentType: '…', metrics: vi.fn().mockResolvedValue(payload) }; 
 import { asSpy } from 'vitest-auto-spy';
 
 // до
-devicesService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
+hardwareService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
 
-devicesService = asSpy<DeviceListService>(TestBed.inject(DeviceListService));
+hardwareService = asSpy<DeviceListService>(TestBed.inject(DeviceListService));
 ```
 
 Типовые аргументы переносятся, а не отдаются на вывод. У `Spy<T, Options>` и `asSpy<T, Options>` один и
@@ -1429,10 +1429,10 @@ it('maps the products', async () => {
 
 ```ts
 // ❌ вычисляется во время загрузки модуля — `[...undefined]` внутри бандла
-export const webosEvents = [...BaseEvents];
+export const platformEvents = [...BaseEvents];
 
 // ✅ что получается, если принять подсказку; каждое использование имени обзаводится `()`
-export const webosEvents = () => [...BaseEvents];
+export const platformEvents = () => [...BaseEvents];
 ```
 
 Последняя — подсказка в самом сильном смысле: принять её значит заставить тайпчекер назвать каждую точку
@@ -1461,7 +1461,7 @@ export const webosEvents = () => [...BaseEvents];
 | `no-shared-module-level-mock`  | ничего — собственное состояние фикстуры переезжает между файлами при `isolate: false`                                                                                                                                                                                          |   зелено   |
 | `no-object-define-property`    | ничего в файле, который патчил; **следующий** файл читает пропатченное значение                                                                                                                                                                                                |   зелено   |
 | `no-mocked-for-spy`            | `TS2322 … missing the following properties from type 'CartService': http, cache`                                                                                                                                                                                               | компиляция |
-| `prefer-create-spy-from-class` | `TypeError: cart.applyPromo is not a function`                                                                                                                                                                                                                                 |   красно   |
+| `prefer-create-spy-from-class` | `TypeError: cart.applyCoupon is not a function`                                                                                                                                                                                                                                |   красно   |
 | `prefer-provide-auto-spy`      | то же самое, одним прыжком DI дальше                                                                                                                                                                                                                                           |   красно   |
 | `prefer-inject-spy`            | `spy.getPlans.nextWith is not a function`                                                                                                                                                                                                                                      |   красно   |
 | `no-inject-before-override`    | `Cannot override provider when the test module has already been instantiated. Make sure you are not using \`inject\` before \`overrideProvider\``                                                                                                                              |   красно   |
@@ -1728,7 +1728,7 @@ await TestBed.configureTestingModule({
 ```
 
 Замер на одной Angular-сюите: из 333 файлов, упоминающих схему, мертвы **230 мест в 204 файлах** —
-`apps/smart` 63, `libs/purchase` 61, `apps/web` 22, `libs/gamification` 22, остальное хвостом.
+`apps/portal` 63, `libs/checkout` 61, `apps/web` 22, `libs/rewards` 22, остальное хвостом.
 
 Ничего не заглушается, так что зелёного-и-неверного теста здесь нет: то, ради чего схему добавили,
 по-прежнему не разрешается и по-прежнему падает. Строка стоит другого — **ложного чувства защиты**.
@@ -1799,7 +1799,7 @@ expect(component.total()).toBe(3); // и наблюдаемый эффект
 **Почему правило обязано быть типозависимым, одним числом.** Замер на корпусе из 1759 спек-файлов
 Angular: синтаксическая версия — любой `obj['literal']` — даёт **511 находок в 85 файлах**. Из них
 **324 в 45 файлах** разрешаются в член, объявленный `private` или `protected`. Остальные
-**187 (37 %)** — корректный код, который трогать нельзя: `process.env['APP_KM_ENABLED']`,
+**187 (37 %)** — корректный код, который трогать нельзя: `process.env['APP_FEATURE_ENABLED']`,
 `dataset['error']`, `queryParams['id']` у маршрута, `req.headers['x-request-id']`,
 `form.controls['profileName']`, `errors?.['required']`. Число, которое стоит запомнить отдельно:
 **41 файл из этих 85** не содержит приватного доступа вовсе — сверка ключа со списком имён,
@@ -1862,7 +1862,7 @@ after restoreMockedProps: onLine=true                 ← mockValueProp, run on 
 Написанный руками дубль корректен в тот день, когда его написали. Потом у класса появляется метод:
 
 ```text
-F1  hand-written { total: vi.fn() }        → TypeError: cart.applyPromo is not a function
+F1  hand-written { total: vi.fn() }        → TypeError: cart.applyCoupon is not a function
 F2  createSpyFromClass(CartService)        → follows the class, no edit
 ```
 

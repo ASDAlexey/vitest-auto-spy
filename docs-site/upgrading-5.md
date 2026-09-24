@@ -194,9 +194,9 @@ The two largest shapes, before and after:
 ```ts
 // `Subject` is invariant, so its type argument has to be the method's own, `?` for `?` and `| undefined` for `| undefined`
 const events$ = new Subject<EventData<{ params?: EventDataParams }>>(); // ❌ `on` declares `params?: EventDataParams | undefined`
-pixelStreaming.on.mockReturnValue(events$);
+remoteRendering.on.mockReturnValue(events$);
 
-const events$ = pixelStreaming.on.returnSubject(); // ✅ typed from `on`, whatever it declares
+const events$ = remoteRendering.on.returnSubject(); // ✅ typed from `on`, whatever it declares
 ```
 
 ```ts

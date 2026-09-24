@@ -173,7 +173,7 @@ providers: [provideAutoSpy(LocalStorage, { fillMissing: true })];
 ```ts
 provideAutoSpy(FavoritesService, {
   returns: { load: of([]) },
-  overrides: { favoritesCacheUpdated$: of(undefined), favoriteItems: [] },
+  overrides: { savedItemsChanged$: of(undefined), favoriteItems: [] },
 });
 
 provideAutoSpyForToken(PRODUCTS, undefined, { returns: { getProducts: of([]), getById: of(null) } });
@@ -1542,7 +1542,7 @@ if (process.env['SPEC_TIMING']) {
 ```
 
 ```
-[vitest-auto-spy] src/app/…/layer-editor.component.spec.ts — TestBed 353ms of 661ms (53%), logic 308ms, 155 component(s), 132 module config(s)
+[vitest-auto-spy] src/app/…/form-editor.component.spec.ts — TestBed 353ms of 661ms (53%), logic 308ms, 155 component(s), 132 module config(s)
 ```
 
 По одной строке на файл спеки: сколько её астрономического времени ушло в `TestBed` (конфигурация

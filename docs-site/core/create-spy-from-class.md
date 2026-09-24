@@ -170,15 +170,15 @@ provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] }); // ad
 **Why this is not only tidiness.** Measured over one Angular suite: 739 of 2228 `provideAutoSpy`
 calls carry a configuration, and the same class collects incompatible opinions —
 
-| class                      | calls | files | with a config | **distinct configurations** |
-| -------------------------- | ----: | ----: | ------------: | --------------------------: |
-| `Router`                   |   122 |   109 |            60 |                      **23** |
-| `AccountService`           |    70 |    62 |            43 |                      **27** |
-| `PurchaseStateService`     |    53 |    52 |            42 |                      **25** |
-| `SmartRemoteConfigService` |    85 |    70 |            47 |                           8 |
+| class                   | calls | files | with a config | **distinct configurations** |
+| ----------------------- | ----: | ----: | ------------: | --------------------------: |
+| `Router`                |   122 |   109 |            60 |                      **23** |
+| `AccountService`        |    70 |    62 |            43 |                      **27** |
+| `CheckoutStateService`  |    53 |    52 |            42 |                      **25** |
+| `RemoteSettingsService` |    85 |    70 |            47 |                           8 |
 
-— and the `*RemoteConfigService` family is 205 calls, 120 of them repeating
-`{ gettersToSpyOn: ['remoteConfig'] }` word for word. The list options are
+— and the `*FlagsConfigService` family is 205 calls, 120 of them repeating
+`{ gettersToSpyOn: ['flagsConfig'] }` word for word. The list options are
 [additive and do not complain about a name they cannot find](#configuration), which is deliberate —
 they exist to name members no prototype carries — so 23 opinions about `Router` means most of those
 files do not spy `events` at all, and the day production grows a subscription to it, not one of them
@@ -484,9 +484,9 @@ same is true the other way round. Mirroring reads the prototype descriptor, so i
 what the class already has: a read-only member stays read-only.
 
 Before 3.5.0 only the named half was spied, and the double came out poorer than the original exactly
-where the code under test expects symmetry. The assignment `service.manualSwitchKidMode = false`
+where the code under test expects symmetry. The assignment `service.toggleSafeMode = false`
 landed on the no-op setter the spy scaffolding installs, so the write vanished _and_ there was
-nothing to assert on — `accessorSpies.setters.manualSwitchKidMode` was `undefined`, and the failure
+nothing to assert on — `accessorSpies.setters.toggleSafeMode` was `undefined`, and the failure
 read `Cannot read properties of undefined` several steps from the configuration that caused it.
 
 ### Seeding a spied getter
@@ -496,16 +496,16 @@ read `Cannot read properties of undefined` several steps from the configuration 
 registration the call site never mentions — seeds the getter spy:
 
 ```ts
-registerAutoSpyDefaults([[RemoteConfigService, { gettersToSpyOn: ['remoteConfig'] }]]); // setup file
+registerAutoSpyDefaults([[FlagsConfigService, { gettersToSpyOn: ['flagsConfig'] }]]); // setup file
 
-providers: [provideAutoSpy(RemoteConfigService, { overrides: { remoteConfig: { theme: 'dark' } } })];
+providers: [provideAutoSpy(FlagsConfigService, { overrides: { flagsConfig: { theme: 'dark' } } })];
 
-injectSpy(RemoteConfigService).remoteConfig; // { theme: 'dark' }, and the read is recorded
+injectSpy(FlagsConfigService).flagsConfig; // { theme: 'dark' }, and the read is recorded
 ```
 
 Before this release the seed was assigned, the assignment landed in the spied accessor's setter, and
 the getter kept answering `undefined` — while the docs said seeded members win, and nothing warned.
-The getter stays a spy, so a later `accessorSpies.getters.remoteConfig.mockReturnValue(…)` still
+The getter stays a spy, so a later `accessorSpies.getters.flagsConfig.mockReturnValue(…)` still
 overrides the seed. A seed on a member whose spy has only a setter becomes a plain value instead of a
 write the getter never reads back.
 

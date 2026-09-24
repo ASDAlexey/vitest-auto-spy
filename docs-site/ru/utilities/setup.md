@@ -909,7 +909,7 @@ setupAutoSpy(); // prototypePollution: 'throw' — передайте 'warn', ч
 ```
 
 ```text
-[vitest-auto-spy] /src/app/purchase/purchase-open.service.spec.ts left "ngOnDestroy" on
+[vitest-auto-spy] /src/app/checkout/checkout-open.service.spec.ts left "ngOnDestroy" on
 Object.prototype as an own enumerable property. … **every spec file after this one in the same
 worker fails to collect** … The key has been taken back off so the rest of the run survives.
 ```

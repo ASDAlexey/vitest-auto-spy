@@ -531,7 +531,7 @@ from `vitest-auto-spy/angular-router` rather than at `provideAutoSpy`.
 
 **`registerAutoSpyDefaults(Class, config)` puts a spy's composition with the class, once.** Call it
 from the setup file for a class every suite doubles the same way (`Router` with
-`observablePropsToSpyOn: ['events']`, a remote-config service with its one getter); `provideAutoSpy(X)`
+`observablePropsToSpyOn: ['events']`, a config service with its one getter); `provideAutoSpy(X)`
 and `createSpyFromClass(X)` then merge it under whatever the call site adds — lists unioned, `returns`
 and `overrides` merged per key, scalars won by the call site. It is by class identity, not by
 inheritance, and `clearAutoSpyDefaults(Class)` — or `clearAutoSpyDefaults()` for the lot — drops a

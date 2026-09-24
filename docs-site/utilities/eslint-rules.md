@@ -200,12 +200,12 @@ value under assertion is a variable the test declared and only a `subscribe` cal
 
 ```ts
 it('yields an empty list when no sub-genre resolved to an address', () => {
-  let chips: MusicGenreChip[] = [];
+  let chips: GenreChip[] = [];
 
   load$(quickLinks).subscribe((result) => (chips = result)); // ❌ the test is green if this never runs
 
   expect(chips).toEqual([]);
-  expect(music.getMusicShelfById).not.toHaveBeenCalled();
+  expect(catalog.getSectionById).not.toHaveBeenCalled();
 });
 ```
 
@@ -213,7 +213,7 @@ it('yields an empty list when no sub-genre resolved to an address', () => {
 it('asks for no shelf when no sub-genre resolved to an address', async () => {
   await expectNoEmission(load$(quickLinks));
 
-  expect(music.getMusicShelfById).not.toHaveBeenCalled();
+  expect(catalog.getSectionById).not.toHaveBeenCalled();
 });
 ```
 
@@ -227,7 +227,7 @@ expect(await expectEmission(load$(quickLinks))).toEqual([]);
 **Why it is recommended.** Proved by mutation, twice, on a 2 030-file Angular suite. Replacing the
 production source of the file above with one that never emits failed three of its siblings and left
 this test green; the same swap in a promo-banner service failed four tests and left two, both of
-this shape. Two tests further down that same music file capture into `let chips: … | null = null`
+this shape. Two tests further down that same file capture into `let chips: … | null = null`
 and assert `toEqual([])`, which _does_ fail on silence — the author knew the idiom and did not apply
 it everywhere, which is what a linter is for. On that suite the rule reports **39 times across 33
 files**, 22 of them a written capture and 17 a `vi.fn()` handed to `subscribe`.
@@ -475,7 +475,7 @@ answer.
   takes nothing to do it — `createService()`, `TestBed.inject(Token)`. A call with a value in it, a
   method or signal read, a DOM query, an expression over a collection: all left alone, because the
   matcher cannot tell them apart from a subject and the assertion is the behaviour's only cover.
-  `expect(isChildProfile(FAMILY_ROLE.CHILD)).toBeTruthy()` and
+  `expect(isRestrictedProfile(MEMBER_ROLE.CHILD)).toBeTruthy()` and
   `expect(el.querySelector('expand-card')).toBeTruthy()` are not smoke tests. Neither is a DOM query
   behind a name: `expect(minimap()).not.toBeNull()` where the file's own `minimap` helper calls
   `querySelector`, `query(All)`, `getElement*`, `closest` or `By.*`, or where a name is bound once to
@@ -484,7 +484,7 @@ answer.
   which is wiring.
 - **A running test in the block has to reach the subject the same way** — the claim the message makes
   out loud. The whole path, not the name it starts with: `expect(publicApi.FocusModule).toBeDefined()`
-  beside a test checking `publicApi.smartPlayerSettings` shares only the word `publicApi`, and the
+  beside a test checking `publicApi.viewerSettings` shares only the word `publicApi`, and the
   sibling would not have failed first. Likewise a flag a `beforeAll` sets from an observable's
   `complete` — `expect(completed).toBeTruthy()` — where the siblings read the values it collected.
 - The tests it is weighed against are the ones that run the same setup: the rest of its own block, and
@@ -498,11 +498,11 @@ answer.
 **Finding, and the repair.**
 
 ```ts
-describe('SliderIndicatorPositionPipe', () => {
-  let pipe: SliderIndicatorPositionPipe;
+describe('IndicatorOffsetPipe', () => {
+  let pipe: IndicatorOffsetPipe;
 
   beforeEach(() => {
-    pipe = new SliderIndicatorPositionPipe();
+    pipe = new IndicatorOffsetPipe();
   });
 
   it('should create an instance', () => {
@@ -681,7 +681,7 @@ const cart = createSpyFromClass(CartService);
 ```
 
 **Why it is recommended.** A hand-written double only has the methods somebody remembered. The class
-grows one, and the spec dies on `TypeError: cart.applyPromo is not a function` — in application
+grows one, and the spec dies on `TypeError: cart.applyCoupon is not a function` — in application
 code, several frames from the object that is actually wrong. The type system does not catch it
 either, because the double never satisfied the class in the first place; the
 `as unknown as CartService` in front of it is what hides `TS2741: Property 'rate' is missing`.
@@ -748,26 +748,26 @@ site where the repair is written. The stand-down copies that rule's own conditio
 **Finding, and the repair.**
 
 ```ts
-class NewCardServiceMock {
-  getTrailerPlayUrl = vi.fn().mockReturnValue(of(url));
+class PaymentCardServiceMock {
+  getPreviewUrl = vi.fn().mockReturnValue(of(url));
   load = vi.fn();
 } // ❌
 
-const mock = new NewCardServiceMock();
+const mock = new PaymentCardServiceMock();
 ```
 
 ```ts
-const mock = createSpyFromClass(NewCardService);
+const mock = createSpyFromClass(PaymentCardService);
 // or, where the double stands in for an interface or an abstract class:
-const mock = createAutoMock<NewCardService>();
+const mock = createAutoMock<PaymentCardService>();
 // and behind DI, the whole stub class goes away:
-providers: [provideAutoSpy(NewCardService)];
+providers: [provideAutoSpy(PaymentCardService)];
 ```
 
 **Why it is recommended.** The same drift as
 [`prefer-create-spy-from-class`](#prefer-create-spy-from-class), and it is the same object with a
 `new` in front of it: the class grows a method, the stub does not, and the spec dies on
-`TypeError: mock.applyPromo is not a function` in application code. It is worth having as a rule of
+`TypeError: mock.applyCoupon is not a function` in application code. It is worth having as a rule of
 its own because it was the _largest_ family left in a suite running every `error` rule of
 `recommended` with no `eslint-disable` anywhere — 112 `vi.fn()` fields in 46 classes across 32 files,
 reported by nothing, because `prefer-create-spy-from-class` matches an object literal and a class
@@ -1001,11 +1001,11 @@ repair.
 ```ts
 import { BaseEvents } from './base-events';
 
-export const webosEvents = [...BaseEvents]; // ❌ fine under tsc, a TypeError under a bundler
+export const platformEvents = [...BaseEvents]; // ❌ fine under tsc, a TypeError under a bundler
 ```
 
 ```ts
-export const webosEvents = () => [...BaseEvents];
+export const platformEvents = () => [...BaseEvents];
 ```
 
 **Why it is recommended.** Under `tsc` and under a browser's ESM loader this cannot fail — a module
@@ -1021,10 +1021,10 @@ nothing connects the two.
 module loads, and the constant it built is silently short of every key it meant to copy:
 
 ```ts
-import { ShelfItemTypeEnum } from '@acme/api';
+import { SectionItemType } from '@acme/api';
 
 // ❌ `{ ...undefined }` is `{}`, so `ItemType.COVER` reads `undefined` for the rest of the run
-export const ItemType = { ...ShelfItemTypeEnum, ...LocalItemType } as const;
+export const ItemType = { ...SectionItemType, ...LocalItemType } as const;
 ```
 
 The two are reported separately because the message is what the reader acts on: told to look for
@@ -1286,8 +1286,8 @@ the module loader is not one of them.
 Measured on an Angular monorepo of 2 030 spec files: **81 reports across 32 files**, and what makes
 the rule worth having is what sits beside them. Four of the reports in one file carry a hand-written
 `await Promise.resolve()` under the import — a `flushEventLoop(1)` spelled out — and eleven more
-sites of the same shape had already been moved into spec-local helpers called `flushPinCodeChunk`,
-`settleProfileSelectImport`, `settleModalImports`, `settleModalComponentImport` and
+sites of the same shape had already been moved into spec-local helpers called `flushCodeInputChunk`,
+`settleAccountPickerImport`, `settleModalImports`, `settleModalComponentImport` and
 `flushLazyImport`, two of them with a loop of five `await Promise.resolve()` under the import. The
 suite had rewritten this helper by hand eleven times before the rule existed, which is also why the
 limit below is a limit rather than a gap: those eleven are exactly the shape the rule declines to
@@ -1431,13 +1431,13 @@ reported.
 **Finding, and the repair.**
 
 ```ts
-(TestBed.inject(DomainMetricsService).sendEvent as Mock).mockReturnValue(undefined); // ❌
-expect(TestBed.inject(DomainMetricsService).sendEvent).toHaveBeenCalledWith(payload);
+(TestBed.inject(AppMetricsService).sendEvent as Mock).mockReturnValue(undefined); // ❌
+expect(TestBed.inject(AppMetricsService).sendEvent).toHaveBeenCalledWith(payload);
 ```
 
 ```ts
-injectSpy(DomainMetricsService).sendEvent.mockReturnValue(undefined);
-expect(injectSpy(DomainMetricsService).sendEvent).toHaveBeenCalledWith(payload);
+injectSpy(AppMetricsService).sendEvent.mockReturnValue(undefined);
+expect(injectSpy(AppMetricsService).sendEvent).toHaveBeenCalledWith(payload);
 ```
 
 The suggestion writes `injectSpy(Token).member` whenever the token is in view — the member chain
@@ -2006,7 +2006,7 @@ providers: [{ provide: CartService, useClass: CartServiceMock }]; // ❌ — and
 ```ts
 providers: [provideAutoSpy(CartService)];
 // a member the double must *be* rather than spy on goes in the options:
-providers: [provideAutoSpy(ConfigService, { overrides: { remoteConfig: { theme: 'dark' } } })];
+providers: [provideAutoSpy(ConfigService, { overrides: { flagsConfig: { theme: 'dark' } } })];
 // and for a token, which has no class to read:
 providers: [provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] })];
 ```
@@ -2359,7 +2359,7 @@ alias written as its class-field name all end in green `setInput` calls and an a
 several lines later, on state nothing moved. `setInputs` resolves every key against the compiled
 definition before it writes the first one, and it types the value: on the Angular suite this was
 measured against, taking the 650 calls it can rewrite turned **72 fixtures that had drifted from the
-model they claim to be into compile errors, across 21 files** — a `{}` for a `CardButtonExtra`, a
+model they claim to be into compile errors, across 21 files** — a `{}` for a `CardActionExtra`, a
 literal still written in the previous shape of an interface, an `imageUrl` for a model whose field is
 `imgUrl`.
 
@@ -2800,7 +2800,7 @@ only thing `compileComponents()` settles. A component whose template holds a `@d
 the template — remove it and the test fails at run time:
 
 ```
-Error: Component 'MainBackgroundContentComponent' has unresolved metadata.
+Error: Component 'BackgroundContentComponent' has unresolved metadata.
 Please call `await TestBed.compileComponents()` before running this test.
 ```
 
@@ -2921,7 +2921,7 @@ the repair is mechanical.
 and `vi.spyOn(Object.getPrototypeOf(instance), 'member')`.
 
 **Decides on.** The type checker, and that **is** the rule. The same brackets are ordinary and
-everywhere — `process.env['APP_KM_ENABLED']`, `dataset['error']`, `queryParams['id']`,
+everywhere — `process.env['APP_FEATURE_ENABLED']`, `dataset['error']`, `queryParams['id']`,
 `form.controls['profileName']` are index signatures — so nothing is reported unless the checker
 resolves the name to a class member carrying one of the two modifiers. Without parser services the
 rule reports nothing at all rather than guessing: a type-aware rule that degrades into a syntactic
@@ -3014,7 +3014,7 @@ suite reaches for precisely where the checker would have objected.
 **Finding, and the repair.**
 
 ```ts
-expect(Reflect.get(component, 'viewTimeMin')()).toBe(0); // ❌ the key is a string nothing checks
+expect(Reflect.get(component, 'minDwellTime')()).toBe(0); // ❌ the key is a string nothing checks
 Reflect.set(service, 'savedData', null); // ❌ and this does not even write the member
 ```
 

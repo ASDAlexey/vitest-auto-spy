@@ -94,8 +94,8 @@ an `AGENTS.md` error row.
   two lines in view. It also gives the right count on a test with two self-made calls under one
   assertion: two lines to remove, two reports.
 - **Order was in the design from the start, and the measurement immediately paid for it.** Matching
-  the three shapes without their order reports `service.updateShelfState(…)` written _above_ its own
-  `vi.spyOn(service, 'updateShelfState')`, which is arrangement and correct. Two further
+  the three shapes without their order reports `service.updateSectionState(…)` written _above_ its own
+  `vi.spyOn(service, 'updateSectionState')`, which is arrangement and correct. Two further
   discriminations were bought by the same measurement rather than by reasoning: a `mockClear` between
   the call and the assertion (five sites in one file), and a matcher whose arguments the call did not
   pass (two sites). Both are the spec stating in its own text that the assertion is not about that
@@ -335,8 +335,8 @@ an `AGENTS.md` error row.
   runs the `import()` settles all four with one check and no list of exempt property names to keep
   in step.
 - [~] **A spec-local `const load = async () => { await import('…'); }` is not reported**, although
-  it is the shape the consumer had written eleven times, with names like `flushPinCodeChunk` and
-  `settleProfileSelectImport`. Reporting it needs the file to say who calls the function, and the
+  it is the shape the consumer had written eleven times, with names like `flushCodeInputChunk` and
+  `settleAccountPickerImport`. Reporting it needs the file to say who calls the function, and the
   file does not: a named function whose body awaits an import is written identically whether the
   spec calls it itself or hands it to the code under test as a loader, and for the second the advice
   would be wrong. Heuristics were considered — the name, whether the function is ever passed as an
@@ -765,7 +765,7 @@ removed and their awaits fixed, not once. The judgement calls:
 - [~] **Reporting `inject` and `runInInjectionContext`.** Not done, and this is the line that decided
   the member list. `TestBed.inject(TOKEN)` answers whatever the token holds and
   `runInInjectionContext(fn)` whatever the callback returns — either can be a promise, and in the
-  measured suite four `await TestBed.inject(VPN_DETECT_RESULT)` calls await a real one. Nothing in
+  measured suite four `await TestBed.inject(STARTUP_CHECK_RESULT)` calls await a real one. Nothing in
   the syntax tells those from the ordinary case, so a syntactic rule reporting them would be wrong
   about working code. `execute` and the deprecated `get` are out for the same reason. What is in
   is exactly what Angular types as returning `TestBed` or a `ComponentFixture`:
@@ -885,10 +885,10 @@ weighed and left out is here.
   `Config | Legacy` fixture — correct code.
 
 - [~] **Typing `selfReturning` as "methods whose return type accepts the double".** Not done, on a
-  measured case: the consumer's logger interface declares `channel(name): ChannelLogger`, and the
-  root interface does not satisfy `ChannelLogger` (it lacks `name`, `enabled`, `log`, `trace`,
+  measured case: the consumer's logger interface declares `channel(name): EventLogger`, and the
+  root interface does not satisfy `EventLogger` (it lacks `name`, `enabled`, `log`, `trace`,
   `time`). A return-type filter would reject exactly the call the option exists for, while at run
-  time a type-driven double answers every key `ChannelLogger` has. The list is
+  time a type-driven double answers every key `EventLogger` has. The list is
   `OnlyMethodKeysOf<T>`, like every other method list, and costs nothing new to instantiate.
 
 - [~] **A way to remove a registered `selfReturning` entry at the call site.** None beyond `returns`:
@@ -1042,7 +1042,7 @@ what was weighed and left out is here.
 returns: {…} })` still fails; only the `/angular` providers were changed — the `provideAutoSpy`
   of `/jasmine`, `/nestjs` and `/vue` keep the core signature. The mechanism, probed
   with `tsc` 6.0.3: a generic class argument is deferred to overload resolution's second pass, the
-  first pass infers `T` from the configuration alone (`{ remoteConfig: any }` through
+  first pass infers `T` from the configuration alone (`{ flagsConfig: any }` through
   `keyof T`, or a partial through `overrides`), and the candidate is rejected before the second
   pass reads the class. The fix needs both halves — `NoInfer` so the configuration contributes
   nothing, and a `T = any` default so the first pass accepts the configuration; `NoInfer` alone
@@ -1248,7 +1248,7 @@ new rows in the no-twin table).
   re-throws it naming the target, the reason the property is locked and `DOCS_LINKS.realSeam`,
   which is the whole of the fix that shipped. It sits on one path. A consumer's own
   `vi.spyOn(barrel, 'export')` never enters this library and still throws the bare
-  `TypeError: Cannot redefine property: injectDomainMetrics`; and `mockReadonlyProp` /
+  `TypeError: Cannot redefine property: injectAppMetrics`; and `mockReadonlyProp` /
   `mockValueProp` call `Object.defineProperty` directly (`lib/prop-mock.ts:190`, `:238`) with no
   guard of their own, so the library's _own_ prop helpers hand back the unhelpful text the
   adapters no longer do. Wrapping those two is a few lines and closes the inconsistency; the

@@ -130,10 +130,10 @@ that filled it. Two silent failures came out of that.
 
 ```ts
 // test 1
-service.createSeamlessTransition.nextWith(uri); // buffered
+service.createTransition.nextWith(uri); // buffered
 
 // test 2 — the failure path is what this test is about
-service.createSeamlessTransition.throwWith(error); // the subscriber gets `uri` FIRST, then the error
+service.createTransition.throwWith(error); // the subscriber gets `uri` FIRST, then the error
 ```
 
 The code under test ran the **success** branch on the previous test's data, and the branch the test

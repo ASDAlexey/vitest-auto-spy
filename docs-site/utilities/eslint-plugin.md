@@ -688,7 +688,7 @@ httpMock.expectOne(url).flush(payload);
 await expect(emission).resolves.toEqual(payload);
 
 // 3. the assertion is in the failure branch — `expectEmission` resolves on a value
-await expect(firstValueFrom(source$)).rejects.toBeInstanceOf(UdmsStatusError);
+await expect(firstValueFrom(source$)).rejects.toBeInstanceOf(UpstreamStatusError);
 ```
 
 The signal for the second is entirely syntactic: there is another statement after the one holding
@@ -717,12 +717,12 @@ silent stream never reaches; this one reports the assertion a silent stream **sa
 
 ```ts
 it('yields an empty list when no sub-genre resolved to an address', () => {
-  let chips: MusicGenreChip[] = [];
+  let chips: GenreChip[] = [];
 
   load$(quickLinks).subscribe((result) => (chips = result));
 
   expect(chips).toEqual([]); // ❌ true whether the stream produced `[]` or produced nothing
-  expect(music.getMusicShelfById).not.toHaveBeenCalled();
+  expect(catalog.getSectionById).not.toHaveBeenCalled();
 });
 ```
 
@@ -833,7 +833,7 @@ The shape is a module-scope spread whose operand is a value another module owns:
 ```ts
 import { BaseEvents } from './base-events';
 
-export const webosEvents = [...BaseEvents]; // ❌ safe under tsc, a TypeError inside a bundle
+export const platformEvents = [...BaseEvents]; // ❌ safe under tsc, a TypeError inside a bundle
 ```
 
 Under `tsc` and under a browser's ESM loader this cannot fail — a module never runs before its
@@ -852,10 +852,10 @@ own. `[...undefined]` and `f(...undefined)` throw; `{ ...undefined }` is `{}`. S
 clean and leaves a constant missing every key it meant to copy:
 
 ```ts
-import { ShelfItemTypeEnum } from '@acme/api';
+import { SectionItemType } from '@acme/api';
 
 // ❌ nothing throws; `ItemType.COVER` simply reads `undefined` for the rest of the run
-export const ItemType = { ...ShelfItemTypeEnum, ...LocalItemType } as const;
+export const ItemType = { ...SectionItemType, ...LocalItemType } as const;
 ```
 
 Separating the messages is the point of the rule rather than a detail of it: a reader sent looking
@@ -1018,7 +1018,7 @@ the rule now says which half it is looking at.
 **Most were literal duplicates.** The same provider written twice, in the same words:
 
 ```ts
-providers: [provideAutoSpy(KidsModeService), provideRouter([]), provideAutoSpy(KidsModeService)];
+providers: [provideAutoSpy(SafeModeService), provideRouter([]), provideAutoSpy(SafeModeService)];
 ```
 
 Angular had already ignored the first one, so deleting it cannot change what the test gets. That is
@@ -1220,7 +1220,7 @@ next to `vi.mocked()`, and the rule leaves that alone. What it is for is the dec
 assignment then fails with a list of private field names that says nothing about the real cause.
 
 `prefer-as-spy` is the same question one line down, and it is the one a migration meets in bulk:
-`devicesService = TestBed.inject(DeviceListService) as Spy<DeviceListService>` is written once per injected
+`hardwareService = TestBed.inject(DeviceListService) as Spy<DeviceListService>` is written once per injected
 double in a `jest-auto-spies` suite, and every one of them fails with `TS2352` under this library —
 [the most common compile error a migrated Angular suite produces](/migrating#reading-a-spy-back-out-of-the-container).
 `asSpy(...)` is the same assertion without the cast, so the rule fixes it under `--fix`.
@@ -1384,9 +1384,9 @@ it, and a wrong fix fails to compile.
 import { asSpy } from 'vitest-auto-spy';
 
 // before
-devicesService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
+hardwareService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
 
-devicesService = asSpy<DeviceListService>(TestBed.inject(DeviceListService));
+hardwareService = asSpy<DeviceListService>(TestBed.inject(DeviceListService));
 ```
 
 The type arguments are carried across rather than left to inference. `Spy<T, Options>` and
@@ -1442,10 +1442,10 @@ for the second it is deferring the value:
 
 ```ts
 // ❌ evaluated while the module loads — `[...undefined]` inside a bundle
-export const webosEvents = [...BaseEvents];
+export const platformEvents = [...BaseEvents];
 
 // ✅ what accepting the suggestion produces; every use of the name gains a `()`
-export const webosEvents = () => [...BaseEvents];
+export const platformEvents = () => [...BaseEvents];
 ```
 
 That last one is a suggestion in the strongest sense: accepting it makes the type checker name every
@@ -1474,7 +1474,7 @@ that cannot be true.
 | `no-shared-module-level-mock`  | nothing — the fixture's own state crosses files under `isolate: false`                                                                                                                                                                                           |  green  |
 | `no-object-define-property`    | nothing in the file that patched; the **next** file reads the patched value                                                                                                                                                                                      |  green  |
 | `no-mocked-for-spy`            | `TS2322 … missing the following properties from type 'CartService': http, cache`                                                                                                                                                                                 | compile |
-| `prefer-create-spy-from-class` | `TypeError: cart.applyPromo is not a function`                                                                                                                                                                                                                   |   red   |
+| `prefer-create-spy-from-class` | `TypeError: cart.applyCoupon is not a function`                                                                                                                                                                                                                  |   red   |
 | `prefer-provide-auto-spy`      | the same, one DI hop away                                                                                                                                                                                                                                        |   red   |
 | `prefer-inject-spy`            | `spy.getPlans.nextWith is not a function`                                                                                                                                                                                                                        |   red   |
 | `no-inject-before-override`    | `Cannot override provider when the test module has already been instantiated. Make sure you are not using \`inject\` before \`overrideProvider\``                                                                                                                |   red   |
@@ -1743,7 +1743,7 @@ await TestBed.configureTestingModule({
 ```
 
 Measured over one Angular suite: of 333 files mentioning a schema, **230 entries in 204 files** are
-dead — `apps/smart` 63, `libs/purchase` 61, `apps/web` 22, `libs/gamification` 22, the rest a tail.
+dead — `apps/portal` 63, `libs/checkout` 61, `apps/web` 22, `libs/rewards` 22, the rest a tail.
 
 Nothing is being silenced, so this is not a green-and-wrong test: whatever the schema was added for
 is still unresolved and still fails. What the line costs is **a false sense of protection**.
@@ -1816,7 +1816,7 @@ expect(component.total()).toBe(3); // and the effect it has
 **Why it has to be type-aware, in one number.** Measured over a 1759-file Angular spec corpus:
 a syntax-only version — every `obj['literal']` — reports **511 sites in 85 files**. Of those,
 **324 in 45 files** resolve to a member declared `private` or `protected`. The other **187 (37 %)**
-are correct code the rule must not touch: `process.env['APP_KM_ENABLED']`, `dataset['error']`, a
+are correct code the rule must not touch: `process.env['APP_FEATURE_ENABLED']`, `dataset['error']`, a
 route's `queryParams['id']`, `req.headers['x-request-id']`, `form.controls['profileName']`,
 `errors?.['required']` — index signatures, all of them. **41 of those 85 files hold no private
 access at all**, which is the number to keep: matching a key against a list of names declared
@@ -1883,7 +1883,7 @@ which is what makes it an `error` rather than a `warn`.
 A hand-written double is correct on the day it is written. The class then grows a method:
 
 ```text
-F1  hand-written { total: vi.fn() }        → TypeError: cart.applyPromo is not a function
+F1  hand-written { total: vi.fn() }        → TypeError: cart.applyCoupon is not a function
 F2  createSpyFromClass(CartService)        → follows the class, no edit
 ```
 

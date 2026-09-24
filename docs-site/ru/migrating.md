@@ -78,12 +78,12 @@ auto-spies, и для собственных глобалов jasmine (`createSp
 
 ```ts
 // jest-auto-spies
-devicesService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
+hardwareService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
 // TS2352: Conversion of type 'DeviceListService' to type 'Spy<DeviceListService>'
 //         may be a mistake because neither type sufficiently overlaps with the other.
 
 // vitest-auto-spy
-devicesService = asSpy(TestBed.inject(DeviceListService));
+hardwareService = asSpy(TestBed.inject(DeviceListService));
 ```
 
 `asSpy` — типизированная тождественная функция: она утверждает то, что `provideAutoSpy` уже положил в
@@ -113,11 +113,11 @@ Jest пишет **сначала тип возврата, потом аргум�
 вызова:
 
 ```ts
-// jest — возвращает void, принимает один AdjustedSubscriptionDetails
-let callBack: jest.Mock<void, [AdjustedSubscriptionDetails]>;
+// jest — возвращает void, принимает один AdjustedPlanDetails
+let callBack: jest.Mock<void, [AdjustedPlanDetails]>;
 
 // vitest — тот же смысл, записанный сигнатурой вызова
-let callBack: Mock<(details: AdjustedSubscriptionDetails) => void>;
+let callBack: Mock<(details: AdjustedPlanDetails) => void>;
 ```
 
 Голый `jest.Mock` без дженериков — безопасный случай: `Mock` сам по себе означает то же самое.

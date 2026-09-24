@@ -200,12 +200,12 @@ disable — честный ответ там, где подписка и ест�
 
 ```ts
 it('yields an empty list when no sub-genre resolved to an address', () => {
-  let chips: MusicGenreChip[] = [];
+  let chips: GenreChip[] = [];
 
   load$(quickLinks).subscribe((result) => (chips = result)); // ❌ тест зелёный, даже если это не выполнится
 
   expect(chips).toEqual([]);
-  expect(music.getMusicShelfById).not.toHaveBeenCalled();
+  expect(catalog.getSectionById).not.toHaveBeenCalled();
 });
 ```
 
@@ -213,7 +213,7 @@ it('yields an empty list when no sub-genre resolved to an address', () => {
 it('asks for no shelf when no sub-genre resolved to an address', async () => {
   await expectNoEmission(load$(quickLinks));
 
-  expect(music.getMusicShelfById).not.toHaveBeenCalled();
+  expect(catalog.getSectionById).not.toHaveBeenCalled();
 });
 ```
 
@@ -467,13 +467,13 @@ it('emits after the timeout', async () => {
   ничего для этого не принимает — `createService()`, `TestBed.inject(Token)`. Вызов с аргументом,
   чтение метода или сигнала, запрос к DOM, выражение над коллекцией — всё это правило не трогает:
   матчер не отличает их от субъекта, а проверка при этом единственная, что покрывает поведение.
-  `expect(isChildProfile(FAMILY_ROLE.CHILD)).toBeTruthy()` и
+  `expect(isRestrictedProfile(MEMBER_ROLE.CHILD)).toBeTruthy()` и
   `expect(el.querySelector('expand-card')).toBeTruthy()` — не smoke-тесты. Билдер под
   `toBeInstanceOf` тоже не трогается: он связывает два имени и утверждает, что одно разрешается в
   другое, а это проводка, а не существование.
 - **Хотя бы один работающий тест блока должен добираться до субъекта тем же путём** — именно это
   сообщение правила и утверждает вслух. Сравнивается весь путь, а не имя, с которого он начинается:
-  `expect(publicApi.FocusModule).toBeDefined()` рядом с тестом на `publicApi.smartPlayerSettings`
+  `expect(publicApi.FocusModule).toBeDefined()` рядом с тестом на `publicApi.viewerSettings`
   делит с ним только слово `publicApi`, и сосед не упал бы первым. То же с флагом, который `beforeAll`
   выставляет из `complete` наблюдаемого — `expect(completed).toBeTruthy()` — когда соседи читают
   собранные значения.
@@ -489,11 +489,11 @@ it('emits after the timeout', async () => {
 **Находка и исправление.**
 
 ```ts
-describe('SliderIndicatorPositionPipe', () => {
-  let pipe: SliderIndicatorPositionPipe;
+describe('IndicatorOffsetPipe', () => {
+  let pipe: IndicatorOffsetPipe;
 
   beforeEach(() => {
-    pipe = new SliderIndicatorPositionPipe();
+    pipe = new IndicatorOffsetPipe();
   });
 
   it('should create an instance', () => {
@@ -665,7 +665,7 @@ const cart = createSpyFromClass(CartService);
 ```
 
 **Зачем это в `recommended`.** У написанного руками дубля есть только те методы, которые кто-то
-вспомнил. Класс обзаводится ещё одним, и спека умирает на `TypeError: cart.applyPromo is not a function`
+вспомнил. Класс обзаводится ещё одним, и спека умирает на `TypeError: cart.applyCoupon is not a function`
 — в продакшен-коде, в нескольких кадрах стека от объекта, который на самом деле неверен. Система
 типов тоже не поймает: дубль изначально не удовлетворял классу, и стоящий перед ним
 `as unknown as CartService` — это то, что скрывает `TS2741: Property 'rate' is missing`.
@@ -732,26 +732,26 @@ const cart = createSpyFromClass(CartService);
 **Находка и как её закрыть.**
 
 ```ts
-class NewCardServiceMock {
-  getTrailerPlayUrl = vi.fn().mockReturnValue(of(url));
+class PaymentCardServiceMock {
+  getPreviewUrl = vi.fn().mockReturnValue(of(url));
   load = vi.fn();
 } // ❌
 
-const mock = new NewCardServiceMock();
+const mock = new PaymentCardServiceMock();
 ```
 
 ```ts
-const mock = createSpyFromClass(NewCardService);
+const mock = createSpyFromClass(PaymentCardService);
 // либо, когда дубль стоит вместо интерфейса или абстрактного класса:
-const mock = createAutoMock<NewCardService>();
+const mock = createAutoMock<PaymentCardService>();
 // а за DI весь класс-заглушка исчезает:
-providers: [provideAutoSpy(NewCardService)];
+providers: [provideAutoSpy(PaymentCardService)];
 ```
 
 **Зачем это в `recommended`.** Тот же дрейф, что у
 [`prefer-create-spy-from-class`](#prefer-create-spy-from-class), и это буквально тот же объект с
 `new` впереди: класс обзаводится методом, заглушка нет, и спека умирает на
-`TypeError: mock.applyPromo is not a function` в продакшен-коде. Отдельным правилом это стоит держать
+`TypeError: mock.applyCoupon is not a function` в продакшен-коде. Отдельным правилом это стоит держать
 потому, что это была _самая большая_ оставшаяся семья в сюите, где все `error`-правила `recommended`
 включены и нет ни одного `eslint-disable`: 112 полей `vi.fn()` в 46 классах по 32 файлам, и ни одного
 отчёта, потому что `prefer-create-spy-from-class` совпадает с объектным литералом, а объявление
@@ -984,11 +984,11 @@ Object.defineProperty(target, 'clientWidth', { value: 100 });
 ```ts
 import { BaseEvents } from './base-events';
 
-export const webosEvents = [...BaseEvents]; // ❌ нормально под tsc, TypeError под бандлером
+export const platformEvents = [...BaseEvents]; // ❌ нормально под tsc, TypeError под бандлером
 ```
 
 ```ts
-export const webosEvents = () => [...BaseEvents];
+export const platformEvents = () => [...BaseEvents];
 ```
 
 **Зачем это в `recommended`.** Под `tsc` и под ESM-загрузчиком браузера это упасть не может — модуль
@@ -1005,10 +1005,10 @@ export const webosEvents = () => [...BaseEvents];
 скопировать:
 
 ```ts
-import { ShelfItemTypeEnum } from '@acme/api';
+import { SectionItemType } from '@acme/api';
 
 // ❌ `{ ...undefined }` — это `{}`, поэтому `ItemType.COVER` до конца прогона читается как `undefined`
-export const ItemType = { ...ShelfItemTypeEnum, ...LocalItemType } as const;
+export const ItemType = { ...SectionItemType, ...LocalItemType } as const;
 ```
 
 Сообщают о них порознь, потому что читатель действует по сообщению: отправленный искать
@@ -1273,8 +1273,8 @@ expect(dialog.open).toHaveBeenCalled();
 Замерено на Angular-монорепозитории из 2 030 спек-файлов: **81 сообщение в 32 файлах**, и ценность
 правила видно по тому, что лежит рядом. Четыре сообщения в одном файле несут под импортом написанный
 руками `await Promise.resolve()` — расписанный `flushEventLoop(1)`, — а ещё одиннадцать мест той же
-формы в этой же сюите уже вынесены в локальные для спеки хелперы с именами `flushPinCodeChunk`,
-`settleProfileSelectImport`, `settleModalImports`, `settleModalComponentImport` и `flushLazyImport`,
+формы в этой же сюите уже вынесены в локальные для спеки хелперы с именами `flushCodeInputChunk`,
+`settleAccountPickerImport`, `settleModalImports`, `settleModalComponentImport` и `flushLazyImport`,
 причём у двух под импортом стоит цикл из пяти `await Promise.resolve()`. Сюита переписала этот хелпер
 руками одиннадцать раз до того, как правило появилось, — и это же объясняет, почему граница ниже
 именно граница, а не пробел.
@@ -1404,13 +1404,13 @@ expect(service.rename).toHaveBeenCalledWith({ ...device, name: 'Box' });
 **Находка и починка.**
 
 ```ts
-(TestBed.inject(DomainMetricsService).sendEvent as Mock).mockReturnValue(undefined); // ❌
-expect(TestBed.inject(DomainMetricsService).sendEvent).toHaveBeenCalledWith(payload);
+(TestBed.inject(AppMetricsService).sendEvent as Mock).mockReturnValue(undefined); // ❌
+expect(TestBed.inject(AppMetricsService).sendEvent).toHaveBeenCalledWith(payload);
 ```
 
 ```ts
-injectSpy(DomainMetricsService).sendEvent.mockReturnValue(undefined);
-expect(injectSpy(DomainMetricsService).sendEvent).toHaveBeenCalledWith(payload);
+injectSpy(AppMetricsService).sendEvent.mockReturnValue(undefined);
+expect(injectSpy(AppMetricsService).sendEvent).toHaveBeenCalledWith(payload);
 ```
 
 Подсказка пишет `injectSpy(Token).member` всюду, где токен виден — цепочка членов, висящая на
@@ -1937,7 +1937,7 @@ providers: [{ provide: CartService, useValue: { total: vi.fn(), add: vi.fn() } }
 ```ts
 providers: [provideAutoSpy(CartService)];
 // член, которым дубль должен *быть*, а не спаить, идёт в опции:
-providers: [provideAutoSpy(ConfigService, { overrides: { remoteConfig: { theme: 'dark' } } })];
+providers: [provideAutoSpy(ConfigService, { overrides: { flagsConfig: { theme: 'dark' } } })];
 // а для токена, у которого нет класса:
 providers: [provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] })];
 ```
@@ -2271,7 +2271,7 @@ it('показывает обновлённый заголовок', async () =>
 падает несколькими строками ниже, на состоянии, которое никто не двигал. `setInputs` разрешает каждый
 ключ по скомпилированному определению до первой записи и типизирует значение: на Angular-сюите, на
 которой это мерили, переписывание 650 вызовов превратило **72 фикстуры, разошедшиеся с моделью,
-которой они притворяются, в ошибки компиляции — в 21 файле**: `{}` вместо `CardButtonExtra`, литерал,
+которой они притворяются, в ошибки компиляции — в 21 файле**: `{}` вместо `CardActionExtra`, литерал,
 написанный в прошлой форме интерфейса, `imageUrl` у модели, где поле называется `imgUrl`.
 
 **Границы.** Их три, и первая — причина, по которой правка это подсказка, а не `--fix`:
@@ -2703,7 +2703,7 @@ beforeEach(() => {
 билдер с шаблоном: убрать вызов — и тест падает уже на прогоне:
 
 ```
-Error: Component 'MainBackgroundContentComponent' has unresolved metadata.
+Error: Component 'BackgroundContentComponent' has unresolved metadata.
 Please call `await TestBed.compileComponents()` before running this test.
 ```
 
@@ -2814,7 +2814,7 @@ beforeEach(() => {
 интерфейсом) и `vi.spyOn(Object.getPrototypeOf(instance), 'member')`.
 
 **На чём решает.** На тайпчекере, и это **и есть** правило. Те же скобки встречаются повсеместно и
-совершенно обычны — `process.env['APP_KM_ENABLED']`, `dataset['error']`, `queryParams['id']`,
+совершенно обычны — `process.env['APP_FEATURE_ENABLED']`, `dataset['error']`, `queryParams['id']`,
 `form.controls['profileName']` — это индексные сигнатуры, поэтому ничего не сообщается, пока чекер не
 разрешит имя до члена класса с одним из двух модификаторов. Без сервисов парсера правило не сообщает
 вообще ничего, а не догадывается: типозависимое правило, деградирующее до синтаксического, — это то
@@ -2906,7 +2906,7 @@ TypeScript 6.0.3 сообщение, которому надо назвать с
 **Находка и починка.**
 
 ```ts
-expect(Reflect.get(component, 'viewTimeMin')()).toBe(0); // ❌ ключ — строка, которую никто не сверяет
+expect(Reflect.get(component, 'minDwellTime')()).toBe(0); // ❌ ключ — строка, которую никто не сверяет
 Reflect.set(service, 'savedData', null); // ❌ и это даже не запись в член
 ```
 

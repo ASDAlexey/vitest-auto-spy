@@ -135,16 +135,16 @@ const config = injectSpy<FeatureFlagService>(FeatureFlagService); // same, in An
 
 The same applies to `createSpyFromClass` with a configuration, in one combination: an accessor list
 (or `overrides`) next to `returns` on a generic class. TypeScript checks a generic class argument
-**after** the configuration, reads `T` back from `gettersToSpyOn: ['remoteConfig']` as
-`{ remoteConfig: any }`, and rejects the `returns` key before it ever looks at the class:
+**after** the configuration, reads `T` back from `gettersToSpyOn: ['flagsConfig']` as
+`{ flagsConfig: any }`, and rejects the `returns` key before it ever looks at the class:
 
 ```text
-'isKeyEnabled' does not exist in type 'MethodReturns<{ remoteConfig: any; }>'
+'isKeyEnabled' does not exist in type 'MethodReturns<{ flagsConfig: any; }>'
 ```
 
 ```ts
-createSpyFromClass(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: { isKeyEnabled: false } }); // ❌
-createSpyFromClass<RemoteConfigService>(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: { isKeyEnabled: false } }); // ✅
+createSpyFromClass(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: { isKeyEnabled: false } }); // ❌
+createSpyFromClass<FlagsConfigService>(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: { isKeyEnabled: false } }); // ✅
 ```
 
 Either half alone infers the declared default. `provideAutoSpy`, `overrideAutoSpy`,
@@ -156,7 +156,7 @@ the core documents, while every Angular that `/angular` supports is past it.
 ## `asInstances(...)` — a whole argument list at once
 
 ```ts
-factory = webSsoAuthCheckFactory(...asInstances(account, authCheck, domainEvents, storage), document);
+factory = authCheckFactory(...asInstances(account, authCheck, appEvents, storage), document);
 ```
 
 One wrapper per argument is not merely longer, it is _discovered_ one argument at a time: TypeScript
@@ -222,7 +222,7 @@ build — the same trade `instanceMethodsToSpyOn` makes, and for the same reason
 ### Why the default stays `'last'`
 
 Because "the useful one" is not decidable from the type. On a generated `observe` client the first
-signature is the one to take; on a four-overload `api-mgw` client the last one is, and both live in
+signature is the one to take; on a four-overload `api-gateway` client the last one is, and both live in
 the same suite. There is no structural test that separates them without naming Angular's
 `HttpEvent`, which no declaration this package ships is allowed to do.
 
@@ -250,7 +250,7 @@ measured reasons. It costs the entire type budget: the flag has to be decided pe
 per-member flag stops the payload bundles being shared between members, and a flag whose body is the
 constant `false` already takes `types:budget` from a delta of 9 665 to 11 769 against a ceiling of
 11 000 — before any overload detection, which adds ~840 more. It misfires: on a four-overload
-`api-mgw` client, where `'last'` is already the right signature, an honestly wrong stub then reads
+`api-gateway` client, where `'last'` is already the right signature, an honestly wrong stub then reads
 `OverloadCollapsed_UseSpyOverloadOption<Movie[]>` and points at an option that would change nothing.
 And it misses the path that needs it most — `mockReturnValue` is typed by `MockInstance<Method>`,
 the runner's own surface, which nothing this package wraps can reach.
@@ -418,8 +418,8 @@ It does not help on a spied accessor — it produces the same `[[Set]]`, and so 
 ## `Spy<T>`, not `Mocked<T>`
 
 ```ts
-let modal: Spy<KdsModalService>; // ✅
-let modal: Mocked<KdsModalService>; // ❌
+let modal: Spy<ModalService>; // ✅
+let modal: Mocked<ModalService>; // ❌
 ```
 
 `Mocked<T>` is Vitest's own type and it intersects with `T` _completely_, private members included.

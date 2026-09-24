@@ -147,7 +147,7 @@ await expect(expectAllEmissions(source$.pipe(trueMap()))).resolves.toEqual([true
 
 The other helpers wrap a stream failure in a **new** `Error` whose message names the stream. That is
 right for reporting a failure nobody expected, and useless when the failure is the thing under test:
-`rejects.toBe(originalError)`, `rejects.toBeInstanceOf(UdmsStatusError)` and an exact
+`rejects.toBe(originalError)`, `rejects.toBeInstanceOf(UpstreamStatusError)` and an exact
 `expect(err.message).toBe('websso fail')` all fail against the wrapper.
 
 `expectError` resolves **with** the error, exactly as it was thrown, so each of those is an ordinary
@@ -155,7 +155,7 @@ assertion:
 
 ```ts
 await expect(expectError(service.load())).resolves.toBe(originalError);
-expect(await expectError(process$)).toBeInstanceOf(UdmsStatusError);
+expect(await expectError(process$)).toBeInstanceOf(UpstreamStatusError);
 ```
 
 It waits for the error however late it arrives — a stream that emits first and then fails still

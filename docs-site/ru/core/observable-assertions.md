@@ -126,7 +126,7 @@ await expectCompletion(closed$, { label: 'closed$', timeout: 2_000 });
 
 Остальные хелперы заворачивают падение потока в **новую** `Error`, в сообщении которой назван поток.
 Это правильно, когда докладываешь о сбое, которого никто не ждал, и бесполезно, когда сбой и есть то,
-что тестируется: `rejects.toBe(originalError)`, `rejects.toBeInstanceOf(UdmsStatusError)` и точное
+что тестируется: `rejects.toBe(originalError)`, `rejects.toBeInstanceOf(UpstreamStatusError)` и точное
 `expect(err.message).toBe('websso fail')` — всё это падает об обёртку.
 
 `expectError` возвращает **саму** ошибку ровно такой, какой её бросили, поэтому каждая из этих
@@ -134,7 +134,7 @@ await expectCompletion(closed$, { label: 'closed$', timeout: 2_000 });
 
 ```ts
 await expect(expectError(service.load())).resolves.toBe(originalError);
-expect(await expectError(process$)).toBeInstanceOf(UdmsStatusError);
+expect(await expectError(process$)).toBeInstanceOf(UpstreamStatusError);
 ```
 
 Он ждёт ошибку, как бы поздно она ни пришла, — поток, который сперва эмитит, а потом падает, всё

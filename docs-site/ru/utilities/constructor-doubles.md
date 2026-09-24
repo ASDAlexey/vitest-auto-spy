@@ -69,7 +69,7 @@ expect(LicenseClient.instances[0].prepareRequest).toHaveBeenCalled();
 Тот же дубль, но поставленный на глобал (или на любой объект) и снятый оттуда за вас.
 
 ```ts
-const Widget = stubConstructor(window, 'MTSPay', (params: PayParams) => ({ render: vi.fn() }));
+const Widget = stubConstructor(window, 'PaymentSdk', (params: PayParams) => ({ render: vi.fn() }));
 ```
 
 Установка идёт через [`mockValueProp`](/ru/utilities/setup), так что `restoreMockedProps()` —

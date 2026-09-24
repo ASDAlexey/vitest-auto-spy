@@ -2832,7 +2832,7 @@ if (process.env['SPEC_TIMING']) {
 ```
 
 ```
-[vitest-auto-spy] src/app/…/layer-editor.component.spec.ts — TestBed 353ms of 661ms (53%), logic 308ms, 155 component(s), 132 module config(s)
+[vitest-auto-spy] src/app/…/form-editor.component.spec.ts — TestBed 353ms of 661ms (53%), logic 308ms, 155 component(s), 132 module config(s)
 ```
 
 One line per spec file: how much of its wall clock went into `TestBed` (module configuration,
@@ -3943,7 +3943,7 @@ literal never names), and no per-node edit can do that.
 
 `no-import-time-spread` exists for a `TypeError` raised while a spec bundle
 _loads_, on a tree whose every test passes:
-`export const webosEvents = [...BaseEvents]` is safe under `tsc` and under a browser's ESM loader —
+`export const platformEvents = [...BaseEvents]` is safe under `tsc` and under a browser's ESM loader —
 a module never runs before its dependency — and inside one bundle a shared chunk can be evaluated
 while a binding it re-exports is still `undefined`, so the spread throws
 `Spread syntax requires ...iterable[Symbol.iterator] to be a function`. An AST pass found exactly
@@ -3951,7 +3951,7 @@ seven sites in an 8 673-file workspace, which is small enough to flag at the cur
 and an instance field are deliberately not reported — they run later than the module does — while a
 `static` field is. An **object** spread of the same binding gets a message of its own,
 because it fails without failing: `[...undefined]` throws, `{ ...undefined }` is `{}`, so
-`export const ItemType = { ...ShelfItemTypeEnum, ...Local }` loads clean and every key it meant to
+`export const ItemType = { ...SectionItemType, ...Local }` loads clean and every key it meant to
 copy reads `undefined` for the rest of the run. Told to look for `Spread syntax requires …`, a
 reader finds no such error and takes the report for a false positive — so the object message opens
 by saying there is nothing to find.
@@ -4264,7 +4264,7 @@ Yes — the runtime works in plain JS; you just lose the compile-time `Spy<T>` t
 Only the auto-spy helpers are normalised. Native APIs stay the runner's own (`mockReturnValue` on
 Vitest/Bun, `spy.method.mock.mockImplementation` on `node:test`).
 
-**"`TypeError: Cannot redefine property: injectDomainMetrics`."**
+**"`TypeError: Cannot redefine property: injectAppMetrics`."**
 Once a bundler has inlined a barrel or a workspace alias, its exports are live bindings on a module
 namespace object: not configurable, not writable, and not replaceable by `vi.spyOn`, `jest.spyOn` or
 `Object.defineProperty`. Where the accessor spy goes through this library — an

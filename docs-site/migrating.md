@@ -70,12 +70,12 @@ stops compiling:
 
 ```ts
 // jest-auto-spies
-devicesService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
+hardwareService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
 // TS2352: Conversion of type 'DeviceListService' to type 'Spy<DeviceListService>'
 //         may be a mistake because neither type sufficiently overlaps with the other.
 
 // vitest-auto-spy
-devicesService = asSpy(TestBed.inject(DeviceListService));
+hardwareService = asSpy(TestBed.inject(DeviceListService));
 ```
 
 `asSpy` is a typed identity — it asserts what `provideAutoSpy` already put in the container, without
@@ -104,11 +104,11 @@ signature. A rename that leaves the arguments where they were compiles cleanly i
 the reverse, and nothing fails until a call site disagrees with it:
 
 ```ts
-// jest — returns void, takes one AdjustedSubscriptionDetails
-let callBack: jest.Mock<void, [AdjustedSubscriptionDetails]>;
+// jest — returns void, takes one AdjustedPlanDetails
+let callBack: jest.Mock<void, [AdjustedPlanDetails]>;
 
 // vitest — the same intent, written as the call signature
-let callBack: Mock<(details: AdjustedSubscriptionDetails) => void>;
+let callBack: Mock<(details: AdjustedPlanDetails) => void>;
 ```
 
 The bare `jest.Mock` with no generics is the safe case: `Mock` on its own means the same thing.

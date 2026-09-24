@@ -57,9 +57,9 @@ The silent `vi.mock` has a loud twin, and it is the one people hit _next_ — af
 nothing, the natural move is to reach for a spy instead:
 
 ```ts
-import * as domainMetrics from '@app/domain-metrics';
+import * as appMetrics from '@app/domain-metrics';
 
-vi.spyOn(domainMetrics, 'injectDomainMetrics'); // TypeError: Cannot redefine property: injectDomainMetrics
+vi.spyOn(appMetrics, 'injectAppMetrics'); // TypeError: Cannot redefine property: injectAppMetrics
 ```
 
 Same cause, opposite symptom. Once a bundler has inlined the barrel, its exports are live bindings
@@ -74,7 +74,7 @@ out — that is the accessor spies (an `observablePropsToSpyOn` / getter-setter 
 auto-spy) and the `mock*Prop` helpers alike:
 
 ```
-[vitest-auto-spy] Cannot spy on the 'get' accessor of 'injectDomainMetrics': the property is not
+[vitest-auto-spy] Cannot spy on the 'get' accessor of 'injectAppMetrics': the property is not
 configurable, so it cannot be redefined. The target is an ES module namespace.
 An ES module namespace is what a bundler leaves behind once it has inlined a barrel or a workspace
 alias (`@angular/build:unit-test`, a pre-bundled `vite-node` entry): the export is a live binding,
@@ -94,8 +94,8 @@ failure for something that never happened.
 
 ```ts
 // 1. Inject it. The consumer takes the dependency from DI, so the spec supplies a double.
-readonly #metrics = inject(DomainMetrics);
-// spec: TestBed.configureTestingModule({ providers: [provideAutoSpy(DomainMetrics)] });
+readonly #metrics = inject(AppMetrics);
+// spec: TestBed.configureTestingModule({ providers: [provideAutoSpy(AppMetrics)] });
 
 // 2. Pass it in. A free function that takes its collaborator as an argument needs no mocking at all.
 export function priceBasket(items: Item[], rate: RateLookup): number { … }
@@ -106,7 +106,7 @@ export function priceBasket(items: Item[], rate: RateLookup): number { … }
 @Service()
 export class MetricsGateway {
   track(event: string): void {
-    injectDomainMetrics().track(event);
+    injectAppMetrics().track(event);
   }
 }
 ```

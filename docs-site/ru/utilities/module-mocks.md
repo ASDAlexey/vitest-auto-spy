@@ -58,9 +58,9 @@ beforeEach(() => {
 ничего не сделал, естественный ход — потянуться за спаем:
 
 ```ts
-import * as domainMetrics from '@app/domain-metrics';
+import * as appMetrics from '@app/domain-metrics';
 
-vi.spyOn(domainMetrics, 'injectDomainMetrics'); // TypeError: Cannot redefine property: injectDomainMetrics
+vi.spyOn(appMetrics, 'injectAppMetrics'); // TypeError: Cannot redefine property: injectAppMetrics
 ```
 
 Причина та же, симптом противоположный. Стоит бандлеру заинлайнить barrel-модуль, его экспорты становятся
@@ -76,7 +76,7 @@ vi.spyOn(domainMetrics, 'injectDomainMetrics'); // TypeError: Cannot redefine pr
 `mock*Prop`:
 
 ```
-[vitest-auto-spy] Cannot spy on the 'get' accessor of 'injectDomainMetrics': the property is not
+[vitest-auto-spy] Cannot spy on the 'get' accessor of 'injectAppMetrics': the property is not
 configurable, so it cannot be redefined. The target is an ES module namespace.
 An ES module namespace is what a bundler leaves behind once it has inlined a barrel or a workspace
 alias (`@angular/build:unit-test`, a pre-bundled `vite-node` entry): the export is a live binding,
@@ -96,8 +96,8 @@ argument, or reach it through a class or object your own code owns.
 
 ```ts
 // 1. Внедрить. Потребитель берёт зависимость из DI, поэтому спека подсовывает дубль.
-readonly #metrics = inject(DomainMetrics);
-// спека: TestBed.configureTestingModule({ providers: [provideAutoSpy(DomainMetrics)] });
+readonly #metrics = inject(AppMetrics);
+// спека: TestBed.configureTestingModule({ providers: [provideAutoSpy(AppMetrics)] });
 
 // 2. Передать внутрь. Свободной функции, принимающей коллаборатора аргументом, мокинг не нужен вовсе.
 export function priceBasket(items: Item[], rate: RateLookup): number { … }
@@ -108,7 +108,7 @@ export function priceBasket(items: Item[], rate: RateLookup): number { … }
 @Service()
 export class MetricsGateway {
   track(event: string): void {
-    injectDomainMetrics().track(event);
+    injectAppMetrics().track(event);
   }
 }
 ```

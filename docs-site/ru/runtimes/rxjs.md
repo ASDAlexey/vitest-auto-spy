@@ -129,10 +129,10 @@ const subject: Subject<Product[]> = myService.getProducts$.returnSubject(); // �
 
 ```ts
 // тест 1
-service.createSeamlessTransition.nextWith(uri); // положено в буфер
+service.createTransition.nextWith(uri); // положено в буфер
 
 // тест 2 — этот тест как раз про путь с ошибкой
-service.createSeamlessTransition.throwWith(error); // подписчик получает СНАЧАЛА `uri`, потом ошибку
+service.createTransition.throwWith(error); // подписчик получает СНАЧАЛА `uri`, потом ошибку
 ```
 
 Тестируемый код выполнял **успешную** ветку на данных предыдущего теста, а ветка, ради которой тест и

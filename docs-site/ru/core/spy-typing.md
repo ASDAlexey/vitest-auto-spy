@@ -130,16 +130,16 @@ const config = injectSpy<FeatureFlagService>(FeatureFlagService); // то же �
 
 То же касается `createSpyFromClass` с конфигурацией, в одном сочетании: список аксессоров (или
 `overrides`) рядом с `returns` у обобщённого класса. TypeScript проверяет обобщённый класс-аргумент
-**после** конфигурации, выводит `T` обратно из `gettersToSpyOn: ['remoteConfig']` как
-`{ remoteConfig: any }` и отвергает ключ `returns`, так и не посмотрев на класс:
+**после** конфигурации, выводит `T` обратно из `gettersToSpyOn: ['flagsConfig']` как
+`{ flagsConfig: any }` и отвергает ключ `returns`, так и не посмотрев на класс:
 
 ```text
-'isKeyEnabled' does not exist in type 'MethodReturns<{ remoteConfig: any; }>'
+'isKeyEnabled' does not exist in type 'MethodReturns<{ flagsConfig: any; }>'
 ```
 
 ```ts
-createSpyFromClass(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: { isKeyEnabled: false } }); // ❌
-createSpyFromClass<RemoteConfigService>(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: { isKeyEnabled: false } }); // ✅
+createSpyFromClass(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: { isKeyEnabled: false } }); // ❌
+createSpyFromClass<FlagsConfigService>(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: { isKeyEnabled: false } }); // ✅
 ```
 
 Любая половина по отдельности выводит объявленное умолчание. `provideAutoSpy`, `overrideAutoSpy`,
@@ -151,7 +151,7 @@ createSpyFromClass<RemoteConfigService>(RemoteConfigService, { gettersToSpyOn: [
 ## `asInstances(...)` — весь список аргументов разом {#asinstances-—-a-whole-argument-list-at-once}
 
 ```ts
-factory = webSsoAuthCheckFactory(...asInstances(account, authCheck, domainEvents, storage), document);
+factory = authCheckFactory(...asInstances(account, authCheck, appEvents, storage), document);
 ```
 
 По обёртке на аргумент — это не просто длиннее, это ещё и _обнаруживается_ по одному аргументу за
@@ -218,7 +218,7 @@ let perf: Spy<Performance, { overload: { getEntriesByType: 'first' } }>;
 ### Почему умолчание остаётся `'last'` {#why-the-default-stays-last}
 
 Потому что «полезная перегрузка» из типа не выводится. У сгенерированного `observe`-клиента брать
-надо первую, у четырёхперегрузочного клиента `api-mgw` — последнюю, и обе живут в одной сюите.
+надо первую, у четырёхперегрузочного клиента `api-gateway` — последнюю, и обе живут в одной сюите.
 Структурного признака, который их разделяет, нет — если не называть ангуляровский `HttpEvent`, а
 этого ни одна декларация пакета делать не имеет права.
 
@@ -246,7 +246,7 @@ declare global {
 каждого члена, а флаг на член лишает пакеты хелперов общего кэша между членами, и даже флаг с телом
 из константы `false` уводит `types:budget` с дельты 9 665 на 11 769 при потолке 11 000 — ещё до
 всякого распознавания перегрузок, которое добавляет сверху ~840. Приём промахивается: на
-четырёхперегрузочном клиенте `api-mgw`, где `'last'` и так правильная сигнатура, честно неверная
+четырёхперегрузочном клиенте `api-gateway`, где `'last'` и так правильная сигнатура, честно неверная
 заглушка получает `OverloadCollapsed_UseSpyOverloadOption<Movie[]>` и ссылку на ручку, которая
 ничего бы не изменила. И он не достаёт до пути, где нужен больше всего: `mockReturnValue`
 типизирован через `MockInstance<Method>`, собственную поверхность раннера, до которой обёртки этого
@@ -422,8 +422,8 @@ session.accessToken = 'second';
 ## `Spy`, а не `Mocked` {#spy-not-mocked}
 
 ```ts
-let modal: Spy<KdsModalService>; // ✅
-let modal: Mocked<KdsModalService>; // ❌
+let modal: Spy<ModalService>; // ✅
+let modal: Mocked<ModalService>; // ❌
 ```
 
 `Mocked<T>` — собственный тип Vitest, и он пересекается с `T` _полностью_, включая приватные члены.

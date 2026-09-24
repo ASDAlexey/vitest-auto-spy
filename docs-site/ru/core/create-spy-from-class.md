@@ -172,15 +172,15 @@ provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] }); // д
 **Почему это не только опрятность.** Замер на одной Angular-сюите: 739 вызовов `provideAutoSpy` из
 2228 несут конфигурацию, и один и тот же класс собирает несовместимые мнения —
 
-| класс                      | вызовов | файлов | с конфигом | **различных конфигураций** |
-| -------------------------- | ------: | -----: | ---------: | -------------------------: |
-| `Router`                   |     122 |    109 |         60 |                     **23** |
-| `AccountService`           |      70 |     62 |         43 |                     **27** |
-| `PurchaseStateService`     |      53 |     52 |         42 |                     **25** |
-| `SmartRemoteConfigService` |      85 |     70 |         47 |                          8 |
+| класс                   | вызовов | файлов | с конфигом | **различных конфигураций** |
+| ----------------------- | ------: | -----: | ---------: | -------------------------: |
+| `Router`                |     122 |    109 |         60 |                     **23** |
+| `AccountService`        |      70 |     62 |         43 |                     **27** |
+| `CheckoutStateService`  |      53 |     52 |         42 |                     **25** |
+| `RemoteSettingsService` |      85 |     70 |         47 |                          8 |
 
-— а семейство `*RemoteConfigService` это 205 вызовов, 120 из которых дословно повторяют
-`{ gettersToSpyOn: ['remoteConfig'] }`. Списочные опции
+— а семейство `*FlagsConfigService` это 205 вызовов, 120 из которых дословно повторяют
+`{ gettersToSpyOn: ['flagsConfig'] }`. Списочные опции
 [аддитивны и не жалуются на имя, которого не нашли](#configuration) — так задумано, они существуют
 ровно затем, чтобы называть члены, которых нет на прототипе, — поэтому 23 мнения о `Router` означают,
 что большинство этих файлов не спаят `events` вовсе, и в день, когда в проде появится подписка на
@@ -485,9 +485,9 @@ expect(settings.accessorSpies.setters.theme).toHaveBeenCalledWith('light');
 класса уже есть: член, доступный лишь на чтение, таким и остаётся.
 
 До 3.5.0 спай ставился только на названную половину, и дубль выходил беднее оригинала ровно там, где
-тестируемый код рассчитывает на симметрию. Присваивание `service.manualSwitchKidMode = false` попадало
+тестируемый код рассчитывает на симметрию. Присваивание `service.toggleSafeMode = false` попадало
 в пустой сеттер, который ставит обвязка спая, так что запись пропадала _и_ проверять было нечего:
-`accessorSpies.setters.manualSwitchKidMode` был `undefined`, а падение читалось как
+`accessorSpies.setters.toggleSafeMode` был `undefined`, а падение читалось как
 `Cannot read properties of undefined` в нескольких шагах от вызвавшей его настройки.
 
 ### Как задать значение шпионимому геттеру {#seeding-a-spied-getter}
@@ -497,17 +497,17 @@ expect(settings.accessorSpies.setters.theme).toHaveBeenCalledWith('light');
 упоминает, — задаёт значение спаю геттера:
 
 ```ts
-registerAutoSpyDefaults([[RemoteConfigService, { gettersToSpyOn: ['remoteConfig'] }]]); // setup-файл
+registerAutoSpyDefaults([[FlagsConfigService, { gettersToSpyOn: ['flagsConfig'] }]]); // setup-файл
 
-providers: [provideAutoSpy(RemoteConfigService, { overrides: { remoteConfig: { theme: 'dark' } } })];
+providers: [provideAutoSpy(FlagsConfigService, { overrides: { flagsConfig: { theme: 'dark' } } })];
 
-injectSpy(RemoteConfigService).remoteConfig; // { theme: 'dark' }, и чтение записано
+injectSpy(FlagsConfigService).flagsConfig; // { theme: 'dark' }, и чтение записано
 ```
 
 До этого релиза значение присваивалось, присваивание попадало в сеттер шпионимого аксессора, а геттер
 продолжал отвечать `undefined` — при том что документация обещала, что заданные члены побеждают, и
 ничто не предупреждало. Геттер остаётся спаем, так что более поздний
-`accessorSpies.getters.remoteConfig.mockReturnValue(…)` по-прежнему перекрывает заданное значение.
+`accessorSpies.getters.flagsConfig.mockReturnValue(…)` по-прежнему перекрывает заданное значение.
 Значение для члена, у спая которого есть только сеттер, становится обычным значением, а не записью,
 которую геттер никогда не прочитает.
 
