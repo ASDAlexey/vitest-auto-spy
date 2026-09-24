@@ -1,6 +1,6 @@
 ---
 title: Правила ESLint
-description: По разделу на каждое из сорока восьми правил — что оно сообщает, на чём принимает решение, зачем оно в recommended, где сообщает о работающем коде и почему у него именно такая severity.
+description: По разделу на каждое из сорока девяти правил — что оно сообщает, на чём принимает решение, зачем оно в recommended, где сообщает о работающем коде и почему у него именно такая severity.
 ---
 
 # Правила ESLint
@@ -35,10 +35,10 @@ description: По разделу на каждое из сорока восьм�
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## Сорок восемь правил {#the-twenty-five-rules}
+## Сорок девять правил {#the-twenty-five-rules}
 
 Сгруппированы по темам — так же, как на [странице настройки](/ru/utilities/eslint-plugin). Все
-правила — `error`, кроме пяти.
+правила — `error`, кроме восьми.
 
 | Правило                                                               | В `recommended` | Что сообщает                                                                                              |
 | --------------------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------- |
@@ -57,6 +57,7 @@ description: По разделу на каждое из сорока восьм�
 | [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)       | `error`         | объектный литерал из двух и более `vi.fn()`                                                               |
 | [`no-stub-class-double`](#no-stub-class-double)                       | `warn`          | класс, чьи поля — `vi.fn()`: тот же дубль, только с `new` впереди                                         |
 | [`no-structural-double`](#no-structural-double)                       | `warn`          | объект из `vi.fn()` у имени, объявленного как объект из `Mock` Vitest                                     |
+| [`prefer-spy-on-own-method`](#prefer-spy-on-own-method)               | `warn`          | `createSpyFromInstance`, который шпионит за одним методом и читается только ради него                     |
 | [`no-shared-module-level-mock`](#no-shared-module-level-mock)         | `error`         | **экспортируемое** значение, которое строит `vi.fn()` при загрузке модуля                                 |
 | [`no-object-define-property`](#no-object-define-property)             | `error`         | `Object.defineProperty` / `defineProperties` в спеке                                                      |
 | [`no-import-time-spread`](#no-import-time-spread)                     | `error`         | спред импортированного биндинга, вычисляемый на уровне модуля                                             |
@@ -866,6 +867,82 @@ beforeEach(() => {
 файлах, а 110 тех дублей переехали в `prefer-provide-auto-spy` на `error`, где доказательство —
 `provide:`. Severity со счётом не изменилась, потому что счёт никогда и не был аргументом за неё —
 аргументом было доказательство.
+
+## prefer-spy-on-own-method {#prefer-spy-on-own-method}
+
+**`warn`** · `--fix` и подсказка · только синтаксис
+
+**Что сообщает.** Вызов `createSpyFromInstance(target, options)`, опции которого — одна из двух форм,
+которые упаковывают [`spyOnOwnMethod` и `spyOnVoidMethod`](/ru/core/create-spy-from-class#spy-on-own-method),
+а результат нужен только ради этого одного метода:
+
+- `{ onlyMethodsToSpyOn: ['m'], passthrough: true }` → `spyOnOwnMethod(target, 'm')`;
+- `{ onlyMethodsToSpyOn: ['m'], returns: { m: undefined } }` → `spyOnVoidMethod(target, 'm')`;
+- один `{ returns: { m: undefined } }` на настоящем событии или элементе → `spyOnVoidMethod(target, 'm')`.
+
+«Только ради этого метода» — одно из четырёх написаний, в одну строку или в десять: `.m` (или
+`['m']`) прямо на вызове, `const { m } = …`, вызов отдельной инструкцией или имя, которому вызов
+присвоен один раз и которое читается только как `name.m`, — `const` или `let`, который заполняет
+`beforeEach`.
+
+**На чём решает.** На вызове и чтениях его результата. Второй метод в списке, `methodsToSpyOn`
+(он добавляет к обнаружению, а не заменяет его), любая другая опция, спред, результат, переданный
+дальше, экспортированный, перезаписанный как `spy.m = …` или прочитанный ради другого члена, — и
+отчёта нет. Голому void-сиду нужна ещё и настоящая цель, видная из выражения или через одно имя:
+`new MouseEvent(…)` и любой глобальный конструктор `…Event`, `document` и `window`,
+`document.createElement(…)` / `createElementNS` / `createEvent` / `querySelector` / `getElementById`,
+`document.body`, `fixture.nativeElement`, `….debugElement.nativeElement` и
+`….query(…).nativeElement`. Дубль — `createAutoMock<Event>()`, `createSpyFromClass(Event)`,
+приведённый литерал, имя, значение которого файл не задаёт, — не сообщается никогда.
+
+**Находка и ремонт.**
+
+```ts
+const seek = createSpyFromInstance(player, {
+  onlyMethodsToSpyOn: ['seek'],
+  passthrough: true,
+}).seek; // ❌
+
+let spy: Spy<Player>;
+beforeEach(() => {
+  spy = createSpyFromInstance(player, { onlyMethodsToSpyOn: ['seek'], passthrough: true }); // ❌
+});
+it('seeks', () => expect(spy.seek).toHaveBeenCalled());
+```
+
+```ts
+const seek = spyOnOwnMethod(player, 'seek'); // ✅
+
+let spy: Spy<Player>['seek'];
+beforeEach(() => {
+  spy = spyOnOwnMethod(player, 'seek'); // ✅
+});
+it('seeks', () => expect(spy).toHaveBeenCalled());
+```
+
+Первые две формы — ровно то, что делают хелперы, поэтому `--fix` применяет их сам: вызов, каждое
+чтение `name.m`, которое становится `name`, импорт хелпера рядом с фабрикой (из той же точки входа,
+если она экспортирует хелпер, иначе из корня) и удаление импорта фабрики, когда переписывание
+забрало её последнее использование. Аннотация `Spy<X>` у имени становится `Spy<X>['m']` в подсказке,
+а не в фиксе; любая другая аннотация, явные аргументы типа или `spyOnOwnMethod`, который файл
+объявляет сам, оставляют отчёт без правки.
+
+**Почему в recommended.** Хелперы появились потому, что этот вызов — самый частый, и сюита,
+переведённая до их появления, несёт его повсюду. Текстовый поиск пропускает каждый вызов,
+написанный в несколько строк: потребитель, для которого написано правило, перевёл около шестидесяти
+руками, а ещё десять нашлись только так.
+
+**Границы.** Голый void-сид — подсказка, а не фикс: без `onlyMethodsToSpyOn` обнаружение шпионит и
+за всеми остальными методами цели, и тест, который полагается на заглушённость одного из них,
+под `spyOnVoidMethod` меняется. Поэтому же экземпляра компонента нет среди настоящих целей: на его
+остальные методы полагаются чаще всего. Несколько переписываний одного файла за один проход
+`--fix` могут оставить импорт `createSpyFromInstance` неиспользованным; проход, который
+переписывает последнее использование, его убирает, остальное ловит правило неиспользуемых импортов
+проекта.
+
+**Уровень.** `warn` по той же причине, что и у [`prefer-render-shallow`](#prefer-render-shallow): вызов,
+о котором правило сообщает, корректен и делает ровно то же, что хелпер. Правило называет более
+короткое написание, а не дефект, и раз точные формы несут фикс, поднять его — один `eslint --fix`.
 
 ## no-shared-module-level-mock {#no-shared-module-level-mock}
 

@@ -1,6 +1,6 @@
 ---
 title: ESLint-плагин
-description: Сорок восемь правил для flat config, которые уводят сюиту на хелперы auto-spy, сгруппированы по темам, каждое по умолчанию error кроме семи, которые сообщают про цену или решают по эвристике, с описанными ручками и названными случаями ложных срабатываний.
+description: Сорок девять правил для flat config, которые уводят сюиту на хелперы auto-spy, сгруппированы по темам, каждое по умолчанию error кроме восьми, которые сообщают про цену или решают по эвристике, с описанными ручками и названными случаями ложных срабатываний.
 ---
 
 # ESLint-плагин
@@ -22,7 +22,7 @@ subpath-экспорт этого пакета таким пакетом быт�
 
 **Как устроена эта страница.** [Как подключить](#adding-it-to-your-project) — четыре вещи, нужные
 первому конфигу. [Какие касаются вас](#which-of-the-twenty-apply-to-you) отвечает на вопрос, который
-задаёт проект только на Vitest: четыре из сорока восьми — про диалект, на котором вы, возможно, не
+задаёт проект только на Vitest: четыре из сорока девяти — про диалект, на котором вы, возможно, не
 говорите. [Правила](#rules) — справочная таблица в семи группах. [Настройка](#tuning-it-for-your-project) —
 все ручки, включая три правила, которые могут сработать на корректном коде. Всё после этого — _почему_:
 по разделу на правило, на случай, когда сообщение уже прилетело и хочется понять, от чего оно вас
@@ -80,7 +80,7 @@ files: ['**/*.{spec,test}.{ts,tsx}', '**/test/**/*.ts'],  // и то и друг
 
 ### 3. Информация о типах не обязательна, и три правила её хотят {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Из сорока восьми правил синтаксических сорок пять: они читают собственный AST файла и никогда не
+Из сорока девяти правил синтаксических сорок шесть: они читают собственный AST файла и никогда не
 спрашивают тайпчекер. Так что плагин работает при незаданном `parserOptions.project`, ничего заметного
 ко времени линта не добавляет и не требует, чтобы ваши спеки были в `tsconfig`, — а это важно в
 репозиториях, где их там нет.
@@ -106,7 +106,7 @@ languageOptions: {
 
 ### 4. Как выглядит первый прогон {#_4-what-the-first-run-looks-like}
 
-Каждое правило, кроме семи, — `error`, так что на существующей сюите первый прогон, скорее всего,
+Каждое правило, кроме восьми, — `error`, так что на существующей сюите первый прогон, скорее всего,
 будет красным — и это смысл такого умолчания, а не ошибка настройки. Исключение —
 [`prefer-render-shallow`](#the-render-nobody-reads), который сообщает про цену, а не про дефект, а
 также [`no-stub-class-double`](/ru/utilities/eslint-rules#no-stub-class-double),
@@ -115,7 +115,7 @@ languageOptions: {
 про дефект по эвристическому доказательству, и [`prefer-create-mock`](/ru/utilities/eslint-rules#prefer-create-mock),
 [`prefer-set-inputs`](/ru/utilities/eslint-rules#prefer-set-inputs) и
 [`no-unasserted-argument`](/ru/utilities/eslint-rules#no-unasserted-argument), чей
-ремонт — миграция, а не замена строки; все семь попадают в вывод, но не держат сборку.
+ремонт — миграция, а не замена строки, и [`prefer-spy-on-own-method`](/ru/utilities/eslint-rules#prefer-spy-on-own-method), который называет более короткое написание корректного вызова; все восемь попадают в вывод, но не держат сборку.
 Первый заход укорачивают две вещи:
 
 ```bash
@@ -126,7 +126,7 @@ npx eslint . --format stylish | tail -30   # в сводке видно, как�
 Всё, что осталось, — это либо настоящая находка, либо правило, которое вы пока не готовы включать в
 силу. Ответы на оба случая ниже.
 
-## Какие из сорока восьми касаются вас {#which-of-the-twenty-apply-to-you}
+## Какие из сорока девяти касаются вас {#which-of-the-twenty-apply-to-you}
 
 Резонный вопрос, если вы пришли сразу на Vitest и не написали ни строчки на Jasmine: **четыре из этих
 правил — про диалект, на котором вы не говорите.** Они всё равно включены, и причина не в принципе, а
@@ -136,7 +136,7 @@ npx eslint . --format stylish | tail -30   # в сводке видно, как�
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | пишете на Vitest, никогда не трогали Jasmine или Jest | сорок четыре основных правила работают; **четыре jasmine-правила бездействуют** — оставьте их и никогда не увидите |
 | переезжаете с `jest-auto-spies` / Jest                | работу делают основные правила, больше всего — `no-done-callback` и `prefer-as-spy`                                |
-| переезжаете с `jasmine-auto-spies`                    | все сорок восемь, с `prefer-native-spy-api` в `'off'`, пока мост не убран                                          |
+| переезжаете с `jasmine-auto-spies`                    | все сорок девять, с `prefer-native-spy-api` в `'off'`, пока мост не убран                                          |
 
 ### Если вы никогда не пользовались Jasmine {#if-you-never-used-jasmine}
 
@@ -207,7 +207,7 @@ Jest работал на **jest-jasmine2** вплоть до Jest 27, а тот 
 
 ### Если вы приходите из Jasmine {#if-you-are-coming-from-jasmine}
 
-Касаются все сорок восемь, а четыре из последней группы написаны прямо для вас. Два — чистая диагностика:
+Касаются все сорок девять, а четыре из последней группы написаны прямо для вас. Два — чистая диагностика:
 `no-jasmine-globals` и `no-save-arguments-by-value` называют молчаливые изменения поведения, которые
 переживают переименование, — а `jasmine-namespace-without-entry` ловит спай, построенный до того, как
 поставили слой совместимости. Четвёртое, `prefer-native-spy-api`, рапортует про сам мост, так что это
@@ -222,12 +222,12 @@ Jest работал на **jest-jasmine2** вплоть до Jest 27, а тот 
 
 ## Правила {#rules}
 
-Каждое правило — `error`, кроме семи. До 4.0.0 эта таблица была смесью `error` / `warn` / `off`, то
+Каждое правило — `error`, кроме восьми. До 4.0.0 эта таблица была смесью `error` / `warn` / `off`, то
 есть плагин решал, насколько сильно каждому проекту не всё равно; `warn`, который никто не читает, —
 это `off` с дополнительным выводом, а какие находки блокируют мердж, решает проект, а не библиотека.
 Понизить одно правило — [одна строка](#turn-one-rule-down).
 
-Одно из семи исключений — [`prefer-render-shallow`](#the-render-nobody-reads), он приходит как
+Одно из восьми исключений — [`prefer-render-shallow`](#the-render-nobody-reads), он приходит как
 **`warn`**, и его причина в том, _о чём_ он говорит, а не в том, насколько это важно. Любое другое правило
 в этих таблицах называет что-то неправильное или мёртвое: дубль, который расходится со своим классом,
 ассерт, который не выполняется, провайдер, который контейнер уже выбросил, схему, которая ничего не
@@ -237,6 +237,10 @@ Jest работал на **jest-jasmine2** вплоть до Jest 27, а тот 
 файлах** — первый прогон, на который каждому потребителю пришлось бы отвечать своим общепроектным
 `warn`. Поэтому по умолчанию это `warn`, а проект, который решил перейти, ставит `'error'` той же
 [одной строкой](#turn-one-rule-down), которой остальные понижают.
+
+[`prefer-spy-on-own-method`](/ru/utilities/eslint-rules#prefer-spy-on-own-method) градуирован так же. Вызов
+`createSpyFromInstance`, о котором он сообщает, корректен и делает ровно то же, что `spyOnOwnMethod` / `spyOnVoidMethod`:
+правило называет более короткое написание, а не дефект, и его точные формы несут фикс.
 
 Остальные два, `no-stub-class-double` и `no-structural-double` (5.5.0), градуированы по
 _доказательству_, а не по виду находки. Оба сообщают тот же дрейф, что `prefer-create-spy-from-class`
@@ -286,18 +290,19 @@ _доказательству_, а не по виду находки. Оба с�
 
 Не про отдельный тест, а про то, что один файл оставляет следующему.
 
-| Правило                                                                                              | На что срабатывает                                                                                                                                        | Правка    |         Без него         |
-| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | :----------------------: |
-| [`prefer-create-spy-from-class`](#two-things-these-rules-learned-the-hard-way)                       | объектный литерал из двух и более `vi.fn()` → `createSpyFromClass` / `createAutoMock`, если это не затравка самой фабрики                                 | —         |          красно          |
-| [`no-stub-class-double`](/ru/utilities/eslint-rules#no-stub-class-double)                            | класс, чьи поля — `vi.fn()` → `createSpyFromClass` / `provideAutoSpy`, класс-заглушка удаляется; `warn`                                                   | —         |          красно          |
-| [`no-structural-double`](/ru/utilities/eslint-rules#no-structural-double)                            | объект из `vi.fn()` у имени, объявленного как `{ load: Mock }` → `createAutoMock<T>()`; `warn`                                                            | —         |          красно          |
-| [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | **экспортированное** значение, держащее `vi.fn()` → экспортируйте фабрику, которая его возвращает                                                         | —         |          зелено          |
-| [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` в спеке → `mockReadonlyProp` / `mockValueProp`                                                                                    | подсказка |          зелено          |
-| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` на уровне модуля → `TypeError` или молча пустой объект во время загрузки бандла                                          | подсказка | красно _(по построению)_ |
-| [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | рукописный `IntersectionObserver` / `ResizeObserver` / `MutationObserver`, записанный в глобал → `stubIntersectionObserver()` и соседи                    | —         |          зелено          |
-| [`no-hand-assigned-global`](#a-global-assigned-by-hand)                                              | `global.fetch = vi.fn(…)` и любой другой дубль, присвоенный в глобал без восстановления в teardown → `mockValueProp` / `vi.stubGlobal` / `blockNetwork()` | —         |          зелено          |
-| [`prefer-stub-response`](#a-response-written-by-hand)                                                | объектный литерал, приведённый к `Response`, или `createMock<Response>(…)` → `stubResponse({ body })`                                                     | —         |         зелёный          |
-| [`no-redundant-mock-reset`](/ru/utilities/eslint-rules#no-redundant-mock-reset)                      | сброс моков в хуке, который раннер и так делает между тестами → удалить; молчит, пока не знает флагов                                                     |
+| Правило                                                                                              | На что срабатывает                                                                                                                                              | Правка              |         Без него         |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | :----------------------: |
+| [`prefer-create-spy-from-class`](#two-things-these-rules-learned-the-hard-way)                       | объектный литерал из двух и более `vi.fn()` → `createSpyFromClass` / `createAutoMock`, если это не затравка самой фабрики                                       | —                   |          красно          |
+| [`no-stub-class-double`](/ru/utilities/eslint-rules#no-stub-class-double)                            | класс, чьи поля — `vi.fn()` → `createSpyFromClass` / `provideAutoSpy`, класс-заглушка удаляется; `warn`                                                         | —                   |          красно          |
+| [`no-structural-double`](/ru/utilities/eslint-rules#no-structural-double)                            | объект из `vi.fn()` у имени, объявленного как `{ load: Mock }` → `createAutoMock<T>()`; `warn`                                                                  | —                   |          красно          |
+| [`prefer-spy-on-own-method`](/ru/utilities/eslint-rules#prefer-spy-on-own-method)                    | `createSpyFromInstance` на один метод → `spyOnOwnMethod(x, 'm')` / `spyOnVoidMethod(x, 'm')`; голый void-сид — только на настоящем событии или элементе; `warn` | `--fix` / подсказка |          зелено          |
+| [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | **экспортированное** значение, держащее `vi.fn()` → экспортируйте фабрику, которая его возвращает                                                               | —                   |          зелено          |
+| [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` в спеке → `mockReadonlyProp` / `mockValueProp`                                                                                          | подсказка           |          зелено          |
+| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` на уровне модуля → `TypeError` или молча пустой объект во время загрузки бандла                                                | подсказка           | красно _(по построению)_ |
+| [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | рукописный `IntersectionObserver` / `ResizeObserver` / `MutationObserver`, записанный в глобал → `stubIntersectionObserver()` и соседи                          | —                   |          зелено          |
+| [`no-hand-assigned-global`](#a-global-assigned-by-hand)                                              | `global.fetch = vi.fn(…)` и любой другой дубль, присвоенный в глобал без восстановления в teardown → `mockValueProp` / `vi.stubGlobal` / `blockNetwork()`       | —                   |          зелено          |
+| [`prefer-stub-response`](#a-response-written-by-hand)                                                | объектный литерал, приведённый к `Response`, или `createMock<Response>(…)` → `stubResponse({ body })`                                                           | —                   |         зелёный          |
+| [`no-redundant-mock-reset`](/ru/utilities/eslint-rules#no-redundant-mock-reset)                      | сброс моков в хуке, который раннер и так делает между тестами → удалить; молчит, пока не знает флагов                                                           |
 
 ### Angular DI и TestBed {#angular-di-and-the-testbed}
 
@@ -1314,7 +1319,7 @@ setup-файла), глушит файл, а проект может назва�
 
 ## Какие правила чинят и почему их так мало {#which-rules-fix-and-why-so-few}
 
-Пять из сорока восьми переписывают исходник сами, восемнадцать предлагают переписывание подсказкой, и разделение это
+Шесть из сорока девяти переписывают исходник сами, девятнадцать предлагают переписывание подсказкой, и разделение это
 про цену неверной догадки, а не про сложность переписывания.
 
 `no-mocked-for-spy` трогает только **объявление**. Ошибись оно — и файл перестанет компилироваться, а
