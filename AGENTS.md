@@ -216,7 +216,10 @@ the test must not touch the real one.
 verbose for the most common thing it says — _observe one method of the object under test and let it
 run_ — so the helper says exactly that and hands back the single spy. It is also the drop-in for a
 bare `vi.spyOn(component, 'method')` where a preset's `no-restricted-properties` bans `vi.spyOn`:
-same default semantics, record and call through, and `restoreSpiedInstance` puts it back.
+same default semantics, record and call through, and `restoreSpiedInstance` puts it back. It is a
+core export — `import { spyOnOwnMethod } from 'vitest-auto-spy'`, or the runner entry on
+`bun test` / `node --test` — while `vitest-auto-spy/angular` and `vitest-auto-spy/nestjs` have no
+core re-export, so those suites import it from the root; `spyOnVoidMethod` below is the same.
 
 **Do not `createSpyFromInstance` a DOM node that must keep living a DOM life.** Discovery walks the
 node's prototype chain, and past the component's own class that chain is the engine's: happy-dom's

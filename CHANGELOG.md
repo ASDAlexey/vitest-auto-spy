@@ -10,6 +10,14 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Docs
+
+- **`AGENTS.md` says which entry `spyOnOwnMethod` and `spyOnVoidMethod` come from.** The §2
+  introduction sat in Angular-flavoured company, and `vitest-auto-spy/angular` has no core
+  re-export — an Angular-suite reader importing the helper there hit a missing export. The
+  paragraph now names the core entry (root, or the runner entry off Vitest), as the docs-site
+  page already does.
+
 ## [5.29.0] - 2026-09-24
 
 ### Added
