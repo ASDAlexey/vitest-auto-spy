@@ -34,6 +34,7 @@ import { DOCS_LINKS, withDocs } from './docs-links';
 import { markOwnedPatch } from './owned-patch';
 import { currentSpecFile } from './spec-file';
 import { ownFrames, stackFrames } from './stack-frames';
+import type { Func } from './types';
 
 /**
  * The callback half of a scheduler call, spelled out so a wrapper can pass it along and — for a
@@ -64,18 +65,27 @@ export interface SchedulerHost {
 /** One outstanding callback, and where it came from — what {@link describeStrayTimers} hands back. */
 export interface StrayTimer {
   readonly kind: 'frame' | 'interval' | 'timeout';
+  /** The delay a timeout or interval was scheduled with, in milliseconds; `undefined` for a frame. */
+  readonly delay?: number;
   /** The spec file that was running when it was scheduled; `undefined` outside a Vitest file. */
   readonly file: string | undefined;
-  /** Up to five frames of the scheduling call, those outside dependencies first. */
+  /**
+   * Up to five frames of the scheduling call, starting below the tracking wrapper: those outside
+   * dependencies first, then — when the call came from dependencies only — theirs, never this package's.
+   */
   readonly frames: readonly string[];
 }
 
 /** The stack is taken now and formatted only if the callback turns out to be a stray. */
 interface Origin {
   readonly kind: StrayTimer['kind'];
+  readonly delay: number | undefined;
   readonly file: unknown;
-  readonly trace: Error;
+  readonly trace: { readonly stack?: string };
 }
+
+/** What a wrapper knows when it schedules: the kind, the delay, and itself — where the stack is cut. */
+type OriginRequest = Pick<Origin, 'delay' | 'kind'> & { readonly boundary: Func };
 
 /** Undo the wrapping installed by {@link trackStrayTimers}, cancelling anything still outstanding. */
 export type StopTrackingTimers = () => void;
@@ -158,9 +168,10 @@ function scheduleTracked<THandle>(
   schedule: (callback: ScheduledCallback) => THandle,
   callback: ScheduledCallback,
   handles: Map<THandle, Origin>,
-  kind: Origin['kind'],
+  origin: OriginRequest,
   numeric?: Map<number, unknown>,
 ): THandle {
+  const { kind } = origin;
   const oneShot = kind !== 'interval';
   // eslint-disable-next-line prefer-const -- read by the closure below and assigned after it; `const` cannot express a binding whose reader is created first.
   let handle: THandle;
@@ -176,7 +187,7 @@ function scheduleTracked<THandle>(
   };
 
   handle = schedule(oneShot && typeof callback === 'function' ? forgetting : callback);
-  handles.set(handle, captureOrigin(kind));
+  handles.set(handle, captureOrigin(origin));
 
   const id = numeric && numericIdOf(handle);
 
@@ -188,19 +199,47 @@ function scheduleTracked<THandle>(
 }
 
 /**
- * Where the callback was scheduled, cheaply: a V8 stack is captured at construction and formatted only
- * when read, and the depth is capped so an Angular zone's frames do not come along.
+ * Deep enough to get past a zone's scheduling chain and an rxjs scheduler to the code that asked.
+ * Twelve used to be the cap, and behind those wrappers it ran out before the first line outside
+ * dependencies, so a report quoted this package's own frame.
  */
-function captureOrigin(kind: Origin['kind']): Origin {
+const ORIGIN_DEPTH = 40;
+
+/**
+ * Where the callback was scheduled, cheaply: the frames are taken now and formatted only if it
+ * turns out to be a stray. `boundary` is the installed wrapper, so V8 drops the tracking's own
+ * frames before counting toward the depth; elsewhere they are filtered out when described.
+ */
+function captureOrigin({ kind, delay, boundary }: OriginRequest): Origin {
   const limit = Error.stackTraceLimit;
 
-  Error.stackTraceLimit = 12;
+  Error.stackTraceLimit = ORIGIN_DEPTH;
 
-  const trace = new Error();
+  const trace = captureTrace(boundary);
 
   Error.stackTraceLimit = limit;
 
-  return { kind, file: currentSpecFile(), trace };
+  return { kind, delay, file: currentSpecFile(), trace };
+}
+
+/** Into a plain object where V8 allows, which skips building the string until a report reads it. */
+function captureTrace(boundary: Func): { stack?: string } {
+  if (typeof Error.captureStackTrace !== 'function') {
+    return new Error();
+  }
+
+  const holder: { stack?: string } = {};
+
+  Error.captureStackTrace(holder, boundary);
+
+  return holder;
+}
+
+/** What the runtime makes of a timer's delay argument: a number, and nothing below zero. */
+function delayOf(value: unknown): number {
+  const delay = Number(value);
+
+  return Number.isFinite(delay) && delay > 0 ? delay : 0;
 }
 
 /** The sets {@link wrapTimerScheduler} records into — see {@link Tracking} for what separates them. */
@@ -255,7 +294,7 @@ function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeo
 
   // `defineHelper` so a leak `detectAsyncLeaks` finds is framed at the spec's `setTimeout` rather
   // than at the line below it — see this module's docblock.
-  const wrapper = defineHelper((callback: ScheduledCallback, ...rest: unknown[]): unknown => {
+  const wrapper: Func = defineHelper((callback: ScheduledCallback, ...rest: unknown[]): unknown => {
     if (sets.pause.paused) {
       return original(callback, ...rest);
     }
@@ -267,7 +306,9 @@ function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeo
       return handle;
     }
 
-    return scheduleTracked((tracked) => original(tracked, ...rest), callback, sets.handles, kind, sets.numeric);
+    const origin: OriginRequest = { kind, delay: delayOf(rest[0]), boundary: wrapper };
+
+    return scheduleTracked((tracked) => original(tracked, ...rest), callback, sets.handles, origin, sets.numeric);
   });
 
   // Node's `setTimeout` carries a custom `promisify` implementation, and `promisify` prefers it over
@@ -327,8 +368,10 @@ function wrapFrameScheduler(host: SchedulerHost, frames: Map<number, Origin>, pa
     return () => undefined;
   }
 
-  const request = defineHelper((callback: ScheduledCallback): number =>
-    pause.paused ? original(callback) : scheduleTracked((tracked) => original(tracked), callback, frames, 'frame'),
+  const request: Func = defineHelper((callback: ScheduledCallback): number =>
+    pause.paused
+      ? original(callback)
+      : scheduleTracked((tracked) => original(tracked), callback, frames, { kind: 'frame', delay: undefined, boundary: request }),
   );
 
   markOwnedPatch(request);
@@ -515,10 +558,11 @@ function pendingHandles(tracked: Tracking): Origin[] {
 /** The stack frames of the wrappers in this file, which say nothing about where the call came from. */
 const OWN_MODULE_FRAME = /stray-timers\.[jt]s/;
 
-function describeOrigin({ kind, file, trace }: Origin): StrayTimer {
+function describeOrigin({ kind, delay, file, trace }: Origin): StrayTimer {
   const frames = stackFrames(trace.stack).filter((frame) => !OWN_MODULE_FRAME.test(frame));
+  const described = { kind, file: typeof file === 'string' ? file : undefined, frames: ownFrames(frames, 5) };
 
-  return { kind, file: typeof file === 'string' ? file : undefined, frames: ownFrames(frames, 5) };
+  return delay === undefined ? described : { ...described, delay };
 }
 
 /**

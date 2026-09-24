@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import * as nodeTimers from 'node:timers';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -471,6 +472,70 @@ describe('describeStrayTimers', () => {
     expect(strays[0]?.file).toMatch(/stray-timers\.spec\.ts$/);
     expect(strays[0]?.frames[0]).toMatch(/stray-timers\.spec\.ts:\d+:\d+/);
     expect(strays.every((stray) => stray.frames.length <= 5)).toBe(true);
+  });
+
+  it('records the delay of a timeout and an interval, and none for a frame', () => {
+    const host = createManualHost();
+    const stop = trackStrayTimers(host);
+
+    host.setTimeout(() => undefined, 250);
+    host.setInterval(() => undefined);
+    host.setTimeout(() => undefined, -5);
+    host.requestAnimationFrame?.(() => undefined);
+
+    const strays = describeStrayTimers(host);
+
+    stop();
+
+    expect(strays.map((stray) => stray.delay)).toEqual([250, 0, 0, undefined]);
+    expect(strays[3]).not.toHaveProperty('delay');
+  });
+
+  it('reaches the caller behind a deep chain of dependency frames', () => {
+    const host = createManualHost();
+    const stop = trackStrayTimers(host);
+    const emitter = new EventEmitter();
+
+    // What a zone or an rxjs scheduler looks like from here: nothing between the test and the
+    // scheduler but frames outside the project. Twelve frames used to run out inside them.
+    emitter.on(
+      'hop-0',
+      host.setTimeout.bind(host, () => undefined, 10),
+    );
+
+    for (let hop = 1; hop <= 15; hop += 1) {
+      emitter.on(`hop-${hop}`, emitter.emit.bind(emitter, `hop-${hop - 1}`));
+    }
+
+    emitter.emit('hop-15');
+
+    const [stray] = describeStrayTimers(host);
+
+    stop();
+
+    expect(stray?.frames[0]).toMatch(/stray-timers\.spec\.ts:\d+:\d+/);
+  });
+
+  it('describes the caller where the runtime has no captureStackTrace', () => {
+    const host = createManualHost();
+    const stop = trackStrayTimers(host);
+    const capture = Object.getOwnPropertyDescriptor(Error, 'captureStackTrace');
+
+    Reflect.deleteProperty(Error, 'captureStackTrace');
+
+    try {
+      host.setTimeout(() => undefined, 10);
+    } finally {
+      if (capture) {
+        Object.defineProperty(Error, 'captureStackTrace', capture);
+      }
+    }
+
+    const [stray] = describeStrayTimers(host);
+
+    stop();
+
+    expect(stray?.frames[0]).toMatch(/stray-timers\.spec\.ts:\d+:\d+/);
   });
 
   it('drops what fired or was cleared, and knows nothing about a host nobody tracks', () => {
