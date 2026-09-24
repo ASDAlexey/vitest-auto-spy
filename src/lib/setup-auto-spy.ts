@@ -415,11 +415,13 @@ export function warnAboutSuppressedLeaks(
   );
 }
 
-/** The first few strays, each with the file that scheduled it and its first frame. */
+/** The first few strays, each with its kind and delay, the file that scheduled it and its first frame. */
 function describeTimerOrigins(timers: readonly StrayTimer[]): string {
-  const lines = timers
-    .slice(0, 3)
-    .map(({ kind, file, frames }) => `\n  - ${kind} from ${file ?? 'no spec file'} ${frames[0] ?? ''}`.trimEnd());
+  const lines = timers.slice(0, 3).map(({ kind, delay, file, frames }) => {
+    const scheduled = delay === undefined ? kind : `${kind} (${delay} ms)`;
+
+    return `\n  - ${scheduled} from ${file ?? 'no spec file'} ${frames[0] ?? ''}`.trimEnd();
+  });
 
   return lines.length > 0 ? `\nScheduled at:${lines.join('')}` : '';
 }

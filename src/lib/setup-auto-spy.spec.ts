@@ -419,6 +419,19 @@ describe('reporting what the stray-timer sweep cancelled', () => {
     expect(printed[0]).not.toContain('four.spec.ts');
   });
 
+  it('names the delay a timer was scheduled with, and none for a frame', () => {
+    const printed: string[] = [];
+
+    warnAboutSuppressedLeaks(2, (message) => printed.push(message), [
+      { kind: 'timeout', delay: 300, file: '/a/angle.spec.ts', frames: ['at open (src/angle.ts:8:3)'] },
+      { kind: 'frame', file: '/a/angle.spec.ts', frames: [] },
+    ]);
+
+    expect(printed[0]).toContain(
+      'Scheduled at:\n  - timeout (300 ms) from /a/angle.spec.ts at open (src/angle.ts:8:3)\n  - frame from /a/angle.spec.ts',
+    );
+  });
+
   it('falls back to the console where the environment has no process', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const real = globalThis.process;
