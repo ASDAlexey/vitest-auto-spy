@@ -9,8 +9,9 @@
  * attempt to use observable spies without it fails with a clear, actionable
  * error instead of a cryptic `undefined is not a function`.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
+import { withDocs } from './message-link';
 
 /** What the rxjs layer hands back for a function spy: its stream state, with the reset `resetAutoSpy` calls. */
 export interface ObservableStream {
@@ -30,7 +31,8 @@ export interface ObservableSupport {
    */
   streamForFunctionSpy(valueContainer: ReturnValueContainer): ObservableStream;
   addToCalledWithObject(calledWithObject: CalledWithObject, calledWithArgs: unknown[]): void;
-  createPropSpy(onUnfedSubscription?: UnfedSubscriptionListener): object;
+  /** `name` — `Class.property` — is what a late `nextWithValues` report calls the property. */
+  createPropSpy(onUnfedSubscription?: UnfedSubscriptionListener, name?: string): object;
 }
 
 /** Told about a subscription to a prop spy nothing had fed yet, with a way to ask again once the test is over. */
@@ -60,8 +62,8 @@ export function resetObservableSupport(): void {
 }
 
 const MISSING_RXJS_SUPPORT = withDocs(
-  "Observable spies require rxjs. Import 'vitest-auto-spy/rxjs' once (e.g. in your test setup) " +
-    'to enable observablePropsToSpyOn / nextWith / nextWithValues / throwWith / complete / returnSubject.',
+  "[vitest-auto-spy] Observable spies require rxjs, and 'vitest-auto-spy/rxjs' was not imported in this run. " +
+    "Add `import 'vitest-auto-spy/rxjs';` once to the setup file.",
   DOCS_LINKS.rxjs,
 );
 
