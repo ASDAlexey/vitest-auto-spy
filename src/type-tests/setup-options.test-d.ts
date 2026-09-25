@@ -20,6 +20,7 @@ import {
   type StorageSpyKey,
   type StrayListener,
   type StrayListenerReport,
+  type StrayTimerReport,
   advanceTimers,
   blockNetwork,
   countStrayListeners,
@@ -170,6 +171,20 @@ describe('the file-boundary repairs', () => {
     setupAutoSpy({ strayListeners: 'warn' });
     // @ts-expect-error -- the report counts what was removed, not what was cancelled
     setupAutoSpy({ onStrayListeners: ({ cancelled }) => cancelled });
+  });
+
+  it('fail the file on a stray through a handler or the one built-in reaction', () => {
+    setupAutoSpy({ strayTimers: true, onStrayTimers: 'throw', strayListeners: true, onStrayListeners: 'throw' });
+    setupAutoSpy({
+      onStrayTimers: (report) => {
+        expectTypeOf(report).toEqualTypeOf<StrayTimerReport>();
+      },
+    });
+
+    // @ts-expect-error -- with no handler the sweep is already quiet, so there is no 'warn' to ask for
+    setupAutoSpy({ onStrayTimers: 'warn' });
+    // @ts-expect-error -- the same for listeners
+    setupAutoSpy({ onStrayListeners: 'off' });
   });
 });
 

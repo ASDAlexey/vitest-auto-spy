@@ -5,7 +5,7 @@
  */
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
-import { installFileBoundary } from './file-boundary';
+import { installFileBoundary, reportStrayListeners } from './file-boundary';
 import type { StrayListener } from './stray-listeners';
 
 const { log, strays } = vi.hoisted(() => ({ log: [] as string[], strays: { removed: 0 } }));
@@ -179,5 +179,27 @@ describe('with the storage repair turned off', () => {
 describe('after a file with every repair off', () => {
   it('ran nothing at the boundary', () => {
     expect(takeLog()).toEqual([]);
+  });
+});
+
+describe('reportStrayListeners', () => {
+  const stray: StrayListener = { target: 'document', type: 'keydown', file: '/a/dialog.spec.ts', frames: ['at open (src/dialog.ts:8:3)'] };
+
+  it('calls nothing when nothing was removed', () => {
+    const handler = vi.fn();
+
+    reportStrayListeners(0, [], handler);
+    reportStrayListeners(0, [], 'throw');
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('fails the file with every stray named by type, target, file and first frame', () => {
+    const bare: StrayListener = { target: 'globalThis', type: 'resize', file: undefined, frames: [] };
+
+    expect(() => reportStrayListeners(2, [stray, bare], 'throw')).toThrow(
+      "2 window/document listener(s) outlived the spec file that added them. setupAutoSpy removed them; onStrayListeners: 'throw' fails the file. " +
+        'Remove each one where it was added:\n  - keydown on document from /a/dialog.spec.ts at open (src/dialog.ts:8:3)\n  - resize on globalThis from no spec file\nDocs:',
+    );
   });
 });

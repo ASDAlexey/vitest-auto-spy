@@ -34,6 +34,7 @@ import { type PrototypePollutionReaction, type PrototypeSnapshot, checkPrototype
 import { type TeardownStep, installTeardown } from './setup-teardown';
 import { ownFrames, stackFrames } from './stack-frames';
 import { type StrayConsoleOptions, type StrayConsoleReaction, watchStrayConsole } from './stray-console';
+import { describeStrayTimer, strayTimersError } from './stray-failure';
 import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
 import {
   type StrayTimer,
@@ -117,9 +118,12 @@ export interface SetupAutoSpyOptions {
    * setupAutoSpy({ strayTimers: true, onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0) });
    * ```
    *
+   * `'throw'` does the same with a message that lists every stray's kind, delay, spec file and
+   * first frame.
+   *
    * Called only when something was actually cancelled, and only once per file.
    */
-  onStrayTimers?: (info: StrayTimerReport) => void;
+  onStrayTimers?: ((info: StrayTimerReport) => void) | 'throw';
   /**
    * Fail the test a swallowed promise rejection surfaced in, instead of letting it scroll past in
    * stderr. Default `false`, because it needs zone.js loaded and claims a hook on it.
@@ -236,8 +240,10 @@ export interface SetupAutoSpyOptions {
    * ```ts
    * setupAutoSpy({ strayListeners: true, onStrayListeners: ({ removed }) => expect(removed).toBe(0) });
    * ```
+   *
+   * `'throw'` fails the file with a message that lists every stray's type, target, spec file and first frame.
    */
-  onStrayListeners?: (info: StrayListenerReport) => void;
+  onStrayListeners?: ((info: StrayListenerReport) => void) | 'throw';
   /**
    * Put every `globalThis` global a file changed back at the end of the file. Default `false`.
    *
@@ -417,11 +423,7 @@ export function warnAboutSuppressedLeaks(
 
 /** The first few strays, each with its kind and delay, the file that scheduled it and its first frame. */
 function describeTimerOrigins(timers: readonly StrayTimer[]): string {
-  const lines = timers.slice(0, 3).map(({ kind, delay, file, frames }) => {
-    const scheduled = delay === undefined ? kind : `${kind} (${delay} ms)`;
-
-    return `\n  - ${scheduled} from ${file ?? 'no spec file'} ${frames[0] ?? ''}`.trimEnd();
-  });
+  const lines = timers.slice(0, 3).map((timer) => `\n  - ${describeStrayTimer(timer)}`);
 
   return lines.length > 0 ? `\nScheduled at:${lines.join('')}` : '';
 }
@@ -439,6 +441,10 @@ export function reportStrayTimers(
 ): void {
   if (cancelled === 0) {
     return;
+  }
+
+  if (handler === 'throw') {
+    throw strayTimersError(cancelled, timers);
   }
 
   if (handler) {

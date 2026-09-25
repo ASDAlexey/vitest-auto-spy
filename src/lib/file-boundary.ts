@@ -10,6 +10,7 @@ import { afterAll, beforeAll, vi } from 'vitest';
 import { captureGlobalBaseline, restoreGlobals } from './global-restore';
 import type { SetupAutoSpyOptions } from './setup-auto-spy';
 import { restoreStorageSpies } from './storage-spy-restore';
+import { strayListenersError } from './stray-failure';
 import {
   type StrayListener,
   baselineStrayListeners,
@@ -46,6 +47,23 @@ function releaseLeftoverFakes(): void {
   restoreTimerGlobals();
 }
 
+/** Exported for its spec, like `reportStrayTimers`: a throw from the file's own `afterAll` would fail that spec. */
+export function reportStrayListeners(
+  removed: number,
+  listeners: readonly StrayListener[],
+  handler: FileBoundaryOptions['onStrayListeners'],
+): void {
+  if (removed === 0) {
+    return;
+  }
+
+  if (handler === 'throw') {
+    throw strayListenersError(removed, listeners);
+  }
+
+  handler?.({ removed, listeners });
+}
+
 /**
  * The file-boundary repairs, as one `afterAll` rather than one each: their order is load-bearing and
  * `sequence.hooks` would otherwise decide it. Fakes come off first, the global restore runs last so
@@ -71,9 +89,7 @@ export function installFileBoundary(options: FileBoundaryOptions): void {
       const removed = removeStrayListeners();
 
       report = (): void => {
-        if (removed > 0) {
-          options.onStrayListeners?.({ removed, listeners });
-        }
+        reportStrayListeners(removed, listeners, options.onStrayListeners);
       };
     });
   }

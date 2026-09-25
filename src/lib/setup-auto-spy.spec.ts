@@ -366,6 +366,25 @@ describe('reporting what the stray-timer sweep cancelled', () => {
     expect(written).toEqual([]);
   });
 
+  it('fails the file with every stray named by kind, delay, file and first frame', () => {
+    const { written, restore } = captureStderr();
+    const timers = [
+      { kind: 'timeout' as const, delay: 300, file: '/a/cart.spec.ts', frames: ['at load (src/cart.ts:12:5)'] },
+      { kind: 'frame' as const, file: undefined, frames: [] },
+    ];
+
+    try {
+      expect(() => withLeakDetection(() => reportStrayTimers(2, 'throw', timers))).toThrow(
+        "2 scheduled callback(s) outlived the spec file that scheduled them. setupAutoSpy cancelled them; onStrayTimers: 'throw' fails the file. " +
+          'Clear each one where it was scheduled:\n  - timeout (300 ms) from /a/cart.spec.ts at load (src/cart.ts:12:5)\n  - frame from no spec file\nDocs:',
+      );
+    } finally {
+      restore();
+    }
+
+    expect(written).toEqual([]);
+  });
+
   it('stays quiet with no handler when the run is not looking for leaks', () => {
     const { written, restore } = captureStderr();
 
