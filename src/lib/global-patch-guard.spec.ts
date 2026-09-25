@@ -39,9 +39,24 @@ describe('guardGlobalPatches', () => {
       message = String(error);
     }
 
-    expect(message).toMatch(/redefined document\.cookie as a non-configurable own property/);
-    expect(message).toMatch(/mockValueProp\(document, 'cookie', value\)/);
-    expect(message).toMatch(/global-patch-guard\.spec\.ts/);
+    expect(message).toContain(
+      '[vitest-auto-spy] "guardGlobalPatches > names the file, the object and the property that can no longer be restored" ' +
+        '(src/lib/global-patch-guard.spec.ts) redefined document.cookie as non-configurable ' +
+        '(Object.defineProperty defaults configurable to false), so no later file can put it back.\n' +
+        "Patch it with mockValueProp(document, 'cookie', value) instead: it records what it replaced and undoes it after the test.\n" +
+        'Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_7-naming-the-file-that-sealed-a-global',
+    );
+  });
+
+  it('picks the helper that fits a getter, and one that fits a getter with a setter', () => {
+    const snapshot = watchedObject();
+
+    Object.defineProperty(snapshot.object, 'cookie', { get: () => 'a=1' });
+    Object.defineProperty(snapshot.object, 'title', { get: () => 'x', set: () => undefined });
+
+    expect(() => checkSealedAdditions([snapshot], 'throw')).toThrow(
+      "Patch it with mockReadonlyPropGetter(document, 'cookie', () => value), mockAccessorsProp(document, 'title', { get, set }) instead",
+    );
   });
 
   it('blames the test that made the patch, not every test after it', () => {

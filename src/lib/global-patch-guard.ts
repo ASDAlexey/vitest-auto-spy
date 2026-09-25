@@ -13,10 +13,12 @@
  * read only for a name that was not there before — and it turns that hunt into one line naming the
  * file, the object and the property.
  */
-import { afterEach, beforeEach, expect } from 'vitest';
+import { afterEach, beforeEach } from 'vitest';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { type GuardReaction, reactToFindings } from './guard-reaction';
+import { withDocs } from './message-link';
+import { describeCulprit } from './test-culprit';
 
 /** How {@link guardGlobalPatches} reacts to a patch that cannot be undone. */
 export type GlobalPatchReaction = GuardReaction;
@@ -76,12 +78,17 @@ export function snapshotWatchedGlobals(candidates: readonly WatchedCandidate[] =
   );
 }
 
-/** Whether an own property of `object` was defined so that nothing can ever redefine or delete it. */
-function isSealed(object: object, name: PropertyKey): boolean {
+/** The descriptor an own property of `object` carries, when nothing can ever redefine or delete it. */
+function sealedDescriptor(object: object, name: PropertyKey): PropertyDescriptor | undefined {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `name` was read off `Reflect.ownKeys(object)` in the same synchronous call, so the `undefined` this signature allows for cannot happen; a runtime fallback for it would be a branch no test could reach, and the coverage gate here is 100%.
   const descriptor = Object.getOwnPropertyDescriptor(object, name) as PropertyDescriptor;
 
-  return !descriptor.configurable;
+  return descriptor.configurable ? undefined : descriptor;
+}
+
+interface SealedAddition {
+  name: PropertyKey;
+  descriptor: PropertyDescriptor;
 }
 
 /**
@@ -95,7 +102,7 @@ function isSealed(object: object, name: PropertyKey): boolean {
  * the work is the same either way, and this way a leftover is reported once — against the file that
  * added it — instead of against every test that follows it.
  */
-function sealedAdditions({ object, names }: GlobalSnapshot): PropertyKey[] {
+function sealedAdditions({ object, names }: GlobalSnapshot): SealedAddition[] {
   const current = Reflect.ownKeys(object);
   const added = current.filter((name) => !names.has(name));
 
@@ -108,18 +115,31 @@ function sealedAdditions({ object, names }: GlobalSnapshot): PropertyKey[] {
     current.forEach((name) => names.add(name));
   }
 
-  return added.filter((name) => isSealed(object, name));
+  return added.flatMap((name) => {
+    const descriptor = sealedDescriptor(object, name);
+
+    return descriptor === undefined ? [] : [{ name, descriptor }];
+  });
 }
 
-function report({ name }: GlobalSnapshot, added: PropertyKey[]): string {
-  const testPath = expect.getState().testPath ?? 'this file';
+function undoableHelper(owner: string, { name, descriptor }: SealedAddition): string {
+  const property = `${owner}, '${String(name)}'`;
+
+  if (descriptor.get === undefined && descriptor.set === undefined) {
+    return `mockValueProp(${property}, value)`;
+  }
+
+  return descriptor.set === undefined ? `mockReadonlyPropGetter(${property}, () => value)` : `mockAccessorsProp(${property}, { get, set })`;
+}
+
+function report({ name }: GlobalSnapshot, added: readonly SealedAddition[]): string {
+  const listed = added.map((addition) => `${name}.${String(addition.name)}`).join(', ');
 
   return withDocs(
-    `[vitest-auto-spy] ${testPath} redefined ${added.map((property) => `${name}.${String(property)}`).join(', ')} as a non-configurable ` +
-      'own property, so nothing can put it back — not `restoreMockedProps()`, not `vi.unstubAllGlobals()`, not the next ' +
-      "file's own `Object.defineProperty`. `Object.defineProperty` defaults `configurable` to `false`; use " +
-      `\`mockValueProp(${name}, '${String(added[0])}', value)\`, which records the descriptor it replaced and registers the undo.`,
-    DOCS_LINKS.setup,
+    `[vitest-auto-spy] ${describeCulprit()} redefined ${listed} as non-configurable ` +
+      '(Object.defineProperty defaults configurable to false), so no later file can put it back.\n' +
+      `Patch it with ${added.map((addition) => undoableHelper(name, addition)).join(', ')} instead: it records what it replaced and undoes it after the test.`,
+    DOCS_LINKS.setupGlobals,
   );
 }
 
