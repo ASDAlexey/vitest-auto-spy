@@ -137,6 +137,19 @@ describe('jasmine matchers', () => {
       expect(() => expect(new Map()).jasmineMapContaining(new Map([['a', 1]]))).toThrow('to be a Map containing');
       expect(() => expect(new Set()).jasmineSetContaining(new Set([1]))).toThrow('to be a Set containing');
       expect(() => expect([]).jasmineArrayWithExactContents(['a'])).toThrow('to hold exactly the members of');
+      expect(() =>
+        expect(new Map([['a', 2]])).jasmineMapContaining(
+          new Map([
+            ['a', 1],
+            ['b', 2],
+          ]),
+        ),
+      ).toThrow(/, missing [\s\S]*Map \{[\s\S]*"a" => 1,[\s\S]*"b" => 2/);
+      expect(() => expect(new Set([1])).jasmineSetContaining(new Set([1, 2]))).toThrow(/, missing [\s\S]*Set \{[\s\S]*2/);
+      expect(() => expect(['a', 'x']).jasmineArrayWithExactContents(['a', 'b'])).toThrow(/, missing [\s\S]*"b"[\s\S]*, extra [\s\S]*"x"/);
+      expect(() => expect('nope').jasmineMapContaining(new Map([['a', 1]]))).toThrow(/^(?![\s\S]*missing)/);
+      expect(() => expect('nope').jasmineSetContaining(new Set([1]))).toThrow(/^(?![\s\S]*missing)/);
+      expect(() => expect('nope').jasmineArrayWithExactContents(['a'])).toThrow(/^(?![\s\S]*(missing|extra))/);
     });
 
     it('negates cleanly too, for the matchers that take an argument', () => {

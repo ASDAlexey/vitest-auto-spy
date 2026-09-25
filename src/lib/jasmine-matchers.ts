@@ -98,19 +98,13 @@ function isEmpty(value: unknown): boolean {
  * deep equality work there — a `Map.has` answers on reference identity and misses both. The lookup
  * stays as the fast path for the ordinary case, where the sample key is in the map as it stands.
  */
-function mapContains(received: Map<unknown, unknown>, sample: Map<unknown, unknown>, equals: Equals): boolean {
-  for (const [key, value] of sample) {
-    const direct = received.has(key) && equals(received.get(key), value);
-
-    if (!direct && !hasMatchingEntry(received, key, value, equals)) {
-      return false;
-    }
-  }
-
-  return true;
+function mapMissing(received: Map<unknown, unknown>, sample: Map<unknown, unknown>, equals: Equals): [unknown, unknown][] {
+  return [...sample].filter(
+    ([key, value]) => !(received.has(key) && equals(received.get(key), value)) && !hasMatchingEntry(received, key, value, equals),
+  );
 }
 
-/** Whether any entry of `received` matches the pair by equality — the slow half of {@link mapContains}. */
+/** Whether any entry of `received` matches the pair by equality — the slow half of {@link mapMissing}. */
 function hasMatchingEntry(received: Map<unknown, unknown>, key: unknown, value: unknown, equals: Equals): boolean {
   for (const [theirKey, theirValue] of received) {
     if (equals(theirKey, key) && equals(theirValue, value)) {
@@ -121,37 +115,39 @@ function hasMatchingEntry(received: Map<unknown, unknown>, key: unknown, value: 
   return false;
 }
 
-/** Whether every member of `sample` appears in `received` — by equality, not by reference. */
-function setContains(received: Set<unknown>, sample: Set<unknown>, equals: Equals): boolean {
+/** The members of `sample` that do not appear in `received` — by equality, not by reference. */
+function setMissing(received: Set<unknown>, sample: Set<unknown>, equals: Equals): unknown[] {
   const members = [...received];
 
-  return [...sample].every((wanted) => members.some((member) => equals(member, wanted)));
+  return [...sample].filter((wanted) => !members.some((member) => equals(member, wanted)));
 }
 
 /**
- * Whether the two arrays hold the same members in any order, duplicates counted.
+ * What stops the two arrays holding the same members in any order, duplicates counted.
  *
  * Each match consumes its counterpart, so `['a', 'a']` does not satisfy `['a', 'b']` by matching
  * `'a'` twice — which is what makes this "exact contents" rather than "contains everything".
  */
-function hasExactContents(received: unknown[], sample: unknown[], equals: Equals): boolean {
-  if (received.length !== sample.length) {
-    return false;
-  }
-
-  const remaining = [...received];
-
-  return sample.every((wanted) => {
-    const index = remaining.findIndex((candidate) => equals(candidate, wanted));
+function exactContentsDiff(received: unknown[], sample: unknown[], equals: Equals): { missing: unknown[]; extra: unknown[] } {
+  const extra = [...received];
+  const missing = sample.filter((wanted) => {
+    const index = extra.findIndex((candidate) => equals(candidate, wanted));
 
     if (index === -1) {
-      return false;
+      return true;
     }
 
-    remaining.splice(index, 1);
+    extra.splice(index, 1);
 
-    return true;
+    return false;
   });
+
+  return { missing, extra };
+}
+
+/** `, missing [1, 2]` / `, extra ['x']` — the part of a failed collection match that says what to fix. */
+function listed(label: string, items: unknown[], print: (value: unknown[]) => string): string {
+  return items.length === 0 ? '' : `, ${label} ${print(items)}`;
 }
 
 /** Build the standard "expected … to be …" message for a matcher that took no argument. */
@@ -222,33 +218,42 @@ function registerValueMatchers(): void {
 function registerCollectionMatchers(): void {
   expect.extend({
     jasmineMapContaining(received: unknown, sample: Map<unknown, unknown>): MatcherResult {
-      const pass = received instanceof Map && mapContains(received, sample, this.equals.bind(this));
+      const missing = received instanceof Map ? mapMissing(received, sample, this.equals.bind(this)) : [];
+      const pass = received instanceof Map && missing.length === 0;
 
       return {
         pass,
         message: (): string =>
-          `expected ${this.utils.printReceived(received)} ${pass ? 'not ' : ''}to be a Map containing ` + this.utils.printExpected(sample),
+          `expected ${this.utils.printReceived(received)} ${pass ? 'not ' : ''}to be a Map containing ` +
+          this.utils.printExpected(sample) +
+          (missing.length === 0 ? '' : `, missing ${this.utils.printExpected(new Map(missing))}`),
       };
     },
 
     jasmineSetContaining(received: unknown, sample: Set<unknown>): MatcherResult {
-      const pass = received instanceof Set && setContains(received, sample, this.equals.bind(this));
+      const missing = received instanceof Set ? setMissing(received, sample, this.equals.bind(this)) : [];
+      const pass = received instanceof Set && missing.length === 0;
 
       return {
         pass,
         message: (): string =>
-          `expected ${this.utils.printReceived(received)} ${pass ? 'not ' : ''}to be a Set containing ` + this.utils.printExpected(sample),
+          `expected ${this.utils.printReceived(received)} ${pass ? 'not ' : ''}to be a Set containing ` +
+          this.utils.printExpected(sample) +
+          listed('missing', missing, (items) => this.utils.printExpected(new Set(items))),
       };
     },
 
     jasmineArrayWithExactContents(received: unknown, sample: unknown[]): MatcherResult {
-      const pass = Array.isArray(received) && hasExactContents(received, sample, this.equals.bind(this));
+      const diff = Array.isArray(received) ? exactContentsDiff(received, sample, this.equals.bind(this)) : { missing: [], extra: [] };
+      const pass = Array.isArray(received) && diff.missing.length === 0 && diff.extra.length === 0;
 
       return {
         pass,
         message: (): string =>
           `expected ${this.utils.printReceived(received)} ${pass ? 'not ' : ''}to hold exactly the members of ` +
-          this.utils.printExpected(sample),
+          this.utils.printExpected(sample) +
+          listed('missing', diff.missing, (items) => this.utils.printExpected(items)) +
+          listed('extra', diff.extra, (items) => this.utils.printReceived(items)),
       };
     },
   });
