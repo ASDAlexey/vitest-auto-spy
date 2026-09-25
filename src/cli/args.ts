@@ -13,7 +13,7 @@ export interface ParsedArgs {
 }
 
 /** Flags that take a value; everything else is boolean. */
-const VALUE_FLAGS = new Set([
+export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   'command',
   'baseline',
   'baseline-factor',
@@ -79,7 +79,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
 
     const next = argv[index + 1];
 
-    if (VALUE_FLAGS.has(name) && next !== undefined && !next.startsWith('-')) {
+    if (VALUE_FLAGS.has(name) && next !== undefined && (!next.startsWith('-') || /^-\d/.test(next))) {
       flags[name] = next;
       consumed = true;
 
