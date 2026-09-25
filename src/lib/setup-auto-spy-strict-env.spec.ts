@@ -19,7 +19,7 @@ setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strict: false });
 vi.unstubAllEnvs();
 
 it('arms strict mode over the option the setup file passed', () => {
-  expect(() => createSpyFromClass(Cart).total()).toThrow(/Nothing configured Cart\.total, and strict mode is on/);
+  expect(() => createSpyFromClass(Cart).total()).toThrow(/Cart\.total\(\) was called; this strict double has nothing configured/);
   expect(takeStrictViolations()).toHaveLength(1);
 });
 

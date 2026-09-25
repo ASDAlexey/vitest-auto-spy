@@ -24,7 +24,11 @@ const loud = createStrictSurvey();
 
 // Registered first so that, with hooks run as a stack, it reads what the two below wrote.
 afterAll(() => {
-  expect(written).toEqual([expect.stringMatching(/strict survey — .*setup-auto-spy-survey\.spec\.ts[\s\S]*Api\.save ×1/)]);
+  expect(written).toEqual([
+    expect.stringMatching(
+      /strict survey — src\/lib\/setup-auto-spy-survey\.spec\.ts:[\s\S]*Api\.save ×1[\s\S]*strict-mode#turning-it-on-for-a-whole-suite/,
+    ),
+  ]);
 });
 
 surveyInstead({ strict: 'survey' }, createStrictSurvey(), (line) => written.push(line));
