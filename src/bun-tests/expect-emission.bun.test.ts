@@ -21,7 +21,7 @@ describe('the emission family on bun:test', () => {
 
   it('expectEmission rejects naming the stream when nothing arrives in time', async () => {
     await expect(expectEmission(new Subject<number>(), { timeout: 20, label: 'products$' })).rejects.toThrow(
-      /products\$ did not emit within 20 ms \(0 emission\(s\) received\)/,
+      /expectEmission\(products\$\): no value within 20 ms \(0 received\)/,
     );
   });
 
@@ -33,6 +33,6 @@ describe('the emission family on bun:test', () => {
 
     chatty$.next(1);
 
-    await expect(silence).rejects.toThrow(/chatty\$ emitted 1 but was expected to stay silent/);
+    await expect(silence).rejects.toThrow(/expectNoEmission\(chatty\$\): emitted 1 but was expected to stay silent/);
   });
 });
