@@ -64,7 +64,9 @@ describe('vitest-auto-spy/jasmine', () => {
     const service = createSpyFromClass(AccountService, { methodsToSpyOn: ['load'], providedMethodNames: ['load'] });
 
     expect(warn).toHaveBeenCalledOnce();
-    expect(warn.mock.calls[0]?.[0]).toContain("'providedMethodNames' is deprecated");
+    expect(warn.mock.calls[0]?.[0]).toMatch(
+      /'providedMethodNames' is deprecated: write methodsToSpyOn: \['\w+'(, '\w+')*\] instead[\s\S]*#the-auto-spies-api$/,
+    );
     expect(typeof service.load).toBe('function');
   });
 
@@ -164,7 +166,8 @@ describe('vitest-auto-spy/jasmine', () => {
     });
 
     it('refuses to build an object with no spies on it', () => {
-      expect(() => createSpyObj('store', [])).toThrow('no method names');
+      expect(() => createSpyObj('store', [])).toThrow("createSpyObj('store', []) was given no method names");
+      expect(() => createSpyObj([])).toThrow('createSpyObj([]) was given no method names');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- reproducing the untyped call a migrated JavaScript spec can still make.
       expect(() => (createSpyObj as any)('store')).toThrow('needs the method names');
     });
