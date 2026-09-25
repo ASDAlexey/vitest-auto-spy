@@ -38,12 +38,14 @@ describe('expectEmission', () => {
 
   it('rejects, naming the stream, when nothing is emitted in time', async () => {
     await expect(expectEmission(new Subject<number>(), { timeout: 10, label: 'products$' })).rejects.toThrow(
-      /products\$ did not emit within 10 ms \(0 emission\(s\) received\)/,
+      /^\[vitest-auto-spy\] expectEmission\(products\$\): no value within 10 ms \(0 received\)\. Nothing triggered the stream/,
     );
   });
 
   it('rejects with the generic name when no label is given', async () => {
-    await expect(expectEmission(new Subject<number>(), { timeout: 10 })).rejects.toThrow(/^the observable did not emit/);
+    await expect(expectEmission(new Subject<number>(), { timeout: 10 })).rejects.toThrow(
+      /^\[vitest-auto-spy\] expectEmission\(source\$\): no value within/,
+    );
   });
 
   it('rejects when the stream errors', async () => {
@@ -51,7 +53,9 @@ describe('expectEmission', () => {
 
     setTimeout(() => source$.error('BOOM'), 1);
 
-    await expect(expectEmission(source$, { timeout: 50 })).rejects.toThrow('the observable errored instead of emitting: BOOM');
+    await expect(expectEmission(source$, { timeout: 50 })).rejects.toThrow(
+      'expectEmission(source$): the stream errored instead of emitting: BOOM. If that error is what the test is about',
+    );
   });
 
   it('rejects when the stream completes without emitting', async () => {
@@ -59,7 +63,9 @@ describe('expectEmission', () => {
 
     setTimeout(() => source$.complete(), 1);
 
-    await expect(expectEmission(source$, { timeout: 50 })).rejects.toThrow('completed after 0 emission(s), expected 1');
+    await expect(expectEmission(source$, { timeout: 50 })).rejects.toThrow(
+      'the stream completed after 0 emissions, expected 1. The value was most likely emitted before this subscribed',
+    );
   });
 });
 
@@ -84,7 +90,9 @@ describe('expectEmissions', () => {
       source$.complete();
     }, 1);
 
-    await expect(expectEmissions(source$, 3, { timeout: 50 })).rejects.toThrow('completed after 1 emission(s), expected 3');
+    await expect(expectEmissions(source$, 3, { timeout: 50 })).rejects.toThrow(
+      'expectEmissions(source$, 3): the stream completed after 1 emission, expected 3. The stream ends too early',
+    );
   });
 });
 
@@ -93,7 +101,7 @@ describe('under fake timers', () => {
 
   it('still times out: the watchdog is the real clock, not the faked one', async () => {
     await expect(expectEmission(new Subject<number>(), { timeout: 10, label: 'saved$' })).rejects.toThrow(
-      /saved\$ did not emit within 10 ms/,
+      /expectEmission\(saved\$\): no value within 10 ms/,
     );
   });
 
@@ -125,7 +133,7 @@ describe('expectNoEmission', () => {
 
   it('rejects, printing the value, when the stream does emit', async () => {
     await expect(expectNoEmission(of({ id: 1 }), { timeout: 5, label: 'saved$' })).rejects.toThrow(
-      'saved$ emitted {id:1} but was expected to stay silent.',
+      'expectNoEmission(saved$): emitted {id:1} the moment it subscribed, but was expected to stay silent. That is a replayed value',
     );
   });
 
@@ -135,7 +143,7 @@ describe('expectNoEmission', () => {
 
     // A component, a DOM node or a store slice — the values a spec actually asserts silence on.
     await expect(expectNoEmission(of(node), { timeout: 5, label: 'saved$' })).rejects.toThrow(
-      'saved$ emitted {id:1,self:[Circular]} but was expected to stay silent.',
+      'expectNoEmission(saved$): emitted {id:1,self:[Circular]} the moment it subscribed',
     );
   });
 
@@ -182,9 +190,11 @@ describe('expectAllEmissions', () => {
 
   it('fails like expectCompletion on a stream that never completes or errors', async () => {
     await expect(expectAllEmissions(new Subject<number>(), { timeout: 5, label: 'ids$' })).rejects.toThrow(
-      /ids\$ did not complete within 5 ms/,
+      /expectAllEmissions\(ids\$\): the stream did not complete within 5 ms/,
     );
-    await expect(expectAllEmissions(from(Promise.reject(new Error('boom'))))).rejects.toThrow(/errored instead of completing: Error: boom/);
+    await expect(expectAllEmissions(from(Promise.reject(new Error('boom'))))).rejects.toThrow(
+      /errored instead of completing: Error: boom\. If that error is what the test is about/,
+    );
   });
 });
 
@@ -203,7 +213,7 @@ describe('expectCompletion', () => {
 
   it('rejects, naming the stream, when it keeps running', async () => {
     await expect(expectCompletion(new Subject<void>(), { timeout: 10, label: 'purged$' })).rejects.toThrow(
-      /purged\$ did not complete within 10 ms \(0 emission\(s\) received\)/,
+      /expectCompletion\(purged\$\): the stream did not complete within 10 ms \(0 emissions received\)\. Nothing completed it/,
     );
   });
 
@@ -212,7 +222,7 @@ describe('expectCompletion', () => {
 
     setTimeout(() => source$.next(1), 1);
 
-    await expect(expectCompletion(source$, { timeout: 20 })).rejects.toThrow(/did not complete within 20 ms \(1 emission\(s\) received\)/);
+    await expect(expectCompletion(source$, { timeout: 20 })).rejects.toThrow(/did not complete within 20 ms \(1 emission received\)/);
   });
 
   it('rejects with "instead of completing", not the emission wording', async () => {
@@ -220,7 +230,9 @@ describe('expectCompletion', () => {
 
     setTimeout(() => source$.error('BOOM'), 1);
 
-    await expect(expectCompletion(source$, { timeout: 50 })).rejects.toThrow('the observable errored instead of completing: BOOM');
+    await expect(expectCompletion(source$, { timeout: 50 })).rejects.toThrow(
+      'expectCompletion(source$): the stream errored instead of completing: BOOM',
+    );
   });
 });
 
@@ -340,7 +352,9 @@ describe('a source whose `subscribe` takes a callback, not an observer', () => {
 
     await expect(expectNoEmission(changes, { timeout: 5 })).resolves.toBeUndefined();
     // An output never completes, so this is the failure branch — reached through the same contract.
-    await expect(expectCompletion(changes, { timeout: 10, label: 'changes' })).rejects.toThrow(/changes did not complete/);
+    await expect(expectCompletion(changes, { timeout: 10, label: 'changes' })).rejects.toThrow(
+      /expectCompletion\(changes\): the stream did not complete/,
+    );
   });
 
   it('keeps the error branch working for rxjs, which reads a function argument as `next` only', async () => {
@@ -364,7 +378,7 @@ describe('setEmissionTimeout', () => {
 
     const started = Date.now();
 
-    await expect(expectEmission(new Subject<number>(), { label: 'quiet$' })).rejects.toThrow(/quiet\$ did not emit within 10 ms/);
+    await expect(expectEmission(new Subject<number>(), { label: 'quiet$' })).rejects.toThrow(/quiet\$\): no value within 10 ms/);
 
     // The point of the knob: a failing assertion under global fake timers no longer spends the
     // default real second before it reports.
@@ -426,13 +440,13 @@ describe('expectError', () => {
     setTimeout(() => source$.complete(), 1);
 
     await expect(expectError(source$, { timeout: 50, label: 'load$' })).rejects.toThrow(
-      /load\$ completed after 0 emission\(s\) without erroring/,
+      /expectError\(load\$\): the stream completed after 0 emissions without erroring\. The failure path never ran/,
     );
   });
 
   it('rejects when the stream does neither in time', async () => {
     await expect(expectError(new Subject<number>(), { timeout: 10, label: 'load$' })).rejects.toThrow(
-      /load\$ did not error within 10 ms \(0 emission\(s\) received\)/,
+      /expectError\(load\$\): no error within 10 ms \(0 emissions received\), and the stream is still open/,
     );
   });
 });
@@ -490,7 +504,7 @@ describe('choosing which emission counts', () => {
 
     // Left to escape through rxjs, the throw became an unhandled error while the watchdog ran out
     // and blamed the silence — "did not emit within 5000 ms (1 emission(s) received)".
-    await expect(pending).rejects.toThrow(/until.*predicate threw on emission 1[\s\S]*boom/);
+    await expect(pending).rejects.toThrow(/until.*predicate threw on emission 1: Error: boom\. Make it safe for every value/);
   });
 
   it('counts every emission in the failure, not only the matching ones', async () => {
@@ -504,7 +518,7 @@ describe('choosing which emission counts', () => {
     // "2 arrived, none matched" is a different diagnosis from "nothing fired", and a
     // `pipe(filter(…))` in front of the helper loses it.
     await expect(expectEmission(source$, { until: (value) => value > 5, timeout: 20, label: 'ids$' })).rejects.toThrow(
-      /ids\$ did not emit within 20 ms \(2 emission\(s\) received\)/,
+      /expectEmission\(ids\$\): 2 emissions within 20 ms, expected 1 matching\. None of the rest matched `until`/,
     );
   });
 
@@ -517,7 +531,7 @@ describe('choosing which emission counts', () => {
     }, 1);
 
     await expect(expectEmission(source$, { until: (value) => value > 5, timeout: 50 })).rejects.toThrow(
-      'completed after 1 emission(s), expected 1 matching',
+      'completed after 1 emission, expected 1 matching. None of them matched `until`',
     );
   });
 
@@ -545,7 +559,7 @@ describe('choosing which emission counts', () => {
 
   it('still reports the matching emission it was told to object to', async () => {
     await expect(expectNoEmission(of(1, 9), { until: (value) => value > 5, timeout: 5, label: 'ids$' })).rejects.toThrow(
-      'ids$ emitted 9 but was expected to stay silent.',
+      'expectNoEmission(ids$): emitted 9 the moment it subscribed',
     );
   });
 });
@@ -664,7 +678,7 @@ describe('a source that cannot be subscribed to', () => {
   it('names the mistake instead of failing inside rxjs', async () => {
     // Before: `TypeError: Reflect.get called on non-object`, with no helper name, no label and no anchor.
     await expect(expectEmission(notASource(undefined), { label: 'products$' })).rejects.toThrow(
-      /products\$ is not subscribable \(undefined\)/,
+      /expectEmission\(products\$\): the source is not subscribable \(undefined\)\. Usually a spy nobody configured/,
     );
   });
 
@@ -673,7 +687,9 @@ describe('a source that cannot be subscribed to', () => {
   });
 
   it('reports the value a spec passed instead of the stream', async () => {
-    await expect(expectNoEmission(notASource([1, 2]))).rejects.toThrow(/is not subscribable \(\[1,2\]\)[\s\S]*not the value it emits/);
+    await expect(expectNoEmission(notASource([1, 2]))).rejects.toThrow(
+      /expectNoEmission\(source\$\): the source is not subscribable \(\[1,2\]\)\. Pass the observable itself, not the value it emits/,
+    );
   });
 
   it('rejects with what a throwing `subscribe` threw', async () => {
@@ -865,7 +881,7 @@ describe('the emissions that count are matched once each', () => {
 
   it('says how many emissions it was told to skip when the stream completes short', async () => {
     await expect(expectEmission(of(1, 2), { skip: 5, timeout: 50 })).rejects.toThrow(
-      'completed after 2 emission(s), expected 1 after skipping 5',
+      'completed after 2 emissions, expected 1 after skipping 5',
     );
   });
 
@@ -879,7 +895,7 @@ describe('the emissions that count are matched once each', () => {
     }, 1);
 
     await expect(expectCompletion(source$, { timeout: 20, label: 'saved$' })).rejects.toThrow(
-      /saved\$ did not complete within 20 ms \(3 emission\(s\) received\)/,
+      /saved\$\): the stream did not complete within 20 ms \(3 emissions received\)/,
     );
   });
 });
@@ -918,5 +934,67 @@ describe('a wait nobody awaited does not reach the next test', () => {
     await expect(expectEmission(of(1))).resolves.toBe(1);
 
     expect(abandonEmissionWaits()).toEqual([]);
+  });
+});
+
+describe('what a failed wait tells its reader', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('links the section about the failure', async () => {
+    await expect(expectEmission(new Subject<number>(), { timeout: 5 })).rejects.toThrow(
+      /\nDocs: \S+\/core\/observable-assertions#failure-messages$/,
+    );
+  });
+
+  it('says nothing about fake timers while the clock is real', async () => {
+    await expect(expectEmission(new Subject<number>(), { timeout: 5 })).rejects.toThrow(/^(?![\s\S]*Timers are fake)/);
+  });
+
+  it('counts the callbacks queued on a fake clock and says how to advance it', async () => {
+    vi.useFakeTimers();
+    setTimeout(() => undefined, 1_000);
+
+    await expect(expectEmission(new Subject<number>(), { timeout: 5 })).rejects.toThrow(
+      /Timers are fake and 1 callback waits on it: advance them inside the wait, `\{ advance: \(\) => vi\.advanceTimersByTime\(ms\) \}`/,
+    );
+    await expect(expectCompletion(new Subject<void>(), { timeout: 5 })).rejects.toThrow(/Timers are fake and 1 callback wait/);
+  });
+
+  it('names the fake clock without a count when nothing is queued on it', async () => {
+    vi.useFakeTimers();
+
+    await expect(expectError(new Subject<number>(), { timeout: 5 })).rejects.toThrow(/still open\. .* Timers are fake: advance them/);
+  });
+
+  it('tells a stream that emitted too few values from one that emitted none', async () => {
+    const source$ = new Subject<number>();
+    const pending = expectEmissions(source$, 3, { timeout: 10, label: 'ids$' });
+
+    source$.next(1);
+
+    await expect(pending).rejects.toThrow(
+      'expectEmissions(ids$, 3): 1 emission within 10 ms, expected 3. Check what should push the rest, or raise `{ timeout }`',
+    );
+  });
+
+  it('tells a value pushed during the quiet window from one replayed on subscribe', async () => {
+    const source$ = new Subject<number>();
+    const pending = expectNoEmission(source$, { timeout: 5_000, label: 'saved$' });
+
+    source$.next(1);
+
+    await expect(pending).rejects.toThrow(
+      'expectNoEmission(saved$): emitted 1 but was expected to stay silent. Something the test ran pushed it',
+    );
+  });
+
+  it('says a value pushed by `advance` was pushed, not replayed', async () => {
+    const source$ = new Subject<number>();
+
+    await expect(expectNoEmission(source$, { advance: () => source$.next(2) })).rejects.toThrow(
+      /emitted 2 but was expected to stay silent/,
+    );
   });
 });

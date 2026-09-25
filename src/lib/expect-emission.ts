@@ -10,9 +10,12 @@
  * dependency and the helpers work with rxjs `Observable`s, Angular `toObservable()` results, signals
  * wrapped in `toObservable`, or a hand-rolled subscribable.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { type PendingEmissionWait, emissionTimeout, forgetEmissionWait, registerEmissionWait } from './emission-timeout';
 import { type StackAnchor, captureAnchor, ownFailure } from './error-anchor';
+import { fakeClockAdvice } from './fake-clock-state';
+import { withDocs } from './message-link';
+import { count as countOf } from './message-text';
 import { serializeValue } from './serialize-args';
 import { unpatchedClearTimeout as clearTimer, unpatchedSetTimeout as setTimer } from './unpatched-timers';
 
@@ -258,6 +261,27 @@ function describeSource(options: AnyEmissionOptions | undefined): string {
 }
 
 /**
+ * What one wait is, as its failures name it: `expectEmission(user$)`, or `expectEmission(source$)`
+ * when the call gave no `label`.
+ */
+interface WaitContext {
+  readonly helper: string;
+  readonly options: AnyEmissionOptions | undefined;
+  /** How many accepted emissions settle the wait; `0` for the helpers that wait for termination. */
+  readonly expected: number;
+}
+
+function callOf({ helper, options, expected }: WaitContext): string {
+  const source = options?.label ?? 'source$';
+
+  return helper === 'expectEmissions' ? `${helper}(${source}, ${expected})` : `${helper}(${source})`;
+}
+
+function emissionFailure(context: WaitContext, text: string, options?: ErrorOptions): Error {
+  return ownFailure(withDocs(`[vitest-auto-spy] ${callOf(context)}: ${text}`, DOCS_LINKS.observableFailures), options);
+}
+
+/**
  * A caller's options seen from inside the collector.
  *
  * `never` rather than `unknown`, because `until` puts `T` in a contravariant position: every
@@ -304,7 +328,8 @@ interface Rejecter {
 
 /** Settle callbacks of the promise a collector drives. */
 interface Settle<T> extends Rejecter {
-  resolve: (values: T[]) => void;
+  /** `onSubscribe`: the value came out of `subscribe` itself — a replay rather than a push. */
+  resolve: (values: T[], onSubscribe: boolean) => void;
 }
 
 /**
@@ -336,14 +361,14 @@ interface CollectorHandlers<T> {
    * `expectNoEmission` runs with the watchdog disabled — its arrow would never be called, and 100 %
    * function coverage would fail on a branch that cannot be reached.
    */
-  onTimeout: (received: number, options: AnyEmissionOptions | undefined, waited: number) => Error;
+  onTimeout: (received: number, context: WaitContext, waited: number) => Error;
   /**
    * The source errored — settle the promise.
    *
    * An action rather than an error factory because `expectError` settles it the other way: for that
    * helper the stream erroring is the success, and the value it resolves with is the error itself.
    */
-  onError: (error: unknown, options: AnyEmissionOptions | undefined, settle: Settle<T>) => void;
+  onError: (error: unknown, context: WaitContext, settle: Settle<T>) => void;
   /**
    * Whether an emission can settle this helper.
    *
@@ -357,6 +382,10 @@ interface CollectorHandlers<T> {
    * fired"), and the values a `skip` or an `until` ruled out are of no further use to anybody.
    */
   emissionsSettle: boolean;
+  /** The helper's own name, so every failure opens with the call that failed. */
+  helper: string;
+  /** See {@link WaitContext.expected}. */
+  expected: number;
 }
 
 /** The largest delay a timer accepts: Node truncates anything above it to 1 ms, with a warning. */
@@ -378,13 +407,15 @@ function isSubscribable(source$: unknown): boolean {
   );
 }
 
-function notSubscribableError(source$: unknown, options: AnyEmissionOptions | undefined): Error {
+function notSubscribableError(source$: unknown, context: WaitContext): Error {
   const hint =
     typeof Reflect.get(Object(source$), 'then') === 'function'
       ? 'That is a promise — `await` it directly, or pass the observable it came from.'
-      : 'Pass the observable itself, not the value it emits, and check that the spy feeding it was configured.';
+      : source$ === undefined
+        ? 'Usually a spy nobody configured: give the method a stream with `nextWith(…)`, or pass the observable itself.'
+        : 'Pass the observable itself, not the value it emits.';
 
-  return ownFailure(`${describeSource(options)} is not subscribable (${serializeValue(source$)}). ${hint}`);
+  return emissionFailure(context, `the source is not subscribable (${serializeValue(source$)}). ${hint}`);
 }
 
 /** What one collector has seen, shared between it and the observer that fills it. */
@@ -393,6 +424,8 @@ interface Collected<T> {
   readonly accepted: T[];
   /** Every emission, counted — what the failures report, and all they report. */
   received: number;
+  /** True while `subscribe` runs, so a failure can tell a replayed value from a pushed one. */
+  subscribing: boolean;
   readonly stop: () => void;
 }
 
@@ -407,19 +440,24 @@ interface Collected<T> {
  */
 function collectingObserver<T>(
   collected: Collected<T>,
-  options: EmissionOptions<T> | undefined,
+  context: WaitContext,
   settle: Settle<T>,
   handlers: CollectorHandlers<T>,
 ): EmissionObserver<T> {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the context carries the caller's options as `EmissionOptions<never>`; the predicate is only ever handed this helper's own `T`.
+  const options = context.options as EmissionOptions<T> | undefined;
   const skip = options?.skip ?? 0;
   const until = options?.until;
 
   const fail = (error: unknown): void => {
     collected.stop();
     settle.reject(
-      ownFailure(`${describeSource(options)}: the \`until\` predicate threw on emission ${collected.received}: ${String(error)}`, {
-        cause: error,
-      }),
+      emissionFailure(
+        context,
+        `the \`until\` predicate threw on emission ${collected.received}: ${String(error)}. ` +
+          'Make it safe for every value the stream emits, not only the one it waits for.',
+        { cause: error },
+      ),
     );
   };
 
@@ -434,7 +472,7 @@ function collectingObserver<T>(
 
         if (handlers.isDone(collected.accepted.length)) {
           collected.stop();
-          settle.resolve(collected.accepted);
+          settle.resolve(collected.accepted, collected.subscribing);
         }
       } catch (error) {
         fail(error);
@@ -442,7 +480,7 @@ function collectingObserver<T>(
     },
     error: (error): void => {
       collected.stop();
-      handlers.onError(error, options, settle);
+      handlers.onError(error, context, settle);
     },
     complete: (): void => {
       collected.stop();
@@ -459,12 +497,16 @@ function collectingObserver<T>(
  * and nothing tore the collector down: for `expectNoEmission`, whose watchdog is off, the
  * subscription then lived on for the rest of the run.
  */
-function runAdvance<T>(options: EmissionOptions<T> | undefined, collected: Collected<T>, settle: Rejecter): void {
+function runAdvance<T>(context: WaitContext, collected: Collected<T>, settle: Rejecter): void {
   try {
-    options?.advance?.();
+    context.options?.advance?.();
   } catch (error) {
     collected.stop();
-    settle.reject(ownFailure(`${describeSource(options)}: the \`advance\` callback threw: ${String(error)}`, { cause: error }));
+    settle.reject(
+      emissionFailure(context, `the \`advance\` callback threw: ${String(error)}. The wait was torn down; the error is on \`cause\`.`, {
+        cause: error,
+      }),
+    );
   }
 }
 
@@ -488,19 +530,21 @@ function subscribeAndCollect<T>(
     forgetEmissionWait(wait);
   }
 
-  const collected: Collected<T> = { accepted: [], received: 0, stop };
+  const collected: Collected<T> = { accepted: [], received: 0, subscribing: true, stop };
   const wait: PendingEmissionWait = { describe: describeSource(options), abandon: stop };
   const collector: Collector = { stop };
+  const context: WaitContext = { helper: handlers.helper, options, expected: handlers.expected };
 
   if (!isSubscribable(source$)) {
-    settle.reject(notSubscribableError(source$, options));
+    settle.reject(notSubscribableError(source$, context));
 
     return collector;
   }
 
-  subscription = subscribeToSource(source$, collectingObserver(collected, options, settle, handlers), (early) => {
+  subscription = subscribeToSource(source$, collectingObserver(collected, context, settle, handlers), (early) => {
     subscription = early;
   });
+  collected.subscribing = false;
 
   // A synchronous source (`of(…)`, a `BehaviorSubject`) settled while `subscription` was still
   // unassigned — which only a source that is not rxjs's can now do, since an rxjs one hands its
@@ -521,7 +565,7 @@ function subscribeAndCollect<T>(
     timer = setTimer(
       () => {
         stop();
-        settle.reject(handlers.onTimeout(collected.received, options, timeout));
+        settle.reject(handlers.onTimeout(collected.received, context, timeout));
       },
       Math.min(timeout, MAX_TIMER_DELAY),
     );
@@ -531,7 +575,7 @@ function subscribeAndCollect<T>(
 
   // After the subscription and before the caller gets its promise — the one moment a spec cannot
   // reach on its own.
-  runAdvance(options, collected, settle);
+  runAdvance(context, collected, settle);
 
   return collector;
 }
@@ -548,33 +592,52 @@ function anchoredRejecter(reject: (error: Error) => void, anchor: StackAnchor): 
   return (error) => reject(anchor(error));
 }
 
-function timeoutError(received: number, options: AnyEmissionOptions | undefined, waited: number): Error {
-  return ownFailure(
-    `${describeSource(options)} did not emit within ${waited} ms (${received} emission(s) received). ` +
-      'Either the stream never fired — check the trigger and any provider spy feeding it — or it is slower than the ' +
-      'timeout; raise it with `{ timeout: … }`. This wait is real time even under fake timers, on purpose: a virtual ' +
-      'watchdog would race the timers your spec advances. Lower it with `setEmissionTimeout(100)` in the setup file ' +
-      'rather than disabling it with `{ timeout: 0 }`, which leaves the next silent stream with no message at all.',
-  );
+function timeoutError(received: number, context: WaitContext, waited: number): Error {
+  const { expected, options } = context;
+  const diagnosis =
+    received === 0
+      ? `no value within ${waited} ms (0 received). Nothing triggered the stream — check the call that should make it emit, ` +
+        'or the spy feeding it (`nextWith`).'
+      : `${countOf(received, 'emission')} within ${waited} ms, expected ${describeExpectation(expected, options)}. ` +
+        (options?.until
+          ? 'None of the rest matched `until` — check the predicate against the values the stream really emits.'
+          : 'Check what should push the rest, or raise `{ timeout }` if the stream is just slow.');
+
+  return emissionFailure(context, diagnosis + fakeClockAdvice());
 }
 
 /**
  * The stream errored where a value was expected: reject, wrapping.
  *
- * Wrapped rather than passed through, because the message is the point — "products$ errored instead
- * of emitting" names the stream, and a bare rethrow of `'BOOM'` names nothing. The original travels
- * on `cause`, so `rejects.toThrow(expect.objectContaining({ cause: original }))` can still reach
- * it — but for `rejects.toBe(original)` or `rejects.toBeInstanceOf(HttpErrorResponse)`, use
- * {@link expectError}, which resolves *with* the error and needs no unwrapping at all.
+ * Wrapped rather than passed through, because the message is the point — it names the call and the
+ * stream, and a bare rethrow of `'BOOM'` names nothing. The original travels on `cause`, so
+ * `rejects.toThrow(expect.objectContaining({ cause: original }))` can still reach it — but for
+ * `rejects.toBe(original)` or `rejects.toBeInstanceOf(HttpErrorResponse)`, use {@link expectError},
+ * which resolves *with* the error and needs no unwrapping at all.
  */
-function rejectAsSourceError(error: unknown, options: AnyEmissionOptions | undefined, settle: Rejecter): void {
-  settle.reject(ownFailure(`${describeSource(options)} errored instead of emitting: ${String(error)}`, { cause: error }));
+function rejectAsSourceError(error: unknown, context: WaitContext, settle: Rejecter): void {
+  settle.reject(
+    emissionFailure(
+      context,
+      `the stream errored instead of emitting: ${String(error)}. ` +
+        'If that error is what the test is about, await `expectError(source$)` — it resolves with the error itself.',
+      { cause: error },
+    ),
+  );
 }
 
-function completedError(received: number, expected: number, options: AnyEmissionOptions | undefined): Error {
-  return ownFailure(
-    `${describeSource(options)} completed after ${received} emission(s), expected ${describeExpectation(expected, options)}. ` +
-      'A completed-but-empty stream is the usual sign that the value was produced before the subscription.',
+function completedError(received: number, context: WaitContext): Error {
+  const { expected, options } = context;
+  const action =
+    received === 0
+      ? 'The value was most likely emitted before this subscribed: start the wait first (hold the promise), then trigger.'
+      : options?.until
+        ? 'None of them matched `until` — check the predicate against what the stream emits.'
+        : 'The stream ends too early — check the `take` / `first` upstream, or ask for fewer values.';
+
+  return emissionFailure(
+    context,
+    `the stream completed after ${countOf(received, 'emission')}, expected ${describeExpectation(expected, options)}. ${action}`,
   );
 }
 
@@ -612,7 +675,7 @@ function completedError(received: number, expected: number, options: AnyEmission
 export function expectEmission<T>(source$: CallbackSubscribable<T>, options?: EmissionOptions<T>): Promise<T>;
 export function expectEmission<T>(source$: SubscribableLike<T>, options?: EmissionOptions<T>): Promise<T>;
 export function expectEmission<T>(source$: EmissionSource<T>, options?: EmissionOptions<T>): Promise<T> {
-  return collectEmissions(source$, 1, options, captureAnchor(expectEmission)).then((values) => firstOf(values));
+  return collectEmissions(source$, 1, options, captureAnchor(expectEmission), 'expectEmission').then((values) => firstOf(values));
 }
 
 /** `values[0]` for a list the collector guarantees is non-empty (`noUncheckedIndexedAccess` widens it to `T | undefined`). */
@@ -632,7 +695,7 @@ function firstOf<T>(values: T[]): T {
 export function expectEmissions<T>(source$: CallbackSubscribable<T>, count: number, options?: EmissionOptions<T>): Promise<T[]>;
 export function expectEmissions<T>(source$: SubscribableLike<T>, count: number, options?: EmissionOptions<T>): Promise<T[]>;
 export function expectEmissions<T>(source$: EmissionSource<T>, count: number, options?: EmissionOptions<T>): Promise<T[]> {
-  return collectEmissions(source$, count, options, captureAnchor(expectEmissions));
+  return collectEmissions(source$, count, options, captureAnchor(expectEmissions), 'expectEmissions');
 }
 
 /**
@@ -647,6 +710,7 @@ function collectEmissions<T>(
   count: number,
   options: EmissionOptions<T> | undefined,
   anchor: StackAnchor,
+  helper: string,
 ): Promise<T[]> {
   // `count: 0` could never be satisfied: `isDone` is consulted only when something arrives, so the
   // wait either timed out or was told "completed after 0 emission(s), expected 0". Thrown rather
@@ -654,9 +718,9 @@ function collectEmissions<T>(
   if (count < 1) {
     throw new Error(
       withDocs(
-        `[vitest-auto-spy] expectEmissions(source$, ${count}) can never succeed — a count below 1 is not something a stream can satisfy. ` +
+        `[vitest-auto-spy] expectEmissions(source$, ${count}) can never succeed: no stream can emit fewer than one value and satisfy it. ` +
           'Use `expectNoEmission(source$)` to assert silence.',
-        DOCS_LINKS.observableAssertions,
+        DOCS_LINKS.observableFailures,
       ),
     );
   }
@@ -672,10 +736,12 @@ function collectEmissions<T>(
       { resolve: (values) => resolve(values.slice(0, count)), reject: fail },
       {
         isDone: (acceptedCount) => acceptedCount >= count,
-        onComplete: (_values, received) => fail(completedError(received, count, options)),
+        onComplete: (_values, received) => fail(completedError(received, { helper, options, expected: count })),
         onTimeout: timeoutError,
         onError: rejectAsSourceError,
         emissionsSettle: true,
+        helper,
+        expected: count,
       },
     );
   });
@@ -693,6 +759,7 @@ export function expectNoEmission<T>(source$: EmissionSource<T>, options?: Emissi
   const quietFor = options?.timeout ?? 0;
   const anchor = captureAnchor(expectNoEmission);
   let quietWindow: ReturnType<typeof setTimer> | undefined = undefined;
+  const context: WaitContext = { helper: 'expectNoEmission', options, expected: 1 };
 
   return new Promise<void>((resolve, reject) => {
     const fail = anchoredRejecter(reject, anchor);
@@ -700,7 +767,7 @@ export function expectNoEmission<T>(source$: EmissionSource<T>, options?: Emissi
       source$,
       { ...options, timeout: 0 },
       {
-        resolve: (emitted) => fail(unexpectedEmissionError(emitted, options)),
+        resolve: (emitted, onSubscribe) => fail(unexpectedEmissionError(emitted, context, onSubscribe)),
         reject: fail,
       },
       {
@@ -713,6 +780,8 @@ export function expectNoEmission<T>(source$: EmissionSource<T>, options?: Emissi
         onTimeout: timeoutError,
         onError: rejectAsSourceError,
         emissionsSettle: true,
+        helper: context.helper,
+        expected: context.expected,
       },
     );
 
@@ -755,7 +824,7 @@ export function expectNoEmission<T>(source$: EmissionSource<T>, options?: Emissi
  * when a value is.
  */
 export function expectCompletion(source$: EmissionSource<unknown>, options?: EmissionOptions): Promise<void> {
-  return collectUntilComplete(source$, options, captureAnchor(expectCompletion), false).then(() => undefined);
+  return collectUntilComplete(source$, options, captureAnchor(expectCompletion), 'expectCompletion').then(() => undefined);
 }
 
 /**
@@ -771,14 +840,14 @@ export function expectCompletion(source$: EmissionSource<unknown>, options?: Emi
 export function expectAllEmissions<T>(source$: CallbackSubscribable<T>, options?: EmissionOptions<T>): Promise<T[]>;
 export function expectAllEmissions<T>(source$: SubscribableLike<T>, options?: EmissionOptions<T>): Promise<T[]>;
 export function expectAllEmissions<T>(source$: EmissionSource<T>, options?: EmissionOptions<T>): Promise<T[]> {
-  return collectUntilComplete(source$, options, captureAnchor(expectAllEmissions), true);
+  return collectUntilComplete(source$, options, captureAnchor(expectAllEmissions), 'expectAllEmissions');
 }
 
 function collectUntilComplete<T>(
   source$: EmissionSource<T>,
   options: EmissionOptions<T> | undefined,
   anchor: StackAnchor,
-  collect: boolean,
+  helper: 'expectAllEmissions' | 'expectCompletion',
 ): Promise<T[]> {
   return new Promise<T[]>((resolve, reject) => {
     subscribeAndCollect<T>(
@@ -791,7 +860,9 @@ function collectUntilComplete<T>(
         onComplete: resolve,
         onTimeout: notCompletedError,
         onError: rejectAsNotCompleted,
-        emissionsSettle: collect,
+        emissionsSettle: helper === 'expectAllEmissions',
+        helper,
+        expected: 0,
       },
     );
   });
@@ -802,17 +873,25 @@ function staysOpen(): boolean {
   return false;
 }
 
-function notCompletedError(received: number, options: AnyEmissionOptions | undefined, waited: number): Error {
-  return ownFailure(
-    `${describeSource(options)} did not complete within ${waited} ms (${received} emission(s) received). ` +
-      'A stream that keeps running usually means the completing operator never ran — check `take`, `first`, ' +
-      '`takeUntil`, or a Subject nobody calls `complete()` on. The wait is real time even under fake timers; ' +
-      'raise it with `{ timeout: … }`, or lower the suite default with `setEmissionTimeout(…)`.',
+function notCompletedError(received: number, context: WaitContext, waited: number): Error {
+  return emissionFailure(
+    context,
+    `the stream did not complete within ${waited} ms (${countOf(received, 'emission')} received). ` +
+      'Nothing completed it — end it upstream with `take` / `first` / `takeUntil`, or call `complete()` on the Subject ' +
+      'that feeds it.' +
+      fakeClockAdvice(),
   );
 }
 
-function rejectAsNotCompleted(error: unknown, options: AnyEmissionOptions | undefined, settle: Rejecter): void {
-  settle.reject(ownFailure(`${describeSource(options)} errored instead of completing: ${String(error)}`, { cause: error }));
+function rejectAsNotCompleted(error: unknown, context: WaitContext, settle: Rejecter): void {
+  settle.reject(
+    emissionFailure(
+      context,
+      `the stream errored instead of completing: ${String(error)}. ` +
+        'If that error is what the test is about, await `expectError(source$)` — it resolves with the error itself.',
+      { cause: error },
+    ),
+  );
 }
 
 /**
@@ -838,6 +917,7 @@ export function expectError(source$: EmissionSource<unknown>, options?: Emission
   // The anchor covers this helper's own failures only. The error it resolves with is the caller's,
   // and rewriting its stack would move the reader away from where that error was really made.
   const anchor = captureAnchor(expectError);
+  const context: WaitContext = { helper: 'expectError', options, expected: 0 };
 
   return new Promise<unknown[]>((resolve, reject) => {
     const fail = anchoredRejecter(reject, anchor);
@@ -849,38 +929,50 @@ export function expectError(source$: EmissionSource<unknown>, options?: Emission
       {
         // Only `error` settles this one: an emission is not the answer, and neither is completion.
         isDone: staysOpen,
-        onComplete: (_values, received) => fail(completedWithoutErrorError(received, options)),
+        onComplete: (_values, received) => fail(completedWithoutErrorError(received, context)),
         onTimeout: notErroredError,
         onError: resolveWithError,
         emissionsSettle: false,
+        helper: context.helper,
+        expected: context.expected,
       },
     );
   }).then((values) => firstOf(values));
 }
 
-function completedWithoutErrorError(received: number, options: AnyEmissionOptions | undefined): Error {
-  return ownFailure(
-    `${describeSource(options)} completed after ${received} emission(s) without erroring, but an error was expected. ` +
-      'Check that the failure path is the one the spec set up — a spy configured with `resolveWith`/`nextWith` rather ' +
-      'than `rejectWith`/`throwWith` produces exactly this.',
+function completedWithoutErrorError(received: number, context: WaitContext): Error {
+  return emissionFailure(
+    context,
+    `the stream completed after ${countOf(received, 'emission')} without erroring. ` +
+      'The failure path never ran — the spy feeding it answers with a value; configure it with `throwWith` / `rejectWith`.',
   );
 }
 
-function notErroredError(received: number, options: AnyEmissionOptions | undefined, waited: number): Error {
-  return ownFailure(
-    `${describeSource(options)} did not error within ${waited} ms (${received} emission(s) received). ` +
-      'The stream is still running: nothing failed, and nothing completed either.',
+function notErroredError(received: number, context: WaitContext, waited: number): Error {
+  return emissionFailure(
+    context,
+    `no error within ${waited} ms (${countOf(received, 'emission')} received), and the stream is still open. ` +
+      'Check that the call under test reaches the failing path.' +
+      fakeClockAdvice(),
   );
 }
 
 /** `expectError`'s error path: the stream erroring is the success, and the error is the value. */
-function resolveWithError(error: unknown, _options: AnyEmissionOptions | undefined, settle: Settle<unknown>): void {
-  settle.resolve([error]);
+function resolveWithError(error: unknown, _context: WaitContext, settle: Settle<unknown>): void {
+  settle.resolve([error], false);
 }
 
-function unexpectedEmissionError(values: unknown[], options: AnyEmissionOptions | undefined): Error {
+function unexpectedEmissionError(values: unknown[], context: WaitContext, onSubscribe: boolean): Error {
   // `serializeValue`, not `JSON.stringify`: what a spec asserts stays silent is routinely a
   // component, a DOM node or a store slice with back-references, and stringifying one throws
   // `Converting circular structure to JSON` — losing the value the message exists to show.
-  return ownFailure(`${describeSource(options)} emitted ${serializeValue(values[0])} but was expected to stay silent.`);
+  const shown = serializeValue(values[0]);
+
+  return emissionFailure(
+    context,
+    onSubscribe
+      ? `emitted ${shown} the moment it subscribed, but was expected to stay silent. That is a replayed value ` +
+          '(`BehaviorSubject`, `shareReplay`, `startWith`) — ignore it with `{ skip: 1 }`.'
+      : `emitted ${shown} but was expected to stay silent. Something the test ran pushed it — check the calls before this wait.`,
+  );
 }
