@@ -161,7 +161,9 @@ describe('advanceTimers', () => {
   });
 
   it('throws on real timers and names the fix', async () => {
-    await expect(advanceTimers(10)).rejects.toThrow(/requires fake timers .* setupFakeTimers\(\)/);
+    await expect(advanceTimers(10)).rejects.toThrow(
+      /^\[vitest-auto-spy\] advanceTimers\(\) requires fake timers, and the timers in this test are real\. Call setupFakeTimers\(\)[\s\S]*#advancetimers-ms$/,
+    );
   });
 
   it('refuses to pretend it advanced anything when only `Date` is faked', async () => {

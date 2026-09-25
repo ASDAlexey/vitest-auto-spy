@@ -15,7 +15,8 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { forgetDateOnlyFakes, hasDateOnlyFakes, restoreTimerGlobals } from './timer-globals';
 
 /**
@@ -155,17 +156,21 @@ export interface SetupFakeTimersOptions {
 export async function advanceTimers(ms = 0): Promise<void> {
   if (!vi.isFakeTimers()) {
     throw new Error(
-      withDocs('advanceTimers() requires fake timers — call setupFakeTimers() or vi.useFakeTimers() first', DOCS_LINKS.fakeTimers),
+      withDocs(
+        '[vitest-auto-spy] advanceTimers() requires fake timers, and the timers in this test are real. ' +
+          'Call setupFakeTimers() once in the setup file, or vi.useFakeTimers() in this test.',
+        DOCS_LINKS.advanceTimers,
+      ),
     );
   }
 
   if (hasDateOnlyFakes()) {
     throw new Error(
       withDocs(
-        'advanceTimers() found only the clock faked, not the timers: mockSystemTime() installs `Date` alone, so there is ' +
-          'nothing for this call to advance and it used to pass having done nothing. Call setupFakeTimers() (or ' +
-          'vi.useFakeTimers()) for the test that drives timers.',
-        DOCS_LINKS.fakeTimers,
+        '[vitest-auto-spy] advanceTimers() found only the clock faked, not the timers: mockSystemTime() installs `Date` ' +
+          'alone, so there is nothing for this call to advance. Call setupFakeTimers() (or vi.useFakeTimers()) for the ' +
+          'test that drives timers.',
+        DOCS_LINKS.advanceTimers,
       ),
     );
   }
