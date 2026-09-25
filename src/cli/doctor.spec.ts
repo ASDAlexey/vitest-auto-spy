@@ -4,7 +4,8 @@
  * opening the file. That is also what makes them easy to get wrong in the other direction, so each
  * check is pinned from both sides — the defect it must report, and the healthy shape it must not.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { checkAgentInstructions } from './checks/agent-instructions';
 import { checkAngularBuild, compareVersions, isAffectedVersion, parseVersion } from './checks/angular-build';
@@ -291,6 +292,29 @@ describe('checkForeignPragma', () => {
 
     expect(findings).toHaveLength(1);
     expect(findings[0]?.file).toBe('src/a.spec.ts');
+    expect(findings[0]?.message).toBe(
+      `Line 1: \`${pragma('environment')} jsdom\` is a Jest docblock pragma, which this runner never reads.`,
+    );
+    expect(findings[0]?.fix).toBe('Write `@vitest-environment jsdom` instead.');
+  });
+
+  it('names every line a pragma is on, and says to delete one that names no environment', () => {
+    const root = createTempRepo({
+      'package.json': '{}',
+      'src/a.spec.ts': `/** ${pragma('config')} */\n\n/** ${pragma('config')} */\n/** ${pragma('environment')} */`,
+    });
+    const findings = checkForeignPragma(buildGraph(readProfile(root)));
+
+    expect(findings.map((finding) => [finding.message, finding.fix])).toEqual([
+      [
+        `Lines 1, 3: \`${pragma('config')}\` is a Jest docblock pragma, which this runner never reads.`,
+        'Delete it: the runner config decides this.',
+      ],
+      [
+        `Line 4: \`${pragma('environment')}\` is a Jest docblock pragma, which this runner never reads.`,
+        'Delete it: the runner config decides this.',
+      ],
+    ]);
   });
 });
 
@@ -371,6 +395,29 @@ describe('checkAngularBuild', () => {
     expect(checkAngularBuild(readProfile(withVersion('22.1.7')))).toEqual([]);
     expect(checkAngularBuild(readProfile(withVersion('22.1.4')))).toEqual([]);
     expect(checkAngularBuild(readProfile(withVersion('nonsense')))).toEqual([]);
+  });
+
+  it('names the unit-test targets the fix is for', () => {
+    const target = { builder: '@angular/build:unit-test' };
+    const projects = Object.fromEntries(['a', 'b', 'c', 'd'].map((name) => [name, { architect: { test: target } }]));
+    const fixOf = (files: Record<string, string>): string | undefined =>
+      checkAngularBuild(
+        readProfile(
+          createTempRepo({
+            'package.json': '{}',
+            'node_modules/@angular/build/package.json': JSON.stringify({ version: '22.1.5' }),
+            ...files,
+          }),
+        ),
+      )[0]?.fix;
+
+    expect(fixOf({})).toBe('Upgrade @angular/build to 22.1.7 or newer, and set `"splitting": true` on the unit-test target.');
+    expect(fixOf({ 'angular.json': JSON.stringify({ projects: { app: projects['a'] } }) })).toBe(
+      'Upgrade @angular/build to 22.1.7 or newer, and set `"splitting": true` on `app:test` in angular.json.',
+    );
+    expect(fixOf({ 'angular.json': JSON.stringify({ projects }) })).toBe(
+      'Upgrade @angular/build to 22.1.7 or newer, and set `"splitting": true` on `a:test` in angular.json, `b:test` in angular.json, `c:test` in angular.json and 1 more targets.',
+    );
   });
 
   it('says nothing when the builder is not installed or its manifest is unreadable', () => {
@@ -485,8 +532,15 @@ describe('checkCoverageConfig', () => {
     const globs = (prefix: string, count: number): string[] => Array.from({ length: count }, (_, index) => `${prefix}${index}/**/*.ts`);
     const scope = `export default { test: { coverage: { include: ${JSON.stringify(globs('libs/a', 30))}, exclude: ${JSON.stringify(globs('libs/b', 25))} } } };`;
     const wide = createTempRepo({ 'package.json': '{}', 'vitest.config.ts': scope, ...vitest('4.1.9') });
+    const [finding] = checkCoverageConfig(readProfile(wide));
 
     expect(checks(checkCoverageConfig(readProfile(wide)))).toEqual(['coverage-include-recompiles-globs']);
+    expect(finding?.message).toBe(
+      'The coverage scope here is 55 globs, and Vitest 4 compiles every one of them again for every file it checks, so matching can cost more than the coverage itself.',
+    );
+    expect(finding?.fix).toBe(
+      'Upgrade to Vitest 5, which compiles them once. To stay on 4, use the custom-provider recipe: https://asdalexey.github.io/vitest-auto-spy/adapters/angular#coverage-matching-costs-more-than-coverage',
+    );
   });
 
   it('says nothing about the same scope on the version that compiles the globs once', () => {
@@ -582,6 +636,31 @@ describe('checkAgentInstructions', () => {
 
     expect(checks(checkAgentInstructions(silent))).toEqual(['no-agent-instructions']);
     expect(checkAgentInstructions(told)).toEqual([]);
+  });
+
+  it('names the instruction files git tracks in --only, and --ignore only when git tracks none of them', () => {
+    const home = createTempRepo({ 'git/ignore': '' });
+
+    vi.stubEnv('GIT_CONFIG_GLOBAL', join(home, 'none'));
+    vi.stubEnv('XDG_CONFIG_HOME', home);
+
+    const fixOf = (files: Record<string, string>): string | undefined =>
+      checkAgentInstructions(readProfile(createTempRepo({ 'package.json': '{}', ...files })))[0]?.fix;
+
+    try {
+      expect(fixOf({})).toBe('Run `npx vitest-auto-spy init` to point them at `node_modules/vitest-auto-spy/AGENTS.md`.');
+      expect(fixOf({ '.gitignore': 'AGENTS.md\n', 'CLAUDE.md': '# rules\n', '.claude/CLAUDE.md': '# more\n' })).toBe(
+        'Run `npx vitest-auto-spy init --only CLAUDE.md,.claude` to point the tracked ones at `node_modules/vitest-auto-spy/AGENTS.md`.',
+      );
+      expect(fixOf({ '.gitignore': 'AGENTS.md\n' })).toBe(
+        'Run `npx vitest-auto-spy init` to point them at `node_modules/vitest-auto-spy/AGENTS.md`.',
+      );
+      expect(fixOf({ '.gitignore': '*.md\n.claude/\n' })).toBe(
+        'Run `npx vitest-auto-spy init` on your machine. CI never sees these files, because .gitignore keeps them out of git: pass `--ignore no-agent-instructions` there.',
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('counts a `.claude/CLAUDE.md` a repository keeps out of version control', () => {
