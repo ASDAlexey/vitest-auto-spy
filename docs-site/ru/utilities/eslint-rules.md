@@ -1251,7 +1251,9 @@ observer, записывающий геометрию, которую хелпе
 `mockValueProp(globalThis, name, vi.fn(…))`; имя с заглавной — `XMLHttpRequest`, `WebSocket`,
 `EventSource` — это конструктор, который код вызывает через `new`, и оно отправляет к
 `stubConstructor(globalThis, name, …)`. `localStorage` и `sessionStorage` отправляют к
-[`stubWebStorage()`](/ru/utilities/setup#stub-web-storage). Спеке, которой нужно лишь не выходить в
+[`stubWebStorage()`](/ru/utilities/setup#stub-web-storage), а `Worker` — к
+[`stubWorker({ respond })`](/ru/utilities/worker-stub), который сохраняет семантику слушателей,
+теряемую рукописным стабом воркера. Спеке, которой нужно лишь не выходить в
 сеть, нужен [`blockNetwork()`](/ru/utilities/setup#_5-keeping-the-run-off-the-network).
 
 **Находка и как её закрыть.**

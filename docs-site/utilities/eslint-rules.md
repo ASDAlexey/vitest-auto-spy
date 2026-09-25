@@ -1263,7 +1263,9 @@ The message depends on the global. A lowercase one — `fetch`, `matchMedia` —
 `mockValueProp(globalThis, name, vi.fn(…))`; a capitalised one — `XMLHttpRequest`, `WebSocket`,
 `EventSource` — is a constructor the code calls with `new`, and points at
 `stubConstructor(globalThis, name, …)`. `localStorage` and `sessionStorage` point at
-[`stubWebStorage()`](/utilities/setup#stub-web-storage). A spec that only needs to stay off the
+[`stubWebStorage()`](/utilities/setup#stub-web-storage), and `Worker` at
+[`stubWorker({ respond })`](/utilities/worker-stub), which keeps the listener semantics a
+hand-written worker stub loses. A spec that only needs to stay off the
 network wants [`blockNetwork()`](/utilities/setup#_5-keeping-the-run-off-the-network) instead.
 
 **Finding, and the repair.**

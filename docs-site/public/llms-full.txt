@@ -30,9 +30,10 @@ Source: https://asdalexey.github.io/vitest-auto-spy/core/introduction
 
 # Introduction
 
-`vitest-auto-spy` reads a class and generates a typed spy for **every** method, powered by your
-test runner's mock primitive (`vi.fn()` on Vitest, and the equivalents on Bun, `node:test` and
-Rstest).
+`vitest-auto-spy` reads a class and generates a typed spy for **every** method, powered by this
+library's own mock function — the default spy engine since 4.1, leaner than `vi.fn()` and identical
+to it everywhere a spec can observe. `setSpyEngine('runner')` builds the spies on your test runner's
+primitive instead (`vi.fn()` on Vitest, and the equivalents on Bun, `node:test` and Rstest).
 It is a drop-in successor to [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies):
 the same API, but spying on Vitest-compatible runners instead of Jest.
 
@@ -14388,7 +14389,9 @@ The message depends on the global. A lowercase one — `fetch`, `matchMedia` —
 `mockValueProp(globalThis, name, vi.fn(…))`; a capitalised one — `XMLHttpRequest`, `WebSocket`,
 `EventSource` — is a constructor the code calls with `new`, and points at
 `stubConstructor(globalThis, name, …)`. `localStorage` and `sessionStorage` point at
-[`stubWebStorage()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#stub-web-storage). A spec that only needs to stay off the
+[`stubWebStorage()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#stub-web-storage), and `Worker` at
+[`stubWorker({ respond })`](https://asdalexey.github.io/vitest-auto-spy/utilities/worker-stub), which keeps the listener semantics a
+hand-written worker stub loses. A spec that only needs to stay off the
 network wants [`blockNetwork()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_5-keeping-the-run-off-the-network) instead.
 
 **Finding, and the repair.**
