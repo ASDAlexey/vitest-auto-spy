@@ -107,7 +107,7 @@ const DOM_FREE_SUBPATHS = new Set([
 /** A file that already declares an environment is not this rule's to move. */
 const DECLARED_ENVIRONMENT = /@vitest-environment\s+\S+/;
 
-/** Printed with the finding: advice whose rule is hidden cannot be checked by the person taking it. */
+/** The rule `perf-environment` applies, as the CLI docs state it. */
 export const DOM_FREE_RULE = `a spec is listed only when it, the configured setup files and every repository module any of them imports were read and none of them mentions a DOM name (document, window, HTML*, *Event, TestBed, …), and every package they import is one of: ${DOM_FREE_PACKAGES.join(', ')}`;
 
 export interface DomFreeSpecs {
