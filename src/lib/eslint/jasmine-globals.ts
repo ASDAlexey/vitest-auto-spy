@@ -13,7 +13,8 @@
  * of the repair; every entry below is a rename with no judgement left in it.
  */
 import { findBinding } from './bindings';
-import { type EsIdentifier, type EsMemberExpression, type RuleContext, memberName } from './rule-types';
+import { argumentList, excerpt } from './message-data';
+import { type EsIdentifier, type EsMemberExpression, type EsNode, type RuleContext, isCallExpression, memberName } from './rule-types';
 
 /** One report: which message, and the values it quotes. */
 export interface GlobalReport {
@@ -34,6 +35,37 @@ const JASMINE_MEMBERS = new Map([
   ['addCustomEqualityTester', 'expect.addEqualityTesters([tester])'],
   ['DEFAULT_TIMEOUT_INTERVAL', '`testTimeout` and `hookTimeout` in the Vitest config, or the third argument of the test'],
 ]);
+
+/** `jasmine.clock().<member>(…)` → the helper that does the same and cleans up after itself. */
+const CLOCK_MEMBERS = new Map([
+  ['install', 'setupFakeTimers()'],
+  ['uninstall', 'vi.useRealTimers()'],
+  ['tick', 'await advanceTimers(ms)'],
+  ['mockDate', 'mockSystemTime(date)'],
+]);
+
+/** The call a `jasmine.<member>` read is the callee of, or the read itself when it is not called. */
+function usedAs(node: EsMemberExpression): EsNode {
+  return isCallExpression(node.parent) && node.parent.callee === node ? node.parent : node;
+}
+
+/** `jasmine.createSpyObj<Api>(…)` names the type the replacement reads; without it the message says `T`. */
+function createSpyObjReport(context: RuleContext, node: EsMemberExpression): GlobalReport {
+  const call = usedAs(node);
+  const [type] = isCallExpression(call) ? (call.typeArguments?.params ?? []) : [];
+
+  return { messageId: 'jasmineCreateSpyObj', data: { call: excerpt(context, call), type: type ? excerpt(context, type) : 'T' } };
+}
+
+/** `jasmine.clock().tick(100)` → `await advanceTimers(ms)`, read off the member after `clock()`. */
+function clockReport(context: RuleContext, node: EsMemberExpression): GlobalReport {
+  const call = usedAs(node);
+  const member = call.parent;
+  const name = member.type === 'MemberExpression' ? memberName(member) : undefined;
+  const replacement = CLOCK_MEMBERS.get(name ?? '') ?? 'setupFakeTimers()';
+
+  return { messageId: 'jasmineClock', data: { use: excerpt(context, name ? member : call), replacement } };
+}
 
 /** The globals a jasmine spec calls by their bare name, `spyOn` excepted — that one has its own message. */
 const BARE_GLOBALS = new Map([
@@ -57,11 +89,11 @@ export function jasmineMemberReport(context: RuleContext, node: EsMemberExpressi
   }
 
   if (member === 'createSpyObj') {
-    return { messageId: 'jasmineCreateSpyObj', data: {} };
+    return createSpyObjReport(context, node);
   }
 
   if (member === 'clock') {
-    return { messageId: 'jasmineClock', data: {} };
+    return clockReport(context, node);
   }
 
   const replacement = JASMINE_MEMBERS.get(member);
@@ -80,6 +112,6 @@ export function bareGlobalReport(context: RuleContext, node: EsIdentifier): Glob
   }
 
   return replacement === undefined
-    ? { messageId: 'jasmineSpyOn', data: {} }
+    ? { messageId: 'jasmineSpyOn', data: { args: argumentList(context, node.parent) } }
     : { messageId: 'jasmineGlobal', data: { api: `${node.name}(…)`, replacement } };
 }

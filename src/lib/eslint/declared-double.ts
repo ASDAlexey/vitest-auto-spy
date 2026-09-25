@@ -51,6 +51,7 @@ import {
   minRunnerFns,
   substitutesADependency,
 } from './hand-rolled-doubles';
+import { bindingName, excerpt } from './message-data';
 import {
   type EsNode,
   type EsObjectExpression,
@@ -133,25 +134,14 @@ function annotationOf(scope: EsScope, name: EsNode): EsNode | undefined {
   return declarator && isIdentifier(declarator.id) ? declarator.id.typeAnnotation?.typeAnnotation : undefined;
 }
 
-/**
- * Whether the name this object literal is bound to is declared as an object of Vitest mock types —
- * i.e. whether the file itself says the literal is a structural stand-in rather than an options bag.
- */
-function declaredAsStructuralDouble(scope: EsScope, object: EsObjectExpression): boolean {
-  const name = boundName(object);
-  const annotation = name && annotationOf(scope, name);
-
-  return annotation !== undefined && declaresMockMember(annotation);
-}
-
 /** `let card: { load: Mock }; card = { load: vi.fn() };` → `createAutoMock<CardService>()`. */
 export const noStructuralDouble: RuleModule = defineRule({
-  anchor: '-a-service-without-di',
+  name: 'no-structural-double',
   description: 'Build a double from the type it stands in for, not from an object type of Vitest Mocks',
   schema: [{ type: 'object', properties: { minRunnerFns: { type: 'integer', minimum: 1 } }, additionalProperties: false }],
   messages: {
     noStructuralDouble:
-      'The name this object is bound to is declared as an object of Vitest `Mock`s, which says it stands in for a type — and then hand-writes the stand-in one method at a time. `createAutoMock<T>()` reads the type instead, so the double cannot fall behind it, and `createSpyFromClass(X)` does the same from a class; behind Angular DI it is `provideAutoSpy(X)` and the declaration goes away with the object. The declaration is what makes this reportable at a single `vi.fn()` where `prefer-create-spy-from-class` needs two: nobody annotates an options bag `{ onDone: Mock }`. A **bare** `let fn: Mock` is not this and is never reported — that is a plain `vi.fn()` callback, and `Mock` is its correct type. `createAutoMock<T>()` is also the answer where `provideAutoSpy` cannot go, an abstract class or an interface having no constructor to read.',
+      '`{{name}}` is declared as `{{type}}`, an object of Vitest `Mock`s, and then filled one `vi.fn()` at a time, so it can fall behind the type it stands in for. Build it with `createAutoMock<T>()` from that type, or `provideAutoSpy(Class)` behind Angular DI.',
   },
   create: (context) => ({
     ObjectExpression: (node: EsObjectExpression): void => {
@@ -177,8 +167,15 @@ export const noStructuralDouble: RuleModule = defineRule({
         return;
       }
 
-      if (declaredAsStructuralDouble(context.sourceCode.getScope(node), node)) {
-        context.report({ node, messageId: 'noStructuralDouble' });
+      const name = boundName(node);
+      const annotation = name && annotationOf(context.sourceCode.getScope(node), name);
+
+      if (name && annotation && declaresMockMember(annotation)) {
+        context.report({
+          node,
+          messageId: 'noStructuralDouble',
+          data: { name: bindingName(context, name), type: excerpt(context, annotation) },
+        });
       }
     },
   }),

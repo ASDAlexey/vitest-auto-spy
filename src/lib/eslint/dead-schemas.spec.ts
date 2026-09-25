@@ -38,8 +38,10 @@ describe('no-dead-schemas', () => {
   it('reports the `schemas` entry itself, so the fix is the reported line', () => {
     const [message] = verify(bed('imports: [C], schemas: [NO_ERRORS_SCHEMA]'));
 
-    expect(message?.message).toContain('excuses nothing');
-    expect(message?.message).toContain('createDirectiveHost');
+    expect(message?.message).toContain('`schemas: [NO_ERRORS_SCHEMA]` applies only');
+    expect(message?.message).toContain('excuses nothing in `C`');
+    expect(verify(bed('schemas: [NO_ERRORS_SCHEMA]'))[0]?.message).toContain('excuses nothing in the component under test');
+    expect(verify(bed('imports: [A, , B], schemas: [NO_ERRORS_SCHEMA]'))[0]?.message).toContain('excuses nothing in `A` and `B`');
   });
 
   /**
@@ -50,8 +52,7 @@ describe('no-dead-schemas', () => {
   it('warns about the import and about checking the edit with a run', () => {
     const [message] = verify(bed('imports: [C], schemas: [NO_ERRORS_SCHEMA]'));
 
-    expect(message?.message).toContain('only if nothing else in the file still uses it');
-    expect(message?.message).toContain('verify with a run, not with a green lint');
+    expect(message?.message).toContain('not a matching one in an `overrideComponent` block');
     expect(message?.message).toContain('NG0303');
   });
 

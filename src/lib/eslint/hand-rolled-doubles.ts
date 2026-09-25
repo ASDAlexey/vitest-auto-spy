@@ -167,16 +167,20 @@ export function countRunnerFns(context: RuleContext, object: EsObjectExpression)
 export function isOptionsArgument(context: RuleContext, object: EsObjectExpression): boolean {
   const argument = outermostLiteral(object);
   const call = argument.parent;
-  const carriesValues = object.properties.some(
-    (property) =>
-      propertyName(property) !== undefined && !holdsRunnerFn(context, propertyValue(property)) && !isFunctionNode(propertyValue(property)),
-  );
 
   return (
     (isCallExpression(call) || isNewExpression(call)) &&
     call.arguments.includes(argument) &&
     countRunnerFns(context, object) === 1 &&
-    carriesValues
+    carriesValues(context, object)
+  );
+}
+
+/** Whether the literal holds a named member that is neither a runner mock nor a function: plain data. */
+export function carriesValues(context: RuleContext, object: EsObjectExpression): boolean {
+  return object.properties.some(
+    (property) =>
+      propertyName(property) !== undefined && !holdsRunnerFn(context, propertyValue(property)) && !isFunctionNode(propertyValue(property)),
   );
 }
 

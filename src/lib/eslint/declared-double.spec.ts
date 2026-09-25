@@ -184,9 +184,11 @@ describe('no-structural-double', () => {
   it('names both the declaration and the replacement in the message', () => {
     const text = message('const svc: { load: Mock } = { load: vi.fn() };');
 
+    expect(text).toMatch(/^`svc` is declared as `\{ load: Mock \}`/);
+    expect(message('let svc: { load: Mock };\nsvc = { load: vi.fn() };')).toMatch(/^`svc` is declared as `\{ load: Mock \}`/);
     expect(text).toContain('createAutoMock<T>()');
-    expect(text).toContain('provideAutoSpy(X)');
-    expect(text).toContain('#how-to-mock');
+    expect(text).toContain('provideAutoSpy(Class)');
+    expect(text).toContain('/utilities/eslint-rules#no-structural-double');
   });
 
   it('reports every declared stand-in of a file, not the first', () => {

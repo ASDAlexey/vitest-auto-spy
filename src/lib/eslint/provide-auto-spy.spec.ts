@@ -202,7 +202,9 @@ describe('prefer-provide-auto-spy — the long-form arm', () => {
 
   it('still reports the hand-rolled shapes it always did', () => {
     expect(count('const p = { provide: Cart, useValue: { total: vi.fn() } };')).toBe(1);
-    expect(message('const p = { provide: Cart, useValue: { total: vi.fn() } };')).toContain('hand-rolls a service mock');
+    expect(message('const p = { provide: Cart, useValue: { total: vi.fn() } };')).toContain(
+      'The `useValue` for `Cart` hand-lists 1 member',
+    );
   });
 });
 
@@ -349,18 +351,23 @@ describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
   it('names provideAutoSpyForToken when the thing provided is a token, not a class', () => {
     // `provideAutoSpy` reads a class prototype; a token has none, so the old advice did not compile.
     // Six of eight reports in one migration batch were on tokens.
-    expect(firstMessage('const p = { provide: PASSCODE_TOKEN, useValue: { check: vi.fn() } };')).toContain('provideAutoSpyForToken(TOKEN)');
+    expect(firstMessage('const p = { provide: PASSCODE_TOKEN, useValue: { check: vi.fn() } };')).toContain(
+      'provideAutoSpyForToken(PASSCODE_TOKEN)',
+    );
     // A declaration the resolver can reach settles it whatever the name looks like.
     expect(
       firstMessage("const Logger = new InjectionToken<Logger>('logger');\nconst p = { provide: Logger, useValue: { debug: vi.fn() } };"),
-    ).toContain('provideAutoSpyForToken(TOKEN)');
+    ).toContain('provideAutoSpyForToken(Logger)');
   });
 
-  it('names provideAutoSpy for a class, and still mentions the token form', () => {
-    const message = firstMessage('const p = { provide: CartService, useValue: { total: vi.fn() } };');
+  it('names provideAutoSpy for a class, with the token and the members it hand-lists', () => {
+    const message = firstMessage('const p = { provide: CartService, useValue: { total: vi.fn(), count: vi.fn() } };');
 
-    expect(message).toContain('provideAutoSpy(Class)');
-    expect(message).toContain('provideAutoSpyForToken(TOKEN)');
+    expect(message).toMatch(/^The `useValue` for `CartService` hand-lists 2 members/);
+    expect(message).toContain('provideAutoSpy(CartService)');
+    expect(firstMessage('const double = { total: vi.fn() };\nconst p = { provide: CartService, useValue: double };')).toContain(
+      'The `useValue` for `CartService` is a hand-rolled double',
+    );
   });
 
   it('points at overrides for a data member, on both halves of the message', () => {
@@ -368,27 +375,27 @@ describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
     // whose `flagsConfig` has to *be* an object rather than answer with one — and the reader
     // reached for `gettersToSpyOn`, which is not that. `overrides` has been on the class
     // configuration for as long as it has been on the token factory; only the message was silent.
-    expect(firstMessage('const p = { provide: CartService, useValue: { total: vi.fn() } };')).toContain('{ overrides: … }');
+    expect(firstMessage('const p = { provide: CartService, useValue: { total: vi.fn() } };')).toContain('{ overrides }');
 
     // And the token half says what a nested shape needs, which is the same second argument: the
     // bare double makes every key a function spy, so `req.headers.get(…)` reads a property off one.
     expect(firstMessage('const p = { provide: REQUEST, useValue: { headers: { get: vi.fn() } } };')).toContain(
-      '{ headers: { get: vi.fn() } }',
+      'nested values go in its second argument',
     );
 
     // A chained call is the third argument's, and stays a spy — a `mockReturnThis()` seed did not.
-    expect(firstMessage('const p = { provide: LOGGER, useValue: { channel: vi.fn() } };')).toContain('{ selfReturning: ["channel"] }');
+    expect(firstMessage('const p = { provide: LOGGER, useValue: { channel: vi.fn() } };')).toContain('{ selfReturning }');
   });
 
   it('reads a class out of every initialiser that is not a token', () => {
     const classMessage = (setup: string): string => firstMessage(setup + '\nconst p = { provide: Cart, useValue: { total: vi.fn() } };');
 
-    expect(classMessage('')).toContain('provideAutoSpy(Class)');
-    expect(classMessage('const Cart = class {};')).toContain('provideAutoSpy(Class)');
-    expect(classMessage('const Cart = new CartService();')).toContain('provideAutoSpy(Class)');
-    expect(classMessage('const Cart = new ng.InjectionToken();')).toContain('provideAutoSpy(Class)');
+    expect(classMessage('')).toContain('provideAutoSpy(Cart)');
+    expect(classMessage('const Cart = class {};')).toContain('provideAutoSpy(Cart)');
+    expect(classMessage('const Cart = new CartService();')).toContain('provideAutoSpy(Cart)');
+    expect(classMessage('const Cart = new ng.InjectionToken();')).toContain('provideAutoSpy(Cart)');
     // Not an identifier at all — a token read off a namespace import.
-    expect(firstMessage('const p = { provide: tokens.CART, useValue: { total: vi.fn() } };')).toContain('provideAutoSpy(Class)');
+    expect(firstMessage('const p = { provide: tokens.CART, useValue: { total: vi.fn() } };')).toContain('provideAutoSpy(tokens.CART)');
   });
 
   it('reads a hand-rolled double behind a useFactory, through the function', () => {
@@ -410,7 +417,7 @@ describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
     const existing = 'class NavMock { go = vi.fn(); }\nconst p = { provide: NavService, useExisting: NavMock };';
 
     expect(lint(existing)).toHaveLength(1);
-    expect(firstMessage(existing)).toContain('stub class whose fields are `vi.fn()`s');
+    expect(firstMessage(existing)).toMatch(/^`NavService` is provided with the stub class `NavMock`/);
     // Aliasing to a real class is the ordinary use of the slot.
     expect(lint('const p = { provide: PROMO_OPENER, useExisting: PromoOpenService };')).toEqual([]);
     // …and so is aliasing to a class this file cannot read.
@@ -439,10 +446,11 @@ describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
 
     // The recommendation has to be the one that fits this call site: `provideAutoSpy` returns
     // `{ provide, useValue }`, which is why it can be handed straight to `overrideProvider`.
-    expect(message).toContain('TestBed.overrideProvider(X, provideAutoSpy(X))');
-    expect(message).toContain('provideAutoSpyForToken(TOKEN)');
-    // …and the one case where the override is not the thing to delete.
-    expect(message).toContain('component under test declares its own `providers`');
+    expect(message).toMatch(/^`TestBed\.overrideProvider\(Cart, …\)` hands DI a hand-rolled double: its `useValue` hand-lists 1 member/);
+    expect(message).toContain('Pass `provideAutoSpy(Cart)` as the override');
+    expect(firstMessage('TestBed.overrideProvider(API_TOKEN, { useValue: { total: vi.fn() } });')).toContain(
+      'Pass `provideAutoSpyForToken(API_TOKEN)` as the override',
+    );
   });
 
   it('leaves an override that already hands over an auto-spy alone', () => {
@@ -455,9 +463,9 @@ describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
     expect(lint('TestBed.overrideProvider(ElementUtilsService, { useValue: {} });')).toEqual([]);
   });
 
-  it('points at the README recipe', () => {
+  it('points at its own section of the rules page', () => {
     expect(firstMessage('const p = { provide: Cart, useValue: { total: vi.fn() } };')).toContain(
-      'https://github.com/ASDAlexey/vitest-auto-spy#how-to-mock',
+      'https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-provide-auto-spy',
     );
   });
 });

@@ -62,8 +62,11 @@ describe('jasmine-namespace-without-entry', () => {
 
   it('reports a namespace used on a spy of this library that nothing equipped', () => {
     expect(lint(uninstalled, RULE)).toEqual([`vitest-auto-spy/${RULE}`]);
-    expect(firstMessage(uninstalled, RULE)).toContain('vitest-auto-spy/jasmine');
-    expect(firstMessage(uninstalled, RULE)).toContain('`.and.returnValue(x)` is `.mockReturnValue(x)`');
+    expect(firstMessage(uninstalled, RULE)).toMatch(/^`api\.load\.and\.returnValue` reads `\.and`[\s\S]*vitest-auto-spy\/jasmine/);
+    expect(firstMessage(uninstalled, RULE)).toContain('Call `.mockReturnValue(…)` on the spy instead');
+    expect(firstMessage('const api = injectSpy(Api);\napi.load.and.stub();', RULE)).toContain(
+      'Import `vitest-auto-spy/jasmine` in this file',
+    );
   });
 
   it.each([
@@ -83,10 +86,11 @@ describe('jasmine-namespace-without-entry', () => {
 
   it('names the direct equivalent of each namespace', () => {
     expect(firstMessage('const api = injectSpy(Api);\napi.load.calls.count();', RULE)).toContain(
-      '`.calls.count()` is `.mock.calls.length`',
+      'Call `.mock.calls.length` on the spy instead',
     );
-    expect(firstMessage('const api = injectSpy(Api);\napi.load.withArgs(1).and.returnValue(2);', RULE)).toContain(
-      '`spy.calledWith(a).mockReturnValue(v)`',
+    expect(firstMessage('const api = injectSpy(Api);\napi.load.calls.mostRecent();', RULE)).toContain('Import `vitest-auto-spy/jasmine`');
+    expect(firstMessage('const api = injectSpy(Api);\napi.load.withArgs(1).and.returnValue(2);', RULE)).toMatch(
+      /^`api\.load\.withArgs\(1\)` calls `withArgs`[\s\S]*Write `api\.load\.calledWith\(…\)`/,
     );
   });
 
@@ -248,27 +252,31 @@ describe('no-jasmine-globals', () => {
   it('flags createSpyObj and points at both landings', () => {
     const message = firstMessage("const s = jasmine.createSpyObj('api', ['load']);", RULE);
 
-    expect(message).toContain('createSpyObj(baseName, methodNames)');
+    expect(message).toMatch(/^`jasmine\.createSpyObj\('api', \['load'\]\)` does not exist/);
     expect(message).toContain('createAutoMock<T>()');
+    expect(firstMessage("const s = jasmine.createSpyObj<Api>('api', ['load']);", RULE)).toContain('createAutoMock<Api>()');
+    expect(firstMessage('const make = jasmine.createSpyObj;', RULE)).toMatch(/^`jasmine\.createSpyObj` does not exist/);
   });
 
   it('maps the whole clock, since one report has to cover four calls', () => {
-    const message = firstMessage('jasmine.clock().install();', RULE);
-
-    expect(message).toContain('vi.useFakeTimers()');
-    expect(message).toContain('vi.advanceTimersByTime(n)');
-    expect(message).toContain('mockSystemTime(date)');
+    expect(firstMessage('jasmine.clock().install();', RULE)).toMatch(/^`jasmine\.clock\(\)\.install`[\s\S]*Write `setupFakeTimers\(\)`/);
+    expect(firstMessage('jasmine.clock().uninstall();', RULE)).toContain('vi.useRealTimers()');
+    expect(firstMessage('jasmine.clock().tick(10);', RULE)).toContain('await advanceTimers(ms)');
+    expect(firstMessage('jasmine.clock().mockDate(d);', RULE)).toContain('mockSystemTime(date)');
+    expect(firstMessage('const clock = jasmine.clock();', RULE)).toMatch(/^`jasmine\.clock\(\)` does not exist[\s\S]*setupFakeTimers\(\)/);
+    expect(firstMessage('jasmine.clock().withMock(fn);', RULE)).toContain('Write `setupFakeTimers()`');
   });
 
   it('says which way spyOn silently inverts, rather than only naming vi.spyOn', () => {
     const message = firstMessage("spyOn(service, 'load');", RULE);
 
-    expect(message).toContain('jasmine’s `spyOn` stubs the method, `vi.spyOn` calls through');
-    expect(message).toContain('mockImplementation(() => undefined)');
+    expect(message).toMatch(/^`spyOn\(service, 'load'\)` is jasmine’s global/);
+    expect(message).toContain('jasmine’s stubs the method, Vitest’s calls through');
+    expect(message).toContain("vi.spyOn(service, 'load').mockImplementation(() => undefined)");
   });
 
   it('flags withContext, whose label moves into expect itself', () => {
-    expect(firstMessage("expect(a).withContext('after reload').toBe(b);", RULE)).toContain('expect(value, message)');
+    expect(firstMessage("expect(a).withContext('after reload').toBe(b);", RULE)).toContain("expect(value, 'after reload')");
   });
 
   it.each([
@@ -297,8 +305,8 @@ describe('no-save-arguments-by-value', () => {
     const code = 'api.load.calls.saveArgumentsByValue();';
 
     expect(lint(code, RULE)).toEqual([`vitest-auto-spy/${RULE}`]);
-    expect(firstMessage(code, RULE)).toContain('no-op');
-    expect(firstMessage(code, RULE)).toContain('captureArg<T>()');
+    expect(firstMessage(code, RULE)).toMatch(/^`api\.load\.calls\.saveArgumentsByValue\(\)` is a no-op/);
+    expect(firstMessage(code, RULE)).toContain('api.load.mockImplementation((arg) =>');
   });
 
   it.each([

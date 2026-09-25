@@ -1,7 +1,9 @@
+import { count as plural } from '../message-text';
 import { boundValueOf, findBinding } from './bindings';
 import { defineRule } from './define-rule';
 import {
   boundName,
+  carriesValues,
   countRunnerFns,
   insideFactorySeed,
   insideFixtureSeed,
@@ -12,6 +14,7 @@ import {
   runnerFnNames,
   substitutesADependency,
 } from './hand-rolled-doubles';
+import { bindingName, excerpt, nameList } from './message-data';
 import {
   type EsFunction,
   type EsIdentifier,
@@ -201,21 +204,34 @@ function signalMemberName(node: EsObjectExpression, member: string): string | un
     : undefined;
 }
 
-const LOWER_THRESHOLD =
-  ' An object with fewer is not flagged: on its own it is indistinguishable from an options bag with a callback in it. Lower the threshold with `{ minRunnerFns: 1 }` if the suite has no such objects — a one-method double handed to DI, or one whose declared type is an object of Vitest `Mock`s, is reported at one either way.';
+/** What the report quotes: the name the double is bound to, its mocks, and the factory for its declared type. */
+function describeDouble(context: RuleContext, node: EsObjectExpression, callbacks: readonly string[]): Record<string, string> {
+  const name = boundName(node);
+  const type = declaredTypeOf(context, node);
+
+  return {
+    subject: name ? `\`${bindingName(context, name)}\`` : 'This object',
+    count: plural(callbacks.length, '`vi.fn()`'),
+    members: nameList(callbacks),
+    fix: type ? `\`createAutoMock<${excerpt(context, type, 40)}>()\`` : '`createSpyFromClass(Class)` or `createAutoMock<T>()`',
+  };
+}
+
+const dataCallbackHint = (name: string): string =>
+  ` For a data object with one callback field, \`createMock<T>({ …, ${name}: vi.fn() })\` keeps the values and checks the field against \`T\`.`;
 
 /** `{ a: vi.fn(), b: vi.fn() }` → `createSpyFromClass(X)` / `createAutoMock<T>()`. */
 export const preferCreateSpyFromClass = defineRule({
-  anchor: '-a-service-without-di',
+  name: 'prefer-create-spy-from-class',
   description: 'Build a spy from the class (createSpyFromClass / createAutoMock) instead of an object of vi.fn()s',
   schema: [{ type: 'object', properties: { minRunnerFns: { type: 'integer', minimum: 1 } }, additionalProperties: false }],
   messages: {
     preferCreateSpyFromClass:
-      'An object of {{threshold}} `vi.fn()`s only mocks the methods you remembered. `createSpyFromClass(X)` reads the class, `createAutoMock<T>()` the type — both stay in step with it.{{lower}}',
+      '{{subject}} holds {{count}} ({{members}}), so it mocks only the methods someone listed and the class is free to grow one it lacks. Build it with {{fix}}, which stays in step with the class.{{lower}}',
     signalMember:
-      "A one-member object of `{{name}}: vi.fn()` under `{{signal}}` stands in for a signal, and `createMock<T>` cannot seed a callable partially — it does not compile for a `ModelSignal` / `WritableSignal`. Keep the real signal instead: `mockSignalProp(instance, '{{signal}}', value)`, then assert the value it holds.",
+      "`{ {{name}}: vi.fn() }` under `{{signal}}` stands in for a signal, and `createMock<T>` cannot seed a `ModelSignal` or `WritableSignal` partially. Keep the real signal: `mockSignalProp(instance, '{{signal}}', value)`, then assert the value it holds.",
     singleMember:
-      'A one-member object of a `vi.fn()` — a thenable, a callback holder — has no class for `createSpyFromClass` to read. Type it instead: `createMock<T>({ {{name}}: vi.fn() })` checks the key and the signature against `T`, which this literal is checked against nowhere.',
+      '`{ {{name}}: vi.fn() }` has no class for `createSpyFromClass` to read, and nothing checks its key or signature. Type it: `createMock<T>({ {{name}}: vi.fn() })` checks both against `T`.',
   },
   create: (context) => ({
     ObjectExpression: (node: EsObjectExpression): void => {
@@ -257,10 +273,14 @@ export const preferCreateSpyFromClass = defineRule({
         return;
       }
 
+      const callbacks = runnerFnNames(context, node);
+      const dataWithOneCallback = threshold === 1 && callbacks.length === 1 && carriesValues(context, node);
+      const lower = dataWithOneCallback ? dataCallbackHint(callbacks.join('')) : '';
+
       context.report({
         node,
         messageId: 'preferCreateSpyFromClass',
-        data: threshold === 1 ? { threshold: 'one or more', lower: '' } : { threshold: `${threshold} or more`, lower: LOWER_THRESHOLD },
+        data: { ...describeDouble(context, node, callbacks), lower },
       });
     },
   }),

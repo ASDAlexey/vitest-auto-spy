@@ -25,6 +25,7 @@
 import { defineRule } from './define-rule';
 import { ENABLE_CALL, fromLibrarySpy, installsJasmineCompat, namespaceOnSpy, setupModules, withArgsOnSpy } from './jasmine-compat';
 import { BARE_GLOBAL_SELECTOR, bareGlobalReport, jasmineMemberReport } from './jasmine-globals';
+import { argumentList, excerpt } from './message-data';
 import { type NativeRewrite, andRewrite, callsRewrite, saveArgumentsByValueCall } from './native-spy-api';
 import {
   type EsFix,
@@ -33,23 +34,30 @@ import {
   type EsImportDeclaration,
   type EsMemberExpression,
   type EsNode,
+  type RuleContext,
   type RuleModule,
   isCallee,
   memberName,
 } from './rule-types';
 
-/** The recipe every rule here points at. */
-const ANCHOR = '-a-jasmine-suite-mid-migration';
-
 /** One namespace use, held until the file is over and it is known whether anything installed them. */
 interface NamespaceUse {
   node: EsNode;
   messageId: string;
+  data: Record<string, string>;
+}
+
+/** What a `.and` / `.calls` report quotes: the line's use of the namespace and the one repair for it. */
+function namespaceData(context: RuleContext, node: EsMemberExpression, rewrite: NativeRewrite | undefined): Record<string, string> {
+  return {
+    use: excerpt(context, node.parent),
+    fix: rewrite ? `Call \`${rewrite.to}\` on the spy instead` : 'Import `vitest-auto-spy/jasmine` in this file',
+  };
 }
 
 /** `.and` / `.calls` / `.withArgs` in a file that installs neither the entry nor the compat call. */
 const jasmineNamespaceWithoutEntry = defineRule({
-  anchor: ANCHOR,
+  name: 'jasmine-namespace-without-entry',
   description: 'Do not use the jasmine namespaces in a file that never installs the compatibility layer',
   schema: [
     {
@@ -60,11 +68,11 @@ const jasmineNamespaceWithoutEntry = defineRule({
   ],
   messages: {
     andWithoutEntry:
-      "`.and` is not a member of a spy this library builds — it is installed by `vitest-auto-spy/jasmine`, and nothing in this file installs it. So this reads `undefined` and the line dies with `Cannot read properties of undefined (reading 'returnValue')`. Either add the entry (`import { createSpyFromClass } from 'vitest-auto-spy/jasmine'` — on Bun or `node:test`, where that entry cannot load, `enableJasmineCompat()` from `vitest-auto-spy/jasmine-compat`, once in the setup file), or drop the namespace: `.and.returnValue(x)` is `.mockReturnValue(x)`, `.and.callFake(f)` is `.mockImplementation(f)`, and `.and.nextWith(v)` / `.and.resolveWith(v)` are `.nextWith(v)` / `.resolveWith(v)`. This reads one file: a project that installs the layer from a setup file no spec imports should name that module in `{ setupModules: ['./test-setup'] }`, or turn the rule off.",
+      '`{{use}}` reads `.and`, which only the `vitest-auto-spy/jasmine` entry installs, and this file never imports it: `.and` is `undefined` and the line throws. {{fix}}; if a setup file installs the layer, name it in `{ setupModules }`.',
     callsWithoutEntry:
-      "`.calls` is not a member of a spy this library builds — it is installed by `vitest-auto-spy/jasmine`, and nothing in this file installs it, so this throws `Cannot read properties of undefined`. Either add the entry (`import 'vitest-auto-spy/jasmine'`; `enableJasmineCompat()` in the setup file on Bun and `node:test`), or read the runner's own bookkeeping: `.calls.count()` is `.mock.calls.length`, `.calls.argsFor(i)` is `.mock.calls[i]`, `.calls.reset()` is `.mockClear()`. This reads one file: name a project-level setup module in `{ setupModules: ['./test-setup'] }` if that is where the layer is installed.",
+      '`{{use}}` reads `.calls`, which only the `vitest-auto-spy/jasmine` entry installs, and this file never imports it: `.calls` is `undefined` and the line throws. {{fix}}; if a setup file installs the layer, name it in `{ setupModules }`.',
     withArgsWithoutEntry:
-      "`withArgs` is not a member of a spy this library builds — it is installed by `vitest-auto-spy/jasmine`, and nothing in this file installs it, so this throws `spy.withArgs is not a function`. Either add the entry (`import 'vitest-auto-spy/jasmine'`; `enableJasmineCompat()` in the setup file on Bun and `node:test`), or use the name this library gives the same thing: `spy.withArgs(a).and.returnValue(v)` is `spy.calledWith(a).mockReturnValue(v)`. This reads one file: name a project-level setup module in `{ setupModules: ['./test-setup'] }` if that is where the layer is installed.",
+      '`{{use}}` calls `withArgs`, which only the `vitest-auto-spy/jasmine` entry installs, and this file never imports it, so the line throws `withArgs is not a function`. Write `{{fix}}`, this library’s name for the same stub; if a setup file installs the layer, name it in `{ setupModules }`.',
   },
   create: (context) => {
     const declared = setupModules(context);
@@ -80,17 +88,19 @@ const jasmineNamespaceWithoutEntry = defineRule({
       },
       'MemberExpression[property.name="and"]': (node: EsMemberExpression): void => {
         if (namespaceOnSpy(context, node, 'and')) {
-          uses.push({ node, messageId: 'andWithoutEntry' });
+          uses.push({ node, messageId: 'andWithoutEntry', data: namespaceData(context, node, andRewrite(context, node)) });
         }
       },
       'MemberExpression[property.name="calls"]': (node: EsMemberExpression): void => {
         if (namespaceOnSpy(context, node, 'calls')) {
-          uses.push({ node, messageId: 'callsWithoutEntry' });
+          uses.push({ node, messageId: 'callsWithoutEntry', data: namespaceData(context, node, callsRewrite(context, node)) });
         }
       },
       'MemberExpression[property.name="withArgs"]': (node: EsMemberExpression): void => {
         if (withArgsOnSpy(context, node)) {
-          uses.push({ node, messageId: 'withArgsWithoutEntry' });
+          const use = excerpt(context, node.parent);
+
+          uses.push({ node, messageId: 'withArgsWithoutEntry', data: { use, fix: `${excerpt(context, node.object)}.calledWith(…)` } });
         }
       },
       // Reported at the end because an import is not the only way in: `enableJasmineCompat()` can be
@@ -108,13 +118,13 @@ const jasmineNamespaceWithoutEntry = defineRule({
 
 /** `.and.returnValue(x)` → `.mockReturnValue(x)`, and the rest of the renames that end a migration. */
 const preferNativeSpyApi = defineRule({
-  anchor: ANCHOR,
+  name: 'prefer-native-spy-api',
   description: 'Call the spy’s own API instead of the jasmine namespace the compatibility layer adds',
   fixable: true,
   hasSuggestions: true,
   messages: {
     preferNativeSpyApi:
-      '`{{from}}` is the compatibility layer speaking; `{{to}}` is what this library calls the same thing, and the only spelling the rest of its documentation uses. The layer is a bridge — it exists so a `jasmine-auto-spies` suite runs before it is rewritten — so this is worth doing once the suite is green and not before: rewrite, then delete the `vitest-auto-spy/jasmine` import. `npx vitest-auto-spy codemod --from jasmine` does the whole suite in one pass. The edit is applied only where the receiver came out of one of this library’s factories; anywhere else the same rewrite is offered as a suggestion, because a `.calls` on somebody else’s object is somebody else’s method.',
+      '`{{from}}` is the compatibility layer’s spelling; the spy’s own API calls it `{{to}}`. Rewrite it once the suite is green, then drop the `vitest-auto-spy/jasmine` import (`npx vitest-auto-spy codemod --from jasmine` rewrites the whole suite).',
   },
   create: (context) => {
     const report = (rewrite: NativeRewrite | undefined, spy: EsNode): void => {
@@ -141,21 +151,21 @@ const preferNativeSpyApi = defineRule({
 
 /** `jasmine.createSpyObj`, `spyOn(`, `fail(`, `.withContext(` — the globals that do not exist here. */
 const noJasmineGlobals = defineRule({
-  anchor: ANCHOR,
+  name: 'no-jasmine-globals',
   description: 'Replace the globals jasmine’s runner provided — none of them exist under Vitest',
   messages: {
     jasmineNamespace:
-      "`{{api}}` does not exist under Vitest: nothing declares the `jasmine` global, so this is a `ReferenceError` on the first run. Land the file green with `import { jasmine } from 'vitest-auto-spy/jasmine'` — the namespace forwards each member to the Vitest primitive that means the same thing — and finish the job by writing `{{replacement}}`, which is what the forward does anyway. This rule says nothing once the import is there.",
+      '`{{api}}` does not exist under Vitest: nothing declares the `jasmine` global, so this is a `ReferenceError` on the first run. Write `{{replacement}}`.',
     jasmineCreateSpyObj:
-      '`jasmine.createSpyObj` does not exist under Vitest, and the object it built is the thing this library replaces: it spies the names you remembered to list, and drifts from the class the moment one is added. `createSpyObj(baseName, methodNames)` from `vitest-auto-spy/jasmine` is the like-for-like landing — imported by name, or reached through the `jasmine` namespace that entry also exports — and `createAutoMock<T>()` / `createSpyFromClass(Class)` is where it should end up, because those read the type or the prototype and forget nothing.',
+      '`{{call}}` does not exist under Vitest, and a spy object built from a list of method names drifts from the class the moment a method is added. Build it with `createAutoMock<{{type}}>()`, which reads the type and forgets nothing.',
     jasmineClock:
-      "`jasmine.clock()` does not exist under Vitest. `install()` is `vi.useFakeTimers()`, `uninstall()` is `vi.useRealTimers()`, `tick(n)` is `vi.advanceTimersByTime(n)` and `mockDate(d)` is `vi.setSystemTime(d)` — and `import { jasmine } from 'vitest-auto-spy/jasmine'` forwards the whole handle to exactly those, so the file can run before it is rewritten. This library ships the same three as helpers that clean up after themselves too: `setupFakeTimers()` (once, in the setup file), `await advanceTimers(ms)` (which flushes the microtasks the timers just queued, the step a bare `advanceTimersByTime` leaves out) and `mockSystemTime(date)` (which freezes the clock whether or not fakes are already installed, and hands back the undo).",
+      '`{{use}}` does not exist under Vitest: nothing declares the `jasmine` global, so this is a `ReferenceError` on the first run. Write `{{replacement}}`.',
     jasmineSpyOn:
-      '`spyOn` is jasmine’s global, and Vitest declares no such thing — but the trap is what happens when it is renamed rather than removed: **jasmine’s `spyOn` stubs the method, `vi.spyOn` calls through**. `vi.spyOn(obj, "m")` leaves the real implementation running, so the code under test really talks to its collaborator and the spec passes on whatever that returned. Write `vi.spyOn(obj, "m").mockImplementation(() => undefined)` where the jasmine line meant "stub it", and prefer `createSpyFromClass(Class)` / `provideAutoSpy(Class)`, which stub every method by construction.',
+      '`spyOn({{args}})` is jasmine’s global, and renaming it to `vi.spyOn` changes what it does: jasmine’s stubs the method, Vitest’s calls through to the real one. Write `vi.spyOn({{args}}).mockImplementation(() => undefined)`, or build the double with `createSpyFromClass`, which stubs every method.',
     jasmineGlobal:
       '`{{api}}` is one of jasmine’s globals, and nothing declares it under Vitest — this is a `ReferenceError` on the first run. Use `{{replacement}}`.',
     jasmineWithContext:
-      '`.withContext(message)` is jasmine’s way of labelling an assertion, and Vitest’s `expect` has no such method: this throws `withContext is not a function`, and the failure lands on the assertion rather than on the value it was about. Vitest takes the label as the second argument of `expect` instead — `expect(value, message).toBe(other)`.',
+      '`.withContext({{label}})` is jasmine’s assertion label, and Vitest’s `expect` has no such method, so this throws `withContext is not a function`. Pass the label as the second argument instead: `expect(value, {{label}})`.',
   },
   create: (context) => ({
     'MemberExpression[object.name="jasmine"]': (node: EsMemberExpression): void => {
@@ -174,7 +184,7 @@ const noJasmineGlobals = defineRule({
     },
     'MemberExpression[property.name="withContext"]': (node: EsMemberExpression): void => {
       if (memberName(node) === 'withContext' && isCallee(node)) {
-        context.report({ node, messageId: 'jasmineWithContext' });
+        context.report({ node, messageId: 'jasmineWithContext', data: { label: argumentList(context, node.parent, 60) } });
       }
     },
   }),
@@ -182,18 +192,18 @@ const noJasmineGlobals = defineRule({
 
 /** `.calls.saveArgumentsByValue()` — kept callable here, and a no-op. */
 const noSaveArgumentsByValue = defineRule({
-  anchor: ANCHOR,
+  name: 'no-save-arguments-by-value',
   description: 'Do not rely on saveArgumentsByValue — no runner in this family copies call arguments',
   messages: {
     noSaveArgumentsByValue:
-      '`saveArgumentsByValue()` is a **no-op** here, and deliberately so: jasmine copies every call’s arguments defensively, Vitest, Bun and `node:test` all keep the reference, and snapshotting every argument of every call to match it would tax every spy in the suite. Nothing throws — that is the problem. This spec asked for the arguments *as they were passed*; after the move it reads whatever the code under test left in that object afterwards, so an assertion about the state at call time silently becomes one about the state at assertion time, and it now passes or fails on a value nobody wrote. Take the copy where the call happens — `spy.mockImplementation((payload) => { seen.push(structuredClone(payload)); })`, then assert on `seen`. `captureArg<T>()` is how to reach the argument at all (`const payload = captureArg<Payload>(); expect(spy).toHaveBeenCalledWith(payload); expect(payload.value).toEqual(…)`), but it keeps the same reference the assertion matched: it repairs the reach, not the mutation.',
+      '`{{spy}}.calls.saveArgumentsByValue()` is a no-op here: the runner keeps a reference to each argument, so an assertion reads the object as the code left it afterwards, not as it was passed. Copy it at call time with `{{spy}}.mockImplementation((arg) => { seen.push(structuredClone(arg)); })` and assert on `seen`.',
   },
   create: (context) => ({
     'MemberExpression[property.name="calls"]': (node: EsMemberExpression): void => {
       const call = saveArgumentsByValueCall(node);
 
       if (call) {
-        context.report({ node: call, messageId: 'noSaveArgumentsByValue' });
+        context.report({ node: call, messageId: 'noSaveArgumentsByValue', data: { spy: excerpt(context, node.object) } });
       }
     },
   }),

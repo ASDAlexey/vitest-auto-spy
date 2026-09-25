@@ -7,6 +7,7 @@
  * `stubConstructor`. Reading the descriptor is the whole of the work, so it is done in one place.
  */
 import { bindingState, insertImport } from './bindings';
+import { excerptOr, propertyLabel } from './message-data';
 import {
   type EsCallExpression,
   type EsFix,
@@ -114,6 +115,33 @@ export function propHelperSuggestion(context: RuleContext, node: EsCallExpressio
       return edits;
     },
   };
+}
+
+/** The helper a descriptor asks for, read off its keys: a setter needs both accessors, a getter one. */
+function descriptorHelper(descriptor: EsNode | undefined): string {
+  const properties = descriptor && isObjectExpression(descriptor) ? descriptor.properties : [];
+  const names = new Set(properties.map(propertyName));
+
+  if (names.has('set')) {
+    return 'mockAccessorsProp';
+  }
+
+  if (names.has('get')) {
+    return 'mockReadonlyPropGetter';
+  }
+
+  const value = properties.find((property) => propertyName(property) === 'value');
+
+  return value && buildsConstructor(propertyValue(value)) ? 'stubConstructor' : 'mockValueProp';
+}
+
+/** What a `defineProperty` message quotes: the patched property and the helper call that replaces it. */
+export function definePropertyData(context: RuleContext, node: EsCallExpression): Record<string, string> {
+  const [target, key, descriptor] = node.arguments;
+  const object = excerptOr(context, target, 'obj', 40);
+  const keyText = excerptOr(context, key, 'key', 40);
+
+  return { property: propertyLabel(object, keyText), fix: `${descriptorHelper(descriptor)}(${object}, ${keyText}, …)` };
 }
 
 /**

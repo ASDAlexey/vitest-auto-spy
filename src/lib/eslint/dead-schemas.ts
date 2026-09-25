@@ -48,10 +48,12 @@
  * findings the cleanup confirmed.
  */
 import { defineRule } from './define-rule';
+import { excerpt, nameList } from './message-data';
 import {
   type EsCallExpression,
   type EsObjectExpression,
   type EsProperty,
+  type RuleContext,
   type RuleModule,
   findProperty,
   isArrayExpression,
@@ -79,13 +81,22 @@ function configOf(node: EsCallExpression): EsObjectExpression | undefined {
   return config && isObjectExpression(config) ? config : undefined;
 }
 
+/** The standalone components a configuration imports, named for the message. */
+function importedNames(context: RuleContext, config: EsObjectExpression): string {
+  const imports = findProperty(config, 'imports');
+  const elements = imports && isArrayExpression(imports.value) ? imports.value.elements : [];
+  const names = elements.filter((element) => element !== null).map((element) => excerpt(context, element, 40));
+
+  return names.length > 0 ? nameList(names) : 'the component under test';
+}
+
 /** `schemas` next to no `declarations` → the schema applies to nothing. */
 export const noDeadSchemas: RuleModule = defineRule({
-  anchor: '-a-components-children',
+  name: 'no-dead-schemas',
   description: 'Do not configure schemas on a testing module that declares nothing — they apply to nothing',
   messages: {
     noDeadSchemas:
-      "A schema is a property of the module's `declarations`, and this configuration declares nothing — so `schemas` here excuses nothing. A standalone component brought in through `imports` carries its own dependency scope, and `NO_ERRORS_SCHEMA` never reaches it. Nothing is being silenced: whatever the schema was added for is still unresolved, and the template renders without it. Delete **this** entry, then put the missing directive, component or pipe into the standalone component's own `imports` — or render it through a host built with `createDirectiveHost({ template, scope: [...] })`. Two things to get right while removing it. **Drop the `NO_ERRORS_SCHEMA` import only if nothing else in the file still uses it** — a `TestBed.overrideComponent(X, { set: { imports: [...], schemas: [...] } })` block often does, and that schema is live: it is excusing an element left behind by an import the spec removed on purpose. And **verify with a run, not with a green lint**: this rule has no autofix precisely because nothing else checks the edit — the compiler is silent either way, and removing a live schema by mistake surfaces as `NG0303: Can't bind to 'x' since it isn't a known property` when the tests execute. Leaving the line costs more than the line: it reads as \"unknown elements are excused in this spec\" to everyone who opens it, and the day `declarations` are added it starts being true, so a typo in a template quietly stops being an error.",
+      '`schemas: {{schema}}` applies only to the module’s `declarations`, and this configuration declares none, so it excuses nothing in {{subject}}. Delete this entry, not a matching one in an `overrideComponent` block, which is live; a live schema removed by mistake fails the run with `NG0303`.',
   },
   create: (context) => {
     // Collected and decided at the end, because the question "does this **file** declare anything"
@@ -114,7 +125,11 @@ export const noDeadSchemas: RuleModule = defineRule({
           const schemas = listedIn(config, 'schemas');
 
           if (schemas) {
-            context.report({ node: schemas, messageId: 'noDeadSchemas' });
+            context.report({
+              node: schemas,
+              messageId: 'noDeadSchemas',
+              data: { schema: excerpt(context, schemas.value, 40), subject: importedNames(context, config) },
+            });
           }
         });
       },
