@@ -276,17 +276,23 @@ describe('the configured-value helpers', () => {
     const resolving = createFastSpy().mockResolvedValue(1);
     const rejecting = createFastSpy().mockRejectedValue(1);
 
-    expect(() => new (returning as unknown as new () => unknown)()).toThrow(/Cannot use `mockReturnValue`/);
-    expect(() => new (resolving as unknown as new () => unknown)()).toThrow(/Cannot use `mockResolvedValue`/);
-    expect(() => new (rejecting as unknown as new () => unknown)()).toThrow(/Cannot use `mockRejectedValue`/);
+    expect(() => new (returning as unknown as new () => unknown)()).toThrow(/`mockReturnValue` cannot answer a construction/);
+    expect(() => new (resolving as unknown as new () => unknown)()).toThrow(/`mockResolvedValue` cannot answer a construction/);
+    expect(() => new (rejecting as unknown as new () => unknown)()).toThrow(/`mockRejectedValue` cannot answer a construction/);
 
     const returningOnce = createFastSpy().mockReturnValueOnce(1);
     const resolvingOnce = createFastSpy().mockResolvedValueOnce(1);
     const rejectingOnce = createFastSpy().mockRejectedValueOnce(1);
 
-    expect(() => new (returningOnce as unknown as new () => unknown)()).toThrow(/Cannot use `mockReturnValueOnce`/);
-    expect(() => new (resolvingOnce as unknown as new () => unknown)()).toThrow(/Cannot use `mockResolvedValueOnce`/);
-    expect(() => new (rejectingOnce as unknown as new () => unknown)()).toThrow(/Cannot use `mockRejectedValueOnce`/);
+    expect(() => new (returningOnce as unknown as new () => unknown)()).toThrow(/`mockReturnValueOnce` cannot answer a construction/);
+    expect(() => new (resolvingOnce as unknown as new () => unknown)()).toThrow(/`mockResolvedValueOnce` cannot answer a construction/);
+    expect(() => new (rejectingOnce as unknown as new () => unknown)()).toThrow(/`mockRejectedValueOnce` cannot answer a construction/);
+
+    const named = createFastSpy().mockName('PaymentSdk').mockReturnValue(1);
+
+    expect(() => new (named as unknown as new () => unknown)()).toThrow(
+      /^\[vitest-auto-spy\] PaymentSdk was called with `new`, and `mockReturnValue` cannot answer a construction\. Configure it with `mockImplementation` and a `class`, or build the double with `mockConstructor\(\(\) => instance\)`\.\nDocs: \S+#mockconstructor-factory-name$/,
+    );
   });
 
   it('constructs an instance of the spy when called with `new`, configured or not', () => {

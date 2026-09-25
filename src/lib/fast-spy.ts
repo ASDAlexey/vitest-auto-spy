@@ -18,6 +18,8 @@
  * `mock.*` and `getMockName()`, all of which this implements with the same semantics.
  */
 import { DISPOSE } from './dispose-symbol';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { type Helpers, setSharedHelperSink } from './spy-decoration';
 import { hooksOf } from './spy-mark';
 import { FAST_SPY_BRAND, isFastSpy, isThenable } from './spy-probe';
@@ -290,11 +292,17 @@ function stateOf(spy: FastSpy): FastMockStateImpl {
   return created;
 }
 
-/** Vitest's error for the shorthand configurators when the mock is called with `new`. */
-function throwConstructorError(shorthand: string): never {
+/**
+ * The shorthand configurators cannot answer a construction — Vitest refuses the same way. The
+ * message names the mock and the two configurations that can.
+ */
+function throwConstructorError(shorthand: string, spy: FastSpy): never {
   throw new TypeError(
-    `Cannot use \`${shorthand}\` when called with \`new\`. Use \`mockImplementation\` with a \`class\` keyword instead. ` +
-      'See https://vitest.dev/api/mock#class-support for more information.',
+    withDocs(
+      `[vitest-auto-spy] ${spy.getMockName()} was called with \`new\`, and \`${shorthand}\` cannot answer a construction. ` +
+        'Configure it with `mockImplementation` and a `class`, or build the double with `mockConstructor(() => instance)`.',
+      DOCS_LINKS.mockConstructor,
+    ),
   );
 }
 
@@ -539,11 +547,13 @@ definePrototypeMember('mockReturnThis', function mockReturnThis(this: unknown): 
 });
 
 definePrototypeMember('mockReturnValue', function mockReturnValue(this: unknown, value: unknown): unknown {
+  const spy = self(this);
+
   replaceImplementation(
-    self(this),
+    spy,
     function returnValue(this: unknown): unknown {
       if (new.target) {
-        throwConstructorError('mockReturnValue');
+        throwConstructorError('mockReturnValue', spy);
       }
 
       return value;
@@ -555,9 +565,11 @@ definePrototypeMember('mockReturnValue', function mockReturnValue(this: unknown,
 });
 
 definePrototypeMember('mockReturnValueOnce', function mockReturnValueOnce(this: unknown, value: unknown): unknown {
-  configOf(self(this)).onceImplementations.push(function returnValueOnce(this: unknown): unknown {
+  const spy = self(this);
+
+  configOf(spy).onceImplementations.push(function returnValueOnce(this: unknown): unknown {
     if (new.target) {
-      throwConstructorError('mockReturnValueOnce');
+      throwConstructorError('mockReturnValueOnce', spy);
     }
 
     return value;
@@ -587,11 +599,13 @@ definePrototypeMember('mockThrowOnce', function mockThrowOnce(this: unknown, val
 });
 
 definePrototypeMember('mockResolvedValue', function mockResolvedValue(this: unknown, value: unknown): unknown {
+  const spy = self(this);
+
   replaceImplementation(
-    self(this),
+    spy,
     function resolvedValue(this: unknown): unknown {
       if (new.target) {
-        throwConstructorError('mockResolvedValue');
+        throwConstructorError('mockResolvedValue', spy);
       }
 
       return Promise.resolve(value);
@@ -603,9 +617,11 @@ definePrototypeMember('mockResolvedValue', function mockResolvedValue(this: unkn
 });
 
 definePrototypeMember('mockResolvedValueOnce', function mockResolvedValueOnce(this: unknown, value: unknown): unknown {
-  configOf(self(this)).onceImplementations.push(function resolvedValueOnce(this: unknown): unknown {
+  const spy = self(this);
+
+  configOf(spy).onceImplementations.push(function resolvedValueOnce(this: unknown): unknown {
     if (new.target) {
-      throwConstructorError('mockResolvedValueOnce');
+      throwConstructorError('mockResolvedValueOnce', spy);
     }
 
     return Promise.resolve(value);
@@ -615,11 +631,13 @@ definePrototypeMember('mockResolvedValueOnce', function mockResolvedValueOnce(th
 });
 
 definePrototypeMember('mockRejectedValue', function mockRejectedValue(this: unknown, value: unknown): unknown {
+  const spy = self(this);
+
   replaceImplementation(
-    self(this),
+    spy,
     function rejectedValue(this: unknown): unknown {
       if (new.target) {
-        throwConstructorError('mockRejectedValue');
+        throwConstructorError('mockRejectedValue', spy);
       }
 
       return Promise.reject(value);
@@ -631,9 +649,11 @@ definePrototypeMember('mockRejectedValue', function mockRejectedValue(this: unkn
 });
 
 definePrototypeMember('mockRejectedValueOnce', function mockRejectedValueOnce(this: unknown, value: unknown): unknown {
-  configOf(self(this)).onceImplementations.push(function rejectedValueOnce(this: unknown): unknown {
+  const spy = self(this);
+
+  configOf(spy).onceImplementations.push(function rejectedValueOnce(this: unknown): unknown {
     if (new.target) {
-      throwConstructorError('mockRejectedValueOnce');
+      throwConstructorError('mockRejectedValueOnce', spy);
     }
 
     return Promise.reject(value);
