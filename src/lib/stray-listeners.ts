@@ -32,10 +32,10 @@
  * Under `isolate: true` the module is nearly inert: the environment is torn down per file anyway.
  */
 import { defineHelper } from './define-helper';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { markOwnedPatch } from './owned-patch';
-import { currentSpecFile } from './spec-file';
-import { ownFrames, stackFrames } from './stack-frames';
+import { type MadeIn, describeOriginOf, originNow } from './stray-failure';
 
 /** One registration past the baseline, and where it was added — what {@link describeStrayListeners} hands back. */
 export interface StrayListener {
@@ -47,6 +47,10 @@ export interface StrayListener {
   readonly file: string | undefined;
   /** Up to five frames of the registration call, those outside dependencies first. */
   readonly frames: readonly string[];
+  /** The full name of the test that was running when it was added, `suite > test`. */
+  readonly test?: string;
+  /** Set instead of {@link test} when it was added outside one: while the file was imported, or in a hook. */
+  readonly outsideTest?: 'hook' | 'import';
 }
 
 /**
@@ -84,6 +88,7 @@ interface RecordedListener {
   /** The half of the options the platform matches removals on — see {@link captureOf}. */
   readonly capture: boolean;
   readonly file: unknown;
+  readonly where: MadeIn;
   readonly trace: Error;
 }
 
@@ -165,13 +170,13 @@ function captureOf(options: unknown): boolean {
  * if the entry turns out to be a stray. The depth cap keeps a framework's dispatch chain from
  * crowding out the line that made the call.
  */
-function captureOrigin(): { file: unknown; trace: Error } {
+function captureOrigin(): { file: unknown; where: MadeIn; trace: Error } {
   const limit = Error.stackTraceLimit;
 
   try {
     Error.stackTraceLimit = 12;
 
-    return { file: currentSpecFile(), trace: new Error() };
+    return { ...originNow(), trace: new Error() };
   } finally {
     Error.stackTraceLimit = limit;
   }
@@ -422,7 +427,13 @@ export function countStrayListeners(targets?: readonly TrackedListenerTarget[]):
     const tracking = registry().get(target);
 
     if (!tracking) {
-      throw new Error(withDocs('countStrayListeners() needs trackStrayListeners() to have run first.', DOCS_LINKS.setup));
+      throw new Error(
+        withDocs(
+          '[vitest-auto-spy] countStrayListeners() found no tracking to count: nothing called trackStrayListeners() for this target. ' +
+            'Turn on setupAutoSpy({ strayListeners: true }) or call trackStrayListeners() in the setup file, before any test.',
+          DOCS_LINKS.setupListeners,
+        ),
+      );
     }
 
     total += strayEntries(tracking).length;
@@ -435,9 +446,7 @@ export function countStrayListeners(targets?: readonly TrackedListenerTarget[]):
 const OWN_MODULE_FRAME = /stray-listeners\.[jt]s/;
 
 function describeEntry(name: string, entry: RecordedListener): StrayListener {
-  const frames = stackFrames(entry.trace.stack).filter((frame) => !OWN_MODULE_FRAME.test(frame));
-
-  return { target: name, type: entry.type, file: typeof entry.file === 'string' ? entry.file : undefined, frames: ownFrames(frames, 5) };
+  return { target: name, type: entry.type, ...describeOriginOf(entry, OWN_MODULE_FRAME) };
 }
 
 /**

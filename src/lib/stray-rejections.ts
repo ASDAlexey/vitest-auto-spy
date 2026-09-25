@@ -34,7 +34,8 @@
  */
 import { expect } from 'vitest';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /** The `Zone` class zone.js parks on the host, reduced to the one member this module needs. */
 export interface ZoneStatic {
@@ -99,12 +100,9 @@ const MAX_CAPTURED = 100;
 const HANDLER_SLOT = 'unhandledPromiseRejectionHandler';
 
 const MISSING_ZONE =
-  'trackStrayRejections() found no zone.js on the host (`Zone.__symbol__` is not there), so there is no handler slot to claim. ' +
-  'This module never imports zone.js — a zoneless project must not pull it in — which means the consumer loads it first: ' +
-  "`import 'zone.js';` at the top of the setup file, or, under `@angular/build:unit-test`, the builder's own entry point does " +
-  'it. It throws rather than quietly doing nothing on purpose: without zone.js the global `Promise` is the platform one, whose ' +
-  'unhandled rejections Vitest already reports and fails the run for, so a silent no-op here would read as "the check is on" ' +
-  'while nothing was ever checked. Drop the option instead.';
+  '[vitest-auto-spy] trackStrayRejections() found no zone.js on the host, so there is no rejection handler to take over. ' +
+  "Load it before the setup runs: `import 'zone.js';` at the top of the setup file (the Angular unit-test builder does it " +
+  'for you). A zoneless suite does not need this check — Vitest already reports its unhandled rejections — so drop the option there.';
 
 /**
  * Keyed by host, and parked on `globalThis` rather than in module scope.
@@ -143,7 +141,7 @@ function readZone(host: RejectionHost): ZoneStatic {
   const zone = host.Zone;
 
   if (!zone || typeof zone.__symbol__ !== 'function') {
-    throw new Error(withDocs(MISSING_ZONE, DOCS_LINKS.setup));
+    throw new Error(withDocs(MISSING_ZONE, DOCS_LINKS.setupRejections));
   }
 
   return zone;
@@ -269,7 +267,13 @@ export function countStrayRejections(host: RejectionHost = defaultHost()): numbe
   const tracked = registry().get(host);
 
   if (!tracked) {
-    throw new Error(withDocs('countStrayRejections() needs trackStrayRejections() to have run first.', DOCS_LINKS.setup));
+    throw new Error(
+      withDocs(
+        '[vitest-auto-spy] countStrayRejections() found no tracking to count: nothing called trackStrayRejections() for this host. ' +
+          'Turn on setupAutoSpy({ strayRejections: true }) or call trackStrayRejections() in the setup file, before any test.',
+        DOCS_LINKS.setupRejections,
+      ),
+    );
   }
 
   return tracked.captured.length + tracked.dropped.count;

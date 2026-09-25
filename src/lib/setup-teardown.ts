@@ -7,9 +7,11 @@
  */
 import { afterEach, beforeEach, onTestFinished } from 'vitest';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import type { DocumentWatch } from './document-guard';
 import { libraryWarn } from './guard-reaction';
+import { withDocs } from './message-link';
+import { count, taskName } from './message-text';
 import { countMockedProps } from './prop-mock';
 
 /**
@@ -93,7 +95,9 @@ export function installTeardown(steps: readonly TeardownStep[], restores: readon
         runTeardown(restores);
 
         skippedInFile += 1;
-        libraryWarn(skippedInFile === 1 ? describeSkippedTeardown(leaked) : describeSkippedAgain(leaked, skippedInFile));
+        const test = testNameOf(context);
+
+        libraryWarn(skippedInFile === 1 ? describeSkippedTeardown(leaked, test) : describeSkippedAgain(leaked, skippedInFile, test));
       }
 
       closeDocument?.();
@@ -116,6 +120,13 @@ function taskOf(context: unknown): object | undefined {
   const task: unknown = Reflect.get(Object(context), 'task');
 
   return typeof task === 'object' && task !== null ? task : undefined;
+}
+
+/** The running test's full name from a hook's context. Exported for its spec. */
+export function testNameOf(context: unknown): string | undefined {
+  const task = taskOf(context);
+
+  return task === undefined ? undefined : taskName(task);
 }
 
 /** Whether the shared `afterEach` has run for a given test. Exported for its spec: the hooks it serves cannot observe it. */
@@ -165,12 +176,17 @@ export function createTeardownLedger(): TeardownLedger {
 
 let warnedAboutConcurrency = false;
 
-const CONCURRENT_REPORT =
-  '[vitest-auto-spy] a `test.concurrent` test ran with setupAutoSpy() installed. Its per-test guards assume one test at a ' +
-  'time: the document snapshot, the console window and the unconfigured-read counter are opened and judged per test, so with ' +
-  'two tests in flight a finding can be reported against the other one — or cleared before it is seen. The restores still run ' +
-  'for every test. Run the files that need a guard sequentially, or keep `test.concurrent` for files whose setup passes ' +
-  '`strayConsole: "off"`, `documentPollution: "off"` and `unconfiguredReads: "off"`.';
+/** Exported for its spec. */
+export function describeConcurrentTest(test: string | undefined): string {
+  return withDocs(
+    `[vitest-auto-spy] ${test === undefined ? 'A test' : `"${test}"`} runs as test.concurrent, and setupAutoSpy()'s per-test ` +
+      'guards judge one test at a time: a console, document or unconfigured-read finding can land on the other test in flight, ' +
+      'or be cleared before it is seen.\n' +
+      "Run this file's tests sequentially, or give the files that keep test.concurrent a setup with strayConsole: 'off', " +
+      "documentPollution: 'off' and unconfiguredReads: 'off'. Said once per worker.",
+    DOCS_LINKS.setupConcurrent,
+  );
+}
 
 /**
  * Say once per worker that a concurrent test was seen. Exported for its spec, which is also where the
@@ -182,7 +198,7 @@ export function noticeConcurrentTest(context: unknown, write: (message: string) 
   }
 
   warnedAboutConcurrency = true;
-  write(withDocs(CONCURRENT_REPORT, DOCS_LINKS.setup));
+  write(describeConcurrentTest(testNameOf(context)));
 }
 
 /** Reset the warn-once latch. Internal — for the spec that proves it latches. */
@@ -190,19 +206,33 @@ export function resetConcurrencyNotice(): void {
   warnedAboutConcurrency = false;
 }
 
-/** The short form, for every skipped teardown after the first in a file. */
-function describeSkippedAgain(leaked: number, count: number): string {
-  return `[vitest-auto-spy] setupAutoSpy()'s afterEach did not run for this test either (${count} in this file); ${leaked} mock*Prop patch(es) put back — see the first report in this file for why.`;
+function subjectOf(test: string | undefined): string {
+  return test === undefined ? 'this test' : `"${test}"`;
 }
 
-/** What the net says when it finds a teardown that never ran. */
-function describeSkippedTeardown(leaked: number): string {
+function leftover(leaked: number): string {
+  if (leaked === 0) {
+    return 'No mock*Prop patch was left in place.';
+  }
+
+  return `${count(leaked, 'mock*Prop patch was', 'mock*Prop patches were')} still in place and ${leaked === 1 ? 'is' : 'are'} put back now.`;
+}
+
+/** The short form, for every skipped teardown after the first in a file. Exported for its spec. */
+export function describeSkippedAgain(leaked: number, skipped: number, test: string | undefined): string {
+  return (
+    `[vitest-auto-spy] setupAutoSpy()'s afterEach did not run for ${subjectOf(test)} either (${count(skipped, 'test')} in this ` +
+    `file); ${count(leaked, 'mock*Prop patch', 'mock*Prop patches')} put back. The first report in this file says why.`
+  );
+}
+
+/** What the net says when it finds a teardown that never ran. Exported for its spec. */
+export function describeSkippedTeardown(leaked: number, test: string | undefined): string {
   return withDocs(
-    `[vitest-auto-spy] setupAutoSpy()'s afterEach did not run for this test, so ${leaked} mock*Prop patch(es) were still in ` +
-      'place; they have been put back now. Vitest runs `afterEach` hooks in reverse registration order, which makes the one a ' +
-      'setup file registers the last to run — so any hook the spec file registered that throws takes this one with it. Look for ' +
-      "the hook that threw in this test's output; without this net the patches would have travelled into the next test, and the " +
-      'failure would have surfaced in some later test that never touched them.',
-    DOCS_LINKS.setup,
+    `[vitest-auto-spy] setupAutoSpy()'s afterEach did not run for ${subjectOf(test)}: an afterEach the spec registered threw, ` +
+      "and Vitest skips the hooks after it — the setup file's runs last. " +
+      `${leftover(leaked)}\n` +
+      "Fix the hook that threw; its error is in this test's output.",
+    DOCS_LINKS.setupRestoreProps,
   );
 }

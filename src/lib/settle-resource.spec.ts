@@ -171,4 +171,19 @@ describe('settleResource', () => {
   it('falls back to a generic name when no label is given', async () => {
     await expect(settleResource({ status: (): string => 'reloading' }, { turns: 1 })).rejects.toThrow(/the resource was still 'reloading'/);
   });
+
+  it('says to advance the fake clock when callbacks wait on it, instead of flushing', async () => {
+    vi.useFakeTimers();
+    setTimeout(() => undefined, 100);
+
+    try {
+      await expect(settleResource({ status: (): string => 'loading' }, { turns: 1 })).rejects.toThrow(
+        /after 1 round of tick \+ microtask\. 1 callback waits on the fake clock[\s\S]*`await advanceTimers\(ms\)`[\s\S]*#resources-httpresource-and-resource$/,
+      );
+      setTimeout(() => undefined, 100);
+      await expect(settleResource({ status: (): string => 'loading' }, { turns: 0 })).rejects.toThrow(/2 callbacks wait on the fake clock/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

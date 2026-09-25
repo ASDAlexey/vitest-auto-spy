@@ -30,10 +30,10 @@
  * everywhere the API does not exist.
  */
 import { defineHelper } from './define-helper';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { markOwnedPatch } from './owned-patch';
-import { currentSpecFile } from './spec-file';
-import { ownFrames, stackFrames } from './stack-frames';
+import { type MadeIn, describeOriginOf, originNow } from './stray-failure';
 import type { Func } from './types';
 
 /**
@@ -74,6 +74,10 @@ export interface StrayTimer {
    * dependencies first, then — when the call came from dependencies only — theirs, never this package's.
    */
   readonly frames: readonly string[];
+  /** The full name of the test that was running when it was scheduled, `suite > test`. */
+  readonly test?: string;
+  /** Set instead of {@link test} when it was scheduled outside one: while the file was imported, or in a hook. */
+  readonly outsideTest?: 'hook' | 'import';
 }
 
 /** The stack is taken now and formatted only if the callback turns out to be a stray. */
@@ -81,6 +85,7 @@ interface Origin {
   readonly kind: StrayTimer['kind'];
   readonly delay: number | undefined;
   readonly file: unknown;
+  readonly where: MadeIn;
   readonly trace: { readonly stack?: string };
 }
 
@@ -219,7 +224,7 @@ function captureOrigin({ kind, delay, boundary }: OriginRequest): Origin {
 
   Error.stackTraceLimit = limit;
 
-  return { kind, delay, file: currentSpecFile(), trace };
+  return { kind, delay, ...originNow(), trace };
 }
 
 /** Into a plain object where V8 allows, which skips building the string until a report reads it. */
@@ -558,11 +563,10 @@ function pendingHandles(tracked: Tracking): Origin[] {
 /** The stack frames of the wrappers in this file, which say nothing about where the call came from. */
 const OWN_MODULE_FRAME = /stray-timers\.[jt]s/;
 
-function describeOrigin({ kind, delay, file, trace }: Origin): StrayTimer {
-  const frames = stackFrames(trace.stack).filter((frame) => !OWN_MODULE_FRAME.test(frame));
-  const described = { kind, file: typeof file === 'string' ? file : undefined, frames: ownFrames(frames, 5) };
+function describeOrigin(origin: Origin): StrayTimer {
+  const described = { kind: origin.kind, ...describeOriginOf(origin, OWN_MODULE_FRAME) };
 
-  return delay === undefined ? described : { ...described, delay };
+  return origin.delay === undefined ? described : { ...described, delay: origin.delay };
 }
 
 /**
@@ -600,7 +604,13 @@ export function countStrayTimers(host: SchedulerHost = defaultHost()): number {
   const tracked = registry().get(host);
 
   if (!tracked) {
-    throw new Error(withDocs('countStrayTimers() needs trackStrayTimers() to have run first.', DOCS_LINKS.setup));
+    throw new Error(
+      withDocs(
+        '[vitest-auto-spy] countStrayTimers() found no tracking to count: nothing called trackStrayTimers() for this host. ' +
+          'Turn on setupAutoSpy({ strayTimers: true }) or call trackStrayTimers() in the setup file, before any test.',
+        DOCS_LINKS.setupTimers,
+      ),
+    );
   }
 
   return pendingHandles(tracked).length + tracked.frames.size;

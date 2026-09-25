@@ -34,9 +34,14 @@ describe('guardPrototypePollution', () => {
       message = String(error);
     }
 
-    expect(message).toMatch(/left "ngOnDestroy" on Object\.prototype as an own enumerable property/);
-    expect(message).toMatch(/fails to collect/);
-    expect(message).toMatch(/prototype-guard\.spec\.ts/);
+    expect(message).toContain(
+      '[vitest-auto-spy] "guardPrototypePollution > names the file, the prototype and the key that broke collection" ' +
+        '(src/lib/prototype-guard.spec.ts) left "ngOnDestroy" (a function) on Object.prototype as an enumerable property.\n' +
+        'It has been taken off: left there, it stops every later spec file in this worker from collecting. ' +
+        'Define it on the prototype of the class it belongs to, or with enumerable: false.\n' +
+        'Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_15-the-key-on-object-prototype-that-stops-the-run-collecting',
+    );
+    expect(message).not.toContain('**');
   });
 
   it('takes the key back off, so the rest of the worker still collects', () => {
@@ -65,8 +70,20 @@ describe('guardPrototypePollution', () => {
     // test after this one would report it again and bury the file that is to blame.
     Object.defineProperty(snapshot.object, LEAKED, { value: () => undefined, enumerable: true });
 
-    expect(() => checkPrototypePollution([snapshot], 'throw')).toThrow(/ngOnDestroy/);
+    expect(() => checkPrototypePollution([snapshot], 'throw')).toThrow(/"ngOnDestroy" could not be taken off, being non-configurable/);
     expect(() => checkPrototypePollution([snapshot], 'throw')).not.toThrow();
+  });
+
+  it('names the kind of every value it found, and the plural', () => {
+    const snapshot = watchedPrototype();
+
+    Object.assign(snapshot.object, { a: 1, b: 'x', c: [1], d: null, e: undefined, f: {} });
+    Object.defineProperty(snapshot.object, 'g', { get: () => 1, enumerable: true, configurable: true });
+
+    expect(() => checkPrototypePollution([snapshot], 'throw')).toThrow(
+      '"a" (a number), "b" (a string), "c" (an array), "d" (null), "e" (undefined), "f" (an object), "g" (an accessor) ' +
+        'on Object.prototype as enumerable properties.\nThey have been taken off',
+    );
   });
 
   it('ignores what the environment already carried', () => {
@@ -118,7 +135,7 @@ describe('guardPrototypePollution', () => {
 
     restore();
 
-    expect(message).toContain('this file left "ngOnDestroy" on Object.prototype');
+    expect(message).toContain('this file left "ngOnDestroy" (a function) on Object.prototype');
   });
 
   it('watches the three prototypes ordinary code walks', () => {
@@ -162,7 +179,7 @@ describe('guardPrototypePollution, wired into the run', () => {
 
     expect(Object.keys(Object.prototype)).toEqual([]);
     expect(warnings).toHaveLength(1);
-    expect(String(warnings[0]?.[0])).toMatch(/left "ngOnDestroy" on Object\.prototype/);
+    expect(String(warnings[0]?.[0])).toMatch(/left "ngOnDestroy" \(a function\) on Object\.prototype/);
   });
 });
 
@@ -187,6 +204,6 @@ describe('guardPrototypePollution, against a write made in beforeAll', () => {
     vi.mocked(console.warn).mockRestore();
 
     expect(Object.keys(Object.prototype)).toEqual([]);
-    expect(String(warnings[0]?.[0])).toMatch(/left "ngOnDestroy" on Object\.prototype/);
+    expect(String(warnings[0]?.[0])).toMatch(/left "ngOnDestroy" \(a function\) on Object\.prototype/);
   });
 });

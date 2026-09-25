@@ -8,7 +8,8 @@
  * onto the target" step — keeping the assignment in one place instead of
  * duplicating it across the promise/observable factories.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /**
  * The failure a shared helper raises when it cannot find its spy through `this`.

@@ -286,7 +286,9 @@ describe('stray timers', () => {
   });
 
   it('counting an untracked host says what is missing', () => {
-    expect(() => countStrayTimers(createHost())).toThrow(/needs trackStrayTimers\(\) to have run first/);
+    expect(() => countStrayTimers(createHost())).toThrow(
+      /^\[vitest-auto-spy\] countStrayTimers\(\) found no tracking[\s\S]*setupAutoSpy\(\{ strayTimers: true \}\)[\s\S]*#_4-cancelling-timers-that-outlive-their-file$/,
+    );
   });
 
   it('forgets a timeout once it has fired', () => {
@@ -471,6 +473,7 @@ describe('describeStrayTimers', () => {
     expect(strays.map((stray) => stray.kind)).toEqual(['timeout', 'interval', 'frame']);
     expect(strays[0]?.file).toMatch(/stray-timers\.spec\.ts$/);
     expect(strays[0]?.frames[0]).toMatch(/stray-timers\.spec\.ts:\d+:\d+/);
+    expect(strays[0]?.test).toBe('describeStrayTimers > names each outstanding callback, the spec file that scheduled it, and the line');
     expect(strays.every((stray) => stray.frames.length <= 5)).toBe(true);
   });
 
@@ -671,6 +674,6 @@ describe('an installation that cannot be completed', () => {
 
     expect(() => trackStrayTimers(host)).toThrow();
     expect(host.setTimeout).toBe(realSetTimeout);
-    expect(() => countStrayTimers(host)).toThrow(/needs trackStrayTimers\(\) to have run first/);
+    expect(() => countStrayTimers(host)).toThrow(/nothing called trackStrayTimers\(\) for this host/);
   });
 });

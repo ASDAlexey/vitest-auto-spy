@@ -34,7 +34,8 @@
  */
 import { type EffectRef, untracked, ɵSIGNAL } from '@angular/core';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /** The two members of Angular's reactive node this helper needs, in the order its own runner calls them. */
 interface RunnableEffectNode {
@@ -100,23 +101,23 @@ function isDestroyed(node: object): boolean {
 }
 
 const NOT_AN_EFFECT_REF = withDocs(
-  'runEffect(): the argument carries no reactive node, so it is not an EffectRef returned by effect(). ' +
+  '[vitest-auto-spy] runEffect(): the argument carries no reactive node, so it is not an EffectRef returned by effect(). ' +
     'Pass the value effect() returned — not the callback, and not a signal. A field that is still ' +
     'undefined usually means the effect is created in a lifecycle hook that has not run yet.',
-  DOCS_LINKS.angular,
+  DOCS_LINKS.angularEffects,
 );
 
 const UNKNOWN_EFFECT_SHAPE = withDocs(
-  'runEffect(): this Angular version stores the effect body somewhere this helper does not know about. ' +
+  '[vitest-auto-spy] runEffect(): this Angular version stores the effect body somewhere this helper does not know about. ' +
     'Assert what the effect produces instead — set the signals it reads, await stable(fixture), and check the result.',
-  DOCS_LINKS.angular,
+  DOCS_LINKS.angularEffects,
 );
 
 const DESTROYED_EFFECT = withDocs(
-  'runEffect(): this effect has been destroyed — its view was torn down, or effectRef.destroy() was called — so Angular ' +
+  '[vitest-auto-spy] runEffect(): this effect has been destroyed — its view was torn down, or effectRef.destroy() was called — so Angular ' +
     'would never run it again. Move the call above fixture.destroy(), or assert what the teardown left behind instead: ' +
     'destroy() has already run the cleanup the effect registered with onCleanup.',
-  DOCS_LINKS.angular,
+  DOCS_LINKS.angularEffects,
 );
 
 /**

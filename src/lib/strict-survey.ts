@@ -3,7 +3,9 @@
  * list is printed once it is over — the whole migration list from one run, where `strict: true`
  * stops each test at its first unconfigured call.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
+import { displayPath } from './message-text';
 import type { UnstubbedCall, UnstubbedCallHandler, UnstubbedRead, UnstubbedReadHandler } from './types';
 
 export interface StrictSurvey {
@@ -43,7 +45,7 @@ export function createStrictSurvey(): StrictSurvey {
           ? []
           : [heading, ...[...tally].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([key, times]) => `  ${key} ×${times}`)];
       const report = [
-        `[vitest-auto-spy] strict survey — ${file ?? 'this file'}: what strict mode would have refused.`,
+        `[vitest-auto-spy] strict survey — ${file === undefined ? 'this file' : displayPath(file)}: what strict mode would have refused.`,
         ...lines('Calls nobody configured (seed them in `returns`, or `registerAutoSpyDefaults` in the setup file):', calls),
         ...lines('Getters read and streams subscribed with nothing configured:', reads),
       ].join('\n');
@@ -51,7 +53,7 @@ export function createStrictSurvey(): StrictSurvey {
       calls.clear();
       reads.clear();
 
-      return withDocs(report, DOCS_LINKS.strictMode);
+      return withDocs(report, DOCS_LINKS.strictModeSuite);
     },
   };
 }

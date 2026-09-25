@@ -115,6 +115,9 @@ class WhisperPipe implements PipeTransform {
 @NgModule({ declarations: [WhisperPipe], exports: [WhisperPipe] })
 class WhisperModule {}
 
+@NgModule({})
+class UnrelatedModule {}
+
 @Component({
   selector: 'app-with-module-pipe',
   imports: [WhisperModule],
@@ -398,9 +401,20 @@ describe('a template dependency an NgModule declares', () => {
       // The three things the message has to carry, because Angular's own names none of them: whose
       // call this was, that the declaration is not the thing to change, and what to do instead.
       expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true })).toThrow(/renderShallow\(WithModulePipeComponent/);
-      expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true })).toThrow(/Nothing is wrong with those declarations/);
       expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true })).toThrow(
-        /keepModules: \[ReactiveFormsModule\][\s\S]*template: '<input #searchInput \/>'[\s\S]*Or drop `keepTemplate`/,
+        /^\[vitest-auto-spy\] renderShallow\(WithModulePipeComponent, \{ keepTemplate: true \}\): WhisperPipe is declared by an NgModule, not standalone[^\n]*\nAn AOT build flattened that module away, so name it and it is put back whole: keepModules: \[<the NgModule that declares WhisperPipe>\]\.\nDocs: /,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('names the module when the spec imports the one that declares the refused pipe', () => {
+    const restore = forceFlattenedScope(WithModulePipeComponent, [WhisperPipe]);
+
+    try {
+      expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true, imports: [UnrelatedModule, WhisperModule] })).toThrow(
+        /WhisperPipe is declared by WhisperModule, not standalone[\s\S]*keepModules: \[WhisperModule\]\./,
       );
     } finally {
       restore();

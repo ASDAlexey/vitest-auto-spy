@@ -106,7 +106,7 @@ describe('stray listeners', () => {
 
     named.target.addEventListener('after the undo', () => undefined);
 
-    expect(() => countStrayListeners([named])).toThrow(/needs trackStrayListeners\(\) to have run first/);
+    expect(() => countStrayListeners([named])).toThrow(/nothing called trackStrayListeners\(\) for this target/);
   });
 
   it('forgets a listener the code under test took off itself', () => {
@@ -207,7 +207,7 @@ describe('stray listeners', () => {
     const named = namedTarget('untracked');
 
     expect(() => countStrayListeners([named])).toThrow(
-      /countStrayListeners\(\) needs trackStrayListeners\(\) to have run first\.\nDocs: .*\/utilities\/setup$/,
+      /^\[vitest-auto-spy\] countStrayListeners\(\) found no tracking to count[\s\S]*setupAutoSpy\(\{ strayListeners: true \}\)[\s\S]*\nDocs: .*#_19-listeners-that-outlive-their-file$/,
     );
     expect(describeStrayListeners([named])).toEqual([]);
     expect(removeStrayListeners([named])).toBe(0);
@@ -246,6 +246,7 @@ describe('stray listeners', () => {
     expect(described?.target).toBe('reports');
     expect(described?.type).toBe('popstate');
     expect(described?.file).toMatch(/stray-listeners\.spec\.ts$/);
+    expect(described?.test).toMatch(/ > names the target, the type, the spec file and the registration line$/);
     expect(described?.frames.length ?? 0).toBeGreaterThan(0);
     expect(described?.frames[0]).toMatch(/stray-listeners\.spec\.ts:\d+:\d+/);
     expect(described?.frames.every((frame) => !/stray-listeners\.[jt]s/.test(frame))).toBe(true);
@@ -283,7 +284,7 @@ describe('an installation that cannot be completed', () => {
 
     expect(() => trackStrayListeners([named])).toThrow();
     expect(named.target.addEventListener).toBe(originalAdd);
-    expect(() => countStrayListeners([named])).toThrow(/needs trackStrayListeners\(\) to have run first/);
+    expect(() => countStrayListeners([named])).toThrow(/nothing called trackStrayListeners\(\) for this target/);
   });
 
   it('rethrows untouched when the target refuses the first assignment', () => {
@@ -295,7 +296,7 @@ describe('an installation that cannot be completed', () => {
     });
 
     expect(() => trackStrayListeners([named])).toThrow();
-    expect(() => countStrayListeners([named])).toThrow(/needs trackStrayListeners\(\) to have run first/);
+    expect(() => countStrayListeners([named])).toThrow(/nothing called trackStrayListeners\(\) for this target/);
   });
 
   it('unwraps the targets it had finished when a later one refuses', () => {
@@ -310,7 +311,7 @@ describe('an installation that cannot be completed', () => {
 
     expect(() => trackStrayListeners([fine, hostile])).toThrow();
     expect(fine.target.addEventListener).toBe(fineAdd);
-    expect(() => countStrayListeners([fine])).toThrow(/needs trackStrayListeners\(\) to have run first/);
+    expect(() => countStrayListeners([fine])).toThrow(/nothing called trackStrayListeners\(\) for this target/);
   });
 });
 

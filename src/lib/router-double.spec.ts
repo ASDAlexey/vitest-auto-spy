@@ -266,9 +266,24 @@ describe('collectRouterEvents', () => {
         [NavigationStart, '/checkout'],
         [NavigationEnd, '/checkout'],
       ]),
-    ).toThrow(/length/);
-    expect(() => events.expect([[NavigationEnd, '/checkout']])).toThrow(/NavigationEnd/);
-    expect(() => events.expect([[NavigationStart, '/wrong']])).toThrow(/checkout/);
+    ).toThrow(
+      /^\[vitest-auto-spy\] collectRouterEvents\(\)\.expect\(\): #2 NavigationEnd \/checkout never came — 1 event recorded, 2 expected\.\nExpected: NavigationStart \/checkout, NavigationEnd \/checkout\nRecorded: NavigationStart \/checkout\nDocs: /,
+    );
+    expect(() => events.expect([[NavigationEnd, '/checkout']])).toThrow(
+      /the events differ at #1: expected NavigationEnd \/checkout, got NavigationStart \/checkout\./,
+    );
+    expect(() => events.expect([[NavigationStart, '/wrong']])).toThrow(/expected NavigationStart \/wrong, got NavigationStart \/checkout/);
+    expect(() => events.expect([])).toThrow(
+      /#1 NavigationStart \/checkout was not expected — 1 event recorded, 0 expected\.\nExpected: \(none\)/,
+    );
+    expect(() => events.expect([[NavigationStart], [NavigationEnd]])).toThrow(/#2 NavigationEnd never came/);
+    expect(() => collectRouterEvents(router.events).expect([[NavigationStart]])).toThrow(/Recorded: \(none\)/);
+
+    const scrolls = collectRouterEvents(router.events);
+
+    emitNavigation(new Scroll(new NavigationEnd(3, '/x', '/x'), [0, 0], null));
+
+    expect(() => scrolls.expect([])).toThrow(/#1 Scroll was not expected/);
   });
 });
 

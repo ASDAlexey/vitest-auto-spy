@@ -45,11 +45,13 @@ import {
   createUrlTreeFromSnapshot,
 } from '@angular/router';
 import { BehaviorSubject, type Observable, skip } from 'rxjs';
-import { expect, onTestFinished } from 'vitest';
+import { onTestFinished } from 'vitest';
 
 import { type ActivatedRouteDouble, type ActivatedRouteInit, createActivatedRoute } from './angular-router';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { createFunctionSpy } from './function-spy';
+import { withDocs } from './message-link';
+import { count } from './message-text';
 import type { AddSpyMethodsByReturnTypes } from './types';
 
 /** What a spec names about the navigation in flight; every other field is derived from where the router stands. */
@@ -186,7 +188,7 @@ function guardMissingMembers(double: object): Router {
           withDocs(
             `[vitest-auto-spy] provideRouterDouble: the Router double has no ${key}. It answers ${COVERED} — ` +
               'anything past that is a real navigation, which is provideRouter([]) plus RouterTestingHarness.',
-            DOCS_LINKS.angularRouter,
+            DOCS_LINKS.angularRouterDouble,
           ),
         );
       }
@@ -444,7 +446,7 @@ export function injectRouterDouble(injector?: Injector): RouterDouble {
     throw new Error(
       withDocs(
         `${caller}: nothing provides Router in the injector given. Add provideRouterDouble({ … }) to its providers.`,
-        DOCS_LINKS.angularRouter,
+        DOCS_LINKS.angularRouterInject,
       ),
     );
   }
@@ -452,7 +454,7 @@ export function injectRouterDouble(injector?: Injector): RouterDouble {
   const double = doubles.get(router);
 
   if (double === undefined) {
-    throw new Error(withDocs(`${caller}: ${describeStranger(router)}`, DOCS_LINKS.angularRouter));
+    throw new Error(withDocs(`${caller}: ${describeStranger(router)}`, DOCS_LINKS.angularRouterInject));
   }
 
   return double;
@@ -498,17 +500,57 @@ export function collectRouterEvents(source: Router['events']): RouterEventsHandl
   return {
     events: recorded,
     expect: (pairs: readonly RouterEventPair[]): void => {
-      expect(recorded).toHaveLength(pairs.length);
+      const mismatch = firstMismatch(recorded, pairs);
 
-      for (const [index, [eventClass, url]] of pairs.entries()) {
-        const event = recorded[index];
-
-        expect(event?.constructor.name).toBe(eventClass.name);
-
-        if (url !== undefined && event !== undefined) {
-          expect(Reflect.get(event, 'url')).toBe(url);
-        }
+      if (mismatch !== undefined) {
+        throw new Error(
+          withDocs(
+            `[vitest-auto-spy] collectRouterEvents().expect(): ${mismatch}\n` +
+              `Expected: ${pairs.map(describePair).join(', ') || '(none)'}\n` +
+              `Recorded: ${recorded.map(describeEvent).join(', ') || '(none)'}`,
+            DOCS_LINKS.angularRouterEvents,
+          ),
+        );
       }
     },
   };
+}
+
+function eventUrl(event: RouterNavigationEvent): unknown {
+  return Reflect.get(event, 'url');
+}
+
+function describeEvent(event: RouterNavigationEvent): string {
+  const url = eventUrl(event);
+
+  return typeof url === 'string' ? `${event.constructor.name} ${url}` : event.constructor.name;
+}
+
+function describePair([eventClass, url]: RouterEventPair): string {
+  return url === undefined ? eventClass.name : `${eventClass.name} ${url}`;
+}
+
+function matchesPair(event: RouterNavigationEvent, [eventClass, url]: RouterEventPair): boolean {
+  return event.constructor.name === eventClass.name && (url === undefined || eventUrl(event) === url);
+}
+
+/** The first place the recording and the expectation part, described; `undefined` when they agree. */
+function firstMismatch(recorded: readonly RouterNavigationEvent[], pairs: readonly RouterEventPair[]): string | undefined {
+  const tally = `${count(recorded.length, 'event')} recorded, ${pairs.length} expected`;
+
+  for (const [index, pair] of pairs.entries()) {
+    const event = recorded[index];
+
+    if (event === undefined) {
+      return `#${index + 1} ${describePair(pair)} never came — ${tally}.`;
+    }
+
+    if (!matchesPair(event, pair)) {
+      return `the events differ at #${index + 1}: expected ${describePair(pair)}, got ${describeEvent(event)}.`;
+    }
+  }
+
+  const extra = recorded[pairs.length];
+
+  return extra === undefined ? undefined : `#${pairs.length + 1} ${describeEvent(extra)} was not expected — ${tally}.`;
 }

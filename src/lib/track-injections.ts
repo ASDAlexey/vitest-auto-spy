@@ -20,7 +20,8 @@
  */
 import { createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import type { ClassType, Spy } from './types';
 
 /**
@@ -125,7 +126,7 @@ export function trackInjections(tokens: readonly unknown[], options: TrackInject
             `[vitest-auto-spy] trackInjections(...).get(${tokenName(token)}): that token is not tracked by this log.\n` +
               `Tracked here: ${tokens.map(tokenName).join(', ') || '(none)'}. Add it to the trackInjections([...]) list, or read it ` +
               'from the injector directly — `get` only answers for the tokens whose providers this log created.',
-            DOCS_LINKS.trackInjections,
+            DOCS_LINKS.trackInjectionsUntracked,
           ),
         );
       }

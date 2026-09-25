@@ -36,10 +36,12 @@
  * what covers that case: it runs from a setup file, before each spec file is imported, and reports
  * the leftovers of the previous one against the file that wrote them.
  */
-import { afterEach, beforeAll, expect } from 'vitest';
+import { afterEach, beforeAll } from 'vitest';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { type GuardReaction, reactToFindings } from './guard-reaction';
+import { withDocs } from './message-link';
+import { describeCulprit } from './test-culprit';
 
 /** How {@link guardPrototypePollution} reacts to a property left on a built-in prototype. */
 export type PrototypePollutionReaction = GuardReaction;
@@ -98,32 +100,62 @@ export function snapshotPrototypes(candidates: readonly WatchedPrototype[] = wat
  * could not remove — one defined as non-configurable — is reported once, against the file that
  * added it, instead of against every test that follows it.
  */
-function pollutingAdditions({ object, keys }: PrototypeSnapshot): string[] {
+interface Addition {
+  key: string;
+  kind: string;
+  removed: boolean;
+}
+
+function describeKind(descriptor: PropertyDescriptor | undefined): string {
+  const value: unknown = descriptor?.value;
+
+  if (descriptor?.get !== undefined || descriptor?.set !== undefined) {
+    return 'an accessor';
+  }
+
+  if (value === null || value === undefined) {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return 'an array';
+  }
+
+  return /^[aeiou]/.test(typeof value) ? `an ${typeof value}` : `a ${typeof value}`;
+}
+
+function pollutingAdditions({ object, keys }: PrototypeSnapshot): Addition[] {
   const current = Object.keys(object);
   const added = current.filter((key) => !keys.has(key));
 
-  added.forEach((key) => {
+  return added.map((key) => {
+    const kind = describeKind(Object.getOwnPropertyDescriptor(object, key));
+    const removed = Reflect.deleteProperty(object, key);
+
     // A `delete` that fails leaves the key in place; recording it keeps the next test from
     // reporting the same one again, which would bury the file that is actually to blame.
-    if (!Reflect.deleteProperty(object, key)) {
+    if (!removed) {
       keys.add(key);
     }
-  });
 
-  return added;
+    return { key, kind, removed };
+  });
 }
 
-function report({ name }: PrototypeSnapshot, added: string[]): string {
-  const testPath = expect.getState().testPath ?? 'this file';
+function report({ name }: PrototypeSnapshot, added: readonly Addition[]): string {
+  const listed = added.map(({ key, kind }) => `"${key}" (${kind})`).join(', ');
+  const stuck = added.filter(({ removed }) => !removed).map(({ key }) => `"${key}"`);
+  const property = added.length === 1 ? 'an enumerable property' : 'enumerable properties';
+  const fate =
+    stuck.length === 0
+      ? `${added.length === 1 ? 'It has' : 'They have'} been taken off`
+      : `${stuck.join(', ')} could not be taken off, being non-configurable`;
 
   return withDocs(
-    `[vitest-auto-spy] ${testPath} left ${added.map((key) => `"${key}"`).join(', ')} on ${name} as an own enumerable ` +
-      "property. Vitest walks a file's hooks with `for…in`, so the extra key is spread as if it were an array and " +
-      '**every spec file after this one in the same worker fails to collect** — with no stack, because every frame of ' +
-      'that error is filtered out of the report. The key has been taken back off so the rest of the run survives. ' +
-      'Patch the prototype of the class the object came from, not the prototype of a plain object or of a test double: ' +
-      '`Object.getPrototypeOf(instance)` is `Object.prototype` itself whenever `instance` is an object literal.',
-    DOCS_LINKS.setup,
+    `[vitest-auto-spy] ${describeCulprit()} left ${listed} on ${name} as ${property}.\n` +
+      `${fate}: left there, it stops every later spec file in this worker from collecting. ` +
+      'Define it on the prototype of the class it belongs to, or with enumerable: false.',
+    DOCS_LINKS.setupPrototype,
   );
 }
 

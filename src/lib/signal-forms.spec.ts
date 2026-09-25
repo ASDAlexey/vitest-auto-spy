@@ -4,7 +4,7 @@
  * than through anything transcribed here. `@angular/forms` is a dev dependency of this package for
  * exactly that reason: a form double would prove nothing about the trap this entry exists for.
  */
-import { Component, Injectable, Injector, computed, inject, signal } from '@angular/core';
+import { Component, Injectable, Injector, computed, inject, input, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { type SchemaOrSchemaFn, form, minLength, pattern, required, validate } from '@angular/forms/signals';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -109,7 +109,13 @@ describe('createForm', () => {
     const source = signal(EMPTY);
     const derived = computed(() => source());
 
-    expect(() => createForm(derived)).toThrow(/the model has to be a writable signal/);
+    expect(() => createForm(derived)).toThrow(
+      /createForm\(\): the model is a computed\(\), which cannot be written, and a form writes back into its model\.\nPass signal\(initialValue\)/,
+    );
+    expect(() => createForm(source.asReadonly())).toThrow(/the model is a read-only signal,/);
+    expect(() => TestBed.runInInjectionContext(() => createForm(input(EMPTY)))).toThrow(
+      /the model is an input\(\), which only its parent writes/,
+    );
   });
 
   it('defaults to the TestBed injector even when the spec configured a module', () => {
@@ -172,12 +178,22 @@ describe('toHaveFieldErrors', () => {
     const user = createForm(EMPTY, signupSchema);
 
     expect(() => expect(user.email).toHaveFieldErrors(['email'])).toThrow(
-      /expected the field to have email, got required \(Email is required\)/,
+      /expected field 'email' to have email, got required \(Email is required\)/,
     );
     expect(() => expect(createForm({ ...EMPTY, name: 'a' }, signupSchema).name).not.toHaveFieldErrors(['minLength'])).toThrow(
-      /expected the field not to have minLength/,
+      /expected field 'name' not to have minLength/,
     );
     expect(() => expect(user.email).toHaveFieldErrors([])).toThrow(/to have no errors, got required/);
+  });
+
+  it('names the field it read, and falls back when there is no name to read', () => {
+    const user = createForm(EMPTY, signupSchema);
+
+    expect(() => expect(user).toHaveFieldErrors(['required'])).toThrow(/expected field 'the form itself' to have required/);
+    expect(() => expect({ errors: signal([]) }).toHaveFieldErrors(['required'])).toThrow(
+      /expected the field to have required, got no errors/,
+    );
+    expect(() => expect({ errors: signal([]), name: signal(7) }).toHaveFieldErrors(['required'])).toThrow(/expected the field to have/);
   });
 
   it('refuses anything that is not a field', () => {

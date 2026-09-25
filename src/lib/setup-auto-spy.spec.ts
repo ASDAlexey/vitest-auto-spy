@@ -18,6 +18,7 @@ import {
   annotateFrozenClockTimeouts,
   annotateTimedOutHooks,
   applyPreset,
+  describeAbandonedWaits,
   describeStrayRejections,
   reportPrototypeLeftovers,
   reportStrayRejections,
@@ -27,9 +28,19 @@ import {
   setupAutoSpy,
   warnAboutSuppressedLeaks,
 } from './setup-auto-spy';
-import { createTeardownLedger, noticeConcurrentTest, resetConcurrencyNotice, runTeardown } from './setup-teardown';
+import {
+  createTeardownLedger,
+  describeConcurrentTest,
+  describeSkippedAgain,
+  describeSkippedTeardown,
+  noticeConcurrentTest,
+  resetConcurrencyNotice,
+  runTeardown,
+  testNameOf,
+} from './setup-teardown';
 import { type StrayRejection, flushStrayRejections } from './stray-rejections';
 import { countStrayTimers, trackStrayTimers } from './stray-timers';
+import { describeSwallowedStrictCalls } from './swallowed-strict';
 
 const DUPLICATE = 'file:///app/node_modules/other/node_modules/vitest-auto-spy/dist/index.js';
 const REAL_ROOTS = getPackageCopies();
@@ -53,7 +64,7 @@ const stubTarget = {
  *
  * `setDefaultStrictMode` writes a module-level binding, so under `isolate: false` it is shared by
  * every file in the worker. A default that outlived the file that armed it would fail specs that
- * never opted in, with a message ("Nothing configured X.load, and strict mode is on") naming a
+ * never opted in, with a message ("X.load() was called; this strict double has nothing configured for it") naming a
  * switch their setup never touched.
  *
  * First in the file on purpose, and the only block here that arms it. `setupAutoSpy()` installs the
@@ -65,7 +76,7 @@ describe('suite-wide strict mode (opted in)', () => {
   setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strict: true });
 
   it('reaches a double built afterwards, without that call site mentioning it', () => {
-    expect(() => createSpyFromClass(Cart).total()).toThrow(/Nothing configured Cart\.total, and strict mode is on/);
+    expect(() => createSpyFromClass(Cart).total()).toThrow(/Cart\.total\(\) was called; this strict double has nothing configured/);
     // Caught by the assertion, so it is taken here rather than reported as swallowed after the test.
     expect(takeStrictViolations()).toHaveLength(1);
   });
@@ -90,7 +101,9 @@ describe('duplicate installs', () => {
   it('stops the run by default, explaining how to collapse the tree', () => {
     registerPackageCopy(DUPLICATE);
 
-    expect(() => setupAutoSpy()).toThrow(/loaded 2 times from different installs[\s\S]*npm ls vitest-auto-spy/);
+    expect(() => setupAutoSpy()).toThrow(
+      /^\[vitest-auto-spy\] vitest-auto-spy is loaded 2 times, from different installs[\s\S]*npm ls vitest-auto-spy/,
+    );
   });
 
   it('only warns when asked to', () => {
@@ -199,8 +212,11 @@ describe('the teardown net, for the run where the hook never happened', () => {
     expect(target.cookie).toBe('real');
     expect(countMockedProps()).toBe(0);
     // The net says what happened, because the symptom is two tests away from the cause.
-    expect(warnings.join('\n')).toMatch(/afterEach did not run for this test, so 1 mock\*Prop patch/);
-    expect(warnings.join('\n')).toContain('reverse registration order');
+    expect(warnings.join('\n')).toMatch(
+      /afterEach did not run for "the teardown net, for the run where the hook never happened > leaves a patch behind when the hook above the library throws": an afterEach the spec registered threw/,
+    );
+    expect(warnings.join('\n')).toContain('1 mock*Prop patch was still in place and is put back now.');
+    expect(warnings.join('\n')).toMatch(/Fix the hook that threw[\s\S]*#_1-restoring-patched-properties/);
   });
 
   it.fails('leaves a patch behind a second time in the same file', () => {
@@ -216,8 +232,10 @@ describe('the teardown net, for the run where the hook never happened', () => {
     vi.restoreAllMocks();
 
     expect(target.cookie).toBe('real');
-    expect(warnings.at(-1)).toMatch(/did not run for this test either \(2 in this file\); 1 mock\*Prop patch\(es\) put back/);
-    expect(warnings.at(-1)).not.toContain('reverse registration order');
+    expect(warnings.at(-1)).toMatch(
+      /did not run for ".* > leaves a patch behind a second time in the same file" either \(2 tests in this file\); 1 mock\*Prop patch put back/,
+    );
+    expect(warnings.at(-1)).not.toContain('Fix the hook');
   });
 });
 
@@ -369,14 +387,17 @@ describe('reporting what the stray-timer sweep cancelled', () => {
   it('fails the file with every stray named by kind, delay, file and first frame', () => {
     const { written, restore } = captureStderr();
     const timers = [
-      { kind: 'timeout' as const, delay: 300, file: '/a/cart.spec.ts', frames: ['at load (src/cart.ts:12:5)'] },
+      { kind: 'timeout' as const, delay: 300, file: '/a/cart.spec.ts', frames: ['at load (src/cart.ts:12:5)'], test: 'cart > loads' },
       { kind: 'frame' as const, file: undefined, frames: [] },
     ];
 
     try {
       expect(() => withLeakDetection(() => reportStrayTimers(2, 'throw', timers))).toThrow(
-        "2 scheduled callback(s) outlived the spec file that scheduled them. setupAutoSpy cancelled them; onStrayTimers: 'throw' fails the file. " +
-          'Clear each one where it was scheduled:\n  - timeout (300 ms) from /a/cart.spec.ts at load (src/cart.ts:12:5)\n  - frame from no spec file\nDocs:',
+        '[vitest-auto-spy] src/lib/setup-auto-spy.spec.ts left 2 timers pending when it ended:\n' +
+          '  - setTimeout 300 ms, scheduled in "cart > loads", in /a/cart.spec.ts at load (src/cart.ts:12:5)\n' +
+          '  - requestAnimationFrame, outside any spec file\n' +
+          'They were cancelled so none can fire in the next file. Clear each where it was scheduled — clearTimeout, unsubscribe, ' +
+          'fixture.destroy().\nDocs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_4-cancelling-timers-that-outlive-their-file',
       );
     } finally {
       restore();
@@ -407,18 +428,22 @@ describe('reporting what the stray-timer sweep cancelled', () => {
     }
 
     expect(written).toHaveLength(1);
-    expect(written[0]).toContain('cancelled 2 scheduled callback(s)');
+    expect(written[0]).toContain('left 2 timers pending when it ended.');
   });
 
-  it('names the count, the reason the leak report is empty, and the way to take it quietly', () => {
+  it('puts the diagnosis first and the leak report last, in one sentence, with nothing about silencing it', () => {
     const printed: string[] = [];
 
     warnAboutSuppressedLeaks(4, (message) => printed.push(message));
 
-    expect(printed[0]).toContain('cancelled 4 scheduled callback(s)');
-    expect(printed[0]).toContain('before Vitest collected async leaks');
-    expect(printed[0]).toContain('onStrayTimers');
-    expect(printed[0]).not.toContain('Scheduled at:');
+    const lines = String(printed[0]).split('\n');
+
+    expect(lines[0]).toBe('[vitest-auto-spy] src/lib/setup-auto-spy.spec.ts left 4 timers pending when it ended.');
+    expect(lines.at(-2)).toBe(
+      'Vitest\'s detectAsyncLeaks looks after that cancel, so these timers are missing from its "Async Leaks" report.',
+    );
+    expect(lines.at(-1)).toMatch(/^Docs: \S+#with-vitest-4-1-s-detect-async-leaks$/);
+    expect(printed[0]).not.toContain('onStrayTimers');
   });
 
   it('says where the first three were scheduled, and from which file', () => {
@@ -433,7 +458,8 @@ describe('reporting what the stray-timer sweep cancelled', () => {
     ]);
 
     expect(printed[0]).toContain(
-      'Scheduled at:\n  - interval from /a/one.spec.ts at poll (src/poller.ts:3:1)\n  - interval from no spec file',
+      'left 4 timers pending when it ended:\n  - setInterval, in /a/one.spec.ts at poll (src/poller.ts:3:1)\n' +
+        '  - setInterval, outside any spec file\n  - setInterval, in /a/two.spec.ts\n  … and 1 more\n',
     );
     expect(printed[0]).not.toContain('four.spec.ts');
   });
@@ -447,7 +473,7 @@ describe('reporting what the stray-timer sweep cancelled', () => {
     ]);
 
     expect(printed[0]).toContain(
-      'Scheduled at:\n  - timeout (300 ms) from /a/angle.spec.ts at open (src/angle.ts:8:3)\n  - frame from /a/angle.spec.ts',
+      '/a/angle.spec.ts left 2 timers pending when it ended:\n  - setTimeout 300 ms at open (src/angle.ts:8:3)\n  - requestAnimationFrame\n',
     );
   });
 
@@ -521,7 +547,9 @@ describe('stray-rejection containment (opted in)', () => {
   it('turns one into a failure that names the assertion and the test it belongs to', () => {
     fireRejection(Object.assign(new Error('expected 1 to be 2'), { matcherResult: { pass: false } }));
 
-    expect(() => reportStrayRejections()).toThrow(/expected 1 to be 2[\s\S]*attributed to .*names the assertion/);
+    expect(() => reportStrayRejections()).toThrow(
+      /^\[vitest-auto-spy\] 1 promise rejection went unhandled in ".*names the assertion.*", and zone\.js swallowed it into console\.error:\n {2}- Error: expected 1 to be 2\n/,
+    );
   });
 
   it('does not report again what the runner has already blamed the test for', () => {
@@ -646,17 +674,27 @@ describe('the report a captured rejection turns into', () => {
   });
 
   it('points a late assertion at the missing await', () => {
-    const message = describeStrayRejections([rejection({ assertion: true })]);
+    const message = describeStrayRejections([rejection({ assertion: true, reason: new Error('boom\n  at somewhere') })]);
 
-    expect(message).toContain('Error: boom — attributed to a suite > a test');
-    expect(message).toMatch(/cannot fail it[\s\S]*without `await`/);
+    expect(message).toMatch(/^\[vitest-auto-spy\] 1 promise rejection went unhandled in "a suite > a test", and zone\.js swallowed it/);
+    expect(message).toContain('\n  - Error: boom\n');
+    expect(message).toMatch(/cannot fail it[\s\S]*Return or await the promise/);
+    expect(message).toMatch(/\nDocs: \S+#_8-failing-on-a-rejection-zone-js-swallowed$/);
   });
 
   it('says something else for an error nothing handled, and for a reason that is not one', () => {
     const message = describeStrayRejections([rejection({ reason: 'a bare string', testName: '' })]);
 
-    expect(message).toContain('rejected with a bare string — attributed to no test');
-    expect(message).toMatch(/never asserted on[\s\S]*rejects\.toThrow/);
+    expect(message).toContain('went unhandled outside any test, and zone.js swallowed it');
+    expect(message).toContain('  - rejected with a bare string\n');
+    expect(message).toMatch(/fails no test[\s\S]*rejects\.toThrow/);
+  });
+
+  it('names the test on each line when they differ', () => {
+    const message = describeStrayRejections([rejection({}), rejection({ testName: '' })]);
+
+    expect(message).toMatch(/^\[vitest-auto-spy\] 2 promise rejections went unhandled, and zone\.js swallowed them/);
+    expect(message).toContain('  - Error: boom — surfaced in "a suite > a test"\n  - Error: boom — surfaced outside any test\n');
   });
 });
 
@@ -913,7 +951,7 @@ describe('frozen clock hint', () => {
 
     annotateFrozenClockTimeouts({ task: { result: { errors: [error] } } });
 
-    expect(error.message).toContain('[vitest-auto-spy] the clock is frozen and 1 callback(s) are queued on it');
+    expect(error.message).toContain('[vitest-auto-spy] the clock is frozen and 1 callback is queued on it');
   });
 
   it('stays quiet while the clock is real, which is how the rest of this file runs', () => {
@@ -968,8 +1006,39 @@ describe('swallowedStrictCalls', () => {
     swallow(() => createSpyFromClass(Cart, { strict: true }).total());
 
     expect(() => reportSwallowedStrictCalls(undefined, 'throw')).toThrow(
-      /1 call\(s\) to a strict double[\s\S]*Nothing configured Cart\.total[\s\S]*at /,
+      new RegExp(
+        '^\\[vitest-auto-spy\\] "swallowedStrictCalls > fails the test whose strict throw never reached it, naming the call and ' +
+          'where it was made" made 1 call a strict double had nothing configured for, and the throw never reached the test:\\n' +
+          '  - Cart\\.total\\(\\) at src/lib/setup-auto-spy\\.spec\\.ts:\\d+:\\d+ — the code under test caught it \\(try/catch, \\.catch or catchError\\)\\n' +
+          'Configure that method [\\s\\S]*takeStrictViolations\\(\\)[\\s\\S]*#a-throw-that-never-reached-the-test$',
+      ),
     );
+  });
+
+  it('names each call with its arguments, blames an RxJS subscriber from the stack, and falls back when the error says less', () => {
+    const rxjs = Object.assign(
+      new Error('[vitest-auto-spy] Cart.load(42, "eu") was called; this strict double has nothing configured for it.'),
+      {
+        stack: 'Error\n    at Cart.load (/app/node_modules/rxjs/dist/cjs/internal/Subscriber.js:1:1)\n    at load (/app/src/cart.ts:3:7)',
+      },
+    );
+    const legacy = Object.assign(new Error('[vitest-auto-spy] Nothing configured Cart.clear.\nCalled as: Cart.clear(1,2)'), {
+      stack: 'Error\n    at throwUnstubbedCall (/repo/vitest-auto-spy/src/lib/function-spy.ts:1:1)',
+    });
+    const bare = Object.assign(new Error('something else'), { stack: undefined });
+    const pointed = new Error('[vitest-auto-spy] Cart.total() was called; x\nCalled from at total (src/cart.ts:9:1)');
+    const message = describeSwallowedStrictCalls([rxjs, legacy, bare, pointed], undefined);
+
+    expect(message).toMatch(
+      /^\[vitest-auto-spy\] This test made 4 calls a strict double had nothing configured for, and none of the throws/,
+    );
+    expect(message).toContain(
+      '  - Cart.load(42, "eu") at load (/app/src/cart.ts:3:7) — an RxJS subscriber with no error callback took it\n',
+    );
+    expect(message).toContain('  - Cart.clear(1,2) — the code under test');
+    expect(message).toContain('  - something else — the code under test caught it');
+    expect(message).toContain('  - Cart.total() at total (src/cart.ts:9:1) — ');
+    expect(message).toContain('Configure each method');
   });
 
   it('leaves a throw the runner already reported to the runner', () => {
@@ -990,12 +1059,12 @@ describe('swallowedStrictCalls', () => {
     swallow(() => createSpyFromClass(Cart, { strict: true }).total());
     reportSwallowedStrictCalls(undefined, 'warn');
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Nothing configured Cart.total'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Cart.total('));
     warn.mockRestore();
   });
 
   it('lets a test that provokes the throw on purpose take it, and says nothing afterwards', () => {
-    expect(() => createSpyFromClass(Cart, { strict: true }).total()).toThrow('Nothing configured Cart.total');
+    expect(() => createSpyFromClass(Cart, { strict: true }).total()).toThrow('Cart.total(');
     expect(takeStrictViolations()).toHaveLength(1);
     expect(() => reportSwallowedStrictCalls(undefined, 'throw')).not.toThrow();
   });
@@ -1121,7 +1190,28 @@ describe('a prototype key left behind by a file that has already finished', () =
 
     expect(() => reportPrototypeLeftovers(write)).not.toThrow();
     expect('leakedFromEarlierFile' in stand).toBe(false);
-    expect(written.join('\n')).toMatch(/"leakedFromEarlierFile" was left on Stand\.prototype[\s\S]*already finished/);
+    expect(written.join('\n')).toMatch(
+      /^\[vitest-auto-spy\] "leakedFromEarlierFile" was left on Stand\.prototype by the previous spec file of this worker, src\/lib\/setup-auto-spy\.spec\.ts — while it was imported, collected or in an afterAll — and has been taken off\.\n/,
+    );
+    expect(written.join('\n')).toMatch(/for…in\. In that file, patch the prototype[\s\S]*#the-key-an-earlier-file-left-behind$/);
+  });
+
+  it('remembers the file each setup ran for, and says "a spec file" when there was none before', () => {
+    const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
+    const filepath: unknown = Reflect.get(Object(worker), 'filepath');
+
+    Reflect.set(Object(worker), 'filepath', undefined);
+
+    try {
+      reportPrototypeLeftovers(write);
+      stand['leakedFromEarlierFile'] = 1;
+      reportPrototypeLeftovers(write);
+    } finally {
+      Reflect.set(Object(worker), 'filepath', filepath);
+    }
+
+    expect(globalThis.__vitestAutoSpyPreviousSpecFile__).toBeUndefined();
+    expect(written.join('\n')).toContain('by a spec file that ran earlier in this worker —');
   });
 
   it('adopts a key it cannot delete, so the next file is not told about it again', () => {
@@ -1141,6 +1231,30 @@ describe('a prototype key left behind by a file that has already finished', () =
 
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining('leakedFromEarlierFile'));
     stderr.mockRestore();
+  });
+});
+
+describe('what the teardown net says', () => {
+  it('counts the patches it put back, and says "this test" where the runner names none', () => {
+    expect(describeSkippedTeardown(0, undefined)).toMatch(
+      /^\[vitest-auto-spy\] setupAutoSpy\(\)'s afterEach did not run for this test: [\s\S]*No mock\*Prop patch was left in place\.\n/,
+    );
+    expect(describeSkippedTeardown(2, 't')).toContain('2 mock*Prop patches were still in place and are put back now.');
+    expect(describeSkippedAgain(3, 4, undefined)).toBe(
+      "[vitest-auto-spy] setupAutoSpy()'s afterEach did not run for this test either (4 tests in this file); 3 mock*Prop patches put back. " +
+        'The first report in this file says why.',
+    );
+  });
+
+  it('says "a test" for a concurrent test the runner names none for', () => {
+    expect(describeConcurrentTest(undefined)).toMatch(/^\[vitest-auto-spy\] A test runs as test\.concurrent/);
+  });
+
+  it('reads the test name off a hook context, and nothing off a context with no task', () => {
+    expect(testNameOf({ task: { name: 'loads', suite: { name: 'cart', suite: { name: 'a.spec.ts', filepath: '/a.spec.ts' } } } })).toBe(
+      'cart > loads',
+    );
+    expect(testNameOf(undefined)).toBeUndefined();
   });
 });
 
@@ -1193,11 +1307,14 @@ describe('the notice a concurrent test earns', () => {
   });
 
   it('says once per worker what the per-test guards cannot promise', () => {
-    noticeConcurrentTest({ task: { concurrent: true } }, write);
+    noticeConcurrentTest({ task: { concurrent: true, name: 'loads', suite: { name: 'cart' } } }, write);
     noticeConcurrentTest({ task: { concurrent: true } }, write);
 
     expect(written).toHaveLength(1);
-    expect(written[0]).toMatch(/test\.concurrent[\s\S]*assume one test at a time/);
+    expect(written[0]).toMatch(
+      /^\[vitest-auto-spy\] "cart > loads" runs as test\.concurrent, and setupAutoSpy\(\)'s per-test guards judge one test at a time/,
+    );
+    expect(written[0]).toMatch(/Run this file's tests sequentially[\s\S]*Said once per worker\.\nDocs: \S+#under-test-concurrent$/);
   });
 });
 
@@ -1230,7 +1347,16 @@ describe('an emission wait nobody awaited', () => {
     vi.restoreAllMocks();
 
     expect(abandoned).toBe(1);
-    expect(warnings.join('\n')).toContain('1 emission helper(s) were never awaited in this test (the price stream)');
+    expect(warnings.join('\n')).toContain(
+      '[vitest-auto-spy] "an emission wait nobody awaited > is left alone while the test that opened it runs" never awaited ' +
+        '1 emission wait (the price stream), so its assertion never ran.\nAwait it, or return it from the test. Its subscription is torn down now.',
+    );
     expect(abandonEmissionWaits()).toEqual([]);
+  });
+
+  it('counts several waits, and says "this test" where the runner names none', () => {
+    expect(describeAbandonedWaits(['a$', 'b$'], undefined)).toMatch(
+      /^\[vitest-auto-spy\] This test never awaited 2 emission waits \(a\$, b\$\), so their assertions never ran\.\nAwait each one, or return it from the test\. Their subscriptions are torn down now\.\nDocs: /,
+    );
   });
 });

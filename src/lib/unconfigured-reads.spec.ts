@@ -12,6 +12,7 @@ import { createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
 import { createSpyFromInstance, restoreSpiedInstance } from './create-spy-from-instance';
 import { setDefaultStrictMode } from './function-spy';
+import { setMisconfigurationReaction } from './misconfiguration';
 import { mockReadonlyProp, restoreMockedProps } from './prop-mock';
 import { setupAutoSpy } from './setup-auto-spy';
 import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
@@ -80,7 +81,7 @@ describe('setupAutoSpy({ unconfiguredReads })', () => {
 
   it('reported the three reads together once that test ended', () => {
     expect(warnings).toEqual([
-      expect.stringContaining('[vitest-auto-spy] Settings.theme was read 3 times and nothing configured it, and strict mode is on.'),
+      expect.stringContaining('[vitest-auto-spy] Settings.theme was read 3 times on a strict double and nothing configured it'),
     ]);
     warnings.length = 0;
   });
@@ -134,8 +135,9 @@ describe('an unconfigured getter', () => {
 
     expect(() => reportUnconfiguredReads('throw')).toThrow(
       new RegExp(
-        String.raw`Settings\.theme was read 2 times and nothing configured it, and strict mode is on\.\n` +
-          String.raw`\[vitest-auto-spy\] Settings\.locale was read 1 time[\s\S]*mockReturnValue\(undefined\)[\s\S]*Docs: .*#reads-nobody-configured`,
+        String.raw`Settings\.theme was read 2 times on a strict double and nothing configured it, so the code under test got undefined\.\n` +
+          String.raw`Configure it in the test: accessorSpies\.getters\.theme\.mockReturnValue\(…\)[^\n]*mockReturnValue\(undefined\)[^\n]*\n` +
+          String.raw`\[vitest-auto-spy\] Settings\.locale was read 1 time[^\n]*\nConfigure it in the test: accessorSpies\.getters\.locale\.[\s\S]*Docs: .*#reads-nobody-configured`,
       ),
     );
   });
@@ -209,7 +211,7 @@ describe('an unconfigured getter', () => {
     void createSpyFromClass(Settings, { gettersToSpyOn: ['theme'] }).theme;
     void createSpyFromClass(Settings, { strict: false, gettersToSpyOn: ['locale'] }).locale;
 
-    expect(() => reportUnconfiguredReads('throw')).toThrow(/Settings\.theme was read 1 time[^\n]*\.\nThe getter/);
+    expect(() => reportUnconfiguredReads('throw')).toThrow(/Settings\.theme was read 1 time[^\n]*\.\nConfigure it in the test/);
   });
 
   it('is not tracked without the report, strict or not', () => {
@@ -255,7 +257,7 @@ describe('an observable property nobody fed', () => {
     feed.items$.subscribe();
 
     expect(() => reportUnconfiguredReads('throw')).toThrow(
-      /Feed\.items\$ was subscribed to 2 times and nothing fed it, and strict mode is on\./,
+      /Feed\.items\$ was subscribed to 2 times on a strict double and never emitted\./,
     );
   });
 
@@ -272,8 +274,12 @@ describe('an observable property nobody fed', () => {
       return '';
     })();
 
-    expect(thrown).toContain('overrides: { <name>: new Subject() } — and drive that Subject from the test');
-    expect(thrown).toContain('observablePropsToSpyOn is the wrong tool');
+    expect(thrown).toContain(
+      'Feed it in the test: items$.nextWith(…), or seed overrides: { items$: new Subject() } and drive that Subject',
+    );
+    expect(thrown).toContain('overrides: { items$: NEVER } when this test never fires it');
+    expect(thrown).not.toContain('<name>');
+    expect(thrown).not.toContain("drop 'strict'");
     expect(thrown).not.toContain('accessorSpies.getters');
   });
 
@@ -303,12 +309,32 @@ describe('an observable property nobody fed', () => {
     expect(() => reportUnconfiguredReads('throw')).toThrow(/Feed\.items\$ was subscribed to 1 time/);
   });
 
+  it('names the class and member when values are published after a subscription', () => {
+    setMisconfigurationReaction('throw');
+
+    try {
+      const strict = strictFeed();
+      const loose = createSpyFromClass(Feed, { observablePropsToSpyOn: ['items$'] });
+
+      strict.items$.subscribe();
+      loose.items$.subscribe();
+
+      expect(() => strict.items$.nextWithValues([{ value: 1 }])).toThrow(
+        /Feed\.items\$\.nextWithValues\(\) ran after something subscribed/,
+      );
+      expect(() => loose.items$.nextWithValues([{ value: 1 }])).toThrow(/\] items\$\.nextWithValues\(\) ran after something subscribed/);
+    } finally {
+      setMisconfigurationReaction(undefined);
+      openReadWindow();
+    }
+  });
+
   it('is named by the token on a type-driven double, and by the member alone without a name', () => {
     createAutoMock<Feed>(undefined, { strict: true, name: 'FEED', observablePropsToSpyOn: ['items$'] }).items$.subscribe();
     createAutoMock<Feed>(undefined, { strict: true, observablePropsToSpyOn: ['items$'] }).items$.subscribe();
 
     expect(() => reportUnconfiguredReads('throw')).toThrow(
-      /FEED\.items\$ was subscribed to 1 time[^\n]*\n\[vitest-auto-spy\] items\$ was subscribed/,
+      /FEED\.items\$ was subscribed to 1 time[^\n]*\nFeed it[^\n]*\n\[vitest-auto-spy\] items\$ was subscribed/,
     );
   });
 

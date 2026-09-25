@@ -26,7 +26,8 @@
  * `DataCloneError` it would throw in the browser, rather than passing the spec and failing in
  * production.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { type MockFn, getMockAdapter } from './mock-adapter';
 import { mockValueProp } from './prop-mock';
 
@@ -174,10 +175,26 @@ function terminatedEmitError(url: string): Error {
   return new Error(
     withDocs(
       `[vitest-auto-spy] stubWorker(): emit() on a terminated worker (${url}). ` +
-        'The browser drops messages from a worker after terminate(), so the code under test would never see this one.',
+        'The browser drops messages from a worker after terminate(), so the code under test would never see this one. ' +
+        'Emit before the code under test terminates the worker, or assert on `terminated` instead.',
       DOCS_LINKS.workerStub,
     ),
   );
+}
+
+/** Why `last` has nothing to hand back: the stub is in place and unused, or a restore already took it off. */
+function workerNotConstructed(installed: boolean): [string, string] {
+  return installed
+    ? [
+        '[vitest-auto-spy] stubWorker(): the stub is installed, but the code under test has not constructed a Worker yet. ' +
+          'Run the code that creates it before reaching for `last`.',
+        DOCS_LINKS.workerStub,
+      ]
+    : [
+        '[vitest-auto-spy] stubWorker(): this stub is no longer the global Worker — restoreMockedProps() took it off after ' +
+          'an earlier test. Install it per test, in beforeEach or with installPerTest().',
+        DOCS_LINKS.workerStubRestored,
+      ];
 }
 
 function answer<TIn, TOut>(instance: MutableInstance<TIn, TOut>, data: TIn, script: WorkerScript<TIn, TOut>): void {
@@ -286,14 +303,7 @@ export function stubWorker<TIn = unknown, TOut = unknown>(options: WorkerStubOpt
       const instance = instances.at(-1);
 
       if (!instance) {
-        throw new Error(
-          withDocs(
-            '[vitest-auto-spy] stubWorker(): the code under test has not constructed a Worker. ' +
-              'Run the code that creates it before reaching for `last`, and check that the stub was installed ' +
-              'before the construction rather than after it.',
-            DOCS_LINKS.workerStub,
-          ),
-        );
+        throw new Error(withDocs(...workerNotConstructed(Object.is(Reflect.get(globalThis, 'Worker'), StubWorker))));
       }
 
       return instance;

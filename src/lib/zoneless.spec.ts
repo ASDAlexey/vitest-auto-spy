@@ -4,7 +4,7 @@
  * missing before the helper and present after it.
  */
 import { Component, PendingTasks, effect, inject, signal } from '@angular/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { mockValueProp } from './prop-mock';
 import { renderShallow } from './render-shallow';
@@ -89,6 +89,25 @@ describe('stable', () => {
     await expect(stable(fixture, { timeout: 20 })).rejects.toThrow(/the fixture was still unstable after 20 ms/);
 
     restore();
+  });
+
+  it('says to advance the fake clock when callbacks wait on it', async () => {
+    const { fixture } = renderShallow(EffectsComponent);
+    const restore = mockValueProp(fixture, 'whenStable', () => new Promise<void>(() => undefined));
+
+    vi.useFakeTimers();
+    setTimeout(() => undefined, 100);
+
+    try {
+      await expect(stable(fixture, { timeout: 20 })).rejects.toThrow(
+        /1 callback waits on the fake clock, holding Angular busy — advance it first: `await advanceTimers\(ms\)`\.\nDocs: \S+#zoneless-waiting$/,
+      );
+      setTimeout(() => undefined, 100);
+      await expect(stable(fixture, { timeout: 20 })).rejects.toThrow(/2 callbacks wait on the fake clock/);
+    } finally {
+      vi.useRealTimers();
+      restore();
+    }
   });
 
   it('waits without a watchdog when the timeout is disabled', async () => {

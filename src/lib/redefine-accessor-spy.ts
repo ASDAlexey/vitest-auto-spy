@@ -91,6 +91,7 @@ function spyOrExplain(spy: () => MockFn, target: object, property: string, acces
         `Cannot spy on the '${accessor}' accessor of '${property}': the property is not configurable, so it cannot be redefined.`,
         target,
         error,
+        property,
       );
     }
 

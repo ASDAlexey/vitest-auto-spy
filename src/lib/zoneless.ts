@@ -11,7 +11,10 @@
 import { NgZone } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { fakeClockBacklog } from './fake-clock-state';
+import { withDocs } from './message-link';
+import { count } from './message-text';
 import { unpatchedClearTimeout as clearTimer, unpatchedSetTimeout as setTimer } from './unpatched-timers';
 
 /**
@@ -107,15 +110,16 @@ export async function stable(fixture: ComponentFixture<unknown>, options: Stable
 function unstableError(timeout: number, label: string | undefined): Error {
   const what = label ?? 'the fixture';
 
+  const pending = fakeClockBacklog() ?? 0;
+  const cause =
+    pending > 0
+      ? `${count(pending, 'callback')} ${pending === 1 ? 'waits' : 'wait'} on the fake clock, holding Angular busy — advance ` +
+        'it first: `await advanceTimers(ms)`.'
+      : 'A pending HttpClient request keeps a fixture unstable, and under `provideHttpClientTesting` only the spec completes ' +
+        'one — flush it first: `TestBed.inject(HttpTestingController).expectOne(url).flush(body)`. With no request pending, ' +
+        'a real `setInterval` the component started is what keeps it busy.';
+
   return new Error(
-    withDocs(
-      `[vitest-auto-spy] stable: ${what} was still unstable after ${timeout} ms. ` +
-        'A pending HttpClient request keeps a fixture unstable, and under `provideHttpClientTesting` only the spec can ' +
-        'complete one — flush it before awaiting (`TestBed.inject(HttpTestingController).expectOne(url).flush(body)`), or ' +
-        'use `settleResource()` if what you are waiting for is a resource. The other cause is a real timer: a `setInterval` ' +
-        'or a long `setTimeout` the component started keeps Angular busy for as long as it runs, and `setupFakeTimers()` ' +
-        'plus `advanceTimers()` is how a spec gets past that. Raise `{ timeout }` only once neither is true.',
-      DOCS_LINKS.angular,
-    ),
+    withDocs(`[vitest-auto-spy] stable: ${what} was still unstable after ${timeout} ms. ${cause}`, DOCS_LINKS.angularStable),
   );
 }

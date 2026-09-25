@@ -25,7 +25,8 @@ import {
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { resolveInputs } from './angular-inputs';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /**
  * The value `componentRef.setInput` expects for a member — signal inputs are set with the value, not
@@ -177,32 +178,43 @@ function refusedInImports(dependency: Type<unknown>): string | undefined {
  * is the AOT one, where the `NgModule` that declares it has already been flattened away, so the
  * scope simply cannot be rebuilt from what the definition carries.
  */
-function assertScopeIsImportable(component: Type<unknown>, kept: Type<unknown>[]): void {
-  const refused = kept.map(refusedInImports).filter((name): name is string => name !== undefined);
+function assertScopeIsImportable(component: Type<unknown>, kept: Type<unknown>[], candidates: readonly unknown[]): void {
+  const refused = kept.filter((dependency) => refusedInImports(dependency) !== undefined);
 
   if (refused.length === 0) {
     return;
   }
 
+  const names = refused.map((dependency) => dependency.name);
+  const owners = [...new Set(refused.map((dependency) => declaringModule(dependency, candidates)))];
+  const [owner] = owners;
+  const fix =
+    owners.length === 1 && owner !== undefined
+      ? `keepModules: [${owner}]`
+      : `keepModules: [<the NgModule that declares ${String(names[0])}>]`;
+
   throw new Error(
     withDocs(
-      `[vitest-auto-spy] renderShallow(${component.name}, { keepTemplate: true }): ${refused.length} of its template ` +
-        `dependencies are declared by an NgModule rather than standalone — ${refused.join(', ')} — and Angular takes ` +
-        'only standalone declarations and NgModules in `imports`.\n' +
-        'Nothing is wrong with those declarations, and the same call works under JIT. This is an AOT dependency list: ' +
-        'ngtsc resolves an imported NgModule at compile time and flattens its exported declarations into the ' +
-        'component, so the module that would carry them is not in the list to keep. The scope cannot be rebuilt from ' +
-        'what the definition holds.\n' +
-        'Name the module that declares them in `keepModules` — `keepModules: [ReactiveFormsModule]` — and it is put ' +
-        'back whole in their place.\n' +
-        'A spec that only needs a `viewChild` can drop `keepTemplate` for a stand-in with just that element — ' +
-        "`template: '<input #searchInput />'`.\n" +
-        `Or drop \`keepTemplate\` when the spec reads TypeScript state only — that is the case \`renderShallow\` is for — ` +
-        `or build ${component.name} with \`TestBed\` directly, which keeps its compiled scope untouched, and hold the ` +
-        'cost down by seeding the services its children inject rather than by trimming the template.',
-      DOCS_LINKS.angular,
+      `[vitest-auto-spy] renderShallow(${component.name}, { keepTemplate: true }): ${names.join(', ')} ` +
+        `${names.length === 1 ? 'is' : 'are'} declared by ${owner === undefined || owners.length > 1 ? 'an NgModule' : owner}, ` +
+        'not standalone, and Angular takes only standalone declarations and NgModules in `imports`.\n' +
+        `An AOT build flattened that module away, so name it and it is put back whole: ${fix}.`,
+      DOCS_LINKS.angularKeepTemplate,
     ),
   );
+}
+
+/** The module among the spec's own `imports` whose exported scope carries `dependency`, by name. */
+function declaringModule(dependency: unknown, candidates: readonly unknown[]): string | undefined {
+  return candidates
+    .filter((candidate): candidate is Type<unknown> => typeof candidate === 'function')
+    .find((candidate) => {
+      const scope = new Set<unknown>();
+
+      exportedScope(candidate, scope, new Set());
+
+      return scope.has(dependency);
+    })?.name;
 }
 
 /** A definition list the compiler stored either as the array or as a factory for it. */
@@ -256,7 +268,7 @@ function keptScope<T>(component: Type<unknown>, definition: object, options: Ren
   );
 
   kept.push(...(options.keepChildren ?? NOTHING));
-  assertScopeIsImportable(component, kept);
+  assertScopeIsImportable(component, kept, options.imports ?? NOTHING);
 
   return kept;
 }

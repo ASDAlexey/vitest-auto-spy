@@ -15,7 +15,7 @@
 import { afterAll, beforeAll, beforeEach, expect, vi } from 'vitest';
 
 import { noticeAngularBuildSplitting } from './angular-build-notice';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { type DocumentPollutionOptions, type DocumentPollutionReaction, watchDocumentPollution } from './document-guard';
 import { abandonEmissionWaits } from './emission-timeout';
 import { type FakeTimersConfig, setupFakeTimers } from './fake-timers';
@@ -25,6 +25,8 @@ import { setDefaultStrictMode, takeStrictViolations } from './function-spy';
 import { type GlobalPatchReaction, type GlobalSnapshot, checkSealedAdditions, snapshotWatchedGlobals } from './global-patch-guard';
 import { type GuardReaction, libraryWarn, reactToFindings } from './guard-reaction';
 import { annotateHookTimeout, readRunnerTimeouts } from './hook-timeout';
+import { withDocs } from './message-link';
+import { count, displayPath } from './message-text';
 import { type MisconfigurationReaction, setMisconfigurationReaction } from './misconfiguration';
 import { trackMockRegistry } from './mock-registry';
 import { type BlockNetworkOptions, blockNetwork } from './network-stub';
@@ -32,9 +34,9 @@ import { describeDuplicateCopies } from './package-identity';
 import { type OutsideHookReaction, beginPropEpoch, reportPropsOutsideHooks, restoreMockedProps } from './prop-mock';
 import { type PrototypePollutionReaction, type PrototypeSnapshot, checkPrototypePollution, snapshotPrototypes } from './prototype-guard';
 import { type TeardownStep, installTeardown } from './setup-teardown';
-import { ownFrames, stackFrames } from './stack-frames';
+import { currentSpecFile } from './spec-file';
 import { type StrayConsoleOptions, type StrayConsoleReaction, watchStrayConsole } from './stray-console';
-import { describeStrayTimer, strayTimersError } from './stray-failure';
+import { strayTimersError, strayTimersReport } from './stray-failure';
 import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
 import {
   type StrayTimer,
@@ -45,6 +47,7 @@ import {
   withoutStrayTimerTracking,
 } from './stray-timers';
 import { type StrictSurvey, createStrictSurvey } from './strict-survey';
+import { describeSwallowedStrictCalls } from './swallowed-strict';
 import { restoreTimerGlobals } from './timer-globals';
 import type { UnstubbedCallHandler, UnstubbedReadHandler } from './types';
 import { openReadWindow, reportUnconfiguredReads, setUnconfiguredReadsDefault } from './unconfigured-reads';
@@ -371,7 +374,7 @@ export interface SetupAutoSpyOptions {
    * `preset: 'strict'`. Reads are counted from the first `beforeEach` of a test to its last `afterEach`.
    *
    * ```
-   * [vitest-auto-spy] Router.url was read 3 times and nothing configured it, and strict mode is on.
+   * [vitest-auto-spy] Router.url was read 3 times on a strict double and nothing configured it, so the code under test got undefined.
    * ```
    */
   unconfiguredReads?: UnconfiguredReadsReaction;
@@ -412,20 +415,11 @@ export function warnAboutSuppressedLeaks(
 ): void {
   write(
     withDocs(
-      `[vitest-auto-spy] setupAutoSpy({ strayTimers: true }) cancelled ${cancelled} scheduled callback(s) at the end of this ` +
-        'file, and it did so before Vitest collected async leaks — so none of them appear under "Async Leaks" and this ' +
-        "run's leak report is not the whole story. To take the count and the origins yourself and say nothing, pass " +
-        `\`onStrayTimers\`.${describeTimerOrigins(timers)}`,
-      DOCS_LINKS.setup,
+      `${strayTimersReport(cancelled, timers, 3)}\n` +
+        'Vitest\'s detectAsyncLeaks looks after that cancel, so these timers are missing from its "Async Leaks" report.',
+      DOCS_LINKS.setupAsyncLeaks,
     ),
   );
-}
-
-/** The first few strays, each with its kind and delay, the file that scheduled it and its first frame. */
-function describeTimerOrigins(timers: readonly StrayTimer[]): string {
-  const lines = timers.slice(0, 3).map((timer) => `\n  - ${describeStrayTimer(timer)}`);
-
-  return lines.length > 0 ? `\nScheduled at:${lines.join('')}` : '';
 }
 
 /**
@@ -521,17 +515,19 @@ function reportDuplicateCopies(reaction: DuplicateCopiesReaction): void {
 }
 
 const LATE_ASSERTION_ADVICE =
-  'An assertion that settles after its test has finished cannot fail it: the test it belongs to was reported green without ever ' +
-  'running it. The usual causes are `.then(() => expect(...))` and an `async` helper called without `await` — return or await ' +
-  'the promise so the assertion lands inside the test.';
+  'An assertion that settles after its test has ended cannot fail it, so that test passed without it. Return or await the ' +
+  'promise — `.then(() => expect(…))` or an async helper called without await is the usual cause.';
 
 const UNHANDLED_ERROR_ADVICE =
-  'A rejection nothing handled is a code path the suite never asserted on: under zone.js it fails no test, so the run stays ' +
-  'green while the error scrolls past in stderr. Await the promise, or assert on it with ' +
-  '`await expect(promise).rejects.toThrow(...)`.';
+  'Under zone.js a rejection nothing handled fails no test. Await the promise, or assert on it with ' +
+  '`await expect(promise).rejects.toThrow(…)`.';
 
 function describeReason(reason: unknown): string {
-  return reason instanceof Error ? `${reason.name}: ${reason.message}` : `rejected with ${String(reason)}`;
+  return reason instanceof Error ? `${reason.name}: ${String(reason.message.split('\n')[0])}` : `rejected with ${String(reason)}`;
+}
+
+function surfacedIn(testName: string): string {
+  return testName === '' ? 'outside any test' : `in "${testName}"`;
 }
 
 /**
@@ -545,13 +541,19 @@ function describeReason(reason: unknown): string {
  * can only be asserted on by building it directly.
  */
 export function describeStrayRejections(rejections: readonly StrayRejection[]): string {
-  const lines = rejections.map((rejection) => `  - ${describeReason(rejection.reason)} — attributed to ${rejection.testName || 'no test'}`);
+  const tests = new Set(rejections.map((rejection) => rejection.testName));
+  const [only] = tests;
+  const shared = tests.size === 1 && only !== undefined ? ` ${surfacedIn(only)}` : '';
+  const lines = rejections.map(
+    (rejection) => `  - ${describeReason(rejection.reason)}${shared === '' ? ` — surfaced ${surfacedIn(rejection.testName)}` : ''}`,
+  );
   const advice = rejections.some((rejection) => rejection.assertion) ? LATE_ASSERTION_ADVICE : UNHANDLED_ERROR_ADVICE;
+  const one = rejections.length === 1;
 
   return withDocs(
-    `[vitest-auto-spy] ${rejections.length} promise rejection(s) went unhandled and zone.js swallowed each one into ` +
-      `console.error:\n${lines.join('\n')}\n${advice}`,
-    DOCS_LINKS.setup,
+    `[vitest-auto-spy] ${count(rejections.length, 'promise rejection')} went unhandled${shared}, and zone.js swallowed ` +
+      `${one ? 'it' : 'them'} into console.error:\n${lines.join('\n')}\n${advice}`,
+    DOCS_LINKS.setupRejections,
   );
 }
 
@@ -616,19 +618,6 @@ export function reportStrayRejections(context?: unknown): void {
   }
 }
 
-const SWALLOWED_STRICT_ADVICE =
-  'Something kept each error from failing the test: a try/catch in the code under test, an RxJS error with no handler ' +
-  '(its rethrow waits on a setTimeout the fake clock never runs), or a catchError that threw it in place of the error the ' +
-  'test expected. The test ran on without the answer it depended on. Configure each call; a test that provokes one on ' +
-  'purpose takes it with takeStrictViolations().';
-
-function describeSwallowedStrictCall(error: Error): string {
-  const headline = error.message.replace(/\n[\S\s]*$/, '');
-  const frames = ownFrames(stackFrames(error.stack), 2);
-
-  return [`  - ${headline.replace('[vitest-auto-spy] ', '')}`, ...frames.map((frame) => `      ${frame}`)].join('\n');
-}
-
 /**
  * Fail the test whose strict throws something swallowed — minus the ones the runner already reported.
  * Exported for this module's own spec: a real swallowed throw fails the test doing the asserting.
@@ -636,13 +625,7 @@ function describeSwallowedStrictCall(error: Error): string {
 export function reportSwallowedStrictCalls(context: unknown, reaction: GuardReaction): void {
   const reported = reportedErrors(context);
   const swallowed = takeStrictViolations().filter((error) => !alreadyReported(error, reported));
-  const findings =
-    swallowed.length > 0
-      ? [
-          `[vitest-auto-spy] ${swallowed.length} call(s) to a strict double threw during this test without failing it:\n` +
-            `${swallowed.map(describeSwallowedStrictCall).join('\n')}\n${SWALLOWED_STRICT_ADVICE}`,
-        ]
-      : [];
+  const findings = swallowed.length > 0 ? [describeSwallowedStrictCalls(swallowed, expect.getState().currentTestName)] : [];
 
   reactToFindings(findings, reaction);
 }
@@ -760,6 +743,7 @@ function watchPrototypePollution(reaction: PrototypePollutionReaction): Teardown
 declare global {
   // A `globalThis` augmentation has to be declared with `var`.
   var __vitestAutoSpyPrototypeBaseline__: PrototypeSnapshot[] | undefined;
+  var __vitestAutoSpyPreviousSpecFile__: string | undefined;
 }
 
 /**
@@ -779,6 +763,11 @@ declare global {
  */
 export function reportPrototypeLeftovers(write: (message: string) => void = writeWarning): void {
   const baseline = (globalThis.__vitestAutoSpyPrototypeBaseline__ ??= snapshotPrototypes());
+  const previous = globalThis.__vitestAutoSpyPreviousSpecFile__;
+  const starting = currentSpecFile();
+
+  // Recorded as each file starts: the next file's setup reads it, before that file is collected.
+  globalThis.__vitestAutoSpyPreviousSpecFile__ = typeof starting === 'string' ? starting : undefined;
   const findings = baseline.flatMap((snapshot) => {
     const added = Object.keys(snapshot.object).filter((key) => !snapshot.keys.has(key));
 
@@ -790,7 +779,7 @@ export function reportPrototypeLeftovers(write: (message: string) => void = writ
       }
     });
 
-    return added.length > 0 ? [describePrototypeLeftover(snapshot.name, added)] : [];
+    return added.length > 0 ? [describePrototypeLeftover(snapshot.name, added, previous)] : [];
   });
 
   if (findings.length > 0) {
@@ -798,14 +787,20 @@ export function reportPrototypeLeftovers(write: (message: string) => void = writ
   }
 }
 
-function describePrototypeLeftover(name: string, added: readonly string[]): string {
+/** Exported for its spec. */
+export function describePrototypeLeftover(name: string, added: readonly string[], previous: string | undefined): string {
+  const keys = added.map((key) => `"${key}"`).join(', ');
+  const culprit =
+    previous === undefined
+      ? 'a spec file that ran earlier in this worker'
+      : `the previous spec file of this worker, ${displayPath(previous)}`;
+
   return withDocs(
-    `[vitest-auto-spy] ${added.map((key) => `"${key}"`).join(', ')} was left on ${name} as an own enumerable property by a ` +
-      'spec file that has already finished — while it was imported, while it was collected, or in an `afterAll`. No hook of ' +
-      "that file could see it, and Vitest walks a file's hooks with `for…in`, so the key stops every later spec file in this " +
-      'worker from collecting at all — no stack, no failing test. It has been taken back off. Look at the file that ran before ' +
-      'this one: patch the prototype of the class an object came from, never `Object.getPrototypeOf(someObjectLiteral)`.',
-    DOCS_LINKS.setup,
+    `[vitest-auto-spy] ${keys} was left on ${name} by ${culprit} — while it was imported, collected or in an afterAll — ` +
+      'and has been taken off.\n' +
+      "Left on, the key stops every later spec file in the worker from collecting: Vitest walks a file's hooks with for…in. " +
+      'In that file, patch the prototype of the class an object came from, never Object.getPrototypeOf(someObjectLiteral).',
+    DOCS_LINKS.setupPrototypeEarlierFile,
   );
 }
 
@@ -956,14 +951,21 @@ function abandonPendingWaits(): void {
   const abandoned = abandonEmissionWaits();
 
   if (abandoned.length > 0) {
-    libraryWarn(
-      withDocs(
-        `[vitest-auto-spy] ${abandoned.length} emission helper(s) were never awaited in this test ` +
-          `(${abandoned.join(', ')}). The subscription is torn down now, but the assertion never ran.`,
-        DOCS_LINKS.observableAssertions,
-      ),
-    );
+    libraryWarn(describeAbandonedWaits(abandoned, expect.getState().currentTestName));
   }
+}
+
+/** Exported for its spec. */
+export function describeAbandonedWaits(abandoned: readonly string[], test: string | undefined): string {
+  const one = abandoned.length === 1;
+
+  return withDocs(
+    `[vitest-auto-spy] ${test === undefined ? 'This test' : `"${test}"`} never awaited ${count(abandoned.length, 'emission wait')} ` +
+      `(${abandoned.join(', ')}), so ${one ? 'its assertion' : 'their assertions'} never ran.\n` +
+      `Await ${one ? 'it' : 'each one'}, or return it from the test. ` +
+      `${one ? 'Its subscription is' : 'Their subscriptions are'} torn down now.`,
+    DOCS_LINKS.observableAssertions,
+  );
 }
 
 /** The steps of the shared `afterEach` that put the environment back, in the order they have to run. */
@@ -1066,7 +1068,9 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
     beforeEach(beginPropEpoch);
   }
 
-  const consoleGuard = watchStrayConsole(options.strayConsole);
+  // The file-end report runs in the boundary sweep: a sibling report that throws first would otherwise
+  // skip its own `afterAll`, and the output would be charged to the next file.
+  const consoleGuard = watchStrayConsole(options.strayConsole, false);
 
   const sweeps: BoundaryRepair[] = [];
 
@@ -1080,6 +1084,10 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
 
       return (): void => reportStrayTimers(cancelled, options.onStrayTimers, timers);
     });
+  }
+
+  if (consoleGuard) {
+    sweeps.push(consoleGuard.closeFile);
   }
 
   if (options.pruneMockRegistry ?? false) {

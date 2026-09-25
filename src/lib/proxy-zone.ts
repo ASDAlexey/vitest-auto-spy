@@ -28,6 +28,8 @@
  * loaded (the Angular builder loads `zone.js/testing` from its own entry point, before any setup
  * file runs) — and says so when it has not.
  */
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /** The sliver of zone.js this module needs, declared locally so nothing imports it. */
 interface ZoneLike {
@@ -70,20 +72,26 @@ let sharedProxyZone: ZoneLike | undefined;
 /** The runner globals whose callbacks have to run inside a proxy zone. */
 const PATCHED_GLOBALS = ['it', 'test', 'beforeEach', 'afterEach', 'beforeAll', 'afterAll'] as const;
 
-const MISSING_ZONE =
-  '[vitest-auto-spy] vitest-auto-spy/zone: globalThis.Zone is not there, so there is nothing to patch. ' +
-  'This entry deliberately does not import zone.js — a zoneless project must not pull it in — so the ' +
-  "consumer loads it: `import 'zone.js'; import 'zone.js/testing';` at the top of the setup file, or, under " +
-  '`@angular/build:unit-test`, the builder already does it from its own entry point.';
+const MISSING_ZONE = withDocs(
+  '[vitest-auto-spy] vitest-auto-spy/zone: globalThis.Zone is not there, so there is nothing to patch — this entry ' +
+    'does not import zone.js itself, so that a zoneless project never pulls it in.\n' +
+    "Load it at the top of the setup file: `import 'zone.js'; import 'zone.js/testing';` (under @angular/build:unit-test " +
+    'the builder does this already).',
+  DOCS_LINKS.zoneRequirements,
+);
 
-const MISSING_PROXY_ZONE_SPEC =
-  '[vitest-auto-spy] vitest-auto-spy/zone: zone.js is loaded but Zone.ProxyZoneSpec is not. ' +
-  "That spec comes from `zone.js/testing`, so the testing bundle is missing: add `import 'zone.js/testing';` after zone.js itself.";
+const MISSING_PROXY_ZONE_SPEC = withDocs(
+  '[vitest-auto-spy] vitest-auto-spy/zone: zone.js is loaded but Zone.ProxyZoneSpec is not — that comes from the ' +
+    "testing bundle.\nAdd `import 'zone.js/testing';` after zone.js itself.",
+  DOCS_LINKS.zoneRequirements,
+);
 
-const MISSING_GLOBALS =
-  '[vitest-auto-spy] vitest-auto-spy/zone: the runner globals (it, beforeEach, …) are not on globalThis, ' +
-  'so there is nothing to wrap. The patch works by replacing them, which needs `test: { globals: true }` in the ' +
-  'Vitest config — an imported `it` is a module binding this (or any) patch cannot reach.';
+const MISSING_GLOBALS = withDocs(
+  '[vitest-auto-spy] vitest-auto-spy/zone: the runner globals (it, beforeEach, …) are not on globalThis, so there is ' +
+    'nothing to wrap — an imported `it` is a module binding no patch can reach.\n' +
+    'Set `test: { globals: true }` in the Vitest config.',
+  DOCS_LINKS.zoneRequirements,
+);
 
 function readZone(): { zone: ZoneLike; ProxyZoneSpec: new () => object } {
   // zone.js publishes `Zone` as a *class*, so this is a function rather than an object — and a

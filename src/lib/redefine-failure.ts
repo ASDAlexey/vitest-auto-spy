@@ -11,7 +11,8 @@
  * `vi.mock()` of the module whose export they are trying to replace is a **silent** no-op under a
  * bundler, and this is what they hit second.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /**
  * What every runtime says, and only that, when a property refuses to be redefined.
@@ -46,19 +47,45 @@ export function describeSpyTarget(target: object): string {
 }
 
 /**
- * Everything true of the failure regardless of which seam ran into it.
- *
- * Kept as one string because both halves are load-bearing: the first paragraph tells the reader that
- * no library can help — including the one they are reading the message from — and the second gives
- * the only repair, which is a change to the code under test rather than to the spec.
+ * The module-namespace case, where no double library can help: the first paragraph says so, the
+ * second gives the only repair, which is a change to the code under test rather than to the spec.
  */
-const REDEFINE_ADVICE =
+const NAMESPACE_ADVICE =
   'An ES module namespace is what a bundler leaves behind once it has inlined a barrel or a workspace alias ' +
   '(`@angular/build:unit-test`, a pre-bundled `vite-node` entry): the export is a live binding, not a writable ' +
   'property, and no spy library — this one, `vi.spyOn`, `jest.spyOn` — can replace it. `vi.mock()` of the same ' +
   'module is the silent version of this failure, not the fix.\n' +
   'Give the code under test a real seam and spy on that: inject the dependency, pass it in as an argument, or ' +
   'reach it through a class or object your own code owns.';
+
+function adviceFor(description: string, target: object, property: PropertyKey | undefined): [advice: string, link: string] {
+  if (description === 'an ES module namespace') {
+    return [NAMESPACE_ADVICE, DOCS_LINKS.realSeam];
+  }
+
+  if (description === 'a frozen object') {
+    return [
+      'A frozen object refuses every change. Hand the code under test a copy ({ ...object }) and spy on that, or a double built with createSpyFromClass.',
+      DOCS_LINKS.createSpyFromClass,
+    ];
+  }
+
+  if (description === 'a plain object') {
+    return [
+      'Hand the code under test a copy ({ ...object }) and patch that, or a double built with createAutoMock<T>().',
+      DOCS_LINKS.autoMockByType,
+    ];
+  }
+
+  const className = String(Reflect.get(Object(Reflect.get(target, 'constructor')), 'name'));
+  const accessor = property !== undefined && typeof Reflect.get(target, property) !== 'function';
+  const option = accessor ? `, { gettersToSpyOn: ['${String(property)}'] }` : '';
+
+  return [
+    `Build a double instead of patching the real instance: createSpyFromClass(${className}${option}).`,
+    DOCS_LINKS.createSpyFromClassAccessorSpies,
+  ];
+}
 
 /**
  * Build the replacement error.
@@ -67,11 +94,9 @@ const REDEFINE_ADVICE =
  * written as a complete sentence by the caller, because "spy on the get accessor of X" and "replace
  * the property X" are not two values of one template.
  */
-export function redefineFailure(lead: string, target: object, cause: unknown): Error {
-  return new Error(
-    withDocs(`[vitest-auto-spy] ${lead} The target is ${describeSpyTarget(target)}.\n${REDEFINE_ADVICE}`, DOCS_LINKS.realSeam),
-    {
-      cause,
-    },
-  );
+export function redefineFailure(lead: string, target: object, cause: unknown, property?: PropertyKey): Error {
+  const description = describeSpyTarget(target);
+  const [advice, link] = adviceFor(description, target, property);
+
+  return new Error(withDocs(`[vitest-auto-spy] ${lead} The target is ${description}.\n${advice}`, link), { cause });
 }

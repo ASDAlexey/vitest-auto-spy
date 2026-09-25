@@ -23,8 +23,9 @@
  */
 import { type Signal, type WritableSignal, computed, signal, untracked } from '@angular/core';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { createFunctionSpy } from './function-spy';
+import { withDocs } from './message-link';
 import { mockReadonlyProp } from './prop-mock';
 import type { AddSpyMethodsByReturnTypes, NotAPublicKey } from './types';
 
@@ -138,7 +139,7 @@ class ResourceValueError extends Error {
         `[vitest-auto-spy] ${name}.value() was read while the resource is in the error state: ${failure}.\n` +
           'A real resource throws here too — branch on hasValue() or status() first, ' +
           'or assert with `expect(resource).toHaveResourceError()`.',
-        DOCS_LINKS.angular,
+        DOCS_LINKS.angularMockResource,
       ),
       { cause: failure },
     );

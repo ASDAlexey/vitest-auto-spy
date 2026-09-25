@@ -19,12 +19,13 @@
  * The entry is narrow on purpose: this is the only file of the package that reaches
  * `@angular/forms`, which stays an optional peer paid for by the suites that import it.
  */
-import { Injector, type WritableSignal, isSignal, signal } from '@angular/core';
+import { Injector, type WritableSignal, isSignal, signal, ɵSIGNAL } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { type FieldTree, type SchemaOrSchemaFn, form, isFieldTree } from '@angular/forms/signals';
 import { expect } from 'vitest';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /** Where a form is built, when the `TestBed`'s own injector is not the one the spec wants. */
 export interface CreateFormOptions {
@@ -64,6 +65,26 @@ declare global {
   }
 }
 
+/** Which kind of read-only signal was handed in, read off its reactive node. */
+function describeReadOnly(source: object): string {
+  const node: object = Object(Reflect.get(source, ɵSIGNAL));
+
+  if ('computation' in node) {
+    return 'a computed(), which cannot be written';
+  }
+
+  return 'transformFn' in node ? 'an input(), which only its parent writes' : 'a read-only signal';
+}
+
+/** `email` for a field Angular names `a.form0.email`; the tree's own prefix says nothing to the reader. */
+function fieldName(received: unknown): string | undefined {
+  const state: unknown = isFieldTree(received) ? received() : received;
+  const name: unknown = Reflect.get(Object(state), 'name');
+  const value: unknown = isSignal(name) ? name() : undefined;
+
+  return typeof value === 'string' ? value.replace(/^.*?\bform\d+\.?/, '') || 'the form itself' : undefined;
+}
+
 function modelOf<TModel>(source: TModel | WritableSignal<TModel>): WritableSignal<TModel> {
   if (!isSignal(source)) {
     return signal(source);
@@ -72,9 +93,9 @@ function modelOf<TModel>(source: TModel | WritableSignal<TModel>): WritableSigna
   if (typeof Reflect.get(source, 'set') !== 'function') {
     throw new Error(
       withDocs(
-        '[vitest-auto-spy] createForm(): a form writes back into its model, so the model has to be a writable signal — a ' +
-          'computed() or an input() cannot be one. Pass signal(initialValue), or the initial value itself.',
-        DOCS_LINKS.signalForms,
+        `[vitest-auto-spy] createForm(): the model is ${describeReadOnly(source)}, and a form writes back into its model.\n` +
+          'Pass signal(initialValue), or the initial value itself.',
+        DOCS_LINKS.signalFormsCreate,
       ),
     );
   }
@@ -224,7 +245,7 @@ export function registerFormMatchers(): void {
         throw new Error(
           withDocs(
             `[vitest-auto-spy] toHaveFieldErrors: expected a field of a signal form — form.email or form.email() — received ${this.utils.printReceived(received)}.`,
-            DOCS_LINKS.signalForms,
+            DOCS_LINKS.signalFormsErrors,
           ),
         );
       }
@@ -236,7 +257,11 @@ export function registerFormMatchers(): void {
         pass,
         actual,
         expected: want,
-        message: (): string => `expected the field ${pass ? 'not ' : ''}to have ${printErrors(want)}, got ${printErrors(actual)}`,
+        message: (): string => {
+          const name = fieldName(received);
+
+          return `expected ${name === undefined ? 'the field' : `field '${name}'`} ${pass ? 'not ' : ''}to have ${printErrors(want)}, got ${printErrors(actual)}`;
+        },
       };
     },
   });

@@ -4,9 +4,11 @@
  * in a failure diff is read by the formatter, and a throw there would break the very message it
  * belongs to — so reads are noted while a test runs and judged by `setupAutoSpy` after it.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { defaultStrict } from './function-spy';
 import { type GuardReaction, reactToFindings } from './guard-reaction';
+import { withDocs } from './message-link';
+import { count } from './message-text';
 import { type UnfedSubscriptionListener, requireObservableSupport } from './observable-support';
 import type { UnstubbedRead, UnstubbedReadHandler } from './types';
 
@@ -123,14 +125,14 @@ export function createTrackedPropSpy(member: string, guard: ReadGuard | undefine
   const support = requireObservableSupport();
 
   if (!guard) {
-    return support.createPropSpy();
+    return support.createPropSpy(undefined, member);
   }
 
   const listener: UnfedSubscriptionListener = (stillUnfed) => {
     noteRead(listener, guard, member, 'observable', stillUnfed);
   };
 
-  return support.createPropSpy(listener);
+  return support.createPropSpy(listener, guard.className === undefined ? member : `${guard.className}.${member}`);
 }
 
 /**
@@ -148,33 +150,15 @@ export function openReadWindow(): void {
   current.open = true;
 }
 
-function times(count: number): string {
-  return count === 1 ? '1 time' : `${count} times`;
-}
-
-function describeRead({ guard, member, kind, count }: ReadEntry): string {
+function describeRead({ guard, member, kind, count: reads }: ReadEntry): string {
   const target = guard.className === undefined ? member : `${guard.className}.${member}`;
 
   return kind === 'getter'
-    ? `[vitest-auto-spy] ${target} was read ${times(count)} and nothing configured it, and strict mode is on.`
-    : `[vitest-auto-spy] ${target} was subscribed to ${times(count)} and nothing fed it, and strict mode is on.`;
-}
-
-const GETTER_ADVICE =
-  'The getter answered undefined, so the code under test ran on without the value it depended on. Configure it — ' +
-  "accessorSpies.getters.<name>.mockReturnValue(…), overrides: { <name>: … } or mockReadonlyProp(double, '<name>', …) — or, " +
-  'when undefined is the answer meant, say so: mockReturnValue(undefined).';
-
-const STREAM_ADVICE =
-  'The stream never emitted. When the spec fires it, seed a real one — overrides: { <name>: new Subject() } — and drive that ' +
-  'Subject from the test; nextWith(…), returnSubject() and complete() feed the spy instead. When this test never fires it, ' +
-  'observablePropsToSpyOn is the wrong tool: it adds a stream nobody feeds — seed overrides: { <name>: NEVER } or a Subject left silent.';
-
-function readsAdvice(found: readonly ReadEntry[]): string {
-  const kinds = new Set(found.map((entry) => entry.kind));
-  const advice = [kinds.has('getter') ? GETTER_ADVICE : undefined, kinds.has('observable') ? STREAM_ADVICE : undefined];
-
-  return [...advice.filter((line) => line !== undefined), "Or drop 'strict' from this double."].join(' ');
+    ? `[vitest-auto-spy] ${target} was read ${count(reads, 'time')} on a strict double and nothing configured it, so the code under test got undefined.\n` +
+        `Configure it in the test: accessorSpies.getters.${member}.mockReturnValue(…), or mockReturnValue(undefined) when undefined is the answer meant.`
+    : `[vitest-auto-spy] ${target} was subscribed to ${count(reads, 'time')} on a strict double and never emitted.\n` +
+        `Feed it in the test: ${member}.nextWith(…), or seed overrides: { ${member}: new Subject() } and drive that Subject; ` +
+        `overrides: { ${member}: NEVER } when this test never fires it.`;
 }
 
 /**
@@ -185,23 +169,21 @@ export function reportUnconfiguredReads(reaction: GuardReaction): void {
   const current = ledger();
   const found = [...current.entries.values()].filter((entry) => entry.stillUnconfigured?.() ?? true);
   const lines: string[] = [];
-  const reported: ReadEntry[] = [];
 
   current.entries.clear();
   current.open = false;
 
   for (const entry of found) {
-    const { guard, member, kind, count } = entry;
+    const { guard, member, kind } = entry;
 
     if (guard.handle) {
-      guard.handle({ className: guard.className, member, kind, count });
+      guard.handle({ className: guard.className, member, kind, count: entry.count });
     } else {
       lines.push(describeRead(entry));
-      reported.push(entry);
     }
   }
 
   if (reaction !== 'off' && lines.length > 0) {
-    reactToFindings([withDocs(`${lines.join('\n')}\n${readsAdvice(reported)}`, DOCS_LINKS.unconfiguredReads)], reaction);
+    reactToFindings([withDocs(lines.join('\n'), DOCS_LINKS.unconfiguredReads)], reaction);
   }
 }

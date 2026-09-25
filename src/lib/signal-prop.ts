@@ -40,7 +40,8 @@ import { type Signal, type WritableSignal, isSignal, signal, ɵSIGNAL } from '@a
 import { type SignalNode, signalGetFn, signalSetFn, signalUpdateFn } from '@angular/core/primitives/signals';
 
 import { assertAngularInternals } from './angular-internals';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { mockReadonlyProp } from './prop-mock';
 import type { NotAPublicKey } from './types';
 
@@ -135,7 +136,7 @@ function describeInput(property: PropertyKey): string {
       '`inputSignalNode.applyValueToInputSignal is not a function`. Drive it the supported way instead: ' +
       `fixture.componentRef.setInput('${String(property)}', value) during the test, or ` +
       'renderShallow(Component, { inputs: { … } }) for the value it starts at.',
-    DOCS_LINKS.angular,
+    DOCS_LINKS.angularSignalProp,
   );
 }
 
@@ -147,7 +148,7 @@ function describeLiveConsumers(property: PropertyKey): string {
       'read it through, and all of them would stay on the old one for the rest of the test, cached value and all. ' +
       'Patch before the first detectChanges() / stable(fixture), or drive the signal the computed() reads — a ' +
       'signal() or an asReadonly() view of one is written through in place, whenever it was read.',
-    DOCS_LINKS.angular,
+    DOCS_LINKS.angularSignalProp,
   );
 }
 

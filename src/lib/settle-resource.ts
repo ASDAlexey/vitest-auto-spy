@@ -22,7 +22,10 @@
  * real event-loop turns and never ticks, so a resource whose request has not been issued yet
  * finishes the budget having issued nothing.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { fakeClockBacklog } from './fake-clock-state';
+import { withDocs } from './message-link';
+import { count } from './message-text';
 import { flushEffects } from './zoneless';
 
 /**
@@ -140,17 +143,19 @@ export async function settleResource(target: ResourceStatusLike, options: Settle
 function budgetError(status: string, spent: number, label: string | undefined): Error {
   const what = label ?? 'the resource';
 
+  const pending = fakeClockBacklog() ?? 0;
+  const cause =
+    pending > 0
+      ? `${count(pending, 'callback')} ${pending === 1 ? 'waits' : 'wait'} on the fake clock, and no number of rounds moves ` +
+        'it — advance it: `await advanceTimers(ms)`.'
+      : 'Its request is not complete, and under `provideHttpClientTesting` only the spec completes one — flush it: ' +
+        '`TestBed.inject(HttpTestingController).expectOne(url).flush(body)`, then await this again. With no request to ' +
+        'flush, the injection context it was created in was discarded, or its fixture destroyed.';
+
   return new Error(
     withDocs(
-      `[vitest-auto-spy] settleResource: ${what} was still '${status}' after ${spent} rounds of tick + microtask, the ` +
-        'later ones with an event-loop turn as well. A resource stays loading until its request completes, and under ' +
-        '`provideHttpClientTesting` nothing but the spec can complete one — flush it first ' +
-        '(`TestBed.inject(HttpTestingController).expectOne(url).flush(body)`), then await this again. If there is no ' +
-        'request to flush, nothing ticked it into flight: the injection context it was created in was discarded, or the ' +
-        'fixture that owns it was destroyed. (A resource whose `params()` returned `undefined` reports `idle`, not ' +
-        '`loading`, and fails here with its own message.) And if the loader resolves on a *faked* timer, no number of ' +
-        'turns will do it — `advanceTimers()` is what moves those.',
-      DOCS_LINKS.angular,
+      `[vitest-auto-spy] settleResource: ${what} was still '${status}' after ${count(spent, 'round')} of tick + microtask. ${cause}`,
+      DOCS_LINKS.angularResources,
     ),
   );
 }
@@ -162,11 +167,9 @@ function idleError(label: string | undefined): Error {
   return new Error(
     withDocs(
       `[vitest-auto-spy] settleResource: ${what} never started — its status is 'idle', so the loader has not run and ` +
-        '`value()` is still the default every assertion below is about to read. A resource stays idle while the ' +
-        '`params()` computation it was created with returns `undefined`, which is what happens when the spec never set ' +
-        'the signal that computation reads — set it, `flushEffects()`, then await this. Pass `{ allowIdle: true }` if ' +
-        'the idle state is itself what the spec asserts.',
-      DOCS_LINKS.angular,
+        '`value()` is still the default. Its `params()` returned `undefined`: set the signal it reads, `flushEffects()`, ' +
+        'then await this. Pass `{ allowIdle: true }` if idle is what the spec asserts.',
+      DOCS_LINKS.angularResources,
     ),
   );
 }

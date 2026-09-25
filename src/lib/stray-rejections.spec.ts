@@ -137,7 +137,9 @@ describe('stray rejections', () => {
     trackStrayRejections(host)();
 
     expect(Reflect.get(zone, slot)).toBe(previous);
-    expect(() => countStrayRejections(host)).toThrow(/needs trackStrayRejections\(\) to have run first/);
+    expect(() => countStrayRejections(host)).toThrow(
+      /countStrayRejections\(\) found no tracking to count: nothing called trackStrayRejections\(\)/,
+    );
   });
 
   it('unwraps a promise rejected with nothing at all', () => {
@@ -188,7 +190,9 @@ describe('stray rejections', () => {
   });
 
   it('counting an untracked host says what is missing', () => {
-    expect(() => countStrayRejections(createHost().host)).toThrow(/needs trackStrayRejections\(\) to have run first/);
+    expect(() => countStrayRejections(createHost().host)).toThrow(
+      /countStrayRejections\(\) found no tracking to count: nothing called trackStrayRejections\(\)/,
+    );
   });
 
   it('refuses a host with no zone.js, and says why that is better than doing nothing', () => {

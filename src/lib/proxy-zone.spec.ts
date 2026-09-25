@@ -104,7 +104,9 @@ describe('installProxyZonePatch', () => {
       mockValueProp(globalThis, key, undefined);
     });
 
-    expect(() => installProxyZonePatch()).toThrow(/needs `test: \{ globals: true \}`/);
+    expect(() => installProxyZonePatch()).toThrow(
+      /are not on globalThis[\s\S]*\nSet `test: \{ globals: true \}` in the Vitest config\.\nDocs: .*zone#requirements/,
+    );
   });
 
   it('runs a test body inside a forked proxy zone, and puts the globals back', () => {

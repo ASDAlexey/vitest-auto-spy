@@ -18,7 +18,8 @@
  */
 import type { EffectRef, Signal } from '@angular/core';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { mockValueProp } from './prop-mock';
 import { readReactiveNode } from './run-effect';
 
@@ -31,29 +32,29 @@ export interface RunCounter {
 }
 
 const NOT_A_SIGNAL = withDocs(
-  'trackRecomputations(): the argument carries no reactive node, so it is not a signal. Pass the computed() itself — ' +
+  '[vitest-auto-spy] trackRecomputations(): the argument carries no reactive node, so it is not a signal. Pass the computed() itself — ' +
     'trackRecomputations(component.total), not trackRecomputations(component.total()), which passes the value it last returned.',
-  DOCS_LINKS.angular,
+  DOCS_LINKS.angularTrackRuns,
 );
 
 const NOT_A_COMPUTED = withDocs(
-  'trackRecomputations(): this signal keeps no computation, so there is nothing to count. A signal() created with a ' +
+  '[vitest-auto-spy] trackRecomputations(): this signal keeps no computation, so there is nothing to count. A signal() created with a ' +
     'value holds it rather than computing it — track the computed() that reads it, or count the effect that reacts to ' +
     'it with trackEffectRuns(). If it really is a computed(), this Angular version keeps the computation elsewhere.',
-  DOCS_LINKS.angular,
+  DOCS_LINKS.angularTrackRuns,
 );
 
 const NOT_AN_EFFECT = withDocs(
-  'trackEffectRuns(): the argument carries no reactive node, so it is not an EffectRef returned by effect(). Pass what ' +
+  '[vitest-auto-spy] trackEffectRuns(): the argument carries no reactive node, so it is not an EffectRef returned by effect(). Pass what ' +
     'effect() returned rather than the callback it was given; a field that is still undefined means the effect has not ' +
     'been created yet.',
-  DOCS_LINKS.angular,
+  DOCS_LINKS.angularTrackRuns,
 );
 
 const UNKNOWN_EFFECT_BODY = withDocs(
-  'trackEffectRuns(): this Angular version keeps the effect body somewhere this helper does not know about, so there is ' +
+  '[vitest-auto-spy] trackEffectRuns(): this Angular version keeps the effect body somewhere this helper does not know about, so there is ' +
     'nothing to count. Count what the effect produces instead — have it write a signal, and assert that value.',
-  DOCS_LINKS.angular,
+  DOCS_LINKS.angularTrackRuns,
 );
 
 /** One member of a reactive node, if the node still keeps it as a function. */

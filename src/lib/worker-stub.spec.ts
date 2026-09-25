@@ -236,7 +236,9 @@ describe('stubWorker', () => {
     workers.last.fail(new Error('late'));
 
     expect(onerror).not.toHaveBeenCalled();
-    expect(() => workers.last.emit('late')).toThrow(/emit\(\) on a terminated worker \(doubling\.js\)/);
+    expect(() => workers.last.emit('late')).toThrow(
+      /emit\(\) on a terminated worker \(doubling\.js\)[\s\S]*Emit before the code under test terminates the worker/,
+    );
   });
 
   it('calls onmessageerror for a messageerror event', () => {
@@ -253,7 +255,15 @@ describe('stubWorker', () => {
   it('says what to check when the code under test built no worker', () => {
     const workers = stubWorker();
 
-    expect(() => workers.last).toThrow(/has not constructed a Worker/);
+    expect(() => workers.last).toThrow(/the stub is installed, but the code under test has not constructed a Worker yet/);
+  });
+
+  it('says the stub was taken off when a restore already removed it', () => {
+    const workers = stubWorker();
+
+    restoreMockedProps();
+
+    expect(() => workers.last).toThrow(/this stub is no longer the global Worker[\s\S]*#the-stub-nobody-takes-off$/);
   });
 
   it('puts the previous Worker back through restoreMockedProps', () => {
