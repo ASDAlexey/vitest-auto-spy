@@ -70,6 +70,8 @@ describe('core without vitest-auto-spy/rxjs', () => {
   });
 
   it('throws an actionable hint when observable props are requested', () => {
-    expect(() => createSpyFromClass(Service, { observablePropsToSpyOn: ['value$'] })).toThrow(/vitest-auto-spy\/rxjs/);
+    expect(() => createSpyFromClass(Service, { observablePropsToSpyOn: ['value$'] })).toThrow(
+      /^\[vitest-auto-spy\] Observable spies require rxjs, and 'vitest-auto-spy\/rxjs' was not imported in this run\. Add `import 'vitest-auto-spy\/rxjs';` once/,
+    );
   });
 });
