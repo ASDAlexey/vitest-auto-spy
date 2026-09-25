@@ -63,6 +63,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `stubWebStorage(key?, opts?)`                                                                                | An in-memory `localStorage` / `sessionStorage` a spec installs for itself, seeded or empty, with `snapshot()` to assert on; restored by `restoreMockedProps()` (`/dom-stubs`)                                                                                                             |
 | `installPerTest(install)`                                                                                    | Re-install a stub before every test of the block, and read back the current handle (`/setup`)                                                                                                                                                                                             |
 | `stubMediaElement(opts?)`                                                                                    | A `<video>` / `<audio>` that plays, reports a duration and fires the media events                                                                                                                                                                                                         |
+| `stubAnimationFrame(opts?)` / `stubElementRect(element, rect?)`                                              | `requestAnimationFrame` / `cancelAnimationFrame` run on the spot or on `flush(timestamp?)`; a `getBoundingClientRect()` answering a real `DOMRect` from a partial `DOMRectInit`. Both restored by `restoreMockedProps()` (`/dom-stubs`, [page](/utilities/frame-and-rect))                |
 | `assertMocked(namespace, opts?)`                                                                             | Fail when the `vi.mock()` this spec relies on silently did not apply                                                                                                                                                                                                                      |
 | `moduleNamespace(exports, opts?)`                                                                            | The `vi.mock` factory result an interop probe recognises (`default` + `__esModule`) — a `default` the factory spells out is kept as written; `passthrough: true` spies every function export through to the real one                                                                      |
 | `adoptMock(mock, opts?)`                                                                                     | A runner mock a `vi.mock` factory built, taken over in place as a typed function spy (`calledWith`, `resolveWith`, …); history kept, unconfigured calls answer as before                                                                                                                  |
@@ -294,16 +295,19 @@ a `NodeList` stays assignable to the mapping of itself.
 `AutoSpyDefaultEntry<T>`, `ArgCaptor<T>` and `CaptureArgOptions` (what `captureArg` returns and the
 `{ where }` it takes), `SpyClassOptions` (the `{ statics }` of `createSpyClass`),
 `AddThrowHelper` (the `failWith` every method spy carries), `CallLog<T>` (the journal `createLog`
-hands back) are exported from the core as well;
+hands back) and `AutoMocked<T>` (what `autoMocked<T>()` returns, for a `let` assigned in `beforeEach`)
+are exported from the core as well;
 `/angular` adds `AutoSpyTokenDefaults<T>` (a token's registration), `AutoSpyFixture`, `SpiedFixtures<Spec>` and `ExtendWithAutoSpiesOptions` for
 `extendWithAutoSpies`, `ComponentStubOptions` for `createComponentStub`, `RunCounter` (the
 `{ count, stop() }` of `trackRecomputations` and `trackEffectRuns`) and `MockResourceOptions` /
-`ResourceDoubleSnapshot<V>` for `mockResourceProp`; `/angular/diagnostics` adds
+`ResourceDoubleSnapshot<V>` for `mockResourceProp`, `ElementConstructor<E>` and `NativeElementHolder`
+for `hostElement` / `queryElement`; `/angular/diagnostics` adds
 `AngularDiagnosticsOptions`, `SpecTiming` and `TestBedDiagnosticsOptions`; `/angular/doubles` adds
-`MatDialogRefInit<Ref>`, `MatDialogRefDouble<Ref>`, `DialogRefLike`, `DialogResult<Ref>` and
-`DialogComponent<Ref>` for the dialog doubles, `PlatformOverrides<T>` for the window and document
+`MatDialogRefInit<Ref>`, `MatDialogRefDouble<Ref>`, `DialogRefLike`, `DialogResult<Ref>`,
+`DialogComponent<Ref>` and `DialogDataOf<T, Token>` for the dialog doubles, `PlatformOverrides<T>` for the window and document
 ones; `/angular/matchers` adds `ResourceLike` and `SignalLike`; `/dom-stubs` adds
-`WebStorageKey`, `WebStorageStub` and `WebStorageStubOptions` for `stubWebStorage`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
+`WebStorageKey`, `WebStorageStub` and `WebStorageStubOptions` for `stubWebStorage`, and
+`AnimationFrameStub`, `AnimationFrameStubOptions` and `AnimationFrameMode` for `stubAnimationFrame`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` and `HttpTestingOptions` for
 `expectRequest` and `provideHttpTesting`; `/angular-router` adds `ActivatedRouteInit`,
 `ActivatedRouteChange` and `ActivatedRouteDouble` for its route helpers, `RouterDoubleInit`, `NavigationInit` and

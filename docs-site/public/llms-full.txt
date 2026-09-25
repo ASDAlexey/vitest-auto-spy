@@ -1834,6 +1834,25 @@ A type-driven double never read a class, so the message names it by the line tha
 value rather than a spy, so it never reaches the guard at all. The same fallback covers a fully
 abstract class handed to `createSpyFromClass`, which returns this proxy named after the class: `strict` travels into it.
 
+A double handed to the code under test as an argument, rather than injected, has to be a `T` at the
+call site and a `Spy<T>` at the assertion. `autoMocked<T>(overrides?, config?)` builds the same object
+typed as both, and `AutoMocked<T>` names that type for a `let` assigned in `beforeEach`:
+
+```ts
+import { type AutoMocked, autoMocked } from 'vitest-auto-spy';
+
+let logger: AutoMocked<Logger>;
+
+beforeEach(() => {
+  logger = autoMocked<Logger>();
+});
+
+it('logs the failure', () => {
+  checkEndpoint('/health', logger); // accepted as a Logger
+  expect(logger.error).toHaveBeenCalledOnce(); // and a spy here
+});
+```
+
 ### `using` — reset at the end of the block
 
 ```ts
@@ -14066,7 +14085,8 @@ it('seeks', () => expect(spy).toHaveBeenCalled());
 
 The first two shapes are exactly what the helpers do, so `--fix` applies them: the call, every
 `name.m` read becoming `name`, the helper imported beside the factory (from the same entry when it
-is one that exports the helper, from the root otherwise) and the factory's import dropped once the
+is one that exports the helper, otherwise from the adapter entry the file imports, and from the root
+when it imports none) and the factory's import dropped once the
 rewrite took its last use. A `Spy<X>` annotation on the name becomes `Spy<X>['m']` in a suggestion
 rather than a fix; any other annotation, explicit type arguments, or a `spyOnOwnMethod` the file
 declares itself leave the report without an edit.
@@ -14393,8 +14413,11 @@ The module is cached for the worker, so **any** value is reported, not only a do
 teardown hook silences it as it does for a global. A local, `this`, a computed key and a namespace
 object itself (`import * as env`; the object is sealed and the write throws) are not reported.
 
-`--fix` rewrites the statement to `mockValueProp(environment, 'production', true)` and imports
-`mockValueProp` when the file has not. It fixes only a statement that runs in a test or a
+`--fix` rewrites the statement to `mockValueProp(environment, 'production', true)` and, when the file
+has no `mockValueProp` in scope, imports it from the adapter entry the file already imports
+(`vitest-auto-spy/bun`, `/bun-angular`, `/node`, `/rstest`…), so a spec on another runner does not
+load Vitest's adapter, and from `vitest-auto-spy` when it imports none; one imported from any other
+entry is used as it is. It fixes only a statement that runs in a test or a
 `beforeEach`: in `beforeAll` or a `describe` body the sweep after the first test would take the patch
 off for the rest of the file, so there the report comes without a fix. An assignment used as a value,
 and a file that declares its own `mockValueProp`, are left unfixed too.
@@ -16820,7 +16843,7 @@ line:
 | Exit | Meaning                                                                                                                                                                                                                                                       |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `0`  | The command ran and has nothing to report                                                                                                                                                                                                                     |
-| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date, `perf --gate` a confirmed budget                                                                  |
+| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date or a stale copy of the skill, `perf --gate` a confirmed budget                                     |
 | `2`  | It could not do the job it was asked to do: an unknown command, an unknown flag for a known command, a flag value it cannot use, an unknown transform id on `--only` / `--skip`, a `codemod` path that matches no file, or a `perf` run with nothing to judge |
 
 The unknown flag is the one worth stating on its own, because a parser that accepts everything makes
@@ -17741,6 +17764,12 @@ never reformatted. Running `init` after an upgrade is a no-op or a one-hunk diff
 that is a symlink to `AGENTS.md`, or that already carries an `@AGENTS.md` import line, is left
 alone — both are ways of keeping one instruction file, and writing through either would duplicate
 the block.
+
+A file at an owned path that has no markers was written by hand, and `init` never overwrites it. One
+case is reported rather than passed over: a `.claude/skills/vitest-auto-spy/SKILL.md` whose
+frontmatter says `name: vitest-auto-spy` is a copy of the shipped skill, frozen at the version it was
+copied from. `init` lists it as `stale` and says to delete it and run `init` again, which writes the
+pointer in its place; `init --check` exits 1 on it.
 
 The block is kept under 1.6 kB on purpose. Codex caps the whole root→cwd `AGENTS.md` chain at
 `project_doc_max_bytes` (32 768 bytes by default) and silently truncates past it, so `init` warns
@@ -18899,7 +18928,22 @@ HTML. `TestBed` renders every component into a `<div>` host, so `hostElement(fix
 A selector that matches nothing throws at the query, with the selector and the host in the message,
 instead of the `Cannot read properties of null` a bare `querySelector` leaves for the next line. A
 match of another kind throws too, naming what it found: `'.close' matched <a.close> (HTMLAnchorElement),
-not HTMLButtonElement`. Both helpers are on `vitest-auto-spy/bun-angular` as well.
+not HTMLButtonElement`. A `null` source — what `debugElement.query()` returns when its predicate
+matches nothing, though Angular types it as a `DebugElement` — throws naming that likely cause rather
+than `Cannot read properties of null`. Both helpers are on `vitest-auto-spy/bun-angular` as well.
+
+Because a miss throws, `queryElement` is the query for an element the test expects to be there,
+reading its text included. Asserting that an element is **absent** stays a `querySelector` on the
+typed host, which returns `Element | null` and needs no cast:
+
+```ts
+expect(queryElement(fixture, '.title').textContent.trim()).toBe('Orders'); // present: a miss throws here
+expect(host.querySelector('.empty-state')).toBeNull(); // absent
+```
+
+Do not read text with `host.querySelector('.title')?.textContent.trim()`: a miss becomes
+`undefined`, which `toBeFalsy()` or `not.toContain()` accepts, so the test passes on an empty
+template.
 
 ## Building a class with auto-spied dependencies
 
@@ -19598,8 +19642,15 @@ Five things to know:
 - **Material declares `MAT_DIALOG_DATA` as `InjectionToken<any>`**, which is why `useValue: null`
   compiles for a component that reads `data.name`. `provideMatDialogData<EditUserData>(…)` checks the
   object against the type you name; an `InjectionToken<EditUserData>` of your own checks it without
-  naming anything. The value is handed out as it is, so build it per test rather than hoisting it to
-  a module constant.
+  naming anything. With the type argument named, the token parameter is `InjectionToken<unknown>`,
+  so Material's `InjectionToken<any>` passes `@typescript-eslint/no-unsafe-argument`; do not drop the
+  type argument to silence that rule, which only turns the data back into `any`. The value is handed
+  out as it is, so build it per test rather than hoisting it to a module constant.
+- **Name the ref type as a type argument, not as an instantiation expression.**
+  `injectMatDialogRef(MatDialogRef<NameInputDialog, string>)` reads `Ref` off the class's
+  `prototype`, which Material types `MatDialogRef<any, any>`, so the handle comes back `any`-typed.
+  Write `injectMatDialogRef<MatDialogRef<NameInputDialog, string>>(MatDialogRef)`, and the same for
+  `createMatDialogRef` and `provideMatDialogRef`.
 - **`componentInstance` is how the opener drives the dialog**, and Material declares it as a class
   field rather than on the prototype — so a double without it would hand the opener `undefined`
   instead of failing. Pass the stand-in and it is checked, member by member, against the component
@@ -25742,6 +25793,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `stubWebStorage(key?, opts?)`                                                                                | An in-memory `localStorage` / `sessionStorage` a spec installs for itself, seeded or empty, with `snapshot()` to assert on; restored by `restoreMockedProps()` (`/dom-stubs`)                                                                                                             |
 | `installPerTest(install)`                                                                                    | Re-install a stub before every test of the block, and read back the current handle (`/setup`)                                                                                                                                                                                             |
 | `stubMediaElement(opts?)`                                                                                    | A `<video>` / `<audio>` that plays, reports a duration and fires the media events                                                                                                                                                                                                         |
+| `stubAnimationFrame(opts?)` / `stubElementRect(element, rect?)`                                              | `requestAnimationFrame` / `cancelAnimationFrame` run on the spot or on `flush(timestamp?)`; a `getBoundingClientRect()` answering a real `DOMRect` from a partial `DOMRectInit`. Both restored by `restoreMockedProps()` (`/dom-stubs`, [page](https://asdalexey.github.io/vitest-auto-spy/utilities/frame-and-rect))                |
 | `assertMocked(namespace, opts?)`                                                                             | Fail when the `vi.mock()` this spec relies on silently did not apply                                                                                                                                                                                                                      |
 | `moduleNamespace(exports, opts?)`                                                                            | The `vi.mock` factory result an interop probe recognises (`default` + `__esModule`) — a `default` the factory spells out is kept as written; `passthrough: true` spies every function export through to the real one                                                                      |
 | `adoptMock(mock, opts?)`                                                                                     | A runner mock a `vi.mock` factory built, taken over in place as a typed function spy (`calledWith`, `resolveWith`, …); history kept, unconfigured calls answer as before                                                                                                                  |
@@ -25973,16 +26025,19 @@ a `NodeList` stays assignable to the mapping of itself.
 `AutoSpyDefaultEntry<T>`, `ArgCaptor<T>` and `CaptureArgOptions` (what `captureArg` returns and the
 `{ where }` it takes), `SpyClassOptions` (the `{ statics }` of `createSpyClass`),
 `AddThrowHelper` (the `failWith` every method spy carries), `CallLog<T>` (the journal `createLog`
-hands back) are exported from the core as well;
+hands back) and `AutoMocked<T>` (what `autoMocked<T>()` returns, for a `let` assigned in `beforeEach`)
+are exported from the core as well;
 `/angular` adds `AutoSpyTokenDefaults<T>` (a token's registration), `AutoSpyFixture`, `SpiedFixtures<Spec>` and `ExtendWithAutoSpiesOptions` for
 `extendWithAutoSpies`, `ComponentStubOptions` for `createComponentStub`, `RunCounter` (the
 `{ count, stop() }` of `trackRecomputations` and `trackEffectRuns`) and `MockResourceOptions` /
-`ResourceDoubleSnapshot<V>` for `mockResourceProp`; `/angular/diagnostics` adds
+`ResourceDoubleSnapshot<V>` for `mockResourceProp`, `ElementConstructor<E>` and `NativeElementHolder`
+for `hostElement` / `queryElement`; `/angular/diagnostics` adds
 `AngularDiagnosticsOptions`, `SpecTiming` and `TestBedDiagnosticsOptions`; `/angular/doubles` adds
-`MatDialogRefInit<Ref>`, `MatDialogRefDouble<Ref>`, `DialogRefLike`, `DialogResult<Ref>` and
-`DialogComponent<Ref>` for the dialog doubles, `PlatformOverrides<T>` for the window and document
+`MatDialogRefInit<Ref>`, `MatDialogRefDouble<Ref>`, `DialogRefLike`, `DialogResult<Ref>`,
+`DialogComponent<Ref>` and `DialogDataOf<T, Token>` for the dialog doubles, `PlatformOverrides<T>` for the window and document
 ones; `/angular/matchers` adds `ResourceLike` and `SignalLike`; `/dom-stubs` adds
-`WebStorageKey`, `WebStorageStub` and `WebStorageStubOptions` for `stubWebStorage`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
+`WebStorageKey`, `WebStorageStub` and `WebStorageStubOptions` for `stubWebStorage`, and
+`AnimationFrameStub`, `AnimationFrameStubOptions` and `AnimationFrameMode` for `stubAnimationFrame`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` and `HttpTestingOptions` for
 `expectRequest` and `provideHttpTesting`; `/angular-router` adds `ActivatedRouteInit`,
 `ActivatedRouteChange` and `ActivatedRouteDouble` for its route helpers, `RouterDoubleInit`, `NavigationInit` and

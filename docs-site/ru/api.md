@@ -62,6 +62,7 @@ description: Все экспорты vitest-auto-spy и его подпутей,
 | `stubWebStorage(key?, opts?)`                                                                                | `localStorage` / `sessionStorage` в памяти, который спека ставит себе сама — пустой или с данными, со `snapshot()` для проверки; снимается `restoreMockedProps()` (`/dom-stubs`)                                                                                                                |
 | `installPerTest(install)`                                                                                    | Переустанавливает стаб перед каждым тестом блока и отдаёт текущую ручку (`/setup`)                                                                                                                                                                                                              |
 | `stubMediaElement(opts?)`                                                                                    | `<video>` / `<audio>`, который играет, сообщает длительность и шлёт медиа-события                                                                                                                                                                                                               |
+| `stubAnimationFrame(opts?)` / `stubElementRect(element, rect?)`                                              | `requestAnimationFrame` / `cancelAnimationFrame` выполняются сразу или по `flush(timestamp?)`; `getBoundingClientRect()` отвечает настоящим `DOMRect` из частичного `DOMRectInit`. Оба снимает `restoreMockedProps()` (`/dom-stubs`, [страница](/ru/utilities/frame-and-rect))                  |
 | `assertMocked(namespace, opts?)`                                                                             | Роняет тест, когда `vi.mock()`, на который рассчитывает спека, молча не применился                                                                                                                                                                                                              |
 | `moduleNamespace(exports, opts?)`                                                                            | Результат фабрики `vi.mock`, который распознаёт interop-проба (`default` + `__esModule`); `passthrough: true` делает каждый экспорт-функцию спаем, вызывающим настоящую                                                                                                                         |
 | `adoptMock(mock, opts?)`                                                                                     | Мок раннера, построенный фабрикой `vi.mock`, забирается на месте как типизированный спай функции (`calledWith`, `resolveWith`, …); история сохраняется, ненастроенные вызовы отвечают как раньше                                                                                                |
@@ -266,14 +267,17 @@ _обращения_ к свойству: цепочка, идущая чере�
 `AutoSpyDefaultEntry<T>`, `ArgCaptor<T>` и `CaptureArgOptions` (что возвращает `captureArg` и какой
 `{ where }` он принимает), `SpyClassOptions` (те самые `{ statics }` у `createSpyClass`),
 `AddThrowHelper` (тот самый `failWith`, который несёт каждый спай метода), `CallLog<T>` (журнал,
-который возвращает `createLog`) экспортируются из ядра тоже;
+который возвращает `createLog`) и `AutoMocked<T>` (то, что возвращает `autoMocked<T>()`, — для `let`,
+который присваивается в `beforeEach`) экспортируются из ядра тоже;
 `/angular` добавляет `AutoSpyTokenDefaults<T>` (регистрацию токена), `AutoSpyFixture`, `SpiedFixtures<Spec>` и `ExtendWithAutoSpiesOptions` для
-`extendWithAutoSpies`, `ComponentStubOptions` для `createComponentStub`; `/angular/diagnostics`
+`extendWithAutoSpies`, `ComponentStubOptions` для `createComponentStub`, `ElementConstructor<E>` и
+`NativeElementHolder` для `hostElement` / `queryElement`; `/angular/diagnostics`
 добавляет `AngularDiagnosticsOptions`, `SpecTiming` и `TestBedDiagnosticsOptions`;
 `/angular/doubles` добавляет `MatDialogRefInit<Ref>`, `MatDialogRefDouble<Ref>`, `DialogRefLike`,
-`DialogResult<Ref>` с `DialogComponent<Ref>` — для дублей диалога; `/angular/matchers` добавляет
+`DialogResult<Ref>`, `DialogComponent<Ref>` и `DialogDataOf<T, Token>` — для дублей диалога; `/angular/matchers` добавляет
 `ResourceLike` и `SignalLike`; `/dom-stubs` добавляет
-`WebStorageKey`, `WebStorageStub` и `WebStorageStubOptions` для `stubWebStorage`; `/angular-http` добавляет `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
+`WebStorageKey`, `WebStorageStub` и `WebStorageStubOptions` для `stubWebStorage`, а
+`AnimationFrameStub`, `AnimationFrameStubOptions` и `AnimationFrameMode` — для `stubAnimationFrame`; `/angular-http` добавляет `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` и `HttpTestingOptions` для
 `expectRequest` и `provideHttpTesting`; `/angular-router` добавляет `ActivatedRouteInit`,
 `ActivatedRouteChange` и `ActivatedRouteDouble` для маршрутных хелперов, `RouterDoubleInit` с

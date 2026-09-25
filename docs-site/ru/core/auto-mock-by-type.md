@@ -65,6 +65,25 @@ users.getName(1); // бросает: createAutoMock(users.spec.ts:12).getName(1)
 полностью абстрактного класса, переданного в `createSpyFromClass`: он возвращает этот же прокси, и `strict`
 уезжает внутрь вместе с ним.
 
+Дубль, который код под тестом получает аргументом, а не через DI, должен быть `T` в месте вызова и
+`Spy<T>` в проверке. `autoMocked<T>(overrides?, config?)` строит тот же объект с типом и того и
+другого, а `AutoMocked<T>` называет этот тип для `let`, который присваивается в `beforeEach`:
+
+```ts
+import { type AutoMocked, autoMocked } from 'vitest-auto-spy';
+
+let logger: AutoMocked<Logger>;
+
+beforeEach(() => {
+  logger = autoMocked<Logger>();
+});
+
+it('logs the failure', () => {
+  checkEndpoint('/health', logger); // принимается как Logger
+  expect(logger.error).toHaveBeenCalledOnce(); // а здесь это спай
+});
+```
+
 ### `using` — сброс в конце блока {#using}
 
 ```ts

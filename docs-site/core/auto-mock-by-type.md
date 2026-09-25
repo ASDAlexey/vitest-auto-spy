@@ -65,6 +65,25 @@ A type-driven double never read a class, so the message names it by the line tha
 value rather than a spy, so it never reaches the guard at all. The same fallback covers a fully
 abstract class handed to `createSpyFromClass`, which returns this proxy named after the class: `strict` travels into it.
 
+A double handed to the code under test as an argument, rather than injected, has to be a `T` at the
+call site and a `Spy<T>` at the assertion. `autoMocked<T>(overrides?, config?)` builds the same object
+typed as both, and `AutoMocked<T>` names that type for a `let` assigned in `beforeEach`:
+
+```ts
+import { type AutoMocked, autoMocked } from 'vitest-auto-spy';
+
+let logger: AutoMocked<Logger>;
+
+beforeEach(() => {
+  logger = autoMocked<Logger>();
+});
+
+it('logs the failure', () => {
+  checkEndpoint('/health', logger); // accepted as a Logger
+  expect(logger.error).toHaveBeenCalledOnce(); // and a spy here
+});
+```
+
 ### `using` — reset at the end of the block {#using}
 
 ```ts
