@@ -2,9 +2,10 @@
  * The file-boundary repairs against the real window and document. The first block stands in for a
  * spec file that leaks; its `afterAll` is the boundary, and the block after it is the next file.
  */
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { setupAutoSpy } from './setup-auto-spy';
+import { stopGuardingConsole } from './stray-console';
 import { countStrayTimers, trackStrayTimers } from './stray-timers';
 
 const { boundaryErrors } = vi.hoisted(() => ({ boundaryErrors: [] as unknown[] }));
@@ -121,10 +122,57 @@ describe('the file after the one whose reports both threw', () => {
 
     const { errors, message } = boundaryErrors[0] as AggregateError;
 
-    expect(message).toMatch(/^\[vitest-auto-spy\] 2 file-end reports failed:/);
+    expect(message).toMatch(
+      /^\[vitest-auto-spy\] 2 file-end checks failed when src\/lib\/setup-auto-spy-file-boundary\.spec\.ts ended:\n\n1\. /,
+    );
     expect(errors.map((error: Error) => error.message.split('\n')[0])).toEqual([
-      "[vitest-auto-spy] 1 window/document listener(s) outlived the spec file that added them. setupAutoSpy removed them; onStrayListeners: 'throw' fails the file. Remove each one where it was added:",
-      "[vitest-auto-spy] 1 scheduled callback(s) outlived the spec file that scheduled them. setupAutoSpy cancelled them; onStrayTimers: 'throw' fails the file. Clear each one where it was scheduled:",
+      '[vitest-auto-spy] src/lib/setup-auto-spy-file-boundary.spec.ts left 1 window/document listener attached when it ended:',
+      '[vitest-auto-spy] src/lib/setup-auto-spy-file-boundary.spec.ts left 1 timer pending when it ended:',
     ]);
+    expect((errors[1] as Error).message).toContain(
+      'scheduled in "a file that leaves a timer and a listener behind, with both reports set to throw > leaks both"',
+    );
+  });
+});
+
+// Silenced before the guard wraps it, and put back by the block after, once the boundary has run.
+const realWarn = console.warn;
+
+describe('a file that prints while it is collected and leaves a timer, with both reports set to throw', () => {
+  console.warn = (): void => undefined;
+  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayConsole: 'throw', strayTimers: true, onStrayTimers: 'throw' });
+  console.warn('printed while the file was collected');
+
+  beforeAll(() => {
+    boundaryErrors.length = 0;
+    // The block before took the tracking off after this one was collected.
+    trackStrayTimers();
+  });
+
+  it('leaves a timer', () => {
+    setTimeout(() => undefined, 30);
+
+    expect(boundaryErrors).toEqual([]);
+  });
+});
+
+describe('the file after the one whose timer report threw first', () => {
+  afterAll(() => {
+    stopGuardingConsole();
+    console.warn = realWarn;
+    trackStrayTimers()();
+  });
+
+  it('still reported the console output, against the file that wrote it', () => {
+    expect(boundaryErrors).toHaveLength(1);
+
+    const { errors } = boundaryErrors[0] as AggregateError;
+    const [timers, output] = errors.map((error: Error) => error.message);
+
+    expect(timers).toMatch(/left 1 timer pending when it ended/);
+    expect(output).toMatch(
+      /^\[vitest-auto-spy\] src\/lib\/setup-auto-spy-file-boundary\.spec\.ts wrote to console\.warn 1 time while the file was being imported/,
+    );
+    expect(output).toContain('printed while the file was collected');
   });
 });
