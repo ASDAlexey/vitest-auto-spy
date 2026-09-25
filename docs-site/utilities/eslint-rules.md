@@ -22,6 +22,12 @@ run](/utilities/eslint-plugin). This page is the other half: for a report that h
 what the rule decided on, when it stays silent, and where it is wrong about your project. Nothing
 here has to be read in order.
 
+**The message and this page split the work.** A message names what the rule found in your file —
+the class, the token, the member, the call — says in one sentence why it breaks, and gives the one
+repair that fits. It ends with `Docs:` and the link to the rule's section below, which is also the
+rule's `meta.docs.url`, so an editor links it from the rule name. Everything longer — the other
+repairs, the cases the rule cannot see, the measurements — is in that section.
+
 Every section answers the same six questions:
 
 - **Reports** — what counts as a finding.
@@ -61,7 +67,7 @@ an `error` except eight.
 | [`no-object-define-property`](#no-object-define-property)             | `error`          | `Object.defineProperty` / `defineProperties` in a spec                                           |
 | [`no-import-time-spread`](#no-import-time-spread)                     | `error`          | a spread of an imported binding evaluated at module scope                                        |
 | [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`          | an observer global replaced by hand or through the runner                                        |
-| [`no-hand-assigned-global`](#no-hand-assigned-global)                 | `error`          | `global.fetch = vi.fn()` — a double assigned to a global that no teardown puts back              |
+| [`no-hand-assigned-global`](#no-hand-assigned-global)                 | `error`          | `global.fetch = vi.fn()`, `environment.x = …` — a value no teardown puts back                    |
 | [`prefer-stub-response`](#prefer-stub-response)                       | `error`          | an object literal cast to `Response`, or `createMock<Response>(…)` — half a response             |
 | [`no-redundant-mock-reset`](#no-redundant-mock-reset)                 | `error`          | a mock reset in a hook the runner already performs between tests                                 |
 | [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`          | an `ActivatedRoute` provided as a hand-built object, class or factory — half a route             |
@@ -167,6 +173,14 @@ unsubscribe assertion, a multicast count). The suggestion declines every shape i
 an executor that does anything besides subscribing, a `subscribe({ next, complete })` with two
 handlers, a test callback that takes the Vitest context, a `done` mentioned more than once.
 
+**What the message leaves out.** It quotes the source the subscription reads and names one repair per
+branch. The rest: a stream that emits more than once, every emission of which was meant to be
+checked, is `expectEmissions(source$, N)`; `afterTrigger` puts `expectEmission` first because it
+subscribes when it is called, not when it is awaited; and in `inErrorHandler` a
+`next: () => expect.unreachable(…)` guard beside the `error` callback goes too, because
+`await expect(firstValueFrom(source$)).rejects.toMatchObject({ status: 404 })` already fails when the
+stream succeeds.
+
 **Severity.** `error`. The finding is a test that passes while asserting nothing, and the repair is
 mechanical for most of the population.
 
@@ -255,8 +269,8 @@ merge stays one line of config.
 declaration, replaces the subscription with an awaited helper, drops the assertion, makes the
 callback `async` and adds an import — five coordinated edits — and `expectNoEmission` asserts
 something _stronger_ than the line it replaces, so a wrongly accepted suggestion turns a green test
-red with a message about the helper rather than about the code. The message carries the whole
-repair instead, which is what [`prefer-stub-response`](#prefer-stub-response) does for the same
+red with a message about the helper rather than about the code. The message names the repair
+instead, which is what [`prefer-stub-response`](#prefer-stub-response) does for the same
 reason.
 
 ## no-floating-assertion
@@ -356,6 +370,9 @@ narrow in practice. A parameter nothing in the body mentions is reported, delibe
 can go. And a name read only through a member is taken as a context however it is spelled, so a
 `done` that the body only ever reads a property off is silent — the read tells the rule nothing else
 about it.
+
+**What the message leaves out.** `doneFail` names the rejection matcher; where the line marks a
+branch that must never run rather than a failure to assert on, `expect.fail(message)` says that.
 
 **Severity.** `error`. A test that passes without running is not something a project can afford to
 read past in lint output.
@@ -605,6 +622,9 @@ method that should relay — and that is a judgement about what the test meant, 
 [`no-vacuous-absence-assertion`](#no-vacuous-absence-assertion) declines for the same reason. The
 message carries the whole repair instead.
 
+**What the message leaves out.** A call written before the spy is arrangement and is never
+reported, and neither is `not.toHaveBeenCalled()`: both already tell the two outcomes apart.
+
 **Severity.** `error`. The evidence is three lines of the file in one order, nothing is decided on a
 heuristic, and what it reports is a test that proves nothing about the code it names.
 
@@ -653,8 +673,8 @@ object is judged on its own properties. These shapes are subtracted:
   spies exist only in what it returns still reports;
 - an options bag nested inside a call argument, `render({ options: { slide, onClose } })`, by the
   same one-mock-beside-a-value rule as the bag handed straight to the call;
-- an object under the threshold. The message names the threshold it was reported at, and at
-  `{ minRunnerFns: 1 }` it stops suggesting to lower it. A property counts toward it when its value
+- an object under the threshold. The message names the double, how many `vi.fn()`s it holds and
+  which, and `createAutoMock<T>()` for the type its name declares. A property counts toward it when its value
   is a `vi.fn()` or a name the file binds once to one: `{ load, save }` over two `const … = vi.fn()`.
 
 A one-member object — a thenable `{ then: vi.fn() }`, a holder for one callback — has no class for
@@ -693,7 +713,8 @@ fall behind.
 cannot see: an object holding one `vi.fn()` is indistinguishable from an options bag with a callback
 in it (`{ onDone: vi.fn() }`), and this rule fires on every object literal in the file. The visible
 cost is an asymmetry — two doubles on adjacent lines, one flagged and one not — which seven
-migration batches tripped over, so the threshold is named in the message:
+migration batches tripped over, so the threshold is the first thing to check when two neighbours
+disagree:
 
 ```js
 'vitest-auto-spy/prefer-create-spy-from-class': ['error', { minRunnerFns: 1 }],
@@ -996,6 +1017,10 @@ moment two `describe` blocks in the file share it — the rule reads the export,
 that crosses files. An exported _frozen constant_ built from `vi.fn()`s on purpose (a stable
 reference some registry compares by identity) has to be silenced per line.
 
+**What the message leaves out.** The factory is the whole repair: `export const createCart = () =>
+({ total: vi.fn() })`, called in a `beforeEach` of every spec that used the shared object, so each
+test starts from fresh spies.
+
 **Severity.** `error`. Green and wrong, and the failure surfaces in a different file from the cause.
 
 ## no-object-define-property
@@ -1041,10 +1066,10 @@ seals the property for the rest of the worker.
 
 **Limits.** This is the rule most likely to be right about the mechanism and wrong about your line —
 a property on a frozen host object, a descriptor the helpers do not reproduce, a patch inside a
-`beforeAll` that is meant to last the file. The message names the whole helper family
-(`mockValueProp`, `mockReadonlyProp`, `mockReadonlyPropGetter`, `mockAccessorsProp`,
-`stubConstructor`) so the reader can tell which case they are in, and a per-line disable with the
-reason is the intended answer where none of them fits:
+`beforeAll` that is meant to last the file. The message names the helper the descriptor asks for —
+`{ value }` is `mockValueProp`, `{ get }` is `mockReadonlyPropGetter`, a `set` is `mockAccessorsProp`,
+a value built with `mockImplementation(function () { … })` is `stubConstructor` — and a per-line
+disable with the reason is the intended answer where none of them fits:
 
 ```ts
 // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- clientWidth is a getter on a frozen host object
@@ -1053,6 +1078,12 @@ Object.defineProperty(target, 'clientWidth', { value: 100 });
 
 It is also the rule most sensitive to the `files` glob: `Object.defineProperty` in application code
 is entirely reasonable, and a glob that is too wide starts reporting it.
+
+**What the message leaves out.** Two cases the descriptor cannot show. A `Signal<T>` property is
+`mockReadonlyProp(obj, key, signal(value))` with a real `signal`: a `vi.fn().mockReturnValue(value)`
+reads the same at the call site and stops every `computed()` and `effect()` downstream from
+updating. And a property missing because it is an instance field rather than a prototype member is
+repaired where the spy is built — `instanceMethodsToSpyOn` / `observablePropsToSpyOn` — not here.
 
 **Severity.** `error`. The damage is not confined to the file that did it, which is what separates
 this from a warning.
@@ -1148,7 +1179,7 @@ double until a test pinned the restore silent.
 
 `Object.defineProperty(globalThis, 'ResizeObserver', …)` is deliberately **not** one of the forms:
 [`no-object-define-property`](#no-object-define-property) already reports every `defineProperty` in
-a spec and names the same helper family, and two reports on one line saying the same thing is how a
+a spec and names a helper from the same family, and two reports on one line saying the same thing is how a
 rule gets switched off.
 
 **Finding, and the repair.**
@@ -1201,11 +1232,17 @@ are test code; the one that is not is an SSR shim outside the spec glob.
 observer that records geometry the helper does not model — is reporting working code, and the answer
 is a per-line disable. The three-name list is closed: a fourth observer global gets no report.
 
+**What the message leaves out.** The handle the stub returns covers what the hand-rolled one was
+written for: `observers.last.disconnected` is the teardown assertion, `observers.last.options` the
+init object, `observers.last.targets` what was observed, and `observers.instances` every observer
+in construction order. The `let original = …` and the `afterEach` that assigns it back go, since
+`restoreMockedProps()` already puts the real constructor back.
+
 **Severity.** `error`. Green and wrong, and the damage crosses files.
 
 ## no-hand-assigned-global
 
-**`error`** · no fix · syntax only
+**`error`** · `--fix` for a write into an imported object, no fix for a global · syntax and scope only
 
 **Reports.** A double assigned straight to a property of the global object —
 `global.fetch = vi.fn(…)`, `window.matchMedia = vi.fn()`, `window.localStorage = { getItem: vi.fn() }`
@@ -1221,11 +1258,12 @@ value that is not a double, or a `delete`. A restore inside `afterEach`, `afterA
 `onTestFinished` silences the report, because a hook runs whatever the assertions did. A restore
 anywhere else turns the report into the `restoreInTest` message.
 
-The message depends on the global. `fetch`, `XMLHttpRequest`, `WebSocket` and `EventSource` point at
-`mockValueProp`, `vi.stubGlobal` with `unstubGlobals`, and
-[`blockNetwork()`](/utilities/setup#_5-keeping-the-run-off-the-network) for a spec that only needs to stay off the
-network. `localStorage` and `sessionStorage` point at [`stubWebStorage()`](/utilities/setup#stub-web-storage).
-Any other global points at `mockValueProp(globalThis, name, value)` and `vi.stubGlobal`.
+The message depends on the global. A lowercase one — `fetch`, `matchMedia` — points at
+`mockValueProp(globalThis, name, vi.fn(…))`; a capitalised one — `XMLHttpRequest`, `WebSocket`,
+`EventSource` — is a constructor the code calls with `new`, and points at
+`stubConstructor(globalThis, name, …)`. `localStorage` and `sessionStorage` point at
+[`stubWebStorage()`](/utilities/setup#stub-web-storage). A spec that only needs to stay off the
+network wants [`blockNetwork()`](/utilities/setup#_5-keeping-the-run-off-the-network) instead.
 
 **Finding, and the repair.**
 
@@ -1242,6 +1280,26 @@ beforeEach(() => {
 });
 ```
 
+**An imported object.** The same rule reads `environment.production = true` in a spec: an
+assignment (`=`, not `+=`) to a member of a name bound by a named or default import, dotted or
+through a string key, casts stripped, directly or further down the chain (`config.feature.enabled`).
+The module is cached for the worker, so **any** value is reported, not only a double; a restore in a
+teardown hook silences it as it does for a global. A local, `this`, a computed key and a namespace
+object itself (`import * as env`; the object is sealed and the write throws) are not reported.
+
+`--fix` rewrites the statement to `mockValueProp(environment, 'production', true)` and imports
+`mockValueProp` when the file has not. It fixes only a statement that runs in a test or a
+`beforeEach`: in `beforeAll` or a `describe` body the sweep after the first test would take the patch
+off for the rest of the file, so there the report comes without a fix. An assignment used as a value,
+and a file that declares its own `mockValueProp`, are left unfixed too.
+
+```ts
+it('uses the stand configs', () => {
+  environment.useRemoteConfigs = true; // ❌
+  mockValueProp(environment, 'useRemoteConfigs', true); // ✅ what --fix writes
+});
+```
+
 **Why it is recommended.** A bare assignment is the one kind of mock that none of the runner's
 cleanups reaches. `vi.restoreAllMocks()` restores spies, `vi.unstubAllGlobals()` restores what
 `vi.stubGlobal` installed, and `restoreMockedProps()` restores what went through `mockValueProp`. The
@@ -1255,6 +1313,10 @@ written in the file. A per-line disable is the answer for a double that is meant
 run, such as one installed in a setup file on purpose. The three observer globals are left to
 [`prefer-observer-stub`](#prefer-observer-stub), and `Object.defineProperty(globalThis, …)` to
 [`no-object-define-property`](#no-object-define-property), so one line never draws two reports.
+
+**What the message leaves out.** `vi.stubGlobal(name, value)` with `unstubGlobals: true` in the
+Vitest config restores the global too, and a spec that only needs to stay off the network wants
+`setupAutoSpy({ blockNetwork: true })` rather than a double.
 
 **Severity.** `error`. The double outlives the test that installed it, and under `isolate: false` it
 outlives the file.
@@ -1383,8 +1445,8 @@ to read it, and the better repair is a static `import * as ns`. A bare `await im
 position is still reported, since it can only be waiting on something a hook set loading. Behind an
 arrangement line — `configure(…); const { run } = await import('./run')` — the binding is reported:
 that line is written the same way as the `button.click()` that sets the module loading, and the
-rule cannot tell the two apart. Where the spec only reads the exports, the message names the static
-`import` as the repair.
+rule cannot tell the two apart. Where the spec only reads the exports, the better repair is a static
+`import`; the `settleDynamicImport` the message names still works there.
 
 **Severity.** `error`. The evidence is the line, the repair is one line the rule offers as an edit,
 and there is no migration to gate — adopting it is not a decision a suite takes file by file, the
@@ -1479,6 +1541,11 @@ redundant, and deleting it is the better repair. A fixture that is invalid **on 
 suggestion does not compile there, which is the compiler confirming it, and the cast stays with an
 `eslint-disable-next-line` that says why.
 
+**What the message leaves out.** Where the literal already sits in a typed slot — an argument, a
+`nextWith`, a typed `const` — the first repair is to delete the cast and let the slot check it. A value
+outside `T` on purpose, the `null` a backend sends or a payload that has to reach a guard, is
+`outOfType<T>(…)`, which names the intent and is not reported.
+
 **Severity.** `warn`, and it is the repair that is graded rather than the evidence — the same
 reading as [`prefer-set-inputs`](#prefer-set-inputs), not the heuristics behind
 [`no-structural-double`](#no-structural-double). The finding is exact: the literal and the type it
@@ -1547,6 +1614,14 @@ whole double's surface, and neither sees a `Mock` standing in for one member's s
 [`no-structural-double`](#no-structural-double) wants a name declared as an object of `Mock`s, and
 [`no-stub-class-double`](#no-stub-class-double) a class of `vi.fn()` fields; both are about a double
 being built, where this one is about a double that already exists being read through a cast.
+
+**What the message leaves out.** A member of a double this library built is already a spy typed
+from the real signature: read it as it is — `injectSpy(Service).method` for one DI handed out,
+`asSpy(double).method` for one the test holds. `vi.mocked(object.method)` is for a `vi.spyOn` spy or
+a `vi.fn()` on something else. Where the cast went in because a value would not compile, look at the
+method: an overloaded one is typed against its last signature, and
+`Spy<Service, { overload: { method: 'first' } }>` picks the one the code calls. A parameterised
+`Mock<[…], R>` is the signature written a second time, in a place nothing keeps in step.
 
 **Severity.** `error`. The evidence is the line, the repair is offered as an edit, and the
 population is small enough to clear in one sitting — 24 sites on a 2 032-file suite, against the
@@ -1928,6 +2003,10 @@ which file ran first.
 **Limits.** Scope it to spec files — a CLI's own `console.log` is its output. Measured on an Angular
 monorepo of 1 759 spec files: **6 reports in 2 files**, every one a `console.error` inside a
 `subscribe` error callback, and no assignment anywhere.
+
+**What the message leaves out.** A replacement by assignment can also be kept and made safe:
+`installConsoleSpies()` from `vitest-auto-spy/console` in a `beforeEach`, with `restoreConsole()` in
+an `afterEach`.
 
 **Severity.** `error`. It decides on a fact: a call on the global console writes, and an assignment
 to it is never undone.
@@ -2466,7 +2545,7 @@ one line everything else here is turned down in.
 
 A suite whose lint forbids an `async` hook keeps the call in the test instead — a
 `const render = async () => { …; await setInputs(fixture, { … }); }` awaited first thing in each
-`it` — and the message says so.
+`it`.
 
 ## no-overridden-provider
 
@@ -2984,6 +3063,11 @@ suggestion drops keeps an explicit `: Promise<void>` return annotation if it had
 not compile; that is the same edit `no-compile-components` offers, and the same reason both are
 suggestions rather than a `--fix`.
 
+**What the message leaves out.** The TestBed calls that really return a promise keep their
+`await`: `compileComponents()`, and on a fixture `whenStable()`, `whenRenderingDone()` and
+`getDeferBlocks()`. `TestBed.inject(TOKEN)` and `TestBed.runInInjectionContext(fn)` are never
+reported — each answers whatever the token or the callback holds.
+
 **Severity.** `error`. The fact it decides on is Angular's published signature, not a heuristic, and
 the repair is mechanical.
 
@@ -3067,6 +3151,11 @@ uses it and assert the effect; on a component the rendered template is the other
 it is the one `protected` exists for. When nothing public reaches the member at all, that is a fact
 about the design rather than a reason to step around the modifier.
 
+**What the message leaves out.** On a component, the rendered template is the public surface
+`protected` members exist for: `renderShallow(Cmp)` and read the DOM rather than the field. When
+nothing public reaches the member, the member either wants to be public or wants to move into a
+collaborator the spec can provide a double for.
+
 **Severity.** `error`. The finding is green and wrong in a way no run can report: a test that passes
 today and fails on a rename no caller could have noticed.
 
@@ -3130,7 +3219,7 @@ compiler checks it. Where the value is outside the declared type on purpose, to 
 branch, the message names the cast on the **value** (`{ linkType: value as Model['linkType'] }`),
 which keeps the key checked. A project that bans assertions
 (`@typescript-eslint/consistent-type-assertions: ['error', { assertionStyle: 'never' }]`) cannot
-write that cast, so the message also names `mockValueProp(link, 'linkType', value)`: its loose
+write that cast; for it the repair is `mockValueProp(link, 'linkType', value)`, whose loose
 overload takes a value the declared type does not allow, and the write is restored after the test.
 And where a private member has no observable effect at all,
 `component['member']` under a `no-private-member-access` disable that says why is the lesser escape:
@@ -3152,7 +3241,7 @@ heuristic decides anything, and the repair is the same one that rule names.
 
 A `protected` signal a component hands to a child reads back through that child: render the child as
 a `createComponentStub` and read its input off the stub instance. One the spec has to drive is
-`mockSignalProp(component, 'x', value)`, which reaches a `protected` signal. The message names both.
+`mockSignalProp(component, 'x', value)`, which reaches a `protected` signal.
 
 ## no-mocked-for-spy
 
@@ -3402,6 +3491,12 @@ implementation happened to return. `.withContext(` is in the same rule because
 those names, which is why it is on for everyone. The messages name the replacement rather than the
 mechanism, so the loud cases are one rename each; the `spyOn` case is the one to read.
 
+**What the message leaves out.** `jasmine.clock()` is reported per member, with the helper that
+replaces it: `install()` → `setupFakeTimers()`, `uninstall()` → `vi.useRealTimers()`, `tick(n)` →
+`await advanceTimers(ms)` (which also flushes the microtasks the timers queued), `mockDate(d)` →
+`mockSystemTime(date)`. A file that has to run before it is rewritten imports `{ jasmine }` from
+`vitest-auto-spy/jasmine`, whose namespace forwards each member to the Vitest primitive.
+
 **Severity.** `error`. One member of the set is green and wrong, and it is the most-used one.
 
 ## jasmine-namespace-without-entry
@@ -3509,7 +3604,7 @@ wrote. There is no diff, no warning and no failing run to point at it — the pu
 plugin.
 
 **Limits.** Inert unless the suite came from jasmine. `captureArg<T>()` is how to _reach_ an
-argument at all, and the message says so, but it keeps the same reference the assertion matched: it
+argument at all, but it keeps the same reference the assertion matched: it
 repairs the reach, not the mutation. So the repair is always the copy at the call site, which is a
 rewrite rather than a rename.
 

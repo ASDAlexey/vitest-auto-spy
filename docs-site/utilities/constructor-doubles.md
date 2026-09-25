@@ -60,11 +60,12 @@ expect(LicenseClient.instances[0].prepareRequest).toHaveBeenCalled();
   helper rather than read off the runner, so `mockClear()` does not empty it — clearing the call
   record and forgetting objects a spec still asserts against are different wishes, and the runner's
   own `mock.instances` covers the first one.
-- **Called without `new`, it throws by name.** Today the only way to learn that a double was used
-  wrongly is a `TypeError` several frames into somebody else's code.
+- **Called without `new`, it throws by name,** with the file and line of the call that lost the
+  `new`. Otherwise the only way to learn that a double was used wrongly is a `TypeError` several
+  frames into somebody else's code.
 - **The factory must return an object.** JavaScript discards a primitive returned from `new`, so a
   factory that returns one would hand the code under test something the spec never configured; that
-  is reported immediately instead.
+  is reported immediately instead, with the fix: return the instance from the factory.
 
 ## `stubConstructor(target, property, factory)`
 

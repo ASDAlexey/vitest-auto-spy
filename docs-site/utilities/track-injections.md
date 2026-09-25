@@ -97,7 +97,7 @@ per injection site.
 ```
 [vitest-auto-spy] trackInjections(...).get(AnalyticsService): that token is not tracked by this log.
 Tracked here: FeatureFlagService. Add it to the trackInjections([...]) list, or read it from the injector directly — `get` only answers for the tokens whose providers this log created.
-Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/track-injections
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/track-injections#get-on-a-token-that-is-not-tracked
 ```
 
 With an empty token list the same message reads `Tracked here: (none)`.

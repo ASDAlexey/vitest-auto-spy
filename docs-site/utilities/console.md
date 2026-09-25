@@ -102,8 +102,10 @@ it('warns about the deprecated flag', () => {
 **The spies do not outlive their scope.** Installed in a test or a `beforeEach`, they come off after
 the test; installed at the top of the file, after the file. Spies an import installed before the guard
 armed are taken off when it does. A `vi.spyOn(console, m)` with no implementation is not a substitute:
-it calls through, so the line still prints and the guard still fails the test — the
-[`no-passthrough-console-spy`](/utilities/eslint-rules#no-passthrough-console-spy) rule reports it.
+it calls through, so the line still prints and the guard still fails the test, saying
+`vi.spyOn(console, 'error') calls through — add .mockImplementation(() => undefined).` The
+[`no-passthrough-console-spy`](/utilities/eslint-rules#no-passthrough-console-spy) rule reports it
+before the run.
 
 Without the guard nothing here changes: importing the entry installs the spies, as it always did.
 

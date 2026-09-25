@@ -105,7 +105,8 @@ The failure prints the shape the value actually had, which is the only thing tha
 than the assertion it replaces:
 
 ```text
-[vitest-auto-spy] narrow: expected an object with a 'params' property, but the value is Object { type, slug }.
+[vitest-auto-spy] narrow.byKey: expected an object with a 'params' property, but the value is Object { type, slug }. The code under test took another branch than this test assumes — check the setup that should lead to it.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/fixtures#narrow-value-predicate-—-the-branch-a-test-knows-it-got
 ```
 
 `narrow.observable` exists here rather than as a call to rxjs's `isObservable` because that one

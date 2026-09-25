@@ -76,11 +76,10 @@ src/app/service.spec.ts
 
 1 file would change, 6 edits
 
-error  residue/jest-namespace src/app/service.spec.ts:14
+error  residue/jest-namespace src/app/service.spec.ts:12
        Still matches after the run: "jest."
-       → `jest-namespace` did not rewrite it — it declined (see its note), or it could not reach
-         it: a template literal, an unbalanced bracket, a transform that was skipped. Rewrite this
-         one by hand.
+       → `jest-namespace` declined it: `jest.requireActual` was left alone. Rewrite it by hand.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/codemod#verifying-by-matching-not-by-diffing
 
 warn   no-vi-twin src/app/service.spec.ts:12
        `jest.requireActual` was left alone.
@@ -91,7 +90,9 @@ warn   no-vi-twin src/app/service.spec.ts:12
 ```
 
 That run exits **1**, and the reason is the whole design: one line — `jest.requireActual` — was left
-alone, so a person still has work to do. Nothing about the six edits failed.
+alone, so a person still has work to do. Nothing about the six edits failed. A residue the
+transform declined quotes what it said on that line; one it said nothing about is a span it could not
+reach — inside a template literal, or after a bracket that did not balance.
 
 | Exit | When                                                                                                         |
 | ---- | ------------------------------------------------------------------------------------------------------------ |
@@ -331,11 +332,15 @@ A file whose syntax diagnostics the run added to is **not written**. It is left 
 was, its edits and its new import lines dropped with it, and reported:
 
 ```
-error  codemod-broke-syntax src/app/service.spec.ts:1
-       The rewritten file does not parse, so it was left exactly as it was.
-       → This is a defect in the codemod, not in the file. Migrate this one by hand, and report the
-         construct it tripped over — the file is worth attaching.
+error  codemod-broke-syntax src/app/service.spec.ts:7
+       The rewritten file would not parse at line 7 (',' expected.), so the file was left as it
+       was.
+       → Migrate this file by hand, and report the construct on that line as a codemod defect.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/codemod#the-result-is-parsed-before-it-is-written
 ```
+
+The line and the message are the parser's own, read from the rewritten text, so the report points at
+the construct the rewrite tripped over rather than at the top of the file.
 
 The comparison is between the diagnostics before and the diagnostics after, never against zero, so a
 spec that already had a syntax error is not blamed for it. Where `typescript` does not resolve from
@@ -408,10 +413,18 @@ vitest-auto-spy codemod — /work/app
 
 error  residue/auto-spies-import src/app/service.spec.ts:1
        Still matches after the run: "from 'jest-auto-spies'"
+       → `auto-spies-import` did not rewrite this. Rewrite it by hand.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/codemod#verifying-by-matching-not-by-diffing
+
 error  residue/inject-cast src/app/service.spec.ts:10
        Still matches after the run: "as Spy<"
+       → `inject-cast` did not rewrite this. Rewrite it by hand.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/codemod#verifying-by-matching-not-by-diffing
+
 error  residue/jest-types src/app/service.spec.ts:7
        Still matches after the run: "jest.Mock"
+       → `jest-types` did not rewrite this. Rewrite it by hand.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/codemod#verifying-by-matching-not-by-diffing
 ```
 
 Two properties follow from matching rather than diffing, and neither is available to a check built
@@ -447,7 +460,7 @@ going to check by hand anyway.
 
 An id neither `--only` nor `--skip` recognises exits **2** naming the known ids, rather than quietly
 running everything. A flag this table does not have exits **2** the same way, before anything is
-read: `codemod --wirte` is not a dry run that happened to write nothing, it is a line that did not
+read, with the flag it most likely meant: `codemod --wirte` is not a dry run that happened to write nothing, it is a line that did not
 say what its author meant.
 
 ### When the scan hits its cap
@@ -457,12 +470,13 @@ reporting a clean repository off a list it never finished:
 
 ```
 The repository scan stopped at its safety cap of 50000 files — part of the tree was never looked at,
-so a clean result here is not a migrated repository. Raise the cap with VITEST_AUTO_SPY_SCAN_CAP or
-narrow --paths.
+so a clean result here is not a migrated repository. Raise the cap with VITEST_AUTO_SPY_SCAN_CAP, or
+pass the directories to migrate as arguments: `npx vitest-auto-spy codemod src/app`.
 ```
 
-`VITEST_AUTO_SPY_SCAN_CAP=200000 npx vitest-auto-spy codemod --verify` raises it. Narrowing with
-`--paths` is usually the better answer: the scan is not the slow part, the transforms are.
+`VITEST_AUTO_SPY_SCAN_CAP=200000 npx vitest-auto-spy codemod --verify` raises it. Passing the
+directories to migrate as arguments is usually the better answer: the scan is not the slow part, the
+transforms are.
 
 The scan does not descend into a directory that is a repository of its own — a git worktree, whose
 `.git` is a file, or a nested clone. Those files belong to another branch's working copy, and

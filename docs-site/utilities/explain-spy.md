@@ -99,8 +99,8 @@ doubles, is reported in the text rather than raised:
 ```text
 [vitest-auto-spy] explainSpy
 
-nothing to explain: this value holds no spy created by vitest-auto-spy. Pass a double built by
-createSpyFromClass, createAutoMock, createFunctionSpy or mockDeep.
+nothing to explain: this value is a plain runner mock (vi.fn()) and holds no spy created by
+vitest-auto-spy. `adoptMock(mock)` gives it the library's helpers.
 ```
 
 The result is a report to print, not something to assert on — the wording is a diagnostic and is

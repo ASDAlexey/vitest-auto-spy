@@ -98,8 +98,9 @@ builder already loads both bundles from its own entry point; otherwise import th
 setup file. If they are missing, the patch says which half:
 
 ```text
-[vitest-auto-spy] vitest-auto-spy/zone: globalThis.Zone is not there, so there is nothing to patch.
-This entry deliberately does not import zone.js — a zoneless project must not pull it in — …
+[vitest-auto-spy] vitest-auto-spy/zone: globalThis.Zone is not there, so there is nothing to patch — this entry does not import zone.js itself, so that a zoneless project never pulls it in.
+Load it at the top of the setup file: `import 'zone.js'; import 'zone.js/testing';` (under @angular/build:unit-test the builder does this already).
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/zone#requirements
 ```
 
 ## Why it is a separate entry

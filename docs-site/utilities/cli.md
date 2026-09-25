@@ -24,16 +24,20 @@ otherwise rename into the reverse meaning. This page covers the first three; the
 **The exit codes mean the same thing in all four**, which is what makes any of them a single CI
 line:
 
-| Exit | Meaning                                                                                                                                                                                                                           |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | The command ran and has nothing to report                                                                                                                                                                                         |
-| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date, `perf --gate` a confirmed budget                                      |
-| `2`  | It could not do the job it was asked to do: an unknown command, an unknown flag for a known command, an unknown transform id on `--only` / `--skip`, a `codemod` path that matches no file, or a `perf` run with nothing to judge |
+| Exit | Meaning                                                                                                                                                                                                                                                       |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | The command ran and has nothing to report                                                                                                                                                                                                                     |
+| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date, `perf --gate` a confirmed budget                                                                  |
+| `2`  | It could not do the job it was asked to do: an unknown command, an unknown flag for a known command, a flag value it cannot use, an unknown transform id on `--only` / `--skip`, a `codemod` path that matches no file, or a `perf` run with nothing to judge |
 
 The unknown flag is the one worth stating on its own, because a parser that accepts everything makes
 a typo invisible: `init --dryrun` wrote the files a `--dry-run` would only have described, and
 `perf --gat` passed with no gate at all. Both read as green. A flag a command does not have stops it
-before it reads or writes anything, names the flag on stderr, and lists the ones that command takes.
+before it reads or writes anything, names the flag on stderr, and suggests the flag it most likely
+meant — or lists the ones that command takes when nothing is close. The same holds for a value the
+command cannot use: `--min-severity loud`, `--max-test-ms abc` or `-5`, a `--cwd` with no directory
+after it, and an `--ignore` id `doctor` has no check for all stop with exit 2 and `Nothing ran.`
+rather than quietly falling back to a default.
 
 ## `doctor` — defects that never fail
 
@@ -51,33 +55,10 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
        The "include" pattern "src*.spec.ts" matches no file.
        → A pattern that matches nothing type-checks nothing, and `tsc --noEmit` still reports
          zero errors. Fix the glob or delete the entry.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#tsconfig-glob-matches-nothing
 
 3 errors, 4 warnings, 1 note
 ```
-
-| Check                            | What it finds                                                                                                                                                                                                                                                                                                                                                                                | Why nothing catches it                                                                                                                                                                                                                                                                                                                                  |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tsconfig-glob-matches-nothing`  | An `include` pattern that matches no file — an error when files it was meant for sit beside the config, `info` for a library that has none yet                                                                                                                                                                                                                                               | A glob that matches nothing type-checks nothing, and `tsc` reports success                                                                                                                                                                                                                                                                              |
-| `tsconfig-file-missing`          | A `files` entry naming a file that is gone                                                                                                                                                                                                                                                                                                                                                   | Same — the config is only read by editors once the runner stopped using it                                                                                                                                                                                                                                                                              |
-| `spec-imported-by-non-spec`      | A production module importing a `*.spec.ts`                                                                                                                                                                                                                                                                                                                                                  | Under a shared environment the import is a cycle, and the spec loses its own suite                                                                                                                                                                                                                                                                      |
-| `spec-exports-fixture`           | A spec importing another spec                                                                                                                                                                                                                                                                                                                                                                | The imported file's suites are collected twice and its hooks run in a foreign file's context                                                                                                                                                                                                                                                            |
-| `foreign-runner-pragma`          | `@jest-environment` and friends left in a spec                                                                                                                                                                                                                                                                                                                                               | Vitest never reads them; the environment comes from the config, so the comment looks operative                                                                                                                                                                                                                                                          |
-| `dead-runner-config`             | `jest.config.*`, `karma.conf.*` for a runner that is not installed                                                                                                                                                                                                                                                                                                                           | It is the first file a newcomer — or an agent — reads to learn how tests run                                                                                                                                                                                                                                                                            |
-| `orphan-runner-file`             | A setup file only that dead config referenced                                                                                                                                                                                                                                                                                                                                                | One found this way had been empty since before the migration: a year as a setting that configured nothing                                                                                                                                                                                                                                               |
-| `angular-build-splitting-off`    | `@angular/build` in `[22.1.5, 22.1.7)`                                                                                                                                                                                                                                                                                                                                                       | The unit-test bundle is built with code splitting off. `--coverage` then grows by hundreds of megabytes with no plateau, and the builder emits no warning — see [what it trades, and the escape hatch](/adapters/angular#when-the-unit-test-build-has-code-splitting-off); `setupAutoSpy()` also says this once per worker from inside the affected run |
-| `builder-setup-unreached`        | An `@angular/build:unit-test` or `@nx/angular:unit-test` target whose options (with `nx.json` `targetDefaults`) name neither `setupFiles` nor `runnerConfig`, in a project whose Vitest config lists setup files or that has `src/test-setup.ts` — the builder never runs it, so `setupAutoSpy()`, its `strict`, registered matchers and the mock adapter are missing under that target only |
-| `module-mock-leak`               | The same module mocked with a factory in one spec and as an automock or `{ spy: true }` in another, when the environment is shared (`isolate: false` in a Vitest config, or the Angular unit-test builder's default) — Vitest hands the factory to the later automock, which then fails with `No "X" export is defined on the mock` only when the two share a worker                         |
-| `coverage-all-removed`           | `coverage.all` on Vitest 4 or newer                                                                                                                                                                                                                                                                                                                                                          | The key was removed, not renamed: nothing reads it and nothing warns, so the report quietly covers only what the run imported                                                                                                                                                                                                                           |
-| `coverage-include-misses-bundle` | A source-only `coverage.include` in the runner config of an `@angular/build:unit-test` target                                                                                                                                                                                                                                                                                                | Coverage is matched twice — first against the executed bundle chunks, then against the remapped sources. A list of `.ts` globs loses every counter on the first pass, and the run stays green — see [coverage under the unit-test builder](/adapters/angular#coverage-under-the-unit-test-builder)                                                      |
-| `jasmine-era-project`            | `jasmine-core`, `@types/jasmine`, `jasmine-auto-spies`, `@hirez_io/observer-spy`, a `karma*` package or a `karma.conf.*` on disk — or `"types": ["jasmine"]` in a tsconfig                                                                                                                                                                                                                   | **Info**, never an error: a repository is free to still be a jasmine repository. The fix names the order that works — point the specs at [`vitest-auto-spy/jasmine`](/migrating-jasmine) and land the suite green, _then_ `codemod --from jasmine` and drop the import. Doing it the other way round means rewriting a suite that was never green       |
-| `no-agent-instructions`          | No `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` names the package                                                                                                                                                                                                                                                                                                                                 | A note, not an error. It is the one moment where saying so costs nothing                                                                                                                                                                                                                                                                                |
-| `helper-from-wrong-entry`        | A helper imported from an entry that does not export it — `provideAutoSpy` from the root, `flushEventLoop` from `/angular`                                                                                                                                                                                                                                                                   | Resolving a name to the entry that owns it needs a table generated from the installed version's own export map, which no per-file linter has. And the files it fires in are usually the ones no `tsc` program covers — the check above says which                                                                                                       |
-| `no-unawaited-helper`            | `expectEmission`, `expectError`, `stable`, `flushEventLoop` and their siblings called as a statement and dropped                                                                                                                                                                                                                                                                             | The promise settles after the test has already ended, so the assertion inside it reports into a later test, or nowhere. The run stays green and the spec looks like it asserted something                                                                                                                                                               |
-
-The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
-`tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
-turning `src/**/*.spec.ts` into `src*.spec.ts` — a syntactically valid glob that matches nothing.
-Nine of 152 spec tsconfigs still covered their specs.
 
 **It never writes.** `doctor` reads the repository and prints; there is no `--fix`. Exit code 1
 when anything above a note was found, 0 otherwise, so it drops into CI as one line — and 2 only when
@@ -90,8 +71,9 @@ does matter. `--min-severity warning` (or `error`) leaves the quieter findings o
 report; `info` is the default and prints everything. Two things stay where they were on purpose:
 the tally line still counts what was hidden, so `0 errors, 0 warnings, 14 notes` keeps telling the
 reader the notes exist, and the exit code does not move, because a note never failed a run. A word
-the flag does not recognise is taken as no filter rather than as a stricter one — the opposite
-would quietly hide the errors somebody was watching for. The flag works the same way on `perf`.
+the flag does not recognise stops the command with exit 2 and the accepted values, rather than
+being guessed at — a guess either way would hide findings or show ones somebody asked to hide. The
+flag works the same way on `perf`.
 
 ```
 $ npx vitest-auto-spy doctor --min-severity warning
@@ -102,6 +84,7 @@ warn   dead-runner-config karma.conf.js
        Configures karma, which is not installed in this repository.
        → Delete it. While it stays, every reader — human or agent — treats it as the
          source of truth for how tests run.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#dead-runner-config
 
 0 errors, 1 warning, 3 notes (3 not shown: --min-severity warning)
 ```
@@ -113,7 +96,9 @@ repository that keeps its agent instruction files out of git — they exist on e
 machine, and the clean checkout never has them. `--ignore <check,…>` takes a comma-separated list
 of check ids and leaves those checks out of the report, the tally, the exit code and the
 `--code-quality` file, so the merge request widget does not show them either. Unlike
-`--min-severity`, it hides the finding completely — name only the checks you have answered.
+`--min-severity`, it hides the finding completely — name only the checks you have answered. An id
+that is not one of the checks below stops the run with exit 2 and the id it most likely meant, so a
+typo cannot leave the finding it was meant to silence in place.
 
 ```bash
 npx vitest-auto-spy doctor --ignore no-agent-instructions --code-quality reports/doctor.json
@@ -121,7 +106,8 @@ npx vitest-auto-spy doctor --ignore no-agent-instructions --code-quality reports
 
 **One cause is printed once.** Findings of the same check with the same fix are one block: the
 message once when every place says the same thing — six library tsconfigs with the same empty
-`include` — and each file's own line under it otherwise, then the fix once. A finding that carries
+`include` — and each file's own line under it otherwise, then the fix once, then a `Docs:` line
+linking to the check's entry [below](#the-checks). A finding that carries
 evidence of its own, or names no file, is never folded. Prose is wrapped to the terminal, or to 80
 columns when the output is a pipe or a CI log (`COLUMNS` overrides it); a path or a URL is never
 cut, and every line of a finding but its first is indented, so a harness that collects a finding as
@@ -137,12 +123,8 @@ info   tsconfig-glob-matches-nothing — 6 files
          …
        → Nothing is unchecked today: the entry starts matching when the first
          such file is written. Delete it only if none ever will be.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#tsconfig-glob-matches-nothing
 ```
-
-**A scan that stopped short says so.** The file scan has a safety cap of 50 000 files
-(`VITEST_AUTO_SPY_SCAN_CAP` raises it). A repository past it used to get "No problems found." for
-the files nothing had read; it now gets a `scan-cap-reached` warning, and exit 1, until the cap is
-raised or `--cwd` narrows the tree.
 
 **`--format json` for a script.** One JSON document on stdout and nothing else: `schema`,
 `command`, `version`, `cwd`, `runner`, `entry`, `scanned` (`files`, `specFiles`,
@@ -184,12 +166,144 @@ doctor:
       codequality: gl-code-quality.json
 ```
 
+### The checks
+
+Every finding ends in a `Docs:` line that links to its entry here.
+
+#### `tsconfig-glob-matches-nothing`
+
+An `include` pattern that matches no file: an error when files it was meant for sit beside the
+config, `info` for a library that has none yet. A glob that matches nothing type-checks nothing, and
+`tsc` reports success.
+
+This is the check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
+`tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
+turning `src/**/*.spec.ts` into `src*.spec.ts` — a syntactically valid glob that matches nothing.
+Nine of 152 spec tsconfigs still covered their specs.
+
 Two shapes of pattern are deliberately exempt, because for them "matches nothing" is not evidence
 of anything: a declaration-only glob (`src/**/*.d.ts`, routinely a placeholder for ambient types
 that do not exist yet) and a pattern inside a directory the scan never enters (`dist`,
 `libs/app/out-tsc`, `coverage`, or one git's exclude rules cover, whether or not it exists yet — a
 pattern into `src/generated/` is exempt before the code generator has run). A `files` entry inside
 such a directory is not reported missing either.
+
+#### `tsconfig-file-missing`
+
+A `files` entry naming a file that is gone. Same as above: once the runner stopped using the config,
+only editors read it, and nothing reports the missing file.
+
+#### `spec-imported-by-non-spec`
+
+A production module importing a `*.spec.ts`. Under a shared environment the import is a cycle, and
+the spec loses its own suite.
+
+#### `spec-exports-fixture`
+
+A spec importing another spec. The imported file's suites are collected twice and its hooks run in a
+foreign file's context. Move the shared fixture into a non-spec file.
+
+#### `foreign-runner-pragma`
+
+`@jest-environment` and friends left in a spec, with the lines they are on. Vitest never reads them;
+the environment comes from the config, so the comment looks operative and is not. The fix names the
+`@vitest-environment` that says the same thing.
+
+#### `dead-runner-config`
+
+`jest.config.*`, `karma.conf.*` for a runner that is not installed. It is the first file a newcomer
+— or an agent — reads to learn how tests run.
+
+#### `orphan-runner-file`
+
+A setup file only that dead config referenced. One found this way had been empty since before the
+migration: a year as a setting that configured nothing.
+
+#### `angular-build-splitting-off`
+
+`@angular/build` in `[22.1.5, 22.1.7)`. The unit-test bundle is built with code splitting off, so
+`--coverage` grows by hundreds of megabytes with no plateau and the builder emits no warning — the run
+either finishes slowly or is killed for memory. The fix names the unit-test targets to set
+`"splitting": true` on. See
+[what it trades, and the escape hatch](/adapters/angular#when-the-unit-test-build-has-code-splitting-off);
+`setupAutoSpy()` also says this once per worker from inside the affected run.
+
+#### `builder-setup-unreached`
+
+An `@angular/build:unit-test` or `@nx/angular:unit-test` target whose options (with `nx.json`
+`targetDefaults`) name neither `setupFiles` nor `runnerConfig`, in a project whose Vitest config lists
+setup files or that has `src/test-setup.ts`. The builder never runs it, so `setupAutoSpy()`, its
+`strict`, registered matchers and the mock adapter are missing under that target only. The fix is the
+`setupFiles` option for that target; `nx.json` `targetDefaults` carries it for every project that
+shares the layout, and `runnerConfig` pointed at the Vitest config works too.
+
+#### `module-mock-leak`
+
+The same module mocked with a factory in one spec and as an automock or `{ spy: true }` in another,
+when the environment is shared (`isolate: false` in a Vitest config, or the Angular unit-test
+builder's default — the finding says which). Vitest hands the factory to the later automock, which
+then fails with `No "X" export is defined on the mock` only when the two share a worker. The finding
+lists the files with a factory and names the module as the error will. Mocking it the same way in
+both is the fix; `vi.resetModules()` before the import is the other way out.
+
+#### `coverage-all-removed`
+
+`coverage.all` on Vitest 4 or newer. The key was removed, not renamed: nothing reads it and nothing
+warns, so the report quietly covers only what the run imported.
+
+#### `coverage-include-recompiles-globs`
+
+A coverage scope of many globs on Vitest 4, where the provider compiles every glob again for every
+file it checks: `isIncluded()` calls `picomatch.isMatch(file, patterns, options)`, which builds the
+matchers on every call, and the `globCache` beside it memoises only the verdict. Nothing fails. Vitest
+5 compiles the list once; on 4, the custom-provider recipe in
+[coverage matching costs more than coverage](/adapters/angular#coverage-matching-costs-more-than-coverage)
+took one 1 725-file shard from 229.59 s to 22.88 s with a byte-identical report.
+
+#### `coverage-include-misses-bundle`
+
+A source-only `coverage.include` in the runner config of an `@angular/build:unit-test` target.
+Coverage is matched twice — first against the executed bundle chunks, then against the remapped
+sources. A list of `.ts` globs loses every counter on the first pass, and the run stays green — see
+[coverage under the unit-test builder](/adapters/angular#coverage-under-the-unit-test-builder).
+
+#### `jasmine-era-project`
+
+`jasmine-core`, `@types/jasmine`, `jasmine-auto-spies`, `@hirez_io/observer-spy`, a `karma*` package
+or a `karma.conf.*` on disk — or `"types": ["jasmine"]` in a tsconfig. Info, never an error: a
+repository is free to still be a jasmine repository. The fix names the order that works — point the
+specs at [`vitest-auto-spy/jasmine`](/migrating-jasmine) and land the suite green, _then_
+`codemod --from jasmine` and drop the import. Doing it the other way round means rewriting a suite
+that was never green.
+
+#### `no-agent-instructions`
+
+No `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` names the package. A note, not an error: it is the one
+moment where saying so costs nothing. The fix reads `.gitignore`: where some instruction files are
+kept out of git, it names the tracked ones in `init --only`; where all of them are, it says to pass
+`--ignore no-agent-instructions` in CI, which never sees them.
+
+#### `helper-from-wrong-entry`
+
+A helper imported from an entry that does not export it — `provideAutoSpy` from the root,
+`flushEventLoop` from `/angular`. Resolving a name to the entry that owns it needs a table generated
+from the installed version's own export map, which no per-file linter has — see
+[the two checks that resolve a name](#the-two-checks-that-resolve-a-name). The files it fires in are
+usually the ones no `tsc` program covers.
+
+#### `no-unawaited-helper`
+
+`expectEmission`, `expectError`, `stable`, `flushEventLoop` and their siblings called as a statement
+and dropped, with the lines they are on. The promise settles after the test has already ended, so
+the assertion inside it reports into a later test, or nowhere. The run stays green and the spec looks
+like it asserted something.
+
+#### `scan-cap-reached`
+
+The file scan stopped at its safety cap of 50 000 files (`VITEST_AUTO_SPY_SCAN_CAP` raises it), so
+every other check read part of the tree. A repository past it used to get "No problems found." for
+the files nothing had read; it now gets this warning, and exit 1, until the cap is raised or `--cwd`
+narrows the tree.
 
 ### What the scan counts as this repository
 
@@ -298,29 +412,25 @@ vitest-auto-spy perf — /Users/alexeypopov/Desktop/projects/vitest-auto-spy
 info   perf-environment
        Environment setup is 31.6% of the measured CPU time, against 2.4% in the test bodies. No
        spec file could be proved DOM-free, so this names none; 109 were left undecided.
-       → Move what does not need a DOM to the `node` environment. Rule used — a spec is listed
-         only when it, the configured setup files and every repository module any of them imports
-         were read and none of them mentions a DOM name (document, window, HTML*, *Event, TestBed,
-         …), and every package they import is one of: vitest, rxjs, vitest-auto-spy,
-         vitest-auto-spies, date-fns, dayjs, luxon, lodash, lodash-es, ramda, immer, uuid, nanoid,
-         zod, decimal.js, big.js, reflect-metadata. Background:
-         https://asdalexey.github.io/vitest-auto-spy/core/performance#what-actually-makes-a-suite-slow
+       → Nothing can move while every spec loads `src/test-setup.ts`: a setup file that
+         mentions a DOM name keeps every spec on the DOM. Move the DOM part of it into a setup
+         file only the DOM specs load.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#perf-environment
 
 info   perf-isolation
-       Per-file environment, setup and prepare together are 85.6% of the measured CPU time. Those
-       three are what `test.isolate: false` pays once per worker instead of once per file.
-       → It is a trade, not a win — without isolation every double a file created stays alive for
-         the whole worker, so peak memory grows with the suite. This package's own measurements of
-         that are at
-         https://asdalexey.github.io/vitest-auto-spy/core/performance#memory-under-isolate-false;
-         take yours before switching.
+       Per-file environment, setup and prepare together are 85.6% of the measured CPU time.
+       `test.isolate: false` pays those once per worker instead of once per file.
+       → Try `isolate: false` in vitest.config.mts and keep it only if peak memory stays
+         acceptable: without isolation, every double a file creates lives until its worker ends.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#perf-isolation
 
 0 errors, 0 warnings, 2 notes
 ```
 
 That is this repository's own suite. It names zero DOM-free candidates and leaves 109 files
 undecided, because `src/test-setup.ts` builds an Angular `TestBed` before every spec — the rule
-below is why a real repository can get an honest "cannot tell" instead of a guess.
+below is why a real repository can get an honest "cannot tell" instead of a guess, and the fix names
+the setup file that decided it.
 
 **The phase totals are CPU time summed across workers**, not wall clock — the run above took 860ms
 on the clock and 17.30s of CPU because the work was spread across several workers. A phase total
@@ -339,7 +449,11 @@ A phase only produces findings once it is worth a reader's afternoon: below 30 %
 below 5 s of total CPU time across the whole run, `perf` says so and stops rather than naming files
 over noise.
 
-**`perf-environment`** fires when `environment` dominates. It ranks every spec file that is
+### The advice it prints
+
+#### `perf-environment`
+
+It fires when `environment` dominates. It ranks every spec file that is
 _DOM-free_ — provably so, not probably — by the environment time it cost, and suggests
 `// @vitest-environment node` (or a `node`-environment project) for each. The rule is deliberately
 one-sided: a spec is a candidate only when it, the configured setup files, and every repository
@@ -357,22 +471,27 @@ workers, 126.4 s reported against 2.44 s actually spent. `perf` counts each dist
 the finding prices the move honestly: a worker's environment is only saved when **every** file it
 ran is DOM-free, and when a DOM-using neighbour means the move frees nothing, the finding says so.
 
-**`perf-environment-engine`** is the other half of the same advice, for the files `perf-environment`
-cannot move: a spec that genuinely needs a DOM still has to build one, and `happy-dom` builds it for
+#### `perf-environment-engine`
+
+The other half of the same advice, for the files `perf-environment` cannot move: a spec that genuinely needs a DOM still has to build one, and `happy-dom` builds it for
 less. Measured on this package's own Angular suite, the same 117 files and the same assertions:
 **26.5 s of user CPU against 23.2 s**, or 12 % less. On a spec that builds a DOM and does nothing
 else the gap is far wider — 253 ms against 119 ms of environment time per file — so how much of it a
-suite gets back depends on how much of a file the environment is. It fires only when a `vite(st).config.*` names `jsdom` and
-nothing in those configs mentions `happy-dom` — a suite that has already made the choice does not
-get asked again. It is a swap, not a flag: `happy-dom` implements less of the platform, so change
+suite gets back depends on how much of a file the environment is. It fires only when a
+`vite(st).config.*` names `jsdom` and nothing in those configs mentions `happy-dom` — a suite that
+has already made the choice does not get asked again — and it names the config that sets `jsdom`. It is a swap, not a flag: `happy-dom` implements less of the platform, so change
 one project at a time and keep the suite green after each.
 
-**`perf-import`** fires when `import` dominates, and names every spec that reaches its subject
+#### `perf-import`
+
+It fires when `import` dominates, and names every spec that reaches its subject
 through a barrel — an `index`/`public-api` module with no declaration of its own, only re-exports —
 because a spec importing one loads everything the barrel re-exports to use one export from it. It
 does not fire in the run above, because `import` is only 5.1 % of this repository's total.
 
-**`perf-isolation`** fires when `environment` + `setup` + `prepare` together dominate, and points at
+#### `perf-isolation`
+
+It fires when `environment` + `setup` + `prepare` together dominate, and points at
 `test.isolate: false` — the setting that pays those three once per worker instead of once per file.
 It is framed as a trade, not a win, and links to this package's own memory measurements
 ([`core/performance#memory-under-isolate-false`](/core/performance#memory-under-isolate-false))
@@ -381,34 +500,52 @@ for the rest of the worker, so peak memory grows with the suite. `perf` does not
 when a `vite(st).config.*` already sets `isolate: false` — reporting a setting a reader already
 made is not a finding.
 
-**`perf-workers`** is the one finding here that is about memory rather than time. Vitest takes one
-worker per core, and a worker is a whole runtime: measured on this package's own Angular suite,
+#### `perf-workers`
+
+The one finding here that is about memory rather than time. Vitest takes one worker per core, and a
+worker is a whole runtime: measured on this package's own Angular suite,
 resident memory came to **1.42 GB plus ~155 MB per worker**, so on a 16-core machine the eight
 workers past a cap of four are about 1.9 GB on their own. The wall clock that cap costs is small —
 on a field deployment of this package, **13.50 s against 13.13 s** at the eight-worker optimum, or
 2.8 %, for 3.7 GB of resident memory instead of 5.8 GB. It fires only on a run whose summed CPU time
 is over a minute, and only when no `maxWorkers` is declared: below that the setting is a detail, and
-a suite that has set it has already had this thought. The number itself is a property of the
-machine, not of the suite — take your own reading before fixing it.
+a suite that has set it has already had this thought. The finding counts the cores of the machine it
+ran on and suggests half of them, in the runner config it found. The number itself is a property of
+the machine, not of the suite — compare the wall clock before and after fixing it.
 
-**Exit code.** `perf` always exits `0` on a successful analysis — a slow suite is not a failing one,
-so it never fails a CI job on its own. It exits `1` only when it has nothing to read: no Vitest
+### When there is nothing to read
+
+Without `--gate`, `perf` exits `0` on a successful analysis — a slow suite is not a failing one,
+so it never fails a CI job on its own. It exits `2` when it has nothing to read: no Vitest
 installed in `--cwd`, the package's own `dist/perf-reporter.js` missing, the Vitest run itself
-producing no report, or a `--json` file that does not parse as one. If the suite ran but failed,
+producing no report, a `--json` file that is not one, or a report in which no test body ran. `1`
+belongs to the gate — see [the gate](#the-gate). If the suite ran but failed,
 `perf` still reports the timings it measured, with a warning that the run itself did not pass.
+
+Each of those says which it was. A `--json` path that does not exist, a file that is not valid JSON,
+JSON that is not a perf report and a report of a format version this build does not read are four
+different lines. A `--command` that exited non-zero without a report is a run that failed — make it
+pass first; one that exited `0` without a report reached a Vitest config that does not attach the
+reporter, and the message prints the two lines to add
+([below](#when-a-bare-run-is-not-your-suite)). A report whose files all sit outside `--cwd` was
+measured in another checkout: pass `--cwd` the directory it was measured in.
 
 ### Flaky tests and the heap
 
 Two findings are made on every run, however cheap it was, because neither is about the phases.
 
-**`perf-flaky`** names every file with a test that passed only on a retry — Vitest's own
+#### `perf-flaky`
+
+It names every file with a test that passed only on a retry — Vitest's own
 `TestCase.diagnostic().flaky` — and the tests by name. It is a warning, and the run stays green. Its
 failed attempts are counted in the file's time, so the gate also judges such a file slower than it is.
 `--fail-on-flaky` makes it an error and exits 1, the way Playwright's `failOnFlakyTests` and nextest's
 `flaky-result = "fail"` do: a retry that hides a real race is a test that will fail on somebody else's
 merge request.
 
-**`perf-heap`** lists the five files with the most heap used after them, in megabytes, whenever the run
+#### `perf-heap`
+
+It lists the five files with the most heap used after them, in megabytes, whenever the run
 recorded heap. A bare run passes `--logHeapUsage` itself; a `--command` run needs `logHeapUsage: true`
 in the configuration it reaches. It is a note and says what it cannot tell: under `isolate: false` the
 number after a file also carries every file that ran before it in the same worker, so a file that stays
@@ -426,7 +563,9 @@ plausible because transform and environment are real seconds however the files e
 
 `perf` refuses both halves of that. Before running anything it checks whether a bare run would be
 this repository's suite at all — no root `vite(st).config.*`, and a `test` script that does not
-invoke `vitest` itself — and stops with the two ways out instead of spending the half-minute. And
+invoke `vitest` itself — and stops instead of spending the half-minute. It prints one way out: the
+builder command below, with your project and target filled in, when it found an Angular or Nx
+unit-test target; otherwise the two reporter lines and the `--command` to run. And
 whatever the source, a report in which **no test body finished** is not printed as a measurement:
 it exits 2 and says how many files were collected against how many bodies ran.
 
@@ -725,32 +864,32 @@ perf:
 
 ### Flags
 
-| Flag                  | Effect                                                                                                                                                                                                                                       |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--cwd <dir>`         | Run against another directory instead of the current one (shared with the other commands)                                                                                                                                                    |
-| `--json <path>`       | Read reports instead of running Vitest: one file, a directory, or a pattern such as `coverage/**/perf-*.json`, which merges every report a sharded pipeline wrote                                                                            |
-| `--out <path>`        | Keep the JSON report at this path. Without it, the report is written under `node_modules/.cache` and deleted once read                                                                                                                       |
-| `--command <c>`       | Measure this shell line instead of running Vitest directly; `{paths}` / `{paths:<prefix>}` take the files of a confirmation pass                                                                                                             |
-| `--gate`              | Fail the run over a confirmed budget. Exit 1                                                                                                                                                                                                 |
-| `--max-test-ms`       | Budget for one test body. Default 1000; nothing under 100 ms is recorded, so that is the floor                                                                                                                                               |
-| `--max-file-ms`       | A file whose bodies add up to less than this is never a finding. Default 5000                                                                                                                                                                |
-| `--max-file-tests`    | How many of the run's median tests a file's bodies have to add up to. Default 2000                                                                                                                                                           |
-| `--factor <n>`        | How many times the run's median test one test of a file has to cost. Default 10 — counted in the run itself, so the verdict is machine-independent                                                                                           |
-| `--max-wall-ms`       | A whole-run budget. Off by default: wall clock is a property of the runner, so nothing derives it for you                                                                                                                                    |
-| `--gate-only`         | Comma-separated paths the gate may judge; the median is still taken over the whole run                                                                                                                                                       |
-| `--no-confirm`        | Skip the confirmation pass and gate on a single reading                                                                                                                                                                                      |
-| `--baseline <p>`      | Compare against a committed baseline and fail on what grew; recorded as a ratio to the run's median file, so a slower machine is not a regression. A `.jsonl` path is a history of runs                                                      |
-| `--update-baseline`   | Record this run into the baseline instead of judging it, or append it to a `.jsonl` history that keeps 30 runs. Defaults to `perf-baseline.json`                                                                                             |
-| `--fail-on-flaky`     | A test that passed only on a retry fails the run, exit 1. Without it, a warning                                                                                                                                                              |
-| `--fail-on-red`       | A measured suite that failed fails `perf` too, exit 1 — for a CI job whose only test step is `perf --command`. Without it a red suite is a warning and `perf` exits 0 (under `--gate` a red run is exit 2, nothing to judge)                 |
-| `--code-quality <p>`  | Also write the findings as a GitLab Code Quality report. Shared with `doctor`                                                                                                                                                                |
-| `--baseline-factor`   | How many times its recorded share a file has to take before it is a regression. Default 2                                                                                                                                                    |
-| `--baseline-floor-ms` | The absolute floor under which a grown file is still noise. Default 500                                                                                                                                                                      |
-| `--top <n>`           | Rows in the "files over budget" and "test bodies over budget" tables; `0` turns them off. Default 10                                                                                                                                         |
-| `--format json`       | One JSON document on stdout instead of the text report; the suite's own output goes to stderr. Shared with `doctor`                                                                                                                          |
-| `--format markdown`   | The same document as markdown tables — phases, slowest files, gate verdicts, findings — for an MR note or a job summary. Shared with `doctor`                                                                                                |
-| `--ignore <check,…>`  | `doctor` only. Leaves the named check ids out of the report, the tally and the exit code — for a finding the repository has answered in a way `doctor` cannot see, such as `angular-build-splitting-off` on a builder patched to split again |
-| `--min-severity`      | The quietest findings the report prints: `error`, `warning` or `info` (default). The tally line still counts what was hidden, and the exit code does not move                                                                                |
+| Flag                  | Effect                                                                                                                                                                                                                                                                |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--cwd <dir>`         | Run against another directory instead of the current one (shared with the other commands)                                                                                                                                                                             |
+| `--json <path>`       | Read reports instead of running Vitest: one file, a directory, or a pattern such as `coverage/**/perf-*.json`, which merges every report a sharded pipeline wrote                                                                                                     |
+| `--out <path>`        | Keep the JSON report at this path. Without it, the report is written under `node_modules/.cache` and deleted once read                                                                                                                                                |
+| `--command <c>`       | Measure this shell line instead of running Vitest directly; `{paths}` / `{paths:<prefix>}` take the files of a confirmation pass                                                                                                                                      |
+| `--gate`              | Fail the run over a confirmed budget. Exit 1                                                                                                                                                                                                                          |
+| `--max-test-ms`       | Budget for one test body. Default 1000; nothing under 100 ms is recorded, so that is the floor                                                                                                                                                                        |
+| `--max-file-ms`       | A file whose bodies add up to less than this is never a finding. Default 5000                                                                                                                                                                                         |
+| `--max-file-tests`    | How many of the run's median tests a file's bodies have to add up to. Default 2000                                                                                                                                                                                    |
+| `--factor <n>`        | How many times the run's median test one test of a file has to cost. Default 10 — counted in the run itself, so the verdict is machine-independent                                                                                                                    |
+| `--max-wall-ms`       | A whole-run budget. Off by default: wall clock is a property of the runner, so nothing derives it for you                                                                                                                                                             |
+| `--gate-only`         | Comma-separated paths the gate may judge; the median is still taken over the whole run                                                                                                                                                                                |
+| `--no-confirm`        | Skip the confirmation pass and gate on a single reading                                                                                                                                                                                                               |
+| `--baseline <p>`      | Compare against a committed baseline and fail on what grew; recorded as a ratio to the run's median file, so a slower machine is not a regression. A `.jsonl` path is a history of runs                                                                               |
+| `--update-baseline`   | Record this run into the baseline instead of judging it, or append it to a `.jsonl` history that keeps 30 runs. Defaults to `perf-baseline.json`                                                                                                                      |
+| `--fail-on-flaky`     | A test that passed only on a retry fails the run, exit 1. Without it, a warning                                                                                                                                                                                       |
+| `--fail-on-red`       | A measured suite that failed fails `perf` too, exit 1 — for a CI job whose only test step is `perf --command`. Without it a red suite is a warning and `perf` exits 0 (under `--gate` a red run is exit 2, nothing to judge)                                          |
+| `--code-quality <p>`  | Also write the findings as a GitLab Code Quality report. Shared with `doctor`                                                                                                                                                                                         |
+| `--baseline-factor`   | How many times its recorded share a file has to take before it is a regression. Default 2                                                                                                                                                                             |
+| `--baseline-floor-ms` | The absolute floor under which a grown file is still noise. Default 500                                                                                                                                                                                               |
+| `--top <n>`           | Rows in the "files over budget" and "test bodies over budget" tables; `0` turns them off. Default 10                                                                                                                                                                  |
+| `--format json`       | One JSON document on stdout instead of the text report; the suite's own output goes to stderr. Shared with `doctor`                                                                                                                                                   |
+| `--format markdown`   | The same document as markdown tables — phases, slowest files, gate verdicts, findings — for an MR note or a job summary. Shared with `doctor`                                                                                                                         |
+| `--ignore <check,…>`  | `doctor` only. Leaves the named check ids out of the report, the tally and the exit code — for a finding the repository has answered in a way `doctor` cannot see, such as `angular-build-splitting-off` on a builder patched to split again. An unknown id is exit 2 |
+| `--min-severity`      | The quietest findings the report prints: `error`, `warning` or `info` (default). The tally line still counts what was hidden, and the exit code does not move. Any other value is exit 2                                                                              |
 
 A positional path (`npx vitest-auto-spy perf src/cli`) is passed through to Vitest as its file
 filter; with none, `perf` measures the whole suite.
@@ -839,7 +978,9 @@ The codemod's own flags — `--write`, `--verify`, `--only`, `--skip`, `--list` 
 
 Each command takes the flags of its own table plus `--cwd`, `--help` and `--version`, and nothing
 else. A flag none of them lists stops that command with exit code 2 before it reads or writes a
-file, and prints the ones it does take.
+file, and suggests the flag it most likely meant, or prints the ones it does take. A value flag with
+nothing after it — `--cwd --check` — and a number flag given a word or a negative number stop it the
+same way.
 
 `init --check` in CI is the same shape as `llms:check` in this repository: it fails when the block
 on disk is not the block the installed version would write, which is exactly when an upgrade

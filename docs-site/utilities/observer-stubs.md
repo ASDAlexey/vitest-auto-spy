@@ -58,10 +58,10 @@ made it. Reaching for `last` when the code under test constructed nothing throws
 rather than failing three lines later against `undefined`:
 
 ```text
-[vitest-auto-spy] stubObserver('IntersectionObserver'): the code under test has not constructed an
-IntersectionObserver. Render the component (or run the effect) before reaching for `last`, and
-check that the stub was installed before the construction rather than after it.
-Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs
+[vitest-auto-spy] stubObserver('IntersectionObserver'): the stub is installed, but the code under test
+has not constructed a IntersectionObserver yet. Render the component (or run the effect) before
+reaching for `last`.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs#the-handle
 ```
 
 ## The handle

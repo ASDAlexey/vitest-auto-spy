@@ -51,6 +51,18 @@ in — a TestBed provider, a constructor argument, a function parameter — and 
 `assertMocked` is what turns the silent case into a sentence, so that conclusion is reached in one
 run rather than three.
 
+It names the export that stayed real and only the cause that fits the run: under `isolate: false` it
+blames the earlier file that loaded the module first, otherwise the path the code under test imports
+it through:
+
+```text
+[vitest-auto-spy] assertMocked('./api'): fetchUser is the real function — the `vi.mock('./api')` for
+this file did not apply. The code under test reaches the module through another path (a barrel, an
+alias, a bundled entry) — `vi.mock` the specifier it imports, or pass the dependency in as an argument
+or a provider.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/module-mocks#the-two-ways-vi-mock-becomes-a-no-op
+```
+
 ## Provide a real seam
 
 The silent `vi.mock` has a loud twin, and it is the one people hit _next_ — after the mock does

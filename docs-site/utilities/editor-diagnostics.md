@@ -115,8 +115,9 @@ and it is the one rule a suite is expected to set to `'off'` for a while: it rep
 code, so on day one it underlines every line of the shim. Turn it back on for the last mile — the
 migration is finished when it is silent again.
 
-Each message ends with a link to the README recipe that shows the replacement, so the rule never
-only says "don't". The full descriptions, severities and the reasoning behind which rules fix and
+Each message names what it found and the one repair, then ends in `Docs:` and a link to the rule's
+own section of [ESLint rules](/utilities/eslint-rules), so the rule never only says "don't". The
+full descriptions, severities and the reasoning behind which rules fix and
 which only suggest are in [ESLint plugin](/utilities/eslint-plugin).
 
 The shapes ESLint cannot see are covered where they surface instead: importing the wrong entry point

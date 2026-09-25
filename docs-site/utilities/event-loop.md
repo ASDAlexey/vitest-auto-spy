@@ -87,15 +87,22 @@ configured — and a test that hangs until the runner's timeout reports the file
 failure names the `label` instead:
 
 ```text
-[vitest-auto-spy] flushEventLoopUntil: the SDK handshake was still not ready after 20 real
-event-loop turns. Three causes, in the order they turn out to be true. The work started but a
-dynamic `import()` had not finished … Or the work never started …. Or it is waiting on a timer
-rather than on the event loop — timers stay frozen here, and only `advanceTimers()` moves them.
-Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop
+[vitest-auto-spy] flushEventLoopUntil: the SDK handshake was still not ready after 20 real event-loop
+turns. No timer is pending: if it waits on a dynamic import(), await it instead:
+`await settleDynamicImport(() => import('./thing'))`; otherwise the call under test never ran, or its
+stub was never configured.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop#flusheventloopuntil-isdone-options
 ```
 
-The first of the three is the one that costs the most time to diagnose, which is why it is named
-first: a **cold** chunk takes more turns than the budget, and the giveaway is that only the _first_
+Under fake timers with callbacks queued, the second sentence is replaced by the one cause the clock
+can confirm:
+
+```text
+… 3 callbacks wait on the fake clock, and this helper never advances it — advance it instead:
+`await advanceTimers(ms)`.
+```
+
+The dynamic import is the cause that costs the most time to diagnose: a **cold** chunk takes more turns than the budget, and the giveaway is that only the _first_
 such test in a file fails while every later one passes off the module cache. That reads as a flake,
 and it is not — the answer is to await the module rather than count turns, with
 [`settleDynamicImport`](#settledynamicimport-load-turns) below.
