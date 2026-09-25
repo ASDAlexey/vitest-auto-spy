@@ -256,6 +256,16 @@ describe('createFunctionSpy — a host implementation over a configured chain', 
     expect(load(1)).toBe('flat');
   });
 
+  it('names resetAutoSpy as the way to drop a chain, since mockReset() keeps it', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    load.calledWith(1).mockReturnValue('configured');
+    load.mockReset();
+    load.mockReturnValue('flat');
+
+    expect(warnings[0]).toContain('resetAutoSpy(spy) first: mockReset() leaves the chain in place');
+  });
+
   it('reports a calledWith opened after a mockReturnValue had already replaced the dispatch', () => {
     const load = createFunctionSpy<(id: number) => string>('load');
 

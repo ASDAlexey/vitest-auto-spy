@@ -5,10 +5,12 @@
  * a call returns.
  */
 import { ArgsMap } from './args-map';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { errorHandler } from './error-handler';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
 import { getJasmineSupport } from './jasmine-support';
+import { withDocs } from './message-link';
+import { displayPath } from './message-text';
 import { reportMisconfiguration } from './misconfiguration';
 import { type MockFn, getMockAdapter } from './mock-adapter';
 import { type ObservableStream, getObservableSupport, requireObservableSupport } from './observable-support';
@@ -17,6 +19,7 @@ import { serializeValue } from './serialize-args';
 import { type SettledResultsRecorder, installSettledResultsPolyfill } from './settled-results';
 import { attachHelpers, decorate, detachedHelperError } from './spy-decoration';
 import { AUTO_SPY_MARK, type MarkHooks, markAsMock } from './spy-mark';
+import { ownFrames, stackFrames } from './stack-frames';
 import type { AddSpyMethodsByReturnTypes, Func, UnstubbedCall, UnstubbedCallHandler } from './types';
 
 /** Narrow the loosely-typed map lookup back to a `ReturnValueContainer`. */
@@ -130,21 +133,64 @@ function renderArgument(value: unknown): string {
   return text.length > RENDERED_ARGUMENT_LENGTH ? `${text.slice(0, RENDERED_ARGUMENT_LENGTH)}…` : text;
 }
 
+function frameLocation(frame: string): string {
+  return /((?:file:\/\/)?[^\s()]+:\d+:\d+)\)?$/.exec(frame)?.[1] ?? '';
+}
+
+// This module's own directory: in the repository the library's source sits next to its specs, where the
+// dist-only filter in `ownFrames` would quote the dispatch instead of the caller.
+const LIBRARY_DIRECTORY = frameLocation(String(stackFrames(new Error('probe').stack)[0])).replace(/[^/\\]*$/, '');
+
+function isCallingCode(location: string): boolean {
+  return (
+    location !== '' &&
+    !/node_modules|node:/.test(location) &&
+    (!location.startsWith(LIBRARY_DIRECTORY) || /\.(spec|test)\.[cm]?[jt]sx?:/.test(location))
+  );
+}
+
+/** `cart.component.ts:41:12` — the first frame of the calling code, or nothing when the stack has none. */
+function callSite(stack: string | undefined): string | undefined {
+  const frames = stackFrames(stack);
+  const location = ownFrames(frames, frames.length).map(frameLocation).find(isCallingCode);
+
+  return location === undefined ? undefined : displayPath(location.replace(/^file:\/\//, ''));
+}
+
+/** A variable name a spec is likely to hold this double in: `cartService` for `CartService`. */
+function holderName(className: string | undefined): string {
+  const name = className === undefined ? '' : sourceClassName(className);
+
+  return /^[$A-Z_a-z][\w$]*$/.test(name) ? `${name.charAt(0).toLowerCase()}${name.slice(1)}` : 'double';
+}
+
+function strictCallAdvice(call: UnstubbedCall, rendered: string): string {
+  const spy = `${holderName(call.className)}.${call.method}`;
+  const any = `.mockReturnValue(…)`;
+  const streams = ' — .resolveWith(…) / .nextWith(…) when it returns a Promise / Observable.';
+
+  return call.args.length === 0
+    ? `Configure it in the test: ${spy}${any}${streams}`
+    : `Configure it in the test: ${spy}.calledWith(${rendered}).mockReturnValue(…) for these arguments, or ${any} for any${streams}`;
+}
+
 function throwUnstubbedCall(call: UnstubbedCall): never {
   const target = describeTarget(call);
-  const message =
-    `[vitest-auto-spy] Nothing configured ${target}, and strict mode is on.\n` +
-    `Called as: ${target}(${call.args.map(renderArgument).join(',')})\n` +
-    `Configure it — .mockReturnValue(…), .mockImplementation(…), .resolveWith(…), .nextWith(…) or .calledWith(…), ` +
-    `or seed it through the 'returns' option — or drop 'strict' from this double.`;
+  const rendered = call.args.map(renderArgument).join(', ');
   const limit = Error.stackTraceLimit;
 
   // Deep enough to reach the calling code past a Proxy double, an RxJS operator and the dispatch.
   Error.stackTraceLimit = 30;
 
-  const error = new Error(withDocs(message, DOCS_LINKS.strictMode));
+  const error = new Error(`[vitest-auto-spy] ${target}(${rendered}) was called; this strict double has nothing configured for it.`);
 
   Error.stackTraceLimit = limit;
+
+  const site = callSite(error.stack);
+  const lines = [error.message, ...(site === undefined ? [] : [`Called from ${site}`]), strictCallAdvice(call, rendered)];
+
+  error.message = withDocs(lines.join('\n'), DOCS_LINKS.strictCall);
+  error.stack = String(error.stack).replace(/^[^\n]*/, `Error: ${error.message}`);
   recordStrictViolation(error);
 
   throw error;
@@ -185,7 +231,7 @@ function recordStrictViolation(error: Error): void {
  *
  * @example
  * ```ts
- * expect(() => cart.total()).toThrow('Nothing configured Cart.total');
+ * expect(() => cart.total()).toThrow('Cart.total() was called');
  * expect(takeStrictViolations()).toHaveLength(1);
  * ```
  */
@@ -311,7 +357,7 @@ function returnTheCorrectFakeValue(state: SpyState, actualArgs: unknown[], funct
     }
 
     // The map goes along so the failure can print what was wanted next to what arrived.
-    errorHandler.throwArgumentsError(actualArgs, functionName, state.mustBeCalledWith.argsToValuesMap);
+    errorHandler.throwArgumentsError(actualArgs, functionName, state.mustBeCalledWith.argsToValuesMap, unstubbed?.className);
   }
 
   return unwrapContainer(state.valueContainer);
@@ -346,7 +392,10 @@ function dispatchReplacedMessage(name: string, via: string, chain: string, order
   return withDocs(
     `[vitest-auto-spy] ${what}, so the ${chain}() decides nothing — every call answers what ${via}() installed. ` +
       `A fallback the ${chain}() still wins over goes in the spy's own container instead: the 'returns' option where the ` +
-      'double is built, or resolveWith/nextWith/failWith.',
+      'double is built, or resolveWith/nextWith/failWith.' +
+      (order === 'erased'
+        ? ` To drop the ${chain}() and answer one value for every call, resetAutoSpy(spy) first: mockReset() leaves the chain in place.`
+        : ''),
     DOCS_LINKS.createSpyFromClass,
   );
 }
