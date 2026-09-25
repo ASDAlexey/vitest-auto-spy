@@ -14,6 +14,7 @@ import { LEGACY_FILES, TIER_ONE_MARKDOWN, TIER_TWO, managedBlock, ownedContent, 
 import type { Target } from './init-targets';
 import type { Profile } from './profile';
 import { skillFrontmatter } from './self';
+import { nearest } from './suggest';
 
 export type ActionStatus = 'created' | 'removed' | 'skipped' | 'unchanged' | 'updated';
 
@@ -223,7 +224,9 @@ function budgetWarnings(plans: readonly Plan[]): string[] {
       return [];
     }
 
-    return [`AGENTS.md is ${size} bytes, past Codex's ${CODEX_DOC_BUDGET}-byte project_doc_max_bytes — it truncates the rest silently.`];
+    return [
+      `AGENTS.md would be ${size} bytes, past the ${CODEX_DOC_BUDGET} bytes Codex reads (project_doc_max_bytes), and Codex drops the rest without a word. Move long sections of AGENTS.md into files it links to.`,
+    ];
   });
 }
 
@@ -243,7 +246,13 @@ function unmatchedWarnings(only: readonly string[] | undefined): string[] {
 
   return (only ?? [])
     .filter((entry) => !known.some((path) => isSelected(path, [entry])))
-    .map((entry) => `--only ${entry} selects no file init writes — known targets: ${known.join(', ')}.`);
+    .map((entry) => {
+      const guess = nearest(entry, known);
+
+      return guess === undefined
+        ? `--only ${entry} selects no file init writes. Known targets: ${known.join(', ')}.`
+        : `--only ${entry} selects no file init writes. Did you mean ${guess}?`;
+    });
 }
 
 export function runInit(profile: Profile, version: string, options: InitOptions): InitResult {

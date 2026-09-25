@@ -145,7 +145,9 @@ describe('runInit', () => {
   it('warns when the file it appended to has grown past what Codex reads', () => {
     const root = createTempRepo({ 'package.json': MANIFEST, 'AGENTS.md': 'x'.repeat(33_000) });
 
-    expect(install(root).warnings[0]).toContain('project_doc_max_bytes');
+    expect(install(root).warnings[0]).toMatch(
+      /^AGENTS\.md would be \d+ bytes, past the 32768 bytes Codex reads \(project_doc_max_bytes\), and Codex drops the rest without a word\. Move long sections of AGENTS\.md into files it links to\.$/,
+    );
   });
 });
 
@@ -248,9 +250,12 @@ describe('runInit --only', () => {
 
   it('warns about an entry that selects nothing', () => {
     const root = createTempRepo({ 'package.json': MANIFEST });
-    const result = install(root, { only: ['CLAUDE.md', 'CLAUDE.MD'], dryRun: true });
+    const result = install(root, { only: ['CLAUDE.md', 'CLAUDE.MD', 'README.md'], dryRun: true });
 
-    expect(result.warnings).toEqual([expect.stringContaining('--only CLAUDE.MD selects no file init writes')]);
+    expect(result.warnings).toEqual([
+      '--only CLAUDE.MD selects no file init writes. Did you mean CLAUDE.md?',
+      expect.stringMatching(/^--only README\.md selects no file init writes\. Known targets: AGENTS\.md, CLAUDE\.md, /),
+    ]);
   });
 });
 
