@@ -13,8 +13,9 @@ import { SCAN_CAP_ENV, readTextFile } from '../fs-scan';
 import { runCli } from '../main';
 import type { CliIo } from '../main';
 import { createTempRepo, removeTempRepos } from '../temp-repo';
-import { TRANSFORMS, residueOf, resolveFrom, selectTransforms } from './codemod';
+import { TRANSFORMS, residueOf, resolveFrom, runTransforms, selectTransforms } from './codemod';
 import { listing, readAll, selectFiles } from './run';
+import { jestNamespace } from './transforms-jest';
 
 afterEach(() => {
   removeTempRepos();
@@ -144,6 +145,27 @@ describe('residueOf', () => {
 
     expect(findings.map((finding) => finding.check)).toEqual(['residue/jest-namespace']);
     expect(findings[0]?.file).toBe('a.spec.ts:1');
+    expect(findings[0]?.fix).toBe('`jest-namespace` did not rewrite this. Rewrite it by hand.');
+  });
+
+  it('quotes what the transform said when it declined the span, and names the reach problem when it said nothing', () => {
+    const run = (source: string): string | undefined =>
+      runTransforms({ file: 'a.spec.ts', source, entries: undefined, preferredEntry: 'vitest-auto-spy', selected: [jestNamespace] })
+        .residue[0]?.fix;
+    const declined = runTransforms({
+      file: 'a.spec.ts',
+      source: 'jest.isolateModules(() => {});\n',
+      entries: undefined,
+      preferredEntry: 'vitest-auto-spy',
+      selected: [jestNamespace],
+    });
+
+    expect(run('jest.isolateModules(() => {});\n')).toBe(
+      `\`jest-namespace\` declined it: ${String(declined.notes[0]?.message)} Rewrite it by hand.`,
+    );
+    expect(run('const a = `jest.fn()`;\n')).toBe(
+      '`jest-namespace` could not reach this, usually because it sits in a template literal or after an unbalanced bracket. Rewrite it by hand.',
+    );
   });
 });
 
@@ -178,7 +200,9 @@ describe('codemod', () => {
     }
 
     expect(io.stderr.join('\n')).toContain('stopped at its safety cap of 1 files');
-    expect(io.stderr.join('\n')).toContain(SCAN_CAP_ENV);
+    expect(io.stderr.join('\n')).toContain(
+      `Raise the cap with ${SCAN_CAP_ENV}, or pass the directories to migrate as arguments: \`npx vitest-auto-spy codemod src/app\`.`,
+    );
   });
 
   it('applies the edits under --write, and then has nothing left to verify', () => {

@@ -64,42 +64,66 @@ export interface RunInput {
  * because the transform was skipped. Matching the *result* is the only form that notices, and it
  * works the same on a file this tool edited and on one somebody edited by hand.
  */
-export function residueOf(file: string, text: string, transforms: readonly TransformSpec[]): Finding[] {
+export function residueOf(
+  file: string,
+  text: string,
+  transforms: readonly TransformSpec[],
+  said?: ReadonlyMap<string, readonly Finding[]>,
+): Finding[] {
   const masked = maskComments(text);
 
   return transforms.flatMap((transform) =>
     scan(masked, new RegExp(transform.residue.source, `${transform.residue.flags.replace('g', '')}g`))
       .filter((match) => transform.residueIgnores?.(masked, match) !== true)
-      .map((match) => residueNote(file, text, match, transform)),
+      .map((match) => residueNote(file, text, match, transform, said?.get(transform.id))),
   );
 }
 
-function residueNote(file: string, text: string, match: Match, transform: TransformSpec): Finding {
+function residueFix(id: string, line: number, file: string, notes: readonly Finding[] | undefined): string {
+  if (notes === undefined) {
+    return `\`${id}\` did not rewrite this. Rewrite it by hand.`;
+  }
+
+  const declined = notes.find((entry) => entry.file === `${file}:${line}`);
+
+  return declined === undefined
+    ? `\`${id}\` could not reach this, usually because it sits in a template literal or after an unbalanced bracket. Rewrite it by hand.`
+    : `\`${id}\` declined it: ${declined.message} Rewrite it by hand.`;
+}
+
+function residueNote(file: string, text: string, match: Match, transform: TransformSpec, notes: readonly Finding[] | undefined): Finding {
+  const line = lineOf(text, match.index);
+
   return note({
     check: `residue/${transform.id}`,
     severity: 'error',
     file,
-    line: lineOf(text, match.index),
+    line,
     message: `Still matches after the run: ${JSON.stringify(match.whole.trim())}`,
-    fix: `\`${transform.id}\` did not rewrite it — it declined (see its note), or it could not reach it: a template literal, an unbalanced bracket, a transform that was skipped. Rewrite this one by hand.`,
+    fix: residueFix(transform.id, line, file, notes),
   });
 }
 
-function outputsFor(context: TransformContext, selected: readonly TransformSpec[]): [TransformOutput[], Map<string, number>] {
+function outputsFor(
+  context: TransformContext,
+  selected: readonly TransformSpec[],
+): [TransformOutput[], Map<string, number>, Map<string, readonly Finding[]>] {
   const outputs: TransformOutput[] = [];
   const fired = new Map<string, number>();
+  const said = new Map<string, readonly Finding[]>();
 
   for (const transform of selected) {
     const output = transform.run(context);
 
     outputs.push(output);
+    said.set(transform.id, output.notes);
 
     if (output.edits.length > 0) {
       fired.set(transform.id, output.edits.length);
     }
   }
 
-  return [outputs, fired];
+  return [outputs, fired, said];
 }
 
 /** One file, start to finish: transform, apply, fix the import block, then read the result back. */
@@ -111,7 +135,7 @@ export function runTransforms(input: RunInput): FileResult {
     entries: input.entries,
     preferredEntry: input.preferredEntry,
   };
-  const [outputs, fired] = outputsFor(context, input.selected);
+  const [outputs, fired, said] = outputsFor(context, input.selected);
   const merged = mergeOutputs(outputs);
   const after = applyImportPlan(applyEdits(input.source, merged.edits), merged.needs, merged.dropIfUnused);
 
@@ -122,7 +146,7 @@ export function runTransforms(input: RunInput): FileResult {
     fired,
     importLines: input.source === after ? [] : relevantImports(after),
     notes: merged.notes,
-    residue: residueOf(input.file, after, input.selected),
+    residue: residueOf(input.file, after, input.selected, said),
   };
 }
 

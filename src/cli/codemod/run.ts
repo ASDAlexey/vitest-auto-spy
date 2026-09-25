@@ -185,11 +185,20 @@ interface RunPlan {
  * against the consumer's own `typescript`; where there is none, this is a no-op.
  */
 export function verified(parser: SyntaxParser | undefined, result: FileResult): FileResult {
-  if (parser === undefined || result.before === result.after || !brokeSyntax(parser, result.file, result.before, result.after)) {
+  const broken =
+    parser === undefined || result.before === result.after ? undefined : brokeSyntax(parser, result.file, result.before, result.after);
+
+  if (broken === undefined) {
     return result;
   }
 
-  return { ...result, after: result.before, fired: new Map(), importLines: [], notes: [...result.notes, brokeSyntaxNote(result.file)] };
+  return {
+    ...result,
+    after: result.before,
+    fired: new Map(),
+    importLines: [],
+    notes: [...result.notes, brokeSyntaxNote(result.file, result.after, broken)],
+  };
 }
 
 function transformAll(cwd: string, files: readonly string[], plan: RunPlan): RunTotals {
@@ -244,7 +253,7 @@ export function runCodemod(cwd: string, options: CodemodOptions, io: CliIo): num
 
   if (profile.filesTruncated) {
     io.err(
-      `The repository scan stopped at its safety cap of ${scanCap()} files — part of the tree was never looked at, so a clean result here is not a migrated repository. Raise the cap with ${SCAN_CAP_ENV} or narrow --paths.\n`,
+      `The repository scan stopped at its safety cap of ${scanCap()} files — part of the tree was never looked at, so a clean result here is not a migrated repository. Raise the cap with ${SCAN_CAP_ENV}, or pass the directories to migrate as arguments: \`npx vitest-auto-spy codemod src/app\`.\n`,
     );
   }
 
