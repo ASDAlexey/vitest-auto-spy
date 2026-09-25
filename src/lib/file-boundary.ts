@@ -8,7 +8,9 @@
 import { afterAll, beforeAll, vi } from 'vitest';
 
 import { captureGlobalBaseline, restoreGlobals } from './global-restore';
+import { displayPath } from './message-text';
 import type { SetupAutoSpyOptions } from './setup-auto-spy';
+import { currentSpecFile } from './spec-file';
 import { restoreStorageSpies } from './storage-spy-restore';
 import { strayListenersError } from './stray-failure';
 import {
@@ -89,10 +91,21 @@ export function runFileBoundary(repairs: readonly BoundaryRepair[]): void {
   }
 
   if (errors.length > 1) {
-    const messages = errors.map((error) => `\n  - ${error instanceof Error ? error.message : String(error)}`);
-
-    throw new AggregateError(errors, `[vitest-auto-spy] ${errors.length} file-end reports failed:${messages.join('')}`);
+    throw new AggregateError(errors, describeFileEndFailures(errors));
   }
+}
+
+/** Each report as its own numbered block, its lines indented under the number and its Docs line kept. */
+function describeFileEndFailures(errors: readonly unknown[]): string {
+  const file = currentSpecFile();
+  const when = typeof file === 'string' ? `when ${displayPath(file)} ended` : 'when the file ended';
+  const blocks = errors.map((error, index) => {
+    const message = (error instanceof Error ? error.message : String(error)).replace(/^\[vitest-auto-spy] /, '');
+
+    return `${index + 1}. ${message.split('\n').join('\n   ')}`;
+  });
+
+  return `[vitest-auto-spy] ${errors.length} file-end checks failed ${when}:\n\n${blocks.join('\n\n')}`;
 }
 
 /**

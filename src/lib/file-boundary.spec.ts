@@ -172,17 +172,37 @@ describe('the boundary with a throwing report', () => {
     expect(takeLog()).toEqual(['listeners report', 'timers report']);
     expect(thrown).toBeInstanceOf(AggregateError);
     expect((thrown as AggregateError).errors).toEqual([new Error('listeners'), new Error('timers')]);
-    expect((thrown as AggregateError).message).toBe('[vitest-auto-spy] 2 file-end reports failed:\n  - listeners\n  - timers');
+    expect((thrown as AggregateError).message).toBe(
+      '[vitest-auto-spy] 2 file-end checks failed when src/lib/file-boundary.spec.ts ended:\n\n1. listeners\n\n2. timers',
+    );
   });
 
-  it('names a thrown value that is not an Error', () => {
+  it('gives each multi-line report its own block, Docs line included, and names a value that is not an Error', () => {
     const throwing = (value: unknown) => () => (): void => {
       throw value;
     };
+    const report = '[vitest-auto-spy] a.spec.ts left 1 timer pending when it ended:\n  - setTimeout 5 ms\nDocs: https://x';
 
-    expect(() => runFileBoundary([throwing('plain'), throwing(new Error('real'))])).toThrow(
-      '2 file-end reports failed:\n  - plain\n  - real',
+    expect(() => runFileBoundary([throwing('plain'), throwing(new Error(report))])).toThrow(
+      '2 file-end checks failed when src/lib/file-boundary.spec.ts ended:\n\n1. plain\n\n' +
+        '2. a.spec.ts left 1 timer pending when it ended:\n     - setTimeout 5 ms\n   Docs: https://x',
     );
+  });
+
+  it('says "the file" when the runner names none', () => {
+    const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
+    const filepath: unknown = Reflect.get(Object(worker), 'filepath');
+    const failing = (): (() => void) => (): void => {
+      throw new Error('x');
+    };
+
+    Reflect.set(Object(worker), 'filepath', undefined);
+
+    try {
+      expect(() => runFileBoundary([failing, failing])).toThrow('2 file-end checks failed when the file ended:');
+    } finally {
+      Reflect.set(Object(worker), 'filepath', filepath);
+    }
   });
 });
 
@@ -288,8 +308,10 @@ describe('reportStrayListeners', () => {
     const bare: StrayListener = { target: 'globalThis', type: 'resize', file: undefined, frames: [] };
 
     expect(() => reportStrayListeners(2, [stray, bare], 'throw')).toThrow(
-      "2 window/document listener(s) outlived the spec file that added them. setupAutoSpy removed them; onStrayListeners: 'throw' fails the file. " +
-        'Remove each one where it was added:\n  - keydown on document from /a/dialog.spec.ts at open (src/dialog.ts:8:3)\n  - resize on globalThis from no spec file\nDocs:',
+      '[vitest-auto-spy] src/lib/file-boundary.spec.ts left 2 window/document listeners attached when it ended:\n' +
+        '  - keydown on document, in /a/dialog.spec.ts at open (src/dialog.ts:8:3)\n' +
+        '  - resize on globalThis, outside any spec file\n' +
+        'They were removed so none can fire in the next file. Remove each where it was added',
     );
   });
 });
