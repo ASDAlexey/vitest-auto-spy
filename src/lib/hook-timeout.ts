@@ -29,7 +29,8 @@
  * `beforeAll` is deliberately out of scope. Its timeout is reported as a failed *suite*, every test
  * is marked skipped and no `afterEach` runs at all — there is nothing to annotate from here.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /** The two budgets the runner resolved for this file. */
 export interface RunnerTimeouts {
@@ -79,10 +80,9 @@ export function readRunnerTimeouts(host: object = globalThis): RunnerTimeouts | 
 export function describeHookTimeout({ testTimeout, hookTimeout }: RunnerTimeouts): string {
   return withDocs(
     `${HINT_MARKER} is ${hookTimeout}ms while testTimeout is ${testTimeout}ms, so this hook ran on a smaller budget than ` +
-      'the test body it prepares. Jest applied one `testTimeout` to both; Vitest resolves `hookTimeout` separately and ' +
-      'defaults it to 10000ms, so a migration that carried over only `testTimeout` left half the budget behind. Set ' +
-      '`hookTimeout` next to `testTimeout` in the runner config.',
-    DOCS_LINKS.setup,
+      'the test body it prepares — Vitest resolves `hookTimeout` on its own and defaults it to 10000ms. Set `hookTimeout` ' +
+      'next to `testTimeout` in the runner config.',
+    DOCS_LINKS.setupHookBudget,
   );
 }
 

@@ -48,7 +48,8 @@ describe('describeHookTimeout', () => {
     const message = describeHookTimeout({ testTimeout: 30_000, hookTimeout: 10_000 });
 
     expect(message).toContain('hookTimeout is 10000ms while testTimeout is 30000ms');
-    expect(message).toContain('Jest applied one `testTimeout` to both');
+    expect(message).toContain('Vitest resolves `hookTimeout` on its own and defaults it to 10000ms');
+    expect(message).toMatch(/\nDocs: \S+#_11-the-hook-budget-jest-had-only-one-of$/);
     expect(message).toContain('Docs: ');
   });
 });
