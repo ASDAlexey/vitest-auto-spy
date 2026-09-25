@@ -1,20 +1,21 @@
 /**
  * How a rule of this plugin is assembled.
  *
- * Every message ends with the recipe that shows the replacement, so a report is one click away from
- * the code that repairs it — a rule that only says "don't" moves the problem instead of solving it.
- * The builder lives on its own so that a second file of rules can use it without importing the first
- * one back: `rules.ts` holds the rules a Vitest suite is linted by, `jasmine-rules.ts` the ones a
- * suite still on the compatibility layer is, and neither is the other's dependency.
+ * Every rule links to its own section of the rules page, and every message ends with that link: the
+ * message says what is wrong here and the one fix, the section carries the reasoning behind it. The
+ * builder lives on its own so that a second file of rules can use it without importing the first one
+ * back: `rules.ts` holds the rules a Vitest suite is linted by, `jasmine-rules.ts` the ones a suite
+ * still on the compatibility layer is, and neither is the other's dependency.
  */
+import { DOCS } from '../message-link';
 import type { RuleContext, RuleListener, RuleModule } from './rule-types';
 
-/** The section of the README every rule points into; the anchor continues this fragment. */
-const README = 'https://github.com/ASDAlexey/vitest-auto-spy#how-to-mock';
+/** The rules page; each rule's section is its heading, so the fragment is the rule's name. */
+export const RULES_PAGE = `${DOCS}/utilities/eslint-rules`;
 
-/** Build a rule, appending the recipe link to every message so the fix is one click away. */
+/** Build a rule, appending the link to its own docs section to every message. */
 export function defineRule(options: {
-  anchor: string;
+  name: string;
   description: string;
   messages: Record<string, string>;
   fixable?: true;
@@ -22,8 +23,8 @@ export function defineRule(options: {
   schema?: readonly object[];
   create: (context: RuleContext) => RuleListener;
 }): RuleModule {
-  const url = `${README}${options.anchor}`;
-  const messages = Object.fromEntries(Object.entries(options.messages).map(([id, text]) => [id, `${text} Recipe: ${url}`]));
+  const url = `${RULES_PAGE}#${options.name}`;
+  const messages = Object.fromEntries(Object.entries(options.messages).map(([id, text]) => [id, `${text} Docs: ${url}`]));
 
   return {
     meta: {
