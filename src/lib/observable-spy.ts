@@ -26,13 +26,15 @@ import {
 } from 'rxjs';
 
 import { REPLAY_BUFFER_SIZE } from './constants';
+import * as DOCS_LINKS from './docs-links';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
+import { withDocs } from './message-link';
+import { misconfigurationThrows, reportMisconfiguration } from './misconfiguration';
 import { type ObservableStream, type UnfedSubscriptionListener } from './observable-support';
 import { attachHelpers, decorate, detachedHelperError } from './spy-decoration';
 import { hooksOf } from './spy-mark';
 import type { AddObservableSpyMethods, ValueConfig, ValueConfigPerCall } from './types';
 import { isCompleteConfig, isErrorConfig, isNextValueConfig } from './value-config-guards';
-import { writeWarning } from './write-warning';
 
 function createReplaySubject<T>(): ReplaySubject<T> {
   return new ReplaySubject<T>(REPLAY_BUFFER_SIZE);
@@ -398,6 +400,12 @@ class PropObservableTarget<T> extends ObservableTarget<T> {
   published$: Observable<T> = defer(() => this.get());
   fed = false;
   #warnedAboutLateValues = false;
+  readonly #name: string | undefined;
+
+  constructor(name?: string) {
+    super();
+    this.#name = name;
+  }
 
   publish(stream: Observable<T>): void {
     this.published$ = stream;
@@ -412,21 +420,30 @@ class PropObservableTarget<T> extends ObservableTarget<T> {
    * somebody to miss it.
    */
   override replacingStream(): void {
-    if (this.#warnedAboutLateValues || this.subject?.observed !== true) {
+    if (this.subject?.observed !== true || (this.#warnedAboutLateValues && !misconfigurationThrows())) {
       return;
     }
 
     this.#warnedAboutLateValues = true;
-    writeWarning(
-      '[vitest-auto-spy] nextWithValues() on an observable property publishes a new stream, and the subscriber already ' +
-        'attached to this property stays on the old one — so these values never reach it. Configure the property before ' +
-        'the code under test subscribes, or push into the live stream with nextWith() / returnSubject().',
+
+    const property = this.#name ?? 'this observable property';
+
+    reportMisconfiguration(
+      withDocs(
+        `[vitest-auto-spy] ${property}.nextWithValues() ran after something subscribed to ${property}, and it publishes a ` +
+          'new stream that subscriber never sees — these values will not reach it. Call nextWithValues() before the code ' +
+          'under test subscribes, or push into the stream it holds with nextWith().',
+        DOCS_LINKS.nextWithValuesLate,
+      ),
     );
   }
 }
 
-export function createObservablePropSpy<T>(onUnfedSubscription?: UnfedSubscriptionListener): AddObservableSpyMethods<T> & Observable<T> {
-  const target = new PropObservableTarget<T>();
+export function createObservablePropSpy<T>(
+  onUnfedSubscription?: UnfedSubscriptionListener,
+  name?: string,
+): AddObservableSpyMethods<T> & Observable<T> {
+  const target = new PropObservableTarget<T>(name);
   // Read back as the plain `Observable<T>` it is at the type level: a prop spy carries the six
   // stream helpers but not `nextWithPerCall`, and the public type below claims the full set.
   const observableSpy: Observable<T> = decorate(

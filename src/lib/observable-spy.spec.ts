@@ -10,6 +10,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { createSpyFromClass } from './create-spy-from-class';
 import { createFunctionSpy } from './function-spy';
+import { setMisconfigurationReaction } from './misconfiguration';
 import { registerMockAdapter } from './mock-adapter';
 import {
   addObservableHelpersToCalledWithObject,
@@ -212,10 +213,8 @@ describe('nextWithValues on a property somebody is already subscribed to', () =>
     const feed = createSpyFromClass(Feed, { observablePropsToSpyOn: ['items$'] });
     const seen: number[] = [];
     const warnings: string[] = [];
-    const restore = mockValueProp(globalThis.process.stderr, 'write', (line: string) => {
+    const restore = mockValueProp(console, 'warn', (line: string) => {
       warnings.push(line);
-
-      return true;
     });
 
     try {
@@ -231,16 +230,48 @@ describe('nextWithValues on a property somebody is already subscribed to', () =>
 
     expect(seen).toEqual([]);
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain('nextWithValues() on an observable property publishes a new stream');
+    expect(warnings[0]).toContain('[vitest-auto-spy] items$.nextWithValues() ran after something subscribed to items$');
+    expect(warnings[0]).toMatch(
+      /Call nextWithValues\(\) before the code under test subscribes[\s\S]*\nDocs: \S+\/runtimes\/rxjs#nextwith-pushes-nextwithvalues-republishes$/,
+    );
+  });
+
+  it('names the property it was built for, and throws on every late call under the throw grade', () => {
+    const items$ = createObservablePropSpy<number>(undefined, 'Feed.items$');
+
+    items$.subscribe(() => undefined);
+    setMisconfigurationReaction('throw');
+
+    try {
+      expect(() => items$.nextWithValues([{ value: 1 }])).toThrow(
+        '[vitest-auto-spy] Feed.items$.nextWithValues() ran after something subscribed to Feed.items$',
+      );
+      expect(() => items$.nextWithValues([{ value: 2 }])).toThrow('Feed.items$.nextWithValues()');
+    } finally {
+      setMisconfigurationReaction(undefined);
+    }
+  });
+
+  it('falls back to a generic label for a property spy built without a name', () => {
+    const items$ = createObservablePropSpy<number>();
+
+    items$.subscribe(() => undefined);
+    setMisconfigurationReaction('throw');
+
+    try {
+      expect(() => items$.nextWithValues([{ value: 1 }])).toThrow(
+        '[vitest-auto-spy] this observable property.nextWithValues() ran after something subscribed to this observable property',
+      );
+    } finally {
+      setMisconfigurationReaction(undefined);
+    }
   });
 
   it('stays quiet when the property is configured before anybody subscribes', () => {
     const feed = createSpyFromClass(Feed, { observablePropsToSpyOn: ['items$'] });
     const warnings: string[] = [];
-    const restore = mockValueProp(globalThis.process.stderr, 'write', (line: string) => {
+    const restore = mockValueProp(console, 'warn', (line: string) => {
       warnings.push(line);
-
-      return true;
     });
 
     try {
@@ -255,10 +286,8 @@ describe('nextWithValues on a property somebody is already subscribed to', () =>
   it('stays quiet for a function spy, whose stream is read per call', () => {
     const load = createFunctionSpy<() => Observable<string>>('load');
     const warnings: string[] = [];
-    const restore = mockValueProp(globalThis.process.stderr, 'write', (line: string) => {
+    const restore = mockValueProp(console, 'warn', (line: string) => {
       warnings.push(line);
-
-      return true;
     });
 
     try {
