@@ -10,6 +10,18 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Fixed
+
+- **`no-hand-assigned-global` points a hand-assigned `Worker` at `stubWorker`.** `globalThis.Worker = …`
+  got the generic `handAssignedGlobal` message and the `stubConstructor` suggestion; it now gets its own
+  message naming `stubWorker({ respond })` from `/dom-stubs`, the way the storages name `stubWebStorage()`.
+
+### Docs
+
+- **The introduction no longer says the spy is powered by the runner's mock primitive.** Since 4.1 the
+  default engine is the library's own mock function; the introduction page and its Russian counterpart
+  now say so and name `setSpyEngine('runner')` as the way back to `vi.fn()`.
+
 ## [5.32.1] - 2026-09-25
 
 ### Fixed

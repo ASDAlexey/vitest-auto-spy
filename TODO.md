@@ -181,12 +181,6 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       the rule follows only a `const` used once in the same scope, which is the case worth having and
       the one that cannot go wrong. Measured demand: 4 of 7 findings on the 1771-file suite.
 
-- [ ] **`no-hand-assigned-global` does not name `stubWorker` for `globalThis.Worker = …`.** A hand
-      assigned worker double gets the generic `handAssignedGlobal` message (`mockValueProp` /
-      `stubConstructor`). Give `Worker` its own message pointing at `stubWorker({ respond })` from
-      `/dom-stubs`, the way `webStorage` names `stubWebStorage`, with the rule test and the
-      `eslint-rules.md` entry that come with a new message id.
-
 - [ ] **Ship the helper lists `@vitest/eslint-plugin` needs, so a consumer stops copying them.** A
       suite on `vitest/require-hook` hand-lists every helper it calls at file or `describe` scope in
       `allowedFunctionCalls`, and hand-written lists drift both ways: a 5.31.0 consumer lists
@@ -245,8 +239,6 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       directly bypasses `selfReturning` and child materialisation.
 - [ ] **Bun: the `settledResults` polyfill of an adopted mock** starts empty while `mock.calls` already
       holds the pre-adoption calls, so their indices disagree.
-- [ ] `docs-site/core/introduction.md` still opens with the spy "powered by your test runner's mock
-      primitive (`vi.fn()` …)"; since 4.1 the default engine is the library's own.
 
 ## `doctor` — the catalogue is a fifth built
 

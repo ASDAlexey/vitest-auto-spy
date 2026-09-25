@@ -5,9 +5,10 @@ description: What vitest-auto-spy does — a typed spy of every method of a clas
 
 # Introduction
 
-`vitest-auto-spy` reads a class and generates a typed spy for **every** method, powered by your
-test runner's mock primitive (`vi.fn()` on Vitest, and the equivalents on Bun, `node:test` and
-Rstest).
+`vitest-auto-spy` reads a class and generates a typed spy for **every** method, powered by this
+library's own mock function — the default spy engine since 4.1, leaner than `vi.fn()` and identical
+to it everywhere a spec can observe. `setSpyEngine('runner')` builds the spies on your test runner's
+primitive instead (`vi.fn()` on Vitest, and the equivalents on Bun, `node:test` and Rstest).
 It is a drop-in successor to [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies):
 the same API, but spying on Vitest-compatible runners instead of Jest.
 
