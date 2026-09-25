@@ -22,9 +22,11 @@
  */
 import { expect, vi } from 'vitest';
 
+import * as DOCS_LINKS from './docs-links';
 import type { FakeTimersConfig } from './fake-timers';
 import { createFunctionSpy, createSpyObj } from './jasmine-factories';
 import { registerJasmineMatchers } from './jasmine-matchers';
+import { withDocs } from './message-link';
 import { misconfigurationThrows, reportMisconfiguration } from './misconfiguration';
 import { getMockAdapter } from './mock-adapter';
 import type { Func } from './types';
@@ -120,9 +122,12 @@ function mockTheDate(): void {
 
   if (queued > 0) {
     reportMisconfiguration(
-      `[vitest-auto-spy] jasmine.clock().mockDate() took Date over after ${queued} callback(s) had already been scheduled, ` +
-        'and re-installing the fake clock dropped them. Call mockDate() right after install(), before anything schedules a ' +
-        'timer — jasmine.clock().install() leaves Date real on purpose, as jasmine does.',
+      withDocs(
+        `[vitest-auto-spy] jasmine.clock().mockDate() took Date over after ${queued === 1 ? '1 callback had' : `${queued} callbacks had`} ` +
+          'already been scheduled, and re-installing the fake clock dropped them. Call mockDate() right after install(), ' +
+          'before anything schedules a timer.',
+        DOCS_LINKS.jasmineClock,
+      ),
     );
   }
 
@@ -141,7 +146,7 @@ let warnedAboutTimeout = false;
  * believing it had raised its timeout; throwing would stop a suite that is otherwise fine. It warns,
  * once, naming the two settings.
  */
-function warnAboutTimeoutInterval(): void {
+function warnAboutTimeoutInterval(value: unknown): void {
   // The latch hides every write after the first, so it only applies to the printed grade.
   if (warnedAboutTimeout && !misconfigurationThrows()) {
     return;
@@ -150,9 +155,12 @@ function warnAboutTimeoutInterval(): void {
   warnedAboutTimeout = true;
 
   reportMisconfiguration(
-    '[vitest-auto-spy] jasmine.DEFAULT_TIMEOUT_INTERVAL has no runtime equivalent under Vitest and was ignored. ' +
-      'Set `test.testTimeout` in your Vitest config instead — and `test.hookTimeout` too, which is a separate ' +
-      'setting with its own default, and is what a slow beforeEach actually trips.',
+    withDocs(
+      `[vitest-auto-spy] jasmine.DEFAULT_TIMEOUT_INTERVAL = ${String(value)} has no runtime equivalent under Vitest and was ` +
+        `ignored: Vitest reads its timeouts from config, once. Set \`test.testTimeout: ${String(value)}\` and ` +
+        `\`test.hookTimeout: ${String(value)}\` in the Vitest config — the hook budget is separate, and it is what a slow beforeEach trips.`,
+      DOCS_LINKS.jasmineTimeout,
+    ),
   );
 }
 
@@ -237,7 +245,7 @@ export const jasmine = {
     return DEFAULT_TIMEOUT_INTERVAL;
   },
 
-  set DEFAULT_TIMEOUT_INTERVAL(_value: number) {
-    warnAboutTimeoutInterval();
+  set DEFAULT_TIMEOUT_INTERVAL(value: number) {
+    warnAboutTimeoutInterval(value);
   },
 };

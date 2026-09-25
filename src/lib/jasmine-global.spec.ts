@@ -88,8 +88,23 @@ describe('the jasmine namespace', () => {
       setTimeout(() => undefined, 100);
       jasmine.clock().mockDate(new Date('2020-01-01T00:00:00.000Z'));
 
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('had already been scheduled'));
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringMatching(/took Date over after \d+ callbacks? had already been scheduled[\s\S]*#clock-install-leaves-date-real$/),
+      );
 
+      jasmine.clock().uninstall();
+      warn.mockRestore();
+    });
+
+    it('counts the dropped callbacks', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      jasmine.clock().install();
+      setTimeout(() => undefined, 100);
+      setTimeout(() => undefined, 200);
+      jasmine.clock().mockDate(new Date('2020-01-01T00:00:00.000Z'));
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('took Date over after 2 callbacks had already been scheduled'));
       jasmine.clock().uninstall();
       warn.mockRestore();
     });
@@ -199,7 +214,9 @@ describe('the jasmine namespace', () => {
       jasmine.DEFAULT_TIMEOUT_INTERVAL = 40000;
 
       expect(warn).toHaveBeenCalledOnce();
-      expect(warn.mock.calls[0]?.[0]).toContain('hookTimeout');
+      expect(warn.mock.calls[0]?.[0]).toContain(
+        'jasmine.DEFAULT_TIMEOUT_INTERVAL = 30000 has no runtime equivalent under Vitest and was ignored: Vitest reads its timeouts from config, once. Set `test.testTimeout: 30000` and `test.hookTimeout: 30000`',
+      );
       // The write is ignored, which is exactly what the warning says.
       expect(jasmine.DEFAULT_TIMEOUT_INTERVAL).toBe(5000);
     });
