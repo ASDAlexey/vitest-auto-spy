@@ -2,12 +2,16 @@
  * A call that reaches the recording wrapper under `console` was absorbed by nothing — a silent spy never
  * calls through. The wrapper forwards every call, so the reporter's attribution is untouched.
  */
-import { afterAll, afterEach, beforeEach, expect } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, expect } from 'vitest';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import { consoleCause } from './console-causes';
 import type { GuardReaction } from './guard-reaction';
+import { currentSpecFile } from './spec-file';
 import { ownFrames, stackFrames } from './stack-frames';
+import { describeStrayConsole } from './stray-console-report';
 import { writeWarning } from './write-warning';
+
+export { describeStrayConsole } from './stray-console-report';
 
 /** How the stray-console guard reacts to output nothing absorbed. */
 export type StrayConsoleReaction = GuardReaction;
@@ -20,6 +24,12 @@ export interface StrayConsoleOptions {
   allow?: readonly (RegExp | string)[];
 }
 
+/**
+ * When a call was made: while the file was being imported (its modules and `describe` bodies), in a
+ * `beforeAll`, during a test, or after a test had ended — a late callback or an `afterAll`.
+ */
+export type StrayConsolePhase = 'afterTest' | 'beforeAll' | 'import' | 'test';
+
 /** One console call nothing absorbed, as the report quotes it. */
 export interface StrayConsoleCall {
   readonly method: string;
@@ -29,6 +39,14 @@ export interface StrayConsoleCall {
   readonly frame: string;
   /** The test that was running, or `undefined` for output made outside any test. */
   readonly test: string | undefined;
+  /** Absent on a call recorded by hand, which the report then treats as made outside any phase it knows. */
+  readonly phase?: StrayConsolePhase;
+  /** What the output most likely means, read from all of it, when the library recognises it. */
+  readonly cause?: string;
+  /** The spec file that was running, so a report carried into the next file still names this one. */
+  readonly file?: string;
+  /** Set when the method was a runner spy with no implementation, which calls through and prints. */
+  readonly callThrough?: boolean;
 }
 
 /** The methods that write. `assert` only does when its condition is falsy, `group` only with a label. */
@@ -58,7 +76,8 @@ const QUOTED_CALLS = 5;
 const QUOTED_LINES = 3;
 const QUOTED_LINE_LENGTH = 200;
 
-interface CallBucket {
+/** The calls a window recorded: the first few quoted, all of them counted. */
+export interface CallBucket {
   calls: StrayConsoleCall[];
   total: number;
 }
@@ -71,6 +90,8 @@ interface ConsoleGuard {
   allow: readonly (RegExp | string)[];
   recording: boolean;
   test: string | undefined;
+  /** The phase a call outside a test belongs to. */
+  outsidePhase: Exclude<StrayConsolePhase, 'test'>;
   snapshot: Map<string, unknown>;
   inTest: CallBucket;
   outsideTest: CallBucket;
@@ -125,16 +146,33 @@ export function describeOutput(method: string, args: readonly unknown[]): string
   return writesNothing(method, args) ? undefined : formatOutput(method, args);
 }
 
-function formatOutput(method: string, args: readonly unknown[]): string {
+function fullOutput(method: string, args: readonly unknown[]): string {
   const written = method === 'assert' ? ['Assertion failed', ...args.slice(1)] : args;
 
-  return written
-    .map(formatArg)
-    .join(' ')
-    .split('\n')
+  return written.map(formatArg).join(' ');
+}
+
+function formatOutput(method: string, args: readonly unknown[]): string {
+  return quoteOutput(fullOutput(method, args));
+}
+
+const URL_PATTERN = /https?:\/\/[^\s"')<>]+/g;
+
+function quoteOutput(output: string): string {
+  const lines = output.split('\n');
+  const quoted = lines
     .slice(0, QUOTED_LINES)
     .map((line) => (line.length > QUOTED_LINE_LENGTH ? `${line.slice(0, QUOTED_LINE_LENGTH)}…` : line))
     .join('\n');
+
+  if (quoted === output) {
+    return quoted;
+  }
+
+  // A link is usually the part of a long line worth having, and the cut drops it first.
+  const url = output.match(URL_PATTERN)?.find((found) => !quoted.includes(found.replace(/\.$/, '')));
+
+  return url === undefined ? quoted : `${quoted} ${url.replace(/\.$/, '')}`;
 }
 
 function isAllowed(text: string, allow: readonly (RegExp | string)[]): boolean {
@@ -151,6 +189,35 @@ export function callerFrame(boundary: unknown, host: FrameHost = Error): string 
   return ownFrames(stackFrames(holder.stack), 1)[0] ?? 'at <unknown>';
 }
 
+/** A `vi.spyOn(console, method)` with no implementation: it calls through, which is how the call got here. */
+function callsThrough(guard: ConsoleGuard, method: string): boolean {
+  const current: unknown = Reflect.get(guard.host, method);
+
+  if (current === guard.sentinels.get(method) || typeof current !== 'function') {
+    return false;
+  }
+
+  const implementation: unknown = Reflect.get(current, 'getMockImplementation');
+
+  return typeof implementation === 'function' && Reflect.apply(implementation, current, []) === undefined;
+}
+
+/**
+ * The phase of a call outside a test. A suite none of whose tasks has started is running its
+ * `beforeAll`, which the setup file's own hooks cannot see for a nested `describe`.
+ */
+function phaseNow(guard: ConsoleGuard): Exclude<StrayConsolePhase, 'test'> {
+  if (guard.outsidePhase !== 'afterTest') {
+    return guard.outsidePhase;
+  }
+
+  const current: unknown = Reflect.get(Object(Reflect.get(globalThis, '__vitest_worker__')), 'current');
+  const tasks: unknown = Reflect.get(Object(current), 'tasks');
+  const starting = Array.isArray(tasks) && tasks.length > 0 && tasks.every((task) => Reflect.get(Object(task), 'result') === undefined);
+
+  return starting ? 'beforeAll' : 'afterTest';
+}
+
 function record(guard: ConsoleGuard, method: string, args: readonly unknown[], boundary: unknown): void {
   if (!guard.recording || writesNothing(method, args)) {
     return;
@@ -158,16 +225,16 @@ function record(guard: ConsoleGuard, method: string, args: readonly unknown[], b
 
   const bucket = guard.test === undefined ? guard.outsideTest : guard.inTest;
 
-  // Nothing left to quote and nothing to match against: the call is counted and not formatted. A test
-  // that logs whole store states or an `HttpErrorResponse` with its body used to pay a `JSON.stringify`
-  // of every argument of every call to fill a report that stops at five of them.
+  // Nothing left to quote and nothing to match against: the call is counted and not formatted, so a
+  // test that logs whole store states pays no `JSON.stringify` past the five calls a report quotes.
   if (bucket.calls.length >= QUOTED_CALLS && guard.allow.length === 0) {
     bucket.total += 1;
 
     return;
   }
 
-  const text = formatOutput(method, args);
+  const output = fullOutput(method, args);
+  const text = quoteOutput(output);
 
   if (isAllowed(text, guard.allow)) {
     return;
@@ -176,7 +243,20 @@ function record(guard: ConsoleGuard, method: string, args: readonly unknown[], b
   bucket.total += 1;
 
   if (bucket.calls.length < QUOTED_CALLS) {
-    bucket.calls.push({ method, text, frame: callerFrame(boundary), test: guard.test });
+    const phase = guard.test === undefined ? phaseNow(guard) : 'test';
+    const cause = consoleCause(output);
+    const file = currentSpecFile();
+
+    bucket.calls.push({
+      method,
+      text,
+      frame: callerFrame(boundary),
+      test: guard.test,
+      phase,
+      ...(cause === undefined ? {} : { cause }),
+      ...(typeof file === 'string' ? { file } : {}),
+      ...(callsThrough(guard, method) ? { callThrough: true } : {}),
+    });
   }
 }
 
@@ -200,6 +280,9 @@ function installSentinel(guard: ConsoleGuard, method: string): void {
 /**
  * Wrap `host` once per worker. Spies an import already installed come off first: left on, they would
  * absorb everything for the rest of the worker, which is what the guard exists to stop.
+ *
+ * Armed again by every file's setup, which starts the file at its import: a previous file whose
+ * file-end report never ran keeps its calls, and each still names the file it came from.
  */
 export function armConsoleGuard(options: Required<StrayConsoleOptions>, host: object = globalThis.console): ConsoleGuard {
   const current = globalThis.__vitestAutoSpyStrayConsole__;
@@ -208,6 +291,9 @@ export function armConsoleGuard(options: Required<StrayConsoleOptions>, host: ob
   guard.reaction = options.reaction;
   guard.allow = options.allow;
   guard.recording = true;
+  moveBucket(guard.inTest, guard.outsideTest);
+  guard.test = undefined;
+  guard.outsidePhase = 'import';
 
   return guard;
 }
@@ -223,6 +309,7 @@ function createGuard(host: object): ConsoleGuard {
     allow: [],
     recording: true,
     test: undefined,
+    outsidePhase: 'import',
     snapshot: new Map(),
     inTest: emptyBucket(),
     outsideTest: emptyBucket(),
@@ -277,44 +364,6 @@ export function restoreConsoleMethods(guard: ConsoleGuard): void {
   });
 }
 
-const ABSORB_ADVICE =
-  'Absorb what the test expects: `installConsoleSpies()` from `vitest-auto-spy/console` in a `beforeEach`, then assert on ' +
-  '`consoleErrorSpy` and its siblings — or `vi.spyOn(console, "error").mockImplementation(() => undefined)`. A `vi.spyOn` ' +
-  'with no implementation calls through and still prints. Output the code should not make is a defect to fix, not to ' +
-  'silence; `strayConsole: { allow: [...] }` is the last resort, for environment noise no spec can reach.';
-
-const IMPORTED_SPIES_ADVICE =
-  '`vitest-auto-spy/console` is loaded in this worker, but under `strayConsole` importing a spy installs nothing: under ' +
-  '`isolate: false` the import runs once per worker, so it cannot tell which file it belongs to. Call ' +
-  '`installConsoleSpies()` in a `beforeEach`, or at the top of the file for all of its tests.';
-
-function quote(calls: readonly StrayConsoleCall[], total: number, withTest: boolean): string {
-  const lines = calls.map((call) => {
-    const during = withTest && call.test !== undefined ? ` (during "${call.test}")` : '';
-    const text = call.text.split('\n').join('\n      ');
-
-    return `  - console.${call.method}${during}: ${text}\n      ${call.frame}`;
-  });
-  const more = total > calls.length ? [`  … and ${total - calls.length} more`] : [];
-
-  return [...lines, ...more].join('\n');
-}
-
-const OUTSIDE_TEST =
-  'outside any test — while the file was being imported, in a beforeAll or afterAll, or from a callback that fired after its test had ended —';
-
-/** The report for one test, or — given `file` — for a file's output outside any test. Exported for its spec. */
-export function describeStrayConsole(bucket: Readonly<CallBucket>, test: string | undefined, file?: string): string {
-  const advice = globalThis.__vitestAutoSpyResetConsoleSpies__ ? `${ABSORB_ADVICE}\n${IMPORTED_SPIES_ADVICE}` : ABSORB_ADVICE;
-  const count = `wrote to the console ${bucket.total} time(s)`;
-  const subject = file === undefined ? `"${test ?? ''}" ${count}` : `${file} ${count} ${OUTSIDE_TEST}`;
-
-  return withDocs(
-    `[vitest-auto-spy] ${subject} and nothing absorbed it:\n${quote(bucket.calls, bucket.total, file !== undefined)}\n${advice}`,
-    DOCS_LINKS.setup,
-  );
-}
-
 function react(guard: ConsoleGuard, message: string, inTest: boolean): void {
   if (guard.reaction === 'throw') {
     throw new Error(message);
@@ -337,6 +386,7 @@ export function reportTestConsole(guard: ConsoleGuard): void {
 
   guard.inTest = emptyBucket();
   guard.test = undefined;
+  guard.outsidePhase = 'afterTest';
 
   if (bucket.total > 0) {
     react(guard, describeStrayConsole(bucket, name), true);
@@ -344,33 +394,55 @@ export function reportTestConsole(guard: ConsoleGuard): void {
 }
 
 function currentFile(): string {
-  return expect.getState().testPath ?? 'this file';
+  const file = expect.getState().testPath ?? currentSpecFile();
+
+  return typeof file === 'string' ? file : 'this file';
 }
 
-/** Put `console` back as it was between files, stop recording, and report the file's own output. */
-export function finishConsoleFile(guard: ConsoleGuard): void {
+/**
+ * Put `console` back as it was between files and stop recording; what it hands back makes the file's
+ * report. Split so the file-end sweep can collect that report with the others rather than lose it.
+ */
+export function closeConsoleFile(guard: ConsoleGuard): (() => void) | undefined {
   guard.originals.forEach((original, method) => Reflect.set(guard.host, method, guard.sentinels.get(method) ?? original));
   moveBucket(guard.inTest, guard.outsideTest);
   guard.test = undefined;
   guard.recording = false;
+  guard.outsidePhase = 'import';
 
   const bucket = guard.outsideTest;
 
   guard.outsideTest = emptyBucket();
 
-  if (bucket.total > 0) {
-    react(guard, describeStrayConsole(bucket, undefined, currentFile()), false);
+  if (bucket.total === 0) {
+    return undefined;
   }
+
+  const file = currentFile();
+
+  return (): void => react(guard, describeStrayConsole(bucket, undefined, file), false);
 }
 
-/** The two teardown steps `setupAutoSpy` slots into its shared `afterEach`. */
+/** Put `console` back as it was between files, stop recording, and report the file's own output. */
+export function finishConsoleFile(guard: ConsoleGuard): void {
+  closeConsoleFile(guard)?.();
+}
+
+/** The teardown steps `setupAutoSpy` slots into its shared `afterEach`, and the file-end sweep. */
 export interface ConsoleTeardown {
   restore: () => void;
   report: () => void;
+  closeFile: () => (() => void) | undefined;
 }
 
-/** Arm the guard and register its per-test and per-file hooks; `undefined` when the reaction is `'off'`. */
-export function watchStrayConsole(option: StrayConsoleOptions | StrayConsoleReaction | undefined): ConsoleTeardown | undefined {
+/**
+ * Arm the guard and register its per-test hooks; `undefined` when the reaction is `'off'`. The file
+ * end gets its own `afterAll` unless `ownFileEnd` is `false`, for a caller that sweeps it with the rest.
+ */
+export function watchStrayConsole(
+  option: StrayConsoleOptions | StrayConsoleReaction | undefined,
+  ownFileEnd = true,
+): ConsoleTeardown | undefined {
   const options = resolveStrayConsole(option);
 
   if (options.reaction === 'off') {
@@ -379,16 +451,24 @@ export function watchStrayConsole(option: StrayConsoleOptions | StrayConsoleReac
 
   const guard = armConsoleGuard(options);
 
+  // Registered from the setup file, so it runs before any `beforeAll` of the spec, and after its import.
+  beforeAll(() => {
+    guard.outsidePhase = 'beforeAll';
+  });
   beforeEach(() => {
     openConsoleWindow(guard);
   });
-  afterAll(() => {
-    finishConsoleFile(guard);
-  });
+
+  if (ownFileEnd) {
+    afterAll(() => {
+      finishConsoleFile(guard);
+    });
+  }
 
   return {
     restore: (): void => restoreConsoleMethods(guard),
     report: (): void => reportTestConsole(guard),
+    closeFile: (): (() => void) | undefined => closeConsoleFile(guard),
   };
 }
 

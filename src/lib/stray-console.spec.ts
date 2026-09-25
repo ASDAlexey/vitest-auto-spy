@@ -3,7 +3,7 @@
  * a guard armed on the real one fails the very test that asserts about it. The wiring through
  * `setupAutoSpy` is covered at the end, with `it.fails` for the tests whose teardown must throw.
  */
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import '../index';
 import { mockValueProp } from './prop-mock';
@@ -11,6 +11,7 @@ import { setupAutoSpy } from './setup-auto-spy';
 import {
   armConsoleGuard,
   callerFrame,
+  closeConsoleFile,
   describeOutput,
   describeStrayConsole,
   finishConsoleFile,
@@ -160,7 +161,7 @@ describe('the guard on a stand-in console', () => {
 
     // Five quoted, eight counted — and the three past the quota were never serialised.
     expect(reads).toBe(5);
-    expect(thrownBy(() => reportTestConsole(guard))).toContain('8 time(s)');
+    expect(thrownBy(() => reportTestConsole(guard))).toContain('wrote to the console 8 times');
   });
 
   it('keeps formatting past the quota while there is an allow list to match against', () => {
@@ -172,7 +173,7 @@ describe('the guard on a stand-in console', () => {
       call(console$.host, 'log', i % 2 === 0 ? 'noise' : 'real output');
     }
 
-    expect(thrownBy(() => reportTestConsole(guard))).toContain('3 time(s)');
+    expect(thrownBy(() => reportTestConsole(guard))).toContain('wrote to console.log 3 times');
 
     // Past the quota the text is still built, because only it can answer the allow list — and the
     // call is counted without being quoted.
@@ -184,7 +185,7 @@ describe('the guard on a stand-in console', () => {
 
     const report = thrownBy(() => reportTestConsole(guard));
 
-    expect(report).toContain('8 time(s)');
+    expect(report).toContain('wrote to the console 8 times');
     expect(report).toContain('… and 3 more');
   });
 
@@ -197,7 +198,9 @@ describe('the guard on a stand-in console', () => {
     call(console$.host, 'time', 'label');
 
     expect(console$.written).toEqual(['log: hello', 'assert: true fine', 'time: label']);
-    expect(thrownBy(() => reportTestConsole(guard))).toMatch(/wrote to the console 1 time\(s\)[\s\S]*console\.log: hello/);
+    expect(thrownBy(() => reportTestConsole(guard))).toMatch(
+      /wrote to console\.log 1 time and nothing absorbed it:\n {2}- console\.log: hello/,
+    );
   });
 
   it('lets allowed output through, by substring or by pattern, however the pattern is flagged', () => {
@@ -222,7 +225,7 @@ describe('the guard on a stand-in console', () => {
 
     const message = thrownBy(() => reportTestConsole(guard));
 
-    expect(message).toContain('7 time(s)');
+    expect(message).toContain('wrote to the console 7 times');
     expect(message).toContain('line 4');
     expect(message).not.toContain('line 5');
     expect(message).toContain('… and 2 more');
@@ -235,7 +238,7 @@ describe('the guard on a stand-in console', () => {
     call(console$.host, 'error', 'unexpected');
     reportTestConsole(guard);
 
-    expect(console$.written.at(-1)).toMatch(/^warn: \[vitest-auto-spy\] ".*" wrote to the console 1 time\(s\)/);
+    expect(console$.written.at(-1)).toMatch(/^warn: \[vitest-auto-spy\] ".*" wrote to console\.error 1 time/);
   });
 
   it('falls back to stderr under the warn grade when the wrapped console has no warn', () => {
@@ -277,9 +280,83 @@ describe('the guard on a stand-in console', () => {
 
     const message = thrownBy(() => finishConsoleFile(guard));
 
-    expect(message).toMatch(/stray-console\.spec\.ts wrote to the console 2 time\(s\) outside any test/);
-    expect(message).toContain('console.log: while importing');
+    expect(message).toMatch(/^Error: \[vitest-auto-spy\] src\/lib\/stray-console\.spec\.ts wrote to the console 2 times outside any test/);
+    expect(message).toContain('console.log (while importing): while importing');
     expect(message).toMatch(/console\.warn \(during ".*"\): inside a test whose afterEach never ran/);
+    expect(message).toContain('before any hook — no spy can absorb it');
+    expect(message).toContain('Absorb what the test expects — installConsoleSpies() in a beforeEach, then assert consoleWarnSpy');
+    expect(message).toMatch(/\nDocs: \S+#_16-console-output-nothing-absorbed$/);
+  });
+
+  it('says the output came from the import, and gives the import advice alone', () => {
+    const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
+
+    call(console$.host, 'warn', 'from a static block');
+
+    const message = thrownBy(() => finishConsoleFile(guard));
+
+    expect(message).toMatch(/wrote to console\.warn 1 time while the file was being imported and nothing absorbed it/);
+    expect(message).toContain('console.warn: from a static block');
+    process.stdout.write(`\nDBG2 ${message}\n`);
+    expect(message).toMatch(
+      /Written while src\/lib\/stray-console\.spec\.ts was evaluated, before any hook — no spy can absorb it; fix it at src\/lib\/stray-console\.spec\.ts:\d+:\d+\./,
+    );
+    expect(message).toContain('Under isolate: false it is reported on the first file of the worker that imports that module.');
+    expect(message).not.toContain('allow');
+    expect(message).not.toContain('Absorb what the test expects');
+  });
+
+  it('says the output came from a beforeAll', () => {
+    const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
+
+    guard.outsidePhase = 'beforeAll';
+    call(console$.host, 'log', 'seeding');
+
+    const message = thrownBy(() => finishConsoleFile(guard));
+
+    expect(message).toMatch(/1 time in a beforeAll, before the tests it prepares and nothing absorbed it/);
+    expect(message).toContain('call installConsoleSpies() at the top of the file and assert on it');
+  });
+
+  it('says the output came after a test had ended, and starts the next file at its import again', () => {
+    const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
+
+    openConsoleWindow(guard);
+    reportTestConsole(guard);
+    call(console$.host, 'error', 'late');
+
+    const message = thrownBy(() => finishConsoleFile(guard));
+
+    expect(message).toMatch(/1 time after a test had ended — from a callback that outlived it, or an afterAll —/);
+    expect(message).toContain('Something the test started finished after it');
+    expect(guard.outsidePhase).toBe('import');
+  });
+
+  it('keeps the generic subject once calls went unquoted, since their phase is unknown', () => {
+    const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
+
+    for (let index = 0; index < 6; index += 1) {
+      call(console$.host, 'log', `line ${String(index)}`);
+    }
+
+    const message = thrownBy(() => finishConsoleFile(guard));
+
+    expect(message).toContain('outside any test');
+    expect(message).toContain('console.log (while importing): line 0');
+    expect(message).toContain('… and 1 more');
+  });
+
+  it('explains a recognised line from its whole text, past the part the report quotes', () => {
+    const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
+    const padding = 'x'.repeat(300);
+
+    call(console$.host, 'warn', `NG0303: ${padding} Find more at https://angular.dev/errors/NG0303`);
+    call(console$.host, 'warn', 'NG0303: again Find more at https://angular.dev/errors/NG0303');
+
+    const message = thrownBy(() => finishConsoleFile(guard));
+
+    expect(message).toContain('Likely cause:\n  - Angular explains this error at https://angular.dev/errors/NG0303\n');
+    expect(message.match(/Angular explains/g)).toHaveLength(1);
   });
 
   it('stops recording once the file is over, and puts the console back to the wrappers', () => {
@@ -301,7 +378,7 @@ describe('the guard on a stand-in console', () => {
     call(console$.host, 'log', 'while importing');
     finishConsoleFile(guard);
 
-    expect(write).toHaveBeenCalledWith(expect.stringContaining('outside any test'));
+    expect(write).toHaveBeenCalledWith(expect.stringContaining('while the file was being imported'));
     write.mockRestore();
   });
 
@@ -309,6 +386,10 @@ describe('the guard on a stand-in console', () => {
     const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
     const key: PropertyKey = 'getState';
     const restore = mockValueProp(expect, key, () => ({}));
+    const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
+    const filepath: unknown = Reflect.get(Object(worker), 'filepath');
+
+    Reflect.set(Object(worker), 'filepath', undefined);
 
     openConsoleWindow(guard);
     call(console$.host, 'log', 'in a nameless test');
@@ -320,9 +401,10 @@ describe('the guard on a stand-in console', () => {
     const file = thrownBy(() => finishConsoleFile(guard));
 
     restore();
+    Reflect.set(Object(worker), 'filepath', filepath);
 
-    expect(test).toContain('"" wrote to the console');
-    expect(file).toContain('this file wrote to the console');
+    expect(test).toContain('"" wrote to console.log');
+    expect(file).toContain('this file wrote to console.log');
   });
 
   it('arms once per console, takes installed console spies off first, and reuses the wrappers', () => {
@@ -349,8 +431,133 @@ describe('the guard on a stand-in console', () => {
 
     globalThis.__vitestAutoSpyResetConsoleSpies__ = undefined;
 
-    expect(message).toMatch(/importing a spy installs nothing/);
-    expect(describeStrayConsole({ calls: [], total: 1 }, undefined)).not.toMatch(/importing a spy installs nothing/);
+    expect(message).toMatch(/Importing vitest-auto-spy\/console installs nothing under strayConsole/);
+    expect(message).toContain('installConsoleSpies() in a beforeEach, then assert its spies');
+    expect(describeStrayConsole({ calls: [], total: 1 }, undefined)).not.toMatch(/installs nothing/);
+  });
+
+  it("reads a call recorded without a phase as a test's, and tags it with nothing", () => {
+    const imported = { method: 'log', text: 'at import', frame: 'at a', test: undefined, phase: 'import' as const };
+    const unphased = { method: 'log', text: 'by hand', frame: 'at b', test: undefined };
+    const message = describeStrayConsole({ calls: [imported, unphased], total: 2 }, undefined, 'a.spec.ts');
+
+    expect(message).toContain('console.log (while importing): at import');
+    expect(message).toContain('console.log: by hand');
+    expect(message).toContain('Absorb what the test expects');
+  });
+
+  it('names the spy that absorbs each method, and a silent vi.spyOn for a method the entry has none for', () => {
+    const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
+
+    openConsoleWindow(guard);
+    call(console$.host, 'error', 'failed');
+    call(console$.host, 'warn', 'careful');
+    call(console$.host, 'table', 'rows');
+
+    const message = thrownBy(() => reportTestConsole(guard));
+
+    expect(message).toContain(
+      'Absorb what the test expects — installConsoleSpies() in a beforeEach, then assert consoleErrorSpy and consoleWarnSpy; ' +
+        "vi.spyOn(console, 'table').mockImplementation(() => undefined) — or fix the code if the output is a defect.",
+    );
+    expect(message).not.toContain('allow');
+  });
+
+  it('names only a silent vi.spyOn when no method written has an entry spy', () => {
+    const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
+
+    openConsoleWindow(guard);
+    call(console$.host, 'table', 'rows');
+
+    const message = thrownBy(() => reportTestConsole(guard));
+
+    expect(message).toContain("Absorb what the test expects — vi.spyOn(console, 'table').mockImplementation(() => undefined) — or fix");
+    expect(message).not.toContain('installConsoleSpies');
+  });
+
+  it('says a vi.spyOn with no implementation calls through, and nothing else, when that is what printed', () => {
+    const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
+
+    openConsoleWindow(guard);
+    vi.spyOn(console$.host as { error: () => void }, 'error');
+    call(console$.host, 'error', 'still printed');
+    restoreConsoleMethods(guard);
+
+    const message = thrownBy(() => reportTestConsole(guard));
+
+    expect(message).toContain("vi.spyOn(console, 'error') calls through — add .mockImplementation(() => undefined).");
+    expect(message).not.toContain('Absorb');
+  });
+
+  it('keeps a link the cut dropped from a long line', () => {
+    const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
+
+    openConsoleWindow(guard);
+    call(console$.host, 'warn', `NG0912: ${'x'.repeat(250)} Find more at https://angular.dev/errors/NG0912.`);
+    call(console$.host, 'warn', `short\n2\n3\n4 https://example.test/a`);
+
+    const message = thrownBy(() => reportTestConsole(guard));
+
+    expect(message).toContain(`${'x'.repeat(192)}… https://angular.dev/errors/NG0912\n`);
+    expect(message).toContain('3 https://example.test/a\n');
+  });
+
+  it('offers the allow list only for a line a dependency wrote while it was imported', () => {
+    const imported = (frame: string, text: string) => ({ method: 'warn', text, frame, test: undefined, phase: 'import' as const });
+    const dependency = describeStrayConsole(
+      { calls: [imported('at init (/app/node_modules/ui-kit/chip.js:3:7)', 'NG0912: collision')], total: 1 },
+      undefined,
+      '/app/a.spec.ts',
+    );
+    const generic = describeStrayConsole(
+      { calls: [imported('at /app/node_modules/x/index.js:1:1', 'noise')], total: 1 },
+      undefined,
+      'a.spec.ts',
+    );
+    const unknown = describeStrayConsole({ calls: [imported('at <unknown>', 'noise')], total: 1 }, undefined, 'a.spec.ts');
+
+    expect(dependency).toContain('Written while /app/node_modules/ui-kit/chip.js was evaluated');
+    expect(dependency).toContain('That code is a dependency: `strayConsole: { allow: [/NG0912/] }` lets this line through.');
+    expect(generic).toContain('`strayConsole: { allow: [/…/] }`');
+    expect(unknown).toContain('Written while a module was evaluated, before any hook — no spy can absorb it; fix the line that wrote it.');
+    expect(unknown).not.toContain('allow');
+  });
+
+  it('names the file each call came from, and says why a report landed on a later file', () => {
+    const late = { method: 'log', text: 'late', frame: 'at a', test: undefined, phase: 'afterTest' as const, file: '/r/a.spec.ts' };
+    const carried = describeStrayConsole({ calls: [late], total: 1 }, undefined, '/r/b.spec.ts');
+    const mixed = describeStrayConsole(
+      {
+        calls: [
+          late,
+          { ...late, file: '/r/b.spec.ts', test: 't' },
+          { method: 'log', text: 'late', frame: 'at a', test: undefined, phase: 'test' as const },
+        ],
+        total: 3,
+      },
+      undefined,
+      '/r/b.spec.ts',
+    );
+
+    expect(carried).toMatch(/^\[vitest-auto-spy\] \/r\/a\.spec\.ts wrote to console\.log 1 time after a test had ended/);
+    expect(carried).toContain('It is reported at the end of /r/b.spec.ts: the file-end check of /r/a.spec.ts did not run.');
+    expect(mixed).toContain('console.log (after its test ended, in /r/a.spec.ts): late');
+    expect(mixed).toContain('console.log (during "t"): late');
+    expect(mixed).toContain('  - console.log: late\n');
+    expect(mixed).not.toContain('It is reported at the end');
+  });
+
+  it('hands the file report to a caller that sweeps it, and nothing when the file wrote nothing', () => {
+    const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
+
+    expect(closeConsoleFile(guard)).toBeUndefined();
+
+    guard.recording = true;
+    call(console$.host, 'log', 'at import');
+
+    const report = closeConsoleFile(guard);
+
+    expect(thrownBy(() => report?.())).toContain('wrote to console.log 1 time while the file was being imported');
   });
 
   it('forgets a guard that was never armed without complaint', () => {
@@ -365,6 +572,36 @@ describe('watchStrayConsole', () => {
   it('registers nothing when the reaction is off', () => {
     expect(watchStrayConsole('off')).toBeUndefined();
     expect(watchStrayConsole(undefined)).toBeUndefined();
+  });
+});
+
+describe('a nested beforeAll that runs after a test of the file', () => {
+  const console$ = standInConsole();
+  let armed: typeof globalThis.__vitestAutoSpyStrayConsole__;
+  let guard: ReturnType<typeof armConsoleGuard>;
+
+  it('ends a test first', () => {
+    armed = globalThis.__vitestAutoSpyStrayConsole__;
+    guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
+    openConsoleWindow(guard);
+    reportTestConsole(guard);
+
+    expect(guard.outsidePhase).toBe('afterTest');
+  });
+
+  describe('inner', () => {
+    let message = '';
+
+    beforeAll(() => {
+      call(console$.host, 'log', 'seeding');
+      message = thrownBy(() => finishConsoleFile(guard));
+      stopGuardingConsole();
+      globalThis.__vitestAutoSpyStrayConsole__ = armed;
+    });
+
+    it('is reported as a beforeAll, not as a callback after the test', () => {
+      expect(message).toContain('1 time in a beforeAll, before the tests it prepares');
+    });
   });
 });
 
@@ -431,4 +668,7 @@ describe('setupAutoSpy({ strayConsole: "throw" })', () => {
   it.fails('fails on a library warning, which is console output like any other', () => {
     console.warn('[vitest-auto-spy] a misconfiguration report');
   });
+});
+it('tmpdebug', () => {
+  process.stdout.write(`\nDBG1 ${describeStrayConsole({ calls: [], total: 1 }, 'a test')}\n`);
 });
