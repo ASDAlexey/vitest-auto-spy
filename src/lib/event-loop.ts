@@ -18,7 +18,10 @@
  * captured when this module was first evaluated. Nothing here imports the runner, so it works the
  * same on Vitest, Bun and `node:test`.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { fakeClockBacklog } from './fake-clock-state';
+import { withDocs } from './message-link';
+import { count } from './message-text';
 
 /**
  * Captured at module evaluation, i.e. during the import phase — before any `beforeEach` has had a
@@ -110,14 +113,25 @@ async function pollUntil(isDone: () => boolean, timeoutMs: number): Promise<bool
   }
 }
 
-function notReady(what: string, timeoutMs: number): Error {
+/** The one cause the clock can confirm, or the two it leaves when nothing waits on it. */
+function stillWaitingOn(otherwise: string): string {
+  const pending = fakeClockBacklog() ?? 0;
+
+  if (pending > 0) {
+    return (
+      `${count(pending, 'callback')} ${pending === 1 ? 'waits' : 'wait'} on the fake clock, and this helper never advances it — ` +
+      'advance it instead: `await advanceTimers(ms)`.'
+    );
+  }
+
+  return `No timer is pending: ${otherwise}`;
+}
+
+function notReady(what: string, spent: string, otherwise: string): Error {
   return new Error(
     withDocs(
-      `[vitest-auto-spy] flushEventLoopUntil: ${what} was still not ready after ${timeoutMs} ms of real time. ` +
-        'The wait polls the real clock, so fake timers neither stretch nor shorten it: either the work never started (the call ' +
-        'under test did not run, the server was never listening), or it is waiting on a timer the test faked — only ' +
-        '`advanceTimers()` moves those — or it genuinely needs longer, which a larger `timeoutMs` answers.',
-      DOCS_LINKS.eventLoop,
+      `[vitest-auto-spy] flushEventLoopUntil: ${what} was still not ready after ${spent}. ${stillWaitingOn(otherwise)}`,
+      DOCS_LINKS.eventLoopUntil,
     ),
   );
 }
@@ -157,7 +171,12 @@ function notReady(what: string, timeoutMs: number): Error {
 export async function flushEventLoopUntil(isDone: () => boolean, options: FlushUntilOptions = {}): Promise<void> {
   if (options.timeoutMs !== undefined) {
     if (!(await pollUntil(isDone, options.timeoutMs))) {
-      throw notReady(options.label ?? 'the condition', options.timeoutMs);
+      throw notReady(
+        options.label ?? 'the condition',
+        `${options.timeoutMs} ms of real time`,
+        'either the work never started (the call under test did not run, the server was never listening), or it needs ' +
+          'longer — raise `timeoutMs`.',
+      );
     }
 
     return;
@@ -175,19 +194,11 @@ export async function flushEventLoopUntil(isDone: () => boolean, options: FlushU
     await flushEventLoop();
   }
 
-  const what = options.label ?? 'the condition';
-
-  throw new Error(
-    withDocs(
-      `[vitest-auto-spy] flushEventLoopUntil: ${what} was still not ready after ${turns} real event-loop turns. ` +
-        'Three causes, in the order they turn out to be true. The work started but a dynamic `import()` had not finished: a cold ' +
-        'chunk takes more turns than this budget, and the giveaway is that only the *first* such test in a file fails while the ' +
-        'rest pass off the module cache — which reads as a flake. Await the module instead of counting turns: ' +
-        '`await settleDynamicImport(() => import("./thing"))`. Or the work never started (the call under test did not run, or its ' +
-        'stub was never configured). Or it is waiting on a timer rather than on the event loop — timers stay frozen here, and ' +
-        'only `advanceTimers()` moves them.',
-      DOCS_LINKS.eventLoop,
-    ),
+  throw notReady(
+    options.label ?? 'the condition',
+    `${turns} real event-loop turns`,
+    "if it waits on a dynamic import(), await it instead: `await settleDynamicImport(() => import('./thing'))`; " +
+      'otherwise the call under test never ran, or its stub was never configured.',
   );
 }
 

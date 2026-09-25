@@ -175,6 +175,27 @@ describe('flushEventLoopUntil', () => {
   it('falls back to "the condition" when no label is given', async () => {
     await expect(flushEventLoopUntil(() => false, { turns: 1 })).rejects.toThrow(/the condition was still not ready/);
   });
+
+  it('points at a dynamic import or the call under test when no timer is pending', async () => {
+    await expect(flushEventLoopUntil(() => false, { turns: 1 })).rejects.toThrow(
+      /after 1 real event-loop turns\. No timer is pending: if it waits on a dynamic import\(\), await it instead: `await settleDynamicImport\(\(\) => import\('\.\/thing'\)\)`; otherwise the call under test never ran[\s\S]*\nDocs: \S+\/utilities\/event-loop#flusheventloopuntil-isdone-options$/,
+    );
+  });
+
+  it('counts the callbacks waiting on a fake clock and says to advance it', async () => {
+    vi.useFakeTimers();
+    setTimeout(() => undefined, 100);
+
+    try {
+      await expect(flushEventLoopUntil(() => false, { turns: 1 })).rejects.toThrow(
+        '1 callback waits on the fake clock, and this helper never advances it — advance it instead: `await advanceTimers(ms)`.',
+      );
+      setTimeout(() => undefined, 100);
+      await expect(flushEventLoopUntil(() => false, { turns: 1 })).rejects.toThrow('2 callbacks wait on the fake clock');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('flushEventLoopUntil with a time budget', () => {
@@ -204,7 +225,7 @@ describe('flushEventLoopUntil with a time budget', () => {
     const started = realNow();
 
     await expect(flushEventLoopUntil(() => false, { timeoutMs: 25, label: 'the socket' })).rejects.toThrow(
-      /the socket was still not ready after 25 ms of real time/,
+      /the socket was still not ready after 25 ms of real time\. No timer is pending: either the work never started[\s\S]*raise `timeoutMs`/,
     );
     expect(realNow() - started).toBeGreaterThanOrEqual(20);
   });
@@ -222,7 +243,7 @@ describe('flushEventLoopUntil with a time budget', () => {
 
     expect(checks).toBe(1);
     expect(failure).toContain('the condition was still not ready after 0 ms');
-    expect(failure).toContain('advanceTimers()');
+    expect(failure).not.toContain('advanceTimers');
   });
 });
 
@@ -234,6 +255,6 @@ describe('the flushEventLoopUntil budget message', () => {
 
     expect(failure).toContain('settleDynamicImport');
     expect(failure).toContain('the chunk');
-    expect(failure).toContain('advanceTimers()');
+    expect(failure).not.toContain('advanceTimers');
   });
 });
