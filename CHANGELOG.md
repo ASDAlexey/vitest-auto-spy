@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.32.2] - 2026-09-25
+
 ### Fixed
 
 - **`no-hand-assigned-global` points a hand-assigned `Worker` at `stubWorker`.** `globalThis.Worker = …`
@@ -8244,7 +8246,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.32.1...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.32.2...HEAD
+[5.32.2]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.32.1...v5.32.2
 [5.32.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.32.0...v5.32.1
 [5.32.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.31.0...v5.32.0
 [5.31.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.30.0...v5.31.0
