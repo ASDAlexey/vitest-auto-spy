@@ -425,7 +425,22 @@ expect(queryElement(fixture.debugElement, 'circle', SVGCircleElement).getAttribu
 Селектор, который ничего не нашёл, бросает прямо на запросе — с селектором и хостом в сообщении, —
 а не оставляет следующей строке `Cannot read properties of null`, как голый `querySelector`.
 Совпадение другого вида тоже бросает и называет, что нашлось: `'.close' matched <a.close>
-(HTMLAnchorElement), not HTMLButtonElement`. Оба хелпера есть и в `vitest-auto-spy/bun-angular`.
+(HTMLAnchorElement), not HTMLButtonElement`. Источник `null` — то, что возвращает `debugElement.query()`,
+когда предикат ничего не нашёл, хотя Angular типизирует результат как `DebugElement`, — бросает с
+этой вероятной причиной в сообщении, а не `Cannot read properties of null`. Оба хелпера есть и в
+`vitest-auto-spy/bun-angular`.
+
+Раз промах бросает, `queryElement` — это запрос элемента, который тест ожидает увидеть, в том числе
+чтобы прочитать его текст. Проверка того, что элемента **нет**, остаётся `querySelector` на
+типизированном хосте: он возвращает `Element | null` и каста не требует:
+
+```ts
+expect(queryElement(fixture, '.title').textContent.trim()).toBe('Orders'); // есть: промах бросит здесь
+expect(host.querySelector('.empty-state')).toBeNull(); // нет
+```
+
+Не читайте текст через `host.querySelector('.title')?.textContent.trim()`: промах превращается в
+`undefined`, который принимают `toBeFalsy()` и `not.toContain()`, и тест проходит на пустом шаблоне.
 
 ## Сборка класса с auto-spy вместо зависимостей {#building-a-class-with-auto-spied-dependencies}
 
@@ -1081,8 +1096,15 @@ fixture.componentInstance.edit(); // открывает, пропускает af
 - **Material объявляет `MAT_DIALOG_DATA` как `InjectionToken<any>`** — потому-то `useValue: null` и
   компилируется для компонента, который читает `data.name`. `provideMatDialogData<EditUserData>(…)`
   проверяет объект по названному типу; свой `InjectionToken<EditUserData>` проверяет его, ничего не
-  называя. Значение отдаётся как есть, поэтому собирайте его на каждый тест, а не поднимайте в
-  константу модуля.
+  называя. Когда аргумент типа назван, параметр токена — `InjectionToken<unknown>`, так что
+  `InjectionToken<any>` из Material проходит `@typescript-eslint/no-unsafe-argument`; не убирайте
+  аргумент типа, чтобы заглушить это правило, — данные от этого снова станут `any`. Значение
+  отдаётся как есть, поэтому собирайте его на каждый тест, а не поднимайте в константу модуля.
+- **Тип ref называйте аргументом типа, а не instantiation expression.**
+  `injectMatDialogRef(MatDialogRef<NameInputDialog, string>)` читает `Ref` с `prototype` класса, а
+  его Material типизирует как `MatDialogRef<any, any>`, и хендл возвращается с типом `any`. Пишите
+  `injectMatDialogRef<MatDialogRef<NameInputDialog, string>>(MatDialogRef)`; то же для
+  `createMatDialogRef` и `provideMatDialogRef`.
 - **Через `componentInstance` открывающая сторона и управляет диалогом**, и именно его Material
   объявляет полем класса, а не на прототипе, — поэтому дубль без него отдал бы открывающему
   `undefined` вместо того, чтобы упасть. Передайте заглушку — и она проверяется, член за членом, по

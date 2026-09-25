@@ -466,7 +466,22 @@ HTML. `TestBed` renders every component into a `<div>` host, so `hostElement(fix
 A selector that matches nothing throws at the query, with the selector and the host in the message,
 instead of the `Cannot read properties of null` a bare `querySelector` leaves for the next line. A
 match of another kind throws too, naming what it found: `'.close' matched <a.close> (HTMLAnchorElement),
-not HTMLButtonElement`. Both helpers are on `vitest-auto-spy/bun-angular` as well.
+not HTMLButtonElement`. A `null` source — what `debugElement.query()` returns when its predicate
+matches nothing, though Angular types it as a `DebugElement` — throws naming that likely cause rather
+than `Cannot read properties of null`. Both helpers are on `vitest-auto-spy/bun-angular` as well.
+
+Because a miss throws, `queryElement` is the query for an element the test expects to be there,
+reading its text included. Asserting that an element is **absent** stays a `querySelector` on the
+typed host, which returns `Element | null` and needs no cast:
+
+```ts
+expect(queryElement(fixture, '.title').textContent.trim()).toBe('Orders'); // present: a miss throws here
+expect(host.querySelector('.empty-state')).toBeNull(); // absent
+```
+
+Do not read text with `host.querySelector('.title')?.textContent.trim()`: a miss becomes
+`undefined`, which `toBeFalsy()` or `not.toContain()` accepts, so the test passes on an empty
+template.
 
 ## Building a class with auto-spied dependencies
 
@@ -1171,8 +1186,15 @@ Five things to know:
 - **Material declares `MAT_DIALOG_DATA` as `InjectionToken<any>`**, which is why `useValue: null`
   compiles for a component that reads `data.name`. `provideMatDialogData<EditUserData>(…)` checks the
   object against the type you name; an `InjectionToken<EditUserData>` of your own checks it without
-  naming anything. The value is handed out as it is, so build it per test rather than hoisting it to
-  a module constant.
+  naming anything. With the type argument named, the token parameter is `InjectionToken<unknown>`,
+  so Material's `InjectionToken<any>` passes `@typescript-eslint/no-unsafe-argument`; do not drop the
+  type argument to silence that rule, which only turns the data back into `any`. The value is handed
+  out as it is, so build it per test rather than hoisting it to a module constant.
+- **Name the ref type as a type argument, not as an instantiation expression.**
+  `injectMatDialogRef(MatDialogRef<NameInputDialog, string>)` reads `Ref` off the class's
+  `prototype`, which Material types `MatDialogRef<any, any>`, so the handle comes back `any`-typed.
+  Write `injectMatDialogRef<MatDialogRef<NameInputDialog, string>>(MatDialogRef)`, and the same for
+  `createMatDialogRef` and `provideMatDialogRef`.
 - **`componentInstance` is how the opener drives the dialog**, and Material declares it as a class
   field rather than on the prototype — so a double without it would hand the opener `undefined`
   instead of failing. Pass the stand-in and it is checked, member by member, against the component
