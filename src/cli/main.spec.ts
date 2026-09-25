@@ -34,11 +34,14 @@ const HEALTHY = {
 };
 
 describe('runCli', () => {
-  it('prints the help screen with no command, and says so with exit code 2', () => {
+  it('says a command is missing in one line, with the short usage, and exits 2', () => {
     const io = recorder();
 
     expect(runCli([], io)).toBe(2);
-    expect(io.stdout.join('\n')).toContain('npx vitest-auto-spy <command>');
+    expect(io.stdout).toEqual([]);
+    expect(io.stderr).toEqual([
+      'Missing command. Usage: npx vitest-auto-spy <doctor|perf|init|codemod> [options]. Run `npx vitest-auto-spy --help` for the options.',
+    ]);
   });
 
   it('treats an explicit help request as a success', () => {
@@ -58,7 +61,14 @@ describe('runCli', () => {
     const io = recorder();
 
     expect(runCli(['dcotor'], io)).toBe(2);
-    expect(io.stderr.join('\n')).toContain('Unknown command: dcotor');
+    expect(io.stderr).toEqual(['Unknown command: dcotor. Did you mean `doctor`? Run `npx vitest-auto-spy --help` for the commands.']);
+
+    const far = recorder();
+
+    expect(runCli(['deploy'], far)).toBe(2);
+    expect(far.stderr).toEqual([
+      'Unknown command: deploy. Usage: npx vitest-auto-spy <doctor|perf|init|codemod> [options]. Run `npx vitest-auto-spy --help` for the options.',
+    ]);
   });
 
   it('rejects a misspelled flag with exit code 2 rather than running without it', () => {
@@ -66,8 +76,7 @@ describe('runCli', () => {
     const io = recorder();
 
     expect(runCli(['init', '--dryrun', '--cwd', root], io)).toBe(2);
-    expect(io.stderr.join('\n')).toContain('Unknown flag for `init`: --dryrun');
-    expect(io.stderr.join('\n')).toContain('--dry-run');
+    expect(io.stderr).toEqual(['Unknown flag for `init`: --dryrun. Nothing ran.', 'Did you mean `--dry-run`?']);
     expect(readTextFile(join(root, 'AGENTS.md'))).toBe(HEALTHY['AGENTS.md']);
     expect(runCli(['perf', '--gat', '--cwd', root], recorder())).toBe(2);
     expect(runCli(['codemod', '--wirte', '--cwd', root], recorder())).toBe(2);
@@ -81,6 +90,7 @@ describe('runCli', () => {
     expect(runCli(['doctor', '--json', '--cwd', root], doctor)).toBe(2);
     expect(doctor.stderr.at(-1)).toBe('Did you mean `--format json`?');
     expect(runCli(['doctor', '--markdown', '--jsn', '--cwd', root], doctor)).toBe(2);
+    expect(doctor.stderr.at(-2)).toContain('`doctor` accepts --code-quality');
     expect(doctor.stderr.at(-1)).toBe('Did you mean `--format markdown`?');
     expect(runCli(['init', '--markdown', '--cwd', root], init)).toBe(2);
     expect(init.stderr.join('\n')).not.toContain('Did you mean');
@@ -169,12 +179,47 @@ describe('doctor', () => {
     expect(abbreviated.stdout.join('\n')).not.toContain('no-agent-instructions');
   });
 
-  it('takes an unknown --min-severity as no filter at all, rather than as a stricter one', () => {
+  it('refuses an unknown --min-severity before running anything, with the accepted values', () => {
     const io = recorder();
     const root = createTempRepo({ 'package.json': '{}' });
 
-    expect(runCli(['doctor', '--cwd', root, '--min-severity', 'loud'], io)).toBe(0);
-    expect(io.stdout.join('\n')).toContain('no-agent-instructions');
+    expect(runCli(['doctor', '--cwd', root, '--min-severity', 'loud'], io)).toBe(2);
+    expect(io.stdout).toEqual([]);
+    expect(io.stderr).toEqual(['Unknown --min-severity value: loud. Accepted values: error, warning, info. Nothing ran.']);
+  });
+
+  it('refuses an unknown check id in --ignore, and suggests the one it most likely meant', () => {
+    const root = createTempRepo({ 'package.json': '{}' });
+    const near = recorder();
+    const far = recorder();
+
+    expect(runCli(['doctor', '--cwd', root, '--ignore', 'no-agent-instruction'], near)).toBe(2);
+    expect(near.stderr).toEqual(['Unknown check id for --ignore: no-agent-instruction. Did you mean no-agent-instructions? Nothing ran.']);
+    expect(runCli(['doctor', '--cwd', root, '--ignore', 'everything'], far)).toBe(2);
+    expect(far.stderr[0]).toContain('Unknown check id for --ignore: everything. Known ids: angular-build-splitting-off,');
+    expect(runCli(['doctor', '--cwd', root, '--ignore', 'no-agent-instructions,'], recorder())).toBe(0);
+  });
+});
+
+describe('flag values', () => {
+  it('refuses a value flag with no value, a value flag followed by another flag included', () => {
+    const io = recorder();
+
+    expect(runCli(['doctor', '--code-quality', '--min-severity', 'error'], io)).toBe(2);
+    expect(io.stderr).toEqual(['--code-quality needs a value, as in `--code-quality <value>`. Nothing ran.']);
+  });
+
+  it('refuses a number flag that is not a number of zero or more, and takes a zero', () => {
+    const root = createTempRepo(HEALTHY);
+    const word = recorder();
+    const negative = recorder();
+
+    expect(runCli(['perf', '--cwd', root, '--max-test-ms', 'abc'], word)).toBe(2);
+    expect(word.stderr).toEqual(['--max-test-ms takes a number of zero or more, and got abc. Nothing ran.']);
+    expect(runCli(['perf', '--cwd', root, '--top', '-3'], negative)).toBe(2);
+    expect(negative.stderr).toEqual(['--top takes a number of zero or more, and got -3. Nothing ran.']);
+    expect(runCli(['perf', '--cwd', root, '--factor=Infinity'], recorder())).toBe(2);
+    expect(runCli(['perf', '--cwd', root, '--factor', ' '], recorder())).toBe(2);
   });
 });
 
@@ -195,7 +240,12 @@ describe('init', () => {
     const root = createTempRepo(HEALTHY);
 
     expect(runCli(['init', '--cwd', root, '--check'], io)).toBe(1);
-    expect(io.stderr.join('\n')).toContain('out of date');
+    expect(io.stderr.at(-1)).toMatch(/^\nAGENTS\.md, CLAUDE\.md, .* are out of date\. Run `npx vitest-auto-spy init` to update them\.$/);
+
+    const one = recorder();
+
+    expect(runCli(['init', '--cwd', root, '--check', '--only', 'AGENTS.md'], one)).toBe(1);
+    expect(one.stderr.at(-1)).toBe('\nAGENTS.md is out of date. Run `npx vitest-auto-spy init` to update it.');
   });
 
   it('writes only the files --only names', () => {
@@ -241,7 +291,7 @@ describe('perf', () => {
     const root = createTempRepo(HEALTHY);
 
     expect(runCli(['perf', '--cwd', root, '--json', `${root}/nowhere.json`], io)).toBe(2);
-    expect(io.stderr.join('\n')).toContain('Not a perf report');
+    expect(io.stderr.join('\n')).toContain('Cannot read the perf report: nowhere.json does not exist.');
   });
 
   it('gates a report it was handed, and fails only when told one reading is enough', () => {
@@ -429,7 +479,7 @@ describe('--format json', () => {
       run: null,
       gate: { status: 'skipped', confirmation: 'unavailable' },
     });
-    expect(io.stderr.join('\n')).toContain('Not a perf report');
+    expect(io.stderr.join('\n')).toContain('Cannot read the perf report: nowhere.json does not exist.');
   });
 
   it('refuses a format it does not know, before anything runs', () => {

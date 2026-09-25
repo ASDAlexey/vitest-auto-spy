@@ -5,10 +5,11 @@
 import { resolve } from 'node:path';
 
 import type { ParsedArgs } from './args';
-import { flagEnabled, flagList, flagNumber, flagValue, parseArgs } from './args';
+import { VALUE_FLAGS, flagEnabled, flagList, flagNumber, flagValue, parseArgs } from './args';
 import { isSpecFile } from './checks/graph';
 import { writeCodeQuality } from './code-quality';
 import { runCodemod } from './codemod/run';
+import { DOCTOR_CHECKS } from './docs';
 import { doctorDocument, runDoctor } from './doctor';
 import { isDirectory } from './fs-scan';
 import { HELP } from './help';
@@ -26,6 +27,7 @@ import { readProfile } from './profile';
 import { type Severity, formatFindings, hasFailures, summarize } from './report';
 import { doctorMarkdown } from './report-markdown';
 import { ownVersion } from './self';
+import { nearest } from './suggest';
 
 export interface CliIo {
   out(line: string): void;
@@ -34,15 +36,12 @@ export interface CliIo {
 
 const STATUS_WIDTH = 10;
 
-/** `--min-severity`: an unknown word is not a stricter filter, so it falls back to printing everything. */
+const SEVERITIES: Readonly<Record<string, Severity>> = { error: 'error', warning: 'warning', warn: 'warning', info: 'info' };
+
 function minSeverityOf(args: ParsedArgs): Severity | undefined {
   const raw = flagValue(args, 'min-severity')?.trim().toLowerCase();
 
-  if (raw === 'error' || raw === 'info') {
-    return raw;
-  }
-
-  return raw === 'warning' || raw === 'warn' ? 'warning' : undefined;
+  return raw === undefined ? undefined : SEVERITIES[raw];
 }
 
 /** `--format`: `text` unless asked otherwise, and `undefined` for a word that is neither. */
@@ -65,7 +64,7 @@ function rejectFormat(args: ParsedArgs, io: CliIo): boolean {
 function doctorCommand(cwd: string, argv: readonly string[], io: CliIo): number {
   const args = parseArgs(argv);
   const profile = readProfile(cwd);
-  const ignored = new Set((flagValue(args, 'ignore') ?? '').split(',').map((check) => check.trim()));
+  const ignored = new Set(flagList(args, 'ignore'));
   const findings = runDoctor(profile).filter((finding) => !ignored.has(finding.check));
   const minSeverity = minSeverityOf(args);
   const codeQuality = flagValue(args, 'code-quality');
@@ -194,7 +193,13 @@ function reportInit(result: InitResult, check: boolean, io: CliIo): number {
   }
 
   if (!result.ok) {
-    io.err('\nThe agent instructions are out of date. Run `npx vitest-auto-spy init`.');
+    const stale = result.actions
+      .filter((action) => action.status === 'created' || action.status === 'updated')
+      .map((action) => action.path);
+
+    io.err(
+      `\n${stale.join(', ')} ${stale.length === 1 ? 'is' : 'are'} out of date. Run \`npx vitest-auto-spy init\` to update ${stale.length === 1 ? 'it' : 'them'}.`,
+    );
 
     return 1;
   }
@@ -277,34 +282,119 @@ const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
   ],
 };
 
-function rejectFlags(args: ParsedArgs, command: string, io: CliIo): boolean {
-  const accepted = COMMAND_FLAGS[command];
-
-  if (accepted === undefined) {
-    return false;
-  }
-
+function rejectFlags(args: ParsedArgs, command: string, accepted: readonly string[], io: CliIo): boolean {
   const unknown = Object.keys(args.flags).filter((name) => !accepted.includes(name) && !COMMON_FLAGS.includes(name));
 
   if (unknown.length === 0) {
     return false;
   }
 
-  io.err(`Unknown flag for \`${command}\`: ${unknown.map((name) => `--${name}`).join(', ')}. Nothing ran.`);
-  io.err(
-    `\`${command}\` accepts ${[...accepted, ...COMMON_FLAGS]
-      .sort((a, b) => a.localeCompare(b))
-      .map((name) => `--${name}`)
-      .join(', ')}.`,
+  const known = [...accepted, ...COMMON_FLAGS].sort((a, b) => a.localeCompare(b));
+  const guesses = unknown.map((name) =>
+    accepted.includes('format') && (name === 'json' || name === 'markdown') ? `format ${name}` : nearest(name, known),
   );
 
-  const formats = unknown.filter((name) => accepted.includes('format') && (name === 'json' || name === 'markdown'));
+  io.err(`Unknown flag for \`${command}\`: ${unknown.map((name) => `--${name}`).join(', ')}. Nothing ran.`);
 
-  if (formats.length > 0) {
-    io.err(`Did you mean ${formats.map((name) => `\`--format ${name}\``).join(', ')}?`);
+  const found = guesses.filter((guess) => guess !== undefined);
+
+  if (found.length < guesses.length) {
+    io.err(`\`${command}\` accepts ${known.map((name) => `--${name}`).join(', ')}.`);
+  }
+
+  if (found.length > 0) {
+    io.err(`Did you mean ${found.map((guess) => `\`--${guess}\``).join(', ')}?`);
   }
 
   return true;
+}
+
+const NUMBER_FLAGS: readonly string[] = [
+  'baseline-factor',
+  'baseline-floor-ms',
+  'factor',
+  'max-file-ms',
+  'max-file-tests',
+  'max-test-ms',
+  'max-wall-ms',
+  'top',
+];
+
+function isCount(value: string): boolean {
+  const number = Number(value);
+
+  return value.trim() !== '' && Number.isFinite(number) && number >= 0;
+}
+
+/** Why a flag's value cannot be used, or `undefined` when it can. */
+function valueProblem(args: ParsedArgs, name: string, command: string): string | undefined {
+  const value = args.flags[name];
+
+  if (value === true && VALUE_FLAGS.has(name)) {
+    return `--${name} needs a value, as in \`--${name} <value>\`.`;
+  }
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  if (NUMBER_FLAGS.includes(name) && !isCount(value)) {
+    return `--${name} takes a number of zero or more, and got ${value}.`;
+  }
+
+  if (name === 'min-severity' && minSeverityOf(args) === undefined) {
+    return `Unknown --min-severity value: ${value}. Accepted values: error, warning, info.`;
+  }
+
+  const unknownChecks =
+    name === 'ignore' && command === 'doctor' ? flagList(args, 'ignore').filter((check) => !DOCTOR_CHECKS.includes(check)) : [];
+
+  if (unknownChecks.length === 0) {
+    return undefined;
+  }
+
+  const guesses = unknownChecks.map((check) => nearest(check, DOCTOR_CHECKS));
+
+  return guesses.every((guess) => guess !== undefined)
+    ? `Unknown check id for --ignore: ${unknownChecks.join(', ')}. Did you mean ${guesses.join(', ')}?`
+    : `Unknown check id for --ignore: ${unknownChecks.join(', ')}. Known ids: ${DOCTOR_CHECKS.join(', ')}.`;
+}
+
+function rejectValues(args: ParsedArgs, command: string, io: CliIo): boolean {
+  const problems = Object.keys(args.flags).flatMap((name) => valueProblem(args, name, command) ?? []);
+
+  for (const problem of problems) {
+    io.err(`${problem} Nothing ran.`);
+  }
+
+  return problems.length > 0;
+}
+
+const USAGE = 'Usage: npx vitest-auto-spy <doctor|perf|init|codemod> [options]. Run `npx vitest-auto-spy --help` for the options.';
+
+/** The flags a command takes, or `undefined` after saying the command is missing or unknown. */
+function acceptedFlags(command: string | undefined, io: CliIo): readonly string[] | undefined {
+  if (command === undefined) {
+    io.err(`Missing command. ${USAGE}`);
+
+    return undefined;
+  }
+
+  const accepted = COMMAND_FLAGS[command];
+
+  if (accepted !== undefined) {
+    return accepted;
+  }
+
+  const guess = nearest(command, Object.keys(COMMAND_FLAGS));
+
+  io.err(
+    guess === undefined
+      ? `Unknown command: ${command}. ${USAGE}`
+      : `Unknown command: ${command}. Did you mean \`${guess}\`? Run \`npx vitest-auto-spy --help\` for the commands.`,
+  );
+
+  return undefined;
 }
 
 /**
@@ -335,13 +425,16 @@ export function runCli(argv: readonly string[], io: CliIo): number {
     return 0;
   }
 
-  if (args.command === undefined || args.command === 'help' || flagEnabled(args, 'help')) {
+  if (args.command === 'help' || flagEnabled(args, 'help')) {
     io.out(HELP);
 
-    return args.command === undefined && !flagEnabled(args, 'help') ? 2 : 0;
+    return 0;
   }
 
-  if (rejectFlags(args, args.command, io) || rejectFormat(args, io)) {
+  const accepted = acceptedFlags(args.command, io);
+  const command = String(args.command);
+
+  if (accepted === undefined || rejectFlags(args, command, accepted, io) || rejectValues(args, command, io) || rejectFormat(args, io)) {
     return 2;
   }
 
@@ -353,24 +446,13 @@ export function runCli(argv: readonly string[], io: CliIo): number {
     return 2;
   }
 
-  if (args.command === 'doctor') {
+  if (command === 'doctor') {
     return doctorCommand(cwd, argv, io);
   }
 
-  if (args.command === 'init') {
+  if (command === 'init') {
     return initCommand(cwd, argv, io);
   }
 
-  if (args.command === 'perf') {
-    return perfCommand(cwd, argv, io);
-  }
-
-  if (args.command === 'codemod') {
-    return codemodCommand(cwd, argv, io);
-  }
-
-  io.err(`Unknown command: ${args.command}\n`);
-  io.err(HELP);
-
-  return 2;
+  return command === 'perf' ? perfCommand(cwd, argv, io) : codemodCommand(cwd, argv, io);
 }
