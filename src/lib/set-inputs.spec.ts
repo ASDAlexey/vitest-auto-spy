@@ -98,7 +98,9 @@ describe('setInputs', () => {
     await expect(
       // @ts-expect-error — the type rejects it too; this is the runtime half, for a value the spec built dynamically
       setInputs(fixture, { steps: 5 }),
-    ).rejects.toThrow(/CounterComponent declares no input named 'steps'\. Its inputs are 'step', 'label', 'total'\./);
+    ).rejects.toThrow(
+      /CounterComponent declares no input named 'steps'\. Did you mean 'step'\?\nIts inputs are 'step', 'label', 'total'\./,
+    );
   });
 
   it('sets nothing at all when one name out of several is unknown', async () => {
@@ -119,7 +121,7 @@ describe('setInputs', () => {
     await expect(
       // @ts-expect-error — a signal the component owns is not an input, and this is where that shows
       setInputs(fixture, { state: 'busy' }),
-    ).rejects.toThrow(/PlainComponent declares no input named 'state'\. It declares no inputs at all\./);
+    ).rejects.toThrow(/PlainComponent declares no input named 'state'\.\nIt declares no inputs at all\./);
   });
 
   it('names the class that carries no compiled definition, instead of dying on a missing property', async () => {
@@ -127,7 +129,7 @@ describe('setInputs', () => {
     const restore = mockValueProp(fixture.componentRef, 'componentType', NotCompiled);
 
     await expect(setInputs(fixture, { step: 5 })).rejects.toThrow(
-      /NotCompiled carries no ɵcmp, so there are no inputs to set\..*@Directive \(ɵdir\)/s,
+      /NotCompiled carries no ɵcmp, so Angular never compiled it as a component.*Pass the @Component class/s,
     );
 
     restore();
@@ -137,7 +139,9 @@ describe('setInputs', () => {
     const { fixture } = renderShallow(CounterComponent);
     const restore = mockValueProp(fixture.componentRef, 'componentType', undefined);
 
-    await expect(setInputs(fixture, { step: 5 })).rejects.toThrow(/undefined carries no ɵcmp.*barrel/s);
+    await expect(setInputs(fixture, { step: 5 })).rejects.toThrow(
+      /the component class is undefined, so there are no inputs to set.*barrel/s,
+    );
 
     restore();
   });

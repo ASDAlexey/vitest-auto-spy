@@ -31,6 +31,6 @@ describe('the epoch opens before the stub-installing hooks', () => {
   });
 
   it('said nothing about its own stubs on the way out', () => {
-    expect(warnings.join('\n')).not.toMatch(/patched outside a per-test hook/);
+    expect(warnings.join('\n')).not.toMatch(/ran outside a per-test hook/);
   });
 });
