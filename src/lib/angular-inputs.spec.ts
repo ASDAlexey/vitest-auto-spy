@@ -29,7 +29,7 @@ class ButtonComponent {
 }
 
 /** A definition of a shape no Angular emits — the only way to exercise the reader's refusals. */
-function fake(definition: object, key: 'ɵcmp' | 'ɵdir' = 'ɵcmp'): Type<unknown> {
+function fake(definition: object, key: 'ɵcmp' | 'ɵdir' | 'ɵpipe' = 'ɵcmp'): Type<unknown> {
   const Fake = class {};
 
   Object.defineProperty(Fake, key, { value: definition });
@@ -116,7 +116,23 @@ describe('resolveInputs', () => {
 
   it('names the caller and every key the component does not declare', () => {
     expect(() => resolveInputs('renderShallow', ButtonComponent, { labell: 'typo', missing: 1 })).toThrow(
-      /renderShallow: ButtonComponent declares no input named 'labell', 'missing'\. Its inputs are 'label', 'tip'\./,
+      /renderShallow: ButtonComponent declares no input named 'labell', 'missing'\. Did you mean 'label' for 'labell'\?\nIts inputs are 'label', 'tip'\./,
+    );
+  });
+
+  it('suggests the input a single typo was meant to be', () => {
+    expect(() => resolveInputs('setInputs', ButtonComponent, { labl: 'typo' })).toThrow(
+      /declares no input named 'labl'\. Did you mean 'label'\?\n/,
+    );
+  });
+
+  it('suggests nothing when no declared name is close', () => {
+    expect(() => resolveInputs('setInputs', ButtonComponent, { colour: 'red' })).toThrow(/declares no input named 'colour'\.\nIts inputs/);
+  });
+
+  it('says a pipe has no inputs, rather than calling it uncompiled', () => {
+    expect(() => inputNames('setInputs', fake({ name: 'upper' }, 'ɵpipe'))).toThrow(
+      /is a @Pipe, and a pipe has no inputs\.\nCall its transform\(\) directly/,
     );
   });
 });

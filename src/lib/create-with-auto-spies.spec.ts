@@ -105,14 +105,16 @@ describe('createWithAutoSpies: a token the instance never asked for', () => {
     // then failed on the real collaborator several frames into the code under test.
     const { spies } = createWithAutoSpies(CartService);
 
-    expect(() => spies.get(ShippingService)).toThrow(/spies\.get\(ShippingService\d*\): the instance never asked for that token/);
+    expect(() => spies.get(ShippingService)).toThrow(
+      /spies\.get\(ShippingService\d*\): CartService\d* never asked for that token[^\n]*\nAsk for one of its auto-spied tokens: /,
+    );
   });
 
   it('lists what was auto-spied, and names an InjectionToken by its description', () => {
     const { spies } = createWithAutoSpies(CartService);
 
     expect(() => spies.get(UNUSED)).toThrow(
-      /spies\.get\(InjectionToken UNUSED\)[\s\S]*Auto-spied tokens: TaxService\d*, PricingService\d*, InjectionToken CONFIG/,
+      /spies\.get\(InjectionToken UNUSED\)[\s\S]*auto-spied tokens: TaxService\d*, PricingService\d*, InjectionToken CONFIG\./,
     );
   });
 
@@ -121,7 +123,7 @@ describe('createWithAutoSpies: a token the instance never asked for', () => {
     // for it — and a spec configuring one would be configuring nothing.
     const { spies } = createWithAutoSpies(CartService);
 
-    expect(() => spies.get(MISSING)).toThrow(/the instance never asked for that token/);
+    expect(() => spies.get(MISSING)).toThrow(/never asked for that token/);
   });
 
   it('says `(none)` rather than an empty list when nothing was auto-spied at all', () => {
@@ -129,6 +131,6 @@ describe('createWithAutoSpies: a token the instance never asked for', () => {
 
     const { spies } = createWithAutoSpies(NoDependencies);
 
-    expect(() => spies.get(PricingService)).toThrow(/Auto-spied tokens: \(none\)/);
+    expect(() => spies.get(PricingService)).toThrow(/Nothing it injects was auto-spied, so there is no spy to read/);
   });
 });

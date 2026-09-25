@@ -5,14 +5,15 @@
  */
 import { createAccessorsSpies } from './accessor-spy';
 import { createAutoMock } from './auto-mock';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { fillMissingMembers } from './fill-missing';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedReturnValue } from './function-spy';
 import { createLazySpyProxy } from './lazy-spy-proxy';
+import { withDocs } from './message-link';
 import { reportMisconfiguration } from './misconfiguration';
 import { getMockAdapter } from './mock-adapter';
 import { attachDispose } from './reset-auto-spy';
-import { warnOnAccessorNamingAMethod, warnOnUnknownMethods } from './spy-config-warnings';
+import { closestName, ownerOf, warnOnAccessorNamingAMethod, warnOnUnknownMethods } from './spy-config-warnings';
 import { mergeAutoSpyDefaults } from './spy-defaults';
 import type {
   ClassSpyConfiguration,
@@ -316,6 +317,27 @@ function isCallable(value: unknown): value is Func {
   return typeof value === 'function';
 }
 
+function notASpiedMethod(factory: string, option: string, name: string, methods: readonly PropertyKey[]): string {
+  const lead = `[vitest-auto-spy] ${factory}: ${option} names '${name}'`;
+
+  if (methods.includes(name)) {
+    return withDocs(
+      `${lead}, which onlyMethodsToSpyOn left out, so the value is never returned. Add '${name}' to onlyMethodsToSpyOn.`,
+      DOCS_LINKS.createSpyFromClassReturns,
+    );
+  }
+
+  const guess = closestName(name, methods);
+
+  return guess === undefined
+    ? withDocs(
+        `${lead}, not a method of ${ownerOf(factory)}, so the value is never returned. If the constructor assigns it ` +
+          `(an arrow-function field, an rxMethod), list it in instanceMethodsToSpyOn: ['${name}'].`,
+        DOCS_LINKS.createSpyFromClassInstanceMethods,
+      )
+    : withDocs(`${lead}, not a method of ${ownerOf(factory)} — did you mean '${guess}'?`, DOCS_LINKS.createSpyFromClassReturns);
+}
+
 /**
  * Install the configured return values.
  *
@@ -323,7 +345,13 @@ function isCallable(value: unknown): value is Func {
  * not part of every runner's surface — `node:test`'s `mock.fn()` has no such thing — and the
  * adapter is the seam that already hides those differences from the core.
  */
-export function applyReturns(autoSpy: object, factory: string, returns: Record<string, unknown>, option = 'returns'): void {
+export function applyReturns(
+  autoSpy: object,
+  factory: string,
+  returns: Record<string, unknown>,
+  option: string,
+  methods: () => readonly PropertyKey[],
+): void {
   const entries = Object.entries(returns);
 
   if (entries.length === 0) {
@@ -341,16 +369,7 @@ export function applyReturns(autoSpy: object, factory: string, returns: Record<s
     const spy: unknown = Reflect.get(autoSpy, name);
 
     if (!isCallable(spy)) {
-      reportMisconfiguration(
-        withDocs(
-          `[vitest-auto-spy] ${factory}: ${option} names '${name}', which is not a spied ` +
-            `method of the spy. Check the spelling, and check that a restricting onlyMethodsToSpyOn list did not leave ` +
-            `it out — a value configured for a method that is not there is silently never returned. A method the ` +
-            `constructor assigns — an ngrx rxMethod, an arrow-function field — is not on the prototype: list it in ` +
-            `instanceMethodsToSpyOn: ['${name}'].`,
-          DOCS_LINKS.createSpyFromClass,
-        ),
-      );
+      reportMisconfiguration(notASpiedMethod(factory, option, name, methods()));
 
       return;
     }
@@ -370,9 +389,10 @@ export function applyConfiguredReturns(
   double: object,
   factory: string,
   config: Pick<ResolvedSpyConfiguration, 'returns' | 'selfReturning'>,
+  methods: () => readonly PropertyKey[],
 ): void {
-  applyReturns(double, factory, Object.fromEntries(config.selfReturning.map((name) => [name, double])), 'selfReturning');
-  applyReturns(double, factory, config.returns);
+  applyReturns(double, factory, Object.fromEntries(config.selfReturning.map((name) => [name, double])), 'selfReturning', methods);
+  applyReturns(double, factory, config.returns, 'returns', methods);
 }
 
 /**
@@ -470,8 +490,9 @@ function forwarderFor(methodName: PropertyKey): Func {
     if (this === undefined) {
       throw new TypeError(
         withDocs(
-          `[vitest-auto-spy] '${String(methodName)}' was called off its double after vi.spyOn; configure the method directly.`,
-          DOCS_LINKS.createSpyFromClass,
+          `[vitest-auto-spy] '${String(methodName)}' was called off its double after vi.spyOn, so there is no double to answer it. ` +
+            `Drop the vi.spyOn and configure the member itself: double.${String(methodName)}.mockReturnValue(…).`,
+          DOCS_LINKS.createSpyFromClassLazySpies,
         ),
       );
     }
@@ -606,7 +627,7 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   const config = resolveConfiguration(mergeAutoSpyDefaults(ObjectClass, methodsToSpyOnOrConfig));
   const autoSpy = assembleSpy<T, Options>(ObjectClass, config);
 
-  applyConfiguredReturns(autoSpy, `createSpyFromClass(${ObjectClass.name})`, config);
+  applyConfiguredReturns(autoSpy, `createSpyFromClass(${ObjectClass.name})`, config, () => getAllMethodNames(ObjectClass.prototype));
   applyOverrides(autoSpy, config.overrides);
 
   return autoSpy;

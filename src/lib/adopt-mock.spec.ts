@@ -163,7 +163,9 @@ describe('adoptMock', () => {
 
       load.mustBeCalledWith(1).mockReturnValue('one');
 
-      expect(mustBeCalledWithMiss(load)).toEqual(expect.objectContaining({ message: expect.stringContaining("'loadUser'") }));
+      expect(mustBeCalledWithMiss(load)).toEqual(
+        expect.objectContaining({ message: expect.stringContaining('[vitest-auto-spy] loadUser is set up with mustBeCalledWith') }),
+      );
     });
 
     it("falls back to the runner's mock name", () => {
@@ -171,7 +173,9 @@ describe('adoptMock', () => {
 
       load.mustBeCalledWith(1).mockReturnValue('one');
 
-      expect(mustBeCalledWithMiss(load)).toEqual(expect.objectContaining({ message: expect.stringContaining("'fromRunner'") }));
+      expect(mustBeCalledWithMiss(load)).toEqual(
+        expect.objectContaining({ message: expect.stringContaining('[vitest-auto-spy] fromRunner is set up with mustBeCalledWith') }),
+      );
     });
 
     it('falls back to the function name, then to "mock", when the runner names nothing', () => {
@@ -186,16 +190,32 @@ describe('adoptMock', () => {
       adoptMock(named).mustBeCalledWith(1).mockReturnValue('one');
       adoptMock(anonymous).mustBeCalledWith(1).mockReturnValue('one');
 
-      expect(mustBeCalledWithMiss(named)).toEqual(expect.objectContaining({ message: expect.stringContaining("'fetchUser'") }));
-      expect(mustBeCalledWithMiss(anonymous)).toEqual(expect.objectContaining({ message: expect.stringContaining("'mock'") }));
+      expect(mustBeCalledWithMiss(named)).toEqual(
+        expect.objectContaining({ message: expect.stringContaining('[vitest-auto-spy] fetchUser is set up with mustBeCalledWith') }),
+      );
+      expect(mustBeCalledWithMiss(anonymous)).toEqual(
+        expect.objectContaining({ message: expect.stringContaining('[vitest-auto-spy] mock is set up with mustBeCalledWith') }),
+      );
     });
   });
 
   describe('refusals', () => {
     it('refuses a plain function, pointing at assertMocked', () => {
-      expect(() => adoptMock((id: number) => id)).toThrow(
-        /adoptMock\(\) was given something that is not a runner mock[\s\S]*assertMocked\(\)/,
+      const loadUser = (id: number): number => id;
+
+      expect(() => adoptMock(loadUser)).toThrow(
+        /^\[vitest-auto-spy\] adoptMock\(\) was given a plain function \(loadUser\), not a runner mock, so the vi\.mock\(\) that should have replaced it did not apply\. Check it with assertMocked\(namespace, \{ exports: \['loadUser'\] \}\)\.\nDocs: \S+#adoptmock-mock-options$/,
       );
+      expect(() =>
+        adoptMock(
+          (
+            () => (): void =>
+              undefined
+          )(),
+        ),
+      ).toThrow(/a plain function \(anonymous\)[\s\S]*exports: \['name'\]/);
+      expect(() => adoptMock(Object('x'))).toThrow(/was given object, not a runner mock\. Pass the vi\.fn\(\) the module mock built/);
+      expect(() => adoptMock(null as never)).toThrow(/was given null, not a runner mock/);
     });
 
     it('refuses a mock that cannot report its implementation', () => {

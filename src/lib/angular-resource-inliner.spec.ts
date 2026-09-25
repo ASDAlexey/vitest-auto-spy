@@ -138,7 +138,20 @@ describe('inlineAngularResources — reading', () => {
     const source = `@Component({ templateUrl: './missing.html' })`;
 
     expect(() => inlineAngularResources(source, MODULE_PATH, { readResource: readerFor({}) })).toThrow(
-      /cannot read "\.\/missing\.html" referenced by .*greeting\.component\.ts/,
+      /^\[vitest-auto-spy\] cannot read "\.\/missing\.html" referenced by .*greeting\.component\.ts: ENOENT: \/project\/src\/app\/missing\.html at \/project\/src\/app\/missing\.html\.\n[^\n]*fix the templateUrl or styleUrl\.\nDocs: .*#a-template-or-stylesheet-that-cannot-be-read/,
     );
+  });
+
+  it('prints the errno the filesystem gave, or what was thrown when there is none', () => {
+    const source = `@Component({ templateUrl: './locked.html' })`;
+    const denied = (): string => {
+      throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    };
+    const odd = (): string => {
+      throw 'gone';
+    };
+
+    expect(() => inlineAngularResources(source, MODULE_PATH, { readResource: denied })).toThrow(/: EACCES at /);
+    expect(() => inlineAngularResources(source, MODULE_PATH, { readResource: odd })).toThrow(/: gone at /);
   });
 });

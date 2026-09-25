@@ -21,6 +21,7 @@ import {
   enableAngularDiagnostics,
 } from './angular-diagnostics';
 import { overrideComponentProvider } from './angular-overrides';
+import { createAutoMock } from './auto-mock';
 
 @Injectable()
 class RealService {
@@ -37,6 +38,9 @@ class DeclaredDiagnosedComponent {}
 
 @NgModule({})
 class EmptyModule {}
+
+@NgModule({})
+class SecondEmptyModule {}
 
 @NgModule({ providers: [RealService] })
 class ProvidersOnlyModule {}
@@ -78,6 +82,14 @@ const GREETER = new InjectionToken<{ hello(): string }>('GREETER');
 class OwnTokenComponent {
   readonly greeter = inject(GREETER);
 }
+
+@Component({
+  selector: 'vas-own-string-token',
+  standalone: true,
+  template: '',
+  providers: [{ provide: 'GREETING', useValue: { hello: (): string => 'real' } }],
+})
+class OwnStringTokenComponent {}
 
 /** The same component without the declaration — the module-level double reaches this one. */
 @Component({ selector: 'vas-module-providers', standalone: true, template: '' })
@@ -121,14 +133,22 @@ describe('enableAngularDiagnostics', () => {
   });
 
   it('fails an NgModule import that contributes nothing, and never a providers-only one', () => {
-    expect(() => TestBed.configureTestingModule({ imports: [EmptyModule] })).toThrow(/empty runtime scope: EmptyModule/);
+    expect(() => TestBed.configureTestingModule({ imports: [EmptyModule] })).toThrow(
+      /ngModuleScopes: EmptyModule is imported into the testing module but contributes nothing/,
+    );
     expect(() => TestBed.configureTestingModule({ imports: [ProvidersOnlyModule, DeclaringModule] })).not.toThrow();
+  });
+
+  it('names every dead import in one line, with the fix', () => {
+    expect(() => TestBed.configureTestingModule({ imports: [EmptyModule, SecondEmptyModule] })).toThrow(
+      /^\[vitest-auto-spy\] ngModuleScopes: EmptyModule and SecondEmptyModule are imported into the testing module but contribute nothing — this test bundle dropped their ɵɵsetNgModuleScope, so their directives are missing \(NG0303\/NG0304\)\.\nImport the directives they export directly, or declare them in the TestBed\.\nDocs: .*#ngmodulescopes$/,
+    );
   });
 
   it('raises the injectSpy warning to a failure, and lowers it again when that member is off', () => {
     TestBed.configureTestingModule({ providers: [RealService] });
 
-    expect(() => injectSpy(RealService)).toThrow(/the injector returned a plain instance, not an auto-spy/);
+    expect(() => injectSpy(RealService)).toThrow(/injectSpy\(RealService\): got a real RealService/);
 
     enableAngularDiagnostics({ deadSchemas: false, ngModuleScopes: false, pendingRequests: false, unspiedProviders: false });
 
@@ -136,7 +156,7 @@ describe('enableAngularDiagnostics', () => {
 
     injectSpy(RealService);
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('not an auto-spy'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('got a real RealService'));
 
     warn.mockRestore();
     enableAngularDiagnostics();
@@ -150,7 +170,22 @@ describe('enableAngularDiagnostics', () => {
     http.get('/api/users').subscribe();
     http.post('/api/orders', {}).subscribe();
 
-    expect(assertNoPendingRequests).toThrow(/2 unflushed HttpTestingController request\(s\): GET \/api\/users, POST \/api\/orders/);
+    expect(assertNoPendingRequests).toThrow(
+      /2 requests were never answered \(when assertNoPendingRequests\(\) ran\): GET \/api\/users, POST \/api\/orders\.[\s\S]*controller\.expectOne\('\/api\/users'\)\.flush\(body\)/,
+    );
+  });
+
+  it('names the verb in the answer when two open requests share a URL', () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+
+    const http = TestBed.inject(HttpClient);
+
+    http.post('/api/users', {}).subscribe();
+    http.get('/api/users').subscribe();
+
+    expect(assertNoPendingRequests).toThrow(
+      /Answer each in the spec: controller\.expectOne\(\{ method: 'POST', url: '\/api\/users' \}\)\.flush\(body\)\./,
+    );
   });
 
   it('holds a cancelled request against the test unless asked not to', () => {
@@ -160,12 +195,14 @@ describe('enableAngularDiagnostics', () => {
 
     http.get('/api/cancelled').subscribe().unsubscribe();
 
-    expect(assertNoPendingRequests).toThrow(/1 unflushed HttpTestingController request\(s\): GET \/api\/cancelled/);
+    expect(assertNoPendingRequests).toThrow(
+      /GET \/api\/cancelled was never answered[\s\S]*pass assertNoPendingRequests\(\{ ignoreCancelled: true \}\)/,
+    );
 
     http.get('/api/cancelled-again').subscribe().unsubscribe();
     http.get('/api/waiting').subscribe();
 
-    expect(() => assertNoPendingRequests({ ignoreCancelled: true })).toThrow(/1 unflushed [^:]*: GET \/api\/waiting\./);
+    expect(() => assertNoPendingRequests({ ignoreCancelled: true })).toThrow(/GET \/api\/waiting was never answered/);
   });
 
   it('ignores cancelled requests at teardown when the group was enabled with ignoreCancelled', () => {
@@ -179,7 +216,7 @@ describe('enableAngularDiagnostics', () => {
     TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
     TestBed.inject(HttpClient).get('/api/still-open').subscribe();
 
-    expect(assertNoPendingRequests).toThrow(/1 unflushed [^:]*: GET \/api\/still-open\./);
+    expect(assertNoPendingRequests).toThrow(/GET \/api\/still-open was never answered/);
     expect(() => assertNoPendingRequests({ ignoreCancelled: false })).not.toThrow();
 
     TestBed.inject(HttpClient).get('/api/cancelled-at-teardown').subscribe().unsubscribe();
@@ -220,7 +257,9 @@ describe('enableAngularDiagnostics', () => {
   it('inspects a configuration made through the instance, which used to bypass every check', () => {
     // `getTestBed().configureTestingModule(…)` reached none of the four inspectors: the wrapper was
     // on the static, and every static is a delegate to this instance.
-    expect(() => getTestBed().configureTestingModule({ imports: [EmptyModule] })).toThrow(/empty runtime scope: EmptyModule/);
+    expect(() => getTestBed().configureTestingModule({ imports: [EmptyModule] })).toThrow(
+      /ngModuleScopes: EmptyModule is imported into the testing module but contributes nothing/,
+    );
   });
 
   it('reports through the snapshot taken while the testing module was being torn down', () => {
@@ -248,7 +287,7 @@ describe('enableAngularDiagnostics', () => {
     disableAngularDiagnostics();
     enableAngularDiagnostics();
 
-    expect(() => TestBed.configureTestingModule({ imports: [EmptyModule] })).toThrow(/empty runtime scope/);
+    expect(() => TestBed.configureTestingModule({ imports: [EmptyModule] })).toThrow(/EmptyModule is imported into the testing module/);
   });
 
   it('checks nothing while every member is switched off', () => {
@@ -280,7 +319,7 @@ describe('enableAngularDiagnostics', () => {
       TestBed.configureTestingModule({ imports: [OwnProvidersComponent], providers: [provideAutoSpy(RealService)] });
 
       expect(() => TestBed.createComponent(OwnProvidersComponent)).toThrow(
-        /OwnProvidersComponent declares its own providers[\s\S]*RealService → a RealService instance[\s\S]*overrideComponentProvider/,
+        /^\[vitest-auto-spy\] OwnProvidersComponent declares its own providers, so 1 double on the testing module never reached it: RealService → a RealService instance\.\n[^\n]*\nReplace the module-level registration with overrideComponentProvider\(OwnProvidersComponent, RealService\)\.\nDocs: /,
       );
     });
 
@@ -311,7 +350,21 @@ describe('enableAngularDiagnostics', () => {
       TestBed.resetTestingModule();
       TestBed.configureTestingModule({ imports: [OwnTokenComponent], providers: [provideAutoSpyForToken(GREETER)] });
 
-      expect(() => TestBed.createComponent(OwnTokenComponent)).toThrow(/InjectionToken GREETER →/);
+      expect(() => TestBed.createComponent(OwnTokenComponent)).toThrow(
+        /InjectionToken GREETER →[\s\S]*with TestBed\.overrideProvider\(GREETER, provideAutoSpyForToken\(GREETER\)\)\./,
+      );
+    });
+
+    it('names a string token as it is written', () => {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        imports: [OwnStringTokenComponent],
+        providers: [{ provide: 'GREETING', useValue: createAutoMock<{ hello(): string }>() }],
+      });
+
+      expect(() => TestBed.createComponent(OwnStringTokenComponent)).toThrow(
+        /overrideProvider\(GREETING, provideAutoSpyForToken\(GREETING\)\)/,
+      );
     });
 
     it('checks nothing when the member is switched off', () => {

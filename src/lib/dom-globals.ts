@@ -10,8 +10,9 @@
  * loader, so this module stays free of optional peers (`jsdom`, `@happy-dom/global-registrator`),
  * runs under Vitest against fakes, and lets a consumer supply its own DOM in the same shape.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { libraryWarn } from './guard-reaction';
+import { withDocs } from './message-link';
 
 /** A named strategy that installs browser globals, or throws if its implementation is missing. */
 export interface DomRegistrar {
@@ -38,6 +39,13 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Whether a registrar failed because its package is not installed, rather than while starting. */
+function isMissingModule(error: unknown): boolean {
+  const code: unknown = Reflect.get(Object(error), 'code');
+
+  return code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND' || /cannot find (module|package)/i.test(describeError(error));
+}
+
 /**
  * Install a DOM into the current runtime, unless one is already there.
  *
@@ -62,6 +70,7 @@ export async function registerDomGlobals(options: RegisterDomGlobalsOptions = {}
 
   const registrars = options.registrars ?? [];
   const failures: string[] = [];
+  let startedAndFailed = false;
 
   for (const registrar of registrars) {
     try {
@@ -70,13 +79,16 @@ export async function registerDomGlobals(options: RegisterDomGlobalsOptions = {}
       return registrar.name;
     } catch (error) {
       failures.push(`  - ${registrar.name}: ${describeError(error)}`);
+      startedAndFailed ||= !isMissingModule(error);
     }
   }
 
   throw new Error(
     withDocs(
-      `vitest-auto-spy: no DOM could be installed, so Angular's TestBed cannot run.\n` +
-        `Install one of the supported implementations (\`bun add -d @happy-dom/global-registrator\` or \`bun add -d jsdom\`).\n` +
+      `[vitest-auto-spy] registerDomGlobals: no DOM could be installed, so Angular's TestBed cannot run.\n` +
+        (startedAndFailed
+          ? 'A DOM package is installed but failed to start — fix the error it reported below.\n'
+          : 'Install one: `bun add -d @happy-dom/global-registrator` or `bun add -d jsdom`.\n') +
         `Tried:\n${failures.join('\n') || '  - (no registrars were configured)'}`,
       DOCS_LINKS.bunAngular,
     ),
@@ -135,7 +147,8 @@ export function copyWindowGlobals(source: Record<string, unknown>, target: Recor
     withDocs(
       `[vitest-auto-spy] copyWindowGlobals: the host refused to redefine ${refused.join(', ')}. The DOM is only ` +
         `half-installed, and the failure will arrive later as "document is not defined" or an unrelated jsdom ` +
-        `assertion, naming neither this helper nor the property. Something sealed that global before the preload ran.`,
+        'assertion, naming neither this helper nor the property. Something sealed that global before the preload ran: ' +
+        'list this preload first in bunfig.toml.',
       DOCS_LINKS.bunAngular,
     ),
   );

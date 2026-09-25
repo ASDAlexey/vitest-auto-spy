@@ -72,7 +72,23 @@ describe('captureArg', () => {
     const captor = captureArg<string>();
 
     expect(() => captor.value).toThrow(/nothing was captured/);
-    expect(() => captor.value).toThrow(/toHaveBeenCalledWith\(captor\)/);
+    expect(() => captor.value).toThrow(
+      /never compared with an argument — put it in the expectation first \(`expect\(spy\.method\)\.toHaveBeenCalledWith\(captor\)`\)/,
+    );
+    expect(() => captor.value).toThrow(/\nDocs: \S+\/recipes#an-argument-the-spec-cannot-spell$/);
+  });
+
+  it('says the `where` filter rejected everything when it was offered arguments', () => {
+    const send = vi.fn();
+    const captor = captureArg<number>({ where: (value) => value === 9 });
+
+    send(1);
+    send(2);
+    expect(send).not.toHaveBeenCalledWith(captor);
+
+    expect(() => captor.value).toThrow(/It was offered 2 arguments and its `where` filter rejected every one/);
+    captor.reset();
+    expect(() => captor.value).toThrow(/never compared/);
   });
 
   it('reset() forgets what it saw, so one captor serves two phases', () => {

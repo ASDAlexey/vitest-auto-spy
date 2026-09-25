@@ -9,12 +9,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { ArgsMap } from './args-map';
-import { errorHandler } from './error-handler';
+import { errorHandler, splitRenderedArgs } from './error-handler';
 
 /** The message of whatever `throwArgumentsError` threw — it always throws, so a miss is a failure. */
-function messageOf(actualArgs: unknown[], functionName: string, configured?: ArgsMap): string {
+function messageOf(actualArgs: unknown[], functionName: string, configured?: ArgsMap, className?: string): string {
   try {
-    errorHandler.throwArgumentsError(actualArgs, functionName, configured);
+    errorHandler.throwArgumentsError(actualArgs, functionName, configured, className);
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
@@ -27,11 +27,12 @@ describe('errorHandler.throwArgumentsError', () => {
     const configured = new ArgsMap();
     configured.set([1, 'fast'], { value: 'ok' });
 
-    expect(messageOf([2, 'slow'], 'load', configured)).toBe(
-      "The function 'load' was configured with 'mustBeCalledWith' and expects to be called with specific arguments.\n" +
+    expect(messageOf([1, 'slow'], 'load', configured, 'Loader')).toBe(
+      "[vitest-auto-spy] Loader.load is set up with mustBeCalledWith, and this call matches none of its configs — argument 2: expected 'fast', got 'slow'.\n" +
         "Wanted: load(1,'fast')\n" +
-        "Actual: load(2,'slow')\n" +
-        'Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers',
+        "Actual: load(1,'slow')\n" +
+        'Fix the value the code under test passes, or configure this call too.\n' +
+        'Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#what-a-mustbecalledwith-failure-prints',
     );
   });
 
@@ -54,10 +55,37 @@ describe('errorHandler.throwArgumentsError', () => {
 
   it('omits the wanted half when called without a map, and renders a no-argument call as ()', () => {
     expect(messageOf([], 'fn')).toBe(
-      "The function 'fn' was configured with 'mustBeCalledWith' and expects to be called with specific arguments.\n" +
+      '[vitest-auto-spy] fn is set up with mustBeCalledWith, and this call matches none of its configs.\n' +
         'Actual: fn()\n' +
-        'Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers',
+        'Fix the value the code under test passes, or configure this call too.\n' +
+        'Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#what-a-mustbecalledwith-failure-prints',
     );
+  });
+
+  it('says how many arguments were wanted when the count differs', () => {
+    const configured = new ArgsMap();
+    configured.set([1, 'fast'], { value: 'ok' });
+
+    expect(messageOf([1], 'load', configured)).toContain('matches none of its configs — expected 2 argument(s), got 1.');
+  });
+
+  it('points at the first differing argument inside nested values and quoted commas', () => {
+    const configured = new ArgsMap();
+    configured.set([{ tags: ['a', 'b'] }, "x,'y", 3], { value: 'ok' });
+
+    expect(messageOf([{ tags: ['a', 'b'] }, "x,'y", 4], 'load', configured)).toContain('argument 3: expected 3, got 4.');
+  });
+
+  it('reads past an escaped quote inside a string argument', () => {
+    expect(splitRenderedArgs("'it\\'s,x',2")).toEqual(["'it\\'s,x'", '2']);
+    expect(splitRenderedArgs('')).toEqual([]);
+  });
+
+  it('says so when the renderings agree but the matcher did not', () => {
+    const configured = new ArgsMap();
+    configured.set([Symbol('id')], { value: 'ok' });
+
+    expect(messageOf([Symbol('id')], 'load', configured)).toContain('the arguments render the same but did not match the config');
   });
 
   it('omits the wanted half when the map holds no configs at all', () => {

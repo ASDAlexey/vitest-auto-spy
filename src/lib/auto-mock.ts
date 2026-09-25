@@ -22,8 +22,9 @@
  *    properties through `overrides` (or assign them) when you need real values.
  */
 import { DISPOSE } from './dispose-symbol';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedReturnValue } from './function-spy';
+import { withDocs } from './message-link';
 import { reportMisconfiguration } from './misconfiguration';
 import {
   NOT_STORED,
@@ -230,6 +231,16 @@ function isCallable(value: unknown): value is Func {
   return typeof value === 'function';
 }
 
+function heldBackReason(name: string): string {
+  if (name === 'then') {
+    return 'a double with a then would be awaited as a Promise. ';
+  }
+
+  return name === 'constructor'
+    ? 'it answers Object, as every plain object does. '
+    : 'a library probes that key to tell a scheduler, a stream or an Observable, so it answers undefined. ';
+}
+
 /**
  * Install the configured return values on a type-driven mock.
  *
@@ -265,10 +276,10 @@ function applyMockReturns(
       // the configuration is the one thing not to do: the value would simply never be returned.
       reportMisconfiguration(
         withDocs(
-          `[vitest-auto-spy] createAutoMock: ${option} names '${name}', which this double never turns into a spy — ` +
-            "'then' and 'constructor' are held back so the mock is not treated as a Promise. Rename the member, or " +
-            'seed it through the overrides argument instead.',
-          DOCS_LINKS.autoMockByType,
+          `[vitest-auto-spy] createAutoMock: ${option} names '${name}', which this double never turns into a spy: ` +
+            heldBackReason(name) +
+            `Seed it through the overrides argument instead: { ${name}: … }.`,
+          DOCS_LINKS.autoMockHeldBack,
         ),
       );
 
@@ -386,6 +397,13 @@ function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown,
 }
 
 /**
+ * What {@link autoMocked} returns: a double a spec passes as `T` and asserts on as `Spy<T>`.
+ *
+ * Named so a `let` assigned in `beforeEach` can be declared without spelling the intersection.
+ */
+export type AutoMocked<T> = Spy<T> & T;
+
+/**
  * The same auto-mock, typed as `T` *and* as its spy surface.
  *
  * {@link createAutoMock} returns `Spy<T>`, which is right when the double is handed to a DI
@@ -406,9 +424,9 @@ function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown,
  * strictly wider, and a wider type is worth asking for only when both halves are used. `config` is
  * {@link createAutoMock}'s: `returns`, `selfReturning`, `name`, `strict`, `observablePropsToSpyOn`.
  */
-export function autoMocked<T>(overrides?: DeepPartial<T>, config?: AutoMockConfiguration<T>): Spy<T> & T {
+export function autoMocked<T>(overrides?: DeepPartial<T>, config?: AutoMockConfiguration<T>): AutoMocked<T> {
   const mock = buildAutoMock<T, SpyOptions>(overrides, config, autoMocked);
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- one object, two views, exactly as in `asInstance` / `asSpy`: the proxy answers every key of `T` and every key `Spy<T>` adds, and the intersection is what lets a spec pass it as `T` and assert on it as a spy without a bridge call at each site.
-  return mock as Spy<T> & T;
+  return mock as AutoMocked<T>;
 }

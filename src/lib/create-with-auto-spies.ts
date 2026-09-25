@@ -11,7 +11,8 @@
  */
 import { Injector, type Provider, type ProviderToken, type Type, runInInjectionContext } from '@angular/core';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { createSpyForToken } from './track-injections';
 import type { Spy } from './types';
 
@@ -94,6 +95,12 @@ function factoryOf<T>(target: Type<T>): (() => T) | undefined {
   return typeof factory === 'function' ? (factory as () => T) : undefined;
 }
 
+function askFor(tokens: string[]): string {
+  return tokens.length === 0
+    ? 'Nothing it injects was auto-spied, so there is no spy to read; assert on the instance itself.'
+    : `Ask for one of its auto-spied tokens: ${tokens.join(', ')}.`;
+}
+
 /**
  * Create `target` with auto-spied dependencies.
  *
@@ -132,10 +139,10 @@ export function createWithAutoSpies<T>(target: Type<T>, options: CreateWithAutoS
         if (!autoSpies.knows(token) && injector.get(token, null, { optional: true }) === null) {
           throw new Error(
             withDocs(
-              `[vitest-auto-spy] createWithAutoSpies(${describeToken(target)}).spies.get(${describeToken(token)}): the instance never ` +
-                `asked for that token, and nothing in \`providers\` supplies it, so the spy you would get back is not the one it uses. ` +
-                `Auto-spied tokens: ${autoSpies.tokens().map(describeToken).join(', ') || '(none)'}.`,
-              DOCS_LINKS.angular,
+              `[vitest-auto-spy] createWithAutoSpies(${describeToken(target)}).spies.get(${describeToken(token)}): ` +
+                `${describeToken(target)} never asked for that token, and nothing in \`providers\` supplies it, so the spy you ` +
+                `would get back is not the one it uses.\n${askFor(autoSpies.tokens().map(describeToken))}`,
+              DOCS_LINKS.angularCreateWithAutoSpies,
             ),
           );
         }

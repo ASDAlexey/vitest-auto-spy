@@ -60,7 +60,26 @@ describe('registerDomGlobals', () => {
         hasDom: (): boolean => false,
         registrars: [registrar('a', installed, new Error('boom')), registrar('b', installed, 'plain string')],
       }),
-    ).rejects.toThrow(/a: boom[\s\S]*b: plain string/);
+    ).rejects.toThrow(
+      /^\[vitest-auto-spy\] registerDomGlobals: no DOM could be installed[\s\S]*installed but failed to start[\s\S]*a: boom[\s\S]*b: plain string/,
+    );
+  });
+
+  it('says to install a DOM only when every package was missing', async () => {
+    const installed: string[] = [];
+    const missing = Object.assign(new Error('Cannot find package jsdom'), { code: 'ERR_MODULE_NOT_FOUND' });
+    const cjsMissing = Object.assign(new Error('nope'), { code: 'MODULE_NOT_FOUND' });
+
+    await expect(
+      registerDomGlobals({
+        hasDom: (): boolean => false,
+        registrars: [
+          registrar('a', installed, missing),
+          registrar('b', installed, cjsMissing),
+          registrar('c', installed, new Error('Cannot find module x')),
+        ],
+      }),
+    ).rejects.toThrow(/Install one: `bun add -d @happy-dom\/global-registrator` or `bun add -d jsdom`/);
   });
 
   it('says so when nothing was configured to try', async () => {

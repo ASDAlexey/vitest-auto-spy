@@ -26,8 +26,10 @@ import type { AbstractType, FactoryProvider, InjectionToken, Injector, ValueProv
 import { TestBed } from '@angular/core/testing';
 import { type Observable, ReplaySubject } from 'rxjs';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import { describeInstance } from './angular-instance-name';
+import * as DOCS_LINKS from './docs-links';
 import { createFunctionSpy } from './function-spy';
+import { withDocs } from './message-link';
 import { getMockAdapter } from './mock-adapter';
 import type { AddSpyMethodsByReturnTypes } from './types';
 
@@ -81,9 +83,6 @@ export interface MatDialogRefDouble<Ref extends DialogRefLike> {
   emitClose(result?: DialogResult<Ref>): void;
 }
 
-/** The members the double answers. Everything else the ref class declares throws by name. */
-const COVERED = 'close(), afterClosed(), beforeClosed(), afterOpened(), disableClose and the componentInstance it was handed';
-
 /**
  * Material declares these as class fields rather than on the prototype, so the guard below cannot
  * read them off the class and would hand the code under test `undefined` for every one of them.
@@ -104,14 +103,13 @@ function guardMissingMembers<Ref extends DialogRefLike>(RefClass: AbstractType<R
       if (typeof key === 'string' && !(key in target) && declared.has(key)) {
         const repair =
           key === 'componentInstance'
-            ? `hand the component's stand-in to the double, provideMatDialogRef(${RefClass.name}, { componentInstance: { … } })`
-            : 'backdropClick, keydownEvents, updateSize, updatePosition, getState, componentRef and id are the dialog doing ' +
-              'its own work, which is the real MatDialogModule and a MatDialog that opens it';
+            ? `Hand the double the component's stand-in: provideMatDialogRef(${RefClass.name}, { componentInstance: { … } }).`
+            : `${key} is the dialog doing its own work; open the real dialog through MatDialog for that.`;
 
         throw new Error(
           withDocs(
-            `[vitest-auto-spy] provideMatDialogRef: the ${RefClass.name} double has no ${key}. It answers ${COVERED} — ${repair}.`,
-            DOCS_LINKS.angular,
+            `[vitest-auto-spy] provideMatDialogRef: the code under test read ${RefClass.name}.${key}, which the double does not have.\n${repair}`,
+            DOCS_LINKS.angularDialog,
           ),
         );
       }
@@ -205,6 +203,9 @@ export function provideMatDialogRef<Ref extends DialogRefLike>(
   return { provide: RefClass, useFactory: (): Ref => createMatDialogRef(RefClass, init).ref };
 }
 
+/** The named type argument when there is one, otherwise what the token itself carries. */
+export type DialogDataOf<T, Token> = [T] extends [never] ? (Token extends InjectionToken<infer Value> ? Value : never) : T;
+
 /**
  * The dialog's data, under the token the application injects it from.
  *
@@ -218,10 +219,17 @@ export function provideMatDialogRef<Ref extends DialogRefLike>(
  * component that reads `data.name`. Name the type argument and the data is checked against it; pass
  * an `InjectionToken<EditUserData>` of your own and it is checked without naming anything.
  *
+ * The token parameter is `InjectionToken<unknown>` once the type argument is named, not
+ * `InjectionToken<T>`: `@typescript-eslint/no-unsafe-argument` reports Material's `InjectionToken<any>`
+ * handed to an `InjectionToken<EditUserData>`, which made the documented call fail a strict lint.
+ *
  * The value is handed out as it is, so a component that writes to the data writes to the object the
  * spec passed — build it per test rather than hoisting it to a module constant.
  */
-export function provideMatDialogData<T>(token: InjectionToken<T>, data: NoInfer<T>): ValueProvider {
+export function provideMatDialogData<T = never, Token extends InjectionToken<unknown> = InjectionToken<unknown>>(
+  token: Token,
+  data: NoInfer<DialogDataOf<T, Token>>,
+): ValueProvider {
   return { provide: token, useValue: data };
 }
 
@@ -249,7 +257,7 @@ export function injectMatDialogRef<Ref extends DialogRefLike>(RefClass: Abstract
     throw new Error(
       withDocs(
         `${caller}: nothing provides ${RefClass.name} in the injector given. Add provideMatDialogRef(${RefClass.name}) to its providers.`,
-        DOCS_LINKS.angular,
+        DOCS_LINKS.angularDialog,
       ),
     );
   }
@@ -259,9 +267,9 @@ export function injectMatDialogRef<Ref extends DialogRefLike>(RefClass: Abstract
   if (double === undefined) {
     throw new Error(
       withDocs(
-        `${caller}: the ${RefClass.name} here is not one provideMatDialogRef() built. A later provider of it (a useValue, ` +
-          'provideAutoSpy) won over the double — list provideMatDialogRef() last, or drop the other one.',
-        DOCS_LINKS.angular,
+        `${caller}: the ${RefClass.name} here is ${describeInstance(ref)}, not one provideMatDialogRef() built. A later ` +
+          `provider of ${RefClass.name} won over the double — list provideMatDialogRef() last, or drop the other one.`,
+        DOCS_LINKS.angularDialog,
       ),
     );
   }

@@ -19,7 +19,9 @@
  */
 import type { Mock } from 'vitest';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
+import { displayPath } from './message-text';
 import { getMockAdapter } from './mock-adapter';
 import { mockValueProp } from './prop-mock';
 
@@ -47,22 +49,55 @@ interface MutableConstructorMock<T, TArgs extends unknown[]> extends Constructor
   instances: T[];
 }
 
-function calledWithoutNew(name: string): Error {
+function describeDouble(name: string): string {
+  return name === 'mockConstructor' ? 'This mockConstructor() double' : name;
+}
+
+function locationOf(frame: string): string {
+  return /((?:file:\/\/)?[^\s()]+:\d+:\d+)\)?$/.exec(frame)?.[1] ?? '';
+}
+
+// The library's own directory: in the repository its source sits next to the specs that call it.
+const LIBRARY_DIRECTORY = locationOf(String(String(new Error('probe').stack).split('\n')[1])).replace(/[^/\\]*$/, '');
+
+function isCallingCode(location: string, library: string): boolean {
+  return (
+    location !== '' &&
+    !/node_modules|node:/.test(location) &&
+    (library === '' || !location.startsWith(library) || /\.(spec|test)\.[cm]?[jt]sx?:/.test(location))
+  );
+}
+
+/** `, from src/pay.ts:12:5` — the first frame outside the library and the runner; empty when there is none. */
+export function calledFrom(stack: string | undefined, library = LIBRARY_DIRECTORY): string {
+  const location = String(stack)
+    .split('\n')
+    .slice(1)
+    .map(locationOf)
+    .find((frame) => isCallingCode(frame, library));
+
+  return location === undefined ? '' : `, from ${displayPath(location.replace(/^file:\/\//, ''))}`;
+}
+
+function calledWithoutNew(name: string, site: string): Error {
   return new Error(
     withDocs(
-      `[vitest-auto-spy] ${name} is a constructor double and was called without \`new\`. ` +
-        'Either the code under test lost the `new`, or the double stands in for something that is ' +
-        'also callable as a plain function — in which case use a plain runner mock instead.',
-      DOCS_LINKS.constructorSpy,
+      `[vitest-auto-spy] ${describeDouble(name)} is a constructor double and was called without \`new\`` +
+        `${site}. Put the \`new\` back in that call — or, if the real thing is ` +
+        'also callable as a plain function, double it with a plain runner mock instead.',
+      DOCS_LINKS.mockConstructor,
     ),
   );
 }
 
 function factoryReturnedNonObject(name: string, produced: unknown): Error {
   return new Error(
-    `[vitest-auto-spy] ${name}: the factory returned ${produced === null ? 'null' : typeof produced}, but a constructor ` +
-      'double has to produce an object — JavaScript discards a primitive returned from `new` and hands back the ' +
-      'freshly created instance instead, so the object a spec configured would never reach the code under test.',
+    withDocs(
+      `[vitest-auto-spy] ${describeDouble(name)}: the factory returned ${produced === null ? 'null' : typeof produced}, but a ` +
+        'constructor double has to produce an object — `new` discards a primitive and hands back an empty instance. ' +
+        'Return the instance from the factory: `mockConstructor(() => ({ … }))`.',
+      DOCS_LINKS.mockConstructor,
+    ),
   );
 }
 
@@ -96,7 +131,7 @@ export function mockConstructor<T, TArgs extends unknown[] = unknown[]>(
     // while `new` always supplies one. `new.target` would read better and does not survive every
     // runner — Bun's `mock()` forwards the receiver but not the construct target.
     if (this === undefined) {
-      throw calledWithoutNew(name);
+      throw calledWithoutNew(name, calledFrom(new Error().stack));
     }
 
     const instance = factory(...args);

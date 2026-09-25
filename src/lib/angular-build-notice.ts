@@ -15,7 +15,8 @@
  * through `process.getBuiltinModule` rather than a static `node:fs` import so that `/setup` stays
  * importable where there is no `process`. Nothing but the warning depends on what it finds.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { writeWarning } from './write-warning';
 
 declare global {
@@ -168,7 +169,7 @@ export function noticeAngularBuildSplitting(
     withDocs(
       `[vitest-auto-spy] ${describeSplittingOff(version)} ${SPLITTING_OFF_FIX} \`npx vitest-auto-spy doctor\` reports this as ` +
         'angular-build-splitting-off. Pass setupAutoSpy({ angularBuildHint: false }) to silence this.',
-      DOCS_LINKS.angular,
+      DOCS_LINKS.angularSplittingOff,
     ),
   );
 }

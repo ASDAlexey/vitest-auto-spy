@@ -27,8 +27,11 @@ import { afterEach, beforeEach } from 'vitest';
 
 import { failOnUnspiedProvider } from './angular';
 import { assertAngularInternals } from './angular-internals';
-import { assertNgModuleScopes, componentInjector, describeResolved, isDeadNgModuleImport, readProperty } from './angular-overrides';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import { componentInjector, describeResolved, failDeadNgModuleImports, isDeadNgModuleImport, readProperty } from './angular-overrides';
+import { type PendingRequest, pendingRequestsReport } from './angular-pending-requests';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
+import { count, taskName } from './message-text';
 import { isAutoSpyLike } from './spy-mark';
 import { instrumentTestBed, onComponentCreated, onTestingModuleConfigured, verifyOnTeardown } from './testbed-diagnostics';
 import { beforeTestBedReset } from './testbed-reset';
@@ -85,7 +88,7 @@ function className(value: unknown): string {
 
 /** `ngModuleScopes`: hand the existing check the imports that cannot be anything but a mistake. */
 function checkNgModuleScopes(config: unknown): void {
-  assertNgModuleScopes(...readList(config, 'imports').filter(isDeadNgModuleImport));
+  failDeadNgModuleImports(readList(config, 'imports').filter(isDeadNgModuleImport));
 }
 
 /**
@@ -137,7 +140,7 @@ function checkDeadSchemas(config: unknown): void {
         'without it.\n' +
         "Drop the `schemas` entry, then put the missing directive, component or pipe into the standalone component's own " +
         '`imports` — or render it through a standalone host built with `createDirectiveHost({ template, scope: [...] })`.',
-      DOCS_LINKS.angularDiagnostics,
+      DOCS_LINKS.angularDeadSchemas,
     ),
   );
 }
@@ -246,17 +249,12 @@ function readControllerToken(config: unknown): unknown {
     .find((token) => token !== undefined);
 }
 
-/** One open request: how it reads in the failure, and whether the code under test cancelled it. */
-interface OpenRequest {
-  description: string;
-  cancelled: boolean;
-}
-
-function describeRequest(open: unknown): OpenRequest {
+function describeRequest(open: unknown): PendingRequest {
   const request = readProperty(open, 'request');
 
   return {
-    description: `${String(readProperty(request, 'method'))} ${String(readProperty(request, 'urlWithParams'))}`,
+    method: String(readProperty(request, 'method')),
+    urlWithParams: String(readProperty(request, 'urlWithParams')),
     cancelled: readProperty(open, 'cancelled') === true,
   };
 }
@@ -267,7 +265,7 @@ function describeRequest(open: unknown): OpenRequest {
  * `match(() => true)` both lists them and takes them, which is what stops one unflushed request
  * being reported twice by two hooks that both looked.
  */
-function takeOpenRequests(controller: unknown): OpenRequest[] {
+function takeOpenRequests(controller: unknown): PendingRequest[] {
   const match = readProperty(controller, 'match');
 
   if (typeof match !== 'function') {
@@ -288,7 +286,7 @@ let controllerToken: unknown;
  * A list, and pushed to rather than replaced: a test that resets twice used to overwrite the first
  * snapshot with the second, empty one, and the requests of the first module were never reported.
  */
-const openAtReset: OpenRequest[] = [];
+const openAtReset: PendingRequest[] = [];
 
 /** The one `TestBed` member read with a token of unknown type, declared structurally so it needs no assertion. */
 interface InjectingTestBed {
@@ -305,7 +303,7 @@ function injectFromModule(token: unknown): unknown {
   return readProperty(testBed, '_testModuleRef') ? testBed.inject(token, null) : null;
 }
 
-function readOpenRequests(): OpenRequest[] {
+function readOpenRequests(): PendingRequest[] {
   return controllerToken === undefined ? [] : takeOpenRequests(injectFromModule(controllerToken));
 }
 
@@ -327,29 +325,32 @@ function readOpenRequests(): OpenRequest[] {
  * ```
  */
 export function assertNoPendingRequests(options: PendingRequestsOptions = {}): void {
+  checkPendingRequests(options);
+}
+
+/** `test` is the one that just ended, when the group's own hook is the caller; absent for a call from the spec. */
+function checkPendingRequests(options: PendingRequestsOptions, test?: object): void {
   // One-shot, like `match()` itself: whoever reads the pending requests owns them, so the group's
   // own `afterEach` does not report the same two requests a second time. Snapshot *and* live: a
   // module built after the reset is holding requests of its own.
   const taken = [...openAtReset.splice(0), ...readOpenRequests()];
   const ignoreCancelled = options.ignoreCancelled ?? active?.ignoreCancelled ?? false;
   const open = ignoreCancelled ? taken.filter((request) => !request.cancelled) : taken;
+  const report = pendingRequestsReport(open, {
+    when: test === undefined ? 'when assertNoPendingRequests() ran' : `end of "${taskName(test)}"`,
+    answer: ({ method, urlWithParams }, withMethod) =>
+      withMethod
+        ? `controller.expectOne({ method: '${method}', url: '${urlWithParams}' }).flush(body)`
+        : `controller.expectOne('${urlWithParams}').flush(body)`,
+    ignoreCancelled:
+      test === undefined
+        ? 'assertNoPendingRequests({ ignoreCancelled: true })'
+        : 'enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } })',
+  });
 
-  if (open.length === 0) {
-    return;
+  if (report !== undefined) {
+    throw new Error(withDocs(report, DOCS_LINKS.angularPendingRequests));
   }
-
-  throw new Error(
-    withDocs(
-      `[vitest-auto-spy] enableAngularDiagnostics({ pendingRequests }): the test ended with ${open.length} unflushed ` +
-        `HttpTestingController request(s): ${open.map((request) => request.description).join(', ')}.\n` +
-        'Nothing answered them and nothing asserted them, so the code under test is still waiting on a response it never ' +
-        'received — everything the spec expected to happen after that call did not happen here.\n' +
-        "Flush each one (`controller.expectOne('/url').flush(body)`), or call `controller.verify()` in the spec where the " +
-        'absence of a request is the thing being asserted. A request the code cancels on purpose is excused by ' +
-        '`enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } })`.',
-      DOCS_LINKS.angularDiagnostics,
-    ),
-  );
 }
 
 /**
@@ -407,6 +408,13 @@ function tokenName(token: unknown): string {
   return typeof name === 'string' && name.length > 0 ? name : String(token);
 }
 
+/** The name a spec writes for an `InjectionToken`: its description, which is usually the constant's name. */
+function codeName(token: unknown): string {
+  const description = readProperty(token, '_desc');
+
+  return typeof description === 'string' ? description : String(token);
+}
+
 /**
  * Fail when a double this test registered on the testing module never reached `component`.
  *
@@ -445,19 +453,21 @@ export function assertNoShadowedProviders(component: unknown, fixture: unknown):
   }
 
   const named = shadowed.map(({ token, resolved }) => `${tokenName(token)} → ${describeResolved(resolved)}`);
+  const host = className(component);
+  const fixes = shadowed.map(({ token }) =>
+    typeof token === 'function'
+      ? `overrideComponentProvider(${host}, ${tokenName(token)})`
+      : `TestBed.overrideProvider(${codeName(token)}, provideAutoSpyForToken(${codeName(token)}))`,
+  );
 
   throw new Error(
     withDocs(
-      `[vitest-auto-spy] enableAngularDiagnostics({ shadowedProviders }): ${className(component)} declares its own ` +
-        `providers, so ${shadowed.length} double(s) registered on the testing module never reached it: ${named.join(', ')}.\n` +
-        "A component-level provider is resolved by the component's node injector, which is consulted before the module " +
-        'injector — so the component is running against the real service while the spec asserts on a double that records ' +
-        'nothing. An assertion that the double was *not* called passes here for the wrong reason.\n' +
-        `Replace the module-level registration with \`overrideComponentProvider(${className(component)}, ServiceClass)\` — the class, ` +
-        'with an optional spy configuration as the third argument — which puts the double where the component looks and checks ' +
-        'that it applied. Behind an `InjectionToken`, which it cannot take, `TestBed.overrideProvider(TOKEN, provideAutoSpyForToken(TOKEN))` ' +
-        "reaches the component's own providers too.",
-      DOCS_LINKS.angularDiagnostics,
+      `[vitest-auto-spy] ${host} declares its own providers, so ${count(shadowed.length, 'double')} on the testing module ` +
+        `never reached it: ${named.join(', ')}.\n` +
+        "The component's own providers are asked before the module's, so it runs against the real service while the spec " +
+        'asserts on a double that records nothing.\n' +
+        `Replace the module-level registration with ${fixes.join(' and ')}.`,
+      DOCS_LINKS.angularShadowedProviders,
     ),
   );
 }
@@ -519,7 +529,7 @@ function registerPerTestHooks(): void {
     preparedTest = undefined;
 
     if (active?.pendingRequests) {
-      verifyOnTeardown(() => assertNoPendingRequests());
+      verifyOnTeardown(() => checkPendingRequests({}, task));
     }
   });
 }

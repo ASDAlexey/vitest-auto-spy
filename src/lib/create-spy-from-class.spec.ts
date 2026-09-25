@@ -82,12 +82,22 @@ describe('createSpyFromClass — strict mode', () => {
     const cart = createSpyFromClass(Cart, { strict: true });
 
     expect(() => cart.checkout(1, 'now')).toThrow(
-      '[vitest-auto-spy] Nothing configured Cart.checkout, and strict mode is on.\n' +
-        "Called as: Cart.checkout(1,'now')\n" +
-        'Configure it — .mockReturnValue(…), .mockImplementation(…), .resolveWith(…), .nextWith(…) or .calledWith(…), ' +
-        "or seed it through the 'returns' option — or drop 'strict' from this double.\n" +
-        'Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode',
+      new RegExp(
+        String.raw`^\[vitest-auto-spy\] Cart\.checkout\(1, 'now'\) was called; this strict double has nothing configured for it\.\n` +
+          String.raw`Called from src/lib/create-spy-from-class\.spec\.ts:\d+:\d+\n` +
+          String.raw`Configure it in the test: cart\.checkout\.calledWith\(1, 'now'\)\.mockReturnValue\(…\) for these arguments, ` +
+          String.raw`or \.mockReturnValue\(…\) for any — \.resolveWith\(…\) / \.nextWith\(…\) when it returns a Promise / Observable\.\n` +
+          String.raw`Docs: https://asdalexey\.github\.io/vitest-auto-spy/core/strict-mode#the-message$`,
+      ),
     );
+  });
+
+  it('names the class when a strict double misses its mustBeCalledWith', () => {
+    const cart = createSpyFromClass(Cart, { strict: true });
+
+    cart.checkout.mustBeCalledWith(1, 'now').mockReturnValue('ok');
+
+    expect(() => cart.checkout(1, 'later')).toThrow(/^\[vitest-auto-spy\] Cart\.checkout is set up with mustBeCalledWith/);
   });
 
   it('takes `returns: { m: undefined }` as configured, for an answer nobody reads', () => {
@@ -106,10 +116,10 @@ describe('createSpyFromClass — strict mode', () => {
     };
 
     expect(() => createSpyFromClass(renamed('_FeatureFlagService'), { strict: true }).checkout(1, 'now')).toThrow(
-      'Nothing configured FeatureFlagService.checkout',
+      'FeatureFlagService.checkout(',
     );
-    expect(() => createSpyFromClass(renamed('Cart$1'), { strict: true }).checkout(1, 'now')).toThrow('Nothing configured Cart.checkout');
-    expect(() => createSpyFromClass(renamed('_cart'), { strict: true }).checkout(1, 'now')).toThrow('Nothing configured _cart.checkout');
+    expect(() => createSpyFromClass(renamed('Cart$1'), { strict: true }).checkout(1, 'now')).toThrow('Cart.checkout(');
+    expect(() => createSpyFromClass(renamed('_cart'), { strict: true }).checkout(1, 'now')).toThrow('_cart.checkout(');
   });
 
   it('renders data in full up to a bound, and an instance by its class alone', () => {
@@ -133,17 +143,45 @@ describe('createSpyFromClass — strict mode', () => {
       message = String(error);
     }
 
-    const called = message.split('\n')[1] ?? '';
+    const called = message.split('\n')[0] ?? '';
 
-    expect(called).toContain(`Till.ring(1,'${'x'.repeat(199)}…,[Session],[1]`);
-    expect(called).toContain('[HTMLDivElement],[object])');
+    expect(called).toContain(`Till.ring(1, '${'x'.repeat(199)}…, [Session], [1]`);
+    expect(called).toContain('[HTMLDivElement], [object])');
     expect(called).not.toContain('secret');
+  });
+
+  it('leaves out the call site when the stack carries no frame of the calling code', () => {
+    const cart = createSpyFromClass(Cart, { strict: true });
+    const prepare = Error.prepareStackTrace;
+
+    Error.prepareStackTrace = (error) => String(error);
+
+    try {
+      expect(() => cart.total()).toThrow(/Cart\.total\(\) was called; this strict double has nothing configured for it\.\nConfigure it/);
+    } finally {
+      Error.prepareStackTrace = prepare;
+    }
+
+    takeStrictViolations();
+  });
+
+  it('suggests a neutral holder when the class name is not an identifier', () => {
+    const renamed = class extends Cart {};
+
+    Object.defineProperty(renamed, 'name', { value: 'Cart (legacy)' });
+
+    expect(() => createSpyFromClass(renamed, { strict: true }).total()).toThrow(
+      'Configure it in the test: double.total.mockReturnValue(…)',
+    );
+    takeStrictViolations();
   });
 
   it('renders a no-argument call as an empty argument list', () => {
     const cart = createSpyFromClass(Cart, { strict: true });
 
-    expect(() => cart.total()).toThrow('Called as: Cart.total()');
+    expect(() => cart.total()).toThrow(
+      /^\[vitest-auto-spy\] Cart\.total\(\) was called;[\s\S]*\nConfigure it in the test: cart\.total\.mockReturnValue\(…\) — \.resolveWith/,
+    );
   });
 
   it('counts every form of configuration as stubbed', async () => {
@@ -176,8 +214,8 @@ describe('createSpyFromClass — strict mode', () => {
 
     Object.defineProperty(Unnamed, 'name', { value: '' });
 
-    expect(() => storage.read('k')).toThrow("Nothing configured Storage.read, and strict mode is on.\nCalled as: Storage.read('k')");
-    expect(() => createSpyFromClass(Unnamed, { strict: true }).read('k')).toThrow('Nothing configured read, and strict mode is on.');
+    expect(() => storage.read('k')).toThrow("Storage.read('k') was called; this strict double has nothing configured for it.");
+    expect(() => createSpyFromClass(Unnamed, { strict: true }).read('k')).toThrow('read(');
   });
 
   it('runs onUnstubbedCall instead of throwing, and uses what it returns', () => {
@@ -209,7 +247,7 @@ describe('createSpyFromClass — strict mode', () => {
   it('can be switched on globally, and switched off again per double', () => {
     setDefaultStrictMode({ strict: true, onUnstubbedCall: undefined });
 
-    expect(() => createSpyFromClass(Cart).total()).toThrow('Nothing configured Cart.total');
+    expect(() => createSpyFromClass(Cart).total()).toThrow('Cart.total(');
     expect(createSpyFromClass(Cart, { strict: false }).total()).toBeUndefined();
 
     const handler = vi.fn(() => 'global');
@@ -257,7 +295,7 @@ describe('createSpyFromClass — returns is a default, not a wall', () => {
   it('configures a callable the library did not build through its implementation instead', () => {
     const host = { total: vi.fn(() => 1) };
 
-    applyReturns(host, 'test', { total: 2 });
+    applyReturns(host, 'test', { total: 2 }, 'returns', () => []);
 
     expect(host.total()).toBe(2);
   });
@@ -291,7 +329,7 @@ describe('createSpyFromClass — selfReturning', () => {
     const query = createSpyFromClass(QueryBuilder, { strict: true, selfReturning: ['where'] });
 
     expect(query.where('a')).toBe(query);
-    expect(() => query.run()).toThrow('Nothing configured QueryBuilder.run');
+    expect(() => query.run()).toThrow('QueryBuilder.run(');
     expect(takeStrictViolations()).toHaveLength(1);
   });
 
@@ -321,8 +359,35 @@ describe('createSpyFromClass — selfReturning', () => {
 
     createSpyFromClass(QueryBuilder, { onlyMethodsToSpyOn: ['run'], selfReturning: ['where'] });
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("createSpyFromClass(QueryBuilder): selfReturning names 'where'"));
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("list it in instanceMethodsToSpyOn: ['where']"));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "createSpyFromClass(QueryBuilder): selfReturning names 'where', which onlyMethodsToSpyOn left out, so the value is never returned. " +
+          "Add 'where' to onlyMethodsToSpyOn.",
+      ),
+    );
+    warn.mockRestore();
+  });
+
+  it('suggests the method a misspelled returns key most likely meant', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createSpyFromClass(QueryBuilder, { returns: { rum: [] } as never });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("returns names 'rum', not a method of QueryBuilder — did you mean 'run'?"));
+    warn.mockRestore();
+  });
+
+  it('points at instanceMethodsToSpyOn when no method comes close', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createSpyFromClass(QueryBuilder, { returns: { reloadEverything: [] } as never });
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "returns names 'reloadEverything', not a method of QueryBuilder, so the value is never returned. " +
+          "If the constructor assigns it (an arrow-function field, an rxMethod), list it in instanceMethodsToSpyOn: ['reloadEverything'].",
+      ),
+    );
     warn.mockRestore();
   });
 });
@@ -350,7 +415,7 @@ describe('createSpyFromClass — lazy placeholders', () => {
     const lenient = createSpyFromClass(Cart);
 
     expect(lenient.total()).toBeUndefined();
-    expect(() => strict.total()).toThrow('Nothing configured Cart.total');
+    expect(() => strict.total()).toThrow('Cart.total(');
     expect(takeStrictViolations()).toHaveLength(1);
   });
 
@@ -405,7 +470,7 @@ describe('createSpyFromClass — vi.spyOn on a method nobody has read yet', () =
     const cart = createSpyFromClass(Cart, { strict: true });
     const checkout = vi.spyOn(cart, 'checkout');
 
-    expect(() => cart.checkout(1, 'now')).toThrow('Nothing configured Cart.checkout');
+    expect(() => cart.checkout(1, 'now')).toThrow('Cart.checkout(');
     expect(takeStrictViolations()).toHaveLength(1);
 
     checkout.mockRestore();
@@ -438,7 +503,11 @@ describe('createSpyFromClass — vi.spyOn on a method nobody has read yet', () =
     vi.spyOn(cart, 'total');
     const detached = cart.total;
 
-    expect(() => Reflect.apply(detached, undefined, [])).toThrow("'total' was called off its double");
+    expect(() => Reflect.apply(detached, undefined, [])).toThrow(
+      "'total' was called off its double after vi.spyOn, so there is no double to answer it. " +
+        'Drop the vi.spyOn and configure the member itself: double.total.mockReturnValue(…).\n' +
+        'Docs: https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#lazy-spies-—-lazyspies',
+    );
   });
 });
 

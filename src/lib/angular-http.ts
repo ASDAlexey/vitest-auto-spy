@@ -36,7 +36,10 @@ import { TestBed, getTestBed } from '@angular/core/testing';
 import { onTestFinished } from 'vitest';
 
 import { assertAngularInternals } from './angular-internals';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import { type PendingRequest, pendingRequestsReport } from './angular-pending-requests';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
+import { count, taskName } from './message-text';
 import { verifyOnTeardown } from './testbed-diagnostics';
 import { beforeTestBedReset } from './testbed-reset';
 import { writeWarning } from './write-warning';
@@ -173,7 +176,7 @@ function armVerification(ignoreCancelled: boolean): void {
   snapshotOnReset();
   onTestFinished(() => {
     armedTest = undefined;
-    verifyOnTeardown(() => verifyNoPendingRequests({ ignoreCancelled }));
+    verifyOnTeardown(() => verifyPending(ignoreCancelled, Object(current)));
   });
 }
 
@@ -272,7 +275,7 @@ function readController(caller: string): HttpTestingController {
           '`provideHttpClient()` and `provideHttpClientTesting()` together.\n' +
           'A real `HttpClient` with no testing backend does not queue anything: the request went to the network, and no ' +
           'assertion here can reach it.',
-        DOCS_LINKS.angularHttp,
+        DOCS_LINKS.angularHttpController,
       ),
     );
   }
@@ -290,19 +293,53 @@ function readController(caller: string): HttpTestingController {
  * failure about the same requests.
  */
 function noMatch(controller: HttpTestingController, matcher: RequestMatcher, options: ExpectRequestOptions): Error {
-  const made = controller.match(() => true).map((open) => describeRequest(open.request));
-  const listed = made.length === 0 ? 'No request was made at all.' : `Requests that were made: ${made.join(', ')}.`;
+  const made = controller.match(() => true).map((open) => open.request);
+  const wanted = describeMatcher(matcher, options);
 
   return new Error(
-    withDocs(
-      `[vitest-auto-spy] expectRequest: no request matched ${describeMatcher(matcher, options)}.\n${listed}\n` +
-        'The tick that issues a pending `httpResource()` request has already been taken here, so a resource that still ' +
-        'sent nothing never started: its `request()` computation reads a signal the test never set, returns `undefined`, ' +
-        'or the injection context it was created in was discarded. For an `HttpClient` call, nothing subscribed — an ' +
-        'Observable nobody subscribes to makes no request.',
-      DOCS_LINKS.angularHttp,
-    ),
+    withDocs(`[vitest-auto-spy] expectRequest: ${explainNoMatch(made, matcher, options, wanted)}`, DOCS_LINKS.angularHttpExpectRequest),
   );
+}
+
+function explainNoMatch(made: HttpRequest<unknown>[], matcher: RequestMatcher, options: ExpectRequestOptions, wanted: string): string {
+  if (made.length === 0) {
+    return (
+      `no request matched ${wanted} — nothing was requested at all.\n` +
+      'An httpResource() sends nothing until its request() returns a URL, and an HttpClient call sends nothing until ' +
+      'something subscribes: set the signal the resource reads, or subscribe to the call.'
+    );
+  }
+
+  const otherVerb = options.method === undefined ? undefined : made.find((request) => matchesUrl(request, matcher));
+
+  if (otherVerb !== undefined) {
+    return (
+      `no ${wanted} — but ${describeRequest(otherVerb)} was made.\n` +
+      `Pass { method: '${otherVerb.method}' }, or check which verb the code sends.`
+    );
+  }
+
+  const otherQuery = typeof matcher === 'string' ? made.find((request) => sameEndpoint(request, matcher, options)) : undefined;
+
+  if (otherQuery !== undefined) {
+    return (
+      `no ${wanted} — but ${describeRequest(otherQuery)} was made; the query differs.\n` +
+      `Name the query the code sends, or match the path alone: expectRequest('${otherQuery.url}').`
+    );
+  }
+
+  return (
+    `no request matched ${wanted}. Made instead: ${made.map(describeRequest).join(', ')}.\n` +
+    'Compare the URL and verb with what the code under test sends.'
+  );
+}
+
+/** The same path and verb, with a query string that is not the one the spec named. */
+function sameEndpoint(request: HttpRequest<unknown>, matcher: string, options: ExpectRequestOptions): boolean {
+  const path = matcher.split('?')[0];
+  const method = options.method?.toUpperCase();
+
+  return request.url.split('?')[0] === path && (method === undefined || request.method.toUpperCase() === method);
 }
 
 /** More than one match: the ambiguity has to be resolved by the spec, not guessed at here. */
@@ -316,7 +353,7 @@ function tooMany(matched: TestRequest[], matcher: RequestMatcher, options: Expec
         "test's outcome.\n" +
         'Narrow it: `expectRequest(url, { method: "POST" })`, name the full `urlWithParams` including the query string, ' +
         'or pass a predicate — `expectRequest((request) => request.body?.id === 7)`.',
-      DOCS_LINKS.angularHttp,
+      DOCS_LINKS.angularHttpExpectRequest,
     ),
   );
 }
@@ -407,11 +444,11 @@ export function expectNoRequest(matcher: RequestMatcher = () => true, options: E
 
   throw new Error(
     withDocs(
-      `[vitest-auto-spy] expectNoRequest: ${matched.length} request(s) matched ${describeMatcher(matcher, options)}: ` +
+      `[vitest-auto-spy] expectNoRequest: ${count(matched.length, 'request')} matched ${describeMatcher(matcher, options)}: ` +
         `${matched.map((open) => describeRequest(open.request)).join(', ')}.\n` +
         'Something the test did asked for data it was asserted not to need — a resource whose `request()` recomputed, an ' +
         'effect that reloaded, or a cache that missed.',
-      DOCS_LINKS.angularHttp,
+      DOCS_LINKS.angularHttpNoRequest,
     ),
   );
 }
@@ -431,22 +468,28 @@ export function expectNoRequest(matcher: RequestMatcher = () => true, options: E
  * A no-op when the test configured no HTTP testing at all.
  */
 export function verifyNoPendingRequests(options: { ignoreCancelled?: boolean } = {}): void {
+  verifyPending(options.ignoreCancelled === true);
+}
+
+function pendingOf(request: TestRequest): PendingRequest {
+  return { method: request.request.method, urlWithParams: request.request.urlWithParams, cancelled: request.cancelled };
+}
+
+/** `test` is the one that just ended, when the teardown check is the caller; absent for a call from the spec. */
+function verifyPending(ignoreCancelled: boolean, test?: object): void {
   const taken = [...openAtReset.splice(0), ...takeLiveRequests()];
-  const open = options.ignoreCancelled === true ? taken.filter((request) => !request.cancelled) : taken;
+  const open = ignoreCancelled ? taken.filter((request) => !request.cancelled) : taken;
+  const report = pendingRequestsReport(open.map(pendingOf), {
+    when: test === undefined ? 'when verifyNoPendingRequests() ran' : `end of "${taskName(test)}"`,
+    answer: ({ method, urlWithParams }, withMethod) =>
+      `await expectRequest('${urlWithParams}'${withMethod ? `, { method: '${method}' }` : ''}).flush(body)`,
+    ignoreCancelled:
+      test === undefined
+        ? 'verifyNoPendingRequests({ ignoreCancelled: true })'
+        : 'provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })',
+  });
 
-  if (open.length === 0) {
-    return;
+  if (report !== undefined) {
+    throw new Error(withDocs(report, DOCS_LINKS.angularHttpPending));
   }
-
-  throw new Error(
-    withDocs(
-      `[vitest-auto-spy] provideHttpTesting({ verifyOnTeardown }): the test ended with ${open.length} unanswered ` +
-        `request(s): ${open.map((request) => describeRequest(request.request)).join(', ')}.\n` +
-        'The code under test is still waiting on a response it never received, so everything the spec expected to happen ' +
-        'after that call did not happen here — and the request would otherwise be matched by the next test.\n' +
-        "Answer it (`await expectRequest('/url').flush(body)`), assert it is absent (`expectNoRequest('/url')`), or turn " +
-        'the check off for this suite with `provideHttpTesting({ verifyOnTeardown: false })`.',
-      DOCS_LINKS.angularHttp,
-    ),
-  );
 }

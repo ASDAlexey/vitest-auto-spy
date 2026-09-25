@@ -5,8 +5,9 @@
 import type { MockInstance } from 'vitest';
 
 import { defineHelper } from './define-helper';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { type UnstubbedGuard, adoptFunctionSpy, reinstallDispatch } from './function-spy';
+import { withDocs } from './message-link';
 import { isRunnerMock } from './module-mocks';
 import { isMarkedMock } from './spy-mark';
 import type { AddSpyMethodsByReturnTypes, Func } from './types';
@@ -66,15 +67,15 @@ function keepDispatchThroughReset(mock: Func): void {
   });
 }
 
-function notAMockError(): Error {
-  return new Error(
-    withDocs(
-      '[vitest-auto-spy] adoptMock() was given something that is not a runner mock. It takes over a vi.fn() — ' +
-        'typically one a vi.mock() factory built — so a plain function means the module mock did not apply: check it with assertMocked(). ' +
-        'For a spy of your own, call createFunctionSpy() instead.',
-      DOCS_LINKS.moduleMocks,
-    ),
-  );
+function notAMockError(value: unknown): Error {
+  const text =
+    typeof value === 'function'
+      ? `was given a plain function (${value.name || 'anonymous'}), not a runner mock, so the vi.mock() that should have ` +
+        `replaced it did not apply. Check it with assertMocked(namespace, { exports: ['${value.name || 'name'}'] }).`
+      : `was given ${value === null ? 'null' : typeof value}, not a runner mock. Pass the vi.fn() the module mock built — ` +
+        'for a spy of your own, call createFunctionSpy() instead.';
+
+  return new Error(withDocs(`[vitest-auto-spy] adoptMock() ${text}`, DOCS_LINKS.adoptMock));
 }
 
 function unreadableMockError(): Error {
@@ -83,7 +84,7 @@ function unreadableMockError(): Error {
       "[vitest-auto-spy] adoptMock() needs a mock that can report its implementation (getMockImplementation), and this one cannot — node:test's mock.fn() is the case. " +
         'Without it an unconfigured call would lose its answer, and mock.restoreAll() would put the old implementation back over the configuration without a word. ' +
         'Build the double with createFunctionSpy() and hand that to the module mock instead.',
-      DOCS_LINKS.moduleMocks,
+      DOCS_LINKS.adoptMock,
     ),
   );
 }
@@ -120,7 +121,7 @@ export const adoptMock = defineHelper(<F extends Func>(mock: F, options: AdoptMo
   }
 
   if (!isRunnerMock(mock)) {
-    throw notAMockError();
+    throw notAMockError(mock);
   }
 
   if (!isFunction(Reflect.get(mock, 'getMockImplementation'))) {

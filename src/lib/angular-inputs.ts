@@ -15,7 +15,9 @@
 import { type Type } from '@angular/core';
 
 import { angularInternalsError } from './angular-internals-error';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
+import { closestName } from './spy-config-warnings';
 
 /** The half of a compiled definition this reads: public input name → the field behind it. */
 interface CompiledInputs {
@@ -47,29 +49,48 @@ function quote(names: string[]): string {
  * said the same thing properly since it shipped, and the two now read alike.
  */
 function missingDefinitionError(caller: string, component: unknown): Error {
-  const name = typeof component === 'function' ? component.name : String(component);
+  return new Error(withDocs(`[vitest-auto-spy] ${caller}: ${whyNoInputs(component)}`, DOCS_LINKS.angularInputs));
+}
 
-  return new Error(
-    withDocs(
-      `[vitest-auto-spy] ${caller}: ${name} carries no ɵcmp, so there are no inputs to set. The fixture must be ` +
-        "a @Component's: a @Directive (ɵdir) takes its inputs through the host element that applies it, a @Pipe (ɵpipe) " +
-        'has none, and a class Angular never compiled carries no definition at all. For `undefined`, import the ' +
-        'component from its own file rather than from a barrel.',
-      DOCS_LINKS.angular,
-    ),
+function whyNoInputs(component: unknown): string {
+  if (typeof component !== 'function') {
+    return (
+      `the component class is ${String(component)}, so there are no inputs to set — the import resolved to nothing, ` +
+      'which a barrel split across chunks causes.\nImport the component from its own file rather than through the barrel.'
+    );
+  }
+
+  if (Reflect.get(component, 'ɵpipe') !== undefined) {
+    return `${component.name} is a @Pipe, and a pipe has no inputs.\nCall its transform() directly, or render it inside a host component.`;
+  }
+
+  return (
+    `${component.name} carries no ɵcmp, so Angular never compiled it as a component and there are no inputs to set.\n` +
+    'Pass the @Component class the fixture was created from.'
   );
 }
 
 function unknownInputsError(caller: string, component: Type<unknown>, unknown: string[], declared: string[]): Error {
+  const pairs = unknown.flatMap((name) => {
+    const closest = closestName(name, declared);
+
+    return closest === undefined ? [] : [{ name, closest }];
+  });
+  const [only] = pairs;
+  const hint =
+    only !== undefined && unknown.length === 1
+      ? ` Did you mean '${only.closest}'?`
+      : pairs.length > 0
+        ? ` Did you mean ${pairs.map(({ name, closest }) => `'${closest}' for '${name}'`).join(', ')}?`
+        : '';
   const known = declared.length > 0 ? `Its inputs are ${quote(declared)}.` : 'It declares no inputs at all.';
 
   return new Error(
     withDocs(
-      `[vitest-auto-spy] ${caller}: ${component.name} declares no input named ${quote(unknown)}. ${known} ` +
-        'Angular answers an undeclared name with an NG0303 on the console and leaves the component untouched, so the ' +
-        'assertion fails later, on state nothing moved. A plain field is assigned on the component instance instead; ' +
-        'a signal the component owns is set through the signal.',
-      DOCS_LINKS.angular,
+      `[vitest-auto-spy] ${caller}: ${component.name} declares no input named ${quote(unknown)}.${hint}\n` +
+        `${known} Angular would answer the name with an NG0303 and change nothing; a plain field is assigned on the ` +
+        'instance instead, and a signal the component owns is set through the signal.',
+      DOCS_LINKS.angularInputs,
     ),
   );
 }

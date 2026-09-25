@@ -22,12 +22,13 @@ import {
   resolveConfiguration,
 } from './create-spy-from-class';
 import { DISPOSE } from './dispose-symbol';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
+import { withDocs } from './message-link';
 import { reportMisconfiguration } from './misconfiguration';
 import { type RestoreProp, mockAccessorsProp, mockValueProp } from './prop-mock';
 import { redefineFailure } from './redefine-failure';
-import { warnOnAccessorNamingAMethod, warnOnUnknownMethods } from './spy-config-warnings';
+import { ownerOf, warnOnAccessorNamingAMethod, warnOnUnknownMethods } from './spy-config-warnings';
 import { mergeAutoSpyDefaults } from './spy-defaults';
 import { isMarkedMock } from './spy-mark';
 import type { ClassSpyConfiguration, ClassType, InstanceSpyConfiguration, OnlyMethodKeysOf, Spy, SpyOptions } from './types';
@@ -91,8 +92,9 @@ function withoutRealMembers(instance: object, label: string, config: ResolvedSpy
 
   reportMisconfiguration(
     withDocs(
-      `[vitest-auto-spy] ${label}: returns / selfReturning name ${real.join(', ')}, which this call left as the real method. List it in onlyMethodsToSpyOn or drop it.`,
-      DOCS_LINKS.createSpyFromClass,
+      `[vitest-auto-spy] ${label}: returns / selfReturning names ${real.map((name) => `'${name}'`).join(', ')}, ` +
+        `which this call left as the real ${ownerOf(label)} method, so the value is never returned. Add it to onlyMethodsToSpyOn.`,
+      DOCS_LINKS.createSpyFromClassReturns,
     ),
   );
 
@@ -178,7 +180,10 @@ const LIFECYCLE_HOOKS: ReadonlySet<PropertyKey> = new Set([
 ]);
 
 /** `passthrough` split off the rest, which is the class factory's configuration unchanged. */
-function splitPassthrough<T>(config: InstanceSpyConfiguration<T> | OnlyMethodKeysOf<T>[] | undefined): {
+function splitPassthrough<T>(
+  config: InstanceSpyConfiguration<T> | OnlyMethodKeysOf<T>[] | undefined,
+  instance: object,
+): {
   passthrough: boolean;
   rest: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[] | undefined;
 } {
@@ -191,10 +196,10 @@ function splitPassthrough<T>(config: InstanceSpyConfiguration<T> | OnlyMethodKey
   if (passthrough === true && (rest.strict === true || rest.onUnstubbedCall !== undefined)) {
     throw new Error(
       withDocs(
-        `[vitest-auto-spy] createSpyFromInstance() was given 'passthrough: true' together with ${rest.strict === true ? "'strict: true'" : "'onUnstubbedCall'"}. ` +
-          'Both decide what an unconfigured call does — run the real method, or refuse it — so one of them would be ignored. ' +
-          'Keep the one this test means.',
-        DOCS_LINKS.strictMode,
+        `[vitest-auto-spy] createSpyFromInstance(${constructorName(instance) ?? 'object'}) was given 'passthrough: true' together with ` +
+          `${rest.strict === true ? "'strict: true'" : "'onUnstubbedCall'"}; both decide what an unconfigured call does, so one would be ignored. ` +
+          'Keep passthrough to run the real methods, or drop it to refuse unconfigured calls.',
+        DOCS_LINKS.strictModePassthrough,
       ),
     );
   }
@@ -319,7 +324,7 @@ export function createSpyFromInstance<T extends object, Options extends SpyOptio
 
   // The class's registration first, the caller's own configuration merged over it — the same order
   // the class factory merges in, keyed by the class the instance's constructor names.
-  const { passthrough, rest } = splitPassthrough(methodsToSpyOnOrConfig);
+  const { passthrough, rest } = splitPassthrough(methodsToSpyOnOrConfig, instance);
   const registeredFor = registeredDefaultsKey(instance);
   const config = resolveConfiguration(
     registeredFor === undefined ? rest : mergeAutoSpyDefaults(registeredFor, rest, onlyMethodsWritten(rest)),
@@ -351,7 +356,7 @@ export function createSpyFromInstance<T extends object, Options extends SpyOptio
   installAccessorSpies(instance, config, restores, reads);
   const label = `createSpyFromInstance(${className ?? 'object'})`;
 
-  applyConfiguredReturns(instance, label, withoutRealMembers(instance, label, config));
+  applyConfiguredReturns(instance, label, withoutRealMembers(instance, label, config), () => getCallableMemberNames(instance));
 
   for (const key of Reflect.ownKeys(config.overrides)) {
     installMember(instance, key, Reflect.get(config.overrides, key), restores);

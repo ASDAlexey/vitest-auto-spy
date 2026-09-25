@@ -16,7 +16,8 @@
 import { Component, Directive, EventEmitter, Input, Output, Pipe, type Type, input, model } from '@angular/core';
 
 import { angularInternalsError } from './angular-internals-error';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /** `SelectorFlags` from Angular's selector matcher: what the entries after a flag describe. */
 const NOT = 0b0001;
@@ -105,9 +106,11 @@ export function createComponentStub<T>(real: Type<T>, overrides: Partial<T> = {}
   if (!directive) {
     throw new Error(
       withDocs(
-        `[vitest-auto-spy] createComponentStub(): ${realName} carries no ɵcmp, ɵdir or ɵpipe to copy. Pass a ` +
-          '@Component, @Directive or @Pipe class; for `undefined`, import it from its own file rather than a barrel.',
-        DOCS_LINKS.angular,
+        `[vitest-auto-spy] createComponentStub(): ${realName} carries no ɵcmp, ɵdir or ɵpipe to copy.\n` +
+          (real === undefined
+            ? 'The import resolved to nothing, which a barrel split across chunks causes; import the class from its own file.'
+            : 'Pass the @Component, @Directive or @Pipe class the template uses.'),
+        DOCS_LINKS.angularComponentStub,
       ),
     );
   }
@@ -117,8 +120,9 @@ export function createComponentStub<T>(real: Type<T>, overrides: Partial<T> = {}
   if (selector === '') {
     throw new Error(
       withDocs(
-        `[vitest-auto-spy] createComponentStub(): ${realName} has no selector, so no template can match a stub of it.`,
-        DOCS_LINKS.angular,
+        `[vitest-auto-spy] createComponentStub(): ${realName} has no selector, so no template can match a stub of it.\n` +
+          'Stub the component whose tag the template uses, or leave this one out of the stubs — nothing can render it by tag.',
+        DOCS_LINKS.angularComponentStub,
       ),
     );
   }

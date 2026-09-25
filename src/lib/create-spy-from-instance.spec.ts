@@ -188,18 +188,49 @@ describe('createSpyFromInstance — configuration', () => {
   it('names the class in a strict-mode failure', () => {
     const spy = spyOn(new PaymentsClient(), { strict: true });
 
-    expect(() => spy.refund('7')).toThrow('Nothing configured PaymentsClient.refund, and strict mode is on.');
+    expect(() => spy.refund('7')).toThrow('PaymentsClient.refund(');
   });
 
   it('has no class to name on a null-prototype object', () => {
     const bare: { ping(): string } = Object.assign(Object.create(null) as object, { ping: (): string => 'x' });
     const spy = spyOn(bare, { onlyMethodsToSpyOn: ['ping'], strict: true });
 
-    expect(() => spy.ping()).toThrow('Nothing configured ping, and strict mode is on.');
+    expect(() => spy.ping()).toThrow('ping(');
   });
 });
 
 describe('createSpyFromInstance — misconfiguration reports', () => {
+  it('suggests the member a misspelled onlyMethodsToSpyOn entry most likely meant', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      spyOn(new PaymentsClient(), { onlyMethodsToSpyOn: ['refnud'] as unknown as ['refund'] });
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("onlyMethodsToSpyOn names 'refnud' (did you mean 'refund'?), not a method of PaymentsClient."),
+      );
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('instanceMethodsToSpyOn'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('suggests the member a misspelled returns key most likely meant', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      spyOn(new PaymentsClient(), { returns: { refnd: 'x' } as never });
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "createSpyFromInstance(PaymentsClient): returns names 'refnd', not a method of PaymentsClient — did you mean 'refund'?",
+        ),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('warns when onlyMethodsToSpyOn names a member the object does not have', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -208,7 +239,8 @@ describe('createSpyFromInstance — misconfiguration reports', () => {
 
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining(
-          'createSpyFromInstance(PaymentsClient): onlyMethodsToSpyOn names method(s) that are not on ' + 'the class prototype: nope',
+          "createSpyFromInstance(PaymentsClient): onlyMethodsToSpyOn names 'nope', not a method of PaymentsClient. " +
+            'The spy is there, but the code under test never calls it. If the constructor assigns it',
         ),
       );
     } finally {
@@ -251,7 +283,8 @@ describe('createSpyFromInstance — misconfiguration reports', () => {
 
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining(
-          'createSpyFromInstance(PaymentsClient): gettersToSpyOn/settersToSpyOn name(s) that are methods of the class: refund',
+          "createSpyFromInstance(PaymentsClient): gettersToSpyOn/settersToSpyOn names 'refund', a method of PaymentsClient, " +
+            "so the spied accessor put over it leaves nothing to call. Name it in methodsToSpyOn instead; for a signal() field read as a property, mockSignalProp(double, 'refund', initial).",
         ),
       );
     } finally {
@@ -265,7 +298,7 @@ describe('createSpyFromInstance — misconfiguration reports', () => {
     try {
       spyOn(new PaymentsClient(), { settersToSpyOn: ['charge'] });
 
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('are methods of the class: charge'));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("names 'charge', a method of PaymentsClient"));
     } finally {
       warn.mockRestore();
     }
@@ -280,7 +313,7 @@ describe('createSpyFromInstance — misconfiguration reports', () => {
 
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining(
-          'createSpyFromInstance(PaymentsClient): returns / selfReturning name ping, charge, which this call left as the real method',
+          "createSpyFromInstance(PaymentsClient): returns / selfReturning names 'ping', 'charge', which this call left as the real PaymentsClient method",
         ),
       );
       expect(client.ping()).toBe('real-ping');
@@ -370,7 +403,7 @@ describe('createSpyFromInstance — registered defaults', () => {
 
       expect(spy.refund('7')).toBe('registered');
       expect(spy.ping()).toBe('caller');
-      expect(() => spy.charge(1)).toThrow('Nothing configured PaymentsClient.charge, and strict mode is on.');
+      expect(() => spy.charge(1)).toThrow('PaymentsClient.charge(');
     } finally {
       clearAutoSpyDefaults();
     }
@@ -401,7 +434,10 @@ describe('createSpyFromInstance — members that refuse to be replaced', () => {
   it('explains a frozen instance instead of throwing a bare TypeError', () => {
     expect(() => createSpyFromInstance(Object.freeze(new PaymentsClient()))).toThrow(
       '[vitest-auto-spy] Cannot spy on this instance in place: it is not extensible, so its members cannot be replaced. ' +
-        'The target is a frozen object.',
+        'The target is a frozen object.\n' +
+        'A frozen object refuses every change. Hand the code under test a copy ({ ...object }) and spy on that, ' +
+        'or a double built with createSpyFromClass.\n' +
+        'Docs: https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class',
     );
   });
 
@@ -412,10 +448,9 @@ describe('createSpyFromInstance — members that refuse to be replaced', () => {
 
     expect(() => createSpyFromInstance(client)).toThrow(
       "[vitest-auto-spy] Cannot mock the property 'refund': it is not configurable, so it cannot be redefined. " +
-        'The target is an instance of PaymentsClient.',
-    );
-    expect(() => createSpyFromInstance(client)).toThrow(
-      'Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/module-mocks#provide-a-real-seam',
+        'The target is an instance of PaymentsClient.\n' +
+        'Build a double instead of patching the real instance: createSpyFromClass(PaymentsClient).\n' +
+        'Docs: https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#accessor-spies-—-accessorspies',
     );
   });
 });

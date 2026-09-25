@@ -2,7 +2,8 @@
 // that are still open. It lives apart from `expect-emission.ts` so the build can pin 0.3 kB of
 // state into `dist/shared-state.js` instead of the whole 10 kB helper, and so `setupAutoSpy()` can
 // sweep the register from its teardown without pulling the helper into the setup entry.
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 let defaultTimeoutMs = 1000;
 

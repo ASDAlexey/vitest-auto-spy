@@ -420,7 +420,9 @@ describe('readTitleKey and withTitle', () => {
   });
 
   it('names a router whose title getter reads no key, rather than storing a title nothing reads', () => {
-    expect(() => withTitle({}, 'Products', null)).toThrow(/route\.snapshot\.title does not hold what the double passed in/);
+    expect(() => withTitle({}, 'Products', null)).toThrow(
+      /provideActivatedRoute\(\{ title \}\): @angular\/router \d+\.\d+\.\d+\S* keeps the route title under a key this helper could not find[\s\S]*Leave `title` out/,
+    );
   });
 });
 

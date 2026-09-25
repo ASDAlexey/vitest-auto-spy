@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 // Registers the Vitest mock adapter, which the constructor double is built on.
 import '../index';
-import { mockConstructor, stubConstructor } from './constructor-spy';
+import { calledFrom, mockConstructor, stubConstructor } from './constructor-spy';
 import { restoreMockedProps } from './prop-mock';
 
 interface TrackingPixel {
@@ -51,13 +51,33 @@ describe('mockConstructor', () => {
   it('names the mistake when it is called without `new`', () => {
     const Client = mockConstructor<TrackingPixel>(() => ({ src: '' }), 'PaymentSdk');
 
-    expect(() => Client()).toThrow(/PaymentSdk is a constructor double and was called without `new`/);
+    expect(() => Client()).toThrow(
+      /^\[vitest-auto-spy\] PaymentSdk is a constructor double and was called without `new`, from src\/lib\/constructor-spy\.spec\.ts:\d+:\d+\. Put the `new` back/,
+    );
+    expect(() => Client()).toThrow(/\nDocs: \S+\/utilities\/constructor-doubles#mockconstructor-factory-name$/);
+  });
+
+  it('calls an unnamed double by its factory', () => {
+    const Client = mockConstructor<TrackingPixel>(() => ({ src: '' }));
+
+    expect(() => Client()).toThrow(/^\[vitest-auto-spy\] This mockConstructor\(\) double is a constructor double/);
+  });
+
+  it('leaves the call site out when the stack has no frame outside the library', () => {
+    expect(calledFrom('Error\n    at x (/repo/node_modules/a.js:1:1)')).toBe('');
+    expect(calledFrom(undefined)).toBe('');
+    expect(calledFrom('Error\n    at x (file:///app/src/pay.ts:3:4)')).toBe(', from /app/src/pay.ts:3:4');
+    expect(calledFrom('Error\n    at x (/lib/a.js:1:1)\n    at y (/app/b.ts:2:2)', '/lib/')).toBe(', from /app/b.ts:2:2');
+    expect(calledFrom('Error\n    at x (/lib/a.js:1:1)', '')).toBe(', from /lib/a.js:1:1');
+    expect(calledFrom('Error\n    at new Promise (<anonymous>)\n    at y (/app/b.ts:2:2)', '/lib/')).toBe(', from /app/b.ts:2:2');
   });
 
   it('refuses a factory that produces a primitive, which `new` would discard', () => {
     const Broken = mockConstructor<number>(() => 42, 'Broken');
 
-    expect(() => new Broken()).toThrow(/the factory returned number/);
+    expect(() => new Broken()).toThrow(
+      /the factory returned number[\s\S]*Return the instance from the factory: `mockConstructor\(\(\) => \(\{ … \}\)\)`/,
+    );
   });
 
   it('refuses a factory that produces null', () => {

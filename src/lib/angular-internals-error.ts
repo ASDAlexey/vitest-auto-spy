@@ -1,6 +1,7 @@
 import { VERSION } from '@angular/core';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /**
  * The failure: one internal shape, and the check that stops working without it.
@@ -16,7 +17,7 @@ export function angularInternalsError(what: string, consequence: string): Error 
         `${consequence}\n` +
         'Nothing here is fixable from a spec: report the Angular version above, and pin the previous one until a release ' +
         'of this package reads the new shape.',
-      DOCS_LINKS.angular,
+      DOCS_LINKS.angularInternals,
     ),
   );
 }

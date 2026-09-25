@@ -29,8 +29,10 @@
  */
 import { beforeAll, beforeEach, expect, onTestFinished } from 'vitest';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import type { GuardReaction } from './guard-reaction';
+import { withDocs } from './message-link';
+import { displayPath } from './message-text';
 import { writeWarning } from './write-warning';
 
 /** How {@link guardDocumentPollution} reacts to a document a test left changed. */
@@ -267,15 +269,28 @@ function restoreChildren(
   ];
 }
 
+const OUTSIDE_ANY_TEST = ', outside any test,';
+
+// Cheap on purpose: Angular's dev mode publishes `ng`, and a CDK overlay or an `ng-` attribute says the same.
+function looksLikeAngular(lines: readonly string[]): boolean {
+  return Reflect.get(globalThis, 'ng') !== undefined || lines.some((line) => /\bcdk-|\bng-|_ngcontent|_nghost/.test(line));
+}
+
+function undoAdvice(lines: readonly string[], scope: string): string {
+  if (looksLikeAngular(lines)) {
+    return 'Undo it in the teardown of what set it: ngOnDestroy / DestroyRef.onDestroy of the component, or destroy the fixture that owns it.';
+  }
+
+  return scope.endsWith(OUTSIDE_ANY_TEST)
+    ? 'Undo it in an afterAll of this file.'
+    : 'Undo it in an afterEach of this spec, or in the cleanup of the code that made it.';
+}
+
 function report(lines: readonly string[], scope: string): string {
   return withDocs(
     `[vitest-auto-spy] ${scope} left the shared document changed:\n${lines.map((line) => `  - ${line}`).join('\n')}\n` +
-      'Under `isolate: false` every later spec file in this worker runs against that document, and code that reads it — ' +
-      "`document.querySelector('[data-reset-focus]')`, a class on <body> — takes another branch there, so the failure " +
-      'lands in a file that never touched it, and only when the two share a worker. The document has been put back. Undo ' +
-      'the change where it was made: in the `ngOnDestroy` / `DestroyRef.onDestroy` of the component that set it, in an ' +
-      '`afterEach` of this spec, or by destroying the fixture that owns it.',
-    DOCS_LINKS.setup,
+      `It has been put back, because every later spec file in this worker shares this document. ${undoAdvice(lines, scope)}`,
+    DOCS_LINKS.setupDocument,
   );
 }
 
@@ -310,12 +325,14 @@ export function checkDocumentPollution(snapshot: DocumentSnapshot, scope: string
 export function testScope(): string {
   const { currentTestName, testPath } = expect.getState();
 
-  return `"${currentTestName ?? 'this test'}" (${testPath ?? 'this file'})`;
+  return `"${currentTestName ?? 'this test'}" (${testPath === undefined ? 'this file' : displayPath(testPath)})`;
 }
 
 /** The running file, for a leftover no test made. */
 export function fileScope(): string {
-  return `${expect.getState().testPath ?? 'this file'}, outside any test (a beforeAll or afterAll),`;
+  const { testPath } = expect.getState();
+
+  return `${testPath === undefined ? 'this file' : displayPath(testPath)}${OUTSIDE_ANY_TEST}`;
 }
 
 /**

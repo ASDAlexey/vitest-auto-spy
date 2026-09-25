@@ -38,7 +38,8 @@ import { TestBed } from '@angular/core/testing';
 import type { TestAPI } from 'vitest';
 
 import { injectSpy, provideAutoSpy, provideAutoSpyForToken } from './angular';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
 
 /**
@@ -211,7 +212,7 @@ export function extendWithAutoSpies<Context, const Spec extends Record<string, A
         '[vitest-auto-spy] extendWithAutoSpies needs Vitest 4.1 or newer: the `test` handed in has only the object form of ' +
           '`extend` (Vitest 4.0 and below), which would register fixtures named "0", "1", … and hand every test `undefined`. ' +
           'Upgrade Vitest, or keep `provideAutoSpy` + `injectSpy` in a `beforeEach` until then.',
-        DOCS_LINKS.angular,
+        DOCS_LINKS.angularFixtures,
       ),
     );
   }

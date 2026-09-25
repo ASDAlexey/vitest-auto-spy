@@ -300,8 +300,10 @@ describe('the members the double does not have', () => {
   it('throws by name for one the real ref declares', () => {
     const { ref } = createMatDialogRef(MatDialogRef);
 
-    expect(() => ref.keydownEvents()).toThrow(/the MatDialogRef double has no keydownEvents/);
-    expect(() => ref.updateSize('40vw')).toThrow(/It answers close\(\), afterClosed\(\)/);
+    expect(() => ref.keydownEvents()).toThrow(
+      /^\[vitest-auto-spy\] provideMatDialogRef: the code under test read MatDialogRef\.keydownEvents, which the double does not have\.\nkeydownEvents is the dialog doing its own work; open the real dialog through MatDialog for that\.\nDocs: /,
+    );
+    expect(() => ref.updateSize('40vw')).toThrow(/read MatDialogRef\.updateSize/);
   });
 
   it('reads as undefined for a name the real ref does not declare either', () => {
@@ -315,9 +317,9 @@ describe('the members the double does not have', () => {
     const { ref } = createMatDialogRef(MatDialogRef);
 
     expect(() => ref.componentInstance).toThrow(
-      /double has no componentInstance.+provideMatDialogRef\(MatDialogRef, \{ componentInstance/s,
+      /read MatDialogRef\.componentInstance, which the double does not have\.\nHand the double the component's stand-in: provideMatDialogRef\(MatDialogRef, \{ componentInstance/,
     );
-    expect(() => ref.id).toThrow(/double has no id/);
+    expect(() => ref.id).toThrow(/read MatDialogRef\.id,/);
   });
 });
 
@@ -390,6 +392,8 @@ describe('injectMatDialogRef', () => {
       providers: [provideMatDialogRef(MatDialogRef), { provide: MatDialogRef, useValue: { close: (): void => undefined } }],
     });
 
-    expect(() => injectMatDialogRef(MatDialogRef)).toThrow(/is not one provideMatDialogRef\(\) built/);
+    expect(() => injectMatDialogRef(MatDialogRef)).toThrow(
+      /the MatDialogRef here is a plain object, not one provideMatDialogRef\(\) built/,
+    );
   });
 });

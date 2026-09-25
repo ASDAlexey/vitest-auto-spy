@@ -29,10 +29,13 @@ import {
   RouterState,
   RouterStateSnapshot,
   UrlSegment,
+  VERSION,
 } from '@angular/router';
 import { BehaviorSubject } from 'rxjs';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import { describeInstance } from './angular-instance-name';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /** What a navigation moves. Each field is a stream on the route and a field of its snapshot. */
 export interface ActivatedRouteChange {
@@ -250,7 +253,14 @@ export function withTitle(data: Data, title: string | undefined, key: symbol | n
   }
 
   if (key === null) {
-    throw routeWiringError('route.snapshot.title');
+    throw new Error(
+      withDocs(
+        `[vitest-auto-spy] provideActivatedRoute({ title }): @angular/router ${VERSION.full} keeps the route title under a ` +
+          'key this helper could not find, so snapshot.title cannot carry the title passed in.\n' +
+          'Leave `title` out of the init for now, and report the @angular/router version.',
+        DOCS_LINKS.angularRouteWiring,
+      ),
+    );
   }
 
   return { ...data, [key]: title };
@@ -276,10 +286,10 @@ function buildSnapshot(state: RouteState, fixed: FixedParts): ActivatedRouteSnap
 function routeWiringError(member: string): Error {
   return new Error(
     withDocs(
-      `[vitest-auto-spy] provideActivatedRoute: the installed @angular/router does not wire ActivatedRoute the way ` +
-        `Angular 20 to 22 does — ${member} does not hold what the double passed in. ` +
-        'Please report it with the @angular/router version; until then, provide the route by hand.',
-      DOCS_LINKS.angularRouter,
+      `[vitest-auto-spy] provideActivatedRoute: @angular/router ${VERSION.full} does not wire ActivatedRoute the way ` +
+        `20 to 22 do — ${member} does not hold what the double passed in.\n` +
+        'Provide the route by hand for now, and report the @angular/router version.',
+      DOCS_LINKS.angularRouteWiring,
     ),
   );
 }
@@ -451,13 +461,6 @@ export function provideActivatedRoute(init: ActivatedRouteInit = {}): FactoryPro
   return { provide: ActivatedRoute, useFactory: (): ActivatedRoute => createActivatedRoute(init).route };
 }
 
-function describeRoute(route: object): string {
-  const prototype = Reflect.getPrototypeOf(route);
-  const owner: unknown = prototype === null || prototype === Object.prototype ? undefined : Reflect.get(prototype, 'constructor');
-
-  return typeof owner === 'function' ? `an instance of ${owner.name}` : 'a plain object';
-}
-
 /**
  * The handle of the route `provideActivatedRoute()` put in the test's injector.
  *
@@ -481,7 +484,7 @@ export function injectActivatedRoute(injector?: Injector): ActivatedRouteDouble 
     throw new Error(
       withDocs(
         `${caller}: nothing provides ActivatedRoute here. Add provideActivatedRoute({ … }) to the providers.`,
-        DOCS_LINKS.angularRouter,
+        DOCS_LINKS.angularRouteDouble,
       ),
     );
   }
@@ -491,10 +494,10 @@ export function injectActivatedRoute(injector?: Injector): ActivatedRouteDouble 
   if (double === undefined) {
     throw new Error(
       withDocs(
-        `${caller}: the ActivatedRoute here is ${describeRoute(route)}, not one provideActivatedRoute() built. ` +
+        `${caller}: the ActivatedRoute here is ${describeInstance(route)}, not one provideActivatedRoute() built. ` +
           'A later provider of ActivatedRoute (provideRouter(), RouterModule, a useValue, provideAutoSpy) won over it — ' +
           'list provideActivatedRoute() last, or drop the other one.',
-        DOCS_LINKS.angularRouter,
+        DOCS_LINKS.angularRouteDouble,
       ),
     );
   }

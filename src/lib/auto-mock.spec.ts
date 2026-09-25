@@ -258,7 +258,7 @@ describe('autoMocked', () => {
     detect(logger);
 
     expect(logger.err).toHaveBeenCalledTimes(1);
-    expect(() => logger.debug('x')).toThrow('Nothing configured LogMethods.debug');
+    expect(() => logger.debug('x')).toThrow('LogMethods.debug(');
   });
 });
 
@@ -317,8 +317,19 @@ describe('createAutoMock returns configuration', () => {
 
     resetAutoSpy(store);
 
-    expect(() => store.save('x')).toThrow(/Nothing configured createAutoMock\(auto-mock\.spec\.ts:\d+\)\.save/);
+    expect(() => store.save('x')).toThrow(/createAutoMock\(auto-mock\.spec\.ts:\d+\)\.save\(/);
     takeStrictViolations();
+  });
+
+  it('configures an optional method typed as a property that may be undefined', () => {
+    interface MinimapMap {
+      getZoom(): number;
+      getMinZoom?: (() => number) | undefined;
+    }
+
+    const map = createAutoMock<MinimapMap>(undefined, { strict: true, returns: { getZoom: 10, getMinZoom: 1 } });
+
+    expect([map.getZoom(), map.getMinZoom?.()]).toEqual([10, 1]);
   });
 
   it('leaves a seeded member exactly as it was seeded, host mock or not', () => {
@@ -336,7 +347,24 @@ describe('createAutoMock returns configuration', () => {
     // return value configured for it could never be handed back.
     createAutoMock<{ then(): void }>(undefined, { returns: { then: undefined } });
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('never turns into a spy'));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "returns names 'then', which this double never turns into a spy: a double with a then would be awaited as a Promise. " +
+          'Seed it through the overrides argument instead: { then: … }.\n' +
+          'Docs: https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type#it-answers-everything-so-it-must-not-answer-these',
+      ),
+    );
+    warn.mockRestore();
+  });
+
+  it('names the probe a deny-listed key would have answered', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createAutoMock<{ schedule(): void }>(undefined, { returns: { schedule: undefined } });
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("names 'schedule', which this double never turns into a spy: a library probes that key"),
+    );
     warn.mockRestore();
   });
 
@@ -410,9 +438,9 @@ describe('createAutoMock — strict mode', () => {
     const logs = autoMocked<UserService>(undefined, { strict: true });
 
     expect(() => users.getName(1)).toThrow(
-      /^\[vitest-auto-spy\] Nothing configured createAutoMock\(auto-mock\.spec\.ts:\d+\)\.getName, and strict mode is on\.\nCalled as: createAutoMock\(auto-mock\.spec\.ts:\d+\)\.getName\(1\)/,
+      /^\[vitest-auto-spy\] createAutoMock\(auto-mock\.spec\.ts:\d+\)\.getName\(1\) was called; this strict double has nothing configured for it\.\nCalled from src\/lib\/auto-mock\.spec\.ts:\d+:\d+\nConfigure it in the test: double\.getName\.calledWith\(1\)/,
     );
-    expect(() => logs.getUser(1)).toThrow(/Nothing configured autoMocked\(auto-mock\.spec\.ts:\d+\)\.getUser/);
+    expect(() => logs.getUser(1)).toThrow(/autoMocked\(auto-mock\.spec\.ts:\d+\)\.getUser\(/);
   });
 
   it('reads the call site out of either stack shape, and gives up on one with no position', () => {
@@ -428,7 +456,7 @@ describe('createAutoMock — strict mode', () => {
   it('names the double in the strict report when it is given a name', () => {
     const users = createAutoMock<UserService>(undefined, { strict: true, name: 'USERS' });
 
-    expect(() => users.getName(1)).toThrow('Nothing configured USERS.getName, and strict mode is on.');
+    expect(() => users.getName(1)).toThrow('USERS.getName(');
   });
 
   it('leaves a configured member alone and runs onUnstubbedCall for the rest', () => {
@@ -474,7 +502,7 @@ describe('createAutoMock — selfReturning', () => {
     const logger = createAutoMock<AppLogger>(undefined, { strict: true, selfReturning: ['channel'] });
 
     expect(logger.channel('auth')).toBe(logger);
-    expect(() => logger.err('boom')).toThrow(/Nothing configured createAutoMock\(auto-mock\.spec\.ts:\d+\)\.err, and strict mode is on\./);
+    expect(() => logger.err('boom')).toThrow(/createAutoMock\(auto-mock\.spec\.ts:\d+\)\.err\('boom'\) was called/);
     expect(takeStrictViolations()).toHaveLength(1);
   });
 

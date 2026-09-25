@@ -36,7 +36,9 @@ import { type Type, isStandalone } from '@angular/core';
 import { TestBed, getTestBed } from '@angular/core/testing';
 
 import { createSpyFromClass } from './create-spy-from-class';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
+import { isAutoSpyLike } from './spy-mark';
 import { instrumentTestBed, onComponentCreated, readTestBedMethod } from './testbed-diagnostics';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
 
@@ -118,7 +120,7 @@ function explainLateOverride(error: unknown, component: Type<unknown>, token: Cl
         'instantiated, and Angular accepts no override past that point. Something read the injector first — a ' +
         '`TestBed.inject`, an `injectSpy`, a `createComponent` — earlier in this test or in the same `beforeCreate`. ' +
         'Override first, then inject.',
-      DOCS_LINKS.angularOverrides,
+      DOCS_LINKS.angularOverrideLate,
     ),
     { cause: error },
   );
@@ -255,14 +257,21 @@ function verify(fixture: unknown, { component, token, spy }: PendingVerification
 
   throw new Error(
     withDocs(
-      `[vitest-auto-spy] overrideComponentProvider(${component.name}, ${token.name}): the override did not apply.\n` +
-        `${component.name} resolved ${token.name} to ${describeResolved(resolved)}, not the spy this call created — so every ` +
-        'assertion about that spy is about an object the component never used.\n' +
-        `Check that ${token.name} is the token ${component.name} injects (a component that injects a base class or an ` +
-        'InjectionToken needs *that* token here, not the implementation class), and that nothing re-configured the testing ' +
-        'module with a competing provider afterwards.',
-      DOCS_LINKS.angularOverrides,
+      `[vitest-auto-spy] overrideComponentProvider(${component.name}, ${token.name}): the override did not apply — ` +
+        `${component.name} resolved ${token.name} to ${describeResolved(resolved)}, not the spy this call returned.\n` +
+        explainMissedOverride(token, resolved),
+      DOCS_LINKS.angularOverrideApplied,
     ),
+  );
+}
+
+/** The one cause the resolved value points at, and its fix. */
+function explainMissedOverride(token: ClassType<unknown>, resolved: unknown): string {
+  const later = isAutoSpyLike(resolved) ? 'a different double' : 'the real service';
+
+  return (
+    `It got ${later} because something configured ${token.name} again after this call — a later ` +
+    'TestBed.overrideProvider or configureTestingModule. Keep overrideComponentProvider as the last word on it.'
   );
 }
 
@@ -488,9 +497,11 @@ export function assertComponentDefIntact(...components: unknown[]): void {
       throw new Error(
         withDocs(
           `[vitest-auto-spy] assertComponentDefIntact(): argument ${position} is ${named}, which carries no ɵcmp or ɵdir.\n` +
-            'Either it is not a component or directive, or the chunk that defines it has not executed yet — the ' +
-            'import resolved to nothing. A barrel split across chunks is the usual cause.',
-          DOCS_LINKS.angularOverrides,
+            (component === undefined
+              ? 'The import resolved to nothing: the chunk that defines it had not run yet, which a barrel split across ' +
+                'chunks causes. Import it from its own file rather than through the barrel.'
+              : 'It is not a component or directive; pass the @Component or @Directive class itself.'),
+          DOCS_LINKS.angularComponentDefIntact,
         ),
       );
     }
@@ -503,11 +514,10 @@ export function assertComponentDefIntact(...components: unknown[]): void {
       throw new Error(
         withDocs(
           `[vitest-auto-spy] ${holes.join(', ')} ${holes.length === 1 ? 'is' : 'are'} undefined.\n` +
-            'A component bakes its providers and its scope into the definition when its module executes, so a hole ' +
-            'there means the chunk holding that symbol had not run at that moment — an uninitialised barrel chunk. ' +
-            'Angular reports this much later as "Cannot read properties of undefined (reading \'provide\')", from ' +
-            'inside its own provider resolution.',
-          DOCS_LINKS.angularOverrides,
+            `${named} baked that list in when its file ran, before the chunk holding the symbol had run — an uninitialised ` +
+            'barrel chunk, which Angular reports later as "Cannot read properties of undefined (reading \'provide\')".\n' +
+            `In ${named}'s source, import the symbol at that position from its own file rather than through the barrel.`,
+          DOCS_LINKS.angularComponentDefIntact,
         ),
       );
     }
@@ -543,20 +553,57 @@ export function assertComponentDefIntact(...components: unknown[]): void {
  * only pass modules you expect to bring directives, components or pipes.
  */
 export function assertNgModuleScopes(...modules: unknown[]): void {
-  const empty = modules.filter(hasEmptyRuntimeScope).map(moduleName);
+  const empty = modules.filter(hasEmptyRuntimeScope);
 
   if (empty.length === 0) {
     return;
   }
 
+  const names = empty.map(moduleName);
+  const withProviders = empty.filter((module) => !isEmptyList(readProperty(readProperty(module, 'ɵinj'), 'providers'))).map(moduleName);
+  const providersNote =
+    withProviders.length === 0
+      ? ''
+      : `\n${listed(withProviders)} ${withProviders.length === 1 ? 'has' : 'have'} providers of ${withProviders.length === 1 ? 'its' : 'their'} own; ` +
+        'a providers-only module declares nothing on purpose, so leave it out of this call.';
+
   throw new Error(
     withDocs(
-      `[vitest-auto-spy] NgModule(s) with an empty runtime scope: ${empty.join(', ')}.\n` +
-        'Either they declare nothing (a providers-only module — do not pass those here), or ' +
-        '`ɵɵsetNgModuleScope` was not emitted into this test bundle, in which case importing them ' +
-        'into the TestBed contributes no directives, components or pipes at all. Declare what the ' +
-        'spec needs in the TestBed module directly.',
-      DOCS_LINKS.angular,
+      `[vitest-auto-spy] assertNgModuleScopes(): ${listed(names)} ${names.length === 1 ? 'has' : 'have'} an empty runtime scope — ` +
+        `this test bundle dropped ${names.length === 1 ? 'its' : 'their'} ɵɵsetNgModuleScope, so importing ` +
+        `${names.length === 1 ? 'it' : 'them'} into the TestBed brings no directives, components or pipes (NG0303/NG0304).\n` +
+        'Import the declarations the spec needs directly, or declare them in the TestBed.' +
+        providersNote,
+      DOCS_LINKS.angularNgModuleScopes,
+    ),
+  );
+}
+
+/** `A`, `A and B`, `A, B and C`. */
+function listed(names: readonly string[]): string {
+  return names.length === 1 ? String(names[0]) : `${names.slice(0, -1).join(', ')} and ${String(names.at(-1))}`;
+}
+
+/**
+ * The report `enableAngularDiagnostics({ ngModuleScopes })` gives for the imports
+ * {@link isDeadNgModuleImport} picked out — modules with no providers either, so the providers-only
+ * reading {@link assertNgModuleScopes} has to allow for is already ruled out here.
+ */
+export function failDeadNgModuleImports(modules: readonly unknown[]): void {
+  if (modules.length === 0) {
+    return;
+  }
+
+  const names = modules.map(moduleName);
+  const one = names.length === 1;
+
+  throw new Error(
+    withDocs(
+      `[vitest-auto-spy] ngModuleScopes: ${listed(names)} ${one ? 'is' : 'are'} imported into the testing module but ` +
+        `contribute${one ? 's' : ''} nothing — this test bundle dropped ${one ? 'its' : 'their'} ɵɵsetNgModuleScope, so ` +
+        `${one ? 'its' : 'their'} directives are missing (NG0303/NG0304).\n` +
+        `Import the directives ${one ? 'it exports' : 'they export'} directly, or declare them in the TestBed.`,
+      DOCS_LINKS.angularNgModuleScopesAuto,
     ),
   );
 }

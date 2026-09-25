@@ -35,6 +35,17 @@ function failureOf(snapshot: DocumentSnapshot, scope = 'the test'): string {
   return '';
 }
 
+/** The default suite loads Angular, which publishes `ng`; the framework-neutral advice needs it gone. */
+function withoutAngular<T>(run: () => T): T {
+  const restore = mockValueProp(globalThis, 'ng', undefined);
+
+  try {
+    return run();
+  } finally {
+    restore();
+  }
+}
+
 describe('resolveDocumentPollution', () => {
   it('is off unless a reaction is named, and throws once the object form is used', () => {
     expect(resolveDocumentPollution(undefined)).toEqual({ reaction: 'off', nodes: false, ignoreAttributes: [], ignoreNodes: undefined });
@@ -48,17 +59,46 @@ describe('resolveDocumentPollution', () => {
 });
 
 describe('checkDocumentPollution — attributes', () => {
+  it('asks for an afterAll when no test made the change', () => {
+    const doc = freshDocument();
+    const snapshot = snapshotDocument(THROW, doc);
+
+    doc.body.setAttribute('data-suite', 'on');
+
+    expect(withoutAngular(() => failureOf(snapshot, 'a.spec.ts, outside any test,'))).toContain('Undo it in an afterAll of this file.');
+  });
+
+  it('gives the Angular teardown advice when Angular has published its dev-mode global', () => {
+    const doc = freshDocument();
+    const snapshot = snapshotDocument(THROW, doc);
+    const restore = mockValueProp(globalThis, 'ng', {});
+
+    doc.body.setAttribute('data-reset-focus', '');
+
+    try {
+      expect(failureOf(snapshot)).toContain('ngOnDestroy / DestroyRef.onDestroy');
+    } finally {
+      restore();
+    }
+  });
+
   it('names an attribute added to <body>, and takes it back off', () => {
     const doc = freshDocument();
     const snapshot = snapshotDocument(THROW, doc);
 
     doc.body.setAttribute('data-reset-focus', '');
 
-    const message = failureOf(snapshot, '"keyboard > renders" (keyboard.component.spec.ts)');
+    const message = withoutAngular(() => failureOf(snapshot, '"keyboard > renders" (keyboard.component.spec.ts)'));
 
     expect(message).toContain('"keyboard > renders" (keyboard.component.spec.ts) left the shared document changed:');
     expect(message).toContain('  - <body> data-reset-focus="" added');
-    expect(message).toMatch(/DestroyRef\.onDestroy[\s\S]*Docs: https:\/\/asdalexey\.github\.io\/vitest-auto-spy\/utilities\/setup/);
+    expect(message).toContain(
+      'It has been put back, because every later spec file in this worker shares this document. ' +
+        'Undo it in an afterEach of this spec, or in the cleanup of the code that made it.\n' +
+        'Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_17-an-attribute-left-on-the-shared-document',
+    );
+    expect(message).not.toContain('isolate');
+    expect(message).not.toContain('DestroyRef');
     expect(doc.body.hasAttribute('data-reset-focus')).toBe(false);
   });
 
@@ -231,10 +271,11 @@ describe('checkDocumentPollution — nodes', () => {
     doc.body.append(overlay);
     doc.head.append(title);
 
-    const message = failureOf(snapshot);
+    const message = withoutAngular(() => failureOf(snapshot));
 
     expect(message).toContain('<body> child <div id="overlay" class="cdk-overlay-container"> added');
     expect(message).toContain('<head> child <meta> added');
+    expect(message).toContain('Undo it in the teardown of what set it: ngOnDestroy / DestroyRef.onDestroy of the component');
     expect(overlay.isConnected).toBe(false);
     expect(title.isConnected).toBe(false);
   });
@@ -287,7 +328,7 @@ describe('guardDocumentPollution', () => {
 
     restore();
 
-    expect(scopes).toEqual(['"this test" (this file)', 'this file, outside any test (a beforeAll or afterAll),']);
+    expect(scopes).toEqual(['"this test" (this file)', 'this file, outside any test,']);
   });
 
   it('registers nothing when it is off', () => {
@@ -347,9 +388,10 @@ describe('guardDocumentPollution, wired into the run', () => {
       expect(document.documentElement.hasAttribute('data-suite')).toBe(false);
       expect(warnings).toHaveLength(1);
       expect(warnings[0]).toMatch(
-        /document-guard\.spec\.ts, outside any test \(a beforeAll or afterAll\), left the shared document changed/,
+        /^\[vitest-auto-spy\] src\/lib\/document-guard\.spec\.ts, outside any test, left the shared document changed/,
       );
       expect(warnings[0]).toContain('<html> data-suite="on" added');
+      expect(warnings[0]).toContain('Undo it in the teardown of what set it');
       warnings.length = 0;
     });
   });

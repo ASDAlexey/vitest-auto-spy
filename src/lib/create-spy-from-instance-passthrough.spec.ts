@@ -236,14 +236,20 @@ describe('createSpyFromInstance — passthrough', () => {
 describe('createSpyFromInstance — passthrough against strict mode', () => {
   it('refuses an explicit strict: true on the same call', () => {
     expect(() => spyOn(new CartStore(), { passthrough: true, strict: true })).toThrow(
-      /'passthrough: true' together with 'strict: true'[\s\S]*core\/strict-mode/,
+      /createSpyFromInstance\(\w+\) was given 'passthrough: true' together with 'strict: true'[\s\S]*core\/strict-mode#passthrough/,
     );
   });
 
   it('refuses an explicit onUnstubbedCall on the same call', () => {
     expect(() => spyOn(new CartStore(), { passthrough: true, onUnstubbedCall: () => 'handled' })).toThrow(
-      /'passthrough: true' together with 'onUnstubbedCall'/,
+      /createSpyFromInstance\(CartStore\) was given 'passthrough: true' together with 'onUnstubbedCall'/,
     );
+  });
+
+  it('says "object" for an object no class built', () => {
+    const bare: { load(): void } = Object.assign(Object.create(null) as object, { load: (): void => undefined });
+
+    expect(() => spyOn(bare, { passthrough: true, strict: true })).toThrow("createSpyFromInstance(object) was given 'passthrough: true'");
   });
 
   it('accepts strict: false beside it, which says the same thing', () => {
@@ -257,7 +263,7 @@ describe('createSpyFromInstance — passthrough against strict mode', () => {
 
     expect(cart.count()).toBe(0);
     // Nothing real to run, so the suite-wide policy still decides this one.
-    expect(() => cart.extra()).toThrow(/Nothing configured PhantomStore\.extra/);
+    expect(() => cart.extra()).toThrow(/PhantomStore\.extra\(/);
   });
 
   it('wins over a suite-wide handler for the members it can run', () => {
@@ -273,7 +279,7 @@ describe('createSpyFromInstance — passthrough against strict mode', () => {
     registerAutoSpyDefaults(CartStore, { strict: true });
 
     expect(spyOn(new CartStore(), { passthrough: true }).count()).toBe(0);
-    expect(() => spyOn(new CartStore()).count()).toThrow(/Nothing configured CartStore\.count/);
+    expect(() => spyOn(new CartStore()).count()).toThrow(/CartStore\.count\(/);
   });
 });
 

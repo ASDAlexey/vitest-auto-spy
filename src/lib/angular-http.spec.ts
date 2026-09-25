@@ -128,12 +128,32 @@ describe('provideHttpTesting', () => {
     TestBed.inject(HttpClient).get('/api/product').subscribe();
 
     expect(() => expectRequest('/api/products', { method: 'get' })).toThrow(
-      /no request matched GET \/api\/products[\s\S]*Requests that were made: GET \/api\/product\./,
+      /expectRequest: no request matched GET \/api\/products\. Made instead: GET \/api\/product\.\nCompare the URL and verb/,
+    );
+  });
+
+  it('names the verb that was sent when only the verb differs', () => {
+    TestBed.inject(HttpClient).get('/api/products').subscribe();
+
+    expect(() => expectRequest('/api/products', { method: 'POST' })).toThrow(
+      /expectRequest: no POST \/api\/products — but GET \/api\/products was made\.\nPass \{ method: 'GET' \}, or check which verb/,
+    );
+  });
+
+  it('names the query that was sent when only the query differs', () => {
+    TestBed.inject(HttpClient)
+      .get('/api/products', { params: { page: 3 } })
+      .subscribe();
+
+    expect(() => expectRequest('/api/products?page=2', { method: 'GET' })).toThrow(
+      /no GET \/api\/products\?page=2 — but GET \/api\/products\?page=3 was made; the query differs\.\n.*expectRequest\('\/api\/products'\)/,
     );
   });
 
   it('says so plainly when nothing was requested at all', () => {
-    expect(() => expectRequest(/api/)).toThrow(/no request matched \/api\/[\s\S]*No request was made at all\./);
+    expect(() => expectRequest(/api/)).toThrow(
+      /no request matched \/api\/ — nothing was requested at all\.\nAn httpResource\(\) sends nothing/,
+    );
   });
 
   it('asserts the absence of a request, and names the ones that break the claim', async () => {
@@ -141,7 +161,7 @@ describe('provideHttpTesting', () => {
 
     TestBed.inject(HttpClient).get('/api/products').subscribe();
 
-    expect(() => expectNoRequest()).toThrow(/1 request\(s\) matched a predicate: GET \/api\/products\./);
+    expect(() => expectNoRequest()).toThrow(/1 request matched a predicate: GET \/api\/products\./);
 
     TestBed.inject(HttpClient).get('/api/products').subscribe();
 
@@ -161,29 +181,70 @@ describe('provideHttpTesting', () => {
 
     const isProductsRequest = (request: HttpRequest<unknown>): boolean => request.url === '/api/products';
 
-    expect(() => expectNoRequest(isProductsRequest)).toThrow(
-      /1 request\(s\) matched a predicate \(isProductsRequest\): GET \/api\/products/,
-    );
+    expect(() => expectNoRequest(isProductsRequest)).toThrow(/1 request matched a predicate \(isProductsRequest\): GET \/api\/products/);
   });
 
   it('fails a test that ends holding an unanswered request', () => {
     TestBed.inject(HttpClient).get('/api/products').subscribe();
 
-    expect(verifyNoPendingRequests).toThrow(/ended with 1 unanswered request\(s\): GET \/api\/products/);
+    expect(verifyNoPendingRequests).toThrow(
+      /^\[vitest-auto-spy\] GET \/api\/products was never answered \(when verifyNoPendingRequests\(\) ran\)\.\nThe code under test is still waiting on it[^\n]*\nAnswer it in the spec: await expectRequest\('\/api\/products'\)\.flush\(body\)\.\nDocs: /,
+    );
     expect(verifyNoPendingRequests).not.toThrow();
+  });
+
+  it('names the verb in the answer when two open requests share a URL', () => {
+    const client = TestBed.inject(HttpClient);
+
+    client.post('/api/products', {}).subscribe();
+    client.get('/api/products').subscribe();
+
+    expect(verifyNoPendingRequests).toThrow(
+      /2 requests were never answered[^:]*: POST \/api\/products, GET \/api\/products\.[\s\S]*Answer each in the spec: await expectRequest\('\/api\/products', \{ method: 'POST' \}\)/,
+    );
   });
 
   it('holds a cancelled request against the test, like Angular verify() does by default', () => {
     TestBed.inject(HttpClient).get('/api/products').subscribe().unsubscribe();
 
-    expect(verifyNoPendingRequests).toThrow(/ended with 1 unanswered request\(s\): GET \/api\/products/);
+    let message = '';
+
+    try {
+      verifyNoPendingRequests();
+    } catch (error) {
+      message = String(error);
+    }
+
+    expect(message).toMatch(
+      /GET \/api\/products was never answered[\s\S]*GET \/api\/products was cancelled by the code under test; when that is intended, pass verifyNoPendingRequests\(\{ ignoreCancelled: true \}\)\./,
+    );
+    expect(message).not.toMatch(/Answer it/);
+  });
+
+  it('names the cancelled ones apart from the one still waiting', () => {
+    const client = TestBed.inject(HttpClient);
+
+    client.get('/api/first').subscribe().unsubscribe();
+    client.get('/api/second').subscribe().unsubscribe();
+    client.get('/api/waiting').subscribe();
+
+    expect(verifyNoPendingRequests).toThrow(
+      /Answer each in the spec: await expectRequest\('\/api\/waiting'\)\.flush\(body\)\.\nGET \/api\/first, GET \/api\/second were cancelled by the code under test/,
+    );
+  });
+
+  it('says all of them were cancelled rather than repeating each one', () => {
+    TestBed.inject(HttpClient).get('/api/first').subscribe().unsubscribe();
+    TestBed.inject(HttpClient).get('/api/second').subscribe().unsubscribe();
+
+    expect(verifyNoPendingRequests).toThrow(/All of them were cancelled by the code under test/);
   });
 
   it('lets cancelled requests be ignored, without excusing the ones still waiting', () => {
     TestBed.inject(HttpClient).get('/api/cancelled').subscribe().unsubscribe();
     TestBed.inject(HttpClient).get('/api/waiting').subscribe();
 
-    expect(() => verifyNoPendingRequests({ ignoreCancelled: true })).toThrow(/ended with 1 unanswered request\(s\): GET \/api\/waiting/);
+    expect(() => verifyNoPendingRequests({ ignoreCancelled: true })).toThrow(/^\[vitest-auto-spy\] GET \/api\/waiting was never answered/);
   });
 
   it('passes, asked to ignore cancelled requests, when cancelling is all the test did', () => {

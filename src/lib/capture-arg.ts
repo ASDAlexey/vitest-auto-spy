@@ -30,7 +30,9 @@
  * call — which is `mockReturnValue`, spelled less clearly. `calledWith` is typed to the method's own
  * parameters, so that line does not compile in the first place.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
+import { count } from './message-text';
 
 /** A captor: matches any argument in its position, and keeps what it saw. */
 export interface ArgCaptor<T> {
@@ -105,6 +107,7 @@ class Captor<T> implements ArgCaptor<T> {
   // matter what the length guard above it proved, and the two ways out of that are a non-null
   // assertion or this — a box that narrows honestly, for one object per captured argument.
   #latest: { value: T } | undefined = undefined;
+  #offered = 0;
 
   constructor(where?: (value: unknown) => boolean) {
     this.#where = where;
@@ -118,15 +121,7 @@ class Captor<T> implements ArgCaptor<T> {
     // The box, not `length === 0`: capturing an actual `undefined` argument is a real thing a spec
     // asserts about, and it is not the same as never having matched.
     if (this.#latest === undefined) {
-      throw new Error(
-        withDocs(
-          '[vitest-auto-spy] captureArg: nothing was captured, so there is no value to read. A captor only records ' +
-            'while it is being matched — put it in the expectation first (`expect(spy.method).toHaveBeenCalledWith(captor)`) ' +
-            'and read `.value` after. If the expectation did run, then the call it describes never happened, and that ' +
-            'assertion is the one to look at.',
-          DOCS_LINKS.controlHelpers,
-        ),
-      );
+      throw new Error(withDocs(this.#nothingCaptured(), DOCS_LINKS.captureArg));
     }
 
     return this.#latest.value;
@@ -139,9 +134,28 @@ class Captor<T> implements ArgCaptor<T> {
   reset(): void {
     this.#values.length = 0;
     this.#latest = undefined;
+    this.#offered = 0;
+  }
+
+  #nothingCaptured(): string {
+    const head = '[vitest-auto-spy] captureArg: nothing was captured, so there is no `.value` to read.';
+
+    if (this.#offered === 0) {
+      return (
+        `${head} The captor was never compared with an argument — put it in the expectation first ` +
+        '(`expect(spy.method).toHaveBeenCalledWith(captor)`), then read `.value`.'
+      );
+    }
+
+    return (
+      `${head} It was offered ${count(this.#offered, 'argument')} and its \`where\` filter rejected every one — ` +
+      'check the filter against the calls the spy received.'
+    );
   }
 
   asymmetricMatch(actual: unknown): boolean {
+    this.#offered += 1;
+
     if (this.#where && !this.#where(actual)) {
       return false;
     }

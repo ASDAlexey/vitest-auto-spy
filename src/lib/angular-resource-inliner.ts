@@ -20,7 +20,9 @@
 import { readFileSync } from 'node:fs';
 import { dirname, extname, resolve } from 'node:path';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
+import { displayPath } from './message-text';
 
 /** How {@link inlineAngularResources} reads resources and which stylesheets it keeps. */
 export interface AngularResourceInlinerOptions {
@@ -53,6 +55,13 @@ const QUOTED = /["'`][^"'`]+["'`]/g;
 
 function defaultReadResource(path: string): string {
   return readFileSync(path, 'utf8');
+}
+
+/** `ENOENT` / `EACCES` as the filesystem said it, or the error's own message when it carried no code. */
+function errnoOf(cause: unknown): string {
+  const code: unknown = Reflect.get(Object(cause), 'code');
+
+  return typeof code === 'string' ? code : String(Reflect.get(Object(cause), 'message') ?? cause);
 }
 
 /**
@@ -94,9 +103,9 @@ export function inlineAngularResources(
     } catch (cause) {
       throw new Error(
         withDocs(
-          `vitest-auto-spy: cannot read "${url}" referenced by ${modulePath} (resolved to ${path}). ` +
-            `The path is resolved relative to the component file, not to the project root.`,
-          DOCS_LINKS.bunAngular,
+          `[vitest-auto-spy] cannot read "${url}" referenced by ${displayPath(modulePath)}: ${errnoOf(cause)} at ${displayPath(path)}.\n` +
+            'The path resolves relative to the component file, not the project root; fix the templateUrl or styleUrl.',
+          DOCS_LINKS.angularUnreadResource,
         ),
         { cause },
       );

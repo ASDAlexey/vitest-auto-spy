@@ -61,6 +61,9 @@ class UnrelatedComponent {}
 @NgModule({})
 class EmptyScopeModule {}
 
+@NgModule({ providers: [{ provide: 'SCOPE_FLAG', useValue: true }] })
+class ScopeWithProvidersModule {}
+
 @NgModule({ declarations: [DeclaredHostComponent] })
 class DeclaringModule {}
 
@@ -146,7 +149,7 @@ describe('overrideComponentProvider', () => {
     TestBed.overrideProvider(NavigationBuilderService, { useValue: new NavigationBuilderService() });
 
     expect(() => TestBed.createComponent(MenuHostComponent)).toThrow(
-      /the override did not apply[\s\S]*resolved .* to a NavigationBuilderService.* instance/,
+      /the override did not apply[\s\S]*resolved .* to a NavigationBuilderService.* instance[\s\S]*It got the real service because/,
     );
   });
 
@@ -157,6 +160,15 @@ describe('overrideComponentProvider', () => {
     TestBed.overrideProvider(NavigationBuilderService, { useValue: 'not-a-service' });
 
     expect(() => TestBed.createComponent(DeclaredHostComponent)).toThrow(/resolved .* to not-a-service/);
+  });
+
+  it('says something configured the token again when the component got a different double', () => {
+    overrideComponentProvider(DeclaredHostComponent, NavigationBuilderService);
+    TestBed.overrideProvider(NavigationBuilderService, overrideAutoSpy(NavigationBuilderService));
+
+    expect(() => TestBed.createComponent(DeclaredHostComponent)).toThrow(
+      /\nIt got a different double because something configured NavigationBuilderService again after this call/,
+    );
   });
 
   it('leaves nothing queued for the next test that renders', () => {
@@ -222,8 +234,15 @@ describe('assertNgModuleScopes', () => {
 
   it('names every module whose runtime scope is empty', () => {
     expect(() => assertNgModuleScopes(DeclaringModule, EmptyScopeModule)).toThrow(
-      /empty runtime scope: EmptyScopeModule[\s\S]*setNgModuleScope/,
+      /^\[vitest-auto-spy\] assertNgModuleScopes\(\): EmptyScopeModule has an empty runtime scope — this test bundle dropped its ɵɵsetNgModuleScope[^\n]*\nImport the declarations the spec needs directly, or declare them in the TestBed\.\nDocs: /,
     );
+  });
+
+  it('says a module with providers of its own may be providers-only, and names every module in one line', () => {
+    expect(() => assertNgModuleScopes(EmptyScopeModule, ScopeWithProvidersModule, DeclaringModule)).toThrow(
+      /EmptyScopeModule and ScopeWithProvidersModule have an empty runtime scope — this test bundle dropped their[\s\S]*\nScopeWithProvidersModule has providers of its own; a providers-only module declares nothing on purpose/,
+    );
+    expect(() => assertNgModuleScopes(ScopeWithProvidersModule, ScopeWithProvidersModule)).toThrow(/have providers of their own/);
   });
 
   it('still describes a module definition that carries no class name', () => {
@@ -248,7 +267,9 @@ describe('assertComponentDefIntact', () => {
   it('names the exact position a provider never arrived at', () => {
     const half = { name: 'HoverMenuComponent', ɵcmp: { providers: [undefined], viewProviders: [], dependencies: [] } };
 
-    expect(() => assertComponentDefIntact(half)).toThrow(/HoverMenuComponent\.ɵcmp\.providers\[0\] is undefined[\s\S]*barrel chunk/);
+    expect(() => assertComponentDefIntact(half)).toThrow(
+      /HoverMenuComponent\.ɵcmp\.providers\[0\] is undefined\.\n[^\n]*barrel chunk[^\n]*\nIn HoverMenuComponent's source, import the symbol at that position from its own file rather than through the barrel\./,
+    );
   });
 
   it('reaches a hole nested inside a provider array, and reports every one it found', () => {
@@ -277,7 +298,15 @@ describe('assertComponentDefIntact', () => {
   });
 
   it('reports the class reference that itself never arrived', () => {
-    expect(() => assertComponentDefIntact(MenuHostComponent, undefined)).toThrow(/argument 1 is undefined, which carries no ɵcmp or ɵdir/);
+    expect(() => assertComponentDefIntact(MenuHostComponent, undefined)).toThrow(
+      /argument 1 is undefined, which carries no ɵcmp or ɵdir\.\nThe import resolved to nothing[^\n]*Import it from its own file rather than through the barrel\./,
+    );
+  });
+
+  it('asks for the class itself when it was handed something that is not one', () => {
+    expect(() => assertComponentDefIntact(EmptyScopeModule)).toThrow(
+      /argument 0 is EmptyScopeModule[^\n]*\nIt is not a component or directive; pass the @Component or @Directive class itself\./,
+    );
   });
 });
 
