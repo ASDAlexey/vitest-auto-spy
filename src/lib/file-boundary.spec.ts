@@ -5,7 +5,7 @@
  */
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
-import { installFileBoundary, reportStrayListeners } from './file-boundary';
+import { installFileBoundary, reportStrayListeners, runFileBoundary } from './file-boundary';
 import type { StrayListener } from './stray-listeners';
 
 const { log, strays } = vi.hoisted(() => ({ log: [] as string[], strays: { removed: 0 } }));
@@ -93,6 +93,96 @@ describe('after a file with every repair on', () => {
     expect(vi.isFakeTimers()).toBe(false);
     expect(takeLog()).toEqual(['timer globals', 'describe listeners', 'remove listeners', 'storage spies', 'restore globals', 'report']);
     expect(reports).toEqual([{ removed: 1, listeners: [listener] }]);
+  });
+});
+
+describe('with a sweep handed in', () => {
+  installFileBoundary({ strayListeners: true, onStrayListeners: () => log.push('listener report') }, [
+    () => {
+      log.push('sweep');
+
+      return () => log.push('sweep report');
+    },
+    () => {
+      log.push('silent sweep');
+
+      return undefined;
+    },
+  ]);
+  takeLog();
+
+  it('arms the listener tracking', () => {
+    expect(takeLog()).toEqual(['baseline listeners']);
+
+    strays.removed = 1;
+  });
+});
+
+describe('after a file with a sweep handed in', () => {
+  afterAll(() => {
+    strays.removed = 0;
+  });
+
+  it('ran the sweeps after the repairs and their reports after every repair', () => {
+    expect(takeLog()).toEqual([
+      'describe listeners',
+      'remove listeners',
+      'storage spies',
+      'sweep',
+      'silent sweep',
+      'listener report',
+      'sweep report',
+    ]);
+  });
+});
+
+describe('the boundary with a throwing report', () => {
+  const failing = (message: string) => () => (): void => {
+    log.push(`${message} report`);
+    throw new Error(message);
+  };
+
+  it('still runs every repair and every report, and rethrows a lone error as it was', () => {
+    const error = new Error('listeners');
+
+    expect(() =>
+      runFileBoundary([
+        () => (): void => {
+          throw error;
+        },
+        () => {
+          log.push('timer sweep');
+
+          return () => log.push('timer report');
+        },
+      ]),
+    ).toThrow(error);
+    expect(takeLog()).toEqual(['timer sweep', 'timer report']);
+  });
+
+  it('gathers several errors into one that names each of them', () => {
+    let thrown: unknown;
+
+    try {
+      runFileBoundary([failing('listeners'), failing('timers')]);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(takeLog()).toEqual(['listeners report', 'timers report']);
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toEqual([new Error('listeners'), new Error('timers')]);
+    expect((thrown as AggregateError).message).toBe('[vitest-auto-spy] 2 file-end reports failed:\n  - listeners\n  - timers');
+  });
+
+  it('names a thrown value that is not an Error', () => {
+    const throwing = (value: unknown) => () => (): void => {
+      throw value;
+    };
+
+    expect(() => runFileBoundary([throwing('plain'), throwing(new Error('real'))])).toThrow(
+      '2 file-end reports failed:\n  - plain\n  - real',
+    );
   });
 });
 

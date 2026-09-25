@@ -19,7 +19,7 @@ import { DOCS_LINKS, withDocs } from './docs-links';
 import { type DocumentPollutionOptions, type DocumentPollutionReaction, watchDocumentPollution } from './document-guard';
 import { abandonEmissionWaits } from './emission-timeout';
 import { type FakeTimersConfig, setupFakeTimers } from './fake-timers';
-import { type StrayListenerReport, installFileBoundary } from './file-boundary';
+import { type BoundaryRepair, type StrayListenerReport, installFileBoundary } from './file-boundary';
 import { annotateFrozenClockTimeout, readFrozenClock } from './frozen-clock';
 import { setDefaultStrictMode, takeStrictViolations } from './function-spy';
 import { type GlobalPatchReaction, type GlobalSnapshot, checkSealedAdditions, snapshotWatchedGlobals } from './global-patch-guard';
@@ -123,7 +123,7 @@ export interface SetupAutoSpyOptions {
    *
    * Called only when something was actually cancelled, and only once per file.
    */
-  onStrayTimers?: ((info: StrayTimerReport) => void) | 'throw';
+  onStrayTimers?: 'throw' | ((info: StrayTimerReport) => void);
   /**
    * Fail the test a swallowed promise rejection surfaced in, instead of letting it scroll past in
    * stderr. Default `false`, because it needs zone.js loaded and claims a hook on it.
@@ -243,7 +243,7 @@ export interface SetupAutoSpyOptions {
    *
    * `'throw'` fails the file with a message that lists every stray's type, target, spec file and first frame.
    */
-  onStrayListeners?: ((info: StrayListenerReport) => void) | 'throw';
+  onStrayListeners?: 'throw' | ((info: StrayListenerReport) => void);
   /**
    * Put every `globalThis` global a file changed back at the end of the file. Default `false`.
    *
@@ -1068,14 +1068,17 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
 
   const consoleGuard = watchStrayConsole(options.strayConsole);
 
+  const sweeps: BoundaryRepair[] = [];
+
   if (options.strayTimers ?? false) {
     // Wrapping happens now, once per worker; the sweep is per file, because "still wanted?" only
     // becomes an unambiguous no once the file is over.
     trackStrayTimers();
-    afterAll(() => {
+    sweeps.push(() => {
       const timers = describeStrayTimers();
+      const cancelled = cancelStrayTimers();
 
-      reportStrayTimers(cancelStrayTimers(), options.onStrayTimers, timers);
+      return (): void => reportStrayTimers(cancelled, options.onStrayTimers, timers);
     });
   }
 
@@ -1083,7 +1086,7 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
     trackMockRegistry();
   }
 
-  installFileBoundary(options);
+  installFileBoundary(options, sweeps);
 
   armStrictMode(options);
   armUnconfiguredReads(options);

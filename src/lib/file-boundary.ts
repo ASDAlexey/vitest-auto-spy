@@ -28,6 +28,9 @@ export interface StrayListenerReport {
   listeners: readonly StrayListener[];
 }
 
+/** A file-end repair; what it returns is the report it owes, made only once every repair has run. */
+export type BoundaryRepair = () => (() => void) | undefined;
+
 /** The `setupAutoSpy` options this module reads. */
 export type FileBoundaryOptions = Pick<
   SetupAutoSpyOptions,
@@ -65,18 +68,49 @@ export function reportStrayListeners(
 }
 
 /**
- * The file-boundary repairs, as one `afterAll` rather than one each: their order is load-bearing and
- * `sequence.hooks` would otherwise decide it. Fakes come off first, the global restore runs last so
- * it sees what the others left, and the report runs after every repair so a throwing handler cannot
- * skip one.
+ * Run every repair, then make every report and fail with what they threw: one error as it was,
+ * several as an `AggregateError`, so a throwing handler can hide neither another report nor a repair.
+ * Exported for its spec, which cannot let the file's own `afterAll` throw.
  */
-export function installFileBoundary(options: FileBoundaryOptions): void {
-  const repairs: (() => void)[] = [];
+export function runFileBoundary(repairs: readonly BoundaryRepair[]): void {
+  const reports = repairs.map((repair) => repair()).filter((report) => report !== undefined);
+  const errors: unknown[] = [];
+
+  for (const report of reports) {
+    try {
+      report();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
+  if (errors.length === 1) {
+    throw errors[0];
+  }
+
+  if (errors.length > 1) {
+    const messages = errors.map((error) => `\n  - ${error instanceof Error ? error.message : String(error)}`);
+
+    throw new AggregateError(errors, `[vitest-auto-spy] ${errors.length} file-end reports failed:${messages.join('')}`);
+  }
+}
+
+/**
+ * The file-boundary repairs, as one `afterAll` rather than one each: their order is load-bearing and
+ * `sequence.hooks` would otherwise decide it. Fakes come off first, the global restore runs after the
+ * other repairs so it sees what they left, `sweeps` run last, and the reports run after every repair
+ * so a throwing handler cannot skip one.
+ */
+export function installFileBoundary(options: FileBoundaryOptions, sweeps: readonly BoundaryRepair[] = []): void {
+  const repairs: BoundaryRepair[] = [];
   const restoresGlobals = options.restoreGlobals ?? false;
-  let report = (): void => undefined;
 
   if (restoresGlobals) {
-    repairs.push(releaseLeftoverFakes);
+    repairs.push(() => {
+      releaseLeftoverFakes();
+
+      return undefined;
+    });
   }
 
   if (options.strayListeners ?? false) {
@@ -88,7 +122,7 @@ export function installFileBoundary(options: FileBoundaryOptions): void {
       const listeners = describeStrayListeners();
       const removed = removeStrayListeners();
 
-      report = (): void => {
+      return (): void => {
         reportStrayListeners(removed, listeners, options.onStrayListeners);
       };
     });
@@ -97,6 +131,8 @@ export function installFileBoundary(options: FileBoundaryOptions): void {
   if (options.restoreStorageSpies ?? true) {
     repairs.push(() => {
       restoreStorageSpies();
+
+      return undefined;
     });
   }
 
@@ -104,11 +140,14 @@ export function installFileBoundary(options: FileBoundaryOptions): void {
     captureGlobalBaseline();
     repairs.push(() => {
       restoreGlobals();
+
+      return undefined;
     });
   }
 
+  repairs.push(...sweeps);
+
   afterAll(() => {
-    repairs.forEach((repair) => repair());
-    report();
+    runFileBoundary(repairs);
   });
 }
