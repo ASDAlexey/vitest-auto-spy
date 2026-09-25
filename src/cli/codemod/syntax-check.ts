@@ -15,14 +15,24 @@ import { join } from 'node:path';
 
 import type { Finding } from '../report';
 import { note } from './edits';
+import { lineOf } from './mask';
 
-/** What a file's syntax diagnostics are compared by: the code, not the wording. */
+/** A syntax diagnostic, compared by its code rather than its wording. */
+export interface SyntaxDiagnostic {
+  readonly code: number;
+  /** Offset into the text, when the compiler gave one. */
+  readonly start: number | undefined;
+  readonly message: string;
+}
+
 export interface SyntaxParser {
-  codesOf(file: string, text: string): number[];
+  diagnosticsOf(file: string, text: string): SyntaxDiagnostic[];
 }
 
 interface Diagnostic {
   readonly code: number;
+  readonly start?: number;
+  readonly messageText?: string | { readonly messageText: string };
 }
 
 interface TranspileResult {
@@ -62,9 +72,16 @@ export function loadParser(cwd: string, load: (specifier: string) => unknown = r
   const typescript = loaded;
 
   return {
-    codesOf: (file, text) =>
+    diagnosticsOf: (file, text) =>
       (typescript.transpileModule(text, { fileName: file, reportDiagnostics: true, compilerOptions: PARSE_OPTIONS }).diagnostics ?? []).map(
-        (diagnostic) => diagnostic.code,
+        (diagnostic) => ({
+          code: diagnostic.code,
+          start: diagnostic.start,
+          message:
+            typeof diagnostic.messageText === 'object'
+              ? diagnostic.messageText.messageText
+              : (diagnostic.messageText ?? `TS${diagnostic.code}`),
+        }),
       ),
   };
 }
@@ -73,34 +90,36 @@ function requireFrom(cwd: string): (specifier: string) => unknown {
   return (specifier) => createRequire(join(cwd, 'package.json'))(specifier);
 }
 
-/** Whether `after` has a diagnostic `before` did not — a regression this run introduced. */
-export function brokeSyntax(parser: SyntaxParser, file: string, before: string, after: string): boolean {
+/** The first diagnostic `after` has that `before` did not — a regression this run introduced. */
+export function brokeSyntax(parser: SyntaxParser, file: string, before: string, after: string): SyntaxDiagnostic | undefined {
   const left = new Map<number, number>();
 
-  for (const code of parser.codesOf(file, before)) {
+  for (const { code } of parser.diagnosticsOf(file, before)) {
     left.set(code, (left.get(code) ?? 0) + 1);
   }
 
-  for (const code of parser.codesOf(file, after)) {
-    const remaining = left.get(code) ?? 0;
+  for (const diagnostic of parser.diagnosticsOf(file, after)) {
+    const remaining = left.get(diagnostic.code) ?? 0;
 
     if (remaining === 0) {
-      return true;
+      return diagnostic;
     }
 
-    left.set(code, remaining - 1);
+    left.set(diagnostic.code, remaining - 1);
   }
 
-  return false;
+  return undefined;
 }
 
-export function brokeSyntaxNote(file: string): Finding {
+export function brokeSyntaxNote(file: string, after: string, diagnostic: SyntaxDiagnostic): Finding {
+  const line = diagnostic.start === undefined ? 1 : lineOf(after, diagnostic.start);
+
   return note({
     check: 'codemod-broke-syntax',
     severity: 'error',
     file,
-    line: 1,
-    message: 'The rewritten file does not parse, so it was left exactly as it was.',
-    fix: 'This is a defect in the codemod, not in the file. Migrate this one by hand, and report the construct it tripped over — the file is worth attaching.',
+    line,
+    message: `The rewritten file would not parse at line ${line} (${diagnostic.message}), so the file was left as it was.`,
+    fix: 'Migrate this file by hand, and report the construct on that line as a codemod defect.',
   });
 }
