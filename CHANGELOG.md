@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.30.0] - 2026-09-25
+
 ### Added
 
 - **`prefer-spy-on-own-method`, in `recommended` at `warn`.** It finds the long spelling of the two
@@ -7888,7 +7890,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.29.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.30.0...HEAD
+[5.30.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.29.0...v5.30.0
 [5.29.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.28.0...v5.29.0
 [5.28.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.27.0...v5.28.0
 [5.27.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.26.0...v5.27.0
