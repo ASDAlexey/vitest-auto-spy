@@ -15,6 +15,10 @@ import { type Type, isStandalone } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { expect } from 'vitest';
 
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
+import { count } from './message-text';
+
 // Chai's `Assertion`, not Vitest's `Matchers`: `Matchers` is `<T>` on Vitest 4 and `<R, T>` on
 // Vitest 5, and declaration merging demands an exact type-parameter match — this one merges on both.
 declare global {
@@ -57,21 +61,35 @@ function rootOf(received: unknown): DebugElementLike | undefined {
 function diagnose(directive: Type<unknown>, selector: string | undefined, root: DebugElementLike): string {
   const matching = selector === undefined ? [] : root.queryAll(By.css(selector));
   const where = selector === undefined ? '' : ` on '${selector}'`;
+  const prefix = `[vitest-auto-spy] expected ${directive.name} to be applied${where}`;
 
   if (selector !== undefined && matching.length === 0) {
-    return (
-      `expected ${directive.name} to be applied${where}, but no element matches that selector.\n` +
-      'Render the fixture (`fixture.detectChanges()`) before asserting, and check the selector against the template.'
+    return withDocs(
+      `${prefix}, but no element matches that selector.\n` +
+        'Run fixture.detectChanges() before asserting, and check the selector against the template.',
+      DOCS_LINKS.angularDirectiveApplied,
     );
   }
 
-  return (
-    `expected ${directive.name} to be applied${where}, but it is not on any element of this fixture.\n` +
-    `${directive.name} is ${isStandalone(directive) ? 'standalone, so it belongs in the host component’s own `imports`' : 'declared by an NgModule — and a test bundle does not emit `ɵɵsetNgModuleScope`, so that module contributes nothing through `TestBed.configureTestingModule({ imports: [Module] })`'}.\n` +
-    'Build the host with `createDirectiveHost({ template, scope: [Module] })`: only a **standalone** host has its ' +
-    '`imports` resolved by the compiler, which is what puts the directive in scope. `schemas: [NO_ERRORS_SCHEMA]` ' +
-    'cannot help here — schemas apply to a testing module’s `declarations`, never to a standalone component.'
+  const cause = isStandalone(directive)
+    ? `${directive.name} is standalone, so only the host component's own imports put it in scope`
+    : `${directive.name} is declared by an NgModule, and a test bundle drops that module's scope, so importing it contributes nothing`;
+
+  return withDocs(
+    `${prefix}, but it is not on any element of this fixture — ${cause}.\n` +
+      `Build the host with createDirectiveHost({ template, scope: [${isStandalone(directive) ? directive.name : 'ItsModule'}] }).`,
+    DOCS_LINKS.angularDirectiveApplied,
   );
+}
+
+function describeReceived(received: unknown): string {
+  if (received === null || received === undefined) {
+    return String(received);
+  }
+
+  const name: unknown = Reflect.get(Object(Reflect.get(Object(received), 'constructor')), 'name');
+
+  return typeof received === 'object' && typeof name === 'string' && name !== 'Object' ? `a ${name}` : typeof received;
 }
 
 function directiveResult(received: unknown, directive: Type<unknown>, selector?: string): MatcherResult {
@@ -80,7 +98,13 @@ function directiveResult(received: unknown, directive: Type<unknown>, selector?:
   // Thrown rather than answered with `{ pass: false }`: a `nativeElement` or an `undefined` handed
   // over by mistake is not a failed assertion, and under `.not` a returned `false` passed.
   if (!root) {
-    throw new Error(`expected a ComponentFixture or a DebugElement, received ${typeof received}.`);
+    throw new Error(
+      withDocs(
+        `[vitest-auto-spy] toHaveDirectiveApplied: expected a ComponentFixture or a DebugElement, received ${describeReceived(received)}.\n` +
+          'Pass the fixture itself, or fixture.debugElement — not fixture.nativeElement.',
+        DOCS_LINKS.angularDirectiveApplied,
+      ),
+    );
   }
 
   const withDirective = root.queryAll(By.directive(directive));
@@ -93,7 +117,7 @@ function directiveResult(received: unknown, directive: Type<unknown>, selector?:
     pass: applied,
     message: (): string =>
       applied
-        ? `expected ${directive.name} not to be applied, but it is on ${withDirective.length} element(s).`
+        ? `[vitest-auto-spy] expected ${directive.name} not to be applied, but it is on ${count(withDirective.length, 'element')}.`
         : diagnose(directive, selector, root),
   };
 }

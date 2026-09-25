@@ -39,8 +39,10 @@ describe('toHaveDirectiveApplied', () => {
     const fixture = TestBed.createComponent(Host);
     fixture.detectChanges();
 
-    expect(() => expect(fixture).toHaveDirectiveApplied(HighlightDirective)).toThrow(/ɵɵsetNgModuleScope/);
-    expect(() => expect(fixture).toHaveDirectiveApplied(HighlightDirective)).toThrow(/createDirectiveHost/);
+    expect(() => expect(fixture).toHaveDirectiveApplied(HighlightDirective)).toThrow(
+      /^\[vitest-auto-spy\] expected HighlightDirective to be applied, but it is not on any element of this fixture — HighlightDirective is declared by an NgModule[^\n]*\nBuild the host with createDirectiveHost\(\{ template, scope: \[ItsModule\] \}\)\.\nDocs: /,
+    );
+    expect(() => expect(fixture).toHaveDirectiveApplied(HighlightDirective)).not.toThrow(/NO_ERRORS_SCHEMA/);
   });
 
   it('says so when the directive is standalone', () => {
@@ -51,7 +53,9 @@ describe('toHaveDirectiveApplied', () => {
     const fixture = TestBed.createComponent(Host);
     fixture.detectChanges();
 
-    expect(() => expect(fixture).toHaveDirectiveApplied(LonerDirective)).toThrow(/standalone, so it belongs in the host component’s own/);
+    expect(() => expect(fixture).toHaveDirectiveApplied(LonerDirective)).toThrow(
+      /LonerDirective is standalone, so only the host component's own imports put it in scope\.\n.*scope: \[LonerDirective\]/,
+    );
   });
 
   it('separates "no such element" from "no such directive"', () => {
@@ -74,7 +78,11 @@ describe('toHaveDirectiveApplied', () => {
     fixture.detectChanges();
 
     expect(fixture).not.toHaveDirectiveApplied(HighlightDirective);
-    expect(() => expect('a string').toHaveDirectiveApplied(HighlightDirective)).toThrow(/expected a ComponentFixture or a DebugElement/);
+    expect(() => expect('a string').toHaveDirectiveApplied(HighlightDirective)).toThrow(
+      /toHaveDirectiveApplied: expected a ComponentFixture or a DebugElement, received string\.\nPass the fixture itself/,
+    );
+    expect(() => expect(null).toHaveDirectiveApplied(HighlightDirective)).toThrow(/received null\./);
+    expect(() => expect(document.createElement('div')).toHaveDirectiveApplied(HighlightDirective)).toThrow(/received a HTMLDivElement\./);
     // An object, but not one that can be queried — a `nativeElement` handed over by mistake.
     expect(() => expect({ tagName: 'DIV' }).toHaveDirectiveApplied(HighlightDirective)).toThrow(
       /expected a ComponentFixture or a DebugElement/,
