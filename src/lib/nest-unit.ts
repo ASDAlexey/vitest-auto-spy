@@ -17,7 +17,8 @@
  * Nothing from `@nestjs/*` is imported. The metadata keys are the constants `@nestjs/common` writes;
  * they have been stable since Nest 5 and are read here as strings for that reason.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { createSpyForToken } from './track-injections';
 import type { ClassType, Spy } from './types';
 
@@ -147,7 +148,7 @@ class NestGraph {
   }
 
   fail(message: string): Error {
-    return new Error(withDocs(`[vitest-auto-spy] createNestUnit(${describeToken(this.target)}): ${message}`, DOCS_LINKS.nestjs));
+    return new Error(withDocs(`[vitest-auto-spy] createNestUnit(${describeToken(this.target)}): ${message}`, DOCS_LINKS.nestUnitRefusals));
   }
 
   autoSpiedTokens(): unknown[] {

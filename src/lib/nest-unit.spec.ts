@@ -369,7 +369,7 @@ describe('createNestUnit: what it refuses', () => {
 
   it('ends every message with the docs link', () => {
     expect(() => createNestUnit(CartService).spies.get(Logger)).toThrow(
-      /\nDocs: https:\/\/asdalexey\.github\.io\/vitest-auto-spy\/adapters\/nestjs$/,
+      /\nDocs: https:\/\/asdalexey\.github\.io\/vitest-auto-spy\/adapters\/nestjs#what-it-refuses-and-what-the-message-says$/,
     );
   });
 });
