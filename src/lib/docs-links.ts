@@ -54,6 +54,7 @@ export const angularMockResource =
 export const angularResources = 'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#resources-httpresource-and-resource';
 export const angularSignalProp = 'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#signal-readonly-property-mocking';
 export const angularStable = 'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#zoneless-waiting';
+export const angularTypedElements = 'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#typed-elements-under-a-strict-lint';
 export const angularTrackRuns = 'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#counting-recomputations-and-effect-runs';
 export const angularSplittingOff =
   'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#when-the-unit-test-build-has-code-splitting-off';

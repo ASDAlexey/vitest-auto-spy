@@ -11,6 +11,8 @@
  * is a fact rather than a claim: a selector that matches nothing, or matches an element of another
  * kind, fails at the call that asked, with the selector and what it found in the message.
  */
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /** A `ComponentFixture` or a `DebugElement` — the only member read is `nativeElement`. */
 export interface NativeElementHolder {
@@ -27,12 +29,28 @@ function describeElement(element: Element): string {
   return `<${element.tagName.toLowerCase()}${classes}> (${element.constructor.name})`;
 }
 
-function rootElement(helper: string, source: Element | NativeElementHolder): Element {
+function fail(message: string): string {
+  return withDocs(`[vitest-auto-spy] ${message}`, DOCS_LINKS.angularTypedElements);
+}
+
+function rootElement(helper: string, source: Element | NativeElementHolder | null): Element {
+  // DebugElement.query() is typed non-null but returns null on a miss, so the type check cannot catch it.
+  if (source === null) {
+    throw new TypeError(
+      fail(
+        `${helper}: received null instead of a ComponentFixture, a DebugElement or an Element — a debugElement.query() that matched nothing?\n` +
+          'Check the predicate against the rendered template, or use queryElement(fixture, selector), which names the selector on a miss.',
+      ),
+    );
+  }
+
   const element = source instanceof Element ? source : source.nativeElement;
 
   if (!(element instanceof Element)) {
     throw new TypeError(
-      `${helper}: expected a ComponentFixture, a DebugElement or an Element, received a nativeElement of ${element === null ? 'null' : typeof element}.`,
+      fail(
+        `${helper}: expected a ComponentFixture, a DebugElement or an Element, received a nativeElement of ${element === null ? 'null' : typeof element}.`,
+      ),
     );
   }
 
@@ -41,7 +59,7 @@ function rootElement(helper: string, source: Element | NativeElementHolder): Ele
 
 function checkType<E extends Element>(element: Element, type: ElementConstructor<E>, what: string, helper: string): E {
   if (!(element instanceof type)) {
-    throw new TypeError(`${helper}: ${what} ${describeElement(element)}, not ${type.name}.`);
+    throw new TypeError(fail(`${helper}: ${what} ${describeElement(element)}, not ${type.name}.`));
   }
 
   return element;
@@ -57,7 +75,7 @@ function checkType<E extends Element>(element: Element, type: ElementConstructor
  *
  * @param source A `ComponentFixture` or a `DebugElement`.
  * @param type The element type to check against and return; `HTMLElement` when omitted.
- * @throws TypeError when `nativeElement` is not an element, or not an instance of `type`.
+ * @throws TypeError when `source` is null, `nativeElement` is not an element, or it is not an instance of `type`.
  */
 export function hostElement(source: NativeElementHolder): HTMLElement;
 export function hostElement<E extends Element>(source: NativeElementHolder, type: ElementConstructor<E>): E;
@@ -94,8 +112,10 @@ export function queryElement(
 
   if (match === null) {
     throw new Error(
-      `queryElement: no element matches '${selector}' inside ${describeElement(root)}.\n` +
-        'Render first (`fixture.detectChanges()` or `await stable(fixture)`), then check the selector against the template.',
+      fail(
+        `queryElement: no element matches '${selector}' inside ${describeElement(root)}.\n` +
+          'Render first (`fixture.detectChanges()` or `await stable(fixture)`), then check the selector against the template.',
+      ),
     );
   }
 

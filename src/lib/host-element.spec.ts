@@ -8,7 +8,10 @@ import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { describe, expect, it } from 'vitest';
 
+import { angularTypedElements } from './docs-links';
 import { hostElement, queryElement } from './host-element';
+
+const DOCS_LINE = `\nDocs: ${angularTypedElements}`;
 
 @Component({
   selector: 'app-dialog',
@@ -48,7 +51,9 @@ describe('hostElement', () => {
   it('refuses an element that is not an instance of the requested type', () => {
     const svg = render(DialogComponent).debugElement.query(By.css('svg'));
 
-    expect(() => hostElement(svg)).toThrow(new TypeError('hostElement: the host is <svg> (SVGSVGElement), not HTMLElement.'));
+    expect(() => hostElement(svg)).toThrow(
+      new TypeError(`[vitest-auto-spy] hostElement: the host is <svg> (SVGSVGElement), not HTMLElement.${DOCS_LINE}`),
+    );
   });
 
   it.each([
@@ -56,7 +61,20 @@ describe('hostElement', () => {
     ['string', '<app-dialog>'],
   ])('refuses a nativeElement of %s', (description, nativeElement) => {
     expect(() => hostElement({ nativeElement })).toThrow(
-      `hostElement: expected a ComponentFixture, a DebugElement or an Element, received a nativeElement of ${description}.`,
+      `[vitest-auto-spy] hostElement: expected a ComponentFixture, a DebugElement or an Element, received a nativeElement of ${description}.${DOCS_LINE}`,
+    );
+  });
+
+  it('names the likely cause when it is handed the null of a debugElement.query() that matched nothing', () => {
+    const fixture = render(DialogComponent);
+
+    expect(() => hostElement(fixture.debugElement.query(By.css('button')))).toThrow(
+      new TypeError(
+        '[vitest-auto-spy] hostElement: received null instead of a ComponentFixture, a DebugElement or an Element — ' +
+          'a debugElement.query() that matched nothing?\n' +
+          'Check the predicate against the rendered template, or use queryElement(fixture, selector), which names the selector on a miss.' +
+          DOCS_LINE,
+      ),
     );
   });
 });
@@ -85,7 +103,7 @@ describe('queryElement', () => {
     const fixture = render(DialogComponent);
 
     expect(() => queryElement(fixture, '.missing')).toThrow(
-      /^queryElement: no element matches '\.missing' inside <div> \(HTMLDivElement\)\./,
+      /^\[vitest-auto-spy\] queryElement: no element matches '\.missing' inside <div> \(HTMLDivElement\)\.[\s\S]*\nDocs: https:/,
     );
   });
 
@@ -93,11 +111,21 @@ describe('queryElement', () => {
     const fixture = render(DialogComponent);
 
     expect(() => queryElement(fixture, '.close', HTMLButtonElement)).toThrow(
-      new TypeError("queryElement: '.close' matched <a.close.primary> (HTMLAnchorElement), not HTMLButtonElement."),
+      new TypeError(
+        `[vitest-auto-spy] queryElement: '.close' matched <a.close.primary> (HTMLAnchorElement), not HTMLButtonElement.${DOCS_LINE}`,
+      ),
     );
   });
 
   it('refuses a source without an element', () => {
-    expect(() => queryElement({ nativeElement: undefined }, 'a')).toThrow(/^queryElement: expected a ComponentFixture/);
+    expect(() => queryElement({ nativeElement: undefined }, 'a')).toThrow(/^\[vitest-auto-spy\] queryElement: expected a ComponentFixture/);
+  });
+
+  it('refuses the null of a debugElement.query() that matched nothing with its own error', () => {
+    const fixture = render(DialogComponent);
+
+    expect(() => queryElement(fixture.debugElement.query(By.css('button')), 'a')).toThrow(
+      /^\[vitest-auto-spy\] queryElement: received null instead of a ComponentFixture, a DebugElement or an Element — a debugElement\.query\(\) that matched nothing\?/,
+    );
   });
 });

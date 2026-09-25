@@ -5,6 +5,7 @@
  */
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { describe, expect, it } from 'bun:test';
 
 import { hostElement, queryElement, stable } from '../bun-angular';
@@ -27,6 +28,15 @@ describe('hostElement and queryElement on bun:test', () => {
 
     expect(() => queryElement(fixture, '.close', HTMLButtonElement)).toThrow(
       /'\.close' matched <a\.close> \(HTMLAnchorElement\), not HTMLButtonElement/,
+    );
+  });
+
+  it('refuses the null of a debugElement.query() that matched nothing', async () => {
+    const fixture = TestBed.createComponent(SearchComponent);
+    await stable(fixture);
+
+    expect(() => hostElement(fixture.debugElement.query(By.css('button')))).toThrow(
+      /^\[vitest-auto-spy\] hostElement: received null instead of a ComponentFixture/,
     );
   });
 });
