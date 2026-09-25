@@ -6,8 +6,10 @@
  * `vitest-auto-spy/angular` re-exports them because that is where they were introduced, and the
  * core barrel exports them too so a React/Vue/Node suite can use the same undo bookkeeping.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { libraryWarn } from './guard-reaction';
+import { withDocs } from './message-link';
+import { count, displayPath } from './message-text';
 import { getMockAdapter } from './mock-adapter';
 import { isCannotRedefine, redefineFailure } from './redefine-failure';
 import { currentSpecFile } from './spec-file';
@@ -33,6 +35,8 @@ interface PatchedProp {
   epoch: number;
   /** Which spec file was running when the patch was recorded — the comparison behind {@link reportHeldEntries}. */
   file: unknown;
+  /** The helper that made the patch, for the reports that name it. */
+  helper: string;
 }
 
 /**
@@ -118,7 +122,56 @@ let reportedHeldIn: unknown;
 
 /** `currentSpecFile()` is `unknown` by design: a runner that never names its files still has its entries held, and the report says so instead of printing `undefined`. */
 function describeSpecFile(file: unknown): string {
-  return typeof file === 'string' ? file : 'a file this runner did not name';
+  return typeof file === 'string' ? displayPath(file) : 'a file this runner did not name';
+}
+
+/** `globalThis`, `document`, `Cart.prototype`, `Cart`, `a Cart`: the object a patch was made on, as a spec names it. */
+function describeOwner(object: object): string {
+  if (object === globalThis) {
+    return 'globalThis';
+  }
+
+  if (object === Reflect.get(globalThis, 'document')) {
+    return 'document';
+  }
+
+  if (typeof object === 'function') {
+    return object.name === '' ? 'a function' : object.name;
+  }
+
+  const constructor: unknown = Reflect.get(object, 'constructor');
+  const name = typeof constructor === 'function' ? constructor.name : '';
+
+  if (Reflect.get(Object(constructor), 'prototype') === object) {
+    return `${name}.prototype`;
+  }
+
+  return name === '' || name === 'Object' ? 'an object' : `a ${name}`;
+}
+
+/** Whether {@link describeOwner} named something a spec can write, rather than described it. */
+function isNamed(owner: string): boolean {
+  return !owner.includes(' ');
+}
+
+function describePatch({ object, property }: PatchedProp): string {
+  const owner = describeOwner(object);
+
+  return isNamed(owner) ? `${owner}.${String(property)}` : `'${String(property)}' on ${owner}`;
+}
+
+function describeCall({ helper, object, property }: PatchedProp): string {
+  const owner = describeOwner(object);
+
+  return isNamed(owner) ? `${helper}(${owner}, '${String(property)}')` : `${helper}(…, '${String(property)}') on ${owner}`;
+}
+
+const LISTED_PATCHES = 5;
+
+function listPatches(patches: readonly PatchedProp[]): string {
+  const shown = patches.slice(0, LISTED_PATCHES).map(describePatch).join(', ');
+
+  return patches.length > LISTED_PATCHES ? `${shown} and ${patches.length - LISTED_PATCHES} more` : shown;
 }
 
 /**
@@ -151,19 +204,10 @@ function reportHeldEntries(patches: readonly PatchedProp[], file: unknown): void
     return;
   }
 
-  let held = 0;
-  let latestFile: unknown;
+  const held = patches.filter((patch) => !patch.undone && patch.file !== file);
+  const latest = held.at(-1);
 
-  for (const patch of patches) {
-    if (patch.undone || patch.file === file) {
-      continue;
-    }
-
-    held += 1;
-    latestFile = patch.file;
-  }
-
-  if (held === 0) {
+  if (latest === undefined) {
     return;
   }
 
@@ -171,9 +215,10 @@ function reportHeldEntries(patches: readonly PatchedProp[], file: unknown): void
 
   libraryWarn(
     withDocs(
-      `[vitest-auto-spy] ${held} mock*Prop patch(es) from earlier spec files — most recently ${describeSpecFile(latestFile)} — are still in the journal while this file records another.\n` +
-        'The patches are still on their objects, and every entry holds its object and the original descriptor for the rest of the worker. ' +
-        "Call restoreMockedProps() to sweep what is left — vi.restoreAllMocks() does not — or install setupAutoSpy() from 'vitest-auto-spy/setup', which sweeps after every test.",
+      `[vitest-auto-spy] ${count(held.length, 'mock*Prop patch', 'mock*Prop patches')} from earlier spec files, most recently ` +
+        `${describeSpecFile(latest.file)}, ${held.length === 1 ? 'is' : 'are'} still in place while ${describeSpecFile(file)} records another: ` +
+        `${listPatches(held)}.\n` +
+        "Install setupAutoSpy() from 'vitest-auto-spy/setup', which puts them back after every test, or call restoreMockedProps() in an afterEach.",
       DOCS_LINKS.setup,
     ),
   );
@@ -184,7 +229,7 @@ function reportHeldEntries(patches: readonly PatchedProp[], file: unknown): void
  * alone — for the common case of a stub that must come off inside one test rather than at the end
  * of the file. {@link restoreMockedProps} undoes whatever is left.
  */
-function rememberProp<T>(object: T, property: PropertyKey, descriptor: PropertyDescriptor | undefined): RestoreProp {
+function rememberProp<T>(object: T, property: PropertyKey, descriptor: PropertyDescriptor | undefined, helper: string): RestoreProp {
   const file = currentSpecFile();
   const patches = getPatchedProps();
 
@@ -200,6 +245,7 @@ function rememberProp<T>(object: T, property: PropertyKey, descriptor: PropertyD
     undone: false,
     epoch: propEpoch().current,
     file,
+    helper,
   };
 
   patches.push(patch);
@@ -238,7 +284,7 @@ type PatchDescriptor = Omit<PropertyDescriptor, 'set'> & { set?: ((value: never)
  * happened would otherwise sit in the journal until the next `restoreMockedProps()` reported a
  * teardown failure for it, turning one confusing message into two.
  */
-function applyPatch<T>(object: T, property: PropertyKey, descriptor: PatchDescriptor): RestoreProp {
+function applyPatch<T>(object: T, property: PropertyKey, descriptor: PatchDescriptor, helper: string): RestoreProp {
   const previous = Object.getOwnPropertyDescriptor(object, property);
 
   try {
@@ -250,13 +296,14 @@ function applyPatch<T>(object: T, property: PropertyKey, descriptor: PatchDescri
         `Cannot mock the property '${String(property)}': it is not configurable, so it cannot be redefined.`,
         Object(object),
         error,
+        property,
       );
     }
 
     throw error;
   }
 
-  return rememberProp(object, property, previous);
+  return rememberProp(object, property, previous, helper);
 }
 
 /** Put one recorded descriptor back, or drop the property when the helper introduced it. */
@@ -278,12 +325,11 @@ function restorePatch({ object, property, descriptor }: PatchedProp): void {
  */
 function describeRestoreFailures(failures: readonly string[]): string {
   return withDocs(
-    `[vitest-auto-spy] restoreMockedProps() could not put ${failures.length} of the patched properties back:\n${failures.join('\n')}\n` +
-      'A property that was redefined as non-configurable can never be restored — `Object.defineProperty` defaults ' +
-      '`configurable` to `false`, so a plain redefinition of an already-mocked property seals it for the rest of the worker. ' +
-      "`setupAutoSpy({ guardGlobals: 'throw' })` names the test that does it. Every other patch of this sweep was restored, and " +
-      'the journal is empty either way — nothing here is replayed against a descriptor that has since moved on.',
-    DOCS_LINKS.setup,
+    `[vitest-auto-spy] restoreMockedProps() could not put ${count(failures.length, 'patched property', 'patched properties')} back; every other patch was restored:\n` +
+      `${failures.join('\n')}\n` +
+      'Something redefined it as non-configurable after the patch (Object.defineProperty defaults configurable to false), so it stays ' +
+      "for the rest of the worker. setupAutoSpy({ guardGlobals: 'throw' }) names the test that does it.",
+    DOCS_LINKS.setupGlobals,
   );
 }
 
@@ -371,21 +417,19 @@ function reportOutsideHook(patches: readonly PatchedProp[]): void {
     return;
   }
 
-  const fresh = patches.filter(firstReportOf).map((patch) => String(patch.property));
+  const fresh = patches.filter(firstReportOf);
+  const first = fresh[0];
 
-  if (fresh.length === 0) {
+  if (first === undefined) {
     return;
   }
 
+  const calls = fresh.map(describeCall).join(', ');
   const message = withDocs(
-    `[vitest-auto-spy] ${fresh.join(', ')} — patched outside a per-test hook, and the patch is now off for good.\n` +
-      'A `mock*Prop` patch is undone by the sweep that runs after the test **during which it was applied**, whenever it was ' +
-      'created. One written in a `describe` body or in `beforeAll` therefore survives exactly one test: the first passes, ' +
-      'every test after it reads the real member, and the failure surfaces as `… is not a function` nowhere near the line ' +
-      'that caused it.\n' +
-      'Move the call into `beforeEach`, which is where a patch every test needs belongs — it costs one line and the patch ' +
-      'is then re-applied for each test.',
-    DOCS_LINKS.setup,
+    `[vitest-auto-spy] ${calls} in ${describeSpecFile(first.file)} ran outside a per-test hook, so the sweep after the first test ` +
+      `took ${fresh.length === 1 ? 'it' : 'them'} off for good and every later test reads the real member.\n` +
+      'Move the call into beforeEach, so it is applied again for each test.',
+    DOCS_LINKS.setupWrongHook,
   );
 
   if (outsideHookReaction() === 'throw') {
@@ -444,7 +488,7 @@ export function restoreMockedProps(): void {
     try {
       restorePatch(patch);
     } catch (error) {
-      failures.push(`  - ${String(patch.property)}: ${String(error)}`);
+      failures.push(`  - ${describePatch(patch)}: ${String(error)}`);
     }
   }
 
@@ -476,7 +520,7 @@ export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unk
 export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp {
   // `set: undefined` is load-bearing: defineProperty over an existing get/set pair inherits the
   // missing attributes, so without it the real setter stays live and writes vanish into it silently.
-  return applyPatch(object, property, { get: () => value, set: undefined, configurable: true });
+  return applyPatch(object, property, { get: () => value, set: undefined, configurable: true }, 'mockReadonlyProp');
 }
 
 /**
@@ -495,7 +539,7 @@ export function mockReadonlyPropGetter<T, K extends keyof T>(object: T, property
 export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, getter: () => unknown): RestoreProp;
 export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, getter: () => unknown): RestoreProp {
   // See mockReadonlyProp for why `set` must be named explicitly.
-  return applyPatch(object, property, { get: getter, set: undefined, configurable: true });
+  return applyPatch(object, property, { get: getter, set: undefined, configurable: true }, 'mockReadonlyPropGetter');
 }
 
 /**
@@ -517,7 +561,7 @@ export function mockValueProp<T, K extends keyof T>(object: T, property: K, valu
 /** For members the public type does not describe — TS `private` members, ad-hoc keys. A JS `#private` field is out of reach of any property key. */
 export function mockValueProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp;
 export function mockValueProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp {
-  return applyPatch(object, property, { value, writable: true, configurable: true });
+  return applyPatch(object, property, { value, writable: true, configurable: true }, 'mockValueProp');
 }
 
 /**
@@ -540,9 +584,14 @@ export function mockAccessorsProp<T>(object: T, property: PropertyKey, accessors
 export function mockAccessorsProp<T>(object: T, property: PropertyKey, accessors?: AccessorImplementations): RestoreProp {
   const adapter = getMockAdapter();
 
-  return applyPatch(object, property, {
-    get: adapter.createMockFn(accessors?.get),
-    set: adapter.createMockFn(accessors?.set),
-    configurable: true,
-  });
+  return applyPatch(
+    object,
+    property,
+    {
+      get: adapter.createMockFn(accessors?.get),
+      set: adapter.createMockFn(accessors?.set),
+      configurable: true,
+    },
+    'mockAccessorsProp',
+  );
 }

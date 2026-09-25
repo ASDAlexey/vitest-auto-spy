@@ -27,7 +27,9 @@ describe('restoreMockedProps, when a patch cannot be undone', () => {
     // holds the original descriptor for, so nothing can ever put that descriptor back.
     Object.defineProperty(sealed, 'value', { value: 'sealed', configurable: false });
 
-    expect(() => restoreMockedProps()).toThrow(/could not put 1 of the patched properties back[\s\S]*- value: TypeError/);
+    expect(() => restoreMockedProps()).toThrow(
+      /could not put 1 patched property back; every other patch was restored:\n {2}- 'value' on an object: TypeError[\s\S]*Docs: .*#_7-naming/,
+    );
 
     // Swept newest first, so the sealed patch failed before this one was even reached.
     expect(restorable.value).toBe('real');
@@ -45,7 +47,7 @@ describe('restoreMockedProps, when a patch cannot be undone', () => {
     Object.defineProperty(first, 'value', { value: 'sealed', configurable: false });
     Object.defineProperty(second, 'value', { value: 'sealed', configurable: false });
 
-    expect(() => restoreMockedProps()).toThrow(/could not put 2 of the patched properties back/);
+    expect(() => restoreMockedProps()).toThrow(/could not put 2 patched properties back/);
   });
 });
 
@@ -88,7 +90,34 @@ describe('a property that refuses to be replaced', () => {
 
   it('says what was attempted, on what, and what to do instead', () => {
     expect(() => mockValueProp(sealed(), 'value', 'patched')).toThrow(
-      /Cannot mock the property 'value': it is not configurable[\s\S]*Give the code under test a real seam/,
+      /Cannot mock the property 'value': it is not configurable[\s\S]*The target is a plain object\.\nHand the code under test a copy \(\{ \.\.\.object \}\) and patch that, or a double built with createAutoMock<T>\(\)\.\nDocs: .*auto-mock-by-type$/,
+    );
+  });
+
+  it('names the class prototype a patch it could not put back was made on', () => {
+    class Cart {
+      total(): number {
+        return 0;
+      }
+    }
+
+    mockValueProp(Cart.prototype, 'total', () => 1);
+    Object.defineProperty(Cart.prototype, 'total', { value: () => 2, configurable: false });
+
+    expect(() => restoreMockedProps()).toThrow('  - Cart.prototype.total: TypeError');
+  });
+
+  it('suggests a double that spies the getter, for a locked field of a class instance', () => {
+    class Settings {
+      readonly region = 'eu';
+    }
+
+    const settings = new Settings();
+
+    Object.defineProperty(settings, 'region', { value: 'eu', configurable: false });
+
+    expect(() => mockValueProp(settings, 'region', 'us')).toThrow(
+      "Build a double instead of patching the real instance: createSpyFromClass(Settings, { gettersToSpyOn: ['region'] }).",
     );
   });
 
@@ -146,6 +175,35 @@ describe('a patch applied outside a per-test hook', () => {
     reportPropsOutsideHooks('warn');
   });
 
+  it('names each object as a spec would write it', () => {
+    class Cart {
+      static region = 'eu';
+      readonly id = 1;
+    }
+
+    const anonymous = Object.assign((): undefined => undefined, { value: 1 });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    Object.defineProperty(anonymous, 'name', { value: '' });
+
+    sweepAfterANewTest(() => {
+      mockValueProp(Object.create(null) as object, 'bare', 1);
+      mockValueProp(globalThis, 'patchedForTheReport', 1);
+      mockValueProp(document, 'patchedForTheReport', 1);
+      mockValueProp(Cart, 'region', 'us');
+      mockValueProp(Cart.prototype, 'patchedForTheReport', 1);
+      mockValueProp(new Cart(), 'id', 2);
+      mockValueProp(anonymous, 'value', 2);
+    });
+
+    expect(warn.mock.calls[0]?.[0]).toContain(
+      "mockValueProp(…, 'value') on a function, mockValueProp(…, 'id') on a Cart, mockValueProp(Cart.prototype, 'patchedForTheReport'), " +
+        "mockValueProp(Cart, 'region'), mockValueProp(document, 'patchedForTheReport'), mockValueProp(globalThis, 'patchedForTheReport'), mockValueProp(…, 'bare') on an object in ",
+    );
+    expect(warn.mock.calls[0]?.[0]).toContain('took them off for good');
+    warn.mockRestore();
+  });
+
   it('warns, naming the property and the hook to move it to', () => {
     const host = { value: 'real' };
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -153,8 +211,13 @@ describe('a patch applied outside a per-test hook', () => {
     sweepAfterANewTest(() => mockValueProp(host, 'value', 'patched'));
 
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain('value — patched outside a per-test hook');
-    expect(warn.mock.calls[0]?.[0]).toContain('`beforeEach`');
+    expect(warn.mock.calls[0]?.[0]).toBe(
+      "[vitest-auto-spy] mockValueProp(…, 'value') on an object in src/lib/prop-mock.spec.ts ran outside a per-test hook, " +
+        'so the sweep after the first test took it off for good and every later test reads the real member.\n' +
+        'Move the call into beforeEach, so it is applied again for each test.\n' +
+        'Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#a-patch-put-in-the-wrong-hook-stops-applying',
+    );
+    expect(warn.mock.calls[0]?.[0]).not.toContain('**');
 
     warn.mockRestore();
   });
@@ -223,7 +286,7 @@ describe('a patch applied outside a per-test hook', () => {
 
     const host = { value: 'real' };
 
-    expect(() => sweepAfterANewTest(() => mockValueProp(host, 'value', 'patched'))).toThrow(/patched outside a per-test hook/);
+    expect(() => sweepAfterANewTest(() => mockValueProp(host, 'value', 'patched'))).toThrow(/ran outside a per-test hook/);
     // The sweep finished before the report, so the property is real again whatever the reaction.
     expect(host.value).toBe('real');
   });
@@ -274,6 +337,19 @@ describe('journal entries held across spec files', () => {
   beforeEach(sweepQuietly);
   afterEach(sweepQuietly);
 
+  it('lists five of the held patches and counts the rest', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    inSpecFile('/held/wide.spec.ts', () => {
+      for (let index = 0; index < 7; index += 1) {
+        mockValueProp({ value: 'real' }, 'value', 'patched');
+      }
+    });
+    inSpecFile('/held/after-wide.spec.ts', () => mockValueProp(Object.create(null) as object, 'value', 'patched'));
+
+    expect(warn.mock.calls[0]?.[0]).toContain(`${Array.from({ length: 5 }, () => "'value' on an object").join(', ')} and 2 more.`);
+  });
+
   it("warns when the next file records over a journal still holding the previous file's patches", () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -281,8 +357,9 @@ describe('journal entries held across spec files', () => {
     inSpecFile('/held/second.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
 
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain('1 mock*Prop patch(es) from earlier spec files');
-    expect(warn.mock.calls[0]?.[0]).toContain('most recently /held/first.spec.ts');
+    expect(warn.mock.calls[0]?.[0]).toContain(
+      "1 mock*Prop patch from earlier spec files, most recently /held/first.spec.ts, is still in place while /held/second.spec.ts records another: 'value' on an object.",
+    );
     expect(warn.mock.calls[0]?.[0]).toContain('restoreMockedProps()');
     expect(warn.mock.calls[0]?.[0]).toContain('setupAutoSpy');
 
@@ -336,7 +413,7 @@ describe('journal entries held across spec files', () => {
     inSpecFile('/held/tenth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
 
     expect(warn).toHaveBeenCalledTimes(2);
-    expect(warn.mock.calls[1]?.[0]).toContain('2 mock*Prop patch(es) from earlier spec files');
+    expect(warn.mock.calls[1]?.[0]).toContain('2 mock*Prop patches from earlier spec files');
     expect(warn.mock.calls[1]?.[0]).toContain('most recently /held/ninth.spec.ts');
 
     warn.mockRestore();
@@ -390,7 +467,7 @@ describe('journal entries held across spec files', () => {
     inSpecFile('/held/after-partial.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
 
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain('1 mock*Prop patch(es) from earlier spec files');
+    expect(warn.mock.calls[0]?.[0]).toContain('1 mock*Prop patch from earlier spec files');
     expect(warn.mock.calls[0]?.[0]).toContain('most recently /held/partial.spec.ts');
 
     warn.mockRestore();
