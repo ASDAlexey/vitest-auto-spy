@@ -12,7 +12,8 @@
  * (`vitest-auto-spy` + `vitest-auto-spy/angular`) is a single copy, and `vi.resetModules()`
  * re-instantiating this module registers the same copy again. Neither is a duplicate.
  */
-import { DOCS_LINKS } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /**
  * Registered copies, keyed by identity and valued by package root, kept on `globalThis` so that
@@ -84,44 +85,26 @@ export function describeDuplicateCopies(): string | undefined {
     return undefined;
   }
 
-  const distinctRoots = new Set(copies.values());
-  const cause =
-    distinctRoots.size > 1
-      ? `vitest-auto-spy is loaded ${copies.size} times from different installs:`
-      : `vitest-auto-spy is loaded ${copies.size} times from one install, in both module formats:`;
+  const separateInstalls = new Set(copies.values()).size > 1;
+  const cause = separateInstalls
+    ? `[vitest-auto-spy] vitest-auto-spy is loaded ${copies.size} times, from different installs:`
+    : `[vitest-auto-spy] vitest-auto-spy is loaded ${copies.size} times from one install, as ESM and as CommonJS:`;
 
-  return [
-    cause,
-    ...getPackageCopies().map((copy) => `  - ${copy}`),
-    '',
-    ...remedyFor(distinctRoots.size > 1),
-    '',
-    `Docs: ${DOCS_LINKS.setup}`,
-  ].join('\n');
+  return withDocs(
+    [
+      cause,
+      ...getPackageCopies().map((copy) => `  - ${copy}`),
+      'Each copy keeps its own console spies and registries, so an assertion can read a spy the code under test never called.',
+      remedyFor(separateInstalls),
+    ].join('\n'),
+    DOCS_LINKS.setupCopies,
+  );
 }
 
-function remedyFor(separateInstalls: boolean): string[] {
-  const shared = [
-    'Each copy keeps its own console spies and registries, so assertions run against a spy that',
-    'never replaced the console/property the code under test touched — tests then fail depending',
-    'on file order.',
-  ];
-
-  if (separateInstalls) {
-    return [
-      ...shared,
-      'Collapse the tree to one copy:',
-      '  1. `npm ls vitest-auto-spy` (or `bun pm ls`) to see who pulls the second one in;',
-      '  2. align the versions, or pin one with `overrides` (npm) / `resolutions` (yarn, bun);',
-      '  3. re-run with a clean `node_modules` if a lockfile hoisted both.',
-    ];
-  }
-
-  return [
-    ...shared,
-    'One install is being loaded both as ESM and as CommonJS. Pick one:',
-    '  1. make sure nothing `require()`s the package while the rest of the suite `import`s it;',
-    '  2. in Vitest, drop the package from `server.deps.inline` / `deps.optimizer` if it is listed there;',
-    '  3. check that a setup file and a spec do not reach it through different specifiers.',
-  ];
+function remedyFor(separateInstalls: boolean): string {
+  return separateInstalls
+    ? '`npm ls vitest-auto-spy` shows who pulls in the second copy; align the versions, or pin one with `overrides` (npm) / ' +
+        '`resolutions` (yarn, bun).'
+    : 'Something require()s the package while the rest imports it: reach it through import everywhere, and drop it from ' +
+        '`server.deps.inline` / `deps.optimizer` if it is listed there.';
 }

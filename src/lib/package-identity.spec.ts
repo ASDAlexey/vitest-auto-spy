@@ -58,9 +58,10 @@ describe('describeDuplicateCopies', () => {
 
     const report = describeDuplicateCopies();
 
-    expect(report).toContain('vitest-auto-spy is loaded 2 times from different installs');
+    expect(report).toMatch(/^\[vitest-auto-spy\] vitest-auto-spy is loaded 2 times, from different installs:/);
     expect(report).toContain('file:///app/node_modules/other/node_modules/vitest-auto-spy (esm)');
     expect(report).toContain('npm ls vitest-auto-spy');
+    expect(report).toMatch(/\nDocs: \S+#_2-one-copy-of-the-library-in-the-process$/);
   });
 
   it('reports one install loaded in both module formats, and what to do instead', () => {
@@ -70,7 +71,7 @@ describe('describeDuplicateCopies', () => {
 
     const report = describeDuplicateCopies();
 
-    expect(report).toContain('from one install, in both module formats');
+    expect(report).toContain('[vitest-auto-spy] vitest-auto-spy is loaded 2 times from one install, as ESM and as CommonJS:');
     expect(report).toContain('server.deps.inline');
   });
 });
