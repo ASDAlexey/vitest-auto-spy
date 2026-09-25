@@ -8,7 +8,7 @@
  * `vi.isFakeTimers() === true` with `vi.getTimerCount() === 1` read from inside it — which is the
  * whole of the mechanism this module rests on.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { annotateFrozenClockTimeout, describeFrozenClock, readFrozenClock } from './frozen-clock';
 
@@ -43,10 +43,39 @@ describe('describeFrozenClock', () => {
   it('names the backlog, the repair, and the repair that cannot work', () => {
     const message = describeFrozenClock({ pending: 2 });
 
-    expect(message).toContain('2 callback(s) are queued on it');
+    expect(message).toContain('[vitest-auto-spy] the clock is frozen and 2 callbacks are queued on it');
     expect(message).toContain('advanceTimersByTimeAsync');
-    expect(message).toContain('Raising the timeout cannot help');
-    expect(message).toContain('setImmediate');
+    expect(message).toContain('raising the timeout cannot help');
+    expect(message).not.toContain('setImmediate');
+    expect(message).toMatch(/\nDocs: \S+\/utilities\/setup#_12-a-timeout-the-clock-explains-not-the-code$/);
+  });
+
+  it('adds the server note only when setImmediate callbacks are among them', () => {
+    expect(describeFrozenClock({ pending: 1 })).toContain('1 callback is queued on it');
+    expect(describeFrozenClock({ pending: 3, immediates: 1 })).toContain(
+      '1 of them is a setImmediate callback: an HTTP server ends a request that matched no route that way',
+    );
+    expect(describeFrozenClock({ pending: 3, immediates: 2 })).toContain('2 of them are setImmediate callbacks');
+  });
+});
+
+describe('readFrozenClock on the installed fakes', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('counts the setImmediate callbacks among the queued ones', () => {
+    vi.useFakeTimers();
+    setImmediate(() => undefined);
+    setTimeout(() => undefined, 10);
+
+    expect(readFrozenClock()).toEqual({ pending: 2, immediates: 1 });
+  });
+
+  it('reads the object-shaped queue of an older clock', () => {
+    const host = { setTimeout: { clock: { timers: { 1: { immediate: true }, 2: {} } } } };
+
+    expect(readFrozenClock(clockStub(true, 2), host)).toEqual({ pending: 2, immediates: 1 });
   });
 });
 

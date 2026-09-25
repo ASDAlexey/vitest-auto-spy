@@ -32,7 +32,9 @@
  */
 import { vi } from 'vitest';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
+import { count } from './message-text';
 
 /** Both wordings the runner uses for "ran out of time" — a frozen clock strands hooks as readily as tests. */
 // The ` while waiting for …` part is Vitest 5's: it names the operations its `TaskDeadline` was
@@ -48,6 +50,19 @@ const HINT_MARKER = '[vitest-auto-spy] the clock is frozen';
 export interface FrozenClock {
   /** How many callbacks `vi.getTimerCount()` found queued on the fake clock. */
   pending: number;
+  /** How many of them are `setImmediate` callbacks, when there are any. */
+  immediates?: number;
+}
+
+/** The `setImmediate` callbacks on the installed fake clock, read off the clock `@sinonjs/fake-timers` tags its fakes with. */
+function queuedImmediates(host: object): number {
+  const clock: unknown = Reflect.get(Object(Reflect.get(host, 'setTimeout')), 'clock');
+  const timers: unknown = Reflect.get(Object(clock), 'timers');
+
+  // A `Map` in the fake-timers Vitest bundles, a plain object in older releases.
+  const queued: unknown[] = timers instanceof Map ? [...timers.values()] : Object.values(Object(timers));
+
+  return queued.filter((timer) => Reflect.get(Object(timer), 'immediate') === true).length;
 }
 
 /**
@@ -59,26 +74,38 @@ export interface FrozenClock {
  *
  * `clock` is a parameter so the spec can hand over a stand-in; production always passes `vi`.
  */
-export function readFrozenClock(clock: Pick<typeof vi, 'getTimerCount' | 'isFakeTimers'> = vi): FrozenClock | undefined {
+export function readFrozenClock(
+  clock: Pick<typeof vi, 'getTimerCount' | 'isFakeTimers'> = vi,
+  host: object = globalThis,
+): FrozenClock | undefined {
   if (!clock.isFakeTimers()) {
     return undefined;
   }
 
   const pending = clock.getTimerCount();
+  const immediates = queuedImmediates(host);
 
-  return pending > 0 ? { pending } : undefined;
+  if (pending === 0) {
+    return undefined;
+  }
+
+  return immediates > 0 ? { pending, immediates } : { pending };
 }
 
 /** The sentence appended to a timeout the frozen clock explains. */
-export function describeFrozenClock({ pending }: FrozenClock): string {
+export function describeFrozenClock({ pending, immediates }: FrozenClock): string {
+  const queued = pending === 1 ? '1 callback is queued on it' : `${pending} callbacks are queued on it`;
+  const server =
+    immediates === undefined
+      ? ''
+      : ` ${count(immediates, 'of them is a setImmediate callback', 'of them are setImmediate callbacks')}: an HTTP server ends ` +
+        "a request that matched no route that way, so its 404 is never written — leave setImmediate out of the fakes' toFake.";
+
   return withDocs(
-    `${HINT_MARKER} and ${pending} callback(s) are queued on it, so this did not run out of time — it ran out of clock. ` +
-      'Fake timers only move when something moves them: advance them (`await vi.advanceTimersByTimeAsync(ms)`, ' +
-      '`await vi.runAllTimersAsync()`) or take them off for this test. Raising the timeout cannot help, because the ' +
-      'callback is not late — it is never scheduled to run. `setImmediate` is faked too, which is how an HTTP spec ' +
-      'reaches this with no timer in sight: a request that matches no route is ended by `finalhandler` on ' +
-      '`setImmediate`, so the 404 is never written and a routing mistake is reported as a slow test.',
-    DOCS_LINKS.fakeTimers,
+    `${HINT_MARKER} and ${queued}, so this did not run out of time — nothing advanced the clock, and raising the timeout ` +
+      'cannot help. Advance it (`await vi.advanceTimersByTimeAsync(ms)`, `await vi.runAllTimersAsync()`) or use real ' +
+      `timers for this test.${server}`,
+    DOCS_LINKS.setupFrozenClock,
   );
 }
 
