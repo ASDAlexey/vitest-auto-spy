@@ -7,8 +7,10 @@
  * that has no counterpart in this library's own API), and both live here rather than in the core.
  */
 import { createSpyFromClass as createCoreSpyFromClass } from './create-spy-from-class';
+import * as DOCS_LINKS from './docs-links';
 import { createFunctionSpy as createCoreFunctionSpy } from './function-spy';
 import type { JasmineMethodSpy, JasmineSpy } from './jasmine-types';
+import { withDocs } from './message-link';
 import { reportMisconfiguration } from './misconfiguration';
 import type { ClassSpyConfiguration, ClassType, Func, OnlyMethodKeysOf } from './types';
 
@@ -44,8 +46,13 @@ function normalizeConfiguration<T>(
   }
 
   // The same warning, in the same place, that `jasmine-auto-spies` prints — unless the suite asked for misconfiguration to fail.
+  const names = providedMethodNames.map((name) => `'${String(name)}'`).join(', ');
+
   reportMisconfiguration(
-    "[vitest-auto-spy] 'providedMethodNames' is deprecated, please use 'methodsToSpyOn' instead. " + 'Both were applied for this double.',
+    withDocs(
+      `[vitest-auto-spy] 'providedMethodNames' is deprecated: write methodsToSpyOn: [${names}] instead. Both were applied for this double.`,
+      DOCS_LINKS.jasmineAutoSpies,
+    ),
   );
 
   return { ...config, methodsToSpyOn: [...(config.methodsToSpyOn ?? []), ...providedMethodNames] };
@@ -152,14 +159,25 @@ export function createSpyObj<Names extends string, Props extends string = never>
   /* eslint-enable @typescript-eslint/consistent-type-assertions -- back to the default for the rest of the function. */
 
   if (methodList === undefined) {
-    throw new Error("[vitest-auto-spy] createSpyObj needs the method names — createSpyObj('store', ['load', 'save']).");
+    throw new Error(
+      withDocs(
+        "[vitest-auto-spy] createSpyObj needs the method names — createSpyObj('store', ['load', 'save']).",
+        DOCS_LINKS.jasmineGlobals,
+      ),
+    );
   }
 
   const methods = readNameList(methodList);
   const properties = propertyList === undefined ? undefined : readNameList(propertyList);
 
   if (methods.names.length === 0 && !properties?.names.length) {
-    throw new Error('[vitest-auto-spy] createSpyObj was given no method names, so the object it built would have no spies on it.');
+    throw new Error(
+      withDocs(
+        `[vitest-auto-spy] createSpyObj(${baseName ? `'${baseName}', ` : ''}[]) was given no method names, so the object it ` +
+          'built would have no spies on it. List the methods the code under test calls.',
+        DOCS_LINKS.jasmineGlobals,
+      ),
+    );
   }
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the object is filled from the name lists immediately below; there is no literal that could carry the mapped type up front.
