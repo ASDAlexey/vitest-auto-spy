@@ -33,6 +33,17 @@ export { stubWebStorage, type WebStorageKey, type WebStorageStub, type WebStorag
 // A `Worker` whose script is the spec: messages recorded, replies queued like the platform queues them
 export { stubWorker, type WorkerInstance, type WorkerScript, type WorkerStub, type WorkerStubOptions } from './lib/worker-stub';
 
+// `requestAnimationFrame` run on the spot or on `flush()`, with `cancelAnimationFrame` beside it
+export {
+  stubAnimationFrame,
+  type AnimationFrameMode,
+  type AnimationFrameStub,
+  type AnimationFrameStubOptions,
+} from './lib/animation-frame-stub';
+
+// A `getBoundingClientRect()` that reports a box where the environment lays nothing out
+export { stubElementRect } from './lib/element-rect-stub';
+
 // Observer globals a component constructs itself, replaced by ones a spec can drive
 export {
   intersectionEntry,
