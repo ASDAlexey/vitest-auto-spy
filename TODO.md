@@ -39,6 +39,28 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       inside `types:budget`. The last line of it is already written: flipping
       `reportVitestInTheTypes()` in `scripts/check-dist.mjs` from a warning to a failure.
 
+- [ ] **A typed partial matcher, so a nested `expect.objectContaining` stops leaking `any`.** Vitest
+      types `expect.objectContaining()` / `expect.stringContaining()` as returning `any`. As a direct
+      argument of `toHaveBeenCalledWith` that passes a strict lint, but nested in an object literal
+      it is a `@typescript-eslint/no-unsafe-assignment` report:
+      `toHaveBeenCalledWith(Cmp, expect.objectContaining({ data: expect.objectContaining({ withIcon: true }) }))`.
+      A consumer on `strict-type-checked` then asserts the exact object instead, listing every field
+      including the `undefined` ones, and loses the partial intent. The ask is
+      `partial<T>(shape: DeepPartial<T>): T` returning an asymmetric matcher. Four questions decide
+      it. **The type is a lie by design:** a matcher typed as `T` is a value that is not a `T`, so
+      `partial<User>({ id: 1 }).name.length` compiles and throws; a branded return
+      (`Matching<T>`) is honest but is exactly as un-nestable as `any` is unsafe, unless the argument
+      types of `toHaveBeenCalledWith` / `calledWith` learn to accept it. **Deep or shallow:**
+      `objectContaining` compares each named key with full equality, so a nested plain object is
+      matched exactly, not partially — `DeepPartial<T>` in the signature would promise more than the
+      matcher does unless it recurses into records itself. **Which runner:** Vitest, Bun and Jest
+      recognise any object with an `asymmetricMatch` method, and `calledWith` here already compares
+      a hand-rolled `{ asymmetricMatch }` by identity (AGENTS.md section 4), so the object's shape
+      and where it lives (core or `/matchers`) need settling for all four adapters. **Whether a doc answer is enough:** `expect(spy.mock.calls[0]?.[1]).toMatchObject({ … })`
+      is already partial and recursive, and `captureArg<T>()` hands the argument back typed, so a
+      recipe in the strict-lint guide may cover most of the demand without a new export. Reported
+      by a consumer's strict-lint pass over five library slices.
+
 ## Entry points
 
 - [ ] **A Nest unit on `bun:test` and `node:test` needs a runner-agnostic entry.** `/nestjs`,
@@ -164,6 +186,30 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       `stubConstructor`). Give `Worker` its own message pointing at `stubWorker({ respond })` from
       `/dom-stubs`, the way `webStorage` names `stubWebStorage`, with the rule test and the
       `eslint-rules.md` entry that come with a new message id.
+
+- [ ] **Ship the helper lists `@vitest/eslint-plugin` needs, so a consumer stops copying them.** A
+      suite on `vitest/require-hook` hand-lists every helper it calls at file or `describe` scope in
+      `allowedFunctionCalls`, and hand-written lists drift both ways: a 5.31.0 consumer lists
+      `blockNetwork` and `stub*Observer`, per-test patches `restoreMockedProps()` undoes, so allowing
+      them at file scope silences what `propsOutsideHooks` reports at run time. Three questions decide
+      the shape. **Where:** `dist/eslint-plugin.cjs` ends in `module.exports = plugin`, so named
+      exports never reach `require` — the lists go on the plugin object (`fileScopeHelpers`,
+      `assertionHelpers`, typed on `AutoSpyEslintPlugin` and restated by
+      `scripts/eslint-plugin-cts.mjs`), as lists rather than a ready `vitest/*` rule entry, since the
+      consumer's severity, prefix and own names compose with them. **How it is derived:** an export
+      whose body reaches Vitest's `beforeAll` / `beforeEach` / `afterEach` / `afterAll` or
+      `expect.extend` through the checker (`onTestFinished` excluded — it is called inside a test) is a
+      fact, not a judgement; a prototype over `src/` answers 19 names in about a second —
+      `setupAutoSpy`, `setupFakeTimers`, `setupAngularTestEnv`, `enableAngularDiagnostics`,
+      `enableTestBedDiagnostics`, the four `guard*`, `installPerTest`, `mockNow`, `useCountingClock`,
+      `trackMockRegistry` and the six `register*Matchers` — and belongs in
+      `scripts/generate-export-map.mjs` beside `AWAITABLE_HELPERS`, so `export-map:check` fails on
+      drift. The install-once helpers it cannot see (`trackStrayTimers`, `trackStrayListeners`,
+      `trackStrayRejections`, `enableJasmineCompat`, `registerAutoSpyDefaults`) want a spelled-out
+      list with a test that none is installed through `mockValueProp`. **Whether the assertion half
+      earns its place:** `expect-expect` matches globs, so `'expect*'` already covers every `expect*`
+      helper; a list adds `assertNoPendingRequests`, `verifyNoPendingRequests`, the other `assert*`
+      helpers and exactness.
 
 ## Mocking follow-ups, 2026-09-19
 
