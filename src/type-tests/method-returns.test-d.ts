@@ -21,4 +21,16 @@ describe('returns: undefined', () => {
     // @ts-expect-error -- anything else still has to be what the method returns
     createSpyFromClass(Snacks, { returns: { open: 42 } });
   });
+
+  it('takes an optional method typed as a property that may be undefined, as third-party typings write them', () => {
+    interface MinimapMap {
+      getZoom(): number;
+      getMinZoom?: (() => number) | undefined;
+    }
+
+    createAutoMock<MinimapMap>(undefined, { returns: { getZoom: 10, getMinZoom: 1 } });
+
+    // @ts-expect-error -- the return type is still checked
+    createAutoMock<MinimapMap>(undefined, { returns: { getMinZoom: 'one' } });
+  });
 });

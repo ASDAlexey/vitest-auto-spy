@@ -62,6 +62,16 @@ describe('provideMatDialogData', () => {
     // @ts-expect-error — nothing on EditUserData is called that
     provideMatDialogData<EditUserData>(MAT_DIALOG_DATA, { id: 7, nmae: 'Ada' });
   });
+
+  it('takes the token as `InjectionToken<unknown>` once the type argument is named', () => {
+    // `InjectionToken<EditUserData>` here is what `no-unsafe-argument` reports for Material's `any` token.
+    expectTypeOf<Parameters<typeof provideMatDialogData<EditUserData>>[0]>().toEqualTypeOf<InjectionToken<unknown>>();
+    expectTypeOf<Parameters<typeof provideMatDialogData<EditUserData>>[1]>().toEqualTypeOf<EditUserData>();
+  });
+
+  it('leaves the data of an untyped `any` token unchecked, as before', () => {
+    provideMatDialogData(MAT_DIALOG_DATA, { anything: true });
+  });
 });
 
 describe('provideMatDialogRef', () => {

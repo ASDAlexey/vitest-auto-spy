@@ -15,8 +15,16 @@
  */
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { asInstance, createAutoMock, createFunctionSpy, createSpyFromClass, mockValueProp, registerAutoSpyDefaults } from '../auto-spy';
-import type { FunctionSpy, Mutable, ObservableLike, OnlyMethodKeysOf, RestoreProp, Spy, SpyDisposable } from '../auto-spy';
+import {
+  asInstance,
+  autoMocked,
+  createAutoMock,
+  createFunctionSpy,
+  createSpyFromClass,
+  mockValueProp,
+  registerAutoSpyDefaults,
+} from '../auto-spy';
+import type { AutoMocked, FunctionSpy, Mutable, ObservableLike, OnlyMethodKeysOf, RestoreProp, Spy, SpyDisposable } from '../auto-spy';
 
 class Storage {
   readonly name: string = 'storage';
@@ -540,5 +548,18 @@ describe('FunctionSpy', () => {
 
     // @ts-expect-error -- the arguments are still the signature's
     onSave.mustBeCalledWith(42);
+  });
+});
+
+describe('AutoMocked', () => {
+  it('names what autoMocked returns, so a variable assigned in beforeEach can be declared with it', () => {
+    interface Deps {
+      load(id: number): string;
+    }
+
+    const deps: AutoMocked<Deps> = autoMocked<Deps>();
+
+    expectTypeOf(deps).toEqualTypeOf<Deps & Spy<Deps>>();
+    expectTypeOf(deps).toExtend<Deps>();
   });
 });

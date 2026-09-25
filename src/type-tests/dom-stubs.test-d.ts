@@ -9,12 +9,16 @@
  */
 import { describe, expectTypeOf, it } from 'vitest';
 
+import type { RestoreProp } from '../auto-spy';
 import {
+  type AnimationFrameStub,
   type ObserverStub,
   intersectionEntry,
   mutationRecord,
   resizeEntry,
   stubAbortController,
+  stubAnimationFrame,
+  stubElementRect,
   stubIntersectionObserver,
   stubMediaElement,
   stubMutationObserver,
@@ -201,5 +205,33 @@ describe('stubWorker', () => {
     stubWorker<Request, Response>().last.emit({ requestId: 'a' });
     // @ts-expect-error -- no such option; a reply is what `respond` returns
     stubWorker({ response: 1 });
+  });
+});
+
+describe('stubAnimationFrame', () => {
+  it('answers one handle whichever mode it runs in', () => {
+    expectTypeOf(stubAnimationFrame()).toEqualTypeOf<AnimationFrameStub>();
+    expectTypeOf(stubAnimationFrame({ mode: 'queued' }).pending).toEqualTypeOf<number>();
+    expectTypeOf(stubAnimationFrame().flush).toBeCallableWith(16);
+    expectTypeOf(stubAnimationFrame().flush).toBeCallableWith();
+  });
+
+  it('takes the two modes, and only those', () => {
+    // @ts-expect-error -- frames run on the spot or on flush(); there is no third schedule
+    stubAnimationFrame({ mode: 'timer' });
+    // @ts-expect-error -- the timestamp belongs to flush(), not to the options
+    stubAnimationFrame({ timestamp: 0 });
+  });
+});
+
+describe('stubElementRect', () => {
+  it('takes the four numbers a DOMRect is built from, and hands back the undo', () => {
+    expectTypeOf(stubElementRect(host, { width: 800, height: 600 })).toEqualTypeOf<RestoreProp>();
+    expectTypeOf(stubElementRect(host)).toEqualTypeOf<RestoreProp>();
+
+    // @ts-expect-error -- the edges are derived from x / y / width / height
+    stubElementRect(host, { top: 10 });
+    // @ts-expect-error -- a size is a number
+    stubElementRect(host, { width: '800px' });
   });
 });

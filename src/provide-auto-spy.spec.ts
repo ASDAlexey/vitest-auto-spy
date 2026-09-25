@@ -89,7 +89,11 @@ describe('provideAutoSpy / injectSpy', () => {
     TestBed.configureTestingModule({ providers: [UnprovidedService] });
     injectSpy(UnprovidedService);
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('the injector returned a plain instance'));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^\[vitest-auto-spy\] injectSpy\(UnprovidedService\): got a real UnprovidedService — the testing module provides the real class, not a double\.\nAdd provideAutoSpy\(UnprovidedService\) to providers\.\nDocs: .*#injectspy-says-when-it-got-the-real-thing/,
+      ),
+    );
 
     // Once per token: the call sits in a `beforeEach`, and one warning per test would bury it.
     warn.mockClear();
@@ -135,8 +139,8 @@ describe('provideAutoSpy / injectSpy', () => {
     globalThis.__vitestAutoSpyMisconfiguration__ = 'throw';
 
     try {
-      expect(() => injectSpy(ThrownEveryTime)).toThrow(/plain instance, not an auto-spy/);
-      expect(() => injectSpy(ThrownEveryTime)).toThrow(/plain instance, not an auto-spy/);
+      expect(() => injectSpy(ThrownEveryTime)).toThrow(/got a real ThrownEveryTime/);
+      expect(() => injectSpy(ThrownEveryTime)).toThrow(/got a real ThrownEveryTime/);
     } finally {
       globalThis.__vitestAutoSpyMisconfiguration__ = undefined;
     }
@@ -149,7 +153,42 @@ describe('provideAutoSpy / injectSpy', () => {
     TestBed.configureTestingModule({ providers: [{ provide: CONFIG, useValue: { url: '/api' } }] });
     injectSpy(CONFIG);
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('InjectionToken CONFIG'));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /injectSpy\(CONFIG\): got a plain value, not an auto-spy[^\n]*\nProvide the double instead: \{ provide: CONFIG, useValue: createAutoMock<T>\(\) \}\./,
+      ),
+    );
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('provideAutoSpy(CONFIG)'));
+    warn.mockRestore();
+  });
+
+  it("says Angular built a providedIn: 'root' class nobody provided, and names what it got", () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    @Injectable({ providedIn: 'root' })
+    class RootPricing {}
+
+    class Blank {}
+
+    const token = { toString: (): string => 'a hand-made token' };
+
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: Blank, useValue: Object.create(null) },
+        { provide: token, useValue: 1 },
+      ],
+    });
+    injectSpy(RootPricing);
+    injectSpy(Blank);
+    injectSpy(token as never);
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "injectSpy(RootPricing): got a real RootPricing — nothing in the testing module provides a double, so Angular built it (providedIn: 'root').",
+      ),
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('injectSpy(Blank): got a real instance'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('injectSpy(a hand-made token): got a plain value'));
     warn.mockRestore();
   });
 
@@ -303,9 +342,7 @@ describe('provideAutoSpy / injectSpy', () => {
 
     TestBed.configureTestingModule({ providers: [provideAutoSpyForToken(OBSERVER, undefined, { strict: true })] });
 
-    expect(() => injectSpy(OBSERVER).observe(document.body)).toThrow(
-      'Nothing configured InjectionToken CAROUSEL_RESIZE_OBSERVER.observe, and strict mode is on.',
-    );
+    expect(() => injectSpy(OBSERVER).observe(document.body)).toThrow('InjectionToken CAROUSEL_RESIZE_OBSERVER.observe(');
   });
 
   it('lets Angular tear a strict double down, since no spec asked for ngOnDestroy', () => {
@@ -331,7 +368,7 @@ describe('provideAutoSpy / injectSpy', () => {
 
     expect(() => TestBed.resetTestingModule()).not.toThrow();
     expect(poller.ngOnDestroy).toHaveBeenCalledTimes(1);
-    expect(() => poller.poll()).toThrow('Nothing configured Poller.poll');
+    expect(() => poller.poll()).toThrow('Poller.poll(');
   });
 
   it('keeps a name the caller gave the token double', () => {
@@ -341,7 +378,7 @@ describe('provideAutoSpy / injectSpy', () => {
       providers: [provideAutoSpyForToken(OBSERVER, undefined, { strict: true, name: 'carousel observer' })],
     });
 
-    expect(() => injectSpy(OBSERVER).observe(document.body)).toThrow('Nothing configured carousel observer.observe');
+    expect(() => injectSpy(OBSERVER).observe(document.body)).toThrow('carousel observer.observe(');
   });
 
   it('seeds method results behind an InjectionToken too', async () => {
