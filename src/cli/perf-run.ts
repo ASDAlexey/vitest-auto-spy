@@ -12,12 +12,13 @@
  * in from here; its path arrives in the environment and the consumer's config attaches it.
  */
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 import { bareRunWouldMeasureSomethingElse } from './checks/perf-harness';
+import { BARE_RUN_DOCS, NOTHING_TO_READ_DOCS } from './docs';
 import { pathExists, readTextFile, removeFile } from './fs-scan';
 import type { PerfRun } from './perf-data';
-import { PERF_DOCS, PERF_FORMAT_VERSION, PERF_OUTPUT_ENV, PERF_PROFILE_ENV, PERF_REPORTER_ENV, parsePerfRun } from './perf-data';
+import { PERF_OUTPUT_ENV, PERF_PROFILE_ENV, PERF_REPORTER_ENV, parsePerfRun, whyNotAPerfRun } from './perf-data';
 import { describeMerge, mergeRuns, readRuns, resolveReportPaths } from './perf-merge';
 import type { CpuProfile } from './perf-profile';
 import { takeProfiles } from './perf-profiler';
@@ -160,9 +161,7 @@ function fromFile(value: string, cwd: string): PerfSource {
   const { inputs, failed: unreadable } = readRuns(paths);
 
   if (inputs.length === 0) {
-    return failed(
-      `Not a perf report: ${unreadable.join(', ') || value}. It must be JSON in version ${PERF_FORMAT_VERSION} of the format \`vitest-auto-spy perf --out\` writes.\nDocs: ${PERF_DOCS}`,
-    );
+    return failed(unreadableReport(value, unreadable, cwd));
   }
 
   const merged = mergeRuns(inputs);
@@ -173,8 +172,30 @@ function fromFile(value: string, cwd: string): PerfSource {
   return { ok: true, run: merged.run, runFailed: merged.run.failed > 0, ...(note === undefined ? {} : { note }) };
 }
 
+function unreadableReport(value: string, unreadable: readonly string[], cwd: string): string {
+  if (unreadable.length === 0) {
+    return `--json ${value} matches no report file. Point it at the file \`perf --out\` or the perf reporter wrote.\nDocs: ${NOTHING_TO_READ_DOCS}`;
+  }
+
+  const reasons = unreadable.map((path) => `${relative(cwd, path)} ${whyNotAPerfRun(readTextFile(path))}`);
+  const [first] = reasons;
+
+  return [
+    reasons.length === 1 ? `Cannot read the perf report: ${String(first)}.` : `Cannot read any of the ${reasons.length} perf reports:`,
+    ...(reasons.length === 1 ? [] : reasons.map((reason) => `  ${reason}`)),
+    'Point --json at the file `perf --out` or the perf reporter wrote.',
+    `Docs: ${NOTHING_TO_READ_DOCS}`,
+  ].join('\n');
+}
+
 /** The report a run left behind, or the reason there is nothing to read. Shared by both runners. */
-function collect(target: string, keep: boolean, outcome: SpawnOutcome, missing: string, profileDir?: string): PerfSource {
+function collect(
+  target: string,
+  keep: boolean,
+  outcome: SpawnOutcome,
+  missing: (status: number) => string,
+  profileDir?: string,
+): PerfSource {
   const text = readTextFile(target);
   const profiles = profileDir === undefined ? undefined : takeProfiles(profileDir);
 
@@ -185,7 +206,7 @@ function collect(target: string, keep: boolean, outcome: SpawnOutcome, missing: 
   const run = text === undefined ? undefined : parsePerfRun(text);
 
   if (run === undefined) {
-    return failed(`${missing.replace('{status}', String(outcome.status))}\nDocs: ${PERF_DOCS}`);
+    return failed(missing(outcome.status));
   }
 
   return { ok: true, run, runFailed: outcome.status !== 0, ...(profiles === undefined ? {} : { profiles }) };
@@ -210,13 +231,13 @@ function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | un
 
   if (!pathExists(entry)) {
     return failed(
-      `No Vitest is installed in ${options.cwd}, so there is nothing to measure.\nInstall it, or pass --json <path>.\nDocs: ${PERF_DOCS}`,
+      `No Vitest is installed in ${options.cwd}, so there is nothing to run. Install vitest there, then measure again.\nDocs: ${NOTHING_TO_READ_DOCS}`,
     );
   }
 
   if (reporter === undefined) {
     return failed(
-      `This package ships the perf reporter as dist/perf-reporter.js and it is not there. Reinstall vitest-auto-spy.\nDocs: ${PERF_DOCS}`,
+      `The perf reporter this package ships, dist/perf-reporter.js, is missing from the install. Reinstall vitest-auto-spy.\nDocs: ${NOTHING_TO_READ_DOCS}`,
     );
   }
 
@@ -236,7 +257,10 @@ function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | un
     target,
     options.out !== undefined,
     outcome,
-    'The Vitest run exited {status} and wrote no perf report. Fix the run first, then measure it.',
+    (status) =>
+      status === 0
+        ? `\`vitest run\` exited 0 but wrote no perf report, so the perf reporter did not run. Reinstall vitest-auto-spy.\nDocs: ${NOTHING_TO_READ_DOCS}`
+        : `\`vitest run\` exited ${status} before writing a perf report, so the run itself failed. Make it pass, then measure again.\nDocs: ${NOTHING_TO_READ_DOCS}`,
     options.profileDir,
   );
 }
@@ -255,13 +279,13 @@ function fromCommand(options: PerfRunOptions, command: string, spawn: Spawn, pac
    */
   if (process.env[PERF_OUTPUT_ENV] !== undefined && options.out === undefined) {
     return failed(
-      `${PERF_OUTPUT_ENV} is already set, so this run is inside a measured run and --command would start a second one. Measure from outside the suite, or pass --json <path> to read the report this run is writing.\nDocs: ${PERF_DOCS}`,
+      `${PERF_OUTPUT_ENV} is already set, so this is a run inside a measured run, and --command would start a second measurement. Run \`perf\` from outside the suite.\nDocs: ${NOTHING_TO_READ_DOCS}`,
     );
   }
 
   if (reporter === undefined) {
     return failed(
-      `This package ships the perf reporter as dist/perf-reporter.js and it is not there. Reinstall vitest-auto-spy.\nDocs: ${PERF_DOCS}`,
+      `The perf reporter this package ships, dist/perf-reporter.js, is missing from the install. Reinstall vitest-auto-spy.\nDocs: ${NOTHING_TO_READ_DOCS}`,
     );
   }
 
@@ -269,21 +293,29 @@ function fromCommand(options: PerfRunOptions, command: string, spawn: Spawn, pac
 
   removeFile(target);
 
+  const line = withPaths(command, options.paths);
   const outcome = spawn({
-    command: withPaths(command, options.paths),
+    command: line,
     args: [],
     cwd: options.cwd,
     env: { [PERF_OUTPUT_ENV]: target, [PERF_REPORTER_ENV]: reporter, ...profileEnv(options) },
     shell: true,
   });
 
-  return collect(
-    target,
-    options.out !== undefined,
-    outcome,
-    `The command exited {status} and wrote no perf report. Its Vitest configuration has to attach the reporter, which is two lines wherever its \`reporters\` are declared:\n  const perf = process.env['${PERF_REPORTER_ENV}'];\n  reporters: perf === undefined ? ['default'] : ['default', perf],`,
-    options.profileDir,
-  );
+  return collect(target, options.out !== undefined, outcome, (status) => commandWroteNothing(line, status), options.profileDir);
+}
+
+function commandWroteNothing(line: string, status: number): string {
+  if (status !== 0) {
+    return `\`${line}\` exited ${status} before writing a perf report, so the run itself failed. Make it pass, then measure again.\nDocs: ${NOTHING_TO_READ_DOCS}`;
+  }
+
+  return [
+    `\`${line}\` exited 0 but wrote no perf report, so the Vitest config it reaches does not attach the perf reporter. Add it where that config declares \`reporters\`:`,
+    `  const perf = process.env['${PERF_REPORTER_ENV}'];`,
+    "  reporters: perf === undefined ? ['default'] : ['default', perf],",
+    `Docs: ${BARE_RUN_DOCS}`,
+  ].join('\n');
 }
 
 export function readPerfRun(

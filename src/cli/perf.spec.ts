@@ -11,6 +11,7 @@
  * the baseline's in `perf-baseline.spec.ts`; this file keeps the run source, the analysis rules
  * and the rendering that crosses them.
  */
+import { availableParallelism } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -245,9 +246,15 @@ describe('readPerfRun', () => {
     const source = readPerfRun(options(root), () => ({ status: 0 }), root);
 
     expect(source.ok).toBe(false);
-    expect(source.ok ? '' : source.error).toContain('would not measure this repository');
-    expect(source.ok ? '' : source.error).toContain('node tools/bench/run.mjs');
-    expect(source.ok ? '' : source.error).toContain('--command');
+    expect(source.ok ? '' : source.error.split('\n')).toEqual([
+      "A bare `vitest run` would not measure this repository's suite: there is no vitest.config or vite.config at the root, and `npm test` is `node tools/bench/run.mjs`. Without a config every file fails to collect, so the timings would measure nothing.",
+      'Attach the perf reporter where the Vitest config of your suite declares `reporters`:',
+      `  const perf = process.env['${PERF_REPORTER_ENV}'];`,
+      "  reporters: perf === undefined ? ['default'] : ['default', perf],",
+      'Then measure the command that runs it:',
+      "  npx vitest-auto-spy perf --command 'npm test'",
+      'Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#when-a-bare-run-is-not-your-suite',
+    ]);
   });
 
   it('names the builder recipe when the suite runs through the Angular unit-test builder', () => {
@@ -265,9 +272,12 @@ describe('readPerfRun', () => {
       return source.ok ? '' : source.error;
     };
 
-    expect(error(nx)).toContain(
-      `perf --command 'npx nx run ui:test --reporters=default --reporters="$VITEST_AUTO_SPY_PERF_REPORTER" {paths:--include=}'`,
-    );
+    expect(error(nx).split('\n').slice(1)).toEqual([
+      '`ui:test` in libs/ui/project.json runs through `@nx/angular:unit-test`, which takes the perf reporter as an option. Measure it with:',
+      `  npx vitest-auto-spy perf --command 'npx nx run ui:test --reporters=default --reporters="$VITEST_AUTO_SPY_PERF_REPORTER" {paths:--include=}'`,
+      'Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#when-a-bare-run-is-not-your-suite',
+    ]);
+    expect(error(nx)).not.toContain("--command 'npm test'");
     expect(error(ng)).toContain("perf --command 'npx ng run app:test --reporters=default");
   });
 
@@ -276,6 +286,9 @@ describe('readPerfRun', () => {
     const source = readPerfRun(options(root));
 
     expect(source.ok ? '' : source.error).toContain('there is no `test` script');
+    expect(source.ok ? '' : source.error).toContain(
+      "Then measure the command that runs your suite:\n  npx vitest-auto-spy perf --command '<command that runs your suite>'",
+    );
   });
 
   /** A repository a bare run is fair in: it has the root config `vitest run` would read. */
@@ -348,11 +361,15 @@ describe('readPerfRun', () => {
     expect(pathExists(out)).toBe(true);
   });
 
-  it('says so when the run wrote nothing', () => {
+  it('says so when the run wrote nothing, and tells a failed run from a reporter that never ran', () => {
     const root = runnable();
-    const source = readPerfRun(options(root), () => ({ status: 2 }), root);
+    const failedRun = readPerfRun(options(root), () => ({ status: 2 }), root);
+    const quiet = readPerfRun(options(root), () => ({ status: 0 }), root);
 
-    expect(source.ok ? '' : source.error).toContain('exited 2');
+    expect(failedRun.ok ? '' : failedRun.error).toBe(
+      '`vitest run` exited 2 before writing a perf report, so the run itself failed. Make it pass, then measure again.\nDocs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#when-there-is-nothing-to-read',
+    );
+    expect(quiet.ok ? '' : quiet.error).toContain('`vitest run` exited 0 but wrote no perf report, so the perf reporter did not run.');
   });
 
   it('runs the command it was given as a shell line, with the reporter path in the environment', () => {
@@ -375,13 +392,26 @@ describe('readPerfRun', () => {
     expect(source).toMatchObject({ ok: true });
   });
 
-  it('tells a command that wrote no report how to attach the reporter', () => {
+  it('tells a command that passed without a report how to attach the reporter', () => {
     const root = runnable();
-    const source = readPerfRun(options(root, { command: 'npm test' }), () => ({ status: 1 }), root);
+    const source = readPerfRun(options(root, { command: 'npm test' }), () => ({ status: 0 }), root);
+    const lines = (source.ok ? '' : source.error).split('\n');
 
-    expect(source.ok ? '' : source.error).toContain('exited 1');
-    expect(source.ok ? '' : source.error).toContain(PERF_REPORTER_ENV);
-    expect(source.ok ? '' : source.error).toContain('reporters:');
+    expect(lines[0]).toBe(
+      '`npm test` exited 0 but wrote no perf report, so the Vitest config it reaches does not attach the perf reporter. Add it where that config declares `reporters`:',
+    );
+    expect(lines[1]).toContain(PERF_REPORTER_ENV);
+    expect(lines.at(-1)).toBe('Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#when-a-bare-run-is-not-your-suite');
+  });
+
+  it('tells a command that failed without a report to fix the run, naming the command', () => {
+    const root = runnable();
+    const source = readPerfRun(options(root, { command: 'npm test -- {paths}', paths: ['a.spec.ts'] }), () => ({ status: 1 }), root);
+
+    expect(source.ok ? '' : source.error).toContain(
+      "`npm test -- 'a.spec.ts'` exited 1 before writing a perf report, so the run itself failed. Make it pass, then measure again.",
+    );
+    expect(source.ok ? '' : source.error).not.toContain('reporters:');
   });
 });
 
@@ -644,7 +674,7 @@ describe('analysePerf', () => {
     expect(checks(analysis.findings)).toContain('perf-environment');
     expect(environment.map((finding) => finding.file)).toEqual(['src/case-0.spec.ts', 'src/case-1.spec.ts']);
     expect(analysis.findings[0]?.message).toContain('2 spec files reach no DOM');
-    expect(analysis.findings[0]?.fix).toContain(DOM_FREE_RULE);
+    expect(analysis.findings[0]?.fix).toBe('Move the files listed below to the `node` environment.');
     expect(analysis.findings.every((finding) => finding.severity === 'info')).toBe(true);
   });
 
@@ -704,6 +734,19 @@ describe('analysePerf', () => {
 
     expect(analysis.findings[0]?.message).toContain('No spec file could be proved DOM-free');
     expect(analysis.findings[0]?.message).toContain('1 were left undecided');
+    expect(analysis.findings[0]?.fix).toBe('Nothing can move until a spec is proved DOM-free; the docs say what the rule reads.');
+  });
+
+  it('points at the setup files when they are what keeps every spec on the DOM', () => {
+    const root = cleanRepo(1, {
+      'vitest.config.ts': "export default { test: { setupFiles: ['./src/test-setup.ts'] } };\n",
+      'src/test-setup.ts': "document.title = '';\n",
+    });
+    const analysis = analysePerf(heavyRun(root, ['src/case-0.spec.ts'], 9_000), readProfile(root));
+
+    expect(analysis.findings[0]?.fix).toBe(
+      'Nothing can move while every spec loads `src/test-setup.ts`: a setup file that mentions a DOM name keeps every spec on the DOM. Move the DOM part of it into a setup file only the DOM specs load.',
+    );
   });
 
   it('skips a DOM-free spec the run never measured', () => {
@@ -741,6 +784,15 @@ describe('analysePerf', () => {
 
     expect(dominates(jsdom)).toContain('perf-environment-engine');
     expect(dominates(happy)).not.toContain('perf-environment-engine');
+
+    const engine = analysePerf(heavyRun(jsdom, ['src/case-0.spec.ts'], 9_000), readProfile(jsdom)).findings.find(
+      (finding) => finding.check === 'perf-environment-engine',
+    );
+
+    expect(engine?.message).toMatch(/^vitest\.config\.ts sets `environment: 'jsdom'`, and building the DOM is/);
+    expect(engine?.fix).toBe(
+      "Try `environment: 'happy-dom'` in vitest.config.ts, one project at a time with the suite green after each: it builds the DOM for less, and implements less of the platform.",
+    );
   });
 
   it('reads the environment setting and not the comment that mentions the other one', () => {
@@ -758,10 +810,25 @@ describe('analysePerf', () => {
     const large = (target: string): PerfRun => run({ root: target, files: [file(join(target, 'src/case-0.spec.ts'), { tests: 90_000 })] });
     const analysis = analysePerf(large(root), readProfile(root));
 
+    const cores = availableParallelism();
+
     expect(checks(analysis.findings)).toEqual(['perf-workers']);
-    expect(analysis.findings[0]?.message).toContain('155 MB per worker');
-    expect(analysis.findings[0]?.fix).toContain('2.8 %');
+    expect(analysis.findings[0]?.message).toBe(
+      `No \`maxWorkers\` is declared, so Vitest starts one worker per core — ${cores} on this machine, each a whole runtime with its own memory.`,
+    );
+    expect(analysis.findings[0]?.fix).toBe(
+      `If the run shares this machine, set \`maxWorkers: ${Math.max(1, Math.floor(cores / 2))}\` in your Vitest config and compare the wall clock before and after.`,
+    );
     expect(checks(analysePerf(large(capped), readProfile(capped)).findings)).toEqual([]);
+
+    const configured = cleanRepo(1, {
+      'vitest.bench.config.ts': 'export default { test: {} };\n',
+      'vitest.config.ts': 'export default { test: {} };\n',
+      'libs/a/vitest.config.ts': 'export default { test: {} };\n',
+      'libs/b/vitest.config.ts': 'export default { test: {} };\n',
+    });
+
+    expect(analysePerf(large(configured), readProfile(configured)).findings[0]?.fix).toContain('in vitest.config.ts and compare');
   });
 
   it('counts a cap the config computes, not only one written as a literal', () => {
@@ -790,8 +857,9 @@ describe('analysePerf', () => {
     );
 
     expect(checks(analysis.findings)).toEqual(['perf-isolation']);
-    expect(analysis.findings[0]?.fix).toContain('peak memory');
-    expect(analysis.findings[0]?.fix).toContain('#memory-under-isolate-false');
+    expect(analysis.findings[0]?.fix).toBe(
+      'Try `isolate: false` in your Vitest config and keep it only if peak memory stays acceptable: without isolation, every double a file creates lives until its worker ends.',
+    );
     expect(checks(taken.findings)).toEqual([]);
   });
 });
@@ -920,7 +988,7 @@ describe('renderPerf', () => {
     });
 
     expect(renderPerf(source, readProfile(root), io)).toBe(2);
-    expect(io.stderr.join('\n')).toContain('Not a perf report');
+    expect(io.stderr.join('\n')).toContain('Cannot read the perf report: missing.json does not exist.');
   });
 
   it('refuses to call a run in which no test body executed a measurement', () => {
@@ -1050,6 +1118,36 @@ describe('readPerfRun, the two shapes a handed-over report can have', () => {
     ...over,
   });
 
+  it('tells a file that is not JSON, JSON that is not a report and a report of another version apart', () => {
+    const root = createTempRepo({
+      'package.json': '{}',
+      'reports/a.json': 'not json',
+      'reports/b.json': '{"version": 3}',
+      'reports/c.json': '{"version": 9, "files": []}',
+    });
+    const single = readPerfRun(options(root, { json: 'reports/c.json' }));
+    const several = readPerfRun(options(root, { json: 'reports' }));
+
+    expect(single.ok ? '' : single.error.split('\n')[0]).toBe(
+      'Cannot read the perf report: reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3.',
+    );
+    expect(several.ok ? '' : several.error.split('\n')).toEqual([
+      'Cannot read any of the 3 perf reports:',
+      '  reports/a.json is not valid JSON',
+      '  reports/b.json is JSON, but not a perf report: it has no `files` list',
+      '  reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3',
+      'Point --json at the file `perf --out` or the perf reporter wrote.',
+      'Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#when-there-is-nothing-to-read',
+    ]);
+
+    const unversioned = createTempRepo({ 'package.json': '{}', 'perf.json': '{"files": []}' });
+
+    expect(readPerfRun(options(unversioned, { json: 'perf.json' }))).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('is version unknown'),
+    });
+  });
+
   it('knows a handed-over report was written by a run that failed', () => {
     const root = createTempRepo({
       'package.json': '{}',
@@ -1111,7 +1209,7 @@ describe('readPerfRun, a pattern that matched nothing', () => {
       paths: [],
     });
 
-    expect(source.ok ? '' : source.error).toContain('Not a perf report: coverage/**/perf-*.json');
+    expect(source.ok ? '' : source.error).toContain('--json coverage/**/perf-*.json matches no report file.');
   });
 });
 

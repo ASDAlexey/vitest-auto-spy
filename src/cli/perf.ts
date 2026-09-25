@@ -10,19 +10,20 @@
 import { relative } from 'node:path';
 
 import { findBarrelImports } from './checks/barrels';
-import { DOM_FREE_RULE, findDomFreeSpecs } from './checks/dom-free';
+import { findDomFreeSpecs } from './checks/dom-free';
 import type { SourceGraph } from './checks/graph';
 import { buildGraph } from './checks/graph';
 import { flakyFindings, heapFindings } from './checks/perf-flaky';
 import { budgetLine, formatHotspots, nothingOverBudgetNote } from './checks/perf-hotspots';
-import { isolationFromAngularBuilder } from './checks/runner-isolation';
 import { writeCodeQuality } from './code-quality';
+import { BARE_RUN_DOCS, NOTHING_TO_READ_DOCS } from './docs';
 import { toPosix } from './fs-scan';
 import type { CliIo } from './main';
 import { MONOCHROME, type Painter, outputWidth, painterFor, wrapText } from './paint';
 import type { BaselineOptions } from './perf-baseline';
+import { DOMINATES, domEngineFindings, isolationFindings, workerFindings } from './perf-config';
 import type { PerfFile, PerfRun, Phase } from './perf-data';
-import { PERF_DOCS, formatMs, formatShare, measuredNothing, phasesOf, shareOf, testsRunOf, totalOf } from './perf-data';
+import { formatMs, formatShare, measuredNothing, phasesOf, shareOf, testsRunOf, totalOf } from './perf-data';
 import { formatEvidence } from './perf-evidence';
 import type { GateCandidate, GateOptions, GateRow } from './perf-gate';
 import { gateCandidates, gateVerdict, isJudged, measuredFiles, medianFileMs, medianTestMs, suspectFiles } from './perf-gate';
@@ -37,9 +38,6 @@ import { type Finding, type Severity, formatFindings, summarize } from './report
 import { perfMarkdown } from './report-markdown';
 import { bar, drawTable } from './table';
 
-/** The share at which a phase is worth naming files over. Below it the advice would be noise. */
-const DOMINATES = 0.3;
-
 /** A whole run cheaper than this has nothing in it worth anybody's afternoon. */
 const QUIET_MS = 5_000;
 
@@ -49,38 +47,7 @@ const LIST_LIMIT = 12;
 /** Below this, a file's environment time is measurement noise rather than a cost worth moving. */
 const FILE_FLOOR_MS = 1;
 
-const DOCS_ISOLATE = `${PERF_DOCS}#memory-under-isolate-false`;
-const DOCS_SLOW = `${PERF_DOCS}#what-actually-makes-a-suite-slow`;
-
-/**
- * Every runner config in the repository, not only `vitest.config.ts` at the root.
- *
- * A workspace that runs its suite through a builder keeps the Vitest settings in a file of its own
- * — `tools/unit-test-bench/vitest-runner.config.ts` in the one this was widened for — and with the
- * narrow pattern the settings checks could not see it. The cost of missing it is not a missing
- * finding but a **wrong** one: telling a suite that already caps `maxWorkers` to go and cap it.
- */
-const CONFIG_FILE = /(?:^|\/)vite(?:st)?[\w.-]*\.config\.[cm]?[jt]s$/;
-const NO_ISOLATION = /\bisolate\s*:\s*false/;
-const JSDOM = /\benvironment\s*:\s*["'`]jsdom["'`]/;
-const HAPPY_DOM = /happy-dom/;
-/**
- * A property, the shorthand for a value computed above it, or the `const` behind that shorthand —
- * a config that sizes its pool from the cgroup rather than from a literal is the one that thought
- * about this hardest, and it was the one being told it had not declared a cap.
- */
-const WORKER_CAP = /\bmaxWorkers\s*[,:=}]|\bmaxWorkers\s*$/m;
-
-/**
- * Summed phase time above which the worker count is a decision rather than a detail.
- *
- * Below it the machine runs the whole suite in a few seconds on any setting, and a note about peak
- * memory is noise. Above it the suite is the kind that shares a runner with other jobs.
- */
-const LARGE_RUN_MS = 60_000;
-
-/** Per-worker resident memory, measured on this package's own Angular suite — see the perf docs. */
-const WORKER_RSS_MB = 155;
+export { declaresNoIsolation } from './perf-config';
 
 export interface PerfAnalysis {
   readonly phases: readonly Phase[];
@@ -130,6 +97,16 @@ function movableEnvironment(measured: ReadonlyMap<string, PerfFile>, domFree: Re
   return [...workers].reduce((total, [ms, worker]) => (worker.files === worker.free ? total + ms : total), 0);
 }
 
+function environmentFix(movable: number, setupFiles: readonly string[]): string {
+  if (movable > 0) {
+    return 'Move the files listed below to the `node` environment.';
+  }
+
+  return setupFiles.length === 0
+    ? 'Nothing can move until a spec is proved DOM-free; the docs say what the rule reads.'
+    : `Nothing can move while every spec loads ${setupFiles.map((file) => `\`${file.replace(/^\.\//, '')}\``).join(', ')}: a setup file that mentions a DOM name keeps every spec on the DOM. Move the DOM part of it into a setup file only the DOM specs load.`;
+}
+
 function environmentFindings(
   phases: readonly Phase[],
   profile: Profile,
@@ -158,7 +135,7 @@ function environmentFindings(
       check: 'perf-environment',
       severity: 'info',
       message: `Environment setup is ${formatShare(shareOf(phases, 'environment'))} of the measured CPU time, against ${formatShare(shareOf(phases, 'tests'))} in the test bodies. ${summary}`,
-      fix: `Move what does not need a DOM to the \`node\` environment. Rule used — ${DOM_FREE_RULE}. Background: ${DOCS_SLOW}`,
+      fix: environmentFix(ranked.length, profile.setupFiles),
     },
     ...ranked.slice(0, LIST_LIMIT).map((entry): Finding => ({
       check: 'perf-environment-node-candidate',
@@ -199,7 +176,7 @@ function importFindings(phases: readonly Phase[], graph: SourceGraph): Finding[]
       check: 'perf-import',
       severity: 'info',
       message: `Importing modules is ${formatShare(shareOf(phases, 'import'))} of the measured CPU time, and ${ranked.length} spec files reach their subject through a barrel.${remainder(ranked.length)}`,
-      fix: `A barrel re-exports a whole directory, so a spec importing one loads all of it to use one export. Import the module itself. Background: ${DOCS_SLOW}`,
+      fix: 'Import the module itself in the files listed below: a barrel loads its whole directory to hand over one export.',
     },
     ...ranked.slice(0, LIST_LIMIT).map((entry): Finding => ({
       check: 'perf-import-barrel',
@@ -208,109 +185,6 @@ function importFindings(phases: readonly Phase[], graph: SourceGraph): Finding[]
       message: `Imports the barrel ${entry.barrel}, which pulls ${entry.reach} repository modules into this spec's graph.`,
       fix: 'Import the module directly instead of through the barrel.',
     })),
-  ];
-}
-
-/**
- * Comment lines are dropped first: this repository's own config explains `isolate: false` in a
- * comment three lines above `isolate: true`, and a prose mention is not a setting.
- */
-function configCode(graph: SourceGraph): string[] {
-  const configs: string[] = [];
-
-  for (const [file, text] of graph.texts) {
-    if (!CONFIG_FILE.test(file)) {
-      continue;
-    }
-
-    configs.push(
-      text
-        .split('\n')
-        .filter((line) => !/^\s*(?:\/[*/]|\*)/.test(line))
-        .join('\n'),
-    );
-  }
-
-  return configs;
-}
-
-/** Whether any runner config declares `setting`, ignoring the comments that discuss it. */
-function configDeclares(graph: SourceGraph, setting: RegExp): boolean {
-  return configCode(graph).some((code) => setting.test(code));
-}
-
-export function declaresNoIsolation(graph: SourceGraph): boolean {
-  return configDeclares(graph, NO_ISOLATION);
-}
-
-/**
- * `happy-dom` builds the same DOM for less, for the files that genuinely need one.
- *
- * The other half of the environment advice: `perf-environment` moves the specs that need no DOM out
- * of one entirely, and this one is for everything left behind. Only offered to a configuration that
- * names `jsdom` and does not already mention `happy-dom` anywhere — a suite that has made this
- * choice does not need to be asked again.
- */
-function domEngineFindings(phases: readonly Phase[], graph: SourceGraph): Finding[] {
-  if (shareOf(phases, 'environment') < DOMINATES || !configDeclares(graph, JSDOM) || configDeclares(graph, HAPPY_DOM)) {
-    return [];
-  }
-
-  return [
-    {
-      check: 'perf-environment-engine',
-      severity: 'info',
-      message: `The DOM here is \`jsdom\`, and building it is ${formatShare(shareOf(phases, 'environment'))} of the measured CPU time. Every spec that genuinely needs a DOM keeps paying that, whatever moves to \`node\`.`,
-      fix: `Try \`happy-dom\`: measured on this package's own Angular suite, same 117 files and same assertions, 26.5 s of user CPU against 23.2 s — 12 % less. On a spec that builds a DOM and does nothing else the gap is far wider (253 ms against 119 ms per file), so how much of it you get back depends on how much of your file is the environment. It implements less of the platform, so it is a swap to make one project at a time with the suite green after each. Background: ${DOCS_SLOW}`,
-    },
-  ];
-}
-
-/**
- * The worker count, which is a memory setting first and a speed setting second.
- *
- * Vitest defaults to one worker per core, and each one is a whole runtime: measured on this
- * package's own Angular suite, resident memory came to 1.42 GB plus ~155 MB per worker. Capping the
- * count is the one lever that changes peak memory without changing a line of the suite, and the
- * wall-clock it costs is small — which is exactly the trade nobody is told about, because the
- * default never announces itself.
- */
-function workerFindings(total: number, graph: SourceGraph): Finding[] {
-  if (total < LARGE_RUN_MS || configDeclares(graph, WORKER_CAP)) {
-    return [];
-  }
-
-  return [
-    {
-      check: 'perf-workers',
-      severity: 'info',
-      message: `No \`maxWorkers\` is declared, so Vitest takes one worker per core. On this package's own Angular suite that came to 1.42 GB of resident memory plus ~${WORKER_RSS_MB} MB per worker — on a 16-core machine, ~1.9 GB of it is the eight workers past a cap of four.`,
-      fix: 'Set `maxWorkers: 4` if the run has to share a machine. Measured on a field deployment of this package: 13.50 s against 13.13 s at the eight-worker optimum — 2.8 % of wall clock, for 3.7 GB of resident memory instead of 5.8 GB. Take your own reading before fixing the number: the best count is a property of the machine, not of the suite.',
-    },
-  ];
-}
-
-function isolationFindings(phases: readonly Phase[], graph: SourceGraph, profile: Profile): Finding[] {
-  const overhead = shareOf(phases, 'environment') + shareOf(phases, 'setup') + shareOf(phases, 'prepare');
-  /**
-   * A builder can have made this decision where no config can show it. `@angular/build:unit-test`
-   * passes `isolate: false` to Vitest and overrides whatever a runner config said, so a workspace
-   * on it has already taken the trade — and being told to take a decision you made is the one thing
-   * a findings tool must never spend a reader's attention on.
-   */
-  const builder = isolationFromAngularBuilder(profile);
-
-  if (overhead < DOMINATES || declaresNoIsolation(graph) || builder?.isolated === false) {
-    return [];
-  }
-
-  return [
-    {
-      check: 'perf-isolation',
-      severity: 'info',
-      message: `Per-file environment, setup and prepare together are ${formatShare(overhead)} of the measured CPU time. Those three are what \`test.isolate: false\` pays once per worker instead of once per file.`,
-      fix: `It is a trade, not a win — without isolation every double a file created stays alive for the whole worker, so peak memory grows with the suite. This package's own measurements of that are at ${DOCS_ISOLATE}; take yours before switching.`,
-    },
   ];
 }
 
@@ -442,8 +316,8 @@ function describeEmptyRun(run: PerfRun): string {
   return [
     `Nothing was measured: ${run.files.length} test ${run.files.length === 1 ? 'file was' : 'files were'} collected and ${testsRunOf(run)} test bodies ran.`,
     'Time spent collecting files that never ran a test is not a measurement of a suite, so the phase table is not printed.',
-    'Look at the run itself: every file failing on the same error — "describe is not defined", "Cannot find package" — means the runner was configured by something other than the configuration this command reached. Measure that command with --command, or hand over its report with --json.',
-    `Docs: ${PERF_DOCS}`,
+    'When every file fails on the same error, such as "describe is not defined", the suite is configured somewhere this run did not reach. Measure the command that runs it with --command.',
+    `Docs: ${BARE_RUN_DOCS}`,
   ].join('\n');
 }
 
@@ -459,8 +333,8 @@ function describeForeignRoot(run: PerfRun, cwd: string): string {
   return [
     `None of the ${run.files.length} measured files is inside ${cwd}.`,
     run.root === '' ? 'The report records no root of its own to re-base them from.' : `The report was written under ${run.root}.`,
-    'Run this from the directory the suite was measured in, or pass --cwd, so the paths in the report can be resolved against it.',
-    `Docs: ${PERF_DOCS}`,
+    'Pass --cwd the directory the suite was measured in.',
+    `Docs: ${NOTHING_TO_READ_DOCS}`,
   ].join('\n');
 }
 
