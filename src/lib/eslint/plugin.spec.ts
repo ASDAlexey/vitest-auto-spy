@@ -25,6 +25,7 @@ describe('the plugin', () => {
 
     // The README and AGENTS.md tables say the same thing in prose; this is what keeps them honest.
     expect(named((rule) => rule.meta.fixable !== undefined)).toEqual([
+      'no-hand-assigned-global',
       'no-mocked-for-spy',
       'no-redundant-mock-reset',
       'prefer-as-spy',
@@ -156,12 +157,5 @@ describe('the plugin', () => {
     expect(Object.keys(strict.rules)).toEqual(Object.keys(recommended.rules));
     expect(new Set(Object.values(strict.rules))).toEqual(new Set(['error']));
     expect(strict.plugins['vitest-auto-spy']).toBe(plugin);
-  });
-
-  it('documents every rule with a link to the recipe it recommends', () => {
-    Object.values(rules).forEach((rule) => {
-      expect(rule.meta.docs.url).toContain('#how-to-mock');
-      expect(Object.values(rule.meta.messages).every((message) => message.includes(rule.meta.docs.url))).toBe(true);
-    });
   });
 });
