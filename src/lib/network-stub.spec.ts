@@ -30,8 +30,35 @@ describe('blockNetwork', () => {
       blockNetwork();
 
       await expect(fetch('https://cdn.example.test/sprite.svg')).rejects.toThrow(
-        `${BLOCKED_FETCH_MESSAGE} — the code under test requested https://cdn.example.test/sprite.svg`,
+        `${BLOCKED_FETCH_MESSAGE} — GET https://cdn.example.test/sprite.svg. The test "blockNetwork > fetch > rejects a string URL and reports it" requested it, and blockNetwork() refused it`,
       );
+      await expect(fetch('https://cdn.example.test/sprite.svg')).rejects.toThrow(
+        /Answer it in this test: vi\.spyOn\(globalThis, 'fetch'\)\.mockResolvedValue\(stubResponse\(\{ body: … \}\)\)\.\nDocs: \S+\/utilities\/setup#_5-keeping-the-run-off-the-network$/,
+      );
+    });
+
+    it('names the method from the init or the Request', async () => {
+      blockNetwork();
+
+      await expect(fetch('https://api.example.test/save', { method: 'post' })).rejects.toThrow('— POST https://api.example.test/save.');
+      await expect(fetch({ url: 'https://api.example.test/x', method: 'DELETE' } as unknown as Request)).rejects.toThrow(
+        '— DELETE https://api.example.test/x.',
+      );
+    });
+
+    it('says when no test was running', async () => {
+      blockNetwork();
+
+      const worker = Object(Reflect.get(globalThis, '__vitest_worker__'));
+      const current: unknown = worker.current;
+
+      worker.current = undefined;
+
+      try {
+        await expect(fetch('https://cdn.example.test/a.svg')).rejects.toThrow('Code running outside any test requested it');
+      } finally {
+        worker.current = current;
+      }
     });
 
     it('reports the url of a Request-like argument', async () => {
@@ -106,7 +133,7 @@ describe('blockNetwork', () => {
       const outcome = await request('https://tracker.example.test/ping.gif?type=impression');
 
       expect(outcome).toBe(
-        `error 0 ${BLOCKED_XHR_MESSAGE} — the code under test requested https://tracker.example.test/ping.gif?type=impression`,
+        `error 0 ${BLOCKED_XHR_MESSAGE} — GET https://tracker.example.test/ping.gif?type=impression blocked. Stub it in this test, or blockNetwork({ xhr: 'empty' }) if nothing reads the reply.`,
       );
     });
 

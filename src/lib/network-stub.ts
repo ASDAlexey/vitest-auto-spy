@@ -37,6 +37,9 @@
  * tracker ping wants silence: nothing asserts on its response, so failing it only trades one kind
  * of noise for another.
  */
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
+import { currentTask, taskName } from './message-text';
 import { mockValueProp } from './prop-mock';
 
 /** Message carried by the rejection, kept greppable for whoever finds it in a failure. */
@@ -85,9 +88,34 @@ export interface BlockNetworkOptions {
  * `setupAutoSpy({ blockNetwork: true })` installs it before every test, and the stub holds no state
  * of its own: everything it reports comes from the argument it is handed.
  */
-const blockedFetch = (input: unknown): Promise<never> => {
-  return Promise.reject(new Error(`${BLOCKED_FETCH_MESSAGE} — the code under test requested ${describeTarget(input)}`));
+const blockedFetch = (input: unknown, init?: unknown): Promise<never> => {
+  return Promise.reject(new Error(blockedFetchMessage(input, init)));
 };
+
+/** `"cart > loads" requested`, or who else it was when no test is running. */
+function requester(): string {
+  const task = currentTask();
+
+  return task === undefined ? 'Code running outside any test requested' : `The test "${taskName(task)}" requested`;
+}
+
+function blockedFetchMessage(input: unknown, init: unknown): string {
+  const request = `${requestMethod(input, init)} ${describeTarget(input)}`;
+
+  return withDocs(
+    `${BLOCKED_FETCH_MESSAGE} — ${request}. ${requester()} it, and blockNetwork() refused it: unit tests stay off ` +
+      "the network. Answer it in this test: vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ body: … })).",
+    DOCS_LINKS.setupNetwork,
+  );
+}
+
+/** `GET` unless the init or the `Request` says otherwise. */
+function requestMethod(input: unknown, init: unknown): string {
+  const method: unknown =
+    Reflect.get(Object(init), 'method') ?? (typeof input === 'object' ? Reflect.get(Object(input), 'method') : undefined);
+
+  return typeof method === 'string' ? method.toUpperCase() : 'GET';
+}
 
 /** A beacon the browser refuses to queue answers `false`, and every caller in the wild ignores it. */
 const blockedSendBeacon = (): boolean => false;
@@ -115,8 +143,8 @@ const XHR_DONE = 4;
  */
 const isServedInProcess = (url: string): boolean => /^data:/i.test(url.trim());
 
-/** The URL each request was *asked* for, before `open` diverted it — `send` needs the real one. */
-const requestedUrls = new WeakMap<XMLHttpRequest, string>();
+/** The request each XHR was *asked* for (`GET https://…`), before `open` diverted it — `send` needs the real one. */
+const requestedUrls = new WeakMap<XMLHttpRequest, { method: string; url: string }>();
 
 /**
  * The replacements currently installed, each with the mode its `send` reads.
@@ -220,7 +248,7 @@ function blockXhr(mode: XhrBlockMode): void {
   ): void {
     const requested = String(url);
 
-    requestedUrls.set(this, requested);
+    requestedUrls.set(this, { method: String(method).toUpperCase(), url: requested });
     openRequest.call(this, method, isServedInProcess(requested) ? url : BLOCKED_REQUEST_URL, async, user, password);
   }
 
@@ -229,7 +257,7 @@ function blockXhr(mode: XhrBlockMode): void {
 
     // Nothing recorded means `send` was called without `open`. Let the real one raise the
     // `InvalidStateError` that says so, rather than answering a request that was never made.
-    if (cell.mode === 'empty' || requested === undefined || isServedInProcess(requested)) {
+    if (cell.mode === 'empty' || requested === undefined || isServedInProcess(requested.url)) {
       sendRequest.call(this, body);
 
       return;
@@ -259,11 +287,15 @@ function blockXhr(mode: XhrBlockMode): void {
  * advances the clock for would never arrive. It is still late enough for a handler assigned on the
  * line after `send()`.
  */
-function failRequest(request: XMLHttpRequest, url: string): void {
+function failRequest(request: XMLHttpRequest, { method, url }: { method: string; url: string }): void {
   queueMicrotask(() => {
     shadowProp(request, 'readyState', XHR_DONE);
     shadowProp(request, 'status', 0);
-    shadowProp(request, 'statusText', `${BLOCKED_XHR_MESSAGE} — the code under test requested ${url}`);
+    shadowProp(
+      request,
+      'statusText',
+      `${BLOCKED_XHR_MESSAGE} — ${method} ${url} blocked. Stub it in this test, or blockNetwork({ xhr: 'empty' }) if nothing reads the reply.`,
+    );
 
     request.dispatchEvent(new Event('readystatechange'));
     request.dispatchEvent(new ProgressEvent('error'));
@@ -341,14 +373,26 @@ export interface StubResponseInit {
  */
 export function stubResponse(init: StubResponseInit = {}): Response {
   if (typeof globalThis.Response !== 'function') {
-    throw new TypeError('[vitest-auto-spy] stubResponse() needs a global Response, and this environment has none');
+    throw new TypeError(
+      withDocs(
+        '[vitest-auto-spy] stubResponse() needs a global Response, and this environment has none. ' +
+          'Run the spec where one exists: Node 18 or later, or happy-dom.',
+        DOCS_LINKS.setupStubResponse,
+      ),
+    );
   }
 
   const status = init.status ?? (init.ok === false ? 500 : 200);
   const ok = status >= 200 && status < 300;
 
   if (init.ok !== undefined && init.ok !== ok) {
-    throw new TypeError(`[vitest-auto-spy] stubResponse() was given ok: ${init.ok} with status ${status}, which is ${ok ? '' : 'not '}ok`);
+    throw new TypeError(
+      withDocs(
+        `[vitest-auto-spy] stubResponse() was given ok: ${init.ok} with status ${status}, which is ${ok ? '' : 'not '}ok. ` +
+          'Drop `ok` — the status alone decides it.',
+        DOCS_LINKS.setupStubResponse,
+      ),
+    );
   }
 
   const headers = new Headers(init.headers);
@@ -360,7 +404,11 @@ export function stubResponse(init: StubResponseInit = {}): Response {
   // who wrote `body: null` for "no body" has to drop the field, and no platform error says so.
   if (init.body === null && NULL_BODY_STATUSES.has(status)) {
     throw new TypeError(
-      `[vitest-auto-spy] stubResponse() was given body: null with status ${status}, which carries no body — null is sent as the JSON literal, so omit body (or pass undefined) for no body at all`,
+      withDocs(
+        `[vitest-auto-spy] stubResponse() was given body: null with status ${status}, which carries no body — null is sent ` +
+          'as the JSON literal. Omit body (or pass undefined) for no body at all.',
+        DOCS_LINKS.setupStubResponse,
+      ),
     );
   }
 
