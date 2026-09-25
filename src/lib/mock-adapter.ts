@@ -13,7 +13,8 @@
  * their own adapter over the very same core. This is the same refactor spirit as
  * the rxjs decouple in `observable-support.ts`.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { registerPackageCopy } from './package-identity';
 import type { Func } from './types';
 
@@ -85,17 +86,76 @@ export function resetMockAdapter(): void {
   registeredAdapter = undefined;
 }
 
-const MISSING_MOCK_ADAPTER = withDocs(
-  'No mock adapter registered. Import a runtime entry once before creating spies — ' +
-    "'vitest-auto-spy' (default, Vitest) or a runtime variant such as 'vitest-auto-spy/bun' / 'vitest-auto-spy/node' / 'vitest-auto-spy/rstest'. " +
-    'Importing the entry is what registers the adapter, so it has to happen before the first spy is built.',
-  DOCS_LINKS.installation,
-);
+/** Which runner is loading the core, and the entry that registers its adapter. */
+interface RuntimeEntry {
+  runner: string;
+  entry: string;
+  where: string;
+  link: string;
+}
+
+function detectRuntime(host: object): RuntimeEntry | undefined {
+  const env: unknown = Reflect.get(Object(Reflect.get(host, 'process')), 'env');
+  const envFlag = (name: string): unknown => Reflect.get(Object(env), name);
+
+  if (envFlag('RSTEST') !== undefined) {
+    return { runner: 'Rstest', entry: 'vitest-auto-spy/rstest', where: 'a `setupFiles` entry', link: DOCS_LINKS.installationRstest };
+  }
+
+  if (envFlag('VITEST') !== undefined || Reflect.get(host, '__vitest_worker__') !== undefined) {
+    return { runner: 'Vitest', entry: 'vitest-auto-spy', where: 'the `setupFiles` entry', link: DOCS_LINKS.installationVitest };
+  }
+
+  if (Reflect.get(host, 'Bun') !== undefined) {
+    return {
+      runner: 'bun:test',
+      entry: 'vitest-auto-spy/bun',
+      where: 'a preload (bunfig.toml, [test] preload)',
+      link: DOCS_LINKS.installationBun,
+    };
+  }
+
+  const execArgv: unknown = Reflect.get(Object(Reflect.get(host, 'process')), 'execArgv');
+
+  if (envFlag('NODE_TEST_CONTEXT') !== undefined || (Array.isArray(execArgv) && execArgv.includes('--test'))) {
+    return {
+      runner: 'node:test',
+      entry: 'vitest-auto-spy/node',
+      where: 'a file loaded with `--import`',
+      link: DOCS_LINKS.installationNode,
+    };
+  }
+
+  return undefined;
+}
+
+/**
+ * The message for a spy built before any entry registered an adapter, naming the one import this
+ * runner needs. `host` is a parameter so the spec can stand in for each runtime.
+ */
+export function missingAdapterMessage(host: object = globalThis): string {
+  const runtime = detectRuntime(host);
+
+  if (runtime === undefined) {
+    return withDocs(
+      '[vitest-auto-spy] No mock adapter registered: a spy was built before any runtime entry was imported. ' +
+        "Import the entry for your runner first — 'vitest-auto-spy' (Vitest), 'vitest-auto-spy/bun', " +
+        "'vitest-auto-spy/node' or 'vitest-auto-spy/rstest'.",
+      DOCS_LINKS.installationEntries,
+    );
+  }
+
+  return withDocs(
+    `[vitest-auto-spy] No mock adapter registered: a spy was built before '${runtime.entry}' was imported. ` +
+      `This is ${runtime.runner} — import the factories from '${runtime.entry}', in the spec or once in ${runtime.where}.`,
+    runtime.link,
+  );
+}
 
 /** The active mock adapter, throwing an actionable hint if no entry registered one. */
 export function getMockAdapter(): MockAdapter {
   if (!registeredAdapter) {
-    throw new Error(MISSING_MOCK_ADAPTER);
+    throw new Error(missingAdapterMessage());
   }
 
   return registeredAdapter;

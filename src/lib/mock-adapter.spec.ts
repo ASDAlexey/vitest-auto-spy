@@ -8,7 +8,14 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { type MockAdapter, getMockAdapter, hasMockAdapter, registerMockAdapter, resetMockAdapter } from './mock-adapter';
+import {
+  type MockAdapter,
+  getMockAdapter,
+  hasMockAdapter,
+  missingAdapterMessage,
+  registerMockAdapter,
+  resetMockAdapter,
+} from './mock-adapter';
 import { guardAccessorSpies } from './redefine-accessor-spy';
 
 const fakeAdapter: MockAdapter = {
@@ -43,6 +50,31 @@ describe('mock adapter registry', () => {
 
   it('throws an actionable hint when no entry has registered an adapter', () => {
     expect(() => getMockAdapter()).toThrow(/no mock adapter registered/i);
+  });
+
+  it('names the Vitest entry and the setup file when Vitest is running', () => {
+    expect(() => getMockAdapter()).toThrow(
+      "[vitest-auto-spy] No mock adapter registered: a spy was built before 'vitest-auto-spy' was imported. This is Vitest",
+    );
+  });
+
+  it.each([
+    [{ Bun: {} }, "This is bun:test — import the factories from 'vitest-auto-spy/bun', in the spec or once in a preload", '#bun'],
+    [{ process: { env: { RSTEST: 'true' } } }, "This is Rstest — import the factories from 'vitest-auto-spy/rstest'", '#rstest'],
+    [{ process: { env: { VITEST: 'true' } } }, "This is Vitest — import the factories from 'vitest-auto-spy'", '#vitest'],
+    [
+      { process: { env: { NODE_TEST_CONTEXT: 'child-v8' } } },
+      "This is node:test — import the factories from 'vitest-auto-spy/node'",
+      '#node-test',
+    ],
+    [{ process: { env: {}, execArgv: ['--test'] } }, 'This is node:test', '#node-test'],
+    [{ process: { env: {}, execArgv: [] } }, "Import the entry for your runner first — 'vitest-auto-spy' (Vitest)", '#entry-points'],
+    [{}, 'a spy was built before any runtime entry was imported', '#entry-points'],
+  ])('names the one import for the runner it detects (%o)', (host, text, fragment) => {
+    const message = missingAdapterMessage(host);
+
+    expect(message).toContain(text);
+    expect(message).toMatch(new RegExp(`\nDocs: \\S+/core/installation${fragment}$`));
   });
 
   it('returns the adapter installed by a runtime entry', () => {
