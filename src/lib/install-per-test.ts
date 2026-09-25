@@ -26,7 +26,9 @@
  */
 import { afterEach, beforeEach } from 'vitest';
 
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
+import { currentTask, taskName } from './message-text';
 
 /** Reads the handle belonging to the current test. */
 export type PerTestHandle<T> = () => T;
@@ -43,6 +45,7 @@ export type PerTestHandle<T> = () => T;
  */
 export function installPerTest<T>(install: () => T): PerTestHandle<T> {
   let current: { value: T } | undefined;
+  let ended: string | undefined;
 
   beforeEach(() => {
     current = { value: install() };
@@ -55,20 +58,38 @@ export function installPerTest<T>(install: () => T): PerTestHandle<T> {
   // It also makes the reader's promise true after the last test, not only before the first one.
   afterEach(() => {
     current = undefined;
+    ended = nameOfRunningTest();
   });
 
   return () => {
     if (!current) {
-      throw new Error(
-        withDocs(
-          '[vitest-auto-spy] installPerTest: nothing is installed yet. Call the handle inside a test (or in a hook that ' +
-            'runs after the one this registered): at `describe` body time the stub for the first test does not exist ' +
-            'yet, and once a test has finished its stub is dropped rather than kept around for the next reader.',
-          DOCS_LINKS.setup,
-        ),
-      );
+      throw new Error(withDocs(`[vitest-auto-spy] installPerTest: nothing is installed yet — ${whenRead(ended)}`, DOCS_LINKS.setupPerTest));
     }
 
     return current.value;
   };
+}
+
+function nameOfRunningTest(): string | undefined {
+  const task = currentTask();
+
+  return task === undefined ? undefined : taskName(task);
+}
+
+/** Which of the three moments the handle was read at, and the fix for that one. */
+function whenRead(ended: string | undefined): string {
+  const running = nameOfRunningTest();
+
+  if (running !== undefined) {
+    return (
+      `read during "${running}" by a hook that runs before the one installPerTest() registered. ` +
+      'Read it in the test, or in a hook registered after installPerTest().'
+    );
+  }
+
+  if (ended === undefined) {
+    return 'read before the first test, at describe body time, when no stub exists yet. Read it inside a test.';
+  }
+
+  return `read after "${ended}" ended, and each test's stub is dropped with it. Read it inside a test.`;
 }
