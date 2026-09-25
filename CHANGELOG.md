@@ -10,6 +10,50 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Fixed
+
+- **`hostElement` and `queryElement` name the cause when handed the `null` of a query that matched
+  nothing.** Angular types `debugElement.query()` as `DebugElement`, but it returns `null` on a miss,
+  so `hostElement(fixture.debugElement.query(By.directive(Missing)))` type-checked and then died on
+  `Cannot read properties of null (reading 'nativeElement')`. Both helpers now throw their own
+  error, which asks whether a `debugElement.query()` matched nothing. Every message the two throw
+  now starts with `[vitest-auto-spy]` and ends with a `Docs:` link, like the rest of the package.
+  On `/angular` and `/bun-angular`.
+- **`init` no longer passes over an old copy of the shipped skill.** A
+  `.claude/skills/vitest-auto-spy/SKILL.md` without the managed markers was left alone as
+  hand-written, and `init --check` said "Up to date" — even when it was a verbatim copy of the
+  package's skill from dozens of versions back. A file there whose frontmatter says
+  `name: vitest-auto-spy` is now listed as `stale`: `init` still does not overwrite it, but warns to
+  delete it and re-run `init`, which writes the managed pointer in its place, and `init --check`
+  exits 1 on it.
+- **ESLint fixes import helpers from the adapter entry the spec already uses.** A fix or suggestion
+  that adds `mockValueProp`, `mockReadonlyPropGetter`, `asSpy`, `createMock` or `settleDynamicImport`
+  (`no-hand-assigned-global`, `no-object-define-property`, `no-reflect-member-access` and the other
+  rules that write them) always imported from the root, which in a `/bun`, `/bun-angular`, `/node`
+  or `/rstest` spec registered Vitest's adapter next to the runner's own. The import now joins the
+  adapter entry the file already imports, and falls back to the root only when it imports none.
+
+### Docs
+
+- **Reading text and asserting absence next to `queryElement`.** README, AGENTS.md, the skill and
+  the Angular page now show `queryElement(fixture, '.title').textContent.trim()` for an element that
+  must be there and `expect(host.querySelector('.x')).toBeNull()` for one that must not, and say why
+  `host.querySelector('.title')?.textContent.trim()` is the wrong reading: a miss is `undefined`, which
+  `toBeFalsy()` or `not.toContain()` accepts.
+- **The API page lists what 5.32.0 exported.** A row for `stubAnimationFrame` / `stubElementRect`,
+  and the public types `AutoMocked<T>`, `ElementConstructor<E>`, `NativeElementHolder`,
+  `DialogDataOf<T, Token>`, `AnimationFrameStub`, `AnimationFrameStubOptions` and
+  `AnimationFrameMode`.
+- **The docs site covers `autoMocked<T>()` and `AutoMocked<T>`.** The auto-mock page shows a double
+  passed as an argument and declared `let logger: AutoMocked<Logger>`; the README rows give the
+  `config` argument and name the type.
+- **The Angular page carries the two dialog typing traps AGENTS.md already had.** Naming the type
+  argument of `provideMatDialogData` is what passes `no-unsafe-argument`, and the ref type goes in
+  the type argument of `injectMatDialogRef`, not in an instantiation expression.
+- **`no-hand-assigned-global` says where its fix imports `mockValueProp` from.** The adapter entry
+  the file already imports, or `vitest-auto-spy` when it imports none, when the file has no
+  `mockValueProp` in scope; one imported from another entry is used as it is.
+
 ## [5.32.0] - 2026-09-25
 
 ### Added

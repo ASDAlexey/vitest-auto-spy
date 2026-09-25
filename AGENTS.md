@@ -16,7 +16,9 @@ Setting this up for a team? `npx vitest-auto-spy init` writes a pointer to this 
 instruction files this repository's agents actually read — `AGENTS.md` (Codex, Cursor, Copilot and
 most of the field), `CLAUDE.md` (Claude Code) and `GEMINI.md` (Gemini CLI), plus the glob-scoped
 rule file of any tool whose own directory already exists. `--check` is the CI form; `--only
-CLAUDE.md,.claude` limits it to the files a repository keeps untracked. Full table:
+CLAUDE.md,.claude` limits it to the files a repository keeps untracked. A hand-made copy of the
+package's skill in `.claude/skills/vitest-auto-spy/` is reported `stale` (and fails `--check`): delete
+it and re-run `init`. Full table:
 <https://asdalexey.github.io/vitest-auto-spy/agents>.
 
 | Resource                | Where                                                                                                                                                           |
@@ -3499,6 +3501,10 @@ const host = hostElement(fixture); // HTMLElement, checked with instanceof
 queryElement(fixture, '.close').click(); // HTMLElement; throws naming the selector when nothing matches
 queryElement(fixture.debugElement, 'input[name=q]', HTMLInputElement).value; // typed; wrong type throws
 // also on /bun-angular; queryElement takes an element found earlier as its root too
+// a null source (debugElement.query() that matched nothing) throws saying so, not 'Cannot read properties of null'
+expect(queryElement(fixture, '.title').textContent.trim()).toBe('Orders'); // present: read through queryElement
+expect(host.querySelector('.empty-state')).toBeNull(); // absent: querySelector on the typed host, no cast
+// NOT host.querySelector('.title')?.textContent.trim() — a miss is undefined, which toBeFalsy() accepts
 
 // build a class through DI, every unprovided token auto-spied
 const { instance, spies } = createWithAutoSpies(CartService, {
