@@ -82,7 +82,7 @@ describe('fillMissingMembers', () => {
     const filled = fillMissingMembers({}, strictGuard('LocalStorage'));
 
     expect(() => (filled['read'] as (key: string) => unknown)('token')).toThrow(
-      /Nothing configured LocalStorage\.read[\s\S]*Called as: LocalStorage\.read\('token'\)/,
+      /^\[vitest-auto-spy\] LocalStorage\.read\('token'\) was called/,
     );
   });
 
