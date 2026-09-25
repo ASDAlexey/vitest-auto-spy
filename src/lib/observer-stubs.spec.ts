@@ -178,7 +178,19 @@ describe('stubObserver', () => {
   it('names the mistake when nothing was constructed', () => {
     const observers = stubIntersectionObserver();
 
-    expect(() => observers.last).toThrow(/has not constructed a IntersectionObserver/);
+    expect(() => observers.last).toThrow(
+      /^\[vitest-auto-spy\] stubObserver\('IntersectionObserver'\): the stub is installed, but the code under test has not constructed a IntersectionObserver yet\.[\s\S]*#the-handle$/,
+    );
+  });
+
+  it('says the stub was taken off when a restore already removed it', () => {
+    const observers = stubIntersectionObserver();
+
+    restoreMockedProps();
+
+    expect(() => observers.last).toThrow(
+      /this stub is no longer the global IntersectionObserver — restoreMockedProps\(\) took it off after an earlier test\. Install it per test[\s\S]*#install-it-in-beforeeach-never-in-beforeall$/,
+    );
   });
 
   it('puts the real constructor back through restoreMockedProps', () => {

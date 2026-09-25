@@ -24,7 +24,8 @@
  * filled in, and anything else can be passed through. Fabricating a complete `DOMRectReadOnly` for
  * an assertion that looks at `isIntersecting` would be ceremony, not fidelity.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { type MockFn, getMockAdapter } from './mock-adapter';
 import { mockValueProp } from './prop-mock';
 
@@ -205,19 +206,27 @@ export function stubObserver<TEntry, TTarget = unknown>(
       const instance = instances.at(-1);
 
       if (!instance) {
-        throw new Error(
-          withDocs(
-            `[vitest-auto-spy] stubObserver('${name}'): the code under test has not constructed a ${name}. ` +
-              'Render the component (or run the effect) before reaching for `last`, and check that the ' +
-              'stub was installed before the construction rather than after it.',
-            DOCS_LINKS.observerStubs,
-          ),
-        );
+        throw new Error(withDocs(...notConstructed(name, Object.is(Reflect.get(globalThis, name), StubObserver))));
       }
 
       return instance;
     },
   };
+}
+
+/** Why `last` has nothing to hand back: the stub is in place and unused, or a restore already took it off. */
+function notConstructed(name: string, installed: boolean): [string, string] {
+  return installed
+    ? [
+        `[vitest-auto-spy] stubObserver('${name}'): the stub is installed, but the code under test has not constructed a ` +
+          `${name} yet. Render the component (or run the effect) before reaching for \`last\`.`,
+        DOCS_LINKS.observerStubsHandle,
+      ]
+    : [
+        `[vitest-auto-spy] stubObserver('${name}'): this stub is no longer the global ${name} — restoreMockedProps() took ` +
+          'it off after an earlier test. Install it per test, in beforeEach or with installPerTest().',
+        DOCS_LINKS.observerStubsInstall,
+      ];
 }
 
 /**
