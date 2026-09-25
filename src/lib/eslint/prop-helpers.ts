@@ -6,7 +6,7 @@
  * `mockReadonlyPropGetter`, and a value the code under test calls with `new` is
  * `stubConstructor`. Reading the descriptor is the whole of the work, so it is done in one place.
  */
-import { bindingState, insertImport } from './bindings';
+import { PACKAGE, bindingState, importNamed } from './bindings';
 import { excerptOr, propertyLabel } from './message-data';
 import {
   type EsCallExpression,
@@ -24,9 +24,6 @@ import {
   propertyName,
   propertyValue,
 } from './rule-types';
-
-/** The package the fixes import from, spelled once. */
-const PACKAGE = 'vitest-auto-spy';
 
 /** The helper that reproduces a descriptor entry exactly, for the two entries that have one. */
 function helperFor(property: EsNode): string | undefined {
@@ -109,7 +106,7 @@ export function propHelperSuggestion(context: RuleContext, node: EsCallExpressio
       const edits = [fixer.replaceText(node, replacement)];
 
       if (state === 'free') {
-        edits.push(insertImport(fixer, node, PACKAGE, `{ ${rewrite.helper} }`));
+        edits.push(importNamed(fixer, node, rewrite.helper, PACKAGE));
       }
 
       return edits;

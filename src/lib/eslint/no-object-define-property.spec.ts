@@ -67,6 +67,15 @@ describe('no-object-define-property', () => {
     expect(applySuggestion(code)).toBe("import { mockValueProp } from 'vitest-auto-spy';\nmockValueProp(service, 'ready', true);");
   });
 
+  it('imports the helper from the adapter entry the file already runs on', () => {
+    const code =
+      "import { createSpyFromClass } from 'vitest-auto-spy/bun';\nObject.defineProperty(host, 'offsetHeight', { get: () => 1 });";
+
+    expect(applySuggestion(code)).toBe(
+      "import { createSpyFromClass, mockReadonlyPropGetter } from 'vitest-auto-spy/bun';\nmockReadonlyPropGetter(host, 'offsetHeight', () => 1);",
+    );
+  });
+
   it('suggests the getter helper for a getter descriptor, configurable and all', () => {
     // The shape a spec reaches for when it needs a DOM measurement: `offsetHeight` is a getter.
     expect(suggestionsFor("Object.defineProperty(host, 'offsetHeight', { get: () => 1000, configurable: true });")).toEqual([

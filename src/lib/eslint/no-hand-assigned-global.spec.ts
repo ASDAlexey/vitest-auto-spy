@@ -151,6 +151,24 @@ beforeEach(() => {
 });`);
     });
 
+    it('imports mockValueProp from the adapter entry the file already runs on', () => {
+      const write = "it('reads', () => { environment.production = true; });";
+      const onEntry = (entry: string): string => `import { createSpyFromClass } from '${entry}';\n${header}${write}`;
+
+      expect(fixed(onEntry('vitest-auto-spy/bun-angular'))).toContain(
+        "import { createSpyFromClass, mockValueProp } from 'vitest-auto-spy/bun-angular';",
+      );
+      expect(fixed(onEntry('vitest-auto-spy/node'))).toContain("import { createSpyFromClass, mockValueProp } from 'vitest-auto-spy/node';");
+      expect(fixed(onEntry('vitest-auto-spy'))).toContain("import { createSpyFromClass, mockValueProp } from 'vitest-auto-spy';");
+      expect(fixed(`${header}${write}`)).toMatch(/^import \{ mockValueProp \} from 'vitest-auto-spy';\n/u);
+    });
+
+    it('falls back to the root when the file imports only entries without the helper', () => {
+      const code = `import { provideAutoSpy } from 'vitest-auto-spy/angular';\n${header}it('reads', () => { environment.production = true; });`;
+
+      expect(fixed(code)).toMatch(/^import \{ mockValueProp \} from 'vitest-auto-spy';\nimport \{ provideAutoSpy \}/u);
+    });
+
     it('uses a mockValueProp the file already imports, from any entry', () => {
       const code = `import { mockValueProp } from 'vitest-auto-spy/angular';\n${header}test.each([1, 2])('reads %s', (n) => { environment.retries = n; });`;
 

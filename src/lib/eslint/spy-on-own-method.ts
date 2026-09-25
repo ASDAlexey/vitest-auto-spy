@@ -4,7 +4,16 @@
  * `spyOnVoidMethod(x, 'm')`. Both helpers are that call, so the rewrite is exact and ships as a fix.
  * A bare void seed on a real event or element is the one guess, and stays a suggestion.
  */
-import { PACKAGE, bindingState, boundValueOf, dropNamedImport, findBinding, importNamed, importSpecifierOf } from './bindings';
+import {
+  CORE_ENTRIES,
+  PACKAGE,
+  bindingState,
+  boundValueOf,
+  dropNamedImport,
+  findBinding,
+  importNamed,
+  importSpecifierOf,
+} from './bindings';
 import { defineRule } from './define-rule';
 import {
   type EsCallExpression,
@@ -38,11 +47,6 @@ import {
 const FACTORY = 'createSpyFromInstance';
 const OWN = 'spyOnOwnMethod';
 const VOID = 'spyOnVoidMethod';
-
-/** Every entry that exports the two helpers; `plugin` specs hold it against the generated export map. */
-export const CORE_ENTRIES: ReadonlySet<string> = new Set(
-  ['', '/bun', '/bun-angular', '/node', '/rstest', '/react', '/vue', '/svelte'].map((entry) => `${PACKAGE}${entry}`),
-);
 
 const METHOD_NAME = /^[$A-Z_a-z][\w$]*$/;
 const EVENT_CONSTRUCTOR = /^[A-Za-z]*Event$/;

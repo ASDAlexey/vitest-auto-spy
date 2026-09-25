@@ -32,6 +32,11 @@ import {
 /** The package every fix imports from, spelled once. */
 export const PACKAGE = 'vitest-auto-spy';
 
+/** Every entry that re-exports the core helpers the fixes write; the specs hold it against the generated export map. */
+export const CORE_ENTRIES: ReadonlySet<string> = new Set(
+  ['', '/bun', '/bun-angular', '/node', '/rstest', '/react', '/vue', '/svelte'].map((entry) => `${PACKAGE}${entry}`),
+);
+
 /** What stands in the way of a fix that wants to use a name. */
 export type BindingState =
   /** Nothing claims it — the fix has to add the import itself. */
@@ -123,6 +128,18 @@ export function insertImport(fixer: EsFixer, node: EsNode, module: string, claus
   return fixer.insertTextBeforeRange([at, at], `import ${clause} from '${module}';\n`);
 }
 
+/**
+ * The core entry the file already imports, else the root: the root in a `/bun` spec would register Vitest's adapter too.
+ * Entries without the core helpers (`/angular`, `/rxjs`, `/jasmine`) name no other runner, so they fall back to the root.
+ */
+export function coreEntryOf(node: EsNode): string {
+  return (
+    importsOf(node)
+      .map((declaration) => String(declaration.source.value))
+      .find((module) => CORE_ENTRIES.has(module)) ?? PACKAGE
+  );
+}
+
 /** The file's own `import … from 'module'`, when it has exactly one and every specifier in it is named. */
 function namedImportFrom(node: EsNode, module: string): EsImportDeclaration | undefined {
   const declarations = importsOf(node).filter((declaration) => declaration.source.value === module && declaration.importKind !== 'type');
@@ -141,9 +158,11 @@ function namedImportFrom(node: EsNode, module: string): EsImportDeclaration | un
  * suite of 1771 spec files: 20 of the 49 files it rewrites already import from that entry point.
  *
  * Into a list that is already in order — case aside, which is how `sort-imports` and most formatters
- * read it — the name goes where it sorts; into one that is not, at the end.
+ * read it — the name goes where it sorts; into one that is not, at the end. A root request resolves
+ * through {@link coreEntryOf}, so the helper joins the adapter entry the file already runs on.
  */
-export function importNamed(fixer: EsFixer, node: EsNode, name: string, module: string): EsFix {
+export function importNamed(fixer: EsFixer, node: EsNode, name: string, requested: string): EsFix {
+  const module = requested === PACKAGE ? coreEntryOf(node) : requested;
   const specifiers = namedImportFrom(node, module)?.specifiers.filter(isNamedImportSpecifier) ?? [];
   const entries = specifiers.map((specifier) => ({
     specifier,

@@ -2,8 +2,8 @@ import { type LintMessage } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
 import { ENTRY_SPECIFIERS, EXPORTED_BY } from '../../cli/checks/export-map.generated';
+import { CORE_ENTRIES } from './bindings';
 import { fixRule, runRule } from './run-rule';
-import { CORE_ENTRIES } from './spy-on-own-method';
 
 const RULE = 'prefer-spy-on-own-method';
 const IMPORT = "import { createSpyFromInstance } from 'vitest-auto-spy';\n";
@@ -281,5 +281,8 @@ describe(RULE, () => {
 
     expect(exporting('spyOnOwnMethod')).toEqual([...CORE_ENTRIES]);
     expect(exporting('spyOnVoidMethod')).toEqual([...CORE_ENTRIES]);
+    ['asSpy', 'createMock', 'mockReadonlyPropGetter', 'mockValueProp', 'settleDynamicImport'].forEach((helper) => {
+      expect(exporting(helper)).toEqual(expect.arrayContaining([...CORE_ENTRIES]));
+    });
   });
 });

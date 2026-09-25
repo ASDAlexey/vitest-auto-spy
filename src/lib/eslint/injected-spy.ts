@@ -10,7 +10,7 @@
  * reports the instance being re-spied with `vi.spyOn`, which is a run-time defect; `prefer-as-spy`
  * reports the cast, which is a correct intention spelled in a way the compiler no longer takes.
  */
-import { PACKAGE, bindingState, dropNamedImport, findBinding, initializerOf, insertImport } from './bindings';
+import { PACKAGE, bindingState, dropNamedImport, findBinding, importNamed, initializerOf, insertImport } from './bindings';
 import { defineRule } from './define-rule';
 import { excerpt } from './message-data';
 import {
@@ -207,7 +207,7 @@ export function asSpyFixes(context: RuleContext, fixer: EsFixer, node: EsSpyCast
   const edits = [fixer.replaceText(node, call)];
 
   if (bindingState(sourceCode.getScope(node), 'asSpy') === 'free') {
-    edits.push(insertImport(fixer, node, PACKAGE, '{ asSpy }'));
+    edits.push(importNamed(fixer, node, 'asSpy', PACKAGE));
   }
 
   // The cast was the last thing naming the type: the same bookkeeping `no-mocked-for-spy` does, and
