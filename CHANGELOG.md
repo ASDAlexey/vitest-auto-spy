@@ -22,7 +22,10 @@ The latest released version here must always match the one published on
   `Spy<X>` annotation becomes `Spy<X>['m']` in a suggestion. A bare `returns: { m: undefined }` seed,
   whose discovery also spies every other method, is offered as a suggestion only on a real event or
   element (`new MouseEvent(…)`, `document.createElement(…)`, `fixture.nativeElement`, one name away
-  included), never on a double. `warn`, because the call it reports is correct.
+  included), never on a double. `warn`, because the call it reports is correct. `/eslint-plugin`
+  grows 51.61 → 53.56 kB min+gzip (+1.96 kB, +3.8 %), all of it this rule: the fixer that follows
+  every `v.m` read, rewrites imports and the `Spy<X>` annotation. The plugin runs in the linter, never
+  in a test, and no runtime entry imports it.
 
 ### Fixed
 
