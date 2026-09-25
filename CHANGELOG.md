@@ -10,6 +10,43 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`onStrayTimers: 'throw'` and `onStrayListeners: 'throw'` fail the file with every stray named.**
+  Failing a file on a stray took a handler, and a handler that printed its own message had to rebuild
+  the line the `--detect-async-leaks` warning already prints. `'throw'` fails the file from the same
+  `afterAll` a handler runs in, with one line per stray — `timeout (300 ms) from <file> <frames[0]>`
+  for a timer, `keydown on document from <file> <frames[0]>` for a listener — every one, not the
+  warning's first three. The sweep still cancels and removes first; the preset is unchanged. The option
+  type widens from a handler to a handler or `'throw'`. With both set to `'throw'`, a file that leaks
+  a timer and a listener fails with both errors in one `AggregateError`, the timer already cancelled.
+
+### Fixed
+
+- **A throwing `onStrayListeners` no longer leaves the file's stray timers running.** The timer
+  sweep was its own `afterAll`, and Vitest skips the remaining `afterAll` hooks once one throws: with
+  `strayTimers` and `strayListeners` both on, a failing listener report hid the timer report and left
+  the timer uncancelled, free to fire in the next file on the worker under `isolate: false`. The timer
+  sweep now runs in the file-boundary hook, after the other repairs and before any handler; every
+  handler runs, and two failures are thrown together as an `AggregateError`. A single failure is
+  thrown as it was, and non-throwing handlers behave as before.
+- **`calledWith(new URL(a))` no longer answers a call made with `new URL(b)`.** A URL keeps its state
+  in internal slots, so the argument key rendered every one as `URL{}` and any two URLs matched each
+  other — `mustBeCalledWith` included, which then let the wrong URL through instead of throwing.
+  `toHaveBeenCalledWith` compares them by `href`, and so do `calledWith` and `mustBeCalledWith` now,
+  on the key path and beside an asymmetric matcher alike. A mismatch message prints the URL instead
+  of `URL{}`.
+
+### Docs
+
+- **A custom `onStrayListeners` handler is told which fields to print.** The advice to print `kind`,
+  `delay` and `frames[0]` sat next to the timer handler only, and a listener has neither `kind` nor
+  `delay`: the listener section now names `type`, `target`, `file` and `frames[0]`.
+- **The Russian API table lists the `delay` `describeStrayTimers()` returns**, as the English one does.
+- **"Which of the forty-nine apply to you" counts forty-five core rules, not forty-four.** 5.30.0 added
+  `prefer-spy-on-own-method` and bumped every total to forty-nine but this one, so core and jasmine
+  rules added up to forty-eight.
+
 ## [5.30.0] - 2026-09-25
 
 ### Added

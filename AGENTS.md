@@ -1524,8 +1524,10 @@ setupAutoSpy({ strayTimers: true, onStrayTimers: ({ timers }) => expect(timers).
 `frames` starts below the tracking wrapper and is up to forty frames deep, so a zone or an rxjs
 scheduler in between does not hide the caller: project frames come first; when the call came from
 dependencies only, their frames stand in. The package's own frames are never quoted, from source or
-from `dist`. A handler that prints its own message should print `kind`, `delay` and `frames[0]` —
-they are what makes a report that only reproduces under a slow coverage run actionable the first time.
+from `dist`. `onStrayTimers: 'throw'` fails the file with a message that lists every stray as
+`timeout (300 ms) from <file> <frames[0]>`; a handler that prints its own message should print the
+same `kind`, `delay`, `file` and `frames[0]` — they are what makes a report that only reproduces
+under a slow coverage run actionable the first time.
 
 A stray whose `file` is not the file that failed was scheduled after the previous file's sweep —
 the previous file is the one to fix.
@@ -1661,7 +1663,13 @@ initialisation — and the `afterAll` takes off everything added since. The piec
 `removeStrayListeners()` (returns how many), `countStrayListeners()` (throws before
 `trackStrayListeners()` has run, like the timer counter) and `describeStrayListeners()` — each
 stray's target, type, spec file and up to five frames, the list `onStrayListeners({ removed, listeners })`
-receives when a file should fail instead: `onStrayListeners: ({ removed }) => expect(removed).toBe(0)`.
+receives when a file should fail instead: `onStrayListeners: ({ removed }) => expect(removed).toBe(0)`,
+or `onStrayListeners: 'throw'`, whose message lists each as `keydown on document from <file> <frames[0]>`.
+A listener has `type` and `target` where a timer has `kind` and `delay` — a handler that prints its own
+message prints those four fields instead.
+With `strayTimers` on too, both reports run after both sweeps and both run even if the first throws —
+a handler or `'throw'` alike; two failures surface as one `AggregateError`, so a throwing report never
+leaves a timer uncancelled.
 Under jsdom a listener registered with `{ once: true }` that already fired stays counted until
 something removes it: the wrapper cannot observe the firing without breaking identity-based
 `removeEventListener` from the code under test, and removing an already-fired listener is a no-op
@@ -2170,8 +2178,8 @@ an unconfigured call returns — a semantic switch, not a grade; the name was ta
 `unconfiguredReads`, its read side (survey with `onUnstubbedRead` before turning it on),
 `blockNetwork` (changes the code under test), `restoreMocks` (drops `beforeAll` spies), failing on
 stray-timer counts (the sweep fails the file from `afterAll`, and a callback scheduled after the
-previous file's sweep is charged to the next — opt in with
-`onStrayTimers: ({ timers }) => expect(timers).toEqual([])`, whose diff names each one's file), and
+previous file's sweep is charged to the next — opt in with `onStrayTimers: 'throw'`, whose message
+names each one's file, or `onStrayTimers: ({ timers }) => expect(timers).toEqual([])`), and
 `enableAngularDiagnostics()`, which lives in `/angular/diagnostics` — call it in the same setup file as the Angular half of strict.
 
 `misconfiguration: 'throw'` on its own makes the library's misuse reports — an `onlyMethodsToSpyOn`

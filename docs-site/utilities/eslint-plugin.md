@@ -139,7 +139,7 @@ principle — it is that they cannot fire on your code.
 
 | You are                                    | What the plugin does for you                                                                            |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| writing Vitest, never used Jasmine or Jest | the forty-four core rules work; **the four jasmine rules are inert** — leave them on and never see them |
+| writing Vitest, never used Jasmine or Jest | the forty-five core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                           |
 | migrating off `jasmine-auto-spies`         | all forty-nine, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                    |
 

@@ -7632,10 +7632,13 @@ withoutStrayTimerTracking(() => seedStorage()); // what this schedules is neithe
 `timers` lists every one with its kind, the delay a timeout or interval was given, the spec file that
 was running when it was scheduled, and up to five frames of the scheduling call. The frames start at
 the caller: those outside `node_modules` first, dependency frames when there are no others, and never
-the library's own — neither from source nor from `dist`. A handler that prints its own message should
-print `kind`, `delay` and `frames[0]`.
+the library's own — neither from source nor from `dist`. `onStrayTimers: 'throw'` fails the file with
+a message that lists every stray as `timeout (300 ms) from <file> <frames[0]>`; a handler that prints
+its own message should print the same `kind`, `delay`, `file` and `frames[0]`.
 
 ```ts
+setupAutoSpy({ strayTimers: true, onStrayTimers: 'throw' }); // every stray's kind, delay, file and first frame
+
 setupAutoSpy({ strayTimers: true, onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0) });
 
 setupAutoSpy({
@@ -8733,11 +8736,20 @@ The pieces are exported too, from `vitest-auto-spy/setup`:
 | `describeStrayListeners()` | Each stray's target, type, spec file and up to five frames — the `onStrayListeners` list |
 
 `setupAutoSpy({ strayListeners: true, onStrayListeners: ({ removed }) => expect(removed).toBe(0) })`
-fails the file that leaked instead of tidying it away quietly. Under jsdom a listener registered
+fails the file that leaked instead of tidying it away quietly; `onStrayListeners: 'throw'` does the
+same with a message that lists each stray as `keydown on document from <file> <frames[0]>`. A
+listener has `type` and `target` where a timer has `kind` and `delay`, so a handler that prints its
+own message prints those four fields instead. Under jsdom a listener registered
 with `{ once: true }` that already fired stays counted until something removes it — the wrapper
 cannot observe the firing without breaking identity-based `removeEventListener` from the code under
 test, and removing an already-fired listener is a no-op anyway. happy-dom detaches it through the
 public `removeEventListener`, so there it leaves the count by itself.
+
+With `strayTimers` on as well, both reports — a handler or `'throw'` alike — run only after the
+timers are cancelled and the listeners taken off, so a throwing `onStrayListeners` cannot leave a
+timer to fire in the next file. Both run even when the first throws; two failures, such as both
+options set to `'throw'` in a file that leaks both, surface as one `AggregateError`, which Vitest
+lists as two errors.
 
 ## 20. Globals put back at the file boundary
 
@@ -8813,7 +8825,8 @@ Deliberately **not** in it, each for a reason:
 - **Failing on stray timers** — the sweep runs in `afterAll`, so the failure lands on the file rather
   than a test, and a callback scheduled after the previous file's sweep is charged to the next one:
   the count can fail a file that scheduled nothing. `timers` names who really scheduled each, so it is
-  one line to opt in once a suite has read them: `onStrayTimers: ({ timers }) => expect(timers).toEqual([])`.
+  one line to opt in once a suite has read them: `onStrayTimers: 'throw'`, or
+  `onStrayTimers: ({ timers }) => expect(timers).toEqual([])`.
 - **`enableAngularDiagnostics()`** — it lives in `vitest-auto-spy/angular/diagnostics` and needs the
   TestBed environment first. Call it in the same setup file as the Angular half of strict: on a
   1759-file Angular consumer it found real defects in 25 files and 324 tests, and cost nothing
@@ -8922,37 +8935,37 @@ each test: a stub installed for the previous test is exactly what must not still
 
 ## Options
 
-| Option                | Default   | Notes                                                                                       |
-| --------------------- | --------- | ------------------------------------------------------------------------------------------- |
-| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                               |
-| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                              |
-| `propsOutsideHooks`   | `'warn'`  | Report a `mock*Prop` patch made outside a per-test hook — see below                         |
-| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`               |
-| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file — section 4         |
-| `onStrayTimers`       | —         | Takes the per-file count and each stray's origin, instead of the stderr warning             |
-| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js                     |
-| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object             |
-| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable                          |
-| `prototypePollution`  | `'throw'` | Sweep and report an enumerable key a test left on a built-in prototype                      |
-| `documentPollution`   | `'off'`   | Put back and report an attribute a test left on `<html>` / `<head>` / `<body>` — section 17 |
-| `strayConsole`        | `'off'`   | Fail a test (or file) that wrote to the console without absorbing it — section 16           |
-| `misconfiguration`    | `'warn'`  | `'throw'` fails the library's own misuse reports at the call site                           |
-| `preset`              | —         | `'strict'` starts every guard at its strictest grade — see above                            |
-| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                                 |
-| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                                  |
-| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work — see section 14                 |
-| `restoreStorageSpies` | `true`    | Take spies off Web Storage methods `mockRestore()` cannot — happy-dom's proxy, section 18   |
-| `strayListeners`      | `false`   | Remove `window` / `document` listeners a file leaves registered — section 19                |
-| `onStrayListeners`    | —         | Takes the per-file count and each stray's origin, instead of the quiet sweep                |
-| `restoreGlobals`      | `false`   | Put every changed `globalThis` global back at the file boundary — section 20                |
-| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file              |
-| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger                  |
-| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock                     |
-| `angularBuildHint`    | `true`    | Say once per worker that `@angular/build` builds the test bundle unsplit                    |
-| `strict`              | `false`   | Every double built afterwards throws on a method nobody configured                          |
-| `onUnstubbedCall`     | —         | The general form of `strict` — its return value becomes the call's result                   |
-| `unconfiguredReads`   | `'off'`   | Report a strict double's getter read, or stream subscribed to, that nothing configured      |
-| `onUnstubbedRead`     | —         | Takes those findings instead of the report, from every double — for a survey                |
+| Option                | Default   | Notes                                                                                                     |
+| --------------------- | --------- | --------------------------------------------------------------------------------------------------------- |
+| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                                             |
+| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                                            |
+| `propsOutsideHooks`   | `'warn'`  | Report a `mock*Prop` patch made outside a per-test hook — see below                                       |
+| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`                             |
+| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file — section 4                       |
+| `onStrayTimers`       | —         | Takes the per-file count and each stray's origin, instead of the stderr warning; `'throw'` fails the file |
+| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js                                   |
+| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object                           |
+| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable                                        |
+| `prototypePollution`  | `'throw'` | Sweep and report an enumerable key a test left on a built-in prototype                                    |
+| `documentPollution`   | `'off'`   | Put back and report an attribute a test left on `<html>` / `<head>` / `<body>` — section 17               |
+| `strayConsole`        | `'off'`   | Fail a test (or file) that wrote to the console without absorbing it — section 16                         |
+| `misconfiguration`    | `'warn'`  | `'throw'` fails the library's own misuse reports at the call site                                         |
+| `preset`              | —         | `'strict'` starts every guard at its strictest grade — see above                                          |
+| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                                               |
+| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                                                |
+| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work — see section 14                               |
+| `restoreStorageSpies` | `true`    | Take spies off Web Storage methods `mockRestore()` cannot — happy-dom's proxy, section 18                 |
+| `strayListeners`      | `false`   | Remove `window` / `document` listeners a file leaves registered — section 19                              |
+| `onStrayListeners`    | —         | Takes the per-file count and each stray's origin, instead of the quiet sweep; `'throw'` fails the file    |
+| `restoreGlobals`      | `false`   | Put every changed `globalThis` global back at the file boundary — section 20                              |
+| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file                            |
+| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger                                |
+| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock                                   |
+| `angularBuildHint`    | `true`    | Say once per worker that `@angular/build` builds the test bundle unsplit                                  |
+| `strict`              | `false`   | Every double built afterwards throws on a method nobody configured                                        |
+| `onUnstubbedCall`     | —         | The general form of `strict` — its return value becomes the call's result                                 |
+| `unconfiguredReads`   | `'off'`   | Report a strict double's getter read, or stream subscribed to, that nothing configured                    |
+| `onUnstubbedRead`     | —         | Takes those findings instead of the report, from every double — for a survey                              |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
 `beforeAll`; it is the knob to reach for when the run shares one environment across files.
@@ -11066,7 +11079,7 @@ principle — it is that they cannot fire on your code.
 
 | You are                                    | What the plugin does for you                                                                            |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| writing Vitest, never used Jasmine or Jest | the forty-four core rules work; **the four jasmine rules are inert** — leave them on and never see them |
+| writing Vitest, never used Jasmine or Jest | the forty-five core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                           |
 | migrating off `jasmine-auto-spies`         | all forty-nine, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                    |
 
