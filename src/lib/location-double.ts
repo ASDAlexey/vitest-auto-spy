@@ -31,8 +31,10 @@ import { MockLocationStrategy, SpyLocation } from '@angular/common/testing';
 import { type Injector, type Provider } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
+import { describeInstance } from './angular-instance-name';
 import { angularInternalsError } from './angular-internals-error';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 
 /** What `injectLocationDouble()` and `createLocationDouble()` hand back: Angular's own recording fake. */
 export type LocationDouble = SpyLocation;
@@ -60,13 +62,6 @@ class QueryAwareSpyLocation extends SpyLocation {
 
     return super.path() + Location.normalizeQueryParams(query);
   }
-}
-
-function describeInstance(instance: object): string {
-  const prototype = Reflect.getPrototypeOf(instance);
-  const owner: unknown = prototype === null || prototype === Object.prototype ? undefined : Reflect.get(prototype, 'constructor');
-
-  return typeof owner === 'function' ? `an instance of ${owner.name}` : 'a plain object';
 }
 
 /**
@@ -110,7 +105,10 @@ export function injectLocationDouble(injector?: Injector): LocationDouble {
 
   if (location === null || location === undefined) {
     throw new Error(
-      withDocs(`${caller}: nothing provides Location here. Add provideLocationDouble() to the providers.`, DOCS_LINKS.angularLocation),
+      withDocs(
+        `${caller}: nothing provides Location here. Add provideLocationDouble() to the providers.`,
+        DOCS_LINKS.angularLocationDouble,
+      ),
     );
   }
 
@@ -120,7 +118,7 @@ export function injectLocationDouble(injector?: Injector): LocationDouble {
         `${caller}: the Location here is ${describeInstance(location)}, not the SpyLocation ` +
           'provideLocationDouble() provides. A later provider of Location won over it — list ' +
           'provideLocationDouble() last, or drop the other one.',
-        DOCS_LINKS.angularLocation,
+        DOCS_LINKS.angularLocationDouble,
       ),
     );
   }

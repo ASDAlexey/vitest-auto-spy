@@ -10,6 +10,8 @@ import { Component, Injector, inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
+import '../angular';
+import { provideAutoSpy } from './angular';
 import { createLocationDouble, injectLocationDouble, provideLocationDouble } from './location-double';
 
 @Component({
@@ -187,6 +189,12 @@ describe('injectLocationDouble failures', () => {
     expect(() => injectLocationDouble()).toThrow(
       'the Location here is a plain object, not the SpyLocation provideLocationDouble() provides',
     );
+  });
+
+  it('names an auto-spy that won over the double', () => {
+    TestBed.configureTestingModule({ providers: [provideLocationDouble(), provideAutoSpy(Location)] });
+
+    expect(() => injectLocationDouble()).toThrow('the Location here is an auto-spy, not the SpyLocation');
   });
 
   it('names the real Location a TestBed without the double hands out', () => {
