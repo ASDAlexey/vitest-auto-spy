@@ -22,7 +22,8 @@
  * `restoreMockedProps()` — which `setupAutoSpy()` runs after every test — puts the real prototype
  * back.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { type MockFn, getMockAdapter } from './mock-adapter';
 import { mockReadonlyPropGetter, mockValueProp } from './prop-mock';
 
