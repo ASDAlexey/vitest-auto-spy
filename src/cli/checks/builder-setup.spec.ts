@@ -30,9 +30,12 @@ describe('checkBuilderSetup', () => {
     expect(rest).toEqual([]);
     expect(finding?.check).toBe('builder-setup-unreached');
     expect(finding?.file).toBe('libs/client/project.json');
-    expect(finding?.message).toContain('`client:test` runs through `@nx/angular:unit-test`');
-    expect(finding?.message).toContain('`libs/client/src/test-setup.ts`, found in the `setupFiles` of libs/client/vitest.config.ts');
-    expect(finding?.fix).toContain('"setupFiles": ["libs/client/src/test-setup.ts"]');
+    expect(finding?.message).toBe(
+      '`client:test` runs through `@nx/angular:unit-test`, which runs only the setup files its target names, so `libs/client/src/test-setup.ts`, listed in the `setupFiles` of libs/client/vitest.config.ts, never runs there. `setupAutoSpy()`, registered matchers and the mock adapter are missing under that target.',
+    );
+    expect(finding?.fix).toBe(
+      'Add `"setupFiles": ["libs/client/src/test-setup.ts"]` to the options of `client:test` in libs/client/project.json.',
+    );
   });
 
   it('falls back to the conventional setup file of an Angular CLI project', () => {
@@ -43,7 +46,7 @@ describe('checkBuilderSetup', () => {
     });
 
     expect(checkBuilderSetup(readProfile(root)).map((finding) => finding.message)).toEqual([
-      expect.stringContaining('`projects/app/src/test-setup.ts`, found in its conventional place'),
+      expect.stringContaining('`projects/app/src/test-setup.ts`, found at the conventional path, never runs there'),
     ]);
   });
 

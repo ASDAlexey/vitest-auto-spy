@@ -38,14 +38,14 @@ function intendedSetup(profile: Profile, root: string): { files: string[]; sourc
     const files = text === undefined ? [] : extractSetupFiles(text);
 
     if (files.length > 0) {
-      return { files: files.map(inProject), source: `the \`setupFiles\` of ${inProject(config)}` };
+      return { files: files.map(inProject), source: `listed in the \`setupFiles\` of ${inProject(config)}` };
     }
   }
 
   const present = new Set(profile.files);
   const conventional = CONVENTIONAL_SETUP.map(inProject).filter((file) => present.has(file));
 
-  return conventional.length > 0 ? { files: conventional, source: 'its conventional place' } : undefined;
+  return conventional.length > 0 ? { files: conventional, source: 'found at the conventional path' } : undefined;
 }
 
 export function checkBuilderSetup(profile: Profile): Finding[] {
@@ -64,8 +64,8 @@ export function checkBuilderSetup(profile: Profile): Finding[] {
         check: 'builder-setup-unreached',
         severity: 'warning',
         file: target.file,
-        message: `\`${target.project}:${target.name}\` runs through \`${target.builder}\`, which runs only the setup files its target names — ${names}, found in ${setup.source}, never runs there. What it installs is missing under that target: \`setupAutoSpy()\` and its \`strict\`, registered matchers ("Invalid Chai property"), and the mock adapter ("No mock adapter registered").`,
-        fix: `Name it on the target — \`"options": { "setupFiles": [${list}] }\`, paths from the workspace root; in \`nx.json\` \`targetDefaults\` when every project shares the layout — or point \`runnerConfig\` at the Vitest config that lists it.`,
+        message: `\`${target.project}:${target.name}\` runs through \`${target.builder}\`, which runs only the setup files its target names, so ${names}, ${setup.source}, never runs there. \`setupAutoSpy()\`, registered matchers and the mock adapter are missing under that target.`,
+        fix: `Add \`"setupFiles": [${list}]\` to the options of \`${target.project}:${target.name}\` in ${target.file}.`,
       },
     ];
   });
