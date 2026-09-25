@@ -1,7 +1,7 @@
 import { type LintMessage } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
-import { runRule } from './run-rule';
+import { fixRule, runRule } from './run-rule';
 
 const RULE = 'no-hand-assigned-global';
 
@@ -27,10 +27,11 @@ describe('no-hand-assigned-global', () => {
     const text = message(code);
 
     expect(count(code)).toBe(1);
-    expect(text).toContain("mockValueProp(globalThis, 'fetch'");
-    expect(text).toContain('blockNetwork()');
-    expect(text).toContain('unstubGlobals: true');
-    expect(text).toContain('#how-to-mock-fetch-and-other-globals');
+    expect(text).toMatch(/^`fetch` is replaced by assignment/);
+    expect(text).toContain("mockValueProp(globalThis, 'fetch', vi.fn(…))");
+    expect(text).toContain('/utilities/eslint-rules#no-hand-assigned-global');
+    expect(message('self.WebSocket = function () {};')).toContain("stubConstructor(globalThis, 'WebSocket', …)");
+    expect(message('window.ResizeObserverEntry = function () {};')).toContain("stubConstructor(globalThis, 'ResizeObserverEntry', …)");
   });
 
   it('reads every receiver and spelling of the global, cast or configured', () => {
@@ -48,11 +49,10 @@ describe('no-hand-assigned-global', () => {
     expect(message('window.sessionStorage = { getItem: vi.fn() } as never;')).toContain("stubWebStorage('sessionStorage')");
   });
 
-  it('names mockValueProp and vi.stubGlobal for any other global', () => {
+  it('names mockValueProp for any other global', () => {
     const text = message('window.matchMedia = vi.fn().mockReturnValue({ matches: true });');
 
-    expect(text).toContain("mockValueProp(globalThis, 'matchMedia', value)");
-    expect(text).toContain("vi.stubGlobal('matchMedia', value)");
+    expect(text).toContain("mockValueProp(globalThis, 'matchMedia', vi.fn(…))");
     expect(text).not.toContain('blockNetwork');
   });
 
@@ -111,5 +111,97 @@ describe('no-hand-assigned-global', () => {
 
   it('reports every assignment of the same global once each', () => {
     expect(count('global.fetch = vi.fn(); global.fetch = vi.fn();')).toBe(2);
+  });
+
+  describe('a member of an imported binding', () => {
+    const header = "import { environment } from '../environments/environment';\n";
+
+    function fixed(code: string): string {
+      return fixRule(RULE, code).output;
+    }
+
+    it('reports any value written into an imported object, not only a double', () => {
+      const code = `${header}it('reads', () => { environment.useRemoteConfigs = true; });`;
+      const text = message(code);
+
+      expect(count(code)).toBe(1);
+      expect(text).toContain('`environment.useRemoteConfigs` is written into an imported module');
+      expect(text).toContain("mockValueProp(environment, 'useRemoteConfigs', value)");
+    });
+
+    it('rewrites the assignment through mockValueProp and imports it', () => {
+      expect(fixed(`${header}it('reads', () => { environment.useRemoteConfigs = true; });`)).toBe(
+        `import { mockValueProp } from 'vitest-auto-spy';\n${header}it('reads', () => { mockValueProp(environment, 'useRemoteConfigs', true); });`,
+      );
+    });
+
+    it('joins an existing import, keeps a quoted key as written, and reaches a nested object or a cast', () => {
+      const code = `import { createMock } from 'vitest-auto-spy';
+import config from './config';
+beforeEach(() => {
+  config['api-url'] = 'http://test';
+  (config as any).feature.enabled = false;
+});`;
+
+      expect(fixed(code)).toBe(`import { createMock, mockValueProp } from 'vitest-auto-spy';
+import config from './config';
+beforeEach(() => {
+  mockValueProp(config, 'api-url', 'http://test');
+  mockValueProp((config as any).feature, 'enabled', false);
+});`);
+    });
+
+    it('uses a mockValueProp the file already imports, from any entry', () => {
+      const code = `import { mockValueProp } from 'vitest-auto-spy/angular';\n${header}test.each([1, 2])('reads %s', (n) => { environment.retries = n; });`;
+
+      expect(fixed(code)).toContain("mockValueProp(environment, 'retries', n)");
+      expect(fixed(code).match(/import/gu)).toHaveLength(2);
+    });
+
+    it('looks past a call whose callee is not a name, to the test around it', () => {
+      expect(fixed(`${header}it('reads', () => { (() => { environment.production = true; })(); });`)).toContain(
+        "mockValueProp(environment, 'production', true)",
+      );
+    });
+
+    it('reports without a fix where the sweep would take the patch off early, or the rewrite would change meaning', () => {
+      const cases = [
+        `${header}beforeAll(() => { environment.production = true; });`,
+        `${header}describe('suite', () => { environment.production = true; });`,
+        `${header}environment.production = true;`,
+        `${header}it('reads', () => { const value = (environment.production = true); });`,
+        `${header}it('reads', () => { environment.production = (1, true); });`,
+        `${header}const mockValueProp = 1;\nit('reads', () => { environment.production = true; });`,
+      ];
+
+      cases.forEach((code) => {
+        expect(count(code)).toBe(1);
+        expect(fixed(code)).toBe(code);
+      });
+    });
+
+    it('stays silent when a teardown hook puts the value back', () => {
+      expect(
+        count(`${header}
+          const original = environment.production;
+          beforeEach(() => { environment.production = true; });
+          afterEach(() => { environment.production = original; });
+        `),
+      ).toBe(0);
+    });
+
+    it('leaves locals, this, compound assignments, computed keys and a namespace object alone', () => {
+      expect(count(`${header}const local = { a: 1 }; it('x', () => { local.a = 2; });`)).toBe(0);
+      expect(count(`class Holder { value = 0; set(): void { this.value = 1; } }`)).toBe(0);
+      expect(count(`${header}it('x', () => { environment.retries += 1; });`)).toBe(0);
+      expect(count(`${header}it('x', () => { environment[key] = 1; });`)).toBe(0);
+      expect(count(`import * as env from './env';\nit('x', () => { env.production = true; });`)).toBe(0);
+      expect(count(`it('x', () => { unknownGlobal.production = true; });`)).toBe(0);
+      expect(count(`it('x', () => { fn().production = true; });`)).toBe(0);
+    });
+
+    it('reports a member of an object reached through a namespace import', () => {
+      expect(count(`import * as env from './env';\nit('x', () => { env.environment.production = true; });`)).toBe(1);
+    });
   });
 });
