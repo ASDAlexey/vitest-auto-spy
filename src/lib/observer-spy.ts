@@ -72,16 +72,17 @@ function endedOtherwise(waitedFor: 'an error' | 'completion', happened: string):
   );
 }
 
-/** Nothing was emitted, and the caller asked for a value anyway. */
-function noValue(what: string): Error {
-  return new Error(
-    withDocs(
-      `[vitest-auto-spy] ${what}, but the observable emitted nothing. ` +
-        'Check `receivedNext()` first, read `getLastValue()` (which admits `undefined`), or await ' +
-        '`expectEmission(source$)`, which fails with a timeout naming the stream instead of reading past its end.',
-      DOCS_RXJS,
-    ),
-  );
+/** Fewer values arrived than the caller asked for; `completed` says whether more can still come. */
+function noValue(what: string, emitted: number, completed: boolean): Error {
+  const told =
+    emitted === 0
+      ? `the observable emitted nothing${completed ? ' and has completed' : ' yet'}`
+      : `the observable emitted only ${emitted} value${emitted === 1 ? '' : 's'}${completed ? ' and has completed' : ''}`;
+  const action = completed
+    ? 'Check the spy feeding it (`nextWith`), or read `getValues()` to see what arrived.'
+    : 'Await `expectEmission(source$)`, which waits and names the stream, instead of reading past its end.';
+
+  return new Error(withDocs(`[vitest-auto-spy] ${what}, but ${told}. ${action}`, DOCS_RXJS));
 }
 
 /**
@@ -122,7 +123,7 @@ export class ObserverSpy<T> {
     this.#error = errorValue;
     this.#receivedError = true;
     this.#onErrorCallbacks.splice(0).forEach((waiter) => waiter.settle());
-    this.#onCompleteCallbacks.splice(0).forEach((waiter) => waiter.fail(endedOtherwise('completion', 'errored')));
+    this.#onCompleteCallbacks.splice(0).forEach((waiter) => waiter.fail(endedOtherwise('completion', this.#errored())));
   }
 
   /** Throw the recorded error when nothing declared it expected. Guards the value readers only. */
@@ -140,10 +141,18 @@ export class ObserverSpy<T> {
     }
   }
 
+  #errored(): string {
+    return `errored (${String(this.#error)})`;
+  }
+
+  #completed(): string {
+    return `completed after ${this.#values.length} value(s) without erroring`;
+  }
+
   complete(): void {
     this.#receivedComplete = true;
     this.#onCompleteCallbacks.splice(0).forEach((waiter) => waiter.settle());
-    this.#onErrorCallbacks.splice(0).forEach((waiter) => waiter.fail(endedOtherwise('an error', 'completed without erroring')));
+    this.#onErrorCallbacks.splice(0).forEach((waiter) => waiter.fail(endedOtherwise('an error', this.#completed())));
   }
 
   /** Record errors rather than rethrowing them, after construction. Chainable, as upstream's is. */
@@ -163,7 +172,7 @@ export class ObserverSpy<T> {
   onComplete(callback: () => void): void;
   onComplete(callback?: () => void): Promise<void> | void {
     return this.#settle(this.#receivedComplete, this.#onCompleteCallbacks, callback, () =>
-      this.#receivedError ? endedOtherwise('completion', 'errored') : undefined,
+      this.#receivedError ? endedOtherwise('completion', this.#errored()) : undefined,
     );
   }
 
@@ -172,7 +181,7 @@ export class ObserverSpy<T> {
   onError(callback: () => void): void;
   onError(callback?: () => void): Promise<void> | void {
     return this.#settle(this.#receivedError, this.#onErrorCallbacks, callback, () =>
-      this.#receivedComplete ? endedOtherwise('an error', 'completed without erroring') : undefined,
+      this.#receivedComplete ? endedOtherwise('an error', this.#completed()) : undefined,
     );
   }
 
@@ -224,7 +233,7 @@ export class ObserverSpy<T> {
     this.#assertNoUnexpectedError();
 
     if (index < 0 || index >= this.#values.length) {
-      throw noValue(`getValueAt(${index}) was asked for value ${index}`);
+      throw noValue(`getValueAt(${index}) was asked for value ${index}`, this.#values.length, this.#receivedComplete);
     }
 
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `noUncheckedIndexedAccess` widens every index read to `T | undefined`; the bounds check above has already ruled that out, and narrowing on the value instead would throw for a stream that legitimately emitted `undefined`.
@@ -236,7 +245,7 @@ export class ObserverSpy<T> {
     this.#assertNoUnexpectedError();
 
     if (this.#values.length === 0) {
-      throw noValue('getFirstValue() was called');
+      throw noValue('getFirstValue() was called', 0, this.#receivedComplete);
     }
 
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- see `getValueAt`: the emptiness check above is the narrowing, and a stream may legitimately emit `undefined`.

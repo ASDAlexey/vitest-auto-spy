@@ -159,7 +159,7 @@ describe('subscribeSpyTo', () => {
 
       // Completion is not coming. Left unsettled, `await spy.onComplete()` hung until the runner's
       // file timeout, which then reported the file rather than the stream.
-      await expect(pending).rejects.toThrow(/errored, so the promise from onComplete\(\) can never resolve/);
+      await expect(pending).rejects.toThrow(/errored \(.+\), so the promise from onComplete\(\) can never resolve/);
       await expect(spy.onComplete()).rejects.toThrow(/can never resolve/);
     });
 
@@ -170,7 +170,9 @@ describe('subscribeSpyTo', () => {
 
       source$.complete();
 
-      await expect(pending).rejects.toThrow(/completed without erroring, so the promise from onError\(\) can never resolve/);
+      await expect(pending).rejects.toThrow(
+        /completed after \d+ value\(s\) without erroring, so the promise from onError\(\) can never resolve/,
+      );
       await expect(spy.onError()).rejects.toThrow(/can never resolve/);
     });
 
@@ -203,6 +205,23 @@ describe('subscribeSpyTo', () => {
       expect(() => spy.getFirstValue()).toThrow('emitted nothing');
       expect(() => spy.getValueAt(0)).toThrow('emitted nothing');
       expect(() => spy.getValueAt(-1)).toThrow('emitted nothing');
+      expect(() => spy.getFirstValue()).toThrow(
+        'getFirstValue() was called, but the observable emitted nothing and has completed. Check the spy feeding it (`nextWith`)',
+      );
+    });
+
+    it('counts what arrived when the index is past it, and says whether more can come', () => {
+      const open = new Subject<string>();
+      const spy = subscribeSpyTo(open);
+
+      expect(() => spy.getFirstValue()).toThrow(
+        'getFirstValue() was called, but the observable emitted nothing yet. Await `expectEmission(source$)`',
+      );
+      open.next('a');
+      expect(() => spy.getValueAt(2)).toThrow('getValueAt(2) was asked for value 2, but the observable emitted only 1 value. Await');
+      open.next('b');
+      open.complete();
+      expect(() => spy.getValueAt(2)).toThrow('emitted only 2 values and has completed');
     });
   });
 
