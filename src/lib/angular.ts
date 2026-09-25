@@ -11,7 +11,8 @@ import { TestBed } from '@angular/core/testing';
 import { mergeTokenDefaults } from './angular-spy-defaults';
 import { type AutoMockConfiguration, createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { misconfigurationThrows, reportMisconfiguration } from './misconfiguration';
 import { currentSpecFile } from './spec-file';
 import { isAutoSpyLike } from './spy-mark';
@@ -220,19 +221,36 @@ export function failOnUnspiedProvider(fail: boolean): void {
   globalThis.__vitestAutoSpyFailOnUnspiedProvider__ = fail;
 }
 
+/** What the injector handed back, named after the kind of token it was asked for. */
+function describeUnspied(token: object, injected: unknown): string {
+  if (typeof token !== 'function') {
+    const description: unknown = Reflect.get(token, '_desc');
+    const name = typeof description === 'string' && description.length > 0 ? description : String(token);
+
+    return (
+      `[vitest-auto-spy] injectSpy(${name}): got a plain value, not an auto-spy — the token is provided for real.\n` +
+      `Provide the double instead: { provide: ${name}, useValue: createAutoMock<T>() }.`
+    );
+  }
+
+  const name = token.name;
+  const provider: unknown = Reflect.get(token, 'ɵprov');
+  const fromRoot = Reflect.get(Object(provider), 'providedIn') === 'root';
+  const built = Reflect.get(Object(Reflect.get(Object(injected), 'constructor')), 'name');
+  const what = typeof built === 'string' && built.length > 0 ? `a real ${built}` : 'a real instance';
+  const why = fromRoot
+    ? "nothing in the testing module provides a double, so Angular built it (providedIn: 'root')"
+    : 'the testing module provides the real class, not a double';
+
+  return `[vitest-auto-spy] injectSpy(${name}): got ${what} — ${why}.\nAdd provideAutoSpy(${name}) to providers.`;
+}
+
 function reportWhenNotASpy(token: object, injected: unknown): void {
   if (isAutoSpyLike(injected)) {
     return;
   }
 
-  const name = 'name' in token ? String(token.name) : String(token);
-  const message = withDocs(
-    `[vitest-auto-spy] injectSpy(${name}): the injector returned a plain instance, not an auto-spy. ` +
-      `Register it with provideAutoSpy(${name}) (or { provide: TOKEN, useValue: createAutoMock<T>() } for a token), ` +
-      'or read it with TestBed.inject() if the real implementation is what this spec wants. As it stands, the ' +
-      'control helpers are typed but absent, and `.mockReturnValue(…)` will throw on the real method.',
-    DOCS_LINKS.angular,
-  );
+  const message = withDocs(describeUnspied(token, injected), DOCS_LINKS.angularInjectSpyReal);
 
   // A throw is seen once per test by definition, so the de-duplication only applies to the printed grade.
   if (globalThis.__vitestAutoSpyFailOnUnspiedProvider__ === true || misconfigurationThrows()) {

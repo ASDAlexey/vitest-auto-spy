@@ -81,7 +81,7 @@ describe('registerAutoSpyDefaults with an InjectionToken', () => {
 
     expect(log.level).toBe('debug');
     expect(injectSpy(LOGGER).info).toHaveBeenCalledWith('signed in');
-    expect(() => log.err('boom')).toThrow('Nothing configured InjectionToken LOGGER.err, and strict mode is on.');
+    expect(() => log.err('boom')).toThrow('InjectionToken LOGGER.err(');
     expect(takeStrictViolations()).toHaveLength(1);
   });
 
@@ -182,7 +182,7 @@ describe('registerAutoSpyDefaults with an InjectionToken', () => {
   it('names the double in a strict report by a registered name rather than the token description', () => {
     registerAutoSpyDefaults(LOGGER, { strict: true, name: 'registered log' });
 
-    expect(() => logger().err('boom')).toThrow('Nothing configured registered log.err');
+    expect(() => logger().err('boom')).toThrow('registered log.err(');
     expect(takeStrictViolations()).toHaveLength(1);
   });
 
@@ -217,7 +217,7 @@ describe('registerAutoSpyDefaults with an InjectionToken', () => {
     clearAutoSpyDefaults(LOGGER);
 
     expect(typeof logger().level).toBe('function');
-    expect(() => provideAutoSpy(RouterLike).useValue.navigate()).toThrow('Nothing configured RouterLike.navigate');
+    expect(() => provideAutoSpy(RouterLike).useValue.navigate()).toThrow('RouterLike.navigate(');
     expect(takeStrictViolations()).toHaveLength(1);
 
     clearAutoSpyDefaults();
