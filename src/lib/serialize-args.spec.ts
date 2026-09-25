@@ -37,6 +37,13 @@ describe('serializeValue', () => {
     expect(serializeValue(/a/)).not.toBe(serializeValue(/b/));
   });
 
+  it('renders a URL by its href (no `URL{}` collision)', () => {
+    expect(serializeValue(new URL('https://a.test/x?q=1'))).toBe("new URL('https://a.test/x?q=1')");
+    // A URL keeps its state in internal slots, so the class-name fallback rendered every one as
+    // `URL{}` and `calledWith(new URL(a))` answered a call made with `new URL(b)`.
+    expect(serializeValue(new URL('https://a.test/x'))).not.toBe(serializeValue(new URL('https://b.test/y')));
+  });
+
   it('renders arrays and objects without spaces (matching the error message format)', () => {
     expect(serializeValue([1, 'a'])).toBe("[1,'a']");
     expect(serializeValue({ a: 1, b: 'x' })).toBe("{a:1,b:'x'}");

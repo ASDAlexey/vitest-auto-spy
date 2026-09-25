@@ -114,6 +114,13 @@ describe('matchesStructurally', () => {
     expect(matchesStructurally({ error: Object.assign(new Error('a'), { status: 1 }) }, { error: new Error('a') })).toBe(false);
   });
 
+  it('compares a URL by its href, as the runner’s own equals does', () => {
+    expect(matchesStructurally({ url: new URL('https://a.test/x') }, { url: new URL('https://a.test/x') })).toBe(true);
+    expect(matchesStructurally({ url: new URL('https://a.test/x') }, { url: new URL('https://b.test/y') })).toBe(false);
+    expect(matchesStructurally({ url: new URL('https://a.test/x') }, { url: 'https://a.test/x' })).toBe(false);
+    expect(matchesStructurally({ url: new URL('https://a.test/x') }, { url: {} })).toBe(false);
+  });
+
   it('compares a Map and a Set by content, in any order', () => {
     const config = new Map<string, unknown>([
       ['a', 1],

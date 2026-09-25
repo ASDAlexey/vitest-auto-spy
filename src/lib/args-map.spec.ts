@@ -42,6 +42,17 @@ describe('ArgsMap', () => {
     expect(map.get([second])).toBe('symbol');
   });
 
+  it('keeps two URLs apart on both the key and the matcher path', () => {
+    const map = new ArgsMap();
+    map.set([new URL('https://a.test/x')], 'key');
+    map.set([expect.any(Number), new URL('https://a.test/x')], 'matcher');
+
+    expect(map.get([new URL('https://a.test/x')])).toBe('key');
+    expect(map.get([new URL('https://b.test/y')])).toBeUndefined();
+    expect(map.get([1, new URL('https://a.test/x')])).toBe('matcher');
+    expect(map.get([1, new URL('https://b.test/y')])).toBeUndefined();
+  });
+
   it('re-configuring the same single primitive replaces the value rather than shadowing it', () => {
     const map = new ArgsMap();
 

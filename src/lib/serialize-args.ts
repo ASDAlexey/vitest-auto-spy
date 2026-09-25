@@ -164,6 +164,11 @@ function serializeShape(value: object, context: SerializeContext): string {
     return String(value);
   }
 
+  // Internal slots again, so every URL fell back to `URL{}`; the runner's `equals` compares `href`.
+  if (value instanceof URL) {
+    return `new URL(${quoteString(value.href)})`;
+  }
+
   if (value instanceof Error) {
     return serializeError(value, context);
   }

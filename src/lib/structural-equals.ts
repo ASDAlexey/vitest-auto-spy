@@ -14,7 +14,7 @@
  * A config carrying either is therefore stored as a predicate and compared with {@link matchesStructurally},
  * which walks the two values together — matchers dispatch to `asymmetricMatch`, functions compare by
  * identity, and everything else compares the way the runner's own `equals` does: `Map` and `Set`
- * without regard to insertion order, `Date` by time, `Error` by name and message.
+ * without regard to insertion order, `Date` by time, `URL` by href, `Error` by name and message.
  */
 
 /** The minimal shape of a Vitest/Jest asymmetric matcher (`expect.any(...)`, etc.). */
@@ -162,7 +162,7 @@ function sameUnordered(expected: unknown[], actual: unknown[], path: Pair[], mat
   );
 }
 
-/** `Date`, `RegExp` and `Error` carry their whole value outside their enumerable entries. */
+/** `Date`, `RegExp`, `URL` and `Error` carry their whole value outside their enumerable entries. */
 function sameSpecialObject(expected: object, actual: object, path: Pair[], matchers: boolean): boolean | undefined {
   if (expected instanceof Date || actual instanceof Date) {
     return expected instanceof Date && actual instanceof Date && expected.getTime() === actual.getTime();
@@ -170,6 +170,10 @@ function sameSpecialObject(expected: object, actual: object, path: Pair[], match
 
   if (expected instanceof RegExp || actual instanceof RegExp) {
     return expected instanceof RegExp && actual instanceof RegExp && String(expected) === String(actual);
+  }
+
+  if (expected instanceof URL || actual instanceof URL) {
+    return expected instanceof URL && actual instanceof URL && expected.href === actual.href;
   }
 
   if (expected instanceof Error || actual instanceof Error) {
