@@ -7,8 +7,49 @@
  * cannot drift apart.
  */
 import type { ResolvedSpyConfiguration } from './create-spy-from-class';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { reportMisconfiguration } from './misconfiguration';
+
+function editDistance(from: string, to: string): number {
+  let previous = Array.from({ length: to.length + 1 }, (_, index) => index);
+
+  for (let row = 1; row <= from.length; row += 1) {
+    const current = [row];
+
+    for (let column = 1; column <= to.length; column += 1) {
+      const substitution = Number(previous[column - 1]) + (from[row - 1] === to[column - 1] ? 0 : 1);
+
+      current.push(Math.min(Number(previous[column]) + 1, Number(current[column - 1]) + 1, substitution));
+    }
+
+    previous = current;
+  }
+
+  return Number(previous[to.length]);
+}
+
+/** The candidate a typo most likely meant: `'lod'` → `'load'`; nothing when none is close. */
+export function closestName(name: string, candidates: Iterable<PropertyKey>): string | undefined {
+  let best: string | undefined;
+  let bestDistance = Math.max(1, Math.floor(name.length / 3)) + 1;
+
+  for (const candidate of candidates) {
+    const distance = typeof candidate === 'string' ? editDistance(name.toLowerCase(), candidate.toLowerCase()) : bestDistance;
+
+    if (distance < bestDistance) {
+      best = String(candidate);
+      bestDistance = distance;
+    }
+  }
+
+  return best;
+}
+
+/** `CartService` out of `createSpyFromClass(CartService)`. */
+export function ownerOf(factory: string): string {
+  return factory.slice(factory.indexOf('(') + 1, -1);
+}
 
 /**
  * Report (a warning, or a throw under `misconfiguration: 'throw'`) a name in a *restricting* list
@@ -26,18 +67,23 @@ export function warnOnUnknownMethods(factory: string, requested: string[], avail
     return;
   }
 
+  const owner = ownerOf(factory);
+  const guesses = unknown.map((name) => ({ name, guess: closestName(name, available) }));
+  const listed = guesses.map(({ name, guess }) => (guess === undefined ? `'${name}'` : `'${name}' (did you mean '${guess}'?)`)).join(', ');
+  const unmatched = guesses.filter(({ guess }) => guess === undefined).map(({ name }) => `'${name}'`);
+
   reportMisconfiguration(
     withDocs(
-      `[vitest-auto-spy] ${factory}: onlyMethodsToSpyOn names method(s) that are not on ` +
-        `the class prototype: ${unknown.join(', ')}. A spy was created for each, but the real code will never call ` +
-        `it — check for typos. If the callable lives on the instance (an arrow property, a signal() field, an ngrx ` +
-        `signalStore() method), prototype discovery cannot see it: name it in \`instanceMethodsToSpyOn\`, which adds ` +
-        `to the discovered methods instead of replacing them.`,
-      DOCS_LINKS.createSpyFromClass,
+      `[vitest-auto-spy] ${factory}: onlyMethodsToSpyOn names ${listed}, not a method of ${owner}. ` +
+        'The spy is there, but the code under test never calls it.' +
+        (unmatched.length === 0
+          ? ''
+          : ` If the constructor assigns it (an arrow property, a signal() field, a signalStore() method), ` +
+            `move it to instanceMethodsToSpyOn: [${unmatched.join(', ')}], which adds to the discovered methods.`),
+      DOCS_LINKS.createSpyFromClassInstanceMethods,
     ),
   );
 }
-
 /**
  * Warn when `gettersToSpyOn` / `settersToSpyOn` names a **method** of the target.
  *
@@ -60,11 +106,10 @@ export function warnOnAccessorNamingAMethod(factory: string, config: ResolvedSpy
 
   reportMisconfiguration(
     withDocs(
-      `[vitest-auto-spy] ${factory}: gettersToSpyOn/settersToSpyOn name(s) that are ` +
-        `methods of the class: ${shadowed.join(', ')}. A spied accessor was installed over each, so the method is no ` +
-        `longer callable on the spy. Name it in methodsToSpyOn instead — or, if it is a signal() field read as a ` +
-        `property, patch it with mockSignalProp(service, 'x', initial), which keeps everything downstream reactive.`,
-      DOCS_LINKS.createSpyFromClass,
+      `[vitest-auto-spy] ${factory}: gettersToSpyOn/settersToSpyOn names ${shadowed.map((name) => `'${name}'`).join(', ')}, ` +
+        `a method of ${ownerOf(factory)}, so the spied accessor put over it leaves nothing to call. ` +
+        `Name it in methodsToSpyOn instead; for a signal() field read as a property, mockSignalProp(double, '${shadowed[0]}', initial).`,
+      DOCS_LINKS.createSpyFromClassAccessors,
     ),
   );
 }
