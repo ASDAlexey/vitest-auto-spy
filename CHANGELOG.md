@@ -10,6 +10,255 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`hostElement(fixture)` and `queryElement(fixture, selector, Type?)` hand back a typed element.**
+  Angular types `nativeElement` as `any`, so under `@typescript-eslint/strict-type-checked` with
+  `consistent-type-assertions: 'never'` a spec had no cast-free way to its own DOM: every read was a
+  `no-unsafe-*` report and `as HTMLElement` was forbidden. Both helpers take a `ComponentFixture` or
+  a `DebugElement` (`queryElement` also an element found earlier), check the result with
+  `instanceof` against the type given — `HTMLElement` by default — and return it as that type. A
+  selector that matches nothing throws at the query, naming the selector and the host, and a match
+  of another type throws naming what it found. On `/angular` and `/bun-angular`.
+- **`AutoMocked<T>` names what `autoMocked<T>()` returns.** A double assigned in `beforeEach` (which
+  `vitest/require-hook` asks for) had to be declared `let deps: Deps & Spy<Deps>`; it is now
+  `let deps: AutoMocked<Deps>`, exported from the root entry.
+- **`stubAnimationFrame({ mode })` on `/dom-stubs` — frames the spec decides the timing of.**
+  `'immediate'` (the default) runs the callback before `requestAnimationFrame` returns; `'queued'`
+  holds it until `flush(timestamp?)`, which runs everything requested so far as one frame. A frame
+  requested from inside a running one waits for the next `flush()`, so an animation loop advances one
+  step at a time instead of recursing. `cancelAnimationFrame` is stubbed beside it, both are spies on
+  the handle, `pending` counts what has not run, and `restore()` puts the globals back early —
+  otherwise `restoreMockedProps()` does, like every other stub on the entry.
+- **`stubElementRect(element, rect)` on `/dom-stubs` — a `getBoundingClientRect()` that reports a
+  box.** Takes a partial `DOMRectInit`, fills the rest with `0` and returns a real `DOMRect` per
+  call, so `top` / `right` / `bottom` / `left` are derived and a `({ height: 40 })` literal no longer
+  passes for a rect. Returns the undo; `restoreMockedProps()` runs it otherwise.
+- **`no-hand-assigned-global` reports a write into an imported object, with a fix.**
+  `environment.production = true` in a spec leaks like a global does: the module is cached for the
+  worker, so under `isolate: false` the value answers later files. Any value is reported, not only a
+  double, and `--fix` rewrites it to `mockValueProp(environment, 'production', true)` where the
+  statement runs in a test or a `beforeEach`; in `beforeAll` or a `describe` body the report comes
+  without a fix, because the sweep after the first test would take the patch off. A restore in a
+  teardown hook keeps it silent, as it does for globals; locals, `this`, compound assignments and a
+  namespace object itself are not reported.
+
+### Changed
+
+- **The stray-console report says when the output was written, and what a known line means.** A
+  file-level report used to list four possible moments at once and then advise a spy in a
+  `beforeEach`, which cannot absorb output written while the file is imported. It now names the
+  phase — `while the file was being imported`, `in a beforeAll`, `after a test had ended` — gives
+  the advice for that phase alone (import-time output: the module and the line to fix, and a note
+  that the report lands on whichever file of the worker imports the module first), and tags each call
+  when a report mixes phases. A line the library recognises gets a `Likely cause:` block read from
+  the whole output, not the 200-character quote: `NG0912` names both classes and the selector, calls
+  them two copies of one component and says to import it from one place; any other `NGxxxx` gets the
+  link Angular printed. A quote cut at 200 characters keeps the first link the cut dropped.
+  `strayConsole: { allow: [...] }` is offered, with the pattern, only for a line from `node_modules`.
+  A nested `describe`'s `beforeAll` that runs after earlier tests is reported as a `beforeAll`, no
+  longer as output after a test.
+- **The report of a `mockReturnValue()` over a configured `calledWith()` names `resetAutoSpy`.**
+  `mockReset()` on the method leaves the chain in the library's state, so resetting first and then
+  answering one value for every call still tripped the report — and threw under `strict`. The message
+  now says to drop the chain with `resetAutoSpy(spy)` first.
+- **`prefer-create-spy-from-class` at `minRunnerFns: 1` points a data object at `createMock<T>`.** A
+  literal with plain values and a single callback field (`{ index: 0, label, click: vi.fn() }`) is
+  still reported, and the message now names `createMock<T>({ …, click: vi.fn() })`, which keeps the
+  values, types the field against `T` and is exempt as a factory seed.
+- **Strict mode's error names the call as it was made, the line that made it, and the one line to
+  paste.** `Cart.checkout(1, 'now') was called; this strict double has nothing configured for it`,
+  then `Called from src/app/cart.component.ts:41:12` when the calling code is on the stack, then
+  `Configure it in the test:` with `cart.checkout.calledWith(1, 'now').mockReturnValue(…)` for those
+  arguments or `mockReturnValue(…)` for any. The unconfigured-reads report gives each member its own
+  advice with the real name — the getter advice for a getter, the stream advice for a stream — instead
+  of one block with a `<name>` placeholder, and the strict survey prints paths relative to the root.
+  Each links its own section of the strict-mode page.
+- **The prototype, global and document guards name the test, and say what they did in one
+  sentence.** Each report now leads with `"suite > test" (src/a.spec.ts)` — the file alone at the
+  file-end check — and a path relative to the root. The prototype-pollution report names the key's
+  kind (`(a number)`, `(an accessor)`) and says the key was taken off; the sealed-global report
+  names the one helper that fits the descriptor it found — `mockValueProp`, `mockReadonlyPropGetter`
+  or `mockAccessorsProp`; the document-pollution report drops the `isolate: false` essay and gives
+  Angular's teardown advice only when Angular is there (`afterEach`, or `afterAll` outside any test,
+  otherwise).
+- **Factory misconfiguration warnings name the class and the method a typo meant.**
+  `onlyMethodsToSpyOn names 'lod' (did you mean 'load'?), not a method of CartService`; a name with
+  nothing close points at `instanceMethodsToSpyOn` instead. `returns` / `selfReturning` say whether
+  the key is a typo, a method `onlyMethodsToSpyOn` left out, or one the constructor assigns;
+  `gettersToSpyOn` naming a method, `passthrough` beside `strict`, a `createAutoMock` `returns` key
+  the double holds back (`then`, `constructor`, a probe key) and a method called off its double after
+  `vi.spyOn` each get one sentence of why and one fix.
+- **"Cannot redefine property" explains the module-namespace case only when the target is one.** A
+  frozen object, a plain object and a class instance each get their own way out — a copy to spy on,
+  `createAutoMock<T>()`, or `createSpyFromClass` with the accessor named.
+- **The `mock*Prop` reports name the helper, the object and the file.** Which patches an earlier file
+  left in place (up to five, the rest counted), which one a sweep could not put back and why, and
+  which call ran outside a per-test hook — `mockValueProp(document, 'cookie') in src/a.spec.ts ran
+  outside a per-test hook` — each with the one fix for that case.
+- **Angular messages give the near miss and link the section about them.** `expectRequest` names the
+  verb or the query that was sent instead, and prints the `httpResource` / subscribe hint only when
+  nothing was requested at all. An unanswered request is reported by URL with the test it leaked from
+  (or the call that asked) and the exact line to answer it, and names `ignoreCancelled` only when a
+  request was cancelled. `injectSpy` says what it got (`got a real PricingService`) and why, with the
+  fix for that kind of token; `setInputs` suggests the input a typo meant and tells undefined, a pipe
+  and an uncompiled class apart; `renderShallow({ keepTemplate: true })` names the NgModule that
+  declares a refused pipe or directive and gives `keepModules`; the empty-NgModule report says which
+  check found it; `collectRouterEvents().expect()` fails with the first difference and both
+  sequences instead of a bare length or class mismatch. The location, route and dialog doubles say
+  `an auto-spy` when that is what won, and every Angular message links its own section rather than
+  the top of the adapter page.
+- **ESLint rule messages name what they found, and link the rule's own section.** Every message
+  names the class, token, member, property or call from your file, says in one sentence why it
+  breaks, and gives one repair — at most about 340 characters, down from a median of about 650.
+  `no-object-define-property` names the helper the descriptor asks for (`mockValueProp`,
+  `mockReadonlyPropGetter`, `mockAccessorsProp` or `stubConstructor`) instead of the whole family,
+  and `no-hand-assigned-global` names `stubConstructor` for a constructor global such as
+  `WebSocket`. Each rule's `meta.docs.url` is now its section of the rules page
+  (`/utilities/eslint-rules#<rule-name>`), and every message ends in `Docs: <that link>` instead of a
+  link to a shared README recipe; the reasoning the messages left out moved into those sections.
+- **CLI findings end in a `Docs:` link, and invalid input stops with exit 2.** Every `doctor`,
+  `perf` and `codemod` finding in the text output ends in a link to its own section; `perf` errors
+  link the CLI page instead of the performance page and tell a missing, unparsable and wrong-version
+  `--json` report apart; a `--command` that wrote no report says whether the run failed or the
+  reporter is not attached; the bare-run refusal leads with the command for the target it found; and
+  findings carry line numbers, config file names and this machine's core count. A typo in a command,
+  a flag, `--only` or `--ignore` gets a `Did you mean`. For invalid input only, what used to be
+  ignored now stops with exit 2 and `Nothing ran.`: an unknown `--min-severity` value, a number flag
+  given a word or a negative number, a value flag with nothing after it (`--cwd --check`), and an
+  unknown check id in `--ignore`. Valid runs keep their exit codes.
+
+- **The stray-console report of a test names the spy that absorbs each method.** `wrote to
+  console.error 1 time` rather than `wrote to the console 1 time(s)`, then
+  `installConsoleSpies() in a beforeEach, then assert consoleErrorSpy`; a method with no entry spy
+  (`table`, `dir`) gets `vi.spyOn(console, 'table').mockImplementation(() => undefined)`, and a
+  `vi.spyOn(console, …)` with no implementation is named as what let the line through. The note about
+  importing `/console` is printed only where the advice names `installConsoleSpies()`.
+- **Stray-timer and stray-listener reports name the file first, the test behind each entry, and one
+  fix.** `a.spec.ts left 1 timer pending when it ended:` then
+  `setTimeout 5000 ms, scheduled in "cart > leaves a timer" at a.spec.ts:11:32` — or
+  `while the file was imported`, `outside any test` — and a timer from another file says which.
+  `StrayTimer` and `StrayListener` gain optional `test` (`suite > test`) and
+  `outsideTest: 'import' | 'hook'`. Recording the test costs nothing measurable (p50 per
+  `setTimeout` + `clearTimeout` pair 3.99–4.06 µs before, 3.99–4.01 µs after, coverage on). The
+  `detectAsyncLeaks` warning prints the same report for the first three timers, closed by one
+  sentence saying they are missing from Vitest's "Async Leaks" list, and no longer suggests
+  `onStrayTimers` to silence it. `countStrayTimers()` / `countStrayListeners()` before tracking say
+  which option turns it on.
+- **Several file-end reports failing together read as one numbered block each.**
+  `2 file-end checks failed when a.spec.ts ended:`, then `1.`, `2.` with each report's lines indented
+  under its number and its `Docs:` line kept.
+- **The swallowed-strict report quotes each call.** `"cart > swallows a strict call" made 1 call a
+  strict double had nothing configured for, and the throw never reached the test:` then
+  `CartService.load(42, 'eu') at a.spec.ts:8:16` and what swallowed it — the code under test's
+  `catch`, or an RxJS subscriber with no error callback — then one fix and a link to its section of
+  the strict-mode page. It used to print the headline, two library frames and three guessed causes.
+- **Reports of what an earlier file or test left behind name who.** The prototype-key report names
+  the previous spec file of the worker; the stray-rejection report names the test in its first line
+  (`1 promise rejection went unhandled in "a > t"`), or ends each line with the test it surfaced in;
+  the abandoned-emission-wait report names the test that never awaited; the skipped-teardown net
+  names the test and says an `afterEach` the spec registered threw; the `test.concurrent` notice
+  names the test. The duplicate-copy report carries the `[vitest-auto-spy]` prefix and links its
+  section.
+- **Emission helper failures open with the call that failed and name one fix.**
+  `expectEmission(saved$): no value within 1000 ms (0 received). Nothing triggered the stream — …`;
+  the fake-clock advice (`{ advance: () => vi.advanceTimersByTime(ms) }`) is added only when timers
+  are fake and callbacks wait on them; `expectNoEmission` tells a replayed value (`{ skip: 1 }`) from
+  one the test pushed; a stream that completed empty says the value was most likely emitted before
+  the wait subscribed; `expectError` on a stream that completed points at `throwWith` /
+  `rejectWith`. Each links the failure-messages section.
+- **A fetch `blockNetwork` refused names the test, the method and the URL, and the line that answers
+  it.** `fetch is stubbed in unit tests — GET https://… The test "icons > loads the sprite" requested
+  it, … Answer it in this test: vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ body:
+  … })).` A blocked `XMLHttpRequest` says the same on `statusText`. `BLOCKED_FETCH_MESSAGE` and
+  `BLOCKED_XHR_MESSAGE` keep their values; `stubResponse` errors end with the fix.
+- **Waits that time out read the fake clock.** `flushEventLoopUntil`, `stable()` and
+  `settleResource()` say how many callbacks wait on the fake clock and to advance it
+  (`await advanceTimers(ms)`) when that is the case, and otherwise give the one cause that is left —
+  a dynamic `import()` for `flushEventLoopUntil`, an unflushed request for the Angular waits —
+  instead of three causes in a row. The frozen-clock and hook-budget hints are one diagnosis and one
+  action; the `setImmediate` / HTTP 404 sentence is printed only when `setImmediate` callbacks are
+  queued. `installPerTest` names the moment its reader was called too early or too late.
+- **`No mock adapter registered` names the runner it detected and the one import to add**, and
+  links that runner's installation section: `a spy was built before 'vitest-auto-spy/node' was
+  imported. This is node:test — import the factories from 'vitest-auto-spy/node', …`. The rxjs
+  message says `'vitest-auto-spy/rxjs' was not imported in this run` and where to add it.
+- **`assertMocked` names the export that stayed real and only the cause that fits the run** —
+  `isolate: false` with the module already loaded by an earlier file, or the code under test
+  reaching the module through another path.
+- **A `mustBeCalledWith` miss points at the first argument that differs.**
+  `getName is set up with mustBeCalledWith, and this call matches none of its configs — argument 2:
+  expected 'eu', got 'us'.`, or `expected 2 argument(s), got 1`; on a strict double the line names
+  the class (`UserService.getName`). Several configs keep the full `Wanted` list.
+- **A late `nextWithValues()` on an observable property goes through the misconfiguration grade.**
+  It names the member — `Feed.items$` on a strict double, `items$` otherwise — and is printed as a
+  library warning (`console.warn`, once per property) instead of straight to stderr, and throws at
+  every such call under `setupAutoSpy({ misconfiguration: 'throw' })`.
+- **Stubs and doubles tell their cases apart.** An observer stub's `.last` says whether the code under
+  test has not constructed one yet or a restore took the stub off after an earlier test; the observer
+  spy's `getValueAt(i)` counts what arrived and says whether the stream completed, and
+  `onComplete()` on an errored stream quotes the error; `captureArg` says whether it was never
+  compared or its `where` filter rejected every argument; a `mockConstructor` double called without
+  `new` quotes the call site; `mockReturnValue` on a construction names `mockImplementation` with a
+  class; `explainSpy` and `adoptMock` say what they were given (a plain `vi.fn()`, a real function,
+  `null`); `registerDomGlobals` says whether no DOM package is installed or one failed to start.
+- **The jasmine compat layer echoes the call it refused or ignored.** `'providedMethodNames' is
+  deprecated: write methodsToSpyOn: ['load', 'save'] instead.`;
+  `jasmine.DEFAULT_TIMEOUT_INTERVAL = 30000 has no runtime equivalent under Vitest` with the two
+  config fields to set; `createSpyObj` with no method names says to list them; `mapContaining`,
+  `setContaining` and `arrayWithExactContents` failures end with what is missing and what is extra.
+  Every message links its own section of the migration page.
+- **What the longer messages cost in bundle size, measured.** Every message now carries a diagnosis,
+  the fix for its case and a link to its section, and that text is most of the growth: min+gzip, the
+  root entry goes from 23.2 kB to 26.1 kB, `/setup` from 22.0 kB to 25.7 kB, `/angular` from
+  27.1 kB to 30.5 kB, `/zone` from 1.1 kB to 2.5 kB; `/eslint-plugin` shrinks from 53.6 kB to
+  41.6 kB, its messages having lost more than they gained. The link catalogue is now one export per
+  link, imported as a namespace, so an entry carries only the links its own messages print — as one
+  object it had put about 2.5 kB of URLs into every entry that reported anything. Unbundled, the
+  catalogue is one shared chunk, which is why `/zone` now loads three modules instead of one on a
+  cold import.
+
+### Fixed
+
+- **Console output a file wrote while it was imported is no longer blamed on the next file.** Under
+  `isolate: false`, when another file-end check threw first (`onStrayTimers: 'throw'`), Vitest skipped
+  the stray-console `afterAll`, the output carried into the next file of the worker, and that file's
+  report named it. The console report now runs in the same file-end sweep as the timer and listener
+  reports and always names the file that wrote the output; if a file's end never ran at all (its own
+  `afterAll` threw), the next file reports it under the file that wrote it and says so.
+- **The stray-rejection tracker's own errors carry the `[vitest-auto-spy]` prefix and link their
+  section.** `trackStrayRejections()` without zone.js and `countStrayRejections()` before tracking
+  had no prefix and linked the top of the setup page; the second now says which option turns
+  tracking on.
+- **`provideMatDialogData<EditUserData>(MAT_DIALOG_DATA, …)` passes a strict lint.** The token
+  parameter was `InjectionToken<T>`, so Material's `InjectionToken<any>` handed to it was a
+  `@typescript-eslint/no-unsafe-argument` report on the very call the docs recommend, and the only
+  way to silence it — dropping the type argument — left the data unchecked. With the type argument
+  named the token is now taken as `InjectionToken<unknown>` and the data is still checked against
+  `EditUserData`; a typed token of your own still checks the data with no type argument. The data
+  type is exported as `DialogDataOf<T, Token>` from `/angular/doubles`.
+- **`returns` takes an optional method written as a property that may be `undefined`.**
+  `createAutoMock<MinimapMap>(undefined, { returns: { getMinZoom: 1 } })` was `TS2561` for
+  `getMinZoom?: (() => number) | undefined` — Leaflet's spelling, and that of many third-party typings
+  — because the explicit `undefined` survives `Required` and the key was not a method key. The value
+  is still checked against the method's return type.
+- **The codemod's scan-cap message no longer suggests a flag that does not exist.** It said to
+  narrow `--paths`; it now says to pass the directories to migrate as arguments
+  (`npx vitest-auto-spy codemod src/app`).
+
+### Docs
+
+- **The README's `setupAutoSpy` options table lists the listener and globals options.**
+  `strayListeners`, `onStrayListeners` (with its `'throw'`), `restoreGlobals` and
+  `restoreStorageSpies` were only in the setup page's table, so a reader of the README met
+  `onStrayTimers: 'throw'` without its listener twin.
+- **AGENTS.md and the skill cover four traps a strict spec lint surfaced.** A `void` stream
+  (`output<void>()`, `Subject<void>`) calls its listener with `undefined`, so a bare
+  `toHaveBeenCalledExactlyOnceWith()` never matches — assert the emission instead; `mockReset()` keeps
+  `calledWith` chains and `resetAutoSpy` drops them; `injectMatDialogRef(MatDialogRef<C, R>)` as an
+  instantiation expression is read off Material's `any` prototype, so the ref type goes in the type
+  argument; and `AutoMocked<T>` for a `let` double.
+
 ## [5.31.0] - 2026-09-25
 
 ### Added
