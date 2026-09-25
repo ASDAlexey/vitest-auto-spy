@@ -960,7 +960,8 @@ it('seeks', () => expect(spy).toHaveBeenCalled());
 
 The first two shapes are exactly what the helpers do, so `--fix` applies them: the call, every
 `name.m` read becoming `name`, the helper imported beside the factory (from the same entry when it
-is one that exports the helper, from the root otherwise) and the factory's import dropped once the
+is one that exports the helper, otherwise from the adapter entry the file imports, and from the root
+when it imports none) and the factory's import dropped once the
 rewrite took its last use. A `Spy<X>` annotation on the name becomes `Spy<X>['m']` in a suggestion
 rather than a fix; any other annotation, explicit type arguments, or a `spyOnOwnMethod` the file
 declares itself leave the report without an edit.
@@ -1287,8 +1288,11 @@ The module is cached for the worker, so **any** value is reported, not only a do
 teardown hook silences it as it does for a global. A local, `this`, a computed key and a namespace
 object itself (`import * as env`; the object is sealed and the write throws) are not reported.
 
-`--fix` rewrites the statement to `mockValueProp(environment, 'production', true)` and imports
-`mockValueProp` when the file has not. It fixes only a statement that runs in a test or a
+`--fix` rewrites the statement to `mockValueProp(environment, 'production', true)` and, when the file
+has no `mockValueProp` in scope, imports it from the adapter entry the file already imports
+(`vitest-auto-spy/bun`, `/bun-angular`, `/node`, `/rstest`…), so a spec on another runner does not
+load Vitest's adapter, and from `vitest-auto-spy` when it imports none; one imported from any other
+entry is used as it is. It fixes only a statement that runs in a test or a
 `beforeEach`: in `beforeAll` or a `describe` body the sweep after the first test would take the patch
 off for the rest of the file, so there the report comes without a fix. An assignment used as a value,
 and a file that declares its own `mockValueProp`, are left unfixed too.

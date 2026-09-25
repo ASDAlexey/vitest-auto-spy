@@ -27,7 +27,7 @@ line:
 | Exit | Meaning                                                                                                                                                                                                                                                       |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `0`  | The command ran and has nothing to report                                                                                                                                                                                                                     |
-| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date, `perf --gate` a confirmed budget                                                                  |
+| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date or a stale copy of the skill, `perf --gate` a confirmed budget                                     |
 | `2`  | It could not do the job it was asked to do: an unknown command, an unknown flag for a known command, a flag value it cannot use, an unknown transform id on `--only` / `--skip`, a `codemod` path that matches no file, or a `perf` run with nothing to judge |
 
 The unknown flag is the one worth stating on its own, because a parser that accepts everything makes
@@ -948,6 +948,12 @@ never reformatted. Running `init` after an upgrade is a no-op or a one-hunk diff
 that is a symlink to `AGENTS.md`, or that already carries an `@AGENTS.md` import line, is left
 alone — both are ways of keeping one instruction file, and writing through either would duplicate
 the block.
+
+A file at an owned path that has no markers was written by hand, and `init` never overwrites it. One
+case is reported rather than passed over: a `.claude/skills/vitest-auto-spy/SKILL.md` whose
+frontmatter says `name: vitest-auto-spy` is a copy of the shipped skill, frozen at the version it was
+copied from. `init` lists it as `stale` and says to delete it and run `init` again, which writes the
+pointer in its place; `init --check` exits 1 on it.
 
 The block is kept under 1.6 kB on purpose. Codex caps the whole root→cwd `AGENTS.md` chain at
 `project_doc_max_bytes` (32 768 bytes by default) and silently truncates past it, so `init` warns
