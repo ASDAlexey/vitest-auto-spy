@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.31.0] - 2026-09-25
+
 ### Added
 
 - **`onStrayTimers: 'throw'` and `onStrayListeners: 'throw'` fail the file with every stray named.**
@@ -7927,7 +7929,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.30.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.31.0...HEAD
+[5.31.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.30.0...v5.31.0
 [5.30.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.29.0...v5.30.0
 [5.29.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.28.0...v5.29.0
 [5.28.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.27.0...v5.28.0
