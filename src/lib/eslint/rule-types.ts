@@ -113,6 +113,8 @@ export interface EsMemberExpression extends EsNode {
 
 /** An assignment — `register = { … }`, the statement that decides what a `let` above it holds. */
 export interface EsAssignmentExpression extends EsNode {
+  /** `=`, or a compound form such as `+=`, which reads the old value and is never a stub. */
+  operator: string;
   left: EsNode;
   right: EsNode;
 }

@@ -23,6 +23,7 @@
  */
 import { findBinding } from './bindings';
 import { defineRule } from './define-rule';
+import { excerpt } from './message-data';
 // `withoutCasts` lives with `prefer-observer-stub` because that is the rule that needed it first;
 // `no-hand-assigned-global` already reaches for it the same way.
 import { withoutCasts } from './observer-stub';
@@ -65,7 +66,7 @@ function readCast(context: RuleContext, node: EsNode): void {
   // Through `as unknown as Response` as well: the inner cast is the spelling a suite reaches for
   // once the compiler refuses the single one, and it is the same object with the same holes.
   if (isObjectExpression(withoutCasts(node)) && namesPlatformResponse(context, node)) {
-    context.report({ node, messageId: 'castResponse' });
+    context.report({ node, messageId: 'castResponse', data: { cast: excerpt(context, node, 50) } });
   }
 }
 
@@ -85,30 +86,15 @@ function readCall(context: RuleContext, node: EsCallExpression): void {
   }
 }
 
-const REPAIR =
-  '`stubResponse({ body })` from `vitest-auto-spy/setup` builds the real one from the environment’s own constructor: `body` ' +
-  'is serialised as JSON with an `application/json` content type (a string, `Blob` or typed array is sent as it is, `null` is ' +
-  'the JSON literal, and an omitted `body` is no body at all), `status` / `ok` / `statusText` / `headers` / `url` are the ' +
-  'other fields, and every member the code under test reads is the platform’s own. A body can be read once, so a stub ' +
-  'answering more than one call builds one per call — `vi.fn(async () => stubResponse({ body }))`, not `mockResolvedValue`. ' +
-  'A `Response` that is not the platform’s — an Express handler’s, a generated client’s envelope — is never reported here: ' +
-  'the name has to resolve to the global for this rule to fire at all.';
+const REPAIR = 'Build it with `stubResponse({ body })` from `vitest-auto-spy/setup`, which is the platform’s own `Response`.';
 
 /** `{ ok: true, json: … } as Response` / `createMock<Response>(…)` → `stubResponse({ body })`. */
 export const preferStubResponse = defineRule({
-  anchor: '-fetch-and-other-globals',
+  name: 'prefer-stub-response',
   description: 'Build a stubbed fetch’s Response with stubResponse(), not an object literal cast to Response',
   messages: {
-    castResponse:
-      'This is an object literal wearing `Response`’s type, so it answers the members it lists and `undefined` for every ' +
-      'other one: `status`, `statusText`, `headers`, `url`, `text()`, `arrayBuffer()`, `clone()`. The cast is what makes that ' +
-      'compile, and it is also what makes the gap invisible — the code under test takes a branch on a value the real response ' +
-      `could never hand it, and the test is green on a path that does not exist. ${REPAIR}`,
-    mockedResponse:
-      '`{{helper}}<Response>(…)` builds a partial fixture, which is the right tool for a domain type and the wrong one for ' +
-      '`Response`: the members the seed does not name are left `undefined` or answered with a spy, so `response.ok` reads as ' +
-      'a function rather than a boolean and `response.json()` resolves whatever the seed said instead of parsing a body. ' +
-      `${REPAIR}`,
+    castResponse: `\`{{cast}}\` answers only the members it lists and \`undefined\` for the rest (\`status\`, \`headers\`, \`text()\`, …), so the code under test can branch on a value a real response never has. ${REPAIR}`,
+    mockedResponse: `\`{{helper}}<Response>(…)\` builds a partial fixture, so \`response.ok\` reads as a spy and \`response.json()\` resolves whatever the seed said instead of parsing a body. ${REPAIR}`,
   },
   create: (context) => ({
     CallExpression: (node: EsCallExpression): void => {

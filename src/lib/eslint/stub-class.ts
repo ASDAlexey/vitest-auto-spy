@@ -39,9 +39,11 @@
  * removed. Measured both ways over the 1759 files — two fields reports 6, one field reports 12, and
  * the six the threshold hid are all named `*Mock` or `Mock*`.
  */
+import { count as plural } from '../message-text';
 import { findBinding, initializerOf } from './bindings';
 import { defineRule } from './define-rule';
 import { insideFactorySeed, insideModuleMock, minRunnerFns } from './hand-rolled-doubles';
+import { bindingName, excerpt, nameList } from './message-data';
 import { OVERRIDE_PROVIDER_CALL, overrideDescriptor } from './provider-override';
 import {
   type EsCallExpression,
@@ -223,13 +225,27 @@ export function registeredClassName(object: EsObjectExpression): string | undefi
 }
 
 /** `class CardMock { load = vi.fn(); save = vi.fn(); }` → `createSpyFromClass(CardService)`. */
+/** What the report quotes: the name the class is bound to and the fields it stubs. */
+function stubClassData(context: RuleContext, node: EsClass): Record<string, string> {
+  const name = isVariableDeclarator(node.parent) ? node.parent.id : node.id;
+  const fields = node.body.body.flatMap((member) =>
+    isPropertyDefinition(member) && isStubField(member) ? [excerpt(context, member.key, 30)] : [],
+  );
+
+  return {
+    name: `\`${name ? bindingName(context, name) : 'class'}\``,
+    count: plural(fields.length, '`vi.fn()` field'),
+    members: nameList(fields),
+  };
+}
+
 export const noStubClassDouble: RuleModule = defineRule({
-  anchor: '-a-service-without-di',
+  name: 'no-stub-class-double',
   description: 'Build a double from the class (createSpyFromClass / createAutoMock) instead of a stub class of vi.fn() fields',
   schema: [{ type: 'object', properties: { minRunnerFns: { type: 'integer', minimum: 1 } }, additionalProperties: false }],
   messages: {
     noStubClassDouble:
-      'A class whose fields are `vi.fn()`s is an object of `vi.fn()`s with a `new` in front of it, and it drifts the same way: it only mocks the methods somebody remembered, and the class it stands in for is free to grow one. `createSpyFromClass(X)` reads the real class, `createAutoMock<T>()` reads the type — neither can fall behind, and a member the double must *be* rather than spy on goes in the seed. Where the double is handed to Angular DI, `provideAutoSpy(X)` registers it and the whole stub class can be deleted, with the tuned returns moving to `{ overrides: … }`. Four shapes are exempt because none of them is a service double: a decorated class (a test host, whose `vi.fn()` fields are event handlers), a class with an `implements` clause (which cannot drift — the compiler holds it to the type), a class that `extends` something, and a class with no name of its own (which is replacing a module export). Raise the field count with `{ minRunnerFns: 2 }`.',
+      '{{name}} stubs {{count}} ({{members}}) by hand, so it mocks only the methods someone remembered and the class it stands in for is free to grow one. Build the double with `createSpyFromClass(Class)` or `createAutoMock<T>()`, or `provideAutoSpy(Class)` behind Angular DI.',
   },
   create: (context) => {
     // Collected and reported at the end: whether a class is registered through a provider is
@@ -266,7 +282,7 @@ export const noStubClassDouble: RuleModule = defineRule({
             return;
           }
 
-          context.report({ node: node.id ?? node, messageId: 'noStubClassDouble' });
+          context.report({ node: node.id ?? node, messageId: 'noStubClassDouble', data: stubClassData(context, node) });
         });
       },
     };

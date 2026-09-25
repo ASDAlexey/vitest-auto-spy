@@ -3,8 +3,8 @@
  *
  * A lint rule that lives next to the API it steers towards travels with it: it is versioned with
  * the helper it recommends, and it stops being re-written in every project that installs the
- * package. Each rule points at the README recipe that shows the replacement, because a rule that
- * only says "don't" moves the problem instead of solving it.
+ * package. Each message names the one replacement and links to the rule's own docs section, because
+ * a rule that only says "don't" moves the problem instead of solving it.
  *
  * They are deliberately narrow — every one of them fires on a shape that has a single, mechanical
  * replacement.
@@ -40,6 +40,7 @@
  * rule: `prefer-inject-spy` would then advertise a fix for the shape it can only ever suggest one
  * for, and `--fix` over a suite would look as though it had left its own reports behind.
  */
+import { count as plural } from '../message-text';
 import { noVacuousAbsenceAssertion } from './absence-assertion';
 import { type EsPromiseExecutor, type EsSubscribeCall, awaitedRewriteFor } from './await-emission';
 import { bindingState, findBinding } from './bindings';
@@ -66,6 +67,7 @@ import {
 } from './injected-spy';
 import { jasmineRules } from './jasmine-rules';
 import { noInstanceLifecycleSpy } from './lifecycle-spy';
+import { argumentList, bindingName, excerpt, excerptOr, receiverOf } from './message-data';
 import { noMistypedUseValue } from './mistyped-use-value';
 import { noRedundantMockReset } from './mock-reset';
 import { type EsMockedTypeName, namesOneType, rewritesTheWholeDeclaration, spyTypeFixes } from './mocked-declaration';
@@ -73,7 +75,7 @@ import { preferObserverStub } from './observer-stub';
 import { noOverriddenProvider } from './overridden-provider';
 import { preferRenderShallow } from './prefer-render-shallow';
 import { noPrivateMemberAccess } from './private-access';
-import { patchKey, propHelperSuggestion } from './prop-helpers';
+import { definePropertyData, patchKey, propHelperSuggestion } from './prop-helpers';
 import { preferProvideAutoSpy } from './provide-auto-spy';
 import { noReflectMemberAccess } from './reflect-access';
 import { preferProvideActivatedRoute } from './route-double';
@@ -115,13 +117,13 @@ import { emptyRegistrations, readCall, readProviders, unregisteredInjections } f
 
 /** `vi.spyOn(TestBed.inject(X), 'method')`, in one step or in two → `injectSpy(X).method`. */
 const preferInjectSpy = defineRule({
-  anchor: '-reading-a-spy-back-from-di',
+  name: 'prefer-inject-spy',
   description: 'Read an already-spied dependency with injectSpy() instead of re-spying a TestBed.inject() result',
   hasSuggestions: true,
   schema: INJECTED_SPY_SCHEMA,
   messages: {
     preferInjectSpy:
-      'Spying the instance DI just handed you replaces one method and leaves the rest real. Provide it with `provideAutoSpy(X)` and read it back with `injectSpy(X)`. When the real instance is what the spec came for — the spy holds one method of an object whose other half has to keep working, or the token cannot be substituted at all, as `DestroyRef` cannot (it carries `__NG_ENV_ID__`, so `R3Injector.get()` answers before it reads its own providers and `{ provide: DestroyRef, useValue }` is silently ignored) — that token belongs in `{ ignoreTokens: [...] }`, which is a statement about the token and survives the next edit, rather than behind a per-line disable.',
+      '`vi.spyOn({{args}})` replaces one method of the `{{token}}` instance DI handed out and leaves the rest of it real. Provide it with `provideAutoSpy({{token}})` and read it back with `injectSpy({{token}})`; if the spec needs the real instance, list `{{token}}` in `{ ignoreTokens }`.',
   },
   create: (context) => ({
     'CallExpression[callee.object.name="vi"][callee.property.name="spyOn"]': (node: EsCallExpression): void => {
@@ -144,22 +146,27 @@ const preferInjectSpy = defineRule({
       }
 
       const suggestion = injectSpySuggestion(context, node, injectCall);
+      const report = {
+        node,
+        messageId: 'preferInjectSpy',
+        data: { args: argumentList(context, node), token: argumentList(context, injectCall) },
+      };
 
-      context.report(suggestion ? { node, messageId: 'preferInjectSpy', suggest: [suggestion] } : { node, messageId: 'preferInjectSpy' });
+      context.report(suggestion ? { ...report, suggest: [suggestion] } : report);
     },
   }),
 });
 
 /** `Object.defineProperty(obj, 'x', …)` → `mockReadonlyProp` / `mockValueProp`. */
 const noObjectDefineProperty = defineRule({
-  anchor: '-a-readonly-property-or-a-signal',
+  name: 'no-object-define-property',
   description: 'Patch properties with mockReadonlyProp / mockValueProp, which record the undo',
   hasSuggestions: true,
   messages: {
     noObjectDefineProperty:
-      '`Object.defineProperty` in a spec leaves no way back: nothing restores the original descriptor, and it defaults `configurable` to `false`, so the patch seals the property for the rest of the worker under `isolate: false`. Take the helper the descriptor asks for — `{ value }` holding data is `mockValueProp`; `{ value }` holding a mock the code calls with `new` (a `mockImplementation(function () { … })`, spelled with a `function` because an arrow cannot be constructed) is `stubConstructor`; `{ get }` is `mockReadonlyPropGetter`; a `get`/`set` pair is `mockAccessorsProp`; a `Signal<T>` property is `mockReadonlyProp(obj, key, signal(value))` — with a **real** `signal`, because the `vi.fn().mockReturnValue(value)` that reads identically at the call site is not one, and every `computed()` and `effect()` downstream of it stops updating the moment anything depends on it. Each returns the undo and registers it with `restoreMockedProps()`. And if the property is missing because it is an instance field rather than a prototype member, the repair belongs where the spy is built — `instanceMethodsToSpyOn` / `observablePropsToSpyOn` — not here.',
+      '`{{property}}` is patched with `Object.{{method}}`, which nothing undoes: `configurable` defaults to `false`, so the property stays sealed for the rest of the worker. Use `{{fix}}`, which restores it after the test.',
     manualRestore:
-      'This property is redefined twice in the same block, which is a patch and a hand-written restore. The restore runs only if every assertion between them passes: the first red one skips it, and the patch is then live for every later test of the file — and, under `isolate: false`, for every later file of the worker. `vi.restoreAllMocks()` does not help, because it knows about spies and not about descriptors. `mockValueProp` / `mockReadonlyPropGetter` register the undo with `restoreMockedProps()`, which runs in a hook and therefore runs whatever the assertions did.',
+      '`{{property}}` is patched and restored by hand in the same block, so the first failing assertion between the two skips the restore and the patch leaks into every later test. Use `{{fix}}`, whose undo runs in a hook whatever the assertions did.',
   },
   create: (context) => {
     // Grouped and reported at the end, because "is there a hand-written restore below" is only
@@ -182,26 +189,34 @@ const noObjectDefineProperty = defineRule({
 
           nodes.forEach((node) => {
             const suggestion = propHelperSuggestion(context, node);
+            const report = { node, messageId, data: { ...definePropertyData(context, node), method: 'defineProperty' } };
 
-            context.report(suggestion ? { node, messageId, suggest: [suggestion] } : { node, messageId });
+            context.report(suggestion ? { ...report, suggest: [suggestion] } : report);
           });
         });
       },
       // `defineProperties` takes a map of descriptors, so its replacement is one `mockValueProp` per
       // entry — several statements where there was one, which is not a per-node edit.
-      'CallExpression[callee.object.name="Object"][callee.property.name="defineProperties"]': (node: EsNode): void =>
-        context.report({ node, messageId: 'noObjectDefineProperty' }),
+      'CallExpression[callee.object.name="Object"][callee.property.name="defineProperties"]': (node: EsCallExpression): void => {
+        const object = excerptOr(context, node.arguments[0], 'obj', 40);
+
+        context.report({
+          node,
+          messageId: 'noObjectDefineProperty',
+          data: { property: object, method: 'defineProperties', fix: `mockValueProp(${object}, key, value)` },
+        });
+      },
     };
   },
 });
 
 /** `TestBed.inject()` / `injectSpy()` in a hook, in a suite that still overrides → the override throws. */
 const noInjectBeforeOverride = defineRule({
-  anchor: '-a-service-behind-angular-di',
+  name: 'no-inject-before-override',
   description: 'Do not instantiate the TestBed in a hook when the suite still needs to override a provider',
   messages: {
     noInjectBeforeOverride:
-      'This instantiates the testing module, and this suite overrides something: every `TestBed.override*` that runs afterwards — in a test, or in a `createComponent` helper written above this line — throws `Cannot override provider when the test module has already been instantiated`. The trap is one that migrating *to* `provideAutoSpy` creates: a hand-rolled `useValue` configured its return values in the literal, and the replacement has nowhere to put them, so the line lands in `beforeEach`. Configure the double after every override instead — `injectSpy(X)` inside the test — or keep the access lazy (`const api = () => injectSpy(Api)`), which moves instantiation into the first test, after the overrides have run.',
+      '`{{call}}` instantiates the testing module here, and this suite still calls `TestBed.override*` later, which then throws `Cannot override provider when the test module has already been instantiated`. Read the double inside the test, after the overrides, or keep it lazy: `const api = () => {{call}}`.',
   },
   create: (context) => {
     // Collected first, decided at the end: an `override*` runs whenever its suite calls it, so the
@@ -223,7 +238,7 @@ const noInjectBeforeOverride = defineRule({
       'Program:exit': (): void => {
         injections.forEach((node) => {
           if (breaksAnOverride(node, ordering)) {
-            context.report({ node, messageId: 'noInjectBeforeOverride' });
+            context.report({ node, messageId: 'noInjectBeforeOverride', data: { call: excerpt(context, node) } });
           }
         });
       },
@@ -233,15 +248,15 @@ const noInjectBeforeOverride = defineRule({
 
 /** `source$.subscribe(v => expect(v)…)` → `await expectEmission(source$)`. */
 const noExpectInSubscribe = defineRule({
-  anchor: '-an-observable',
+  name: 'no-expect-in-subscribe',
   description: 'Assert observables with expectEmission() instead of expect() inside a subscribe callback',
   messages: {
     invertible:
-      'If the stream never emits, this callback never runs and the test passes having asserted nothing — all {{count}} of these. Turn the subscription inside out: `const value = await firstValueFrom(source$)`, then assert on it. `await expectEmission(source$)` does the same and fails with the source named when the value does not arrive. If the stream emits more than once and every emission was meant to be checked, count them and take `expectEmissions(source$, N)`.',
+      'If `{{source}}` never emits, this callback never runs and the test passes having checked nothing ({{assertions}} inside). Await the value and assert on it: `expect(await firstValueFrom({{source}}))…`, or `await expectEmission({{source}})`, which names the source when nothing arrives.',
     afterTrigger:
-      'There is code after this subscription, which usually means the code after it is what makes the stream emit — `httpMock.expectOne(...)`, `subject.next(...)`, `vi.runAllTimers()`. `await firstValueFrom(source$)` deadlocks on that shape: the await never returns, so the trigger never runs. Hold the promise instead, and note that `expectEmission` subscribes when you call it, not when you await it:\n  const emission = expectEmission(source$);\n  req.flush(payload);\n  await expect(emission).resolves.toEqual(payload);\nAll {{count}} assertions here move below the await.',
+      'The code after this subscription is what makes `{{source}}` emit, so `await firstValueFrom({{source}})` in its place would wait forever. Start the expectation first, run the trigger, then await it: `const emission = expectEmission({{source}});` … `await expect(emission).resolves.toEqual(…)` ({{assertions}} move below the await).',
     inErrorHandler:
-      'This assertion is in the failure branch, where `expectEmission` cannot help: it resolves on a value, and wraps whatever the stream errored with. Assert on the rejection instead — `await expect(firstValueFrom(source$)).rejects.toBeInstanceOf(UpstreamStatusError)`, or `.rejects.toMatchObject({ status: 404 })` — which fails the test when the stream succeeds, something an `error` callback nobody calls cannot do. All {{count}} assertions here move into the matcher, and the `next` half goes with them: `subscribe({ next: () => expect.unreachable(…), error: (e) => expect(e).toBe(err) })` becomes the one line `await expect(firstValueFrom(source$)).rejects.toBe(err)`, because the guard against an emission is what `rejects` already is.',
+      'This assertion sits in the `error` callback of `{{source}}`, so when the stream succeeds it never runs and the test passes anyway ({{assertions}} there). Assert on the rejection instead: `await expect(firstValueFrom({{source}})).rejects.toMatchObject(…)`.',
   },
   hasSuggestions: true,
   create: (context) => {
@@ -289,7 +304,8 @@ const noExpectInSubscribe = defineRule({
       'Program:exit': (): void => {
         assertions.forEach(({ count, repair }, subscribeCall) => {
           const suggestion = rewrites.get(subscribeCall);
-          const report = { node: subscribeCall, messageId: repair, data: { count: String(count) } };
+          const data = { source: excerpt(context, subscribeCall.callee.object, 40), assertions: plural(count, 'assertion') };
+          const report = { node: subscribeCall, messageId: repair, data };
 
           context.report(suggestion ? { ...report, suggest: [suggestion] } : report);
         });
@@ -300,16 +316,19 @@ const noExpectInSubscribe = defineRule({
 
 /** `export const fixture = { m: vi.fn() }` → `export const createFixture = () => ({ m: vi.fn() })`. */
 const noSharedModuleLevelMock = defineRule({
-  anchor: '-a-double-more-than-one-spec-uses',
+  name: 'no-shared-module-level-mock',
   description: 'Export a factory that builds the shared double, not a module-level object holding vi.fn()s',
   messages: {
     noSharedModuleLevelMock:
-      'This exported double is built once per module, not once per test. Under `isolate: false` every importing spec shares the same spies and subjects, `clearMocks` reaches only the file that imported first, and the failure lands in whichever file happens to run next. Export a **factory** that returns it.',
+      '`{{name}}` is built once when the module loads, so every spec that imports it shares the same spies, and calls recorded in one file show up in the next under `isolate: false`. Export a factory instead: `export const {{factory}} = () => ({ … })`.',
   },
   create: (context) => ({
     'ExportNamedDeclaration > VariableDeclaration > VariableDeclarator': (node: EsVariableDeclarator): void => {
       if (node.init && buildsRunnerFnAtModuleScope(context, node.init)) {
-        context.report({ node, messageId: 'noSharedModuleLevelMock' });
+        const name = bindingName(context, node.id);
+        const factory = `create${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+
+        context.report({ node, messageId: 'noSharedModuleLevelMock', data: { name, factory } });
       }
     },
   }),
@@ -317,13 +336,13 @@ const noSharedModuleLevelMock = defineRule({
 
 /** `let s: Mocked<Cart>` → `let s: Spy<Cart>`. */
 const noMockedForSpy = defineRule({
-  anchor: '-reading-a-spy-back-from-di',
+  name: 'no-mocked-for-spy',
   description: 'Declare a spy as Spy<T>, not as Vitest’s Mocked<T>',
   fixable: true,
   hasSuggestions: true,
   messages: {
     noMockedForSpy:
-      '`Mocked<T>` keeps `T`’s private members, so assigning a spy to it fails with "is missing the following properties: _zone, _queries, …" — a list of private field names that says nothing about the real problem, which is the declaration. Declare `Spy<T>`.',
+      '`{{type}}` keeps the class’s private members, so assigning a spy to it fails with a list of private field names that hides the real problem. Declare `{{spy}}` instead.',
   },
   create: (context) => {
     // Collected and reported at the end, because what a `let` ends up holding is routinely written
@@ -348,6 +367,8 @@ const noMockedForSpy = defineRule({
       },
       'Program:exit': (): void => {
         reported.forEach((node) => {
+          const type = excerpt(context, node.parent);
+          const data = { type, spy: type.replace(/^Mocked(Object)?/, 'Spy') };
           const mocked = findBinding(context.sourceCode.getScope(node), node.name);
           // A `Mocked` the file declares itself is not Vitest's, whatever it is called, and `Spy`
           // already meaning something else here is the same problem from the other end.
@@ -357,7 +378,7 @@ const noMockedForSpy = defineRule({
             bindingState(context.sourceCode.getScope(node), 'Spy') !== 'taken';
 
           if (!rewritable) {
-            context.report({ node, messageId: 'noMockedForSpy' });
+            context.report({ node, messageId: 'noMockedForSpy', data });
 
             return;
           }
@@ -366,10 +387,11 @@ const noMockedForSpy = defineRule({
 
           context.report(
             rewritesTheWholeDeclaration(node, assignments)
-              ? { node, messageId: 'noMockedForSpy', fix }
+              ? { node, messageId: 'noMockedForSpy', data, fix }
               : {
                   node,
                   messageId: 'noMockedForSpy',
+                  data,
                   suggest: [
                     { desc: 'Declare Spy<T> — and rebuild what is assigned to it, which Spy<T> will reject if it is a literal', fix },
                   ],
@@ -426,13 +448,13 @@ function readsTheTestContext(context: RuleContext, callback: EsFunction, paramet
 
 /** `it('x', (done) => …)` → `async` + an awaited assertion. */
 const noDoneCallback = defineRule({
-  anchor: '-an-observable',
+  name: 'no-done-callback',
   description: 'Vitest has no done callback — the first parameter of a test or hook is its TestContext',
   messages: {
     noDoneCallback:
-      'Vitest passes a `TestContext` here, not a `done` callback: calling it throws `TestContext is not a function` inside a promise nobody awaits, so the test **passes** having run almost none of its body. Make the callback `async` and await the result (`firstValueFrom`, `expectEmission`), or destructure the context (`({ task })`) if that is what you meant.',
+      'Vitest passes a `TestContext` as `{{name}}`, not a `done` callback: calling it throws inside a promise nobody awaits, and the test passes having run almost none of its body. Make the callback `async` and await the result, e.g. `await firstValueFrom(source$)` or `await expectEmission(source$)`.',
     doneFail:
-      '`done.fail(…)` is jasmine’s failure channel, and the `TestContext` Vitest passes instead has no `fail` on it: this throws `done.fail is not a function` — and it throws where the line sits, which is almost always an `error` callback or a `.catch()`, i.e. inside a promise nobody awaits. The rejection is unhandled, the test body returned long ago, and the run is **green** on the exact path that was supposed to fail it. Assert on the failure instead: `await expect(firstValueFrom(source$)).rejects.toMatchObject({ status: 404 })`, or `expect.fail(message)` where the line is simply unreachable.',
+      '`{{call}}` throws `{{name}}.fail is not a function`, because Vitest’s `TestContext` has no `fail`, and it throws inside a callback nobody awaits, so the run stays green on the path meant to fail it. Assert on the failure with `await expect(promise).rejects…`, or write `expect.fail(message)` for a line that must not run.',
   },
   create: (context) => {
     // The functions whose first parameter has already been reported. `done.fail(…)` is only this
@@ -453,11 +475,15 @@ const noDoneCallback = defineRule({
           }
 
           callbacks.add(node);
-          context.report({ node: parameter, messageId: 'noDoneCallback' });
+          context.report({ node: parameter, messageId: 'noDoneCallback', data: { name: parameter.name } });
         },
       'MemberExpression[property.name="fail"]': (node: EsMemberExpression): void => {
         if (isCallee(node) && isTestCallbackParameter(context, node.object, callbacks)) {
-          context.report({ node: node.parent, messageId: 'doneFail' });
+          context.report({
+            node: node.parent,
+            messageId: 'doneFail',
+            data: { call: excerpt(context, node.parent), name: excerpt(context, node.object) },
+          });
         }
       },
     };
@@ -466,11 +492,11 @@ const noDoneCallback = defineRule({
 
 /** `p.then(() => expect(…))` as a statement of its own → `expect(await p)`. */
 const noFloatingAssertion = defineRule({
-  anchor: '-a-promise-a-test-forgets-to-await',
+  name: 'no-floating-assertion',
   description: 'Await or return a promise chain that asserts, instead of leaving the .then() callback floating',
   messages: {
     noFloatingAssertion:
-      'Nothing awaits this chain, so the test ends before the callback runs: the assertion never runs, and the test passes no matter what it claims — including claims that are false. Await the chain (or `return` it) and assert on the settled value: `expect(await promise)`, `await expectEmission(source$)`.',
+      'Nothing awaits `{{chain}}`, so the test ends before its callback runs and this assertion never executes. Await the chain (or `return` it) and assert on the settled value: `expect(await promise)…`.',
   },
   create: (context) => ({
     'CallExpression[callee.name="expect"]': (node: EsNode): void => {
@@ -485,7 +511,7 @@ const noFloatingAssertion = defineRule({
         return;
       }
 
-      context.report({ node, messageId: 'noFloatingAssertion' });
+      context.report({ node, messageId: 'noFloatingAssertion', data: { chain: excerpt(context, callback.parent, 50) } });
     },
   }),
 });
@@ -513,15 +539,22 @@ function rootsAtExpect(node: EsNode): boolean {
   }
 }
 
+/** What a bare `calledWith` report quotes: the call, the method it stubs and its arguments. */
+function calledWithData(context: RuleContext, node: EsCallExpression): Record<string, string> {
+  const method = receiverOf(context, node);
+
+  return { call: excerpt(context, node), method, args: argumentList(context, node) };
+}
+
 /** `spy.method.calledWith(1);` as a statement of its own → a stub nobody configured, asserting nothing. */
 const noBareCalledWith = defineRule({
-  anchor: '-argument-matching',
+  name: 'no-bare-called-with',
   description: 'Continue a calledWith / mustBeCalledWith chain — on its own it configures nothing and asserts nothing',
   messages: {
     noBareCalledWith:
-      'This is a stub, not an assertion: `calledWith(...)` on its own configures the method to answer `undefined` for these arguments and checks nothing, so the test passes whether or not the call ever happened. Continue the chain (`.mockReturnValue(v)`, `.resolveWith(v)`, `.nextWith(v)`, `.failWith(err)`), or assert with `expect(spy.method).toHaveBeenCalledWith(...)`.',
+      '`{{call}}` is a stub, not an assertion: on its own it makes the method answer `undefined` for these arguments and checks nothing. Continue the chain with `.mockReturnValue(v)` / `.resolveWith(v)`, or assert with `expect({{method}}).toHaveBeenCalledWith({{args}})`.',
     noBareMustBeCalledWith:
-      'On its own, `mustBeCalledWith(...)` rejects *every* call — the matching one included, since nothing was configured for it — so the failure it produces names the arguments it was given. Continue the chain (`.mockReturnValue(v)`, `.resolveWith(v)`, `.failWith(err)`), or assert with `expect(spy.method).toHaveBeenCalledWith(...)`.',
+      '`{{call}}` on its own rejects every call, the matching one included, because nothing was configured for these arguments. Continue the chain with `.mockReturnValue(v)` / `.resolveWith(v)`, or assert with `expect({{method}}).toHaveBeenCalledWith({{args}})`.',
   },
   // One selector per chain rather than one alternation and a branch: the two say different things,
   // and reading the name back off a node the selector already matched is a check that cannot fail.
@@ -529,28 +562,28 @@ const noBareCalledWith = defineRule({
     'ExpressionStatement > CallExpression[callee.property.name="calledWith"]': (node: EsCallExpression): void => {
       // The chai assertion shares the name and is a bare statement by design — see `rootsAtExpect`.
       if (!rootsAtExpect(node)) {
-        context.report({ node, messageId: 'noBareCalledWith' });
+        context.report({ node, messageId: 'noBareCalledWith', data: calledWithData(context, node) });
       }
     },
     // No `rootsAtExpect` guard here, and that is not an oversight: chai's bundle has `calledWith`
     // and nothing named `mustBeCalledWith`, so there is no assertion of this name to mistake a stub
     // for. A guard would be a branch no input can take.
     'ExpressionStatement > CallExpression[callee.property.name="mustBeCalledWith"]': (node: EsCallExpression): void => {
-      context.report({ node, messageId: 'noBareMustBeCalledWith' });
+      context.report({ node, messageId: 'noBareMustBeCalledWith', data: calledWithData(context, node) });
     },
   }),
 });
 
 /** `export const events = [...BaseEvents]` at module scope → a TypeError, or a silently empty object, while the bundle loads. */
 const noImportTimeSpread = defineRule({
-  anchor: '-a-double-more-than-one-spec-uses',
+  name: 'no-import-time-spread',
   description: 'Do not spread an imported binding at module scope — inside a bundle it can still be undefined',
   hasSuggestions: true,
   messages: {
     noImportTimeSpread:
-      'This spreads `{{name}}`, a binding another module owns, while this module is still being evaluated. Under `tsc` and under a browser’s ESM loader that is safe — nothing runs before its dependency. Inside one bundle it is not: the spec bundle emits shared chunks, a chunk can be evaluated while the binding it re-exports is still `undefined`, and `[...undefined]` throws `Spread syntax requires ...iterable[Symbol.iterator] to be a function` before a single test runs — on a tree whose every test passes. Build the value lazily (a function, called where it is read), or inline the constant so nothing has to be imported for this line to work. Nothing inside a function body is reported: that runs later, which is the whole repair.',
+      'This spreads `{{name}}` from another module while this one is still loading. In a bundle that module’s chunk can run later, `{{name}}` is still `undefined`, and the spread throws `Spread syntax requires ...iterable[Symbol.iterator] to be a function` before any test runs. Build the value lazily, in a function called where it is read.',
     noImportTimeSpreadObject:
-      'This spreads `{{name}}`, a binding another module owns, into an object literal while this module is still being evaluated. Under `tsc` and under a browser’s ESM loader that is safe — nothing runs before its dependency. Inside one bundle it is not: the spec bundle emits shared chunks, and a chunk can be evaluated while the binding it re-exports is still `undefined`. Do not look for an error — an object spread of `undefined` throws nothing, `{ ...undefined }` is `{}`, so the module loads and every key this line was meant to copy reads `undefined` for the rest of the run, on a tree whose every test passes. Build the value lazily (a function, called where it is read), or write the keys out so nothing has to be imported for this line to work. Nothing inside a function body is reported: that runs later, which is the whole repair.',
+      'This spreads `{{name}}` from another module into an object while this one is still loading. In a bundle that module’s chunk can run later, and `{ ...undefined }` is `{}`, so every key reads `undefined` with no error. Build the value lazily, in a function called where it is read.',
   },
   create: (context) => ({
     SpreadElement: (node: EsSpreadElement): void => {
@@ -571,11 +604,11 @@ const noImportTimeSpread = defineRule({
 
 /** `injectSpy(X)` for a token this file never registered as an auto-spy. */
 const noUnregisteredInjectSpy = defineRule({
-  anchor: '-a-service-behind-angular-di',
+  name: 'no-unregistered-inject-spy',
   description: 'Do not read a token with injectSpy unless this file registered it as an auto-spy',
   messages: {
     noUnregisteredInjectSpy:
-      'Nothing in this file registers `{{token}}` as an auto-spy, so this hands back whatever Angular DI already had — the real service, or a hand-rolled object some imported module provides. The line still compiles and the spec still runs: `injectSpy` types the result as a spy, so the helpers are there for the compiler and absent at run time, and the first `.mockReturnValue(…)` or `.calledWith(…)` throws on a real method. Add `provideAutoSpy({{token}})` to the providers, or read the real implementation with `TestBed.inject({{token}})` and say so. Nothing is reported from a file whose providers this cannot read in full — a spread, an unknown provider factory, `createWithAutoSpies` or `TestBed.overrideProvider` all silence it.',
+      'Nothing in this file registers `{{token}}` as an auto-spy, so `injectSpy({{token}})` returns what DI already had, usually the real service, and the first `.mockReturnValue(…)` on it throws. Add `provideAutoSpy({{token}})` to the providers.',
   },
   create: (context) => {
     const tally = emptyRegistrations();

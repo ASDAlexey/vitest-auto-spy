@@ -66,6 +66,16 @@ describe('no-stub-class-double', () => {
     expect(count('class M {\n  a = () => vi.fn();\n  m() { return vi.fn(); }\n}\nconst m = new M();')).toBe(0);
   });
 
+  it('names the class and the fields it stubs', () => {
+    const message = (code: string): string | undefined => verify(code, RULE)[0]?.message;
+
+    expect(message('class NavMock {\n  go = vi.fn();\n  back = vi.fn();\n  title = "x";\n  run() {}\n}')).toMatch(
+      /^`NavMock` stubs 2 `vi\.fn\(\)` fields \(`go` and `back`\) by hand/,
+    );
+    expect(message('const M = class Named {\n  a = vi.fn();\n};')).toMatch(/^`M` stubs 1 `vi\.fn\(\)` field \(`a`\)/);
+    expect(message('export default class {\n  a = vi.fn();\n}')).toMatch(/^`class` stubs 1/);
+  });
+
   it('reports the class name, and the class itself when it has none', () => {
     // The keyword and the name are split across two lines on purpose, so the reported line says
     // which node was chosen: a named class expression is reported at its own name, and
@@ -187,8 +197,8 @@ describe('prefer-provide-auto-spy — the stub-class arm', () => {
   it('names the stub class in the message, not the useValue object', () => {
     const message = providerMessage(`${STUB}\nconst p = { provide: PaymentCardService, useClass: PaymentCardServiceMock };`);
 
-    expect(message).toContain('stub class');
-    expect(message).toContain('provideAutoSpy(Class)');
+    expect(message).toMatch(/^`PaymentCardService` is provided with the stub class `PaymentCardServiceMock`/);
+    expect(message).toContain('provideAutoSpy(PaymentCardService)');
   });
 
   it('follows a `const X = class` as well as a declaration', () => {
