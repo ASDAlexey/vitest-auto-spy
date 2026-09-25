@@ -101,7 +101,7 @@ describe(RULE, () => {
   it('names the helper and the method in the message', () => {
     const [report] = verify(`createSpyFromInstance(player, ${OWN});`);
 
-    expect(report?.message).toMatch(/spyOnOwnMethod\(target, 'seek'\)[\s\S]*#how-to-mock-an-object-the-test-already-holds/);
+    expect(report?.message).toMatch(/spyOnOwnMethod\(target, 'seek'\)[\s\S]*\/utilities\/eslint-rules#prefer-spy-on-own-method/);
   });
 
   it('rewrites the void whitelist-and-seed pair on any target', () => {

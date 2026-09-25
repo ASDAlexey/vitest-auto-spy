@@ -93,15 +93,24 @@ describe('no-object-define-property', () => {
 });
 
 it('names the helper each descriptor asks for, including the ones it will not rewrite', () => {
-  const message = firstMessage("Object.defineProperty(service, 'ready', { value: true });");
+  const helper = (code: string): string | undefined => /Use `([^`]*)`/.exec(firstMessage(code))?.[1];
 
-  expect(message).toContain('stubConstructor');
-  expect(message).toContain('mockReadonlyPropGetter');
-  expect(message).toContain('mockAccessorsProp');
-  expect(message).toContain('instanceMethodsToSpyOn');
-  // Third independent report of the same substitution: a signal replaced by a `vi.fn()` that
-  // returns the value reads identically until something puts a `computed()` downstream of it.
-  expect(message).toContain('signal(value)');
+  expect(firstMessage("Object.defineProperty(service, 'ready', { value: true });")).toMatch(
+    /^`service\.ready` is patched with `Object\.defineProperty`/,
+  );
+  expect(helper("Object.defineProperty(service, 'ready', { value: true });")).toBe("mockValueProp(service, 'ready', …)");
+  expect(helper("Object.defineProperty(service, 'ready', { get: () => true });")).toBe("mockReadonlyPropGetter(service, 'ready', …)");
+  expect(helper("Object.defineProperty(service, 'ready', { get, set });")).toBe("mockAccessorsProp(service, 'ready', …)");
+  expect(helper("Object.defineProperty(window, 'Ctx', { value: vi.fn().mockImplementation(function () { return ctx; }) });")).toBe(
+    "stubConstructor(window, 'Ctx', …)",
+  );
+  expect(helper('Object.defineProperty(service, key, descriptor);')).toBe('mockValueProp(service, key, …)');
+  expect(helper('Object.defineProperty();')).toBe('mockValueProp(obj, key, …)');
+  expect(firstMessage('Object.defineProperty(service, key, { value: 1 });')).toMatch(/^`service\[key\]`/);
+  expect(firstMessage('Object.defineProperties(service, descriptors);')).toMatch(
+    /^`service` is patched with `Object\.defineProperties`[\s\S]*mockValueProp\(service, key, value\)/,
+  );
+  expect(firstMessage('Object.defineProperties();')).toContain('mockValueProp(obj, key, value)');
 });
 
 it('declines to suggest mockValueProp for a mock the code calls with new', () => {
@@ -124,18 +133,20 @@ it('says so when the patch is paired with a hand-written restore', () => {
   ].join('\n');
 
   expect(lint(manual)).toHaveLength(2);
-  expect(firstMessage(manual)).toContain('the first red one skips it');
+  expect(firstMessage(manual)).toMatch(
+    /^`window\.localStorage` is patched and restored by hand[\s\S]*mockValueProp\(window, 'localStorage', …\)/,
+  );
   // A patch in one test and a patch in another is not a restore pair.
   const separate = [
     "it('a', () => { Object.defineProperty(window, 'x', { value: 1 }); });",
     "it('b', () => { Object.defineProperty(window, 'x', { value: 2 }); });",
   ].join('\n');
 
-  expect(firstMessage(separate)).toContain('leaves no way back');
+  expect(firstMessage(separate)).toContain('which nothing undoes');
   // Nor are two different properties of the same object.
   const twoKeys = "it('a', () => { Object.defineProperty(window, 'x', { value: 1 }); Object.defineProperty(window, 'y', { value: 2 }); });";
 
-  expect(firstMessage(twoKeys)).toContain('leaves no way back');
+  expect(firstMessage(twoKeys)).toContain('which nothing undoes');
   // A call with nothing to key on still reports.
   expect(lint('Object.defineProperty();')).toHaveLength(1);
 });

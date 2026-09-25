@@ -31,9 +31,8 @@ describe('no-unasserted-argument', () => {
 
     expect(count(code)).toBe(1);
     expect(verify(code)[0]?.line).toBe(3);
-    expect(text).toContain('`api.save`');
-    expect(text).toContain('toHaveBeenCalledWith(…)');
-    expect(text).toContain('mustBeCalledWith');
+    expect(text).toMatch(/^This checks only that `api\.save` ran/);
+    expect(text).toContain('expect(api.save).toHaveBeenCalledWith(…)');
   });
 
   it('matches the two assertions by the text of the subject', () => {
@@ -96,7 +95,7 @@ describe('no-unasserted-argument', () => {
     const text = message(code);
 
     expect(count(code)).toBe(1);
-    expect(text).toContain('names what the call is made *with*');
+    expect(text).toContain('The title of this test says what `component.rowFocused.emit` is called with');
   });
 
   it('reads the title through the spellings a test is marked and generated with', () => {
@@ -120,13 +119,13 @@ describe('no-unasserted-argument', () => {
     expect(count("it('starts with a payload', () => { expect(spies[0]).toHaveBeenCalled(); });")).toBe(1);
   });
 
-  it('leaves the Event methods that take no arguments alone, and names the count as their repair', () => {
+  it('leaves the Event methods that take no arguments alone', () => {
     expect(count("it('ignores events with metaKey', () => { expect(event.preventDefault).toHaveBeenCalled(); });")).toBe(0);
     expect(count("it('stops with a click', () => { expect(e.stopPropagation).toHaveBeenCalled(); });")).toBe(0);
     expect(count("it('stops with a click', () => { expect(e.stopImmediatePropagation).toHaveBeenCalled(); });")).toBe(0);
     expect(count(`expect(event.preventDefault).toHaveBeenCalled();\nexpect(event.preventDefault).toHaveBeenCalledWith();`)).toBe(0);
     expect(message("it('loads with the id', () => { expect(api.load).toHaveBeenCalled(); });")).toContain(
-      '`toHaveBeenCalledOnce()` or `toHaveBeenCalledTimes(n)`',
+      'expect(api.load).toHaveBeenCalledWith(…)',
     );
   });
 

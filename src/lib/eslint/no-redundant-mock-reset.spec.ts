@@ -37,8 +37,7 @@ describe('no-redundant-mock-reset', () => {
     const text = message(code);
 
     expect(count(code)).toBe(1);
-    expect(text).toContain('`clearMocks: true` is on');
-    expect(text).toContain('onBeforeTryTask');
+    expect(text).toMatch(/^`vi\.clearAllMocks\(\)` repeats the reset `clearMocks: true` already ran just before this `beforeEach`/);
   });
 
   it('deletes the hook the reset was the whole of, where nothing can have run before it', () => {
@@ -90,7 +89,7 @@ describe('no-redundant-mock-reset', () => {
     const code = `afterEach(() => { vi.clearAllMocks(); });`;
 
     expect(count(code)).toBe(1);
-    expect(message(code)).toContain('the next test starts on the same registry');
+    expect(message(code)).toContain('the next test starts on the same state with or without it');
     expect(fixed(code)).toBe(code);
     expect(count(`afterEach(() => { vi.clearAllMocks(); cleanup(); });`)).toBe(0);
     // Nothing resets after a file's last test: this is what takes a spy off `window` before the next file.

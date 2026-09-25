@@ -36,10 +36,9 @@ describe('no-mock-cast', () => {
     const text = message(code);
 
     expect(count(code)).toBe(1);
-    expect(text).toContain('`Mock` with no parameters is `Mock<any>`');
+    expect(text).toMatch(/^`TestBed\.inject\(Metrics\)\.send as Mock` makes it `Mock<any>`/);
     expect(text).toContain('toHaveBeenCalledWith` stops comparing arguments');
-    expect(text).toContain('injectSpy(Service).method');
-    expect(text).toContain('vi.mocked(object.method)');
+    expect(text).toContain('vi.mocked(TestBed.inject(Metrics).send)');
   });
 
   it('names the worse form apart: the cast sits on the member that installs the answer', () => {
@@ -47,9 +46,9 @@ describe('no-mock-cast', () => {
     const text = message(code);
 
     expect(count(code)).toBe(1);
-    expect(text).toContain('cast is on `mockReturnValue` itself');
+    expect(text).toMatch(/^The cast on `shelves\.getByGid\.mockReturnValue` makes it `Mock<any>`/);
     expect(text).toContain("Spy<Service, { overload: { method: 'first' } }>");
-    expect(text).toContain('not the method’s own return type');
+    expect(text).toContain('what the method returns');
   });
 
   it('reads MockInstance and the older cast spelling', () => {
@@ -61,7 +60,7 @@ describe('no-mock-cast', () => {
     const code = `import { Mock } from 'vitest';\n(svc.load as Mock<[string], void>).mockClear();`;
 
     expect(count(code)).toBe(1);
-    expect(message(code)).toContain('parameterised `Mock<[…], R>` is no repair');
+    expect(message(code)).toContain('`svc.load as Mock` makes it `Mock<any>`');
   });
 
   it('suggests reading the spy out of DI, importing the helper when the name is free', () => {

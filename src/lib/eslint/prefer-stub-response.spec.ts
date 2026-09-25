@@ -29,7 +29,7 @@ describe('prefer-stub-response', () => {
     expect(count(code)).toBe(1);
     expect(text).toContain('stubResponse({ body })');
     expect(text).toContain('vitest-auto-spy/setup');
-    expect(text).toContain('`undefined` for every other one');
+    expect(text).toMatch(/^`\{ ok: true, json: async \(\) => user \} as Response` answers only the members it lists/);
   });
 
   it('sees the literal through the double cast written when the single one stops compiling', () => {

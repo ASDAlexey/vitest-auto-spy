@@ -271,8 +271,9 @@ describe('prefer-render-shallow, { templates: "never" }', () => {
 
     const policy = verifyWith(reads, NEVER)[0]?.message ?? '';
 
-    expect(policy).toContain('{ templates: "never" }');
-    expect(policy).not.toContain('nothing in this file reads either');
+    expect(policy).toContain("this project set `{ templates: 'never' }`");
+    expect(policy).toContain('renderShallow(CardComponent)');
+    expect(policy).not.toContain('nothing in this file reads the DOM');
   });
 
   it('reports keepTemplate, which puts the template back', () => {

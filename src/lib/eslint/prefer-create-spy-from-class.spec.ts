@@ -42,18 +42,31 @@ describe('prefer-create-spy-from-class', () => {
     expect(lintWith(single, { minRunnerFns: 1 })).toHaveLength(1);
   });
 
-  it('names the threshold, so the asymmetry between two neighbouring lines is readable', () => {
-    expect(firstMessage('const p = { a: vi.fn(), b: vi.fn() };')).toContain('2 or more');
-    expect(firstMessage('const p = { a: vi.fn(), b: vi.fn() };')).toContain('minRunnerFns');
+  it('names the double, its mocks and the factory for its declared type', () => {
+    expect(firstMessage('const p = { a: vi.fn(), b: vi.fn() };')).toMatch(
+      /^`p` holds 2 `vi\.fn\(\)`s \(`a` and `b`\)[\s\S]*`createSpyFromClass\(Class\)` or `createAutoMock<T>\(\)`/,
+    );
+    expect(firstMessage('const p: Api = { a: vi.fn(), b: vi.fn() };')).toMatch(/^`p` holds[\s\S]*Build it with `createAutoMock<Api>\(\)`/);
+    expect(firstMessage('use({ a: vi.fn(), b: vi.fn(), c: vi.fn(), d: vi.fn() });')).toMatch(
+      /^This object holds 4 `vi\.fn\(\)`s \(`a`, `b`, `c` and 1 more\)/,
+    );
   });
 
-  it('names the configured threshold and drops the advice to lower it once it is one', () => {
+  it('counts the mocks it found under any threshold, and never advises lowering it', () => {
     const [atThree] = verify('const p = { a: vi.fn(), b: vi.fn(), c: vi.fn() };', { minRunnerFns: 3 });
     const [atOne] = verify('const p = { a: vi.fn(), b: 1 };', { minRunnerFns: 1 });
 
-    expect(atThree?.message).toContain('An object of 3 or more');
-    expect(atOne?.message).toContain('An object of one or more');
+    expect(atThree?.message).toContain('holds 3 `vi.fn()`s');
+    expect(atOne?.message).toContain('holds 1 `vi.fn()`');
     expect(atOne?.message).not.toContain('minRunnerFns');
+  });
+
+  it('points a data object with one callback field at createMock<T>, which keeps its values', () => {
+    const [data] = verify('const item = { index: 0, label: "Land", click: vi.fn() };', { minRunnerFns: 1 });
+    const [double] = verify('const nav = { go: vi.fn(), back: vi.fn() };', { minRunnerFns: 1 });
+
+    expect(data?.message).toContain('`createMock<T>({ …, click: vi.fn() })`');
+    expect(double?.message).not.toContain('data object');
   });
 
   it('leaves the overrides bag of a built-in double alone — there is no class behind it to read', () => {

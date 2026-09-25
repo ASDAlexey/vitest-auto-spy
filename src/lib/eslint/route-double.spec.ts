@@ -148,8 +148,7 @@ describe('prefer-provide-activated-route', () => {
     `);
 
     expect(reported).toContain('`useValue`');
-    expect(reported).toContain('provideActivatedRoute');
-    expect(reported).toContain('injectActivatedRoute');
+    expect(reported).toContain('provideActivatedRoute({ params: { … } })');
   });
 
   it('stays silent on provideActivatedRoute itself', () => {

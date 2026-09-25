@@ -36,11 +36,8 @@ describe('no-reflect-member-access', () => {
     const text = message(code);
 
     expect(count(code)).toBe(1);
-    expect(text).toContain('`minDwellTime`');
-    expect(text).toContain('nothing checks it');
-    expect(text).toContain('no-private-member-access');
-    expect(text).toContain('stubbed with `createComponentStub` and read off its input');
-    expect(text).toContain("`mockSignalProp(component, 'x', value)`");
+    expect(text).toMatch(/^`Reflect\.get\(component, 'minDwellTime'\)` reads a member through a string nothing checks/);
+    expect(text).toContain('public API or the rendered template');
   });
 
   it('names the second failure mode on a write rather than repeating the first', () => {
@@ -48,10 +45,9 @@ describe('no-reflect-member-access', () => {
     const text = message(code);
 
     expect(count(code)).toBe(1);
-    expect(text).toContain('installs an **own** property over the prototype');
-    expect(text).toContain('dead');
-    expect(text).toContain('mockValueProp');
-    expect(text).toContain("`component['member']` keeps the key where the compiler checks it");
+    expect(text).toMatch(/^`Reflect\.set\(service, 'savedData', …\)` writes an own property/);
+    expect(text).toContain('renaming `savedData` leaves this line writing a dead key');
+    expect(text).toContain("mockValueProp(service, 'savedData', value)");
   });
 
   it('names the literal as the place for the key when the target is a fixture the spec built', () => {
@@ -59,11 +55,10 @@ describe('no-reflect-member-access', () => {
     const text = message(code);
 
     expect(count(code)).toBe(1);
-    expect(text).toContain('onto an object literal this spec built');
+    expect(text).toContain("`Reflect.set(link, 'linkType', …)` writes onto an object literal this spec built");
     expect(text).toContain("{ linkType: value as Model['linkType'] }");
-    expect(text).toContain("consistent-type-assertions: never`), `mockValueProp(fixture, 'linkType', value)`");
     // A read of a fixture is the ordinary finding.
-    expect(message(`const link = {};\nReflect.get(link, 'linkType');`)).toContain('reads `linkType`');
+    expect(message(`const link = {};\nReflect.get(link, 'linkType');`)).toContain("`Reflect.get(link, 'linkType')` reads");
   });
 
   it('reads a member chain and a call result as the subject they are', () => {
@@ -137,7 +132,6 @@ describe('no-reflect-member-access', () => {
     expect(count(code)).toBe(1);
     expect(text).toContain('behind the library’s back');
     expect(text).toContain("mockValueProp(spy, 'currentFocus', value)");
-    expect(text).toContain('provideAutoSpy');
   });
 
   it('reads the double through the provider it was built as', () => {

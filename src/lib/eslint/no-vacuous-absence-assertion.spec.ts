@@ -36,9 +36,9 @@ describe('no-vacuous-absence-assertion', () => {
     const text = message(code);
 
     expect(count(code)).toBe(1);
-    expect(text).toContain('`chips` is written by nothing but the `subscribe` callback');
+    expect(text).toContain('`chips` is written only by the `subscribe` callback on `load$(links)`');
     expect(text).toContain('(`[]`)');
-    expect(text).toContain('expectNoEmission(source$)');
+    expect(text).toContain('expectNoEmission(load$(links))');
     expect(text).toContain('vitest-auto-spy');
   });
 
@@ -73,7 +73,7 @@ describe('no-vacuous-absence-assertion', () => {
     `;
 
     expect(count(code)).toBe(1);
-    expect(message(code)).toContain('is a `vi.fn()` handed to `subscribe` and called by nothing else');
+    expect(message(code)).toContain('`seen` is a `vi.fn()` handed to `source$.subscribe` and called by nothing else');
   });
 
   it('reads the spy through an observer object, and through toHaveBeenCalledTimes(0)', () => {

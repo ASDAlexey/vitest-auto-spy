@@ -42,10 +42,8 @@ describe('prefer-settle-dynamic-import', () => {
     const text = message(code);
 
     expect(count(code)).toBe(1);
-    expect(text).toContain('waits for the **module** and not for the code that was loading it');
-    expect(text).toContain('settleDynamicImport(() => import(');
-    expect(text).toContain('vitest-auto-spy');
-    expect(text).toContain('the spec only reads its exports, after an arrangement line — the repair is a static `import`');
+    expect(text).toMatch(/^`await import\('\.\/exit-from-app\.component'\)` waits for the module, not for the code under test/);
+    expect(text).toContain("await settleDynamicImport(() => import('./exit-from-app.component'))");
   });
 
   it('reads the destructured form, which the helper returns the namespace for', () => {
@@ -71,7 +69,7 @@ describe('prefer-settle-dynamic-import', () => {
     const code = `it('x', () => { import('./modal').then((m) => expect(m.Modal).toBeDefined()); });`;
 
     expect(count(code)).toBe(1);
-    expect(message(code)).toContain('`import(…).then(…)`');
+    expect(message(code)).toMatch(/^`import\('\.\/modal'\)\.then\(…\)` waits for the module[\s\S]*after the test ends/);
   });
 
   it('reads a hook, and the marked spellings of a test name', () => {

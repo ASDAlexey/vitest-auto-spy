@@ -36,10 +36,8 @@ describe('prefer-create-mock', () => {
     const text = message(code);
 
     expect(count(code)).toBe(1);
-    expect(text).toContain('claims to be a whole `Device`');
-    expect(text).toContain('excess-property check is skipped for a cast');
-    expect(text).toContain('createMock<T>({ … })');
-    expect(text).toContain('is `outOfType<T>(…)` from `vitest-auto-spy`');
+    expect(text).toMatch(/^`\{ … \} as Device` claims a whole `Device` and checks nothing/);
+    expect(text).toContain('createMock<Device>({ … })');
     expect(count(`const device = outOfType<Device>({ id: 1 });`)).toBe(0);
   });
 

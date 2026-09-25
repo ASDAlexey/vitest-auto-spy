@@ -51,7 +51,7 @@ describe('no-expect-in-subscribe', () => {
     const code = 'source$.subscribe((value) => { expect(value).toBe(1); expect(value).toBeTruthy(); expect(other).toBe(2); });';
 
     expect(lint(code)).toHaveLength(1);
-    expect(firstMessage(code)).toContain('all 3 of these');
+    expect(firstMessage(code)).toMatch(/^If `source\$` never emits[\s\S]*\(3 assertions inside\)/);
   });
 
   it('counts an assertion however it is buried, and keeps two subscribes apart', () => {
@@ -73,7 +73,7 @@ describe('no-expect-in-subscribe', () => {
       '});',
     ].join('\n');
 
-    expect(firstMessage(triggered)).toContain('Hold the promise instead');
+    expect(firstMessage(triggered)).toMatch(/what makes `source\$` emit[\s\S]*const emission = expectEmission\(source\$\)/);
     // The failure branch resolves on nothing: it is `rejects`, positionally or by name.
     expect(firstMessage('source$.subscribe({ error: (e) => expect(e).toBe(err) });')).toContain('.rejects.');
     expect(firstMessage('source$.subscribe((v) => v, (e) => expect(e).toBe(err));')).toContain('.rejects.');
@@ -103,17 +103,17 @@ describe('no-expect-in-subscribe', () => {
     ].join('\n');
 
     expect(lint(viaHelper)).toHaveLength(1);
-    expect(firstMessage(viaHelper)).toContain('all 2 of these');
+    expect(firstMessage(viaHelper)).toContain('(2 assertions inside)');
     // A function declaration is the same helper spelled differently.
     expect(firstMessage('function assertShape(d) { expect(d).toBe(1); }\nsource$.subscribe((d) => assertShape(d));')).toContain(
-      'all 1 of these',
+      '(1 assertion inside)',
     );
   });
 
   it('counts a helper declared inside the callback once, not twice', () => {
     const inner = 'source$.subscribe((d) => { const check = () => { expect(d).toBe(1); }; check(); });';
 
-    expect(firstMessage(inner)).toContain('all 1 of these');
+    expect(firstMessage(inner)).toContain('(1 assertion inside)');
   });
 
   it('leaves a call that resolves to no local function alone', () => {

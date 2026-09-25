@@ -59,8 +59,9 @@ describe('no-done-callback — done.fail', () => {
 
     expect(lint(code)).toHaveLength(2);
     // The parameter report explains the missing callback; this one explains the green run.
-    expect(verify(code)[1]?.message).toContain('done.fail is not a function');
-    expect(verify(code)[1]?.message).toContain('rejects.toMatchObject');
+    expect(verify(code)[0]?.message).toContain('Vitest passes a `TestContext` as `done`');
+    expect(verify(code)[1]?.message).toMatch(/^`done\.fail\(e\)` throws `done\.fail is not a function`/);
+    expect(verify(code)[1]?.message).toContain('rejects');
   });
 
   it.each([

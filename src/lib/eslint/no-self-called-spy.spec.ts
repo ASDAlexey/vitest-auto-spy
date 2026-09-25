@@ -30,8 +30,8 @@ describe('no-self-called-spy', () => {
 
     expect(count(code)).toBe(1);
     expect(text).toContain('`component.subscribeClick.emit`');
-    expect(text).toContain('satisfied by this line');
-    expect(text).toContain('survives the deletion');
+    expect(text).toContain('satisfied by the test, not by the code under test');
+    expect(text).toContain('stays green if that code is deleted');
   });
 
   it('reads the assertion written on the member rather than on a name', () => {

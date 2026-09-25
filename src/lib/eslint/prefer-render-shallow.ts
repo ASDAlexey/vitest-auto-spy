@@ -4,11 +4,12 @@
  */
 import { defineRule } from './define-rule';
 import { RENDER_MESSAGES, rendersOnlyWhatIsRead, templatePolicy } from './dom-reads';
+import { argumentList } from './message-data';
 import { renderShallowSuggestion } from './render-shallow-fold';
 import type { EsCallExpression, EsNode, RuleModule } from './rule-types';
 
 export const preferRenderShallow: RuleModule = defineRule({
-  anchor: '-a-components-children',
+  name: 'prefer-render-shallow',
   description: 'Render through renderShallow() when the spec never reads the rendered template',
   hasSuggestions: true,
   schema: [{ type: 'object', properties: { templates: { enum: ['as-needed', 'never'] } }, additionalProperties: false }],
@@ -32,7 +33,9 @@ export const preferRenderShallow: RuleModule = defineRule({
         const messageId = templatePolicy(context) === 'never' ? 'templatesNever' : 'preferRenderShallow';
         const suggestion = renderShallowSuggestion(context, node);
 
-        context.report(suggestion ? { node, messageId, suggest: [suggestion] } : { node, messageId });
+        const report = { node, messageId, data: { component: argumentList(context, node) } };
+
+        context.report(suggestion ? { ...report, suggest: [suggestion] } : report);
       },
       'Property[key.name="keepTemplate"][value.value=true]': (node: EsNode): void => {
         if (templatePolicy(context) === 'never') {
