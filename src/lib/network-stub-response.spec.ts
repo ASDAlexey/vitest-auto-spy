@@ -88,7 +88,9 @@ describe('stubResponse', () => {
     // Without this the platform raises "Response with null body status cannot have body" about a
     // field whose old meaning was the opposite of a body — the one migration this change asks for.
     expect(() => stubResponse({ body: null, status: 204 })).toThrow('was given body: null with status 204, which carries no body');
-    expect(() => stubResponse({ body: null, status: 304 })).toThrow('omit body (or pass undefined) for no body at all');
+    expect(() => stubResponse({ body: null, status: 304 })).toThrow(
+      /Omit body \(or pass undefined\) for no body at all\.\nDocs: \S+#answering-a-stubbed-fetch-—-stubresponse$/,
+    );
     expect(stubResponse({ status: 204 }).status).toBe(204);
   });
 
@@ -133,7 +135,9 @@ describe('stubResponse', () => {
   });
 
   it('refuses an ok that disagrees with the status', () => {
-    expect(() => stubResponse({ ok: true, status: 404 })).toThrow('was given ok: true with status 404, which is not ok');
+    expect(() => stubResponse({ ok: true, status: 404 })).toThrow(
+      'was given ok: true with status 404, which is not ok. Drop `ok` — the status alone decides it.',
+    );
     expect(() => stubResponse({ ok: false, status: 204 })).toThrow('was given ok: false with status 204, which is ok');
   });
 
@@ -163,6 +167,8 @@ describe('stubResponse', () => {
   it('names the missing constructor where the environment has no Response', () => {
     vi.stubGlobal('Response', undefined);
 
-    expect(() => stubResponse()).toThrow('stubResponse() needs a global Response');
+    expect(() => stubResponse()).toThrow(
+      'stubResponse() needs a global Response, and this environment has none. Run the spec where one exists',
+    );
   });
 });
