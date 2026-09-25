@@ -6,20 +6,6 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
 
 ## Factories
 
-- [ ] **`createSpyFromInstance` still reaches for a mock API on a member it did not spy.**
-      `createSpyFromInstance(client, { onlyMethodsToSpyOn: ['ping'], returns: { refund: 'done' } })`
-      dies on `TypeError: asVitestMock(...).mockImplementation is not a function`: the restricting
-      list leaves `refund` as the object's real method, `applyReturns` finds a callable, the value
-      cannot go into the library's container, and the fallback hands a plain function to the
-      adapter. The same root cause as the `createAutoMock` crash fixed on 2026-09-12, but not the
-      same repair — a member is not a _seed_ here, so the answer is the misconfiguration report the
-      class path already prints (`returns names 'refund', which is not a spied method of the spy`),
-      which needs telling a host mock from a plain function: `applyReturns` is deliberately allowed
-      to drive a `vi.fn()` through the adapter (`create-spy-from-class.spec.ts`, "configures a
-      callable the library did not build through its implementation instead"), so the guard costs an
-      `isMockFn` on `MockAdapter` and four implementations — see the entry in `DECISIONS.md` that
-      declined it for `createAutoMock`.
-
 - [ ] **`lazySpies: 'proxy'` has nothing left to offer — deprecate it, or say what it is for.** The
       mode existed for the memory of a wide, barely-touched double, and the shared-placeholder work
       of 2026-09-17 took that argument away: measured after it, a 100-method proxy double retains
