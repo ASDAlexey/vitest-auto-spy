@@ -338,7 +338,18 @@ describe('checkUnawaitedHelper', () => {
     });
 
     expect(checks(findings)).toEqual(['no-unawaited-helper']);
-    expect(findings[0]?.message).toContain('`expectEmission()`');
+    expect(findings[0]?.message).toBe('Lines 2, 3: `expectEmission()` is called as a statement, and the promise it returns is dropped.');
+    expect(findings[0]?.fix).toBe(
+      'Await it. Unawaited, it settles after the test has ended, so its assertion reports into a later test or nowhere.',
+    );
+  });
+
+  it('names the one line a single dropped call is on', () => {
+    const findings = unawaitedFindings({
+      'src/a.spec.ts': ["import { expectEmission } from 'vitest-auto-spy';", '', 'it("x", () => { expectEmission(a, 1); });'].join('\n'),
+    });
+
+    expect(findings[0]?.message).toMatch(/^Line 3: `expectEmission\(\)`/);
   });
 
   it('stays quiet when the call is awaited, and when the installed copy is a different major', () => {

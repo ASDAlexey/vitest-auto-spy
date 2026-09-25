@@ -81,19 +81,24 @@ function isStatementEnd(source: string, from: number): boolean {
  * a call that is quoted or commented out rather than run.
  */
 export function findUnawaitedCalls(source: string, locals: readonly string[]): string[] {
+  return findUnawaitedSites(source, locals).map((site) => site.local);
+}
+
+/** {@link findUnawaitedCalls}, with the line each call starts on. */
+export function findUnawaitedSites(source: string, locals: readonly string[]): { local: string; line: number }[] {
   if (locals.length === 0) {
     return [];
   }
 
   const spans = literalSpans(source);
   const pattern = new RegExp(`(?:^|[;{}])\\s*(${locals.join('|')})\\s*\\(`, 'g');
-  const found: string[] = [];
+  const found: { local: string; line: number }[] = [];
 
   source.replace(pattern, (whole: string, local: string, offset: number): string => {
     const close = endOfCall(source, offset + whole.length - 1);
 
     if (!isInsideLiteral(spans, offset) && close !== -1 && isStatementEnd(source, close + 1)) {
-      found.push(local);
+      found.push({ local, line: source.slice(0, offset + whole.indexOf(local)).split('\n').length });
     }
 
     return whole;
@@ -104,13 +109,19 @@ export function findUnawaitedCalls(source: string, locals: readonly string[]): s
 
 export function checkUnawaitedHelper(profile: Profile, graph: SourceGraph): Finding[] {
   return scanSources(profile, graph, (file, text, report) => {
-    for (const local of new Set(findUnawaitedCalls(text, awaitableLocals(text)))) {
+    const lines = new Map<string, number[]>();
+
+    for (const { local, line } of findUnawaitedSites(text, awaitableLocals(text))) {
+      lines.set(local, [...(lines.get(local) ?? []), line]);
+    }
+
+    for (const [local, at] of lines) {
       report({
         check: 'no-unawaited-helper',
         severity: 'error',
         file,
-        message: `Calls \`${local}()\` as a statement and drops the promise it returns.`,
-        fix: 'Await it. Unawaited, it settles after the test has already ended, so the assertion inside it can only report into a later test — or nowhere at all.',
+        message: `${at.length === 1 ? 'Line' : 'Lines'} ${at.join(', ')}: \`${local}()\` is called as a statement, and the promise it returns is dropped.`,
+        fix: 'Await it. Unawaited, it settles after the test has ended, so its assertion reports into a later test or nowhere.',
       });
     }
   });
