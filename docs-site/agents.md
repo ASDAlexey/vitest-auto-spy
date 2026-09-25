@@ -312,11 +312,11 @@ agent that knows only the bare specifier writes a spec that throws at the first 
 ## Errors that name their own fix
 
 An agent reads a stack trace far more often than it reads a README, so every error and warning this
-package throws ends with a link to the page that explains it:
+package throws names what went wrong in this case and the one fix, and ends with a link to the
+section that explains it:
 
 ```
-Observable spies require rxjs. Import 'vitest-auto-spy/rxjs' once (e.g. in your test setup)
-to enable observablePropsToSpyOn / nextWith / nextWithValues / throwWith / complete / returnSubject.
+[vitest-auto-spy] Observable spies require rxjs, and 'vitest-auto-spy/rxjs' was not imported in this run. Add `import 'vitest-auto-spy/rxjs';` once to the setup file.
 Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
 ```
 

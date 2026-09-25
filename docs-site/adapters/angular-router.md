@@ -188,11 +188,12 @@ supports.
 
 ## What each failure says
 
-| Message contains                                                     | Cause                                                                                                        |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `injectActivatedRoute(): nothing provides ActivatedRoute here`       | no provider at all — add `provideActivatedRoute({ … })` to `providers`                                       |
-| `the ActivatedRoute here is … not one provideActivatedRoute() built` | a later provider won: `provideRouter()`, `RouterModule`, a `useValue`, `provideAutoSpy` — list this one last |
-| `the installed @angular/router does not wire ActivatedRoute …`       | a router major builds its classes differently; report it with the version                                    |
+| Message contains                                                                                   | Cause                                                                                                        |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `injectActivatedRoute(): nothing provides ActivatedRoute here`                                     | no provider at all — add `provideActivatedRoute({ … })` to `providers`                                       |
+| `the ActivatedRoute here is … not one provideActivatedRoute() built`                               | a later provider won: `provideRouter()`, `RouterModule`, a `useValue`, `provideAutoSpy` — list this one last |
+| `@angular/router <version> does not wire ActivatedRoute …`                                         | a router major builds its classes differently; provide the route by hand and report the version              |
+| `provideActivatedRoute({ title }): … keeps the route title under a key this helper could not find` | the router stores the title elsewhere; leave `title` out and report the version                              |
 
 ## The Router double
 
@@ -405,6 +406,14 @@ back. This is Angular's own integration-spec idiom in one call: the recording st
 `BehaviorSubject`'s seed is where the router stands, not something it emitted), ends with the test
 that started it, and `expect()` takes one `[class, url?]` pair per event in order — a mismatch fails
 naming the event and the URL that was there instead.
+
+The failure is one message: the first place the two sequences part, then both of them in full.
+
+```text
+[vitest-auto-spy] collectRouterEvents().expect(): the events differ at #2: expected NavigationEnd /checkout, got NavigationCancel /checkout.
+Expected: NavigationStart /checkout, NavigationEnd /checkout
+Recorded: NavigationStart /checkout, NavigationCancel /checkout
+```
 
 The handle's `events` array is the recording itself, for the assertions that are not a plain
 sequence.

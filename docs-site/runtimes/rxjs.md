@@ -187,10 +187,10 @@ beside it, not into it — no error, no timeout, nothing at all unless the spec 
 emission. The property says so once instead:
 
 ```
-[vitest-auto-spy] nextWithValues() on an observable property publishes a new stream, and the
-subscriber already attached to this property stays on the old one — so these values never reach it.
-Configure the property before the code under test subscribes, or push into the live stream with
-nextWith() / returnSubject().
+[vitest-auto-spy] Feed.items$.nextWithValues() ran after something subscribed to Feed.items$, and it
+publishes a new stream that subscriber never sees — these values will not reach it. Call
+nextWithValues() before the code under test subscribes, or push into the stream it holds with nextWith().
+Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#nextwith-pushes-nextwithvalues-republishes
 ```
 
 Both repairs are one line. Configure the property in the arrange step, before the fixture is built —
@@ -324,7 +324,7 @@ what the runner then reported was the file's timeout, which is the failure these
 replace:
 
 ```
-[vitest-auto-spy] this spy's observable errored, so the promise from onComplete() can never resolve:
+[vitest-auto-spy] this spy's observable errored (Error: offline), so the promise from onComplete() can never resolve:
 completion is not coming. Read receivedComplete() / receivedError(), or await
 `expectCompletion(source$)` / `expectError(source$)`, which fail with a message naming the stream.
 Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs

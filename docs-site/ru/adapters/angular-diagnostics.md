@@ -100,10 +100,10 @@ enableAngularDiagnostics(); // ← последним, чтобы его afterEa
 `ɵinj.imports` у `@NgModule({})` — это `[[], []]` (собственные imports и exports модуля, оба
 пустые), что простая проверка длины прочитает как две записи и сочтёт вкладом.
 
-```
-[vitest-auto-spy] NgModule(s) with an empty runtime scope: DirectivesModule.
-Either they declare nothing (a providers-only module — do not pass those here), or `ɵɵsetNgModuleScope` was not emitted into this test bundle, in which case importing them into the TestBed contributes no directives, components or pipes at all. Declare what the spec needs in the TestBed module directly.
-Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular
+```text
+[vitest-auto-spy] ngModuleScopes: DirectivesModule is imported into the testing module but contributes nothing — this test bundle dropped its ɵɵsetNgModuleScope, so its directives are missing (NG0303/NG0304).
+Import the directives it exports directly, or declare them in the TestBed.
+Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#ngmodulescopes
 ```
 
 **Ограничение, сказанное прямо.** Область, вырезанная AOT-бандлом, и область, которая всегда была
@@ -134,7 +134,7 @@ TestBed.configureTestingModule({ imports: [CatalogPageComponent], schemas: [NO_E
 [vitest-auto-spy] enableAngularDiagnostics({ deadSchemas }): configureTestingModule was given 1 schema(s) that can never apply. The module declares nothing, and CatalogPageComponent carries its own dependency scope.
 Nothing is being silenced here: whatever the schema was added for is still unresolved, and the template renders without it.
 Drop the `schemas` entry, then put the missing directive, component or pipe into the standalone component's own `imports` — or render it through a standalone host built with `createDirectiveHost({ template, scope: [...] })`.
-Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics
+Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#deadschemas
 ```
 
 **Что она пропускает намеренно.** Она не срабатывает, когда `declarations` непустые, даже если рядом
@@ -147,9 +147,10 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics
 группы это сообщение — `console.warn`. Этот член поднимает его до брошенного падения на строке
 `injectSpy`, то есть на той строке, которая рассчитывала на спай.
 
-```
-[vitest-auto-spy] injectSpy(FeatureFlagService): the injector returned a plain instance, not an auto-spy. Register it with provideAutoSpy(FeatureFlagService) (or { provide: TOKEN, useValue: createAutoMock<T>() } for a token), or read it with TestBed.inject() if the real implementation is what this spec wants. As it stands, the control helpers are typed but absent, and `.mockReturnValue(…)` will throw on the real method.
-Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular
+```text
+[vitest-auto-spy] injectSpy(FeatureFlagService): got a real FeatureFlagService — nothing in the testing module provides a double, so Angular built it (providedIn: 'root').
+Add provideAutoSpy(FeatureFlagService) to providers.
+Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular#injectspy-says-when-it-got-the-real-thing
 ```
 
 Форма-предупреждение дедуплицируется по токену, поэтому `beforeEach` не печатает одну и ту же строку
@@ -161,11 +162,11 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular
 Роняет тест, который заканчивается, пока настроенный им `HttpTestingController` всё ещё держит
 запросы.
 
-```
-[vitest-auto-spy] enableAngularDiagnostics({ pendingRequests }): the test ended with 2 unflushed HttpTestingController request(s): GET /api/users, POST /api/orders.
-Nothing answered them and nothing asserted them, so the code under test is still waiting on a response it never received — everything the spec expected to happen after that call did not happen here.
-Flush each one (`controller.expectOne('/url').flush(body)`), or call `controller.verify()` in the spec where the absence of a request is the thing being asserted. A request the code cancels on purpose is excused by `enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } })`.
-Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics
+```text
+[vitest-auto-spy] 2 requests were never answered (end of "users > loads the list"): GET /api/users, POST /api/orders.
+The code under test is still waiting on them, so nothing after that call ran; left open, the next test would match them.
+Answer each in the spec: controller.expectOne('/api/users').flush(body).
+Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#pendingrequests
 ```
 
 ### `ignoreCancelled` {#ignorecancelled}

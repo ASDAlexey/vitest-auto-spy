@@ -178,11 +178,12 @@ expect(page.productId()).toBe('8');
 
 ## Что говорит каждое падение {#what-each-failure-says}
 
-| Сообщение содержит                                                   | Причина                                                                                                                   |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `injectActivatedRoute(): nothing provides ActivatedRoute here`       | провайдера нет вовсе — добавьте `provideActivatedRoute({ … })` в `providers`                                              |
-| `the ActivatedRoute here is … not one provideActivatedRoute() built` | выиграл более поздний провайдер: `provideRouter()`, `RouterModule`, `useValue`, `provideAutoSpy` — ставьте этот последним |
-| `the installed @angular/router does not wire ActivatedRoute …`       | мажор роутера собирает классы иначе; сообщите об этом с версией                                                           |
+| Сообщение содержит                                                                                 | Причина                                                                                                                   |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `injectActivatedRoute(): nothing provides ActivatedRoute here`                                     | провайдера нет вовсе — добавьте `provideActivatedRoute({ … })` в `providers`                                              |
+| `the ActivatedRoute here is … not one provideActivatedRoute() built`                               | выиграл более поздний провайдер: `provideRouter()`, `RouterModule`, `useValue`, `provideAutoSpy` — ставьте этот последним |
+| `@angular/router <version> does not wire ActivatedRoute …`                                         | мажор роутера собирает классы иначе; соберите маршрут вручную и сообщите версию                                           |
+| `provideActivatedRoute({ title }): … keeps the route title under a key this helper could not find` | роутер хранит заголовок в другом месте; уберите `title` и сообщите версию                                                 |
 
 ## Дубль Router {#the-router-double}
 
@@ -383,6 +384,15 @@ events.expect([
 пустой (сея `BehaviorSubject` — это где роутер стоит, а не то, что он выпускал), заканчивается вместе
 с тестом, который её начал, а `expect()` принимает по одной паре `[класс, url?]` на событие по
 порядку — несовпадение падает, называя событие и URL, который был там вместо него.
+
+Падение — одно сообщение: первое место, где две последовательности расходятся, и затем обе
+целиком.
+
+```text
+[vitest-auto-spy] collectRouterEvents().expect(): the events differ at #2: expected NavigationEnd /checkout, got NavigationCancel /checkout.
+Expected: NavigationStart /checkout, NavigationEnd /checkout
+Recorded: NavigationStart /checkout, NavigationCancel /checkout
+```
 
 Массив `events` хендла — сама запись, для утверждений, которые не сводятся к простой
 последовательности.

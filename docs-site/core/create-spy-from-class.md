@@ -47,7 +47,7 @@ and `onUnstubbedCall`.
 const users = createSpyFromClass(UserService, { strict: true });
 
 users.load.resolveWith([]);
-users.currentTenant(); // throws: Nothing configured UserService.currentTenant
+users.currentTenant(); // throws: UserService.currentTenant() was called; this strict double has nothing configured for it.
 ```
 
 Off by default, so an unconfigured method returns `undefined` — which is a legal value, and so the
@@ -344,6 +344,9 @@ forwarder: a configured `mockReturnValue` answers, an unconfigured call reaches 
 with its strict guard, and `mockRestore()` hands that spy back with the calls it recorded. The call
 is redundant all the same — the member already is a spy, so `cart.total.mockReturnValue(3)` says it
 in one step.
+A forwarder that is then called with no receiver at all — detached from its double — has no spy to
+reach, and throws `'total' was called off its double after vi.spyOn`; drop the `vi.spyOn` and
+configure the member itself.
 
 ### `lazySpies: 'proxy'` — one trap object instead of a placeholder per method
 
@@ -702,6 +705,12 @@ under `isolate: false`, is one set of spies shared by every file that imports it
 It is the method's **default**, kept in the spy's own container: a `calledWith(…)` chain configured
 afterwards still decides the value for its arguments, a later `resolveWith` / `failWith` replaces
 it, `undefined` counts as configured under `strict`, and `resetAutoSpy` clears it.
+
+A key that is not a spied method is reported, since its value would never be returned: a method
+`onlyMethodsToSpyOn` left out is named as such, a misspelling gets the closest method of the class
+(`returns names 'lod', not a method of CartService — did you mean 'load'?`), and a name with nothing
+close to it points at `instanceMethodsToSpyOn`, where a callable the constructor assigns belongs. A
+misspelled `onlyMethodsToSpyOn` entry is reported the same way.
 
 ## `selfReturning` — a method that answers the double itself {#self-returning}
 

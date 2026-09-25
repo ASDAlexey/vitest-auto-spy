@@ -45,8 +45,8 @@ Every wait still open at the end of a test is therefore torn down by
 [`setupAutoSpy()`](/utilities/setup), ahead of every other teardown step, and named:
 
 ```text
-[vitest-auto-spy] 1 emission helper(s) were never awaited in this test (saved$). The subscription is
-torn down now, but the assertion never ran.
+[vitest-auto-spy] "cart > saves" never awaited 1 emission wait (saved$), so its assertion never ran.
+Await it, or return it from the test. Its subscription is torn down now.
 Docs: https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions
 ```
 
@@ -176,7 +176,7 @@ await expect(expectEmissions(ids$, 2, { until: (id) => id > 5 })).resolves.toEqu
 
 `source$.pipe(skip(1))` and `pipe(filter(…))` say the same thing and cost an rxjs import in a spec
 whose whole point was that it needed none — but the real difference is the failure. Emissions that
-do not match are still **counted**, so a timeout reads `4 emission(s) received` rather than `0`, and
+do not match are still **counted**, so a timeout reads `4 emissions within 1000 ms` rather than `0 received`, and
 "the wrong thing fired" stays distinguishable from "nothing fired". A `filter` in front of the helper
 throws that away.
 
@@ -274,21 +274,39 @@ wait is real time, and no `tick()` a spec writes can expire it. Without zone.js 
 
 ## Failure messages
 
-A stream that stays quiet fails with the label and the timeout, one that errors fails with the
-error, and one that completes empty says so:
+Every failure opens with the call that failed — `expectEmission(saved$)`, or `expectEmission(source$)`
+when the call has no `label` — says what the stream did, and names the one thing to check:
 
 ```
-saved$ did not emit within 1000 ms (0 emission(s) received). Either the stream never fired — check
-the trigger and any provider spy feeding it — or it is slower than the timeout; raise it with
-`{ timeout: … }`. This wait is real time even under fake timers, on purpose: a virtual watchdog would
-race the timers your spec advances. Lower it with `setEmissionTimeout(100)` in the setup file rather
-than disabling it with `{ timeout: 0 }`, which leaves the next silent stream with no message at all.
+[vitest-auto-spy] expectEmission(saved$): no value within 1000 ms (0 received). Nothing triggered the
+stream — check the call that should make it emit, or the spy feeding it (`nextWith`).
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions#failure-messages
 ```
 
+When values arrived but not the one asked for, the message counts them against the expectation —
+`3 emissions within 1000 ms, expected 1 matching` — and points at the `until` predicate instead.
+
+Under fake timers a timeout adds one sentence, because a frozen clock is then the likeliest reason
+the stream stayed quiet. With real timers it is not printed:
+
 ```
-saved$ completed after 0 emission(s), expected 1. A completed-but-empty stream is the usual sign
-that the value was produced before the subscription.
+… Timers are fake and 2 callbacks wait on it: advance them inside the wait,
+`{ advance: () => vi.advanceTimersByTime(ms) }` — this watchdog runs on real time and never advances them.
 ```
+
+A stream that completes empty is almost always one that emitted before anything listened:
+
+```
+[vitest-auto-spy] expectEmission(saved$): the stream completed after 0 emissions, expected 1. The value
+was most likely emitted before this subscribed: start the wait first (hold the promise), then trigger.
+```
+
+A stream that errors where a value was expected quotes the error and points at
+[`expectError`](#expecterror-—-when-the-failure-is-the-subject) for the case where the error is the
+point; the original stays on `cause`. `expectNoEmission` tells a replayed value from a pushed one: a
+value that came out of `subscribe` itself is named as a replay (`BehaviorSubject`, `shareReplay`,
+`startWith`) with `{ skip: 1 }` as the fix, and one that arrived later is put down to something the
+test ran.
 
 Three more say that the call itself was wrong rather than the stream: a source that is not
 subscribable, an `advance` callback that threw, and `expectEmissions(source$, 0)`, which is refused
@@ -367,12 +385,12 @@ Sixteen tests, every one of them asserting something that is false. Twelve fail:
 
 The four that pass are the four `bare subscribe` rows — all of them, in every scenario.
 
-|                           | `of(1)` — wrong value         | `throwError(boom)`                                 | `EMPTY`                                              | `NEVER`                               |
-| ------------------------- | ----------------------------- | -------------------------------------------------- | ---------------------------------------------------- | ------------------------------------- |
-| 1. bare `subscribe`       | **green** ⁽¹⁾                 | **green** ⁽¹⁾                                      | **green**                                            | **green**                             |
-| 2. `new Promise(done)`    | `Test timed out in 1200ms`    | `Test timed out in 1200ms`                         | `Test timed out in 1200ms`                           | `Test timed out in 1200ms`            |
-| 3. `await firstValueFrom` | `expected 1 to be 999` + diff | `Error: boom`                                      | `EmptyError: no elements in sequence`                | `Test timed out in 1200ms`            |
-| 4. `await expectEmission` | `expected 1 to be 999` + diff | `source$ errored instead of emitting: Error: boom` | `source$ completed after 0 emission(s), expected 1…` | `source$ did not emit within 300 ms…` |
+|                           | `of(1)` — wrong value         | `throwError(boom)`                                                              | `EMPTY`                                                                        | `NEVER`                                                         |
+| ------------------------- | ----------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| 1. bare `subscribe`       | **green** ⁽¹⁾                 | **green** ⁽¹⁾                                                                   | **green**                                                                      | **green**                                                       |
+| 2. `new Promise(done)`    | `Test timed out in 1200ms`    | `Test timed out in 1200ms`                                                      | `Test timed out in 1200ms`                                                     | `Test timed out in 1200ms`                                      |
+| 3. `await firstValueFrom` | `expected 1 to be 999` + diff | `Error: boom`                                                                   | `EmptyError: no elements in sequence`                                          | `Test timed out in 1200ms`                                      |
+| 4. `await expectEmission` | `expected 1 to be 999` + diff | `expectEmission(source$): the stream errored instead of emitting: Error: boom…` | `expectEmission(source$): the stream completed after 0 emissions, expected 1…` | `expectEmission(source$): no value within 300 ms (0 received)…` |
 
 Read the table by column and the ranking is the same in each: form 1 says nothing, form 2 says only
 that time ran out, form 3 says what happened, form 4 says what happened **and to which stream**.

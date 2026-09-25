@@ -111,18 +111,20 @@ the opposite of configuring one set of arguments.
 
 ### What a `mustBeCalledWith` failure prints
 
-Both sides, the way `td.explain` and sinon do — because the diagnosis is the comparison, not either
-half of it:
+The first line says which argument broke the match; below it, both sides, the way `td.explain` and
+sinon print them — because the diagnosis is the comparison, not either half of it:
 
 ```
-The function 'getName' was configured with 'mustBeCalledWith' and expects to be called with specific arguments.
+[vitest-auto-spy] getName is set up with mustBeCalledWith, and this call matches none of its configs — argument 1: expected 1, got 2.
 Wanted: getName(1)
 Actual: getName(2)
-Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers
+Fix the value the code under test passes, or configure this call too.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#what-a-mustbecalledwith-failure-prints
 ```
 
 Every configured call is listed when there is more than one, matchers included, so a config that
-never matched is visible rather than inferred:
+never matched is visible rather than inferred — and the first line then stops at the diagnosis, since
+there is no single config to compare against:
 
 ```
 Wanted (3 configured):
@@ -243,7 +245,7 @@ When a call with any other arguments is itself the bug, say so with `mustBeCalle
 then names the mismatch at the call, instead of surfacing as a `NaN` somewhere downstream:
 
 ```text
-The function 'rateFor' was configured with 'mustBeCalledWith' and expects to be called with specific arguments.
+[vitest-auto-spy] rateFor is set up with mustBeCalledWith, and this call matches none of its configs — argument 1: expected 'USD', got 'EUR'.
 Wanted: rateFor('USD')
 Actual: rateFor('EUR')
 ```

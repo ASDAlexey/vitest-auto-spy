@@ -77,11 +77,10 @@ src/app/service.spec.ts
 
 1 file would change, 6 edits
 
-error  residue/jest-namespace src/app/service.spec.ts:14
+error  residue/jest-namespace src/app/service.spec.ts:12
        Still matches after the run: "jest."
-       → `jest-namespace` did not rewrite it — it declined (see its note), or it could not reach
-         it: a template literal, an unbalanced bracket, a transform that was skipped. Rewrite this
-         one by hand.
+       → `jest-namespace` declined it: `jest.requireActual` was left alone. Rewrite it by hand.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/codemod#verifying-by-matching-not-by-diffing
 
 warn   no-vi-twin src/app/service.spec.ts:12
        `jest.requireActual` was left alone.
@@ -93,7 +92,9 @@ warn   no-vi-twin src/app/service.spec.ts:12
 
 Этот прогон выходит с кодом **1**, и причина — весь замысел целиком: одна строка,
 `jest.requireActual`, осталась нетронутой, значит, у человека ещё есть работа. С шестью правками при
-этом ничего не случилось.
+этом ничего не случилось. Остаток, от которого трансформация отказалась, цитирует то, что она сказала
+на этой строке; остаток, о котором она промолчала, — это место, куда она не смогла дотянуться: внутри
+шаблонной строки или после скобки, которая не сошлась.
 
 | Код | Когда                                                                                      |
 | --- | ------------------------------------------------------------------------------------------ |
@@ -311,11 +312,15 @@ Entry-point table (/work/app/node_modules/vitest-auto-spy)
 отчёт:
 
 ```
-error  codemod-broke-syntax src/app/service.spec.ts:1
-       The rewritten file does not parse, so it was left exactly as it was.
-       → This is a defect in the codemod, not in the file. Migrate this one by hand, and report the
-         construct it tripped over — the file is worth attaching.
+error  codemod-broke-syntax src/app/service.spec.ts:7
+       The rewritten file would not parse at line 7 (',' expected.), so the file was left as it
+       was.
+       → Migrate this file by hand, and report the construct on that line as a codemod defect.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/codemod#the-result-is-parsed-before-it-is-written
 ```
+
+Строка и сообщение — собственные, от парсера, прочитанные из переписанного текста, так что отчёт
+показывает на конструкцию, о которую споткнулась переделка, а не на начало файла.
 
 Сравнение идёт между диагностиками до и диагностиками после, никогда с нулём, поэтому спека, у
 которой синтаксическая ошибка уже была, за неё не отвечает. Там, где `typescript` не разрешается из
@@ -377,10 +382,18 @@ vitest-auto-spy codemod — /work/app
 
 error  residue/auto-spies-import src/app/service.spec.ts:1
        Still matches after the run: "from 'jest-auto-spies'"
+       → `auto-spies-import` did not rewrite this. Rewrite it by hand.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/codemod#verifying-by-matching-not-by-diffing
+
 error  residue/inject-cast src/app/service.spec.ts:10
        Still matches after the run: "as Spy<"
+       → `inject-cast` did not rewrite this. Rewrite it by hand.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/codemod#verifying-by-matching-not-by-diffing
+
 error  residue/jest-types src/app/service.spec.ts:7
        Still matches after the run: "jest.Mock"
+       → `jest-types` did not rewrite this. Rewrite it by hand.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/codemod#verifying-by-matching-not-by-diffing
 ```
 
 Из сопоставления вместо дифа следуют два свойства, и ни одно из них недоступно проверке, построенной
@@ -415,7 +428,8 @@ error  residue/jest-types src/app/service.spec.ts:7
 | `--cwd <dir>`  | Работать в другой директории вместо текущей                                                               |
 
 Id, который не распознают ни `--only`, ни `--skip`, приводит к выходу с кодом **2** и перечислению
-известных id, а не к тихому запуску всего подряд.
+известных id, а не к тихому запуску всего подряд. Флаг, которого нет в этой таблице, так же выходит с
+кодом **2** до того, как что-то прочитано, и подсказывает флаг, который, скорее всего, имелся в виду.
 
 ### Когда скан упирается в предел {#when-the-scan-hits-its-cap}
 
@@ -424,12 +438,13 @@ Id, который не распознают ни `--only`, ни `--skip`, пр�
 
 ```
 The repository scan stopped at its safety cap of 50000 files — part of the tree was never looked at,
-so a clean result here is not a migrated repository. Raise the cap with VITEST_AUTO_SPY_SCAN_CAP or
-narrow --paths.
+so a clean result here is not a migrated repository. Raise the cap with VITEST_AUTO_SPY_SCAN_CAP, or
+pass the directories to migrate as arguments: `npx vitest-auto-spy codemod src/app`.
 ```
 
 `VITEST_AUTO_SPY_SCAN_CAP=200000 npx vitest-auto-spy codemod --verify` поднимает предел. Обычно
-лучше сузить `--paths`: медленная часть — не обход, а трансформации.
+лучше передать аргументами директории, которые нужно перевести: медленная часть — не обход, а
+трансформации.
 
 ## В CI {#in-ci}
 

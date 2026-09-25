@@ -98,8 +98,9 @@ installProxyZonePatch({ scope: 'callback' });
 в начале сетап-файла. Если их нет, патч говорит, какой половины не хватает:
 
 ```text
-[vitest-auto-spy] vitest-auto-spy/zone: globalThis.Zone is not there, so there is nothing to patch.
-This entry deliberately does not import zone.js — a zoneless project must not pull it in — …
+[vitest-auto-spy] vitest-auto-spy/zone: globalThis.Zone is not there, so there is nothing to patch — this entry does not import zone.js itself, so that a zoneless project never pulls it in.
+Load it at the top of the setup file: `import 'zone.js'; import 'zone.js/testing';` (under @angular/build:unit-test the builder does this already).
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/zone#requirements
 ```
 
 ## Почему это отдельная точка входа {#why-it-is-a-separate-entry}

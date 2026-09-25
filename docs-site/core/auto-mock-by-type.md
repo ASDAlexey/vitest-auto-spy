@@ -56,7 +56,7 @@ The second argument is the configuration: `observablePropsToSpyOn`, `returns`, a
 ```ts
 const users = createAutoMock<UserService>(undefined, { strict: true });
 
-users.getName(1); // throws: Nothing configured createAutoMock(users.spec.ts:12).getName, and strict mode is on.
+users.getName(1); // throws: createAutoMock(users.spec.ts:12).getName(1) was called; this strict double has nothing configured for it.
 ```
 
 A type-driven double never read a class, so the message names it by the line that built it —

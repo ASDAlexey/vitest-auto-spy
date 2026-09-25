@@ -56,7 +56,7 @@ users.load.resolveWith({ id: 1 });
 ```ts
 const users = createAutoMock<UserService>(undefined, { strict: true });
 
-users.getName(1); // бросает: Nothing configured getName, and strict mode is on.
+users.getName(1); // бросает: createAutoMock(users.spec.ts:12).getName(1) was called; this strict double has nothing configured for it.
 ```
 
 В сообщении **нет имени класса** — дубль, построенный от типа, никакого класса не читал, и по той же

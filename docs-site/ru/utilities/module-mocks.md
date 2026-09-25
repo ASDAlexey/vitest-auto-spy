@@ -52,6 +52,18 @@ beforeEach(() => {
 значение. `assertMocked` — то, что превращает молчаливый случай во внятную фразу, чтобы к этому
 выводу приходили за один прогон, а не за три.
 
+Он называет экспорт, оставшийся настоящим, и только ту причину, которая подходит этому прогону: под
+`isolate: false` винит более ранний файл, первым загрузивший модуль, иначе — путь, по которому его
+импортирует тестируемый код:
+
+```text
+[vitest-auto-spy] assertMocked('./api'): fetchUser is the real function — the `vi.mock('./api')` for
+this file did not apply. The code under test reaches the module through another path (a barrel, an
+alias, a bundled entry) — `vi.mock` the specifier it imports, or pass the dependency in as an argument
+or a provider.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/module-mocks#the-two-ways-vi-mock-becomes-a-no-op
+```
+
 ## Дайте настоящий шов {#provide-a-real-seam}
 
 У молчаливого `vi.mock` есть громкий близнец, и напарываются на него _следом_: после того как мок

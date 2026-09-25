@@ -32,30 +32,37 @@ users.currentTenant(); // throws, on the line that called it
 
 ## The message
 
-Verbatim, from a `Cart` whose `checkout(id, when)` nothing configured:
+Verbatim, from a `Cart` whose `checkout(id, when)` nothing configured, called from `cart.component.ts`:
 
 ```
-[vitest-auto-spy] Nothing configured Cart.checkout, and strict mode is on.
-Called as: Cart.checkout(1,'now')
-Configure it — .mockReturnValue(…), .mockImplementation(…), .resolveWith(…), .nextWith(…) or .calledWith(…), or seed it through the 'returns' option — or drop 'strict' from this double.
-Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode
+[vitest-auto-spy] Cart.checkout(1, 'now') was called; this strict double has nothing configured for it.
+Called from src/app/cart.component.ts:41:12
+Configure it in the test: cart.checkout.calledWith(1, 'now').mockReturnValue(…) for these arguments, or .mockReturnValue(…) for any — .resolveWith(…) / .nextWith(…) when it returns a Promise / Observable.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#the-message
 ```
 
 It prints the call, not just the name, because on a wide service the same method is called several
-times with different arguments and _which_ call is half the diagnosis. A no-argument call renders as
-`Called as: Cart.total()`. Plain data prints in full up to 200 characters per argument; a class
-instance or a DOM node prints as its class — `[HTMLDivElement]`, `[Session]` — because rendering
-one in full walks everything it can reach, and a run with hundreds of strict failures could take a
-worker's heap through the message strings alone.
+times with different arguments and _which_ call is half the diagnosis. `Called from` is the first
+frame of the calling code — past the double, the library and anything under `node_modules` — with
+the path relative to the project root; a call with no such frame on the stack leaves the line out. The
+suggested `calledWith(…)` repeats the arguments of the call, so it can be pasted as it stands; a
+no-argument call suggests `.mockReturnValue(…)` alone. The name in front of it (`cart`) is the class
+name in lower camel case, a guess at the variable a spec holds the double in; a double whose name is
+not an identifier gets `double`.
+
+Plain data prints in full up to 200 characters per argument; a class instance or a DOM node prints as
+its class — `[HTMLDivElement]`, `[Session]` — because rendering one in full walks everything it can
+reach, and a run with hundreds of strict failures could take a worker's heap through the message
+strings alone.
 
 **A double built from a type has no class to name**, so it is named by the line that built it —
-`Nothing configured createAutoMock(users.spec.ts:12).getName` — which is what keeps two unnamed
+`createAutoMock(users.spec.ts:12).getName(1) was called` — which is what keeps two unnamed
 doubles of one file apart. A `name` replaces that:
 `createAutoMock<T>(undefined, { strict: true, name: 'USERS' })`, and `provideAutoSpyForToken` passes the
-token's description on its own (`Nothing configured InjectionToken CAROUSEL_RESIZE_OBSERVER.observe`).
+token's description on its own (`InjectionToken CAROUSEL_RESIZE_OBSERVER.observe(…) was called`).
 The **fully abstract class** fallback in `createSpyFromClass`, which hands back the same type-driven
-proxy when the prototype named nothing, carries the class name into it — `Nothing configured
-Storage.read` — along with strict mode: a DI token whose members are all `abstract` is exactly the
+proxy when the prototype named nothing, carries the class name into it — `Storage.read('k') was
+called` — along with strict mode: a DI token whose members are all `abstract` is exactly the
 wide-collaborator shape this exists for.
 
 ## What counts as configured
@@ -89,7 +96,7 @@ const cart = createSpyFromClass(Cart, { strict: true });
 
 cart.total.mockReturnValueOnce(5);
 cart.total(); // 5
-cart.total(); // throws: Nothing configured Cart.total
+cart.total(); // throws: Cart.total() was called; this strict double has nothing configured for it.
 ```
 
 Seed the standing value too (`cart.total.mockReturnValue(0)`) when a `Once` sequence is meant to run
@@ -198,7 +205,7 @@ with `strict: true` and the strict preset, `'warn'`, `'off'`). A test that provo
 takes it, which doubles as the assertion:
 
 ```ts
-expect(() => cart.total()).toThrow('Nothing configured Cart.total');
+expect(() => cart.total()).toThrow('Cart.total() was called');
 expect(takeStrictViolations()).toHaveLength(1); // from 'vitest-auto-spy/setup'
 ```
 
@@ -235,7 +242,7 @@ turns every passthrough double into a throwing one.
 setupAutoSpy({ strict: true });
 
 createSpyFromInstance(new Cart(), { passthrough: true }).total(); // the real total
-createSpyFromInstance(new Cart()).total(); // throws: Nothing configured Cart.total
+createSpyFromInstance(new Cart()).total(); // throws: Cart.total() was called; …
 ```
 
 Two things keep it from overriding anything silently:
@@ -267,8 +274,11 @@ setupAutoSpy({ strict: true, unconfiguredReads: 'throw' }); // 'off' (default) |
 ```
 
 ```
-[vitest-auto-spy] Router.url was read 3 times and nothing configured it, and strict mode is on.
-[vitest-auto-spy] Router.events was subscribed to 1 time and nothing fed it, and strict mode is on.
+[vitest-auto-spy] Router.url was read 3 times on a strict double and nothing configured it, so the code under test got undefined.
+Configure it in the test: accessorSpies.getters.url.mockReturnValue(…), or mockReturnValue(undefined) when undefined is the answer meant.
+[vitest-auto-spy] Router.events was subscribed to 1 time on a strict double and never emitted.
+Feed it in the test: events.nextWith(…), or seed overrides: { events: new Subject() } and drive that Subject; overrides: { events: NEVER } when this test never fires it.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#reads-nobody-configured
 ```
 
 - **What counts.** A read of a getter from `gettersToSpyOn` / `settersToSpyOn` / `autoSpyAccessors`

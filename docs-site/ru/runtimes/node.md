@@ -107,9 +107,11 @@ users.getName.mockReturnValue('seven'); // ❌ не на node:test
 представляется точно так же, как на Vitest и Bun:
 
 ```txt
-The function 'getName' was configured with 'mustBeCalledWith' and expects to be called with specific arguments.
+[vitest-auto-spy] getName is set up with mustBeCalledWith, and this call matches none of its configs — argument 1: expected 7, got [Function: getName].
 Wanted: getName(7)
 Actual: getName([Function: getName])
+Fix the value the code under test passes, or configure this call too.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#what-a-mustbecalledwith-failure-prints
 ```
 
 Двух вещей это по-прежнему не даёт, и починить их с этой стороны нельзя:

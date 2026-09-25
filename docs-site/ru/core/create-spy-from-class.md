@@ -48,7 +48,7 @@ createSpyFromClass(MyService, {
 const users = createSpyFromClass(UserService, { strict: true });
 
 users.load.resolveWith([]);
-users.currentTenant(); // бросает: Nothing configured UserService.currentTenant
+users.currentTenant(); // бросает: UserService.currentTenant() was called; this strict double has nothing configured for it.
 ```
 
 По умолчанию выключено, поэтому ненастроенный метод возвращает `undefined` — а это вполне законное
@@ -326,6 +326,9 @@ spy.getName.mockReturnValue('Ada'); // getName строится здесь, пр
 собственного спая дубля вместе со строгим режимом, а `mockRestore()` возвращает этот спай с
 записанными вызовами. Вызов при этом лишний — член и так спай, и `cart.total.mockReturnValue(3)`
 говорит то же одним шагом.
+Если переадресатор потом вызвать вообще без получателя — оторванным от дубля, — спаю взяться неоткуда,
+и он бросает `'total' was called off its double after vi.spyOn`: уберите `vi.spyOn` и настройте сам
+член.
 
 ### `lazySpies: 'proxy'` — для классов, широких настолько, что убивают CI-джобу {#lazyspies-proxy-—-one-trap-object-instead-of-a-placeholder-per-method}
 
@@ -679,6 +682,12 @@ providers: [provideAutoSpy(ProductsService, { returns: { getProducts: of([]) } }
 настроенная после, по-прежнему решает значение для своих аргументов, более поздний `resolveWith` /
 `failWith` его заменяет, `undefined` под `strict` считается настройкой, а `resetAutoSpy` его
 сбрасывает.
+
+Ключ, который не является спаем метода, отмечается предупреждением: его значение никогда не вернётся.
+Метод, который оставил снаружи `onlyMethodsToSpyOn`, так и называется; для опечатки подсказывается
+ближайший метод класса (`returns names 'lod', not a method of CartService — did you mean 'load'?`), а
+имя, на которое ничего не похоже, отсылает к `instanceMethodsToSpyOn` — туда относится то, что
+присваивает конструктор. Опечатка в `onlyMethodsToSpyOn` отмечается так же.
 
 ## `selfReturning` — метод, который отвечает самим двойником {#self-returning}
 

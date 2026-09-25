@@ -52,9 +52,11 @@ spec, and a module built without it is not checked on teardown.
 Defaults to `true`. A test that ends holding a request nothing answered fails **that** test, naming
 the request:
 
-```
-[vitest-auto-spy] provideHttpTesting({ verifyOnTeardown }): the test ended with 1 unanswered
-request(s): GET /api/products.
+```text
+[vitest-auto-spy] GET /api/products was never answered (end of "products > shows the list").
+The code under test is still waiting on it, so nothing after that call ran; left open, the next test would match it.
+Answer it in the spec: await expectRequest('/api/products').flush(body).
+Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-http#verifyonteardown
 ```
 
 Two things go wrong when it is left alone. The code under test is still waiting on a response it
@@ -183,13 +185,15 @@ been reset — except for the requests that reset took, which it reports.
 
 ## What each failure says
 
-| Message contains                              | Cause                                                                    |
-| --------------------------------------------- | ------------------------------------------------------------------------ |
-| `no request matched …` + the ones that were   | the URL, verb or predicate does not describe anything that was sent      |
-| `No request was made at all.`                 | the resource never started, or nothing subscribed to the Observable      |
-| `N requests matched …`                        | more than one match; narrow with `{ method }`, a full URL or a predicate |
-| `this TestBed has no HttpTestingController`   | `provideHttpTesting()` is missing from `providers`                       |
-| `the test ended with N unanswered request(s)` | `verifyOnTeardown` found what the spec forgot                            |
+| Message contains                            | Cause                                                                                                             |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `no request matched … Made instead: …`      | the URL, verb or predicate does not describe anything that was sent                                               |
+| `no POST … — but GET … was made`            | only the verb differs; pass the `{ method }` the code sends                                                       |
+| `… was made; the query differs`             | same path and verb, another query; name it, or match the path alone                                               |
+| `nothing was requested at all`              | the resource never started, or nothing subscribed to the Observable                                               |
+| `N requests matched …`                      | more than one match; narrow with `{ method }`, a full URL or a predicate                                          |
+| `this TestBed has no HttpTestingController` | `provideHttpTesting()` is missing from `providers`                                                                |
+| `… was never answered (end of "…")`         | `verifyOnTeardown` found what the spec forgot; the message names the test and the `expectRequest` that answers it |
 
 The list of requests that _were_ made is the whole reason the first message is worth more than
 `expectOne`'s. "Expected one matching request, found none" sends a reader back to re-read their own

@@ -88,14 +88,22 @@ expect(client.session()).toBeDefined();
 вместо этого называет `label`:
 
 ```text
-[vitest-auto-spy] flushEventLoopUntil: the SDK handshake was still not ready after 20 real
-event-loop turns. Three causes, in the order they turn out to be true. The work started but a
-dynamic `import()` had not finished … Or the work never started …. Or it is waiting on a timer
-rather than on the event loop — timers stay frozen here, and only `advanceTimers()` moves them.
-Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop
+[vitest-auto-spy] flushEventLoopUntil: the SDK handshake was still not ready after 20 real event-loop
+turns. No timer is pending: if it waits on a dynamic import(), await it instead:
+`await settleDynamicImport(() => import('./thing'))`; otherwise the call under test never ran, or its
+stub was never configured.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop#flusheventloopuntil-isdone-options
 ```
 
-Первый из трёх — тот, что дороже всех в диагностике, поэтому он назван первым: **холодный** чанк
+Под фейковыми таймерами с очередью колбэков вторую фразу заменяет та единственная причина, которую
+часы могут подтвердить:
+
+```text
+… 3 callbacks wait on the fake clock, and this helper never advances it — advance it instead:
+`await advanceTimers(ms)`.
+```
+
+Динамический импорт — причина, которая дороже всех в диагностике: **холодный** чанк
 берёт больше оборотов, чем бюджет, и выдаёт это то, что в файле падает только _первый_ такой тест,
 а все последующие проходят на тёплом кэше модулей. Это читается как флак, но флаком не является —
 ответ в том, чтобы дождаться модуль, а не считать обороты, через

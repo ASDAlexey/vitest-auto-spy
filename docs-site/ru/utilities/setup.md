@@ -41,8 +41,8 @@ null-профиль. С самодельным `vi.fn()`, который он з
 вызываемым, так что мина всё это время лежала невидимой.
 
 `onTestFinished` выполняется после цепочки `afterEach` и делает то же, что делала она, так что
-подстраховка возвращает свойства на место и предупреждает — называя количество и причину, в том
-тесте, где это случилось, а не двумя тестами позже. На обычном пути это стоит одного булева
+подстраховка возвращает свойства на место и предупреждает — называя тест, сколько патчей она
+вернула и какой хук бросил, в том тесте, где это случилось, а не двумя тестами позже. На обычном пути это стоит одного булева
 значения: она ничего не делает, если хук не пропустили.
 
 `countMockedProps()` экспортируется для сюит, которые предпочтут это проверять:
@@ -179,12 +179,19 @@ withoutStrayTimerTracking(() => seedStorage()); // то, что здесь за�
 
 `onStrayTimers` — тот же счёт, но не выходя из `setupAutoSpy`, и вдобавок **откуда взялся каждый
 забытый колбэк**: `timers` перечисляет их все — вид, задержку таймаута или интервала, spec-файл,
-который выполнялся в момент планирования, и до пяти фреймов планирующего вызова. Фреймы начинаются
-с вызывающего кода: сначала те, что вне `node_modules`, фреймы зависимостей — если других нет, и
-никогда собственные фреймы библиотеки — ни из исходников, ни из `dist`. `onStrayTimers: 'throw'`
-роняет файл сообщением, в котором каждый забытый колбэк записан как
-`timeout (300 ms) from <file> <frames[0]>`; обработчик, который печатает своё сообщение, должен
-печатать те же `kind`, `delay`, `file` и `frames[0]`.
+который выполнялся в момент планирования, тест, который тогда шёл (`test`, в виде `suite > test`), —
+или `outsideTest: 'import' | 'hook'`, если теста не было, — и до пяти фреймов планирующего вызова.
+Фреймы начинаются с вызывающего кода: сначала те, что вне `node_modules`, фреймы зависимостей — если
+других нет, и никогда собственные фреймы библиотеки — ни из исходников, ни из `dist`.
+`onStrayTimers: 'throw'` роняет файл отчётом, который называет файл, каждый забытый колбэк и одно
+действие; обработчик, который печатает своё сообщение, должен печатать те же `kind`, `delay`, `test`
+и `frames[0]`:
+
+```text
+[vitest-auto-spy] src/app/cart.component.spec.ts left 1 timer pending when it ended:
+  - setTimeout 5000 ms, scheduled in "CartComponent > polls" at src/app/cart.component.spec.ts:14:5
+It was cancelled so it cannot fire in the next file. Clear it in the test that scheduled it — clearTimeout, unsubscribe, fixture.destroy() — or run it out with fake timers before the test ends.
+```
 
 ```ts
 setupAutoSpy({ strayTimers: true, onStrayTimers: 'throw' }); // вид, задержка, файл и первый фрейм каждого
@@ -210,7 +217,9 @@ Node занимает 70 ns без трекинга, 116 ns с трекинго�
 Apple M4 Max). На неглубоком стеке ограничение ничего не меняет: V8 платит около 0.9 µs за любой
 стек вообще. За глубокой цепочкой фреймворка каждый снятый фрейм стоит около 60 ns, и таймер оттуда
 обходится примерно в 3 µs там, где двенадцать фреймов стоили 1.4 µs. Файл, планирующий 10 000 таймеров, платит около 16 ms за то, чтобы
-знать, откуда взялся каждый.
+знать, откуда взялся каждый. Имя теста добавляет одно чтение свойства в момент планирования — само
+имя собирается только для забытого колбэка — и на фоне снимка стека не видно: отслеживаемая пара
+заняла 4.0 µs и до, и после, оба замера с coverage.
 
 ### Вместе с `--detect-async-leaks` из Vitest 4.1 {#with-vitest-4-1-s-detect-async-leaks}
 
@@ -223,11 +232,9 @@ Apple M4 Max). На неглубоком стеке ограничение ни�
 
 Отменять всё же правильнее по умолчанию: колбэк, срабатывающий во время более позднего файла, —
 более дорогое падение, и именно ради него существует `strayTimers`. Поэтому, когда включены оба и
-`onStrayTimers` не задан, подметание печатает в stderr одну строку с числом унесённого — этого
-достаточно, чтобы понимать, что отчёт об утечках не вся правда.
-
-Предупреждение называет, где и из какого файла были запланированы первые три; `onStrayTimers`
-получает их все. Собственный отчёт Vitest при выключенном `strayTimers` показывает фреймом кода на
+`onStrayTimers` не задан, подметание печатает в stderr тот же отчёт, которым роняет `'throw'`, —
+файл, число и первые три таймера с тестом, который запланировал каждый, — и закрывает его одним
+предложением: этих таймеров нет в отчёте Vitest «Async Leaks». `onStrayTimers` получает их все. Собственный отчёт Vitest при выключенном `strayTimers` показывает фреймом кода на
 `setTimeout` в спеке: обёртки планировщиков в библиотеке идут через `vi.defineHelper`, так что
 фреймы внутри `vitest-auto-spy` из стека выбрасываются, а не показываются вместо спековских.
 
@@ -270,12 +277,16 @@ DOMException [AbortError]: The operation was aborted.
 setupAutoSpy({ blockNetwork: true });
 ```
 
-`fetch` тогда сразу реджектится, называя, что именно запрашивали, — а это как раз то, чего стектрейс
-вам не скажет:
+`fetch` тогда сразу реджектится, называя, что именно запрашивали и какой тест, — а это как раз то,
+чего стектрейс вам не скажет, — и строку, которая на запрос ответит:
 
 ```text
-[vitest-auto-spy] fetch is stubbed in unit tests — the code under test requested https://cdn.example.test/sprite.svg
+[vitest-auto-spy] fetch is stubbed in unit tests — GET https://cdn.example.test/sprite.svg. The test "icons > loads the sprite" requested it, and blockNetwork() refused it: unit tests stay off the network. Answer it in this test: vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ body: … })).
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_5-keeping-the-run-off-the-network
 ```
+
+Заблокированный `XMLHttpRequest` несёт в `statusText` свою строку:
+`[vitest-auto-spy] XMLHttpRequest is stubbed in unit tests — GET <url> blocked. Stub it in this test, or blockNetwork({ xhr: 'empty' }) if nothing reads the reply.`
 
 Ничего не покидает машину, прогон перестаёт зависеть от доступности хоста, а проверяемый код идёт
 ровно по той ветке, по которой пошёл бы при неудачном запросе. Спека, которой `fetch` действительно
@@ -375,7 +386,8 @@ vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body
 
 Работает везде, где у рантайма есть глобальный `Response`: Node, jsdom (своего у неё нет, так что в
 области видимости — нодовский), happy-dom, Bun и `node:test`. В остальных местах бросает `TypeError`,
-называющий недостающий конструктор.
+называющий недостающий конструктор. Каждая из трёх его ошибок заканчивается починкой для своего
+случая — убрать `ok`, опустить `body`, запускать там, где `Response` есть, — и ссылкой на этот раздел.
 
 ### Рядом с MSW {#next-to-msw}
 
@@ -476,11 +488,13 @@ setupAutoSpy({ guardGlobals: 'throw' }); // или 'warn', пока большу
 ```
 
 ```text
-[vitest-auto-spy] /src/app/diagnostics/app-info.spec.ts redefined document.cookie as a
-non-configurable own property, so nothing can put it back — not `restoreMockedProps()`, not
-`vi.unstubAllGlobals()`, not the next file's own `Object.defineProperty`. … use
-`mockValueProp(document, 'cookie', value)`, which records the descriptor it replaced …
+[vitest-auto-spy] "app info > reads the cookie" (src/app/diagnostics/app-info.spec.ts) redefined document.cookie as non-configurable (Object.defineProperty defaults configurable to false), so no later file can put it back.
+Patch it with mockValueProp(document, 'cookie', value) instead: it records what it replaced and undoes it after the test.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_7-naming-the-file-that-sealed-a-global
 ```
+
+Помощник, которого называет отчёт, выбирается по найденному дескриптору: значение —
+`mockValueProp`, геттер — `mockReadonlyPropGetter`, геттер с сеттером — `mockAccessorsProp`.
 
 `globalThis`, `document` и `navigator` сравниваются до и после каждого теста; в отчёт попадают только
 свойства, которые появились _и_ не могут быть убраны. `guardGlobalPatches(reaction)` экспортируется
@@ -519,16 +533,15 @@ setupAutoSpy({ strayRejections: true });
 Реджект тогда роняет тот тест, в котором раннер находился, когда zone.js на него махнул рукой:
 
 ```text
-[vitest-auto-spy] 1 promise rejection(s) went unhandled and zone.js swallowed each one into console.error:
-  - AssertionError: expected false to be true — attributed to TaskListComponent > renders once compiled
-An assertion that settles after its test has finished cannot fail it: the test it belongs to was
-reported green without ever running it. … return or await the promise so the assertion lands inside
-the test.
+[vitest-auto-spy] 1 promise rejection went unhandled in "TaskListComponent > renders once compiled", and zone.js swallowed it into console.error:
+  - AssertionError: expected false to be true
+An assertion that settles after its test has ended cannot fail it, so that test passed without it. Return or await the promise — `.then(() => expect(…))` or an async helper called without await is the usual cause.
 ```
 
-«Приписан», а не «брошен», потому что реджект, созданный тестом одного файла, регулярно всплывает во
-время другого; а завершающий совет меняется в зависимости от вида — упавший матчер и брошенная
-ошибка — разные баги.
+«Went unhandled in» называет тест, в котором реджект всплыл, а не тот, что его создал, потому что
+реджект, созданный тестом одного файла, регулярно всплывает во время другого; если тестов несколько,
+каждая строка говорит, где всплыл её реджект. Завершающий совет меняется в зависимости от вида —
+упавший матчер и брошенная ошибка — разные баги.
 
 Два сознательных ограничения. zone.js должен быть уже загружен: этот пакет его никогда не
 импортирует — zoneless-проект не должен его тянуть, — так что `import 'zone.js';` в начале
@@ -727,7 +740,12 @@ Vitest разрешает два, и у `hookTimeout` собственное у�
 
 Читается как медленный тест. Тело, которое он называет, не выполнялось вовсе, так что эти десять секунд
 внутри него не найти, и читатель проводит вечер не в том файле. Подсказка вешает недостающее
-предложение на саму ошибку, называя оба бюджета и поле, которое надо задать.
+предложение на саму ошибку, называя оба бюджета и поле, которое надо задать:
+
+```text
+[vitest-auto-spy] hookTimeout is 10000ms while testTimeout is 30000ms, so this hook ran on a smaller budget than the test body it prepares — Vitest resolves `hookTimeout` on its own and defaults it to 10000ms. Set `hookTimeout` next to `testTimeout` in the runner config.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_11-the-hook-budget-jest-had-only-one-of
+```
 
 Она молчит, когда бюджеты совпадают, — тогда хук действительно медленный и конфиг ни при чём, — и
 молчит для хука, назвавшего собственный лимит (`beforeEach(fn, 300)`). До `beforeAll` не дотянуться по
@@ -773,7 +791,15 @@ If this is a long-running test, pass a timeout value as the last argument …
 
 Подсказка сообщает `vi.isFakeTimers()` и `vi.getTimerCount()` — часы заморожены, в очереди N колбэков,
 и никто их не прокрутил. Это факт, а не догадка, поэтому проверка молчит, когда очередь фейковых часов
-пуста: пустая очередь не объясняет никакого таймаута.
+пуста: пустая очередь не объясняет никакого таймаута. Подсказка — это один диагноз и одно действие:
+
+```text
+[vitest-auto-spy] the clock is frozen and 1 callback is queued on it, so this did not run out of time — nothing advanced the clock, and raising the timeout cannot help. Advance it (`await vi.advanceTimersByTimeAsync(ms)`, `await vi.runAllTimersAsync()`) or use real timers for this test.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_12-a-timeout-the-clock-explains-not-the-code
+```
+
+Фраза про `setImmediate` и потерянный HTTP 404, о которых ниже, добавляется, только когда среди
+колбэков в очереди есть колбэки `setImmediate`.
 
 **Форма, которая доходит сюда вообще без таймеров на виду, — это HTTP-спека.** `setImmediate` входит в
 число глобалов, которые `vi.useFakeTimers()` подменяет по умолчанию, а Express завершает запрос, не
@@ -918,10 +944,13 @@ setupAutoSpy(); // prototypePollution: 'throw' — передайте 'warn', ч
 ```
 
 ```text
-[vitest-auto-spy] /src/app/checkout/checkout-open.service.spec.ts left "ngOnDestroy" on
-Object.prototype as an own enumerable property. … **every spec file after this one in the same
-worker fails to collect** … The key has been taken back off so the rest of the run survives.
+[vitest-auto-spy] "CheckoutOpenService > closes on destroy" (src/app/checkout/checkout-open.service.spec.ts) left "ngOnDestroy" (a function) on Object.prototype as an enumerable property.
+It has been taken off: left there, it stops every later spec file in this worker from collecting. Define it on the prototype of the class it belongs to, or with enumerable: false.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_15-the-key-on-object-prototype-that-stops-the-run-collecting
 ```
+
+Отчёт называет тест и вид значения (`(a number)`, `(a function)`), а путь даёт от корня проекта; на
+проверке в конце файла, когда тест не идёт, он называет только файл.
 
 Запись почти всегда случайна. Код, который декорирует класс через
 `Object.getPrototypeOf(instance)`, получает сам `Object.prototype`, как только `instance` — это
@@ -950,10 +979,12 @@ proto['ngOnDestroy'] = function () { … };      // теперь свойств�
 снимает всё, что оставил предыдущий, и пишет отчёт в stderr:
 
 ```text
-[vitest-auto-spy] "ngOnDestroy" was left on Object.prototype as an own enumerable property by a spec
-file that has already finished — while it was imported, while it was collected, or in an `afterAll`.
-… It has been taken back off. Look at the file that ran before this one …
+[vitest-auto-spy] "ngOnDestroy" was left on Object.prototype by the previous spec file of this worker, src/app/checkout/checkout-open.service.spec.ts — while it was imported, collected or in an afterAll — and has been taken off.
+Left on, the key stops every later spec file in the worker from collecting: Vitest walks a file's hooks with for…in. In that file, patch the prototype of the class an object came from, never Object.getPrototypeOf(someObjectLiteral).
 ```
+
+Файл — тот, чей setup выполнился в этом воркере перед текущим; его запоминают в начале каждого
+файла.
 
 Это никогда не бросает исключение, каким бы ни был grade: файл, который должен был упасть, — не тот,
 который записал ключ. Stderr вместо `console.warn` — по той же причине, по которой туда пишет
@@ -980,16 +1011,22 @@ setupAutoSpy({ strayConsole: 'throw' });
 по имени:
 
 ```text
-[vitest-auto-spy] "CartService > reports a failed load" wrote to the console 1 time(s) and nothing absorbed it:
+[vitest-auto-spy] "CartService > reports a failed load" wrote to console.error 1 time and nothing absorbed it:
   - console.error: Error: load failed {"id":7}
       at CartService.load (src/app/cart.service.ts:41:15)
-Absorb what the test expects: `installConsoleSpies()` from `vitest-auto-spy/console` in a `beforeEach`, …
+Absorb what the test expects — installConsoleSpies() in a beforeEach, then assert consoleErrorSpy — or fix the code if the output is a defect.
 ```
 
 Отчёт цитирует метод, первые три строки написанного (по 200 символов, пять вызовов, дальше
 `… and N more`) и первый кадр стека вне `node_modules` — а для строки, которую написала зависимость,
-прямого вызывающего, то есть имя пакета. Vitest принимает этот кадр за место ошибки, так что его
-code frame указывает прямо на `console.error`.
+прямого вызывающего, то есть имя пакета. Обрезанная строка не теряет ссылку: первый URL, который
+отрезало, дописывается к цитате. Vitest принимает кадр за место ошибки, так что его code frame
+указывает прямо на `console.error`.
+
+Совет называет спай для каждого метода, который писал, — `consoleErrorSpy`, `consoleWarnSpy`, … — и
+тихий `vi.spyOn` для метода, у которого в `/console` спая нет (`table`, `dir`, …). Если вывод прошёл
+через `vi.spyOn(console, 'error')` без реализации, отчёт говорит ровно это:
+`vi.spyOn(console, 'error') calls through — add .mockImplementation(() => undefined).`
 
 **Что считается.** `log`, `info`, `warn`, `error`, `debug`, `trace`, `table`, `dir`, `dirxml`,
 `timeLog`, `timeEnd`, `count`; `group` / `groupCollapsed` — только с меткой; `assert` — только при
@@ -1007,8 +1044,36 @@ code frame указывает прямо на `console.error`.
 
 **Вне тестов.** Вывод во время импорта файла, в `beforeAll` / `afterAll`, из колбэка, сработавшего
 после конца своего теста, или в тесте, чей `afterEach` так и не выполнился, роняет **файл** в
-`afterAll` тем же отчётом — `… wrote to the console N time(s) outside any test — …`. Лог сторонней
-библиотеки при импорте ловится так же и приписывается тому файлу, который этот импорт вызвал.
+`afterAll`. Отчёт называет момент — `while the file was being imported`, `in a beforeAll`,
+`after a test had ended` — и даёт совет только для него; если моменты смешаны, помечена каждая
+строка. `beforeAll` вложенного `describe`, который выполняется после более ранних тестов, тоже
+назван `beforeAll`. Лог сторонней библиотеки при импорте ловится так же и приписывается тому файлу,
+который этот импорт вызвал, — при `isolate: false` это первый файл воркера, импортировавший модуль,
+поэтому от прогона к прогону отчёт может переезжать с файла на файл.
+
+Для вывода, написанного во время вычисления модуля, совет — это диагноз и исправление: какой модуль
+вычислялся, какую строку менять, и одна оговорка про `isolate: false`. Только когда эта строка лежит
+в `node_modules` — в коде, которым набор не владеет, — отчёт предлагает `strayConsole: { allow: [...] }`.
+
+**Назван тот файл, который писал.** Каждый вызов запоминает spec-файл, в котором был сделан, а
+отчёт конца файла выполняется в том же подметании, что и отчёты о забытых таймерах и слушателях, так
+что отчёт, бросивший раньше, не может вытолкнуть его в следующий файл. Если конец файла не выполнился
+вовсе — бросил его собственный `afterAll`, — следующий файл сообщит о выводе под именем того файла,
+который писал, и скажет об этом.
+
+**Знакомая строка объясняется.** Причина читается из всего вывода, а не из процитированных 200
+символов, и печатается под `Likely cause:` — для `NG0912` названы оба класса и селектор и сказано,
+что это две копии одного компонента в одном бандле; для любого другого `NGxxxx` Angular — ссылка,
+которую он сам напечатал:
+
+```text
+[vitest-auto-spy] src/app/checkout.component.spec.ts wrote to console.warn 1 time while the file was being imported and nothing absorbed it:
+  - console.warn: NG0912: Component ID generation collision detected. Components 'UiRadioGroupComponent' and '_UiRadioGroupComponent' … https://angular.dev/errors/NG0912
+      at Function.<static_initializer> (src/app/ui/radio-group.component.ts:210:44)
+Likely cause:
+  - Angular gave `UiRadioGroupComponent` and `_UiRadioGroupComponent` (selector `ui-radio-group`) one component id, so the bundle holds two copies of one component — … Import the component from one place.
+Written while src/app/ui/radio-group.component.ts was evaluated, before any hook — no spy can absorb it; fix it at src/app/ui/radio-group.component.ts:210:44. Under isolate: false it is reported on the first file of the worker that imports that module.
+```
 
 **То, что поставил тест, его не переживает.** Каждый метод консоли, подменённый тестом, возвращается
 после теста; подменённый файлом — в теле `describe`, в `beforeAll` или в начале модуля — после файла.
@@ -1079,13 +1144,14 @@ setupAutoSpy({ documentPollution: 'throw' }); // 'warn' возвращает д�
 ```
 
 ```text
-[vitest-auto-spy] "KeyboardComponent > renders the layout" (libs/keyboard/src/lib/keyboard.component.spec.ts)
-left the shared document changed:
+[vitest-auto-spy] "KeyboardComponent > renders the layout" (libs/keyboard/src/lib/keyboard.component.spec.ts) left the shared document changed:
   - <body> data-reset-focus="" added
-… The document has been put back. Undo the change where it was made: in the `ngOnDestroy` /
-`DestroyRef.onDestroy` of the component that set it, in an `afterEach` of this spec, or by destroying
-the fixture that owns it.
+It has been put back, because every later spec file in this worker shares this document. Undo it in the teardown of what set it: ngOnDestroy / DestroyRef.onDestroy of the component, or destroy the fixture that owns it.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_17-an-attribute-left-on-the-shared-document
 ```
+
+Совет про teardown Angular печатается, только когда Angular обнаружен (`globalThis.ng` или маркер
+CDK / `ng-` в самом изменении); иначе совет — `afterEach`, а для изменения вне тестов — `afterAll`.
 
 Атрибуты `<html>`, `<head>` и `<body>` записываются перед каждым тестом. Каждый атрибут, добавленный,
 изменённый или удалённый к его концу, попадает в отчёт с обоими значениями и возвращается на место, а
@@ -1198,9 +1264,10 @@ setupAutoSpy({ strayListeners: true });
 
 `setupAutoSpy({ strayListeners: true, onStrayListeners: ({ removed }) => expect(removed).toBe(0) })`
 роняет файл, который протёк, вместо того чтобы молча прибрать за ним; `onStrayListeners: 'throw'`
-делает то же сообщением, в котором каждый слушатель записан как
-`keydown on document from <file> <frames[0]>`. У слушателя вместо `kind` и `delay` таймера есть
-`type` и `target`, поэтому обработчик, печатающий своё сообщение, печатает эти четыре поля. Под jsdom слушатель,
+делает то же отчётом, который называет файл и записывает каждый слушатель как
+`keydown on document, added in "<test>" at <frames[0]>`. У слушателя вместо `kind` и `delay` таймера
+есть `type` и `target`, а `test` / `outsideTest` те же, поэтому обработчик, печатающий своё
+сообщение, печатает эти поля. Под jsdom слушатель,
 зарегистрированный с `{ once: true }` и уже сработавший, остаётся в счёте, пока что-нибудь его не
 снимет: обёртка не может увидеть срабатывание, не сломав снятие по идентичности из кода под
 тестом, а удаление уже сработавшего слушателя и так ничего не делает. happy-dom снимает его через
@@ -1210,7 +1277,8 @@ setupAutoSpy({ strayListeners: true });
 только после того, как таймеры отменены, а слушатели сняты, так что бросивший `onStrayListeners` не
 оставит таймер сработать в следующем файле. Оба срабатывают, даже если первый бросил; два падения —
 например, обе опции в `'throw'` у файла, протёкшего и тем и другим, — приходят одним
-`AggregateError`, который Vitest показывает как две ошибки.
+`AggregateError`, который Vitest показывает как две ошибки. Отчёт конца файла от `strayConsole`
+выполняется в том же подметании, поэтому его не пропустят из-за того, что отчёт перед ним бросил.
 
 ## 20. Глобалы, возвращаемые на границе файла {#_20-globals-put-back-at-the-file-boundary}
 
@@ -1308,7 +1376,7 @@ setupAutoSpy({ misconfiguration: 'throw' });
 Оценка общая для процесса — ядро, `/angular` и `/setup` это разные бандлы, поэтому она живёт на
 `globalThis` — и снимается после файла, который её поставил.
 
-Печатная оценка тоже поменялась: предупреждение `injectSpy` «the injector returned a plain instance»
+Печатная оценка тоже поменялась: предупреждение `injectSpy` «got a real …»
 теперь глушится для токена **в пределах файла спеки**, а не воркера, так что файл, который его
 покажет, больше не зависит от порядка прогона.
 
@@ -1355,10 +1423,8 @@ setupAutoSpy({ misconfiguration: 'throw' });
 которое так и говорит:
 
 ```text
-[vitest-auto-spy] a `test.concurrent` test ran with setupAutoSpy() installed. Its per-test guards
-assume one test at a time: the document snapshot, the console window and the unconfigured-read
-counter are opened and judged per test, so with two tests in flight a finding can be reported
-against the other one — or cleared before it is seen. The restores still run for every test. …
+[vitest-auto-spy] "CartComponent > loads" runs as test.concurrent, and setupAutoSpy()'s per-test guards judge one test at a time: a console, document or unconfigured-read finding can land on the other test in flight, or be cleared before it is seen.
+Run this file's tests sequentially, or give the files that keep test.concurrent a setup with strayConsole: 'off', documentPollution: 'off' and unconfiguredReads: 'off'. Said once per worker.
 ```
 
 Раз на воркер, не раз на тест. Запускайте файлы, которым нужен гард, последовательно или оставьте
@@ -1390,6 +1456,10 @@ it('loads the section once it scrolls into view', () => {
 
 `installPerTest` возвращает **читатель**, а не ручку, потому что ручка в каждом тесте — другой объект:
 заглушка, поставленная для предыдущего теста, — это ровно то, до чего не должно быть доступа.
+Прочитанный, когда ничего не поставлено, он бросает `installPerTest: nothing is installed yet` и
+называет момент чтения — до первого теста (тело `describe`), после того как закончился
+`"suite > test"`, или во время `"suite > test"` из хука, зарегистрированного раньше
+`installPerTest()`, — с починкой для этого момента.
 
 ## Опции {#options}
 
@@ -1460,6 +1530,15 @@ describe('modal', () => {
 ```ts
 setupAutoSpy({ propsOutsideHooks: 'throw' });
 ```
+
+```text
+[vitest-auto-spy] mockValueProp(…, 'onClose') on an object in src/app/modal.spec.ts ran outside a per-test hook, so the sweep after the first test took it off for good and every later test reads the real member.
+Move the call into beforeEach, so it is applied again for each test.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#a-patch-put-in-the-wrong-hook-stops-applying
+```
+
+Вызов пишется с первым аргументом, когда у того есть имя, — `globalThis`, `document`, функция или
+прототип, — а иначе описывается после вызова (`on an object`, `on a Modal`).
 
 Сюите, которая заводит хуки сама, а не через `setupAutoSpy`, тот же переключатель ставит
 `reportPropsOutsideHooks(reaction)`; тип реакции экспортируется как `OutsideHookReaction`.
@@ -1570,7 +1649,8 @@ setup-файлом, принадлежат одной из них, а кажда
 То, что всплывает, о копиях не говорит ничего. Одна половина — вот это:
 
 ```text
-No mock adapter registered. Import a runtime entry once before creating spies — …
+[vitest-auto-spy] No mock adapter registered: a spy was built before 'vitest-auto-spy' was imported. This is Vitest — import the factories from 'vitest-auto-spy', in the spec or once in the `setupFiles` entry.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/installation#vitest
 ```
 
 Реестр — это состояние модуля `vitest-auto-spy`, а пишет в него именно импорт точки входа, так что

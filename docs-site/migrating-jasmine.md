@@ -199,6 +199,7 @@ and an implementation answers every call rather than one argument list. Configur
 these arguments — `.withArgs(…).and.returnValue(v)`, `.throwError(e)`, `.resolveTo(v)` — or take
 the whole spy with `load.and.callFake(…)`, which is what jasmine's own strategy does to every call
 anyway.
+Docs: https://asdalexey.github.io/vitest-auto-spy/migrating-jasmine#three-withargs-strategies-have-no-argument-scoped-form
 ```
 
 `withArgs` is a method of **this library's** spies, on the shim and after it. A `vi.spyOn(obj, 'm')`
@@ -381,10 +382,10 @@ which jasmine's own `mockDate` does not — so called after something has queued
 rather than leaving the loss to be discovered:
 
 ```text
-[vitest-auto-spy] jasmine.clock().mockDate() took Date over after 2 callback(s) had already been
+[vitest-auto-spy] jasmine.clock().mockDate() took Date over after 2 callbacks had already been
 scheduled, and re-installing the fake clock dropped them. Call mockDate() right after install(),
-before anything schedules a timer — jasmine.clock().install() leaves Date real on purpose, as
-jasmine does.
+before anything schedules a timer.
+Docs: https://asdalexey.github.io/vitest-auto-spy/migrating-jasmine#clock-install-leaves-date-real
 ```
 
 Right after `install()`, which is where a migrated spec puts it, there is nothing to lose and

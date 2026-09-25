@@ -308,6 +308,8 @@ AOT пишет массив, если только **цикл** между дв�
 каждом AOT-скомпилированном standalone-компоненте без цикла в импортах — и только под
 `keepTemplate: true`.
 
+### `keepTemplate` и объявление, которым владеет `NgModule` {#keeptemplate-and-a-declaration-an-ngmodule-owns}
+
 **Зависимость, которую объявляет `NgModule`, — это место, где `keepTemplate: true` останавливается,
 и он об этом говорит.** JIT держит импортированный модуль в этом списке и разрешает его скоуп во
 время выполнения, поэтому модуль сохраняется целиком, а всё, что он экспортирует, остаётся
@@ -322,6 +324,13 @@ Angular, отказ выглядит как
 убрать `keepTemplate`, когда спека читает только состояние TypeScript — ради этого случая хелпер и
 существует, — или собрать компонент напрямую через `TestBed`, что оставляет его скомпилированный
 скоуп нетронутым, и сбивать цену, засевая сервисы, которые инжектят его дети, а не обрезая шаблон.
+Модуль, который можно назвать, возвращается через `keepModules`. Если он есть среди `imports` самой
+спеки, сообщение называет его; иначе оставляет для него место:
+
+```text
+[vitest-auto-spy] renderShallow(ReportComponent, { keepTemplate: true }): WhisperPipe is declared by WhisperModule, not standalone, and Angular takes only standalone declarations and NgModules in `imports`.
+An AOT build flattened that module away, so name it and it is put back whole: keepModules: [WhisperModule].
+```
 
 ### Смена входа посреди теста {#changing-an-input-mid-test}
 
@@ -389,6 +398,34 @@ await expect(emitted).resolves.toBe(30); // эффект, который зап�
 выбрасывает дочерние компоненты — сохраняя пайпы и директивы, на которых написан шаблон, — и всё
 равно даёт 1,29× против полного цикла — см.
 [среднюю ступень](/ru/core/performance#the-middle-rung-keeptemplate-true).
+
+## Типизированные элементы под строгим линтом {#typed-elements-under-a-strict-lint}
+
+Angular типизирует `fixture.nativeElement` и `debugElement.nativeElement` как `any`. Под
+`@typescript-eslint/strict-type-checked` каждое чтение из него — отчёт `no-unsafe-*`, а единственный
+способ его типизировать — `fixture.nativeElement as HTMLElement` — запрещает
+`consistent-type-assertions: 'never'`. `hostElement` и `queryElement` проверяют элемент через
+`instanceof` и возвращают его типизированным:
+
+```ts
+import { hostElement, queryElement } from 'vitest-auto-spy/angular';
+
+const host = hostElement(fixture); // HTMLElement
+queryElement(fixture, '.close').click(); // HTMLElement
+expect(queryElement(fixture, 'input[name=q]', HTMLInputElement).value).toBe('');
+expect(queryElement(fixture.debugElement, 'circle', SVGCircleElement).getAttribute('r')).toBe('4');
+```
+
+Оба принимают `ComponentFixture` или `DebugElement`; `queryElement` принимает ещё и найденный раньше
+элемент, так что запрос можно начать внутри строки. Последний аргумент — тип, с которым сверяется и
+который возвращается: `HTMLElement`, если его не передать, `SVGElement` или просто `Element` для
+разметки не на HTML. `TestBed` рендерит любой компонент в хост-`<div>`, так что
+`hostElement(fixture)` — всегда `HTMLElement`; аргумент с типом нужен для `DebugElement` глубже.
+
+Селектор, который ничего не нашёл, бросает прямо на запросе — с селектором и хостом в сообщении, —
+а не оставляет следующей строке `Cannot read properties of null`, как голый `querySelector`.
+Совпадение другого вида тоже бросает и называет, что нашлось: `'.close' matched <a.close>
+(HTMLAnchorElement), not HTMLButtonElement`. Оба хелпера есть и в `vitest-auto-spy/bun-angular`.
 
 ## Сборка класса с auto-spy вместо зависимостей {#building-a-class-with-auto-spied-dependencies}
 
@@ -1677,8 +1714,10 @@ assertComponentDefIntact(HoverMenuComponent);
 const fixture = TestBed.createComponent(HoverMenuComponent);
 ```
 
-```
+```text
 [vitest-auto-spy] HoverMenuComponent.ɵcmp.providers[0] is undefined.
+HoverMenuComponent baked that list in when its file ran, before the chunk holding the symbol had run — an uninitialised barrel chunk, which Angular reports later as "Cannot read properties of undefined (reading 'provide')".
+In HoverMenuComponent's source, import the symbol at that position from its own file rather than through the barrel.
 ```
 
 Он обходит три списка, включая вложенные массивы и тот thunk, который Angular выпускает для forward
@@ -1926,13 +1965,16 @@ provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] });
 ## `injectSpy` говорит, когда получил настоящий объект {#injectspy-says-when-it-got-the-real-thing}
 
 ```text
-[vitest-auto-spy] injectSpy(DeviceRegistryService): the injector returned a plain instance, not an
-auto-spy. Register it with provideAutoSpy(DeviceRegistryService) …
+[vitest-auto-spy] injectSpy(DeviceRegistryService): got a real DeviceRegistryService — nothing in the testing module provides a double, so Angular built it (providedIn: 'root').
+Add provideAutoSpy(DeviceRegistryService) to providers.
 ```
 
 Провайдер, который спека забыла зарегистрировать, иначе обнаруживается много позже — когда
 `.mockReturnValue(…)` вызывают на настоящем методе, а если у класса нет приватных членов, из-за
-которых типы разошлись бы, то и никогда. Предупреждение печатается один раз на токен.
+которых типы разошлись бы, то и никогда. Предупреждение печатается один раз на токен. Причина
+следует из того, что вернул инжектор: класс с `providedIn: 'root'`, который Angular собрал сам,
+класс, который тестовый модуль провайдит настоящим, или `InjectionToken` — для него сообщение даёт
+форму `{ provide: TOKEN, useValue: createAutoMock<T>() }`.
 
 ## Когда внутренняя структура Angular переезжает {#when-an-angular-internal-moves}
 

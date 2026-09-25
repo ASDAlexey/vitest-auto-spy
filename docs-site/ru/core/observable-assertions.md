@@ -46,8 +46,8 @@ await expectCompletion(service.purgeCache()); // проверяет заверш
 [`setupAutoSpy()`](/ru/utilities/setup) — раньше всякого другого шага уборки — и называет виновника:
 
 ```text
-[vitest-auto-spy] 1 emission helper(s) were never awaited in this test (saved$). The subscription is
-torn down now, but the assertion never ran.
+[vitest-auto-spy] "cart > saves" never awaited 1 emission wait (saved$), so its assertion never ran.
+Await it, or return it from the test. Its subscription is torn down now.
 Docs: https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions
 ```
 
@@ -155,7 +155,7 @@ await expect(expectEmissions(ids$, 2, { until: (id) => id > 5 })).resolves.toEqu
 
 `source$.pipe(skip(1))` и `pipe(filter(…))` говорят то же самое и стоят импорта rxjs в спеке, весь
 смысл которой был в том, что он ей не нужен, — но настоящая разница в падении. Не подошедшие эмиссии
-всё равно **считаются**, поэтому таймаут читается как `4 emission(s) received`, а не `0`, и «сработало
+всё равно **считаются**, поэтому таймаут читается как `4 emissions within 1000 ms`, а не `0 received`, и «сработало
 не то» остаётся отличимым от «не сработало ничего». `filter` перед хелпером это выбрасывает.
 
 ## `advance` — окно между подпиской и ожиданием {#advance-—-the-window-between-subscribing-and-awaiting}
@@ -222,21 +222,39 @@ zone.js хранит нетронутую функцию под `__zone_symbol__
 
 ## Сообщения о падении {#failure-messages}
 
-Поток, который промолчал, падает с меткой и таймаутом; упавший с ошибкой — с этой ошибкой; а
-завершившийся пустым так и говорит:
+Каждое падение начинается с упавшего вызова — `expectEmission(saved$)` или `expectEmission(source$)`,
+если у вызова нет `label`, — говорит, что сделал поток, и называет одно, что стоит проверить:
 
 ```
-saved$ did not emit within 1000 ms (0 emission(s) received). Either the stream never fired — check
-the trigger and any provider spy feeding it — or it is slower than the timeout; raise it with
-`{ timeout: … }`. This wait is real time even under fake timers, on purpose: a virtual watchdog would
-race the timers your spec advances. Lower it with `setEmissionTimeout(100)` in the setup file rather
-than disabling it with `{ timeout: 0 }`, which leaves the next silent stream with no message at all.
+[vitest-auto-spy] expectEmission(saved$): no value within 1000 ms (0 received). Nothing triggered the
+stream — check the call that should make it emit, or the spy feeding it (`nextWith`).
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions#failure-messages
 ```
 
+Если значения пришли, но не то, что просили, сообщение сверяет их число с ожиданием —
+`3 emissions within 1000 ms, expected 1 matching` — и указывает уже на предикат `until`.
+
+Под фейковыми таймерами к таймауту добавляется одна фраза: замороженные часы тогда — самая вероятная
+причина молчания потока. С настоящими таймерами её нет:
+
 ```
-saved$ completed after 0 emission(s), expected 1. A completed-but-empty stream is the usual sign
-that the value was produced before the subscription.
+… Timers are fake and 2 callbacks wait on it: advance them inside the wait,
+`{ advance: () => vi.advanceTimersByTime(ms) }` — this watchdog runs on real time and never advances them.
 ```
+
+Поток, завершившийся пустым, почти всегда выпустил значение раньше, чем его кто-то слушал:
+
+```
+[vitest-auto-spy] expectEmission(saved$): the stream completed after 0 emissions, expected 1. The value
+was most likely emitted before this subscribed: start the wait first (hold the promise), then trigger.
+```
+
+Поток, упавший с ошибкой там, где ждали значение, цитирует ошибку и отсылает к
+[`expectError`](#expecterror-—-when-the-failure-is-the-subject) на случай, когда ошибка и есть
+предмет теста; оригинал остаётся в `cause`. `expectNoEmission` отличает повторённое значение от
+присланного: значение, вышедшее из самого `subscribe`, названо повтором (`BehaviorSubject`,
+`shareReplay`, `startWith`) с `{ skip: 1 }` в качестве исправления, а пришедшее позже списано на
+что-то, что запустил тест.
 
 ### Фрейм кода открывает строку вашей спеки {#the-code-frame-opens-your-spec-line}
 
@@ -309,12 +327,12 @@ for (const [name, make] of Object.entries(scenarios)) {
 
 Проходят четыре — это все четыре строки `bare subscribe`, во всех сценариях.
 
-|                           | `of(1)` — не то значение      | `throwError(boom)`                                 | `EMPTY`                                              | `NEVER`                               |
-| ------------------------- | ----------------------------- | -------------------------------------------------- | ---------------------------------------------------- | ------------------------------------- |
-| 1. голый `subscribe`      | **зелёный** ⁽¹⁾               | **зелёный** ⁽¹⁾                                    | **зелёный**                                          | **зелёный**                           |
-| 2. `new Promise(done)`    | `Test timed out in 1200ms`    | `Test timed out in 1200ms`                         | `Test timed out in 1200ms`                           | `Test timed out in 1200ms`            |
-| 3. `await firstValueFrom` | `expected 1 to be 999` + дифф | `Error: boom`                                      | `EmptyError: no elements in sequence`                | `Test timed out in 1200ms`            |
-| 4. `await expectEmission` | `expected 1 to be 999` + дифф | `source$ errored instead of emitting: Error: boom` | `source$ completed after 0 emission(s), expected 1…` | `source$ did not emit within 300 ms…` |
+|                           | `of(1)` — не то значение      | `throwError(boom)`                                                              | `EMPTY`                                                                        | `NEVER`                                                         |
+| ------------------------- | ----------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| 1. голый `subscribe`      | **зелёный** ⁽¹⁾               | **зелёный** ⁽¹⁾                                                                 | **зелёный**                                                                    | **зелёный**                                                     |
+| 2. `new Promise(done)`    | `Test timed out in 1200ms`    | `Test timed out in 1200ms`                                                      | `Test timed out in 1200ms`                                                     | `Test timed out in 1200ms`                                      |
+| 3. `await firstValueFrom` | `expected 1 to be 999` + дифф | `Error: boom`                                                                   | `EmptyError: no elements in sequence`                                          | `Test timed out in 1200ms`                                      |
+| 4. `await expectEmission` | `expected 1 to be 999` + дифф | `expectEmission(source$): the stream errored instead of emitting: Error: boom…` | `expectEmission(source$): the stream completed after 0 emissions, expected 1…` | `expectEmission(source$): no value within 300 ms (0 received)…` |
 
 Читайте таблицу по столбцам — порядок в каждом одинаков: форма 1 не говорит ничего, форма 2 говорит
 только, что кончилось время, форма 3 говорит, что случилось, форма 4 говорит, что случилось **и с

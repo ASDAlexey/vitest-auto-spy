@@ -100,8 +100,8 @@ explainSpy(spy.load); // одиночный функциональный спа�
 ```text
 [vitest-auto-spy] explainSpy
 
-nothing to explain: this value holds no spy created by vitest-auto-spy. Pass a double built by
-createSpyFromClass, createAutoMock, createFunctionSpy or mockDeep.
+nothing to explain: this value is a plain runner mock (vi.fn()) and holds no spy created by
+vitest-auto-spy. `adoptMock(mock)` gives it the library's helpers.
 ```
 
 Результат — отчёт, чтобы напечатать, а не то, на чём стоит писать ассерты: формулировки здесь

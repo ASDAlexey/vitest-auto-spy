@@ -51,9 +51,11 @@ TestBed.configureTestingModule({
 По умолчанию `true`. Тест, который закончился с запросом, на который никто не ответил, роняет
 **именно себя**, называя запрос:
 
-```
-[vitest-auto-spy] provideHttpTesting({ verifyOnTeardown }): the test ended with 1 unanswered
-request(s): GET /api/products.
+```text
+[vitest-auto-spy] GET /api/products was never answered (end of "products > shows the list").
+The code under test is still waiting on it, so nothing after that call ran; left open, the next test would match it.
+Answer it in the spec: await expectRequest('/api/products').flush(body).
+Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-http#verifyonteardown
 ```
 
 Если оставить всё как есть, ломаются две вещи. Код под тестом всё ещё ждёт ответа, которого не
@@ -185,13 +187,15 @@ verifyNoPendingRequests({ ignoreCancelled: true }); // …кроме того, �
 
 ## Что говорит каждое падение {#what-each-failure-says}
 
-| Сообщение содержит                            | Причина                                                                   |
-| --------------------------------------------- | ------------------------------------------------------------------------- |
-| `no request matched …` + те, что были         | URL, глагол или предикат не описывают ничего из отправленного             |
-| `No request was made at all.`                 | ресурс не стартовал, или никто не подписался на Observable                |
-| `N requests matched …`                        | совпало больше одного; сузьте через `{ method }`, полный URL или предикат |
-| `this TestBed has no HttpTestingController`   | в `providers` нет `provideHttpTesting()`                                  |
-| `the test ended with N unanswered request(s)` | `verifyOnTeardown` нашёл то, что спека забыла                             |
+| Сообщение содержит                          | Причина                                                                                                   |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `no request matched … Made instead: …`      | URL, глагол или предикат не описывают ничего из отправленного                                             |
+| `no POST … — but GET … was made`            | отличается только глагол; передайте `{ method }`, который шлёт код                                        |
+| `… was made; the query differs`             | тот же путь и глагол, другой query; назовите его или сравните только путь                                 |
+| `nothing was requested at all`              | ресурс не стартовал, или никто не подписался на Observable                                                |
+| `N requests matched …`                      | совпало больше одного; сузьте через `{ method }`, полный URL или предикат                                 |
+| `this TestBed has no HttpTestingController` | в `providers` нет `provideHttpTesting()`                                                                  |
+| `… was never answered (end of "…")`         | `verifyOnTeardown` нашёл то, что спека забыла; сообщение называет тест и `expectRequest`, который ответит |
 
 Список запросов, которые _были_ сделаны, — ровно та причина, по которой первое сообщение стоит
 больше, чем сообщение `expectOne`. «Expected one matching request, found none» отправляет читателя

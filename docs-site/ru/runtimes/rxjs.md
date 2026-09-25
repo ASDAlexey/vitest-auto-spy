@@ -174,10 +174,10 @@ beforeEach(() => {
 Вместо этого свойство один раз сообщает об этом:
 
 ```
-[vitest-auto-spy] nextWithValues() on an observable property publishes a new stream, and the
-subscriber already attached to this property stays on the old one — so these values never reach it.
-Configure the property before the code under test subscribes, or push into the live stream with
-nextWith() / returnSubject().
+[vitest-auto-spy] Feed.items$.nextWithValues() ran after something subscribed to Feed.items$, and it
+publishes a new stream that subscriber never sees — these values will not reach it. Call
+nextWithValues() before the code under test subscribes, or push into the stream it holds with nextWith().
+Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#nextwith-pushes-nextwithvalues-republishes
 ```
 
 Обе починки — по одной строке. Настройте свойство на шаге arrange, до сборки фикстуры — именно это

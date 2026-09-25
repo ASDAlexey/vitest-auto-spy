@@ -101,7 +101,8 @@ const covers = narrow.defined(row.content?.covers);
 приведения, которое он заменяет:
 
 ```text
-[vitest-auto-spy] narrow: expected an object with a 'params' property, but the value is Object { type, slug }.
+[vitest-auto-spy] narrow.byKey: expected an object with a 'params' property, but the value is Object { type, slug }. The code under test took another branch than this test assumes — check the setup that should lead to it.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/fixtures#narrow-value-predicate-—-the-branch-a-test-knows-it-got
 ```
 
 `narrow.observable` живёт здесь, а не сводится к вызову `isObservable` из rxjs, потому что тот сужает до

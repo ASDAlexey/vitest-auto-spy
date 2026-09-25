@@ -83,6 +83,7 @@ bun test              # добавьте --isolate, чтобы получить 
 | `provideAutoSpy` / `injectSpy`            |       ✅        | идентично точке входа Vitest, спаи по умолчанию ленивые        |
 | `renderShallow`                           |       ✅        | настоящий `ComponentFixture`, поддерево потомков отброшено     |
 | `createWithAutoSpies`                     |       ✅        | собирает класс через DI Angular со всеми зависимостями в спаях |
+| `hostElement` / `queryElement`            |       ✅        | типизированные элементы фикстуры, проверенные `instanceof`     |
 | `stable` / `flushEffects`                 |       ✅        | ожидание в zoneless-режиме                                     |
 | всё ядро (`createSpyFromClass`, …)        |       ✅        | реэкспортируется из этой точки входа                           |
 | `registerSignalMatchers`                  |       ❌        | нужен `expect.extend` раннера — только Vitest                  |
@@ -105,6 +106,17 @@ bun test              # добавьте --isolate, чтобы получить 
 
 ```ts
 inlineAngularResources(source, path, { inlineStyleExtensions: ['.css', '.scss'] });
+```
+
+### Шаблон или стили, которые не читаются {#a-template-or-stylesheet-that-cannot-be-read}
+
+`templateUrl` и `styleUrl` разрешаются относительно файла компонента. Когда чтение не удалось,
+preload называет URL, компонент, собственный код файловой системы (`ENOENT`, `EACCES`) и путь, по
+которому искал:
+
+```text
+[vitest-auto-spy] cannot read "./greeting.component.html" referenced by src/app/greeting.component.ts: ENOENT at /project/src/app/greeting.component.html.
+The path resolves relative to the component file, not the project root; fix the templateUrl or styleUrl.
 ```
 
 ## Как собрать собственный preload {#building-your-own-preload}

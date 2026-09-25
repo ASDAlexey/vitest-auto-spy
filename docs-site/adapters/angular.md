@@ -333,6 +333,8 @@ the read. All three are handled; calling the array unconditionally was a
 `TypeError: dependencies is not a function` on every AOT-compiled standalone component whose imports
 held no cycle, and only under `keepTemplate: true`.
 
+### `keepTemplate` and a declaration an `NgModule` owns
+
 **A dependency an `NgModule` declares is where `keepTemplate: true` stops, and it says so.** JIT
 keeps an imported module in that list and resolves its scope at run time, so the module is kept
 whole and everything it exports stays resolvable. AOT does not: ngtsc resolves the module at compile
@@ -349,6 +351,14 @@ removes every declaration the module exports, through the modules it re-exports,
 module whole in their place. Otherwise drop `keepTemplate` when the spec reads TypeScript state
 only — the case this helper exists for — or build the component with `TestBed` directly, which leaves its compiled scope untouched, and
 hold the cost down by seeding the services its children inject instead of by trimming the template.
+
+When the module is among the spec's own `imports`, the message names it; otherwise it leaves a slot
+for it:
+
+```text
+[vitest-auto-spy] renderShallow(ReportComponent, { keepTemplate: true }): WhisperPipe is declared by WhisperModule, not standalone, and Angular takes only standalone declarations and NgModules in `imports`.
+An AOT build flattened that module away, so name it and it is put back whole: keepModules: [WhisperModule].
+```
 
 ### Changing an input mid-test
 
@@ -430,6 +440,33 @@ A spec that needs the real template is not excluded from this: `keepTemplate: tr
 child components — while keeping the pipes and directives the template is written in — and still
 measures 1.29× against the full cycle — see
 [the middle rung](/core/performance#the-middle-rung-keeptemplate-true).
+
+## Typed elements under a strict lint
+
+Angular types `fixture.nativeElement` and `debugElement.nativeElement` as `any`. With
+`@typescript-eslint/strict-type-checked` every read of it is a `no-unsafe-*` report, and the one way
+to type it — `fixture.nativeElement as HTMLElement` — is what `consistent-type-assertions: 'never'`
+forbids. `hostElement` and `queryElement` check the element with `instanceof` and return it typed:
+
+```ts
+import { hostElement, queryElement } from 'vitest-auto-spy/angular';
+
+const host = hostElement(fixture); // HTMLElement
+queryElement(fixture, '.close').click(); // HTMLElement
+expect(queryElement(fixture, 'input[name=q]', HTMLInputElement).value).toBe('');
+expect(queryElement(fixture.debugElement, 'circle', SVGCircleElement).getAttribute('r')).toBe('4');
+```
+
+Both take a `ComponentFixture` or a `DebugElement`; `queryElement` also takes an element found
+earlier, so a query can start inside a row. The last argument is the type to check against and
+return — `HTMLElement` when it is left out, `SVGElement` or plain `Element` for markup that is not
+HTML. `TestBed` renders every component into a `<div>` host, so `hostElement(fixture)` is always an
+`HTMLElement`; the type argument matters for a `DebugElement` further down.
+
+A selector that matches nothing throws at the query, with the selector and the host in the message,
+instead of the `Cannot read properties of null` a bare `querySelector` leaves for the next line. A
+match of another kind throws too, naming what it found: `'.close' matched <a.close> (HTMLAnchorElement),
+not HTMLButtonElement`. Both helpers are on `vitest-auto-spy/bun-angular` as well.
 
 ## Building a class with auto-spied dependencies
 
@@ -1778,8 +1815,10 @@ assertComponentDefIntact(HoverMenuComponent);
 const fixture = TestBed.createComponent(HoverMenuComponent);
 ```
 
-```
+```text
 [vitest-auto-spy] HoverMenuComponent.ɵcmp.providers[0] is undefined.
+HoverMenuComponent baked that list in when its file ran, before the chunk holding the symbol had run — an uninitialised barrel chunk, which Angular reports later as "Cannot read properties of undefined (reading 'provide')".
+In HoverMenuComponent's source, import the symbol at that position from its own file rather than through the barrel.
 ```
 
 It walks the three lists, nested arrays and the thunk Angular emits for a forward reference included.
@@ -2043,13 +2082,15 @@ at every level.
 ## `injectSpy` says when it got the real thing
 
 ```text
-[vitest-auto-spy] injectSpy(DeviceRegistryService): the injector returned a plain instance, not an
-auto-spy. Register it with provideAutoSpy(DeviceRegistryService) …
+[vitest-auto-spy] injectSpy(DeviceRegistryService): got a real DeviceRegistryService — nothing in the testing module provides a double, so Angular built it (providedIn: 'root').
+Add provideAutoSpy(DeviceRegistryService) to providers.
 ```
 
 A provider the spec forgot to register is otherwise found much later — when `.mockReturnValue(…)` is
 called on the real method, or, if the class has no private members to make the types disagree, never.
-The warning is printed once per token.
+The warning is printed once per token. The reason follows what the injector handed back: a `providedIn: 'root'` class
+Angular built on its own, a class the testing module provides for real, or an `InjectionToken`, for
+which the message gives the `{ provide: TOKEN, useValue: createAutoMock<T>() }` form instead.
 
 ## When an Angular internal moves
 

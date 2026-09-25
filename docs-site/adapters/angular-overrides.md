@@ -78,11 +78,10 @@ call returns, with no change detection run in between.
 
 The failure names all three parties:
 
-```
-[vitest-auto-spy] overrideComponentProvider(CatalogPageComponent, NavigationBuilderService): the override did not apply.
-CatalogPageComponent resolved NavigationBuilderService to a NavigationBuilderService instance, not the spy this call created — so every assertion about that spy is about an object the component never used.
-Check that NavigationBuilderService is the token CatalogPageComponent injects (a component that injects a base class or an InjectionToken needs *that* token here, not the implementation class), and that nothing re-configured the testing module with a competing provider afterwards.
-Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-overrides
+```text
+[vitest-auto-spy] overrideComponentProvider(CatalogPageComponent, NavigationBuilderService): the override did not apply — CatalogPageComponent resolved NavigationBuilderService to a NavigationBuilderService instance, not the spy this call returned.
+It got the real service because something configured NavigationBuilderService again after this call — a later TestBed.overrideProvider or configureTestingModule. Keep overrideComponentProvider as the last word on it.
+Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-overrides#the-verification
 ```
 
 A non-object answer is printed as it is (`resolved … to not-a-service`), and a class instance is
@@ -180,9 +179,8 @@ const fixture = TestBed.createComponent(HoverMenuComponent);
 
 ```text
 [vitest-auto-spy] HoverMenuComponent.ɵcmp.providers[0] is undefined.
-A component bakes its providers and its scope into the definition when its module executes, so a
-hole there means the chunk holding that symbol had not run at that moment — an uninitialised barrel
-chunk.
+HoverMenuComponent baked that list in when its file ran, before the chunk holding the symbol had run — an uninitialised barrel chunk, which Angular reports later as "Cannot read properties of undefined (reading 'provide')".
+In HoverMenuComponent's source, import the symbol at that position from its own file rather than through the barrel.
 ```
 
 It walks `providers`, `viewProviders` and `dependencies`, including lists nested inside them and the

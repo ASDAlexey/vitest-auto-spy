@@ -95,6 +95,7 @@ bun test              # add --isolate for a fresh global per file
 | `provideAutoSpy` / `injectSpy`            |      ✅      | identical to the Vitest entry, lazy spies by default   |
 | `renderShallow`                           |      ✅      | real `ComponentFixture`, child subtree dropped         |
 | `createWithAutoSpies`                     |      ✅      | builds a class through Angular DI with every dep spied |
+| `hostElement` / `queryElement`            |      ✅      | typed, `instanceof`-checked elements from the fixture  |
 | `stable` / `flushEffects`                 |      ✅      | zoneless waiting                                       |
 | the whole core (`createSpyFromClass`, …)  |      ✅      | re-exported from this entry                            |
 | `registerSignalMatchers`                  |      ❌      | needs the runner's `expect.extend` — Vitest only       |
@@ -117,6 +118,16 @@ compiles and renders. Override it if you genuinely need the text:
 
 ```ts
 inlineAngularResources(source, path, { inlineStyleExtensions: ['.css', '.scss'] });
+```
+
+### A template or stylesheet that cannot be read
+
+A `templateUrl` or `styleUrl` resolves against the component file. When the read fails, the preload
+names the URL, the component, the filesystem's own code (`ENOENT`, `EACCES`) and the path it tried:
+
+```text
+[vitest-auto-spy] cannot read "./greeting.component.html" referenced by src/app/greeting.component.ts: ENOENT at /project/src/app/greeting.component.html.
+The path resolves relative to the component file, not the project root; fix the templateUrl or styleUrl.
 ```
 
 ## Building your own preload

@@ -108,9 +108,11 @@ That is what `node:assert` diffs, `util.inspect()` and this library's own messag
 identifies itself the same way it does on Vitest and Bun:
 
 ```txt
-The function 'getName' was configured with 'mustBeCalledWith' and expects to be called with specific arguments.
+[vitest-auto-spy] getName is set up with mustBeCalledWith, and this call matches none of its configs — argument 1: expected 7, got [Function: getName].
 Wanted: getName(7)
 Actual: getName([Function: getName])
+Fix the value the code under test passes, or configure this call too.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#what-a-mustbecalledwith-failure-prints
 ```
 
 Two things it still does not buy you, and neither has a fix on this side:

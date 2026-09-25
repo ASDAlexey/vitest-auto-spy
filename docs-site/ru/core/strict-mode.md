@@ -32,32 +32,35 @@ users.currentTenant(); // бросает — прямо на строке выз
 
 ## Сообщение {#the-message}
 
-Дословно, от `Cart`, у которого `checkout(id, when)` никто не настроил:
+Дословно, от `Cart`, у которого `checkout(id, when)` никто не настроил, при вызове из `cart.component.ts`:
 
 ```
-[vitest-auto-spy] Nothing configured Cart.checkout, and strict mode is on.
-Called as: Cart.checkout(1,'now')
-Configure it — .mockReturnValue(…), .mockImplementation(…), .resolveWith(…), .nextWith(…) or .calledWith(…), or seed it through the 'returns' option — or drop 'strict' from this double.
-Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode
+[vitest-auto-spy] Cart.checkout(1, 'now') was called; this strict double has nothing configured for it.
+Called from src/app/cart.component.ts:41:12
+Configure it in the test: cart.checkout.calledWith(1, 'now').mockReturnValue(…) for these arguments, or .mockReturnValue(…) for any — .resolveWith(…) / .nextWith(…) when it returns a Promise / Observable.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#the-message
 ```
 
 Печатается сам вызов, а не только имя, потому что на широком сервисе один и тот же метод зовут несколько
-раз с разными аргументами, и _какой именно_ вызов — это половина диагноза. Вызов без аргументов
-отрисуется как `Called as: Cart.total()`. Простые данные печатаются целиком, до 200 символов на
-аргумент; экземпляр класса или DOM-узел — только именем класса, `[HTMLDivElement]`, `[Session]`:
-полная отрисовка обходит всё, до чего такой объект дотягивается, и прогон с сотнями строгих падений мог
-исчерпать кучу воркера одними строками сообщений.
+раз с разными аргументами, и _какой именно_ вызов — это половина диагноза. `Called from` — первый кадр
+вызывающего кода, мимо дубля, самой библиотеки и всего, что лежит в `node_modules`, с путём от корня
+проекта; если такого кадра в стеке нет, строки нет. Предложенный `calledWith(…)` повторяет аргументы
+вызова, так что его можно вставить как есть; для вызова без аргументов предлагается только
+`.mockReturnValue(…)`. Имя перед ним (`cart`) — имя класса в lower camel case, догадка о переменной, в
+которой спека держит дубль; дубль, чьё имя не идентификатор, получает `double`.
 
-**У двух дублей имени класса для печати нет**, и сообщение у них на слово короче — `Nothing
-configured read, and strict mode is on. / Called as: read('k')` — если им не дали имя:
-`createAutoMock<T>(undefined, { strict: true, name: 'USERS' })`, а `provideAutoSpyForToken` сам передаёт
-описание токена (`Nothing configured InjectionToken CAROUSEL_RESIZE_OBSERVER.observe`):
+Простые данные печатаются целиком, до 200 символов на аргумент; экземпляр класса или DOM-узел — только
+именем класса, `[HTMLDivElement]`, `[Session]`: полная отрисовка обходит всё, до чего такой объект
+дотягивается, и прогон с сотнями строгих падений мог исчерпать кучу воркера одними строками сообщений.
 
-- [`createAutoMock<T>()`](./auto-mock-by-type), который строится из типа и никакого класса не читал;
-- запасной путь для **полностью абстрактного класса** в `createSpyFromClass`: когда прототип не назвал
-  ничего, он возвращает тот же самый прокси. Строгий режим уезжает в этот запасной путь, а не теряется
-  там, — DI-токен, у которого все члены `abstract`, и есть ровно тот широкий коллаборатор, ради которого
-  всё это существует.
+**У дубля, построенного из типа, класса для имени нет**, поэтому его называет строка, где он построен, —
+`createAutoMock(users.spec.ts:12).getName(1) was called`, — и так два безымянных дубля одного файла не
+путаются. Имя заменяет это: `createAutoMock<T>(undefined, { strict: true, name: 'USERS' })`, а
+`provideAutoSpyForToken` сам передаёт описание токена (`InjectionToken CAROUSEL_RESIZE_OBSERVER.observe(…)
+was called`). Запасной путь для **полностью абстрактного класса** в `createSpyFromClass`, который
+возвращает тот же прокси, когда прототип не назвал ничего, уносит в него имя класса — `Storage.read('k')
+was called` — и строгий режим: DI-токен, у которого все члены `abstract`, и есть ровно тот широкий
+коллаборатор, ради которого всё это существует.
 
 ## Что считается настройкой {#what-counts-as-configured}
 
@@ -90,7 +93,7 @@ const cart = createSpyFromClass(Cart, { strict: true });
 
 cart.total.mockReturnValueOnce(5);
 cart.total(); // 5
-cart.total(); // бросает: Nothing configured Cart.total
+cart.total(); // бросает: Cart.total() was called; this strict double has nothing configured for it.
 ```
 
 Задавайте заодно и постоянное значение (`cart.total.mockReturnValue(0)`), когда последовательность `Once`
@@ -190,7 +193,7 @@ setupAutoSpy({ strict: true });
 забирает его — это заодно и проверка:
 
 ```ts
-expect(() => cart.total()).toThrow('Nothing configured Cart.total');
+expect(() => cart.total()).toThrow('Cart.total() was called');
 expect(takeStrictViolations()).toHaveLength(1); // из 'vitest-auto-spy/setup'
 ```
 
@@ -227,7 +230,7 @@ createSpyFromClass(Cart, { strict: false }).total(); // undefined — отклю
 setupAutoSpy({ strict: true });
 
 createSpyFromInstance(new Cart(), { passthrough: true }).total(); // настоящий total
-createSpyFromInstance(new Cart()).total(); // бросает: Nothing configured Cart.total
+createSpyFromInstance(new Cart()).total(); // бросает: Cart.total() was called; …
 ```
 
 Молча ничего не перебивается, и держится это на двух правилах:
@@ -258,8 +261,11 @@ setupAutoSpy({ strict: true, unconfiguredReads: 'throw' }); // 'off' (по ум�
 ```
 
 ```
-[vitest-auto-spy] Router.url was read 3 times and nothing configured it, and strict mode is on.
-[vitest-auto-spy] Router.events was subscribed to 1 time and nothing fed it, and strict mode is on.
+[vitest-auto-spy] Router.url was read 3 times on a strict double and nothing configured it, so the code under test got undefined.
+Configure it in the test: accessorSpies.getters.url.mockReturnValue(…), or mockReturnValue(undefined) when undefined is the answer meant.
+[vitest-auto-spy] Router.events was subscribed to 1 time on a strict double and never emitted.
+Feed it in the test: events.nextWith(…), or seed overrides: { events: new Subject() } and drive that Subject; overrides: { events: NEVER } when this test never fires it.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#reads-nobody-configured
 ```
 
 - **Что считается.** Чтение геттера из `gettersToSpyOn` / `settersToSpyOn` / `autoSpyAccessors`,

@@ -318,11 +318,11 @@ _симптом_: текст ошибки или форма падения, по
 ## Ошибки, которые называют, чем чинить {#errors-that-name-their-own-fix}
 
 Стек-трейс агент читает куда чаще, чем README, поэтому каждая ошибка и каждое предупреждение этого
-пакета заканчиваются ссылкой на страницу, где это разобрано:
+пакета называют, что пошло не так именно в этом случае, и одну починку, а заканчиваются ссылкой на
+раздел, где это разобрано:
 
 ```
-Observable spies require rxjs. Import 'vitest-auto-spy/rxjs' once (e.g. in your test setup)
-to enable observablePropsToSpyOn / nextWith / nextWithValues / throwWith / complete / returnSubject.
+[vitest-auto-spy] Observable spies require rxjs, and 'vitest-auto-spy/rxjs' was not imported in this run. Add `import 'vitest-auto-spy/rxjs';` once to the setup file.
 Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
 ```
 

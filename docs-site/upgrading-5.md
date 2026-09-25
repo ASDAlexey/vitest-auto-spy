@@ -221,8 +221,8 @@ returns.
 Before **5.6.0**, `setupAutoSpy({ strict: true })` lived in a copy of the module no spec file read, so
 a suite that had set it ran without it. 5.6.0 lists the fix under _Fixed_, and for a suite on 5.5 or
 earlier with the option set it is a behaviour change: every unconfigured call on a double now throws
-"Nothing configured …". Ten tests of one consumer went red on it. Configure the call the error
-names, or drop `strict` for that double.
+"… was called; this strict double has nothing configured for it". Ten tests of one consumer went red
+on it. Configure the call the error names, or drop `strict` for that double.
 
 :::
 

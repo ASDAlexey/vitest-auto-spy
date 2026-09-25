@@ -112,18 +112,20 @@ Vitest 4.1 добавил `mockThrow` / `mockThrowOnce` — это полови�
 
 ### Что печатает упавший `mustBeCalledWith` {#what-a-mustbecalledwith-failure-prints}
 
-Обе стороны сразу, как это делают `td.explain` и sinon, — потому что диагноз и есть сравнение, а не одна из
-его половин:
+Первая строка говорит, какой аргумент сломал совпадение; под ней обе стороны сразу, как их печатают
+`td.explain` и sinon, — потому что диагноз и есть сравнение, а не одна из его половин:
 
 ```
-The function 'getName' was configured with 'mustBeCalledWith' and expects to be called with specific arguments.
+[vitest-auto-spy] getName is set up with mustBeCalledWith, and this call matches none of its configs — argument 1: expected 1, got 2.
 Wanted: getName(1)
 Actual: getName(2)
-Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers
+Fix the value the code under test passes, or configure this call too.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#what-a-mustbecalledwith-failure-prints
 ```
 
 Когда настроен не один вызов, печатаются все, вместе с матчерами, — так конфиг, который ни разу не совпал,
-виден глазами, а не выводится по догадке:
+виден глазами, а не выводится по догадке; первая строка тогда останавливается на диагнозе, потому что
+сравнивать не с чем:
 
 ```
 Wanted (3 configured):
@@ -235,7 +237,7 @@ expect(priceIn(rates, 10, 'USD')).toBe(20); // падает: rateFor('EUR') от
 Тогда падение называет расхождение на самом вызове, а не всплывает где-то ниже как `NaN`:
 
 ```text
-The function 'rateFor' was configured with 'mustBeCalledWith' and expects to be called with specific arguments.
+[vitest-auto-spy] rateFor is set up with mustBeCalledWith, and this call matches none of its configs — argument 1: expected 'USD', got 'EUR'.
 Wanted: rateFor('USD')
 Actual: rateFor('EUR')
 ```
