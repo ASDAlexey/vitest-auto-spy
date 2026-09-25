@@ -27,11 +27,11 @@ describe(PASSTHROUGH, () => {
     expect(count("vi.spyOn(window.console, 'info');", PASSTHROUGH)).toBe(1);
   });
 
-  it('names the method and both repairs', () => {
+  it('names the method and the repair', () => {
     const [report] = verify("vi.spyOn(console, 'error');", PASSTHROUGH);
 
-    expect(report?.message).toMatch(/console\.error[\s\S]*installConsoleSpies\(\)[\s\S]*mockImplementation\(\(\) => undefined\)/);
-    expect(report?.message).toContain('#how-to-mock-the-console');
+    expect(report?.message).toMatch(/console\.error[\s\S]*mockImplementation\(\(\) => undefined\)/);
+    expect(report?.message).toContain('/utilities/eslint-rules#no-passthrough-console-spy');
   });
 
   it('suggests the implementation rather than applying it', () => {
@@ -109,13 +109,15 @@ describe(IN_SPEC, () => {
   it('reports a console method replaced by assignment, whatever the member', () => {
     const [report] = verify('console.error = vi.fn();', IN_SPEC);
 
-    expect(report?.message).toMatch(/replaces `console\.error` by assignment[\s\S]*isolate: false[\s\S]*installConsoleSpies\(\)/);
+    expect(report?.message).toMatch(/replaces `console\.error` by assignment[\s\S]*isolate: false[\s\S]*vi\.spyOn/);
     expect(count('console.time = () => undefined;', IN_SPEC)).toBe(1);
-    expect(verify("console['warn'] = noop;", IN_SPEC)[0]?.message).toContain('replaces `console.method`');
+    expect(verify("console['warn'] = noop;", IN_SPEC)[0]?.message).toContain("replaces `console['warn']`");
   });
 
   it('says a printing spec either left a line behind or should absorb it', () => {
-    expect(verify("console.info('x');", IN_SPEC)[0]?.message).toMatch(/debugging line[\s\S]*vitest-auto-spy\/console/);
+    expect(verify("console.info('x');", IN_SPEC)[0]?.message).toMatch(
+      /^`console\.info\(…\)`[\s\S]*debugging[\s\S]*vitest-auto-spy\/console/,
+    );
   });
 
   it('leaves reads, non-printing methods and non-global consoles alone', () => {
@@ -141,8 +143,9 @@ describe(IMPORT_TIME, () => {
   it('names the per-test install as the repair', () => {
     const [report] = verify("import { consoleWarnSpy } from 'vitest-auto-spy/console';", IMPORT_TIME);
 
-    expect(report?.message).toMatch(/once per worker[\s\S]*installConsoleSpies\(\)[\s\S]*restoreConsole\(\)/);
-    expect(report?.message).toMatch(/`beforeAll` with `afterAll` for a suite that shares one server/);
+    expect(report?.message).toMatch(
+      /^`vitest-auto-spy\/console` is imported[\s\S]*once per worker[\s\S]*installConsoleSpies\(\)[\s\S]*restoreConsole\(\)/,
+    );
   });
 
   it('stays silent once the file installs the spies itself, however it reaches the call', () => {

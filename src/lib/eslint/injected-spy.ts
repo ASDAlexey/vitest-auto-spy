@@ -12,6 +12,7 @@
  */
 import { PACKAGE, bindingState, dropNamedImport, findBinding, initializerOf, insertImport } from './bindings';
 import { defineRule } from './define-rule';
+import { excerpt } from './message-data';
 import {
   type EsCallExpression,
   type EsFix,
@@ -222,12 +223,12 @@ export function asSpyFixes(context: RuleContext, fixer: EsFixer, node: EsSpyCast
 
 /** `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`. */
 export const preferAsSpy: RuleModule = defineRule({
-  anchor: '-reading-a-spy-back-from-di',
+  name: 'prefer-as-spy',
   description: 'Read a spy back out of the container with asSpy(), not with a cast to Spy<T>',
   fixable: true,
   messages: {
     preferAsSpy:
-      'A cast is not how a spy comes back out of a container. `TestBed.inject(X) as Spy<X>` is the line a `jest-auto-spies` suite carries in every file, and it stops compiling here: `Spy<T>` adds `accessorSpies` and the per-method helpers, so neither type sufficiently overlaps the other and the line fails with `TS2352: Conversion of type ‘X’ to type ‘Spy<X>’ may be a mistake`. `asSpy(...)` makes exactly the same assertion as a typed identity function — the same object at run time, the same claim, no cast — and `injectSpy(X)` is that with the `TestBed.inject` folded in. Neither is for the object under test: a service a spec exercises is not a double, and typing it as the class is the repair there.',
+      '`{{cast}}` does not compile (`TS2352`), because `Spy<T>` adds members the plain instance does not have. Write `asSpy({{value}})`, which is the same object typed without a cast.',
   },
   create: (context) => ({
     'TSAsExpression[typeAnnotation.type="TSTypeReference"][typeAnnotation.typeName.name="Spy"]': (node: EsSpyCast): void => {
@@ -248,11 +249,9 @@ export const preferAsSpy: RuleModule = defineRule({
 
       const rewritable = bindingState(context.sourceCode.getScope(node), 'asSpy') !== 'taken';
 
-      context.report(
-        rewritable
-          ? { node, messageId: 'preferAsSpy', fix: (fixer: EsFixer): EsFix[] => asSpyFixes(context, fixer, node, value, spy) }
-          : { node, messageId: 'preferAsSpy' },
-      );
+      const report = { node, messageId: 'preferAsSpy', data: { cast: excerpt(context, node), value: excerpt(context, value, 40) } };
+
+      context.report(rewritable ? { ...report, fix: (fixer: EsFixer): EsFix[] => asSpyFixes(context, fixer, node, value, spy) } : report);
     },
   }),
 });

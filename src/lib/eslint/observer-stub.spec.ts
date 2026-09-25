@@ -69,8 +69,8 @@ describe('prefer-observer-stub', () => {
   it('says the restore is not the author’s to write, which is the gap the rule exists to close', () => {
     const text = message('globalThis.IntersectionObserver = class {};');
 
-    expect(text).toContain('restoreMockedProps()');
-    expect(text).toContain('Do not write the restore.');
+    expect(text).toMatch(/^`IntersectionObserver` is replaced by hand, and a restore written in the test runs only if/);
+    expect(text).toContain('restored after every test');
   });
 
   it('flags a runner mock written into the global, bare or configured', () => {
@@ -96,7 +96,7 @@ describe('prefer-observer-stub', () => {
   it('flags the two runner spellings of the same fake', () => {
     expect(count("class RecordingObserver {}\nvi.stubGlobal('IntersectionObserver', RecordingObserver);")).toBe(1);
     expect(count("vi.spyOn(globalThis, 'MutationObserver').mockImplementation((cb) => ({ observe() {} }));")).toBe(1);
-    expect(message("vi.spyOn(globalThis, 'MutationObserver');")).toContain('cannot call it');
+    expect(message("vi.spyOn(globalThis, 'MutationObserver');")).toContain('neither a constructor the component can call with `new`');
   });
 
   it('leaves the restore alone, so one hand-rolled stub is one report and not two', () => {

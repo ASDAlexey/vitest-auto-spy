@@ -55,6 +55,7 @@ import { type EsSubscribeCall, isSubscribeCall } from './await-emission';
 import { findBinding } from './bindings';
 import { defineRule } from './define-rule';
 import { runnerBehind } from './dynamic-import';
+import { receiverOf } from './message-data';
 import {
   type EsAssignmentExpression,
   type EsCallExpression,
@@ -432,29 +433,15 @@ function vacuousCarrier(context: RuleContext, scan: TestScan, body: EsNode): Car
 }
 
 const REPAIR =
-  'Say which of the two you mean. `await expectNoEmission(source$)` from `vitest-auto-spy` asserts the silence itself and fails — ' +
-  'naming the source — the moment something does arrive, which is the assertion a test means when its title says the stream stays ' +
-  'quiet. `expect(await expectEmission(source$)).toEqual(…)` asserts the value and fails when nothing arrives, which is the one to ' +
-  'write when the empty result *is* the emission. Either way the source stops being something the test can be silent about. Where ' +
-  'the absence is genuinely a step — nothing yet, then the trigger, then the value — keep it and assert the value afterwards: that ' +
-  'later assertion is what this rule looks for and did not find.';
+  'Assert the silence with `await expectNoEmission({{source}})`, or the value with `expect(await expectEmission({{source}})).toEqual(…)`.';
 
 /** A test every assertion of which holds when the stream under it never emits. */
 export const noVacuousAbsenceAssertion = defineRule({
-  anchor: '-an-observable',
+  name: 'no-vacuous-absence-assertion',
   description: 'Do not let a whole test rest on assertions that a stream which never emits already satisfies',
   messages: {
-    vacuousCapture:
-      '`{{name}}` is written by nothing but the `subscribe` callback in this test, and every assertion here holds on the value its ' +
-      'declaration left in it (`{{held}}`) — so the test passes unchanged against a source that never emits at all. That is not the ' +
-      'behaviour the title claims: "the result is empty" and "there is no result" are different outcomes, and nothing in this test ' +
-      'tells them apart. Proved by mutation on the suite this rule came from — the production stream was replaced with one that ' +
-      `never emits, and this shape stayed green while its siblings failed. ${REPAIR}`,
-    vacuousSubscribedSpy:
-      '`{{name}}` is a `vi.fn()` handed to `subscribe` and called by nothing else, so "it was not called" is already true before the ' +
-      'subscription exists — and every other assertion in this test holds on silence too. The test therefore passes against a source ' +
-      'that never emits, which is the one outcome it ought to be telling apart from the one it claims. ' +
-      `${REPAIR}`,
+    vacuousCapture: `\`{{name}}\` is written only by the \`subscribe\` callback on \`{{source}}\`, and every assertion here holds on its initial value (\`{{held}}\`), so the test passes when \`{{source}}\` never emits. ${REPAIR}`,
+    vacuousSubscribedSpy: `\`{{name}}\` is a \`vi.fn()\` handed to \`{{source}}.subscribe\` and called by nothing else, so “not called” holds before the subscription exists, and the test passes when \`{{source}}\` never emits. ${REPAIR}`,
   },
   create: (context) => {
     const tests = new Map<EsNode, TestScan>();
@@ -504,7 +491,7 @@ export const noVacuousAbsenceAssertion = defineRule({
           const carrier = vacuousCarrier(context, scan, body);
 
           if (carrier) {
-            const data = { held: carrier.capture.held, name: carrier.name };
+            const data = { held: carrier.capture.held, name: carrier.name, source: receiverOf(context, scan.subscribes[0]) };
 
             context.report({ data, messageId: carrier.capture.spy ? 'vacuousSubscribedSpy' : 'vacuousCapture', node: carrier.node });
           }

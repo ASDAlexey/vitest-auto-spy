@@ -45,6 +45,7 @@
 import { PACKAGE, bindingState, boundValueOf, findBinding, importNamed } from './bindings';
 import { defineRule } from './define-rule';
 import { isFactoryCall } from './hand-rolled-doubles';
+import { excerpt } from './message-data';
 import {
   type EsCallExpression,
   type EsFix,
@@ -209,30 +210,20 @@ function restoreSuggestion(context: RuleContext, node: EsCallExpression): Sugges
   };
 }
 
-const ESCAPE =
-  'The name is an ordinary string argument here, so nothing checks it: not the compiler, not a template gate, not a strict ' +
-  "`tsc` pass. That is what makes this the second door out of `no-private-member-access` — `component['x']` at least keeps " +
-  'the member where a type-aware rule can resolve it, and this does not.';
-
-const SURFACE =
-  'Drive the member through the public API that uses it and assert the effect. On a **component**, the rendered template is ' +
-  'the other public surface, and it is the one `protected` members exist for: `renderShallow(Cmp)` and read the DOM rather ' +
-  'than the field; a `protected` signal handed to a child reads back through that child, stubbed with ' +
-  "`createComponentStub` and read off its input, and one the spec has to drive is `mockSignalProp(component, 'x', value)`, " +
-  'which reaches a `protected` signal. A property the environment’s own type does not declare — `window`, `globalThis` — is what the idiom is ' +
-  'for and is never reported here. A private member with no observable effect at all is the one case this leaves: there ' +
-  "`component['member']` keeps the key where the compiler checks it, under a `no-private-member-access` disable that says why.";
-
 /** `Reflect.get(component, 'privateField')` — the bracket escape, spelled so no checker can see it. */
 export const noReflectMemberAccess = defineRule({
-  anchor: '-a-service-without-di',
+  name: 'no-reflect-member-access',
   description: 'Do not reach a member through Reflect.get / Reflect.set; the string key is checked by nothing',
   hasSuggestions: true,
   messages: {
-    reflectGet: `This reads \`{{key}}\` off a subject the test already holds. ${ESCAPE} So the spec pins a member the class never promised anybody, and it pins it by a name a rename cannot reach: the refactor stays green in production and the spec keeps reading a property that is no longer there, answering \`undefined\` to whatever asserts on it. ${SURFACE}`,
-    reflectSet: `This writes \`{{key}}\` onto a subject the test already holds, and it does not write the member — \`Reflect.set\` installs an **own** property over the prototype. ${ESCAPE} Rename the field in production and this line keeps compiling, keeps running, and now writes a **dead** property nothing reads, while every assertion under it goes on passing: the test outlives the thing it was written to check. ${SURFACE} Where the value has to be forced onto a real object, \`mockValueProp(obj, '{{key}}', value)\` writes it and registers the undo with \`restoreMockedProps()\`.`,
-    reflectSetOnFixture: `This writes \`{{key}}\` onto an object literal this spec built — a fixture, where the key could have been written in the literal and checked there. ${ESCAPE} Put it in the literal. Where the value is deliberately outside the declared type — an unknown enum member fed in to reach the fallback branch — cast the **value** (\`{ {{key}}: value as Model['{{key}}'] }\`), which keeps the key under the compiler and says out loud which value is impossible. Where the project bans assertions (\`consistent-type-assertions: never\`), \`mockValueProp(fixture, '{{key}}', value)\` takes a value outside the declared type through its loose overload and restores it after the test.`,
-    reflectSetOnDouble: `\`{{key}}\` is being patched onto a double this library built, behind the library’s back: no journal entry and no restore, so the patch is live for every later test of this file and — under \`isolate: false\` — for every later file of the worker. \`mockValueProp({{target}}, '{{key}}', value)\` performs the same write and registers the undo with \`restoreMockedProps()\`, which \`setupAutoSpy()\` runs in a hook, so it happens whatever the assertions did. A member the double should answer from the start belongs in the seed it was built with — \`provideAutoSpy(X, { returns: { … } })\`, \`provideAutoSpyForToken(TOKEN, { … })\` — rather than in a write afterwards.`,
+    reflectGet:
+      "`Reflect.get({{target}}, '{{key}}')` reads a member through a string nothing checks, so renaming `{{key}}` leaves this line reading `undefined` while it still compiles. Assert on what the public API or the rendered template shows instead.",
+    reflectSet:
+      "`Reflect.set({{target}}, '{{key}}', …)` writes an own property that bypasses the type check, so renaming `{{key}}` leaves this line writing a dead key. Set it through the public API, or `mockValueProp({{target}}, '{{key}}', value)`, which is typed and restored after the test.",
+    reflectSetOnFixture:
+      "`Reflect.set({{target}}, '{{key}}', …)` writes onto an object literal this spec built, where no checker sees the key. Put `{{key}}` in the literal instead; a value outside the declared type is cast there: `{ {{key}}: value as Model['{{key}}'] }`.",
+    reflectSetOnDouble:
+      "`Reflect.set({{target}}, '{{key}}', …)` patches a double behind the library’s back, with no restore, so the patch stays live for every later test in the worker. Use `mockValueProp({{target}}, '{{key}}', value)`, which is restored after the test.",
   },
   create: (context) => ({
     CallExpression: (node: EsCallExpression): void => {
@@ -246,7 +237,7 @@ export const noReflectMemberAccess = defineRule({
       const writes = isMemberExpression(node.callee) && isIdentifier(node.callee.property) && node.callee.property.name === 'set';
 
       if (writes && isDouble(context, target)) {
-        const data = { key, target: context.sourceCode.getText(target) };
+        const data = { key, target: excerpt(context, target, 40) };
         const suggestion = restoreSuggestion(context, node);
         const report = { node, messageId: 'reflectSetOnDouble', data };
 
@@ -257,7 +248,7 @@ export const noReflectMemberAccess = defineRule({
 
       const messageId = writes ? (isFixtureLiteral(context, target) ? 'reflectSetOnFixture' : 'reflectSet') : 'reflectGet';
 
-      context.report({ node, messageId, data: { key } });
+      context.report({ node, messageId, data: { key, target: excerpt(context, target, 40) } });
     },
   }),
 });

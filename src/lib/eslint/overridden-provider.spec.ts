@@ -90,7 +90,7 @@ describe('no-overridden-provider', () => {
     const duplicate = 'const p = [provideAutoSpy(SafeModeService), provideAutoSpy(SafeModeService)];';
     const message = firstMessage(duplicate);
 
-    expect(message).toContain('`SafeModeService` is provided twice in this array, in the same words');
+    expect(message).toContain('`SafeModeService` is provided twice in this array in the same words');
     expect(message).toContain('the copy on line 1');
     expect(suggestionsFor(duplicate)).toEqual(['Delete this duplicate provider for SafeModeService']);
     // The comma goes with it, or the array is left holding a hole.
@@ -107,13 +107,13 @@ describe('no-overridden-provider', () => {
     ].join('\n');
     const message = firstMessage(barer);
 
-    expect(message).toContain('follows this one on line 3');
-    expect(message).toContain('the **barer** of the two');
+    expect(message).toContain('The provider for `AccountService` on line 3 follows this one');
+    expect(message).toContain('the barer double');
     // Which of the two to keep is the whole question, so there is nothing to offer.
     expect(suggestionsFor(barer)).toEqual([]);
 
     // An options value that is not a literal counts as the one thing it is, and still outweighs none.
-    expect(firstMessage('const p = [provideAutoSpy(A, options), provideAutoSpy(A)];')).toContain('**barer**');
+    expect(firstMessage('const p = [provideAutoSpy(A, options), provideAutoSpy(A)];')).toContain('the barer double');
   });
 
   it('leaves two multi providers for one token alone — Angular keeps both', () => {
@@ -153,7 +153,7 @@ describe('no-overridden-provider', () => {
     // The eight-tokens case: an auto-spy buried by a configured hand-rolled double.
     const shadowed = 'const p = [provideAutoSpy(A), { provide: A, useValue: mock }];';
 
-    expect(firstMessage(shadowed)).toContain('the one on line 1 is what DI hands out');
+    expect(firstMessage(shadowed)).toContain('The provider for `A` on line 1 follows this one in the same array');
     expect(suggestionsFor(shadowed)).toEqual([]);
   });
 

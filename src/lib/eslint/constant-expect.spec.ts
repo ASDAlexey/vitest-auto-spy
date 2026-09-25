@@ -57,8 +57,8 @@ describe(RULE, () => {
   it('names the matcher and the way out for a line that marks an unreachable branch', () => {
     const [report] = verify('expect(true).not.not.toBe(true);');
 
-    expect(report?.message).toMatch(/`toBe` gives the same answer[\s\S]*expect\.fail/);
-    expect(report?.message).toContain('#how-to-mock-a-promise-a-test-forgets-to-await');
+    expect(report?.message).toMatch(/^`expect\(true\)\.toBe\(…\)` checks a value written in the spec[\s\S]*expect\.fail/);
+    expect(report?.message).toContain('/utilities/eslint-rules#no-constant-expect');
   });
 
   it('stays silent where either side depends on the code under test', () => {

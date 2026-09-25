@@ -28,6 +28,7 @@
  * opinion on it anyway.
  */
 import { defineRule } from './define-rule';
+import { argumentList, excerpt } from './message-data';
 import {
   type EsCallExpression,
   type EsMemberExpression,
@@ -213,15 +214,15 @@ function spiesThroughPrototype(node: EsCallExpression): boolean {
 
 /** `component['privateMethod']()` → a test written against something no caller can reach. */
 export const noPrivateMemberAccess: RuleModule = defineRule({
-  anchor: '-a-service-without-di',
+  name: 'no-private-member-access',
   description: 'Do not reach a private or protected member from a spec; test through the public surface',
   messages: {
     noPrivateMemberAccess:
-      "`{{name}}` is declared `{{accessibility}}`, and bracket access is how a spec gets past that: TypeScript checks visibility on `obj.{{name}}` and not on `obj['{{name}}']`, because the second spelling is also how an index signature is read. So this compiles, runs, and pins a member the class never promised anyone — renaming it is a green refactor that turns red in a test file, and nothing here proves what a caller can do. Drive the member through the public API that uses it, and assert the effect. On a **component**, the rendered template is the other public surface, and it is the one `protected` members exist for: `renderShallow(Cmp)` and read the DOM rather than the field. When nothing public reaches it at all, that is a fact about the design rather than a reason to step around the modifier — the member either wants to be public, or wants to move into a collaborator the spec can provide a double for.",
+      "`{{object}}['{{name}}']` reaches a `{{accessibility}}` member, which TypeScript does not check through brackets, so the spec pins something no caller can use and breaks on a rename. Assert on what the public API or the rendered template shows instead.",
     noCastPastModifier:
-      '`{{name}}` is declared `{{accessibility}}`, and the cast in front of it is what makes this line compile: the dotted access **is** visibility-checked, so the modifier was removed by retyping the object rather than by reaching around it. `as any`, `as unknown as { {{name}}: … }` and a decoy interface declared in the spec are the same move, and it leaves the same test — one pinned to a member no caller can reach, red on a rename that no caller could have noticed. Drive the member through the public API that uses it, and assert the effect. On a **component**, the rendered template is the other public surface, and it is the one `protected` members exist for: `renderShallow(Cmp)` and read the DOM rather than the field. When nothing public reaches it at all, that is a fact about the design rather than a reason to retype the object.',
+      'The cast in `({{object}}).{{name}}` switches off the `{{accessibility}}` check, so the spec pins a member no caller can use and breaks on a rename. Assert on what the public API or the rendered template shows instead.',
     noPrototypeSpy:
-      '`Object.getPrototypeOf(...)` is here to reach a method the class hid, and spying it pins an implementation detail: the test then fails on a rename that no caller could have noticed. It is also a worse double than it looks — it patches the **prototype**, so every instance in the worker sees it, and `vi.restoreAllMocks()` is the only thing that puts it back. Assert through the public method that calls it, or provide the collaborator it delegates to with `provideAutoSpy(X)` and assert on that.',
+      '`{{spy}}({{args}})` spies through the prototype to reach a method the class hid: it patches every instance in the worker and pins an implementation detail. Assert through the public method that calls it, or provide its collaborator with `provideAutoSpy(Class)`.',
   },
   create: (context) => ({
     MemberExpression: (node: EsMemberExpression): void => {
@@ -231,14 +232,18 @@ export const noPrivateMemberAccess: RuleModule = defineRule({
         context.report({
           node,
           messageId: isCast(node.object) ? 'noCastPastModifier' : 'noPrivateMemberAccess',
-          data: { ...hidden },
+          data: { ...hidden, object: excerpt(context, node.object, 40) },
         });
       }
     },
 
     CallExpression: (node: EsCallExpression): void => {
       if (spiesThroughPrototype(node)) {
-        context.report({ node, messageId: 'noPrototypeSpy' });
+        context.report({
+          node,
+          messageId: 'noPrototypeSpy',
+          data: { spy: excerpt(context, node.callee), args: argumentList(context, node) },
+        });
       }
     },
   }),

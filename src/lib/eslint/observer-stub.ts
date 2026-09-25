@@ -112,7 +112,7 @@ function isGlobalReceiver(node: EsNode): boolean {
 }
 
 /** The key a member expression addresses, when it is a name rather than something computed at run time. */
-function memberKey(member: EsMemberExpression): string | undefined {
+export function memberKey(member: EsMemberExpression): string | undefined {
   return member.computed ? literalString(member.property) : memberName(member);
 }
 
@@ -207,14 +207,14 @@ function namesADouble(context: RuleContext, identifier: EsIdentifier): boolean {
 
 /** `globalThis.IntersectionObserver = class { … }`, and the two runner spellings of the same fake. */
 export const preferObserverStub: RuleModule = defineRule({
-  anchor: '-a-class-the-code-under-test-builds-with-new',
+  name: 'prefer-observer-stub',
   description:
     'Install an observer global with stubIntersectionObserver / stubResizeObserver / stubMutationObserver instead of writing one by hand',
   messages: {
     preferObserverStub:
-      '`{{observer}}` is being replaced by hand. `{{helper}}()` from `vitest-auto-spy/dom-stubs` is that stub in one line, and it hands back the observers the code under test constructed: `observers.last.emit([{{entry}}(…)])` fires the callback, `observers.last.disconnected` is the teardown assertion the hand-rolled `disconnect` spy was written for, `observers.last.options` is the init object it was built with, and `observers.instances` is every one of them in construction order. **Do not write the restore.** The stub goes on through `mockValueProp`, so `restoreMockedProps()` — which `setupAutoSpy()` already runs after every test — puts the real constructor back: the `let original = globalThis.{{observer}}` above and the `afterEach` that assigns it back are both dead weight, and the second one is worse than dead. A restore written inside the test runs only if every assertion above it passed, so the first red test leaves the stub installed for the rest of the file and, under `isolate: false`, for every later file the worker picks up — where it surfaces as `observe is not a function` in a component nobody edited.',
+      '`{{observer}}` is replaced by hand, and a restore written in the test runs only if every assertion above it passed. Use `const observers = {{helper}}()` from `vitest-auto-spy/dom-stubs`, which is restored after every test, and fire the callback with `observers.last.emit([{{entry}}(…)])`.',
     preferObserverStubOverRunner:
-      '`{{observer}}` is being faked through the runner. `{{helper}}()` from `vitest-auto-spy/dom-stubs` replaces the whole of that and returns a handle rather than a static field: `observers.last.emit([{{entry}}(…)])` drives the callback, `observers.last.targets` is what was observed, `observers.last.disconnected` is the teardown assertion, and `observers.instances.length` counts constructions — which is what a spy on the constructor was being counted for. Two things the runner form does not give you. It is not a constructor: `vi.fn().mockImplementation((callback) => ({ observe() {} }))` is an arrow, `new {{observer}}(callback)` inside the component cannot call it, and the `TypeError` lands in application code with the spec still looking correct. And it is not undone: `{{helper}}()` registers its undo with `restoreMockedProps()`, which `setupAutoSpy()` runs after every test, so nothing has to remember `vi.unstubAllGlobals()` or an `afterEach`.',
+      '`{{observer}}` is faked through the runner, which gives neither a constructor the component can call with `new` nor a handle to fire the callback. Use `const observers = {{helper}}()` from `vitest-auto-spy/dom-stubs`, and fire it with `observers.last.emit([{{entry}}(…)])`.',
   },
   create: (context) => {
     const report = (node: EsNode, target: ObserverTarget, messageId: string): void => context.report({ node, messageId, data: target });

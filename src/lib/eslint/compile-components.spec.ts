@@ -34,7 +34,7 @@ describe(RULE, () => {
     expect(verify(code, options)).toEqual([]);
     expect(verify(code.replaceAll('DeferredCard', 'DeferredCardList'), options)).toHaveLength(1);
     expect(verify(code, { ...INLINED, ignoreComponents: [] })).toHaveLength(1);
-    expect(verify(code, INLINED)[0]?.message).toContain('{ ignoreComponents: ["CardComponent"] }');
+    expect(verify(code, INLINED)[0]?.message).toContain('list the component in `{ ignoreComponents }`');
     expect(() => verify(code, { ...INLINED, ignoreComponents: ['a.b'] })).toThrow(/should match pattern/);
   });
 
@@ -45,8 +45,8 @@ describe(RULE, () => {
   it('reports every spelling of the call, and says why it waits for the option', () => {
     const [report] = verify('await TestBed.compileComponents();', INLINED);
 
-    expect(report?.message).toMatch(/usually redundant here[\s\S]*inline-resources[\s\S]*reports nothing until the option/);
-    expect(report?.message).toContain('#how-to-mock-a-components-children');
+    expect(report?.message).toMatch(/^`TestBed\.compileComponents\(\)` fetches[\s\S]*this builder inlines them/);
+    expect(report?.message).toContain('/utilities/eslint-rules#no-compile-components');
     expect(verify('TestBed.configureTestingModule({}).compileComponents().then(() => render());', INLINED)).toHaveLength(1);
     expect(verify('function ready() {\n  return getTestBed().compileComponents();\n}', INLINED)).toHaveLength(1);
     expect(verify('const ready = bed.compileComponents();', INLINED)).toHaveLength(1);
@@ -56,8 +56,10 @@ describe(RULE, () => {
     const [report] = verify('await TestBed.compileComponents();', INLINED);
 
     expect(report?.message).toContain('@defer');
-    expect(report?.message).toContain('unresolved metadata');
-    expect(report?.message).toContain('eslint-disable-next-line vitest-auto-spy/no-compile-components');
+    expect(report?.message).toContain('keep it and list the component');
+    expect(verify('await TestBed.configureTestingModule({ imports: [Card] }).compileComponents();', INLINED)[0]?.message).toMatch(
+      /^`TestBed\.configureTestingModule\(\{ imp[^`]*…\.compileComponents\(\)` fetches/,
+    );
   });
 
   it('carries the exception into the suggestion, which is the text a bulk edit reads', () => {

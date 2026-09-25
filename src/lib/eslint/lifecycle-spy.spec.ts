@@ -20,13 +20,13 @@ describe(RULE, () => {
     ).toHaveLength(5);
   });
 
-  it('names the hook and both repairs', () => {
+  it('names the call, the hook and the repair', () => {
     const [report] = verify("const spy = vi.spyOn(component, 'ngAfterViewInit');");
 
     expect(report?.message).toMatch(
-      /replaces `ngAfterViewInit` on one instance[\s\S]*MyComponent\.prototype, 'ngAfterViewInit'[\s\S]*assert what the hook does/,
+      /^`vi\.spyOn\(component, 'ngAfterViewInit'\)` spies `ngAfterViewInit` on one instance[\s\S]*MyComponent\.prototype, 'ngAfterViewInit'/,
     );
-    expect(report?.message).toContain('#how-to-mock-a-lifecycle-hook');
+    expect(report?.message).toContain('/utilities/eslint-rules#no-instance-lifecycle-spy');
   });
 
   it('stays silent on a spy taken through the prototype', () => {

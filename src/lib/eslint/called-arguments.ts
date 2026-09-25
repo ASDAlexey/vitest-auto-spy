@@ -229,26 +229,15 @@ function titlePromisesArguments(context: RuleContext, scan: Scan, assertion: Ass
   return NAMES_ARGUMENTS.test(title) && inTest.every((other) => other.callOnly);
 }
 
-const REPAIR =
-  'Name them: `expect(spy).toHaveBeenCalledWith(…)`, or `expect(spy).toHaveBeenCalledExactlyOnceWith(…)` where once is part of ' +
-  'the claim; `expect.objectContaining({ … })` and `expect.any(Type)` cover the part of an argument the test does not decide, ' +
-  'and a double this package built takes `mustBeCalledWith(…)` at the point it is configured, which fails at the call rather ' +
-  'than after it. For a method that takes no arguments, pin the count instead: `toHaveBeenCalledOnce()` or ' +
-  '`toHaveBeenCalledTimes(n)`. Where the call really is all that matters, the title is what should say so — this rule reads it.';
-
 /** `expect(spy).toHaveBeenCalled()` in a test whose subject is the argument list. */
 export const noUnassertedArgument: RuleModule = defineRule({
-  anchor: '-argument-matching',
+  name: 'no-unasserted-argument',
   description: 'Assert the arguments where the file shows they are the point, not only that the call happened',
   messages: {
     assertedElsewhere:
-      'This checks that `{{subject}}` ran and accepts any arguments at all, while another test in this file pins the same ' +
-      'subject with `toHaveBeenCalledWith(…)` — so the file already says the arguments of this call are part of the contract, ' +
-      `and this is the test that does not read them. ${REPAIR}`,
+      'This checks only that `{{subject}}` ran, while another test in this file pins its arguments with `toHaveBeenCalledWith(…)`, so here any arguments pass. Assert them too: `expect({{subject}}).toHaveBeenCalledWith(…)`.',
     titleNamesArguments:
-      'The title of this test names what the call is made *with*, and this is the only kind of assertion in its body: the ' +
-      'test therefore passes on any arguments whatsoever, including the ones the title was written to rule out. Two tests ' +
-      `whose titles differ only in that phrase have identical bodies as soon as this is all either of them asserts. ${REPAIR}`,
+      'The title of this test says what `{{subject}}` is called with, yet the test only checks that it ran, so it passes on any arguments, including the ones the title rules out. Assert them: `expect({{subject}}).toHaveBeenCalledWith(…)`.',
   },
   create: (context) => {
     const scan: Scan = { assertions: [] };

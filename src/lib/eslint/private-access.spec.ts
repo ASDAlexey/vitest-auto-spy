@@ -154,18 +154,19 @@ describe('no-private-member-access — the shapes it must report', () => {
     const [message, ...rest] = lintTyped(fixture);
 
     expect(rest).toEqual([]);
-    expect(message?.message).toContain(`\`${name}\` is declared \`${accessibility}\``);
+    expect(message?.message).toMatch(new RegExp(`^\`\\w+\\['${name}'\\]\` reaches a \`${accessibility}\` member`));
   });
 
   it('resolves a key parked in a const, because the name comes from the type and not the source', () => {
-    expect(lintTyped('const-key.spec.ts').map((message) => message.message.slice(0, 24))).toEqual(['`secret` is declared `pr']);
+    expect(lintTyped('const-key.spec.ts').map((message) => /reaches a `\w+` member/.exec(message.message)?.[0])).toEqual([
+      'reaches a `private` member',
+    ]);
   });
 
   it('names the public surface and the template, rather than only saying no', () => {
     const [message] = lintTyped('private-field.spec.ts');
 
-    expect(message?.message).toContain('renderShallow');
-    expect(message?.message).toContain('a fact about the design');
+    expect(message?.message).toContain('public API or the rendered template');
   });
 
   /**
@@ -182,8 +183,7 @@ describe('no-private-member-access — the shapes it must report', () => {
     const [message, ...rest] = lintTyped(fixture);
 
     expect(rest).toEqual([]);
-    expect(message?.message).toContain(`\`${name}\` is declared \`${accessibility}\``);
-    expect(message?.message).toContain('the cast in front of it is what makes this line compile');
+    expect(message?.message).toMatch(new RegExp(`^The cast in \`\\(.+\\)\\.${name}\` switches off the \`${accessibility}\` check`));
   });
 
   it('unwraps the cast for a bracket read too, where the cast would otherwise hide the type', () => {
@@ -196,7 +196,7 @@ describe('no-private-member-access — the shapes it must report', () => {
     const [message, ...rest] = lintTyped('prototype-spy.spec.ts');
 
     expect(rest).toEqual([]);
-    expect(message?.message).toContain('patches the **prototype**');
+    expect(message?.message).toMatch(/^`vi\.spyOn\(Object\.getPrototypeOf\(card\), [^`]*\)` spies through the prototype/);
   });
 });
 
@@ -225,7 +225,7 @@ describe('no-private-member-access — the shapes it must not report', () => {
     // `env['KEY']` in the suite would be reported by a rule the reader believes checks types.
     expect(lintUntyped('private-field.spec.ts')).toEqual([]);
     // The prototype escape needs no checker, so that half keeps working either way.
-    expect(lintUntyped('prototype-spy.spec.ts').map((message) => message.message.slice(0, 30))).toEqual(['`Object.getPrototypeOf(...)` i']);
+    expect(lintUntyped('prototype-spy.spec.ts').map((message) => message.message.slice(0, 30))).toEqual(['`vi.spyOn(Object.getPrototypeO']);
   });
 });
 

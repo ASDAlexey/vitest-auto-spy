@@ -4,6 +4,7 @@
  */
 import { findBinding } from './bindings';
 import { defineRule } from './define-rule';
+import { excerpt } from './message-data';
 import {
   type EsAssignmentExpression,
   type EsCallExpression,
@@ -163,15 +164,12 @@ function callsThrough(context: RuleContext, call: EsCallExpression): boolean {
 }
 
 const PASSTHROUGH_MESSAGE =
-  'This spy on `console.{{method}}` has no implementation, so it records the call and then calls through: the line still ' +
-  'prints. Under `setupAutoSpy({ strayConsole })` that fails the test as stray output, and without the guard it is noise ' +
-  'that buries the next real failure. Absorb it with `installConsoleSpies()` from `vitest-auto-spy/console` in a ' +
-  '`beforeEach` and assert on `consoleErrorSpy` and its siblings, or give this spy an implementation — ' +
-  '`.mockImplementation(() => undefined)`.';
+  'This spy on `console.{{method}}` has no implementation, so it calls through and the line still prints, which ' +
+  '`strayConsole` reports as stray output. Give it one: `.mockImplementation(() => undefined)`.';
 
 /** `vi.spyOn(console, 'error')` with no implementation → the output still prints. */
 export const noPassthroughConsoleSpy = defineRule({
-  anchor: '-the-console',
+  name: 'no-passthrough-console-spy',
   description: 'Give a spy on a console method an implementation — without one it calls through and the output still prints',
   hasSuggestions: true,
   messages: { noPassthroughConsoleSpy: PASSTHROUGH_MESSAGE },
@@ -208,19 +206,15 @@ export const noPassthroughConsoleSpy = defineRule({
 
 /** A direct `console.x(…)` or `console.x = …` in a spec. */
 export const noConsoleInSpec = defineRule({
-  anchor: '-the-console',
+  name: 'no-console-in-spec',
   description: 'Do not call or replace a console method directly in a spec',
   messages: {
     consoleCall:
-      'This spec writes to the console itself. Either a debugging line was left behind — delete it — or the spec is ' +
-      'exercising code whose logging it should absorb and assert on through `vitest-auto-spy/console` ' +
-      '(`installConsoleSpies()` in a `beforeEach`, then `expect(consoleErrorSpy)…`). Under `setupAutoSpy({ strayConsole })` ' +
-      'the line fails the test as stray output.',
+      '`{{call}}(…)` is the spec writing to the console itself, which `strayConsole` reports as stray output. Delete it if it ' +
+      'is left over from debugging; to check what the code under test logs, assert on `consoleErrorSpy` from `vitest-auto-spy/console`.',
     consoleAssignment:
-      'This replaces `console.{{method}}` by assignment, and nothing puts it back: under `isolate: false` every later file ' +
-      'of the worker inherits the replacement and prints nothing, whatever it logs. Use `installConsoleSpies()` from ' +
-      '`vitest-auto-spy/console` with `restoreConsole()` in an `afterEach`, or `vi.spyOn(console, "{{method}}").mockImplementation(…)`, which ' +
-      'Vitest restores.',
+      'This replaces `{{target}}` by assignment and nothing puts it back, so under `isolate: false` every later file in the ' +
+      'worker inherits the replacement. Spy on it instead with `vi.spyOn(console, …).mockImplementation(…)`, which Vitest restores.',
   },
   create: (context) => ({
     CallExpression: (node: EsCallExpression): void => {
@@ -232,14 +226,14 @@ export const noConsoleInSpec = defineRule({
         isMemberExpression(node.callee) &&
         isGlobalConsole(context, node.callee.object)
       ) {
-        context.report({ node, messageId: 'consoleCall' });
+        context.report({ node, messageId: 'consoleCall', data: { call: excerpt(context, node.callee) } });
       }
     },
     AssignmentExpression: (node: EsAssignmentExpression): void => {
       const { left } = node;
 
       if (isMemberExpression(left) && isGlobalConsole(context, left.object)) {
-        context.report({ node, messageId: 'consoleAssignment', data: { method: memberName(left) ?? 'method' } });
+        context.report({ node, messageId: 'consoleAssignment', data: { target: excerpt(context, left) } });
       }
     },
   }),
@@ -277,17 +271,13 @@ function nameOf(node: EsNode): string | undefined {
 
 /** `import { consoleErrorSpy } from 'vitest-auto-spy/console'` in a file that never calls `installConsoleSpies()`. */
 export const noImportTimeConsoleSpies = defineRule({
-  anchor: '-the-console',
+  name: 'no-import-time-console-spies',
   description: 'Install the console spies where the file needs them — the import installs them once per worker',
   messages: {
     noImportTimeConsoleSpies:
-      'This file relies on importing `vitest-auto-spy/console` to install its spies, and nothing in it calls ' +
-      '`installConsoleSpies()`. The import runs once per worker: under `isolate: false` it silences every later file of ' +
-      'the worker, and nothing in this file takes the spies off again. Install them where ' +
-      'this file needs them — `beforeEach(() => { consoleSpies = installConsoleSpies(); })` with ' +
-      '`afterEach(() => restoreConsole())`; `beforeAll` with `afterAll` for a suite that shares one server or fixture ' +
-      'across its tests; or `installConsoleSpies()` once at the top of the file. Under ' +
-      '`setupAutoSpy({ strayConsole })` the import installs nothing at all.',
+      '`{{source}}` is imported for its install side effect, which runs once per worker, so under `isolate: false` it ' +
+      'silences every later file too. Install the spies here: `beforeEach(() => installConsoleSpies())` with ' +
+      '`afterEach(() => restoreConsole())`.',
   },
   create: (context) => {
     const imports: EsNode[] = [];
@@ -304,7 +294,13 @@ export const noImportTimeConsoleSpies = defineRule({
       },
       'Program:exit': (): void => {
         if (!installs) {
-          imports.forEach((node) => context.report({ node, messageId: 'noImportTimeConsoleSpies' }));
+          imports.forEach((node) =>
+            context.report({
+              node,
+              messageId: 'noImportTimeConsoleSpies',
+              data: { source: String(Reflect.get(Object(Reflect.get(node, 'source')), 'value')) },
+            }),
+          );
         }
       },
     };

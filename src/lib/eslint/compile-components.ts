@@ -13,6 +13,7 @@
  */
 import { asyncOnlyFor, dropAsync } from './async-hooks';
 import { defineRule } from './define-rule';
+import { receiverOf } from './message-data';
 import {
   type EsCallExpression,
   type EsFix,
@@ -64,7 +65,7 @@ function removal(context: RuleContext, call: EsCallExpression): SuggestionDescri
 }
 
 export const noCompileComponents = defineRule({
-  anchor: '-a-components-children',
+  name: 'no-compile-components',
   description: 'Drop compileComponents() under a builder that inlines component resources',
   hasSuggestions: true,
   schema: [
@@ -79,23 +80,14 @@ export const noCompileComponents = defineRule({
   ],
   messages: {
     noCompileComponents:
-      '`compileComponents()` is usually redundant here. It exists to fetch the `templateUrl` / `styleUrls` of a component at run ' +
-      'time, and this project says its builder inlines them (`{ builder: "inline-resources" }`), so that promise is already ' +
-      'settled and the `await` in front of it waits for nothing. Delete the call, and the `async` of a hook that awaits nothing ' +
-      'else. One exception this rule cannot see, because the template is another file: a component whose template holds a ' +
-      '`@defer` block ships async class metadata, which `compileComponents()` resolves whatever the builder did — drop the call ' +
-      'there and the test dies on "has unresolved metadata. Please call `await TestBed.compileComponents()`". Keep those: list ' +
-      'the component classes in `{ ignoreComponents: ["CardComponent"] }` and a spec that names one is left alone, or put ' +
-      'the call behind `// eslint-disable-next-line vitest-auto-spy/no-compile-components -- @defer: async class metadata`. ' +
-      'Under a setup that loads resources at run time — a JIT compile reading `templateUrl` with no build step inlining it — the ' +
-      'call is load-bearing everywhere, which is why this rule reports nothing until the option says otherwise.',
+      '`{{receiver}}.compileComponents()` fetches `templateUrl` and `styleUrls` at run time, and this builder inlines them, so the `await` waits for nothing. Delete the call; if the component’s template has a `@defer` block, keep it and list the component in `{ ignoreComponents }`.',
   },
   create: (context) =>
     inlinesResources(context) && !namesIgnoredComponent(context)
       ? {
           'CallExpression[callee.computed=false][callee.property.name="compileComponents"]': (node: EsCallExpression): void => {
             const suggestion = removal(context, node);
-            const report = { node, messageId: 'noCompileComponents' };
+            const report = { node, messageId: 'noCompileComponents', data: { receiver: receiverOf(context, node) } };
 
             context.report(suggestion ? { ...report, suggest: [suggestion] } : report);
           },

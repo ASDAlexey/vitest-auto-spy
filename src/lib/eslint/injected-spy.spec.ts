@@ -126,12 +126,11 @@ describe('prefer-inject-spy tokens kept real', () => {
   it('names the case where its own advice cannot work', () => {
     const reported = message("vi.spyOn(TestBed.inject(BillingPlansService), 'getPlans');");
 
-    expect(reported).toContain('ignoreTokens');
-    // `DestroyRef` is not a matter of taste: `{ provide: DestroyRef, useValue }` is accepted by the
-    // testing module and never consulted, and a message that only said "provide it instead" would
-    // be sending the reader after a provider that does nothing.
-    expect(reported).toContain('DestroyRef');
-    expect(reported).toContain('__NG_ENV_ID__');
+    expect(reported).toMatch(
+      /^`vi\.spyOn\(TestBed\.inject\(BillingPlansService\), 'getPlans'\)` replaces one method of the `BillingPlansService` instance/,
+    );
+    expect(reported).toContain('provideAutoSpy(BillingPlansService)');
+    expect(reported).toContain('list `BillingPlansService` in `{ ignoreTokens }`');
   });
 
   it('keeps the suggestion on everything it still reports', () => {

@@ -269,18 +269,18 @@ function deleteProviderSuggestion(context: RuleContext, element: EsNode, token: 
 
 /** Two providers for one token in one array → the earlier one never runs. */
 export const noOverriddenProvider: RuleModule = defineRule({
-  anchor: '-a-service-behind-angular-di',
+  name: 'no-overridden-provider',
   description: 'Register a token once — a second provider for it in the same array silently replaces the first',
   hasSuggestions: true,
   messages: {
     noOverriddenProvider:
-      'Another provider for `{{token}}` follows this one in the same array, and Angular keeps the last: the one on line {{line}} is what DI hands out, and this one never runs. `provideAutoSpy({{token}})` sitting above `{ provide: {{token}}, useValue: … }` is not an auto-spy with extra configuration — it is a hand-rolled double, and the auto-spy is dead code. That misleads from both sides: assertions get written against a spy nothing provided, and whoever comes to replace the hand-rolled double sees the `provideAutoSpy` beside it and reads the work as done. Keep one.',
+      'The provider for `{{token}}` on line {{line}} follows this one in the same array, and Angular keeps the last, so this one never reaches DI and assertions written against it test a double nothing provided. Keep one of the two.',
     duplicateProvider:
-      '`{{token}}` is provided twice in this array, in the same words: the copy on line {{line}} is the one DI hands out, and Angular had already ignored this one. Deleting it therefore cannot change what the test gets, which is why this is the only shape here that comes with an edit — offered as a suggestion, because deleting a line of a `providers` array is not something to discover in a diff.',
+      '`{{token}}` is provided twice in this array in the same words, and Angular keeps the copy on line {{line}}, so this one changes nothing. Delete it.',
     overriddenByBarerProvider:
-      'Another provider for `{{token}}` follows this one on line {{line}}, and Angular keeps the last — so the double this spec configured is not the double it got. The survivor is the **barer** of the two: whatever is set up here (`gettersToSpyOn`, `instanceMethodsToSpyOn`, a `useValue` body) never reaches DI, and every assertion below runs against a poorer spy answering to the same name. Nothing can be deleted for you, because which of the two to keep is the question: move this configuration onto the provider on line {{line}}, or delete that one.',
+      'The provider for `{{token}}` on line {{line}} follows this one, and Angular keeps the last, so the configuration written here never reaches DI and the spec gets the barer double. Move this configuration onto line {{line}}, or delete that provider.',
     overriddenByTestBedOverride:
-      '`TestBed.overrideProvider({{token}})` on line {{line}} replaces this registration, so this provider never reaches the code under test — an override wins over a module provider whenever it runs, which is why the order of the two lines says nothing. A `provideAutoSpy({{token}})` in this position is the misleading half: the spec looks configured, `injectSpy({{token}})` hands back whatever the override put there instead, and an assertion written against the auto-spy is asserting on a double nothing provided. Keep one. If the override is there because the component under test declares `{{token}}` in its own `providers` — the one case a module-level provider genuinely cannot win — then this registration is the redundant one and can go; otherwise configure the double once, here, and drop the override.',
+      '`TestBed.overrideProvider({{token}})` on line {{line}} replaces this registration whenever it runs, so this provider never reaches the code under test and `injectSpy({{token}})` returns the override. Configure the double once, here, and drop the override, unless the component declares `{{token}}` in its own `providers`.',
   },
   create: (context) => {
     // Collected and reported at the end: the two halves are never in one expression — the

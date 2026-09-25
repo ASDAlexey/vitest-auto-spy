@@ -103,9 +103,9 @@ describe('no-mistyped-use-value — what it reports', () => {
     const [message, ...rest] = lintTyped('boolean-object.spec.ts');
 
     expect(rest).toEqual([]);
-    expect(message?.message).toMatch(/^`IS_BROWSER` expects `boolean`, but `useValue` is `\{\}` — Angular types `useValue` as `any`/);
-    expect(message?.message).toContain('truthy');
-    expect(message?.message).toContain('#how-to-mock-a-service-behind-angular-di');
+    expect(message?.message).toMatch(/^`IS_BROWSER` expects `boolean`, but `useValue` is `\{\}`; Angular types `useValue` as `any`/);
+    expect(message?.message).toContain('Provide a value of type `boolean`');
+    expect(message?.message).toContain('/utilities/eslint-rules#no-mistyped-use-value');
   });
 
   it.each([

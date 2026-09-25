@@ -38,15 +38,12 @@ function compare({ checker, toTs }: CheckerServices<PrimitiveChecker>, provide: 
 
 /** `{ provide: IS_PLATFORM_BROWSER, useValue: {} }` for an `InjectionToken<boolean>` → a value nothing compared. */
 export const noMistypedUseValue = defineRule({
-  anchor: '-a-service-behind-angular-di',
+  name: 'no-mistyped-use-value',
   description:
     'Give a primitive-typed InjectionToken a useValue of its declared type — Angular types useValue as any, so nothing else checks it',
   messages: {
     noMistypedUseValue:
-      '`{{token}}` expects `{{expected}}`, but `useValue` is `{{actual}}` — Angular types `useValue` as `any`, so the compiler never ' +
-      'compared them. Whatever injects the token gets this value unchanged: an object or an array where a `boolean` is read is ' +
-      'truthy, so the spec runs down the branch it meant to switch off. Provide a value of the declared type; if the code really ' +
-      "needs something else, it is the token's declaration that is wrong.",
+      '`{{token}}` expects `{{expected}}`, but `useValue` is `{{actual}}`; Angular types `useValue` as `any`, so nothing compared them and the code under test gets this value as it is. Provide a value of type `{{expected}}`.',
   },
   create: (context) => ({
     ObjectExpression: (node: EsObjectExpression): void => {

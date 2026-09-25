@@ -59,6 +59,7 @@
  */
 import { boundValueOf } from './bindings';
 import { defineRule } from './define-rule';
+import { excerpt } from './message-data';
 import {
   type EsBlockStatement,
   type EsCallExpression,
@@ -273,19 +274,11 @@ function standsAlone(finding: Finding, beforeEaches: EsCallExpression[]): boolea
   return finding.placement.first && !precededByAnotherBeforeEach(finding.fn, beforeEaches);
 }
 
-const REPAIR =
-  'Delete the line: the runner performs this reset itself, in `onBeforeTryTask`, before every test’s `beforeEach` chain, and ' +
-  'this one stands where nothing the file wrote has run since — the first statement of a `beforeEach` no other `beforeEach` ' +
-  'precedes, or the last of an `afterEach` that only forgets calls. The runner resets before a test and never after one, so a ' +
-  'restore or a reset in an `afterEach` / `afterAll` is not reported: after the file’s last test it is what takes a spy off ' +
-  '`window` or a prototype before the `afterAll` hooks run. A reset in the middle of a test body is a different thing and is ' +
-  'never reported either: there it separates one arrangement from the next inside one test.';
-
 /** Build the report, with an edit where the deletion is provably a no-op and a suggestion otherwise. */
 function describeReport(context: RuleContext, finding: Finding, dead: boolean): ReportDescriptor {
   const { fn, hook, node, placement, reset } = finding;
   const target = placement.statement ?? hookStatement(fn);
-  const data = { flag: FLAG[reset.kind], hook };
+  const data = { call: excerpt(context, node), flag: FLAG[reset.kind], hook };
   const report = { data, messageId: dead ? 'deadReset' : 'repeatedReset', node };
 
   if (target === undefined) {
@@ -299,7 +292,7 @@ function describeReport(context: RuleContext, finding: Finding, dead: boolean): 
 
 /** `vi.clearAllMocks()` in a `beforeEach` under `clearMocks: true` → a line with nothing to do. */
 export const noRedundantMockReset: RuleModule = defineRule({
-  anchor: '-a-double-more-than-one-spec-uses',
+  name: 'no-redundant-mock-reset',
   description: 'Do not repeat in a hook the mock reset the runner is configured to perform between tests',
   fixable: true,
   hasSuggestions: true,
@@ -317,11 +310,9 @@ export const noRedundantMockReset: RuleModule = defineRule({
   ],
   messages: {
     deadReset:
-      '`{{flag}}: true` is on, so the runner ran this very reset immediately before this {{hook}}, and this file holds nothing ' +
-      `that could have run since — the line has nothing left to do. ${REPAIR}`,
+      '`{{call}}` repeats the reset `{{flag}}: true` already ran just before this `{{hook}}`, and nothing in this file runs in between, so the line does nothing. Delete it.',
     repeatedReset:
-      '`{{flag}}: true` is on, so the runner performs this reset between tests and the next test starts on the same registry ' +
-      `whether or not this line is here. ${REPAIR}`,
+      '`{{call}}` repeats the reset `{{flag}}: true` makes the runner perform between tests, so the next test starts on the same state with or without it. Delete it.',
   },
   create: (context) => {
     const findings: Finding[] = [];

@@ -45,6 +45,7 @@
  */
 import { PACKAGE, bindingState, importNamed } from './bindings';
 import { defineRule } from './define-rule';
+import { excerpt } from './message-data';
 import {
   type EsFix,
   type EsFixer,
@@ -168,31 +169,16 @@ function wrap(context: RuleContext, node: EsNode): SuggestionDescriptor | undefi
   };
 }
 
-const REPAIR =
-  `\`await ${HELPER}(() => import('…'))\` from \`${PACKAGE}\` is the same load followed by ` +
-  '`flushEventLoop(1)`, which is the turn that continuation needs; it returns the module namespace, so ' +
-  '`const { Thing } = await import(…)` keeps reading the same way. A continuation that spans more than one turn takes the ' +
-  'second argument. What it cannot replace is `fakeAsync` / `tick()` / `flushMicrotasks()`: those drive Angular’s zone ' +
-  'queues, and the module loader is not one of them. Where nothing the test ran loads this module — the spec only reads its ' +
-  'exports, after an arrangement line — the repair is a static `import` at the top of the file instead.';
+const REPAIR = `Write \`await ${HELPER}(() => {{load}})\`, which also flushes that turn, and assert after it.`;
 
 /** `await import('./thing')` in a test body → `await settleDynamicImport(() => import('./thing'))`. */
 export const preferSettleDynamicImport: RuleModule = defineRule({
-  anchor: '-a-promise-a-test-forgets-to-await',
+  name: 'prefer-settle-dynamic-import',
   description: 'Load a module the code under test lazy-loads with settleDynamicImport(), not a bare await import()',
   hasSuggestions: true,
   messages: {
-    awaitedDynamicImport:
-      'This waits for the **module** and not for the code that was loading it. The `import()` under test resolves against the ' +
-      'same module instance, so awaiting the specifier here does return once it is loaded — but the handler’s own continuation, ' +
-      'the lines after *its* `await` that open the dialog or set the state, is queued behind that and has not run yet. The ' +
-      'assertion below therefore reads the state of one turn too early, and the test is green only while the continuation is ' +
-      `short enough to drain by accident. ${REPAIR}`,
-    thenedDynamicImport:
-      '`import(…).then(…)` waits for the module and not for the code that was loading it, and it adds a second problem on top: ' +
-      'the callback is a continuation of its own, so whatever the spec asserts inside it runs after the turn the code under ' +
-      'test is still queued in — and if nothing awaits the chain, after the test has ended, where an assertion cannot fail it. ' +
-      `${REPAIR}`,
+    awaitedDynamicImport: `\`await {{load}}\` waits for the module, not for the code under test that was loading it: its continuation after its own \`await\` has not run yet, so the assertions below read the state one turn early. ${REPAIR}`,
+    thenedDynamicImport: `\`{{load}}.then(…)\` waits for the module, not for the code under test that was loading it, and its callback runs later still, after the test ends if nothing awaits it. ${REPAIR}`,
   },
   create: (context) => ({
     ImportExpression: (node: EsNode): void => {
@@ -204,7 +190,7 @@ export const preferSettleDynamicImport: RuleModule = defineRule({
 
       const messageId = consumption === 'await' ? 'awaitedDynamicImport' : 'thenedDynamicImport';
       const suggestion = wrap(context, node);
-      const report = { node, messageId };
+      const report = { node, messageId, data: { load: excerpt(context, node) } };
 
       context.report(suggestion ? { ...report, suggest: [suggestion] } : report);
     },

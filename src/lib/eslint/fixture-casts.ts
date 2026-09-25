@@ -27,6 +27,7 @@ import { PACKAGE, bindingState, findBinding, importNamed } from './bindings';
 import { defineRule } from './define-rule';
 import { insideFactorySeed } from './hand-rolled-doubles';
 import { injectedFromVariable, isTestBedInject } from './injected-spy';
+import { excerpt } from './message-data';
 import {
   type EsFix,
   type EsFixer,
@@ -167,29 +168,14 @@ function buildFixture(context: RuleContext, node: EsReferenceCast): SuggestionDe
   };
 }
 
-const FIXTURE_REPAIR =
-  'Where the literal already sits in a slot that has a type — an argument, a `nextWith`, a typed `const` — the first repair is ' +
-  'to **delete the cast** and let the slot check it. What survives that is the partial, and the partial is ' +
-  `\`${CREATE_MOCK}<T>({ … })\` from \`${PACKAGE}\`: it takes a \`DeepPartial<T>\` and answers a value typed \`T\`, so the literal ` +
-  'is checked at every depth while a field the fixture does not care about stays optional — a fixture is a partial by design, ' +
-  'and that is the half a cast gets right. What it stops getting away with is the other half: a key `T` does not declare is a ' +
-  'compile error on the literal, which is the drift this reports. Adopting it on a suite that has drifted therefore turns those ' +
-  'literals red, one fixture at a time; that redness is the finding, not a side effect of the repair. A value outside `T` on ' +
-  `purpose — the \`null\` a backend sends, a payload that has to reach a guard — is \`outOfType<T>(…)\` from \`${PACKAGE}\`, which ` +
-  'names the intent at the call site and is not reported.';
-
 /** `{ … } as Device` → `createMock<Device>({ … })`. */
 export const preferCreateMock: RuleModule = defineRule({
-  anchor: '-a-plain-data-fixture',
+  name: 'prefer-create-mock',
   description: 'Build a partial fixture with createMock<T>(), not an object literal cast to T',
   hasSuggestions: true,
   messages: {
     castFixture:
-      'This object literal claims to be a whole `{{type}}` and nothing checked it. A cast asks whether the two types overlap, ' +
-      'not whether the value is one of them, so it passes both directions an assignment refuses: a key `{{type}}` does not ' +
-      'declare (the excess-property check is skipped for a cast) and a required field the fixture never sets. Both gates stay ' +
-      'silent, and the fixture is then spread into an expected payload or handed to the code under test — so the spec pins a ' +
-      `key the contract does not have, or covers a branch the real value could never reach. ${FIXTURE_REPAIR}`,
+      '`{ … } as {{type}}` claims a whole `{{type}}` and checks nothing: a cast lets through a key `{{type}}` does not declare and a required field the fixture never sets. Build it with `createMock<{{type}}>({ … })`, which checks every key it is given and leaves the rest optional.',
   },
   create: (context) => ({
     [REFERENCE_CAST_SELECTORS.join(', ')]: (node: EsReferenceCast): void => {
@@ -318,33 +304,16 @@ function readFromDi(context: RuleContext, node: EsReferenceCast, member: EsMembe
   };
 }
 
-const MOCK_REPAIR =
-  'A member of a double built here is already a spy, and it is typed from the real signature: read it as it is — ' +
-  `\`${INJECT_SPY}(Service).method\` for one DI handed out, \`asSpy(double).method\` for one the test holds — and the cast has ` +
-  'nothing left to do. `mockReturnValue` then takes what the method returns, and `toHaveBeenCalledWith` compares what it ' +
-  'accepts. A `vi.spyOn` spy or a `vi.fn()` on an object that is not such a double takes `vi.mocked(object.method)`, which ' +
-  'reads the type from the member itself. A parameterised `Mock<[…], R>` is no repair either: it is the signature written a ' +
-  'second time, in a place nothing keeps in step with the first.';
-
 /** `TestBed.inject(S).m as Mock` → `injectSpy(S).m`. */
 export const noMockCast: RuleModule = defineRule({
-  anchor: '-reading-a-spy-back-from-di',
+  name: 'no-mock-cast',
   description: 'Read a spy member off the double, not through a cast to Vitest’s Mock',
   hasSuggestions: true,
   messages: {
     mockCast:
-      '`{{type}}` with no parameters is `{{type}}<any>`, so this cast does not add the spy surface — it removes the signature. ' +
-      '`mockReturnValue` accepts anything from here on, and `toHaveBeenCalledWith` stops comparing arguments altogether: the ' +
-      'assertion below still passes when the code under test calls the method with the wrong ones, which is a test green on a ' +
-      `fact it no longer checks. ${MOCK_REPAIR}`,
+      '`{{target}} as {{type}}` makes it `{{type}}<any>`, which drops the method’s signature, so `toHaveBeenCalledWith` stops comparing arguments. Drop the cast: a member of a double this library built is already a typed spy, and `vi.mocked({{target}})` types any other.',
     configurationCast:
-      'The cast is on `{{member}}` itself, so nothing checks the value being installed — not the argument, and not the ' +
-      'method’s own return type, which is two steps away behind a `{{type}}<any>`. A double seeded this way answers a value ' +
-      'the real collaborator could not produce, and every assertion downstream is about that value rather than about the ' +
-      'contract. Where the cast went in because the value would not compile, look at the method: an overloaded one is typed ' +
-      "against its **last** signature (`observe: 'events'` on a generated client), and " +
-      "`Spy<Service, { overload: { method: 'first' } }>` picks the one the code calls. " +
-      `${MOCK_REPAIR}`,
+      "The cast on `{{target}}` makes it `{{type}}<any>`, so nothing checks the value it installs against what the method returns. Drop the cast; if the value then fails on an overloaded method, pick the overload with `Spy<Service, { overload: { method: 'first' } }>`.",
   },
   create: (context) => ({
     [REFERENCE_CAST_SELECTORS.join(', ')]: (node: EsReferenceCast): void => {
@@ -360,7 +329,7 @@ export const noMockCast: RuleModule = defineRule({
       const report = {
         node,
         messageId: configured ? 'configurationCast' : 'mockCast',
-        data: { member: context.sourceCode.getText(member), type },
+        data: { member: context.sourceCode.getText(member), target: excerpt(context, node.expression, 50), type },
       };
 
       context.report(suggestion ? { ...report, suggest: [suggestion] } : report);

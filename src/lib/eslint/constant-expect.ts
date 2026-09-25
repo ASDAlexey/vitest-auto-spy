@@ -3,6 +3,7 @@
  * passes (or fails) the same way whatever the code under test does.
  */
 import { defineRule } from './define-rule';
+import { excerpt } from './message-data';
 import {
   type EsCallExpression,
   type EsNode,
@@ -86,14 +87,11 @@ function isDecided(actual: EsNode, matcher: { name: string; args: EsNode[] }): b
 }
 
 export const noConstantExpect = defineRule({
-  anchor: '-a-promise-a-test-forgets-to-await',
+  name: 'no-constant-expect',
   description: 'Assert on a value the code under test produced, not on one the spec spelled out',
   messages: {
     noConstantExpect:
-      'This assertion was decided when the spec was written: `expect` is handed a value spelled out in the spec, and ' +
-      '`{{matcher}}` gives the same answer for it on every run, whatever the code under test does — so a test whose only ' +
-      'assertion this is proves that the file loaded, and nothing else. Assert on something the code under test produced. ' +
-      "If the line marks a branch the test must never reach, `expect.fail('…')` says that and names the branch.",
+      "`expect({{actual}}).{{matcher}}(…)` checks a value written in the spec, so it gives the same answer on every run whatever the code under test does. Assert on something the code under test produced; for a line that must never run, write `expect.fail('…')`.",
   },
   create: (context) => ({
     'CallExpression[callee.name="expect"]': (node: EsCallExpression): void => {
@@ -101,7 +99,7 @@ export const noConstantExpect = defineRule({
       const matcher = matcherOf(node);
 
       if (actual && matcher && isDecided(actual, matcher)) {
-        context.report({ node, messageId: 'noConstantExpect', data: { matcher: matcher.name } });
+        context.report({ node, messageId: 'noConstantExpect', data: { actual: excerpt(context, actual, 40), matcher: matcher.name } });
       }
     },
   }),
