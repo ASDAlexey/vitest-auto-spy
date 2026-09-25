@@ -15,6 +15,7 @@ import type { Finding } from '../report';
 import { type SourceGraph, isSpecFile, resolveRelative } from './graph';
 import { isInsideLiteral, literalSpans } from './literals';
 import { isolationFromAngularBuilder } from './runner-isolation';
+import { unitTestTargets } from './unit-test-targets';
 
 type MockKind = 'automock' | 'factory';
 
@@ -37,21 +38,41 @@ export function mockCalls(source: string): { specifier: string; kind: MockKind }
     });
 }
 
-function sharesEnvironment(profile: Profile): boolean {
+/** Where the shared environment comes from, or `undefined` when every file gets its own. */
+function sharedEnvironmentSource(profile: Profile): string | undefined {
   const declared = profile.files
     .filter((file) => RUNNER_CONFIG.test(file))
-    .some((file) => /\bisolate\s*:\s*false\b/.test(String(readTextFile(posix.join(profile.cwd, file)))));
+    .find((file) => /\bisolate\s*:\s*false\b/.test(String(readTextFile(posix.join(profile.cwd, file)))));
 
-  return declared || isolationFromAngularBuilder(profile)?.isolated === false;
+  if (declared !== undefined) {
+    return `\`isolate: false\` in ${declared}`;
+  }
+
+  const [target] = unitTestTargets(profile);
+
+  return target !== undefined && isolationFromAngularBuilder(profile)?.isolated === false
+    ? `the \`isolate: false\` default of ${target.builder}`
+    : undefined;
+}
+
+const LISTED_FILES = 6;
+
+function listFiles(files: readonly string[]): string {
+  const shown = files.length <= LISTED_FILES ? files : files.slice(0, LISTED_FILES - 1);
+  const rest = files.length - shown.length;
+
+  return `${shown.join(', ')}${rest === 0 ? '' : ` and ${rest} more`}`;
 }
 
 export function checkModuleMockLeak(profile: Profile, graph: SourceGraph): Finding[] {
-  if (!sharesEnvironment(profile)) {
+  const source = sharedEnvironmentSource(profile);
+
+  if (source === undefined) {
     return [];
   }
 
   const known = new Set(profile.files);
-  const byModule = new Map<string, Map<MockKind, string[]>>();
+  const byModule = new Map<string, Map<MockKind, { file: string; specifier: string }[]>>();
 
   for (const [file, text] of graph.texts) {
     if (!isSpecFile(file)) {
@@ -60,24 +81,24 @@ export function checkModuleMockLeak(profile: Profile, graph: SourceGraph): Findi
 
     for (const { specifier, kind } of mockCalls(text)) {
       const key = resolveRelative(file, specifier, known) ?? specifier;
-      const kinds = byModule.get(key) ?? new Map<MockKind, string[]>();
+      const kinds = byModule.get(key) ?? new Map<MockKind, { file: string; specifier: string }[]>();
 
-      kinds.set(kind, [...(kinds.get(kind) ?? []), file]);
+      kinds.set(kind, [...(kinds.get(kind) ?? []), { file, specifier }]);
       byModule.set(key, kinds);
     }
   }
 
   return [...byModule].flatMap(([module, kinds]) => {
-    const factories = kinds.get('factory') ?? [];
+    const factories = (kinds.get('factory') ?? []).map((entry) => entry.file);
 
     return factories.length === 0
       ? []
-      : (kinds.get('automock') ?? []).map((file) => ({
+      : (kinds.get('automock') ?? []).map(({ file, specifier }) => ({
           check: 'module-mock-leak',
           severity: 'warning' as const,
           file,
-          message: `\`${module}\` is automocked here and mocked with a factory in ${factories.slice(0, 1).join('')}${factories.length > 1 ? ` and ${factories.length - 1} more` : ''}. Under \`isolate: false\` Vitest keeps a factory mock on the module after its file ends and hands it to a later automock of the same module, so this file fails with \`No "…" export is defined on the "…" mock\` — only when the two share a worker.`,
-          fix: 'Mock the module the same way in both files — a factory here too, or automock there — or call `vi.resetModules()` in this file before it imports the module.',
+          message: `\`${module}\` is automocked here and mocked with a factory in ${listFiles(factories)}. With ${source}, a later automock of the module gets that factory, so this file fails with \`No "…" export is defined on the "${specifier}" mock\` whenever the two share a worker.`,
+          fix: `Give \`vi.mock('${specifier}')\` in this file a factory too, as ${String(factories[0])} does.`,
         }));
   });
 }
