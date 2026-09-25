@@ -5,6 +5,7 @@
  * fail anything — a spec no tsconfig covers, a pragma the runner does not read — so there is no
  * throw site to hang them off. They are collected, sorted and printed together.
  */
+import { docsFor } from './docs';
 import { outputWidth, stripColor, wrapText } from './paint';
 
 /** How loudly a finding is reported, and whether it makes the process exit non-zero. */
@@ -52,8 +53,10 @@ export function hasFailures(findings: readonly Finding[]): boolean {
   return findings.some((finding) => finding.severity !== 'info');
 }
 
-function fixLines(fix: string, width: number): string[] {
-  return wrapText(fix, width, `${BODY}  `, `${BODY}→ `);
+function fixLines(finding: Finding, width: number): string[] {
+  const docs = docsFor(finding.check);
+
+  return [...wrapText(finding.fix, width, `${BODY}  `, `${BODY}→ `), ...(docs === undefined ? [] : [`${BODY}Docs: ${docs}`])];
 }
 
 function formatOne(finding: Finding, width: number): string {
@@ -63,7 +66,7 @@ function formatOne(finding: Finding, width: number): string {
     `${SEVERITY_LABEL[finding.severity]}  ${finding.check}${where}`,
     ...wrapText(finding.message, width, BODY),
     ...(finding.details ?? []).map((line) => `${BODY}${line}`),
-    ...fixLines(finding.fix, width),
+    ...fixLines(finding, width),
   ].join('\n');
 }
 
@@ -82,7 +85,7 @@ function formatGroup({ first, members: group }: FindingGroup, width: number): st
     `${SEVERITY_LABEL[first.severity]}  ${first.check} — ${placesOf(group)}`,
     ...(sameMessage ? wrapText(first.message, width, BODY) : []),
     ...places,
-    ...fixLines(first.fix, width),
+    ...fixLines(first, width),
   ].join('\n');
 }
 

@@ -55,6 +55,20 @@ describe('formatFindings', () => {
     expect(text).toContain('→ fix');
   });
 
+  it('ends a finding with the docs section about its check, and a grouped one once', () => {
+    const one = formatFindings([finding({ check: 'module-mock-leak', file: 'a.spec.ts' })], 'info', 80);
+    const group = formatFindings(
+      [finding({ check: 'foreign-runner-pragma', file: 'a.spec.ts' }), finding({ check: 'foreign-runner-pragma', file: 'b.spec.ts' })],
+      'info',
+      80,
+    );
+
+    expect(one.split('\n').at(-1)).toBe('       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#module-mock-leak');
+    expect(group.match(/Docs: /g)).toHaveLength(1);
+    expect(group.split('\n').at(-1)).toBe('       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#foreign-runner-pragma');
+    expect(formatFindings([finding({ check: 'no-section' })])).not.toContain('Docs:');
+  });
+
   it('omits the file when the finding is about the repository', () => {
     expect(formatFindings([finding({ severity: 'info' })])).toContain('info   check\n');
   });
