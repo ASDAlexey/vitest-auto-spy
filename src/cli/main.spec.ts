@@ -248,6 +248,21 @@ describe('init', () => {
     expect(one.stderr.at(-1)).toBe('\nAGENTS.md is out of date. Run `npx vitest-auto-spy init` to update it.');
   });
 
+  it('tells how to replace a stale copy of the shipped skill, and fails --check on it', () => {
+    const skill = '.claude/skills/vitest-auto-spy/SKILL.md';
+    const root = createTempRepo({ ...HEALTHY, [skill]: '---\nname: vitest-auto-spy\n---\n\nAn old copy.\n' });
+    const plain = recorder();
+    const check = recorder();
+
+    expect(runCli(['init', '--cwd', root], plain)).toBe(0);
+    expect(plain.stdout.join('\n')).toContain(`stale     ${skill}`);
+    expect(plain.stderr.join('\n')).toContain('Delete it and re-run `npx vitest-auto-spy init`');
+    expect(runCli(['init', '--cwd', root, '--check'], check)).toBe(1);
+    expect(check.stdout.join('\n')).not.toContain('Up to date.');
+    expect(check.stderr).not.toContainEqual(expect.stringContaining('out of date'));
+    expect(check.stderr.at(-1)).toBe(`\n${skill} is a stale copy of the shipped skill. Delete it, then run \`npx vitest-auto-spy init\`.`);
+  });
+
   it('writes only the files --only names', () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);

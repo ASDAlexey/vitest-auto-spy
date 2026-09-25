@@ -146,6 +146,9 @@ would have broken is reported as `codemod-broke-syntax` and left byte for byte a
 specs are visited too. An unknown flag for a known command, and a path matching no file, are errors
 with **exit 2** and nothing runs — `init --dryrun` used to write the files.
 
+`init` lists a hand-made copy of this skill in `.claude/skills/vitest-auto-spy/` as `stale` and
+`init --check` exits 1 on it: delete the copy and re-run `init`, which writes the managed pointer.
+
 ## Skeleton — anything else
 
 ```ts
@@ -280,6 +283,8 @@ it('loads', async () => {
 | "did the migration lose a test?" with matching counters                                             | `compareTestRuns(before, after)` — `counts` reports `name (×2 → ×1)`                                                                                                                              |
 | an input that has to change after the first render                                                  | `await setInputs(fixture, { … })` — aliases and `hostDirectives` inputs resolve, unknown names refused                                                                                            |
 | `fixture.nativeElement as HTMLElement`, or `no-unsafe-*` on `nativeElement` under a strict lint     | `hostElement(fixture)` / `queryElement(fixture, '.close', HTMLButtonElement)` — typed and `instanceof`-checked; a miss throws naming the selector                                                 |
+| `host.querySelector('.title')?.textContent.trim()` after `hostElement`                              | `queryElement(fixture, '.title').textContent.trim()` — a miss throws instead of passing as `undefined`; for absence keep `expect(host.querySelector('.x')).toBeNull()`                            |
+| `Cannot read properties of null (reading 'nativeElement')` on a `debugElement.query(…)`             | the query matched nothing — `hostElement` / `queryElement` now throw saying so; fix the predicate                                                                                                 |
 | `CalledExactlyOnceWith()` failing `[] vs [undefined]` on an `output<void>()` listener               | the listener gets `undefined` — `await expect(expectEmission(cmp.closed)).resolves.toBeUndefined()`, or `subscribeSpyTo(subject$)`                                                                |
 | `replaced the dispatch … after calledWith()` right after `mockReset()`                              | `mockReset()` keeps the chain — `resetAutoSpy(spy.method)`, then `mockReturnValue(…)`                                                                                                             |
 | `injectMatDialogRef(MatDialogRef<C, R>)` comes back `any` (`no-unsafe-assignment`)                  | `injectMatDialogRef<MatDialogRef<C, R>>(MatDialogRef)` — the instantiation expression is read off Material's `any` prototype                                                                      |

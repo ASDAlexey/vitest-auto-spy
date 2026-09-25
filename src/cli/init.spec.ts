@@ -112,6 +112,32 @@ describe('runInit', () => {
     expect(readTextFile(join(root, '.claude/skills/vitest-auto-spy/SKILL.md'))).toBe(handWritten);
   });
 
+  it('reports a stale copy of the shipped skill without overwriting it, and fails --check on it', () => {
+    const copied = '---\nname: vitest-auto-spy\ndescription: Typed spies.\n---\n\n# vitest-auto-spy\n\nThe whole skill, as of 2.0.0.\n';
+    const root = createTempRepo({
+      'package.json': MANIFEST,
+      '.claude/': '',
+      '.claude/skills/': '',
+      '.claude/skills/vitest-auto-spy/': '',
+      '.claude/skills/vitest-auto-spy/SKILL.md': copied,
+    });
+    const result = install(root);
+
+    expect(statusOf(result, '.claude/skills/vitest-auto-spy/SKILL.md')).toBe('stale');
+    expect(readTextFile(join(root, '.claude/skills/vitest-auto-spy/SKILL.md'))).toBe(copied);
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toContainEqual(
+      expect.stringMatching(/^\.claude\/skills\/vitest-auto-spy\/SKILL\.md is a copy of the shipped .* Delete it and re-run/),
+    );
+
+    const checked = install(root, { check: true });
+
+    expect(statusOf(checked, '.claude/skills/vitest-auto-spy/SKILL.md')).toBe('stale');
+    expect(checked.ok).toBe(false);
+    expect(statusOf(install(root, { uninstall: true }), '.claude/skills/vitest-auto-spy/SKILL.md')).toBe('skipped');
+    expect(readTextFile(join(root, '.claude/skills/vitest-auto-spy/SKILL.md'))).toBe(copied);
+  });
+
   it('leaves a CLAUDE.md that already imports AGENTS.md alone', () => {
     const root = createTempRepo({ 'package.json': MANIFEST, 'CLAUDE.md': '@AGENTS.md\n' });
     const result = install(root);
@@ -271,6 +297,24 @@ describe('skillPlan', () => {
     expect(skillPlan(plan, '1.0.0', 'name: vitest-auto-spy').desired).toContain('name: vitest-auto-spy');
     expect(skillPlan(plan, '1.0.0', undefined).desired).toBeUndefined();
     expect(skillPlan(plan, '1.0.0', undefined).note).toContain('could not be read');
+  });
+
+  it.each([
+    ['name: vitest-auto-spy', true],
+    ["name: 'vitest-auto-spy'", true],
+    ['name: "vitest-auto-spy"\r', true],
+    ['name: vitest-auto-spy-team', false],
+    ['name: \'vitest-auto-spy"', false],
+  ])('treats a hand-made file with frontmatter %j as a copy of the shipped skill: %s', (line, copy) => {
+    const existing = `---\n${line}\n---\n\nbody\n`;
+
+    expect(skillPlan({ ...plan, existing }, '1.0.0', 'name: vitest-auto-spy').staleCopy === true).toBe(copy);
+  });
+
+  it('does not take a file that only mentions the name outside its frontmatter for a copy', () => {
+    expect(
+      skillPlan({ ...plan, existing: '# notes\n\nname: vitest-auto-spy\n' }, '1.0.0', 'name: vitest-auto-spy').staleCopy,
+    ).toBeUndefined();
   });
 });
 

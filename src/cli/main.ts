@@ -197,9 +197,15 @@ function reportInit(result: InitResult, check: boolean, io: CliIo): number {
       .filter((action) => action.status === 'created' || action.status === 'updated')
       .map((action) => action.path);
 
-    io.err(
-      `\n${stale.join(', ')} ${stale.length === 1 ? 'is' : 'are'} out of date. Run \`npx vitest-auto-spy init\` to update ${stale.length === 1 ? 'it' : 'them'}.`,
-    );
+    if (stale.length > 0) {
+      io.err(
+        `\n${stale.join(', ')} ${stale.length === 1 ? 'is' : 'are'} out of date. Run \`npx vitest-auto-spy init\` to update ${stale.length === 1 ? 'it' : 'them'}.`,
+      );
+    }
+
+    for (const action of result.actions.filter((candidate) => candidate.status === 'stale')) {
+      io.err(`\n${action.path} is a stale copy of the shipped skill. Delete it, then run \`npx vitest-auto-spy init\`.`);
+    }
 
     return 1;
   }

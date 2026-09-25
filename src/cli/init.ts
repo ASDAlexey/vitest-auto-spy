@@ -16,7 +16,7 @@ import type { Profile } from './profile';
 import { skillFrontmatter } from './self';
 import { nearest } from './suggest';
 
-export type ActionStatus = 'created' | 'removed' | 'skipped' | 'unchanged' | 'updated';
+export type ActionStatus = 'created' | 'removed' | 'skipped' | 'stale' | 'unchanged' | 'updated';
 
 export interface InitAction {
   readonly path: string;
@@ -49,6 +49,8 @@ export interface Plan {
   readonly desired: string | undefined;
   readonly existing: string | undefined;
   readonly note: string;
+  /** A copy of the shipped skill init never wrote: it cannot be refreshed, and `--check` fails on it. */
+  readonly staleCopy?: true;
 }
 
 function planFor(target: Target, content: string | undefined, profile: Profile, version: string, facts: BlockFacts): Plan {
@@ -95,6 +97,10 @@ function isStampOnly(plan: Plan): boolean {
 const STAMP_ONLY_NOTE = 'only the version stamp differs, which `--check` does not count; a plain `init` refreshes it';
 
 function statusOf(plan: Plan, check: boolean): ActionStatus {
+  if (plan.staleCopy === true) {
+    return 'stale';
+  }
+
   if (plan.desired === undefined) {
     return 'skipped';
   }
@@ -134,6 +140,15 @@ function readTarget(cwd: string, target: Target): string | undefined {
   return pathExists(join(cwd, target.path)) ? readTextFile(join(cwd, target.path)) : undefined;
 }
 
+/** Only the shipped skill carries this name, so a file with it and no markers was copied out of the package. */
+function isShippedSkillCopy(content: string): boolean {
+  const frontmatter = /^---\r?\n([\S\s]*?)\r?\n---/.exec(content)?.[1] ?? '';
+
+  return /^name:\s*(["']?)vitest-auto-spy\1\s*$/m.test(frontmatter);
+}
+
+const STALE_COPY_NOTE = 'a copy of the shipped skill that init did not write — frozen at the version it was copied from';
+
 /**
  * The stub is the shipped skill's frontmatter over a body that only points at the tarball, so it
  * cannot go stale. With no frontmatter to copy there is nothing honest to write, and the target is
@@ -143,7 +158,7 @@ export function skillPlan(plan: Plan, version: string, frontmatter: string | und
   // A file that exists without the markers was hand-authored; `planFor` left it alone, and the
   // stub must not undo that by writing over it.
   if (plan.desired === undefined && plan.existing !== undefined) {
-    return plan;
+    return isShippedSkillCopy(plan.existing) ? { ...plan, staleCopy: true, note: STALE_COPY_NOTE } : plan;
   }
 
   if (frontmatter === undefined) {
@@ -234,9 +249,10 @@ function budgetWarnings(plans: readonly Plan[]): string[] {
 function untouchedWarnings(plans: readonly Plan[]): string[] {
   return plans
     .filter((plan) => plan.desired === undefined && plan.existing !== undefined && plan.target.kind === 'owned')
-    .map(
-      (plan) =>
-        `${plan.target.path} exists and was not written by init — left untouched; fold it into the managed block by hand if you want init to own it.`,
+    .map((plan) =>
+      plan.staleCopy === true
+        ? `${plan.target.path} is a copy of the shipped vitest-auto-spy skill, not written by init, so no upgrade refreshes it — left untouched. Delete it and re-run \`npx vitest-auto-spy init\` to replace it with the managed pointer.`
+        : `${plan.target.path} exists and was not written by init — left untouched; fold it into the managed block by hand if you want init to own it.`,
     );
 }
 
@@ -258,7 +274,7 @@ function unmatchedWarnings(only: readonly string[] | undefined): string[] {
 export function runInit(profile: Profile, version: string, options: InitOptions): InitResult {
   const plans = buildPlans(profile, version, options.only).map((plan) => (options.uninstall ? uninstallPlan(plan) : plan));
   const actions = plans.map((plan) => applyPlan(profile.cwd, plan, options));
-  const pending = actions.some((action) => action.status === 'created' || action.status === 'updated');
+  const pending = actions.some((action) => action.status === 'created' || action.status === 'updated' || action.status === 'stale');
 
   return {
     actions,
