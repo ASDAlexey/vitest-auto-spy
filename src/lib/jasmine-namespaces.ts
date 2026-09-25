@@ -16,8 +16,9 @@
  * cost that shows up in the benchmark suite — so a spy that is never configured through `.and` pays
  * one property definition and allocates nothing.
  */
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import type { JasmineSpyHooks } from './jasmine-support';
+import { withDocs } from './message-link';
 import { getMockAdapter } from './mock-adapter';
 import type { MockFn } from './mock-adapter';
 import type { Func } from './types';
@@ -296,7 +297,7 @@ function unsupportedWithArgsMessage(name: string, strategy: string): string {
       'implementation answers every call rather than one argument list. Configure the value for these arguments — ' +
       '`.withArgs(…).and.returnValue(v)`, `.throwError(e)`, `.resolveTo(v)` — or take the whole spy with ' +
       `\`${name}.and.${strategy}(…)\`, which is what jasmine's own strategy does to every call anyway.`,
-    DOCS_LINKS.jasmine,
+    DOCS_LINKS.jasmineWithArgs,
   );
 }
 
