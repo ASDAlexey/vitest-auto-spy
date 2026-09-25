@@ -24,9 +24,6 @@ export const PERF_REPORTER_ENV = 'VITEST_AUTO_SPY_PERF_REPORTER';
  */
 export const PERF_PROFILE_ENV = 'VITEST_AUTO_SPY_PERF_PROFILE';
 
-/** The page every message from this command points at. Deep links are anchors on it. */
-export const PERF_DOCS = 'https://asdalexey.github.io/vitest-auto-spy/core/performance';
-
 export const PERF_FORMAT_VERSION = 3;
 
 /**
@@ -179,6 +176,25 @@ function parseFile(value: unknown): PerfFile | undefined {
     ...(heap === undefined ? {} : { heap }),
     ...(slowImports.length === 0 ? {} : { slowImports }),
   };
+}
+
+/** Why a text is not a report this build reads, worded to follow the file name. */
+export function whyNotAPerfRun(text: string | undefined): string {
+  if (text === undefined) {
+    return 'does not exist';
+  }
+
+  const parsed = parseJsonc(text);
+
+  if (parsed === undefined) {
+    return 'is not valid JSON';
+  }
+
+  if (!isRecord(parsed) || !Array.isArray(parsed['files'])) {
+    return 'is JSON, but not a perf report: it has no `files` list';
+  }
+
+  return `is version ${String(numberAt(parsed, 'version') ?? 'unknown')} of the perf report format, and this build reads versions ${READABLE_VERSIONS.join(', ')}`;
 }
 
 /**

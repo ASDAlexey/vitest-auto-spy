@@ -16,8 +16,9 @@
  */
 import { join } from 'node:path';
 
+import { BARE_RUN_DOCS } from '../docs';
 import { pathExists } from '../fs-scan';
-import { PERF_DOCS, PERF_OUTPUT_ENV, PERF_REPORTER_ENV } from '../perf-data';
+import { PERF_REPORTER_ENV } from '../perf-data';
 import type { Profile } from '../profile';
 import { type UnitTestTarget, unitTestTargets } from './unit-test-targets';
 
@@ -63,9 +64,18 @@ function builderRecipe(target: UnitTestTarget): string[] {
   const cli = target.builder.startsWith('@nx/') ? 'nx' : 'ng';
 
   return [
-    '',
-    `This workspace runs its tests through \`${target.builder}\`, which takes the reporter as an option — nothing to edit:`,
+    `\`${target.project}:${target.name}\` in ${target.file} runs through \`${target.builder}\`, which takes the perf reporter as an option. Measure it with:`,
     `  npx vitest-auto-spy perf --command 'npx ${cli} run ${target.project}:${target.name} --reporters=default --reporters="$${PERF_REPORTER_ENV}" {paths:--include=}'`,
+  ];
+}
+
+function configRecipe(script: string | undefined): string[] {
+  return [
+    'Attach the perf reporter where the Vitest config of your suite declares `reporters`:',
+    `  const perf = process.env['${PERF_REPORTER_ENV}'];`,
+    "  reporters: perf === undefined ? ['default'] : ['default', perf],",
+    script === undefined ? 'Then measure the command that runs your suite:' : 'Then measure the command that runs it:',
+    `  npx vitest-auto-spy perf --command '${script === undefined ? '<command that runs your suite>' : 'npm test'}'`,
   ];
 }
 
@@ -83,18 +93,8 @@ export function bareRunWouldMeasureSomethingElse(profile: Profile): string | und
   const [target] = unitTestTargets(profile);
 
   return [
-    `A bare \`vitest run\` here would not measure this repository's suite: no vitest.config/vite.config at the root, and ${seen}.`,
-    'Without a root config Vitest takes its defaults — no globals, no path aliases, every *.spec.* in the tree including build output — and every file fails to collect. The timings of a run in which no test body executed are not a measurement, so this stops here instead of printing them.',
-    '',
-    'Measure the command this repository actually uses:',
-    "  npx vitest-auto-spy perf --command 'npm test'",
-    '',
-    `\`--command\` runs it with ${PERF_OUTPUT_ENV} and ${PERF_REPORTER_ENV} in the environment; the configuration that command reaches has to attach the reporter, which is two lines wherever its \`reporters\` are declared:`,
-    `  const perf = process.env['${PERF_REPORTER_ENV}'];`,
-    "  reporters: perf === undefined ? ['default'] : ['default', perf],",
-    ...(target === undefined ? [] : builderRecipe(target)),
-    '',
-    'Or hand it a report something else already wrote:  npx vitest-auto-spy perf --json <path>',
-    `Docs: ${PERF_DOCS}`,
+    `A bare \`vitest run\` would not measure this repository's suite: there is no vitest.config or vite.config at the root, and ${seen}. Without a config every file fails to collect, so the timings would measure nothing.`,
+    ...(target === undefined ? configRecipe(script) : builderRecipe(target)),
+    `Docs: ${BARE_RUN_DOCS}`,
   ].join('\n');
 }

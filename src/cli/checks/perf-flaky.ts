@@ -1,13 +1,11 @@
 /** Findings `perf` makes on every run however cheap: tests that passed only on a retry, and the heap after each file. */
 import type { PerfFile } from '../perf-data';
-import { PERF_DOCS } from '../perf-data';
-import { GATE_DOCS } from '../perf-gate';
 import type { Finding } from '../report';
 
 const FLAKY_FIX = [
   'A test that needs a retry to pass depends on something outside itself: a real timer, the order the tests ran in, state another test left behind,',
   'or an `await` that settles on a schedule. Run the file on its own with `--retry=0 --sequence.shuffle` until it fails, and fix that instead of',
-  `keeping the retry. Its failed attempts are counted in this file's time, so the gate judges it slower than it is. Background: ${GATE_DOCS}`,
+  `keeping the retry. Its failed attempts are counted in this file's time, so the gate judges it slower than it is.`,
 ].join(' ');
 
 export function flakyFindings(measured: ReadonlyMap<string, PerfFile>, failOnFlaky: boolean): Finding[] {
@@ -52,7 +50,7 @@ export function heapFindings(measured: ReadonlyMap<string, PerfFile>): Finding[]
         .slice(0, HEAP_LIST)
         .map(([path, file]) => `${path} ${formatBytes(file.heap)}`)
         .join(', ')}.`,
-      fix: `Under \`isolate: false\` a file's number also carries every file that ran before it in the same worker, so a file that stays high with isolation on is the one that allocates. Background: ${PERF_DOCS}#memory-under-isolate-false`,
+      fix: `Under \`isolate: false\` a file's number also carries every file that ran before it in the same worker, so a file that stays high with isolation on is the one that allocates.`,
     },
   ];
 }

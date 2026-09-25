@@ -37,9 +37,6 @@ import type { PerfFile, PerfRun } from './perf-data';
 import { CASE_FLOOR_MS, formatMs, medianOf } from './perf-data';
 import type { Finding } from './report';
 
-/** The gate's own section, on the page that documents the command rather than the library. */
-export const GATE_DOCS = 'https://asdalexey.github.io/vitest-auto-spy/utilities/cli#the-gate';
-
 export interface GateOptions {
   /** A single test body over this, confirmed, fails the run. */
   readonly maxTestMs: number;
@@ -281,22 +278,21 @@ function secondReading(candidate: FileCandidate, confirm: ReadonlyMap<string, Pe
 const SLOW_TEST_FIX = [
   'A test body over a second is usually waiting rather than working: a timer nobody advanced (`vi.useFakeTimers()` and `vi.advanceTimersByTime`),',
   'a real request or a real animation frame, an `await` on something that settles on a schedule, or a fixture rebuilt from scratch in every case.',
-  `Raise --max-test-ms only when the body genuinely has that much work to do. Background: ${GATE_DOCS}`,
+  `Raise --max-test-ms only when the body genuinely has that much work to do.`,
 ].join(' ');
 
 const SLOW_FILE_FIX = [
   'Every test in this file costs many times an ordinary test of the same run. Look at what each one pays before it asserts anything: a `beforeEach`',
   'that builds the whole module graph, a real clock, a fixture the file could build once. Splitting the file does not help — the cost is per test.',
-  `Background: ${GATE_DOCS}`,
 ].join(' ');
 
 const REGRESSION_FIX = [
   'This file was not always this expensive. Read the diff of the file and of what it imports since the baseline was recorded: a `beforeEach`',
   'that grew a dependency, a fixture that got bigger, a double replaced by the real collaborator. If the cost is deliberate, re-record the',
-  `baseline with --update-baseline in the same commit, so the next reader sees a decision rather than a drift. Background: ${GATE_DOCS}`,
+  `baseline with --update-baseline in the same commit, so the next reader sees a decision rather than a drift.`,
 ].join(' ');
 
-const WALL_FIX = `The whole run is over the budget this pipeline set for it. Raise --max-wall-ms, or take the phase table above apart — it says which phase grew. Background: ${GATE_DOCS}`;
+const WALL_FIX = `The whole run is over the budget this pipeline set for it. Raise --max-wall-ms, or take the phase table above apart — it says which phase grew.`;
 
 function describe(candidate: GateCandidate): string {
   if (candidate.check === 'perf-gate-wall') {
