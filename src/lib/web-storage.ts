@@ -195,7 +195,7 @@ export function stubWebStorage(key: WebStorageKey = 'localStorage', options: Web
  * The `typeof` guard is what lets `setupAutoSpy()` call the repair unconditionally from a `node`
  * environment, where `document` is not merely undefined but undeclared.
  */
-function currentView(): object | null {
+export function currentView(): object | null {
   return typeof document === 'undefined' ? null : document.defaultView;
 }
 
