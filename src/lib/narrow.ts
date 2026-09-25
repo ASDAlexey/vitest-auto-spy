@@ -14,6 +14,8 @@
  * replaces.
  */
 import { defineHelper } from './define-helper';
+import * as DOCS_LINKS from './docs-links';
+import { withDocs } from './message-link';
 import { serializeValue } from './serialize-args';
 import type { Func } from './types';
 
@@ -42,8 +44,14 @@ function describe(value: unknown): string {
   return `${label} { ${keys.length > 12 ? `${shown}, …` : shown} }`;
 }
 
-function narrowingFailed(label: string, value: unknown): Error {
-  return new Error(`[vitest-auto-spy] narrow: expected ${label}, but the value is ${describe(value)}.`);
+function narrowingFailed(helper: string, label: string, value: unknown): Error {
+  return new Error(
+    withDocs(
+      `[vitest-auto-spy] ${helper}: expected ${label}, but the value is ${describe(value)}. ` +
+        'The code under test took another branch than this test assumes — check the setup that should lead to it.',
+      DOCS_LINKS.narrow,
+    ),
+  );
 }
 
 /** The branch of `T` that has `Key`, or `T` itself when the union has no such member to extract. */
@@ -55,7 +63,7 @@ type Subscribable<T> = [Extract<T, { subscribe: Func }>] extends [never] ? T : E
 /** The implementation behind {@link narrow}; the doc comment lives on the exported value. */
 const narrowValue = defineHelper(<T>(value: T, predicate: (candidate: T) => boolean, label?: string): T => {
   if (!predicate(value)) {
-    throw narrowingFailed(label ?? String(predicate), value);
+    throw narrowingFailed('narrow', label ?? String(predicate), value);
   }
 
   return value;
@@ -83,7 +91,7 @@ const narrowValue = defineHelper(<T>(value: T, predicate: (candidate: T) => bool
  */
 function defined<T>(value: T, label = 'a value that is neither null nor undefined'): NonNullable<T> {
   if (value === null || value === undefined) {
-    throw narrowingFailed(label, value);
+    throw narrowingFailed('narrow.defined', label, value);
   }
 
   return value;
@@ -98,7 +106,7 @@ function defined<T>(value: T, label = 'a value that is neither null nor undefine
  */
 function byKey<T, Key extends PropertyKey>(value: T, key: Key): WithKey<T, Key> {
   if (typeof value !== 'object' || value === null || !(key in value)) {
-    throw narrowingFailed(`an object with a '${String(key)}' property`, value);
+    throw narrowingFailed('narrow.byKey', `an object with a '${String(key)}' property`, value);
   }
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the `in` check above is exactly what `Extract<T, Record<Key, unknown>>` describes; TypeScript cannot apply it to an open union without a guard signature per branch.
@@ -118,7 +126,7 @@ function byKey<T, Key extends PropertyKey>(value: T, key: Key): WithKey<T, Key> 
  */
 function observable<T>(value: T): Subscribable<T> {
   if (typeof value !== 'object' || value === null || typeof Reflect.get(value, 'subscribe') !== 'function') {
-    throw narrowingFailed('an Observable', value);
+    throw narrowingFailed('narrow.observable', 'an Observable', value);
   }
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the structural check above is what `Extract<T, { subscribe: Func }>` means; the element type is preserved rather than widened to `unknown` as rxjs's own guard would.
@@ -134,7 +142,7 @@ function observable<T>(value: T): Subscribable<T> {
  */
 function instanceOf<Instance>(value: unknown, ctor: abstract new (...args: never[]) => Instance): Instance {
   if (!(value instanceof ctor)) {
-    throw narrowingFailed(`an instance of ${ctor.name || 'the given class'}`, value);
+    throw narrowingFailed('narrow.instanceOf', `an instance of ${ctor.name || 'the given class'}`, value);
   }
 
   return value;

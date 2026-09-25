@@ -87,6 +87,9 @@ describe('narrow.observable', () => {
 
   it('says what it got instead', () => {
     expect(() => narrow.observable(true)).toThrow(/expected an Observable, but the value is boolean true/);
+    expect(() => narrow.observable(true)).toThrow(
+      /^\[vitest-auto-spy\] narrow\.observable: expected an Observable, but the value is boolean true\. The code under test took another branch than this test assumes[\s\S]*\nDocs: \S+\/utilities\/fixtures#narrow-value-predicate-—-the-branch-a-test-knows-it-got$/,
+    );
   });
 });
 
