@@ -50,6 +50,9 @@ const NETWORK_GLOBALS = new Set(['EventSource', 'WebSocket', 'XMLHttpRequest', '
 /** The two storages `stubWebStorage()` installs. */
 const WEB_STORAGES = new Set(['localStorage', 'sessionStorage']);
 
+/** The global `stubWorker()` from `/dom-stubs` replaces. */
+const WORKER_GLOBALS = new Set(['Worker']);
+
 /** Hooks whose callback runs whether or not the test's assertions passed. */
 const TEARDOWN_HOOKS = new Set(['afterAll', 'afterEach', 'onTestFinished']);
 
@@ -96,6 +99,10 @@ function insidePerTest(node: EsNode): boolean {
 function messageFor(name: string): string {
   if (NETWORK_GLOBALS.has(name)) {
     return 'networkGlobal';
+  }
+
+  if (WORKER_GLOBALS.has(name)) {
+    return 'workerGlobal';
   }
 
   return WEB_STORAGES.has(name) ? 'webStorage' : 'handAssignedGlobal';
@@ -230,6 +237,8 @@ export const noHandAssignedGlobal: RuleModule = defineRule({
       '`{{name}}` is replaced by assignment and nothing puts the real one back, so under `isolate: false` the fake answers every later test in the worker. Install it with `{{fix}}`, which restores the original after the test.',
     webStorage:
       "`{{name}}` is replaced by assignment and nothing puts the real one back, so the fake storage, and whatever the test wrote into it, leaks into every later test. Use `stubWebStorage('{{name}}')` from `vitest-auto-spy/dom-stubs`, which is restored after every test.",
+    workerGlobal:
+      '`{{name}}` is replaced by assignment and nothing puts the real one back, so under `isolate: false` every later test in the worker constructs the double. Use `stubWorker({ respond })` from `vitest-auto-spy/dom-stubs`, which is restored after every test.',
     handAssignedGlobal:
       '`{{name}}` is replaced by assignment and nothing puts the real one back, so under `isolate: false` the double stays installed for every later test in the worker. Install it with `{{fix}}`, which restores the original after the test.',
     importedMember:

@@ -49,6 +49,14 @@ describe('no-hand-assigned-global', () => {
     expect(message('window.sessionStorage = { getItem: vi.fn() } as never;')).toContain("stubWebStorage('sessionStorage')");
   });
 
+  it('names the worker stub for Worker', () => {
+    const text = message('globalThis.Worker = class { postMessage() {} addEventListener() {} };');
+
+    expect(text).toContain('stubWorker({ respond })');
+    expect(text).toContain('vitest-auto-spy/dom-stubs');
+    expect(text).not.toContain('stubConstructor');
+  });
+
   it('names mockValueProp for any other global', () => {
     const text = message('window.matchMedia = vi.fn().mockReturnValue({ matches: true });');
 
