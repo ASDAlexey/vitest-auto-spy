@@ -163,9 +163,29 @@ describe('explainSpy', () => {
   it('reports a plain runner mock as not one of ours instead of throwing', () => {
     const plain = vi.fn();
 
-    expect(explainSpy(plain)).toContain('nothing to explain: this value holds no spy created by vitest-auto-spy');
-    expect(explainSpy({ load: plain }, 'load')).toContain('load is not a spy created by vitest-auto-spy');
-    expect(explainSpy({}, 'missing')).toContain('missing is not a spy created by vitest-auto-spy');
+    expect(explainSpy(plain)).toContain(
+      'nothing to explain: this value is a plain runner mock (vi.fn()) and holds no spy created by vitest-auto-spy. `adoptMock(mock)` gives it',
+    );
+    expect(explainSpy({ load: plain }, 'load')).toContain('load is a plain runner mock (vi.fn()), not a spy created by vitest-auto-spy');
+    expect(explainSpy({ load: plain }, 'load')).toContain("`adoptMock(load)` gives it the library's helpers.");
+    expect(explainSpy({}, 'missing')).toContain('missing is undefined, not a spy created by vitest-auto-spy');
+    expect(explainSpy({}, 'missing')).toContain('Pass a double built by createSpyFromClass');
+    expect(explainSpy({ load: 'text' }, 'load')).toContain("load is string 'text', not a spy");
+    expect(explainSpy({ load: function load(): void {} }, 'load')).toContain('load is a function (load), not a spy');
+    expect(
+      explainSpy(
+        {
+          load: (
+            () => (): void =>
+              undefined
+          )(),
+        },
+        'load',
+      ),
+    ).toContain('load is a function (anonymous)');
+    expect(explainSpy(new Map())).toContain('this value is an object (Map) and holds no spy');
+    expect(explainSpy(Object.create(null))).toContain('this value is an object with no prototype');
+    expect(explainSpy(new (class {})())).toContain('this value is an object (anonymous class)');
     expect(explainSpy({ plain: 1 })).toContain('nothing to explain');
   });
 

@@ -22,13 +22,49 @@ const CHAIN_NAMES = ['calledWith', 'mustBeCalledWith'] as const;
 
 const HEADER = '[vitest-auto-spy] explainSpy';
 
-const NOT_A_DOUBLE =
-  'is not a spy created by vitest-auto-spy, so it has no configured arguments to read. ' +
-  'Pass a double built by createSpyFromClass, createAutoMock, createFunctionSpy or mockDeep.';
+const PASS_A_DOUBLE = 'Pass a double built by createSpyFromClass, createAutoMock, createFunctionSpy or mockDeep';
 
-const NOTHING_FOUND =
-  'nothing to explain: this value holds no spy created by vitest-auto-spy. ' +
-  'Pass a double built by createSpyFromClass, createAutoMock, createFunctionSpy or mockDeep.';
+/** What a value handed to `explainSpy` actually is, so the report says more than "not a spy". */
+function describeValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return String(value);
+  }
+
+  if (typeof value === 'function') {
+    const mock: unknown = Reflect.get(value, 'mock');
+
+    return typeof mock === 'object' && mock !== null ? 'a plain runner mock (vi.fn())' : `a function (${value.name || 'anonymous'})`;
+  }
+
+  if (typeof value !== 'object') {
+    return `${typeof value} ${serializeValue(value)}`;
+  }
+
+  const prototype: unknown = Object.getPrototypeOf(value);
+
+  if (prototype === null) {
+    return 'an object with no prototype';
+  }
+
+  const constructor: unknown = Reflect.get(Object(prototype), 'constructor');
+
+  return `an object (${typeof constructor === 'function' && constructor.name ? constructor.name : 'anonymous class'})`;
+}
+
+/** The action for this value: a runner mock can be adopted, anything else has to be replaced. */
+function nextStep(value: unknown, name: string): string {
+  const mock: unknown = typeof value === 'function' ? Reflect.get(value, 'mock') : undefined;
+
+  return typeof mock === 'object' && mock !== null ? `\`adoptMock(${name})\` gives it the library's helpers.` : `${PASS_A_DOUBLE}.`;
+}
+
+function notADouble(method: string, value: unknown): string {
+  return `${method} is ${describeValue(value)}, not a spy created by vitest-auto-spy, so it has no configured arguments to read. ${nextStep(value, method)}`;
+}
+
+function nothingFound(spy: object): string {
+  return `nothing to explain: this value is ${describeValue(spy)} and holds no spy created by vitest-auto-spy. ${nextStep(spy, 'mock')}`;
+}
 
 const NO_MATCH_OUTCOME = 'no configured arguments matched; the default value was used';
 
@@ -247,7 +283,7 @@ function sections(spy: object, method: string | undefined): string[] {
     return [explainMember({ name: method ?? mockNameOf(spy), property: method ?? '', mock: spy })];
   }
 
-  return [method === undefined ? NOTHING_FOUND : `${method} ${NOT_A_DOUBLE}`];
+  return [method === undefined ? nothingFound(spy) : notADouble(method, Reflect.get(spy, method))];
 }
 
 /**
