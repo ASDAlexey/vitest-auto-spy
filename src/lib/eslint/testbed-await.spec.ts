@@ -38,17 +38,14 @@ describe(RULE, () => {
     const code = 'beforeEach(async () => {\n  await TestBed.configureTestingModule({ imports: [Card] });\n});';
 
     expect(count(code)).toBe(1);
-    expect(verify(code)[0]?.message).toContain('`configureTestingModule(…)` answers the TestBed, not a promise');
+    expect(verify(code)[0]?.message).toContain('`configureTestingModule(…)` returns the TestBed, not a promise');
   });
 
-  it('names the promises that keep their await, and the two members it never decides for', () => {
+  it('names the one repair, dropping the async along with the await', () => {
     const message = verify('await TestBed.createComponent(Card);')[0]?.message ?? '';
 
-    expect(message).toContain('compileComponents()');
-    expect(message).toContain('whenStable()');
-    expect(message).toContain('TestBed.inject(TOKEN)');
-    expect(message).toContain('runInInjectionContext');
-    expect(message).toContain('#how-to-mock-a-service-behind-angular-di');
+    expect(message).toContain('Drop the `await`, and the `async` of the callback if nothing else in it awaits');
+    expect(message).toContain('/utilities/eslint-rules#no-sync-testbed-await');
   });
 
   it('reports every member Angular declares as answering the TestBed or a fixture', () => {
@@ -208,8 +205,8 @@ describe(RULE, () => {
     const [fixture] = verify('await TestBed.createComponent(Card);');
     const [bed] = verify('await TestBed.overrideProvider(Api, { useValue: {} });');
 
-    expect(fixture?.message).toContain('`createComponent(…)` answers the `ComponentFixture`, not a promise');
+    expect(fixture?.message).toContain('`createComponent(…)` returns the `ComponentFixture`, not a promise');
     expect(fixture?.suggestions?.[0]?.desc).toBe('Remove the await — the TestBed call answers the `ComponentFixture`, not a promise');
-    expect(bed?.message).toContain('`overrideProvider(…)` answers the TestBed, not a promise');
+    expect(bed?.message).toContain('`overrideProvider(…)` returns the TestBed, not a promise');
   });
 });

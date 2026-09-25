@@ -62,9 +62,9 @@ describe(RULE, () => {
     const [report] = verify(test("  fixture.componentRef.setInput('title', 'Hi');"));
 
     expect(report?.message).toContain('NG0303');
-    expect(report?.message).toContain('setInputs(fixture, { name: value })');
-    expect(report?.message).toContain('#how-to-mock-a-components-children');
-    expect(report?.message).toContain('const render = async () => { …; await setInputs(fixture, { … }); }');
+    expect(report?.message).toContain('a typo in `title` would fail only at a later assertion');
+    expect(report?.message).toContain('await setInputs(fixture, { … })');
+    expect(report?.message).toContain('/utilities/eslint-rules#prefer-set-inputs');
   });
 
   it('offers the edit rather than applying it, and says what accepting it does', () => {

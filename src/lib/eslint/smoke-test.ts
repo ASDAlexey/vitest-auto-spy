@@ -13,6 +13,7 @@
  */
 import { boundValueOf, findBinding } from './bindings';
 import { defineRule } from './define-rule';
+import { excerpt } from './message-data';
 import {
   type EsCallExpression,
   type EsFixer,
@@ -411,9 +412,9 @@ function reportBlock(context: RuleContext, block: Block, names: Map<EsNode, Set<
     const data = {
       siblings:
         block.below === 1
-          ? 'another test under the same setup already runs against it'
-          : `${block.below} other tests under the same setup already run against it`,
-      subject: context.sourceCode.getText(subject),
+          ? 'another test under the same setup already uses it'
+          : `${block.below} other tests under the same setup already use it`,
+      subject: excerpt(context, subject, 40),
     };
     // The suggestion is offered only where the test is a statement of its own: anywhere else — handed
     // to something, awaited — removing it leaves the expression around it holding nothing.
@@ -427,16 +428,12 @@ function reportBlock(context: RuleContext, block: Block, names: Map<EsNode, Set<
 }
 
 export const noRedundantSmokeTest = defineRule({
-  anchor: '-a-promise-a-test-forgets-to-await',
+  name: 'no-redundant-smoke-test',
   description: 'Delete a test whose whole body asserts that the subject exists, where the block already has tests that use it',
   hasSuggestions: true,
   messages: {
     noRedundantSmokeTest:
-      'The whole of this test is `{{subject}}` existing, and {{siblings}}: they run the same ' +
-      '`beforeEach`, so a subject that came back nullish fails them first, and names what it was doing when it did. This one ' +
-      'cannot fail on its own and covers nothing — it is a green line in the report standing in for a test. Delete it. If the ' +
-      'construction is what the spec is about — a factory that rejects a bad config, a constructor that reads an optional ' +
-      'token — assert on that instead: `expect(() => new Subject(null)).toThrow(…)`, or on the value the subject produced.',
+      'This test only checks that `{{subject}}` exists, and {{siblings}}, so a nullish subject already fails them first. It cannot fail on its own; delete it, or assert what the construction does, e.g. `expect(() => new Subject(null)).toThrow(…)`.',
   },
   create: (context) => {
     // Keyed by the callback the test sits in — the `describe` body for a nested test, `undefined` at

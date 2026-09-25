@@ -144,20 +144,12 @@ function removal(context: RuleContext, awaited: EsAwaitExpression, answers: stri
 }
 
 export const noSyncTestbedAwait = defineRule({
-  anchor: '-a-service-behind-angular-di',
+  name: 'no-sync-testbed-await',
   description: 'Drop the await on a TestBed call that answers the TestBed or a fixture rather than a promise',
   hasSuggestions: true,
   messages: {
     noSyncTestbedAwait:
-      '`{{member}}(…)` answers {{answers}}, not a promise, so this `await` waits for nothing. Every `configureTestingModule` and ' +
-      '`override*` returns `TestBed` itself — that is what lets them chain — and `createComponent` / `getLastFixture` return the ' +
-      '`ComponentFixture`; awaiting one of those only resumes the hook a microtask later, while making a synchronous setup read as ' +
-      'an asynchronous one. Drop the `await`, and the `async` of a `beforeEach` / `beforeAll` / `afterEach` / `afterAll` / `it` / ' +
-      '`test` callback that then awaits nothing else — the hook is not asynchronous any more, and leaving the `async` behind is ' +
-      'the half `@typescript-eslint/require-await` would still have to report. The TestBed calls that really do return a promise ' +
-      'keep their `await`: `compileComponents()`, and on a fixture `whenStable()`, `whenRenderingDone()` and `getDeferBlocks()`. ' +
-      '`TestBed.inject(TOKEN)` and `TestBed.runInInjectionContext(fn)` are never reported — each answers whatever the token or the ' +
-      'callback holds, which is a promise often enough to be awaited on purpose.',
+      '`{{member}}(…)` returns {{answers}}, not a promise, so this `await` waits for nothing and makes a synchronous setup read as an asynchronous one. Drop the `await`, and the `async` of the callback if nothing else in it awaits.',
   },
   create: (context) => ({
     AwaitExpression: (node: EsAwaitExpression): void => {

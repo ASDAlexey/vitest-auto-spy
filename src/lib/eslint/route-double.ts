@@ -118,14 +118,14 @@ function slotOf(descriptor: EsObjectExpression): string {
 }
 
 export const preferProvideActivatedRoute: RuleModule = defineRule({
-  anchor: '-an-activatedroute-whose-halves-agree--vitest-auto-spyangular-router',
+  name: 'prefer-provide-activated-route',
   description:
     'Provide ActivatedRoute with provideActivatedRoute() — a hand-built half knows either the streams or the snapshot, never both',
   messages: {
     preferProvideActivatedRoute:
-      "`ActivatedRoute` is being provided as a hand-built `{{slot}}`. The real class keeps `snapshot`, `params`, `queryParams`, `data`, `fragment` and `url` in instance fields, so a double written by hand holds whichever half its author read first and `undefined` in the other — and a spec that sets `snapshot.params` without emitting `params` tests a route no navigation can produce. `provideActivatedRoute({ params: { id: '1' } })` from `vitest-auto-spy/angular-router` is Angular's own `ActivatedRoute` over one state record: the streams and the snapshot cannot disagree, `injectActivatedRoute()` is the handle, and its `setParams({ id: '2' })` moves both mid-test the way a navigation does.",
+      "`ActivatedRoute` is provided as a hand-built `{{slot}}`, which holds whichever half of the route its author wrote (`snapshot` or the `params` streams) and `undefined` in the other. Write `provideActivatedRoute({ params: { … } })` from `vitest-auto-spy/angular-router`, which builds Angular's own route over one state.",
     preferProvideActivatedRouteOverSpy:
-      "`provideAutoSpy(ActivatedRoute)` reads the prototype, and every half of an `ActivatedRoute` — `snapshot`, `params`, `queryParams`, `data`, `fragment`, `url` — is an instance field: the spy has none of them, so each read is `undefined` until the spec seeds it one by one. `provideActivatedRoute({ params: { id: '1' } })` from `vitest-auto-spy/angular-router` builds the real class over one state record, and `injectActivatedRoute().setParams({ id: '2' })` moves the streams and the snapshot together, the way a navigation does.",
+      "`provideAutoSpy(ActivatedRoute)` reads the prototype, and every part of a route (`snapshot`, `params`, `data`, …) is an instance field, so each read is `undefined` until seeded. Write `provideActivatedRoute({ params: { … } })` from `vitest-auto-spy/angular-router`, which builds Angular's own route over one state.",
   },
   create: (context) => ({
     ObjectExpression: (node: EsObjectExpression): void => {

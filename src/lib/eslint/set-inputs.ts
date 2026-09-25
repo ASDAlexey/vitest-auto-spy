@@ -57,6 +57,7 @@
 import { isHookCallback } from './async-hooks';
 import { PACKAGE, bindingState, boundValueOf, findBinding, importNamed } from './bindings';
 import { defineRule } from './define-rule';
+import { nameList } from './message-data';
 import {
   type EsCallExpression,
   type EsFix,
@@ -323,12 +324,12 @@ function rewrite(context: RuleContext, run: Run, callback: EsNode): (fixer: EsFi
 }
 
 export const preferSetInputs: RuleModule = defineRule({
-  anchor: '-a-components-children',
+  name: 'prefer-set-inputs',
   description: 'Move a rendered component’s inputs with setInputs(), which resolves every name before it writes one',
   hasSuggestions: true,
   messages: {
     preferSetInputs:
-      '`componentRef.setInput` answers a name the component does not declare with an `NG0303` on the console and **no change at all**, so a typo, an input renamed under the spec, or an alias written as its class-field name all end the same way: green `setInput` calls, and an assertion that fails several lines later on state nothing moved. `setInputs(fixture, { name: value })` from `vitest-auto-spy/angular` resolves every key against the compiled definition before it writes the first one — a rejected call leaves the component exactly as it was and names the inputs it really has — and it types the value, which is what turns a fixture that has drifted from its model into a compile error instead of a passing test. It ends in `stable(fixture)`, so the `fixture.detectChanges()` underneath goes with the call: that flushes effects and awaits the fixture, where one `detectChanges()` pass does neither. A suite that cannot await in its hooks keeps the call in the test: `const render = async () => { …; await setInputs(fixture, { … }); }`, awaited first thing in each `it`.',
+      '`setInput` answers a name the component does not declare with an `NG0303` warning and no change, so a typo in {{inputs}} would fail only at a later assertion. Write `await setInputs({{fixture}}, { … })` from `vitest-auto-spy/angular`, which checks every name and types every value.',
   },
   create: (context) => {
     // Runs are read per statement list, once, and every call of one answers from the same reading.
@@ -360,7 +361,8 @@ export const preferSetInputs: RuleModule = defineRule({
           callback && isHookCallback(callback) && bindingState(context.sourceCode.getScope(node), HELPER) !== 'taken'
             ? callback
             : undefined;
-        const report = { node, messageId: 'preferSetInputs' };
+        const data = { fixture: run.first.receiver.name, inputs: nameList(run.calls.map(({ key }) => key)) };
+        const report = { node, messageId: 'preferSetInputs', data };
 
         context.report(rewritable ? { ...report, suggest: [{ desc: EDIT, fix: rewrite(context, run, rewritable) }] } : report);
       },

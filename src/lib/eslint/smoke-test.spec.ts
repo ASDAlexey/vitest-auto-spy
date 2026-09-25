@@ -19,7 +19,7 @@ const PROVING = "it('drops the empty entries', () => { expect(pipe.transform([])
 /** The reported lines of a block, by the subject each report names. */
 const subjects = (...tests: string[]): string[] =>
   verify(`describe('MyPipe', () => {\n${tests.join('\n')}\n});`).map(
-    (message) => /`(.*?)` existing/.exec(message.message)?.[1] ?? message.message,
+    (message) => /checks that `(.*?)` exists/.exec(message.message)?.[1] ?? message.message,
   );
 
 describe(RULE, () => {
@@ -47,11 +47,9 @@ describe(RULE, () => {
   it('names the subject, the company it keeps and the way out', () => {
     const [report] = verify(`describe('MyPipe', () => {\n${PROVING}\nit('should create', () => { expect(pipe).toBeTruthy(); });\n});`);
 
-    expect(report?.message).toContain(
-      'The whole of this test is `pipe` existing, and another test under the same setup already runs against it',
-    );
-    expect(report?.message).toMatch(/Delete it\.[\s\S]*expect\(\(\) => new Subject\(null\)\)\.toThrow/);
-    expect(report?.message).toContain('#how-to-mock-a-promise-a-test-forgets-to-await');
+    expect(report?.message).toContain('This test only checks that `pipe` exists, and another test under the same setup already uses it');
+    expect(report?.message).toMatch(/delete it[\s\S]*expect\(\(\) => new Subject\(null\)\)\.toThrow/);
+    expect(report?.message).toContain('/utilities/eslint-rules#no-redundant-smoke-test');
   });
 
   it('counts the tests that will actually run', () => {
@@ -86,7 +84,7 @@ describe(RULE, () => {
   it('reports without a suggestion where the test is not a statement of its own', () => {
     const [report] = verify(`describe('MyPipe', () => {\n${PROVING}\nvoid it('should create', () => { expect(pipe).toBeTruthy(); });\n});`);
 
-    expect(report?.message).toContain('The whole of this test is `pipe` existing');
+    expect(report?.message).toContain('This test only checks that `pipe` exists');
     expect(report?.suggestions ?? []).toEqual([]);
   });
 

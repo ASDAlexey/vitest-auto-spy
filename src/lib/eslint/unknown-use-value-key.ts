@@ -102,16 +102,12 @@ function isMultiProvider(node: EsObjectExpression): boolean {
 
 /** `{ provide: ActivatedRoute, useValue: { queryParams$: of({}) } }` → a key `ActivatedRoute` does not have. */
 export const noUnknownUseValueKey = defineRule({
-  anchor: '-a-service-behind-angular-di',
+  name: 'no-unknown-use-value-key',
   description:
     'Name only members the provided type has in a useValue object literal — Angular types useValue as any, so nothing else checks the keys',
   messages: {
     noUnknownUseValueKey:
-      '`{{key}}` does not exist on `{{expected}}`, which `{{token}}` provides — Angular types `useValue` as `any`, so the compiler ' +
-      'never checked this literal. The code under test reads the members the type declares, so a renamed or misspelled key is a ' +
-      'fixture nothing reads and the spec stays green without it. Rename it to the member it stands for, or drop it; a partial ' +
-      'double the compiler does check is `provideAutoSpy(X, { overrides })`, `provideAutoSpyForToken(TOKEN, { … })` or ' +
-      '`createMock<T>({ … })`.',
+      '`{{key}}` does not exist on `{{expected}}`, which `{{token}}` provides; Angular types `useValue` as `any`, so nothing checked it, and the code under test never reads it. Rename it to the member it stands for, or drop it.',
   },
   create: (context) => ({
     ObjectExpression: (node: EsObjectExpression): void => {

@@ -149,9 +149,9 @@ describe('no-unknown-use-value-key — what it reports', () => {
 
     expect(rest).toEqual([]);
     expect(message?.message).toMatch(
-      /^`queryParams\$` does not exist on `ActivatedRoute`, which `ActivatedRoute` provides — Angular types `useValue` as `any`/,
+      /^`queryParams\$` does not exist on `ActivatedRoute`, which `ActivatedRoute` provides; Angular types `useValue` as `any`/,
     );
-    expect(message?.message).toContain('#how-to-mock-a-service-behind-angular-di');
+    expect(message?.message).toContain('/utilities/eslint-rules#no-unknown-use-value-key');
     expect(message).toMatchObject({ line: 2, column: 66 });
   });
 

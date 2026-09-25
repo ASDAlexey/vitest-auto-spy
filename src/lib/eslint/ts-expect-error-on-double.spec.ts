@@ -68,10 +68,9 @@ describe(RULE, () => {
     const [report] = verify('// @ts-expect-error\nshelves.getShelf.calledWith(gid).mockReturnValue(of(page));');
 
     expect(report?.message).toMatch(
-      /`@ts-expect-error` above `getShelf\.mockReturnValue\(…\)`[\s\S]*Spy<X, \{ overload: \{ getShelf: 'first' \} \}>[\s\S]*ReturnType<X\['getShelf'\]>[\s\S]*eslint-disable-next-line/,
+      /^`@ts-expect-error` above `getShelf\.mockReturnValue\(…\)`[\s\S]*signature of `getShelf`[\s\S]*Spy<X, \{ overload: \{ getShelf: 'first' \} \}>/,
     );
-    expect(report?.message).toContain('#how-to-mock-an-overloaded-method');
-    expect(report?.message).toContain('`outOfType<T>(…)` from `vitest-auto-spy` in place of the directive');
+    expect(report?.message).toContain('/utilities/eslint-rules#no-ts-expect-error-on-double');
     expect(verify('// @ts-ignore\nconfirm.send.mustBeCalledWith(code).resolveWith(ok);')[0]?.message).toMatch(
       /`@ts-ignore` above `send\.resolveWith/,
     );

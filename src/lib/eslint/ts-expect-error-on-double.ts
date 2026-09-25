@@ -73,18 +73,11 @@ function directiveOf(comment: EsComment): string | undefined {
 }
 
 export const noTsExpectErrorOnDouble = defineRule({
-  anchor: '-an-overloaded-method',
+  name: 'no-ts-expect-error-on-double',
   description: "Do not suppress a type error on a double's configuration — name the overload, or fix the fixture",
   messages: {
     noTsExpectErrorOnDouble:
-      '`{{directive}}` above `{{method}}.{{helper}}(…)` switches off the one check a typed double gives: the stub is compared ' +
-      'with the signature `{{method}}` declares, and the error it hides says the two disagree. On an overloaded method — a ' +
-      "generated client with `observe` overloads — the double is typed against the **last** signature: name the one the spec means, `Spy<X, { overload: { {{method}}: 'first' } }>` " +
-      "(or `asSpy<X, { overload: 'first' }>(…)`). Otherwise the fixture has the wrong shape — check it against " +
-      "`ReturnType<X['{{method}}']>` (a `calledWith` argument against `Parameters<X['{{method}}']>`), and build a partial one " +
-      'with `createMock<…>()`. A value outside the declared type on purpose, to reach a default branch, is ' +
-      '`outOfType<T>(…)` from `vitest-auto-spy` in place of the directive — or the directive under ' +
-      '`// eslint-disable-next-line vitest-auto-spy/no-ts-expect-error-on-double -- <why>`.',
+      "`{{directive}}` above `{{method}}.{{helper}}(…)` hides the one error a typed double gives: the stub disagrees with the signature of `{{method}}`. Fix the value to match it; on an overloaded method, pick the overload the code calls with `Spy<X, { overload: { {{method}}: 'first' } }>`.",
   },
   create: (context) => {
     const configurations: Configuration[] = [];

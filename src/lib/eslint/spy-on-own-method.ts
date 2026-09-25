@@ -349,7 +349,7 @@ function report(context: RuleContext, call: EsCallExpression, target: EsNode, se
 }
 
 export const preferSpyOnOwnMethod = defineRule({
-  anchor: '-an-object-the-test-already-holds',
+  name: 'prefer-spy-on-own-method',
   description: 'Spy one method of a real object with spyOnOwnMethod / spyOnVoidMethod instead of a one-method createSpyFromInstance',
   messages: MESSAGES,
   fixable: true,

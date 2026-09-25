@@ -312,17 +312,11 @@ function record(context: RuleContext, node: EsCallExpression, scan: TestScan, bo
 
 /** `component.subscribeClick.emit(x)` beside `expect(emitSpy).toHaveBeenCalledWith(x)`. */
 export const noSelfCalledSpy = defineRule({
-  anchor: '-an-object-the-test-already-holds',
+  name: 'no-self-called-spy',
   description: 'Do not assert a call the test made itself — drive the production path that should make it',
   messages: {
     noSelfCalledSpy:
-      'This test calls `{{key}}` itself, and then asserts that `{{key}}` was called — so the assertion is satisfied by this line ' +
-      'rather than by anything under test. Remove the behaviour the title names, a template binding or a subscription or a ' +
-      'delegation, and the test stays green: it survives the deletion of the thing it was written to check, which is the one ' +
-      'failure it cannot report. Drive the production path instead — dispatch the DOM event, emit on the collaborator’s double ' +
-      '(`injectSpy(X).events.nextWith(value)`), call the public method that should relay — and keep the assertion where it is. ' +
-      'A call written **before** the spy is arrangement and is never reported, and neither is `not.toHaveBeenCalled()`: those ' +
-      'already tell the two outcomes apart.',
+      'This test calls `{{key}}` itself and then asserts that `{{key}}` was called, so the assertion is satisfied by the test, not by the code under test, and stays green if that code is deleted. Drive the production path instead (dispatch the event, emit on the double, call the public method) and keep the assertion.',
   },
   create: (context) => {
     const tests = new Map<EsNode, TestScan>();
