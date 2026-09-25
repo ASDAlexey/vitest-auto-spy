@@ -132,8 +132,8 @@ const CROSS_ENTRY = [
         message = error.message;
       }
 
-      assert(message.includes('Nothing configured Cart.remove'), 'strict mode did not name the class and method');
-      assert(message.includes('Called as: Cart.remove(7)'), 'strict mode did not render the arguments');
+      assert(message.includes('Cart.remove(7) was called'), 'strict mode did not name the class and method');
+      assert(message.includes('calledWith(7).mockReturnValue('), 'strict mode did not render the arguments');
     `,
   },
   {
@@ -218,7 +218,7 @@ const CROSS_ENTRY = [
         } catch (error) {
           message = error.message;
         }
-        assert(message.includes('Nothing configured Cart.total'), 'the strict default did not reach a double built by ' + label);
+        assert(message.includes('Cart.total() was called'), 'the strict default did not reach a double built by ' + label);
       }
     `,
   },
