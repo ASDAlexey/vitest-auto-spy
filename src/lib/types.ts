@@ -806,10 +806,19 @@ type BuiltIn = Date | Func | Promise<unknown> | ReadonlyMap<unknown, unknown> | 
 export type MethodReturns<T> = {
   [K in Exclude<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: Required<T>[K] extends Func ? ReturnType<Required<T>[K]> | undefined : never;
 } & {
+  [K in Exclude<OptionalFunctionKeysOf<T>, ObjectPrototypeKey | OnlyMethodKeysOf<T>>]?: ReturnType<Extract<T[K], Func>> | undefined;
+} & {
   [K in Extract<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: Required<T>[K] extends Func
     ? ObjectPrototypeMembers[K] | ReturnType<Required<T>[K]>
     : never;
 };
+
+// `getMinZoom?: (() => number) | undefined` — a third-party typing's optional method written as a
+// property — keeps its explicit `undefined` through `Required`, so it is not a method key of its own.
+type OptionalFunctionKeysOf<T> = Extract<
+  { [K in keyof T]-?: [NonNullable<T[K]>] extends [never] ? never : [NonNullable<T[K]>] extends [Func] ? K : never }[keyof T],
+  string
+>;
 
 // Split so that only the few keys `Object.prototype` has pay for the extra union: a conditional on every
 // key made a generic method over a large event map excessively deep (TS2589).
