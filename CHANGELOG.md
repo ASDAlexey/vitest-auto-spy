@@ -209,14 +209,20 @@ The latest released version here must always match the one published on
   `setContaining` and `arrayWithExactContents` failures end with what is missing and what is extra.
   Every message links its own section of the migration page.
 - **What the longer messages cost in bundle size, measured.** Every message now carries a diagnosis,
-  the fix for its case and a link to its section, and that text is most of the growth: min+gzip, the
-  root entry goes from 23.2 kB to 26.1 kB, `/setup` from 22.0 kB to 25.7 kB, `/angular` from
-  27.1 kB to 30.5 kB, `/zone` from 1.1 kB to 2.5 kB; `/eslint-plugin` shrinks from 53.6 kB to
-  41.6 kB, its messages having lost more than they gained. The link catalogue is now one export per
-  link, imported as a namespace, so an entry carries only the links its own messages print — as one
-  object it had put about 2.5 kB of URLs into every entry that reported anything. Unbundled, the
-  catalogue is one shared chunk, which is why `/zone` now loads three modules instead of one on a
-  cold import.
+  the fix for its case and a link to its section. Min+gzip against 5.31.0: the root entry 23.25 kB →
+  26.06 kB, `/setup` 22.35 kB → 25.69 kB, `/angular` 27.15 kB → 30.47 kB — the message text, the
+  code that picks the case (the first differing argument of a `mustBeCalledWith`, the fake-clock
+  state, a relative path, the test that scheduled a timer), and in `/angular` the new `hostElement` /
+  `queryElement`, and in `/dom-stubs` (7.07 kB → 8.46 kB) `stubAnimationFrame` and
+  `stubElementRect`. The entries built on the root core grow with it — `/node` +2.76 kB, `/bun` and
+  `/rstest` +2.63 kB, `/react`, `/vue`, `/svelte` +2.81 kB, `/bun-angular` +3.19 kB, `/jasmine`
+  +2.00 kB, `/nestjs` +1.69 kB. `/eslint-plugin` shrinks 53.56 kB → 41.64 kB, its messages having lost more
+  than they gained, and `/signal-forms` 1.43 kB → 1.21 kB. The link catalogue is one export per
+  link, each a plain string literal, so an entry carries only the links its own messages print —
+  written as one object, or as templates on the base URL, the bundler kept all hundred of them in
+  every entry that reported anything, which is what `/zone` (1.14 kB → 1.17 kB) and the small
+  Angular entries had grown by. Unbundled, the catalogue is one shared chunk, so `/zone` loads three
+  modules instead of one on a cold import.
 
 ### Fixed
 

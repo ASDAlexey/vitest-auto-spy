@@ -320,6 +320,10 @@ export default defineConfig({
           'window listener leaks into next test file, global assignment leaks between tests, ' +
           'mock web worker vitest, jsdom Worker is not defined, expect observable emits exactly these values, ' +
           'test fixture outside its type without cast, ' +
+          'mock requestAnimationFrame vitest, jsdom getBoundingClientRect returns zeros, mock getBoundingClientRect, ' +
+          'fixture.nativeElement is any, nativeElement without cast, typed querySelector angular test, ' +
+          'console output fails test which file, NG0912 component id collision in tests, ' +
+          'stray timer after test ended, strict mock error what to configure, ' +
           'why did my mock return undefined, calledWith not matching, which calledWith matched, ' +
           'spy called with wrong arguments, mock called but returned default, explainSpy, ' +
           'spy an existing object vitest, vi.mockObject alternative, sinon createStubInstance vitest, ' +
