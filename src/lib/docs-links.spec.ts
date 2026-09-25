@@ -27,7 +27,11 @@ function anchorsOf(page: string): Set<string> {
 }
 
 describe('the docs links runtime messages print', () => {
-  const sectioned = Object.entries(DOCS_LINKS).filter(([, link]) => link.startsWith(`${DOCS}/`) && link.includes('#'));
+  const sectioned = Object.entries(DOCS_LINKS).filter(([, link]) => link.includes('#'));
+
+  it('keeps every link on the one documentation base', () => {
+    expect(Object.values(DOCS_LINKS).filter((link) => !link.startsWith(`${DOCS}/`))).toEqual([]);
+  });
 
   it.each(sectioned)('%s lands on a heading of its page', (_key, link) => {
     const [page, fragment] = link.slice(DOCS.length + 1).split('#');
