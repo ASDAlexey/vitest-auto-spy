@@ -22,8 +22,9 @@
  * of throwing.
  */
 import { defineHelper } from './define-helper';
-import { DOCS_LINKS, withDocs } from './docs-links';
+import * as DOCS_LINKS from './docs-links';
 import { createFunctionSpy } from './function-spy';
+import { withDocs } from './message-link';
 import type { Func } from './types';
 
 /**
@@ -67,11 +68,24 @@ function describeTarget(specifier: string | undefined): string {
   return specifier === undefined ? 'the imported module' : `'${specifier}'`;
 }
 
-const SILENT_NO_OP_CAUSES =
-  'A `vi.mock()` that does not apply reports nothing: under a bundler (`@angular/build:unit-test`, a ' +
-  'pre-bundled `vite-node` entry) a workspace alias or a barrel is already inlined when the mock would be ' +
-  'installed, and under `isolate: false` a module already in the worker graph keeps whichever mock got ' +
-  'there first. Pass the dependency in through DI or an argument instead of mocking its module.';
+function isolateIsOff(): boolean {
+  const config: unknown = Reflect.get(Object(Reflect.get(globalThis, '__vitest_worker__')), 'config');
+
+  return Reflect.get(Object(config), 'isolate') === false;
+}
+
+/** The one cause that fits this run, with its fix. */
+function notAppliedCause(): string {
+  return isolateIsOff()
+    ? 'This worker runs with `isolate: false`, so an earlier file had already loaded the module before this mock ' +
+        'could apply — mock it in that file too, or run this file isolated.'
+    : 'The code under test reaches the module through another path (a barrel, an alias, a bundled entry) — `vi.mock` ' +
+        'the specifier it imports, or pass the dependency in as an argument or a provider.';
+}
+
+function mockCall(specifier: string | undefined): string {
+  return specifier === undefined ? 'the `vi.mock()` for this module' : `the \`vi.mock('${specifier}')\` for this file`;
+}
 
 /**
  * Fail now, naming the module, if the `vi.mock()` this spec relies on did not take effect.
@@ -98,9 +112,8 @@ export const assertMocked = defineHelper(<T extends object>(namespace: T, option
     throw new Error(
       withDocs(
         `[vitest-auto-spy] assertMocked(${target}): the \`exports\` list is empty, so this call cannot fail and ` +
-          `proves nothing. Drop the option to check that at least one export is a mock, or name the exports the ` +
-          `test drives.`,
-        DOCS_LINKS.moduleMocks,
+          'proves nothing. Name the exports the test drives, or drop the option to check that at least one export is a mock.',
+        DOCS_LINKS.moduleMocksAssert,
       ),
     );
   }
@@ -109,11 +122,16 @@ export const assertMocked = defineHelper(<T extends object>(namespace: T, option
     const real = required.filter((name) => !isRunnerMock(Reflect.get(namespace, name)));
 
     if (real.length > 0) {
+      const [first] = real;
+      const subject =
+        real.length === 1
+          ? `${String(first)} is the real ${typeof Reflect.get(namespace, String(first)) === 'function' ? 'function' : 'export'}`
+          : `${real.join(', ')} are the real exports`;
+
       throw new Error(
         withDocs(
-          `[vitest-auto-spy] assertMocked(${target}): ${real.join(', ')} ${real.length === 1 ? 'is' : 'are'} not a mock, ` +
-            `so the code under test is calling the real implementation. ${SILENT_NO_OP_CAUSES}`,
-          DOCS_LINKS.moduleMocks,
+          `[vitest-auto-spy] assertMocked(${target}): ${subject} — ${mockCall(options.specifier)} did not apply. ${notAppliedCause()}`,
+          DOCS_LINKS.moduleMocksNoOp,
         ),
       );
     }
@@ -124,9 +142,9 @@ export const assertMocked = defineHelper(<T extends object>(namespace: T, option
   if (!Object.values(namespace).some(isRunnerMock)) {
     throw new Error(
       withDocs(
-        `[vitest-auto-spy] assertMocked(${target}): nothing in the module namespace is a mock function, ` +
-          `so the mock did not apply. ${SILENT_NO_OP_CAUSES}`,
-        DOCS_LINKS.moduleMocks,
+        `[vitest-auto-spy] assertMocked(${target}): no export is a mock — ${mockCall(options.specifier)} did not apply. ` +
+          notAppliedCause(),
+        DOCS_LINKS.moduleMocksNoOp,
       ),
     );
   }

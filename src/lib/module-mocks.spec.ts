@@ -22,7 +22,7 @@ describe('assertMocked', () => {
 
   it('names the specifier when nothing in the namespace is mocked', () => {
     expect(() => assertMocked({ createEngine: (): void => undefined }, { specifier: '@app/pricing-engine' })).toThrow(
-      /assertMocked\('@app\/pricing-engine'\): nothing in the module namespace is a mock function/,
+      "[vitest-auto-spy] assertMocked('@app/pricing-engine'): no export is a mock — the `vi.mock('@app/pricing-engine')` for this file did not apply.",
     );
   });
 
@@ -34,14 +34,14 @@ describe('assertMocked', () => {
     const namespace = { createEngine: vi.fn(), destroyEngine: (): void => undefined };
 
     expect(() => assertMocked(namespace, { exports: ['createEngine', 'destroyEngine'] })).toThrow(
-      /destroyEngine is not a mock, so the code under test is calling the real implementation/,
+      /destroyEngine is the real function — the `vi.mock\(\)` for this module did not apply\./,
     );
   });
 
   it('pluralises the report when several exports stayed real', () => {
     const namespace = { a: (): void => undefined, b: (): void => undefined };
 
-    expect(() => assertMocked(namespace, { exports: ['a', 'b'] })).toThrow(/a, b are not a mock/);
+    expect(() => assertMocked(namespace, { exports: ['a', 'b'] })).toThrow(/a, b are the real exports/);
   });
 
   it('refuses an empty exports list, which could only ever pass', () => {
@@ -62,13 +62,46 @@ describe('assertMocked', () => {
   it('does not mistake a plain object property for a mock', () => {
     // The shape check is `typeof value.mock === 'object'`; a non-callable carrying a `mock` field
     // must not satisfy it, or a fixture object would read as a mocked module.
-    expect(() => assertMocked({ notAFunction: { mock: { calls: [] } } })).toThrow(/nothing in the module namespace is a mock function/);
+    expect(() => assertMocked({ notAFunction: { mock: { calls: [] } } })).toThrow(/no export is a mock/);
   });
 
   it('does not mistake a plain function for a mock', () => {
     const bare = (): void => undefined;
 
-    expect(() => assertMocked({ bare })).toThrow(/nothing in the module namespace is a mock function/);
+    expect(() => assertMocked({ bare })).toThrow(/no export is a mock/);
+  });
+});
+
+describe('assertMocked names the cause that fits the run', () => {
+  const worker = globalThis as { __vitest_worker__?: { config: { isolate?: boolean | undefined } } };
+  let isolate: boolean | undefined;
+
+  afterEach(() => {
+    if (worker.__vitest_worker__) {
+      worker.__vitest_worker__.config.isolate = isolate;
+    }
+  });
+
+  it('blames an earlier file under isolate: false, and links the section', () => {
+    isolate = worker.__vitest_worker__?.config.isolate;
+    Object.assign(Object(worker.__vitest_worker__).config, { isolate: false });
+
+    expect(() => assertMocked({ fetchUser: (): void => undefined }, { specifier: './api', exports: ['fetchUser'] })).toThrow(
+      /fetchUser is the real function — the `vi\.mock\('\.\/api'\)` for this file did not apply\. This worker runs with `isolate: false`[\s\S]*\nDocs: \S+\/utilities\/module-mocks#the-two-ways-vi-mock-becomes-a-no-op$/,
+    );
+  });
+
+  it('points at the imported path when the worker is isolated', () => {
+    isolate = worker.__vitest_worker__?.config.isolate;
+    Object.assign(Object(worker.__vitest_worker__).config, { isolate: true });
+
+    expect(() => assertMocked({ fetchUser: (): void => undefined })).toThrow(
+      /did not apply\. The code under test reaches the module through another path \(a barrel, an alias, a bundled entry\) — `vi\.mock` the specifier it imports/,
+    );
+  });
+
+  it('calls a listed value that is not a function an export', () => {
+    expect(() => assertMocked({ VERSION: '1' }, { exports: ['VERSION'] })).toThrow(/VERSION is the real export/);
   });
 });
 
@@ -159,7 +192,7 @@ describe('moduleNamespace with passthrough', () => {
     const namespace = moduleNamespace(actual, { passthrough: true });
 
     expect(() => assertMocked(namespace, { exports: ['format', 'default'] })).not.toThrow();
-    expect(() => assertMocked(namespace, { exports: ['Engine'] })).toThrow(/Engine is not a mock/);
+    expect(() => assertMocked(namespace, { exports: ['Engine'] })).toThrow(/Engine is the real function/);
   });
 
   describe('as a vi.doMock factory over the actual module', () => {
