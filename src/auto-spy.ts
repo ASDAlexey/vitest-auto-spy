@@ -140,7 +140,7 @@ export { createSpyFromClass } from './lib/create-spy-from-class';
 export { createSpyFromInstance, restoreSpiedInstance } from './lib/create-spy-from-instance';
 export { spyOnOwnMethod } from './lib/spy-on-own-method';
 export { spyOnVoidMethod } from './lib/spy-on-void-method';
-export { autoMocked, createAutoMock, type AutoMockConfiguration } from './lib/auto-mock';
+export { autoMocked, createAutoMock, type AutoMockConfiguration, type AutoMocked } from './lib/auto-mock';
 export { createMock } from './lib/create-mock';
 export { createFixture, createFixtureFactory, type FixtureFactory } from './lib/fixture';
 export { mockDeep, type MockDeepOptions } from './lib/mock-deep';

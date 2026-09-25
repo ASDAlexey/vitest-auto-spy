@@ -24,6 +24,7 @@ export {
   provideMatDialogData,
   provideMatDialogRef,
   type DialogComponent,
+  type DialogDataOf,
   type DialogRefLike,
   type DialogResult,
   type MatDialogRefDouble,

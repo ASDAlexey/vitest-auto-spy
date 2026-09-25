@@ -211,7 +211,7 @@ describe('createSpyFromClass', () => {
     // rejecting every signal-valued getter — so what is left is checked here.
     createSpyFromClass(MyService, { gettersToSpyOn: ['syncMethod'] });
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('are methods of the class: syncMethod'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("names 'syncMethod', a method of MyService"));
 
     // A real accessor and a plain field are both legitimate, and neither is reported.
     warn.mockClear();
