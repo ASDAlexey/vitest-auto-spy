@@ -468,6 +468,54 @@ describe('createSpyFromInstance — live DOM/BOM objects', () => {
     expect(() => createSpyFromInstance(create())).toThrow('no onlyMethodsToSpyOn was given for a live DOM/BOM object');
   });
 
+  it.runIf(typeof Reflect.get(globalThis, 'matchMedia') === 'function')(
+    "recognizes happy-dom's MediaQueryList, which no global names",
+    () => {
+      setMisconfigurationReaction('throw');
+
+      expect(() => createSpyFromInstance(matchMedia('(min-width: 1px)'))).toThrow(
+        'no onlyMethodsToSpyOn was given for a live DOM/BOM object',
+      );
+    },
+  );
+
+  it('recognizes an object built on the EventTarget the engine built Node on, where the realm exposes another', () => {
+    setMisconfigurationReaction('throw');
+    const target: object = Object.create(Reflect.getPrototypeOf(Node.prototype));
+
+    vi.stubGlobal('EventTarget', class EventTarget {});
+
+    try {
+      expect(() => createSpyFromInstance(target)).toThrow('no onlyMethodsToSpyOn was given for a live DOM/BOM object');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    ['a DOM environment', (): void => undefined],
+    ['an environment without Node', (): void => void vi.stubGlobal('Node', undefined)],
+  ])('stays quiet in %s for an object built on an EventTarget that is neither global nor under Node', (_, prepare) => {
+    setMisconfigurationReaction('throw');
+
+    class EventTarget {
+      addEventListener(): void {
+        return undefined;
+      }
+    }
+
+    const target = new (class Polyfilled extends EventTarget {})();
+
+    prepare();
+
+    try {
+      expect(() => createSpyFromInstance(target)).not.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+      restoreSpiedInstance(target);
+    }
+  });
+
   it.each([
     ['a user class extending EventTarget', (): object => new (class Emitter extends EventTarget {})()],
     ['a bare EventTarget', (): object => new EventTarget()],

@@ -141,8 +141,9 @@ function warnOnInstanceMisconfiguration(instance: object, className: string | un
  * Bun entries. `instanceof EventTarget` is both too wide and too narrow: a user class that extends
  * `EventTarget` matches, yet happy-dom's `window`, XHR and `AbortSignal` do not (its globals sit on a
  * private `EventTarget` of their own). So an event target counts when it is `Node`, the global
- * object, or when a level of its chain below `EventTarget` is a constructor the realm exposes as a
- * global — `Window`, `XMLHttpRequest`, `AbortSignal` — which a user subclass is not.
+ * object, when a level of its chain below `EventTarget` is a constructor the realm exposes as a
+ * global — `Window`, `XMLHttpRequest`, `AbortSignal` — which a user subclass is not, or when it
+ * reaches that private `EventTarget`, as happy-dom's `MediaQueryList` does with no global to name it.
  */
 function looksLikeLiveHostObject(instance: object): boolean {
   if (typeof Reflect.get(instance, 'addEventListener') !== 'function') {
@@ -163,13 +164,22 @@ function looksLikeLiveHostObject(instance: object): boolean {
     }
 
     if (constructor.name === 'EventTarget') {
-      return engineLevel;
+      return engineLevel || isEnginePrivateEventTarget(constructor);
     }
 
     engineLevel ||= Reflect.get(globalThis, constructor.name) === constructor;
   }
 
   return false;
+}
+
+/** The `EventTarget` the engine built `Node` on, where that is not the one the realm exposes. */
+function isEnginePrivateEventTarget(constructor: object): boolean {
+  return (
+    typeof Node !== 'undefined' &&
+    constructor !== Reflect.get(globalThis, 'EventTarget') &&
+    Reflect.getPrototypeOf(Node.prototype) === Reflect.get(constructor, 'prototype')
+  );
 }
 
 /**
