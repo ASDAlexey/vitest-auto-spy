@@ -49,7 +49,8 @@ const plugins = {
 export default defineConfig([
   // `--ext .ts` is gone in flat config, and `eslint .` would otherwise pick up every `.js`/`.mjs`
   // in the repository — scripts and generated packages that no ruleset here was ever written for.
-  globalIgnores(['dist', 'coverage', '.cache', 'alias', 'bench', '**/*.cjs', '**/*.js', '**/*.mjs', '**/*.mts', '**/*.config.ts']),
+  // `.claude` holds local git worktrees, each a full checkout; linting them ran past an 8 GB heap.
+  globalIgnores(['dist', 'coverage', '.cache', '.claude', 'alias','bench', '**/*.cjs', '**/*.js', '**/*.mjs', '**/*.mts', '**/*.config.ts']),
 
   // ===== Library source =====
   {
