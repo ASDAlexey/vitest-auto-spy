@@ -34,6 +34,7 @@ interface Manifest {
   sideEffects: string[];
   peerDependencies: Record<string, string>;
   peerDependenciesMeta: Record<string, { optional?: boolean }>;
+  scripts: Record<string, string>;
 }
 
 const WORKFLOWS = '.github/workflows';
@@ -112,6 +113,16 @@ describe('the published manifest', () => {
 
   it('ships the changelog, so a consumer reads what an upgrade changed from node_modules', () => {
     expect(manifest.files).toContain('CHANGELOG.md');
+  });
+
+  it('packs the current major of the changelog and puts the full one back after', () => {
+    expect(manifest.scripts['prepack']).toContain('pack-changelog.mjs --trim');
+    expect(manifest.scripts['postpack']).toContain('pack-changelog.mjs --restore');
+  });
+
+  it('moves the released size baselines only when a version is cut', () => {
+    expect(manifest.scripts['version']).toContain('size-entries.mjs --release');
+    expect(manifest.scripts['version']).toContain('cold-import.mjs --release');
   });
 
   it('keeps vitest an optional peer, since /bun and /node run on another runner', () => {
