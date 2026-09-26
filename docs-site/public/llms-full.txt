@@ -1213,7 +1213,13 @@ on every runtime.
 that chain is the DOM engine's. happy-dom's `Node.removeChild` calls an internal Symbol-keyed method
 on the child it is removing; once discovery has patched it, that call is a call to a spy nobody
 configured — under a strict suite the node cannot be removed from `document.body` at all, and the
-leak then fails later tests in the file far from the cause. For an element that must keep living a
+leak then fails later tests in the file far from the cause. `createSpyFromInstance` now reports this
+before it patches anything: without `onlyMethodsToSpyOn` on a live `Node` or another `EventTarget`, it
+warns through the usual misconfiguration channel (`setMisconfigurationReaction('throw')` turns that
+into a failure right there, before the node is touched). The bare-array shorthand does not silence
+it — `createSpyFromInstance(el, ['addEventListener'])` merges as `methodsToSpyOn`, the _additive_
+list (§ [The merge](#the-merge)), so discovery still walks the whole node; only
+`{ onlyMethodsToSpyOn: ['addEventListener'] }` skips it. For an element that must keep living a
 DOM life, spy one property instead — `mockValueProp(el, 'addEventListener', vi.fn())` leaves the
 node otherwise real and removable. And for a native void method the handler is meant to call
 (`preventDefault`, `stopPropagation`, `focus`), `spyOnVoidMethod(event, 'preventDefault')` packs
@@ -10217,7 +10223,20 @@ advances one step per `flush()`; in `'immediate'` mode the first step runs on th
 does not recurse.
 
 A callback that throws stops the flush. The frames after it stay pending, and the next `flush()` runs
-them.
+them. Pass `onError` to intercept the throw instead — called with whatever the callback threw, in
+place of letting it propagate out of `flush()` (or, in `'immediate'` mode, out of
+`requestAnimationFrame` itself); rethrow from inside it to keep the default for an error you did not
+mean to swallow:
+
+```ts
+const frames = stubAnimationFrame({
+  onError: (error) => {
+    if (!isExpectedReentrancy(error)) {
+      throw error;
+    }
+  },
+});
+```
 
 ## `stubElementRect(element, rect?)`
 
@@ -10232,7 +10251,17 @@ mapContainer.getBoundingClientRect(); // DOMRect { x: 0, y: 0, width: 800, heigh
 
 Every call returns a fresh `DOMRect`, as the browser does, so `top`, `right`, `bottom` and `left`
 always agree with the four numbers given. Only the element passed is patched; its siblings keep
-answering zeros. The call returns the undo.
+answering zeros. The call returns the undo, which also carries the installed spy as
+`.getBoundingClientRect`, for a test that must assert the measurement happened rather than only shape
+its result:
+
+```ts
+const stub = stubElementRect(settingsTab, { width: 240 });
+
+component.selectTab('settings');
+
+expect(stub.getBoundingClientRect).toHaveBeenCalled();
+```
 
 ## Taking them off
 
