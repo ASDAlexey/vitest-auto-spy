@@ -551,6 +551,10 @@ export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, gett
  * 'isGuest', true)` can — and records the undo. (`TS2540` on a class **getter** is
  * {@link mockReadonlyProp}.)
  *
+ * Also works on `Array.prototype.length` (`{ writable: true, configurable: false }`), including the
+ * undo — though restoring the number does not repopulate elements a shrink already deleted, which is
+ * the array setter's own behaviour, not something any restore mechanism can undo.
+ *
  * @example
  * ```ts
  * mockValueProp(service, 'retries', 3);
@@ -561,7 +565,24 @@ export function mockValueProp<T, K extends keyof T>(object: T, property: K, valu
 /** For members the public type does not describe — TS `private` members, ad-hoc keys. A JS `#private` field is out of reach of any property key. */
 export function mockValueProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp;
 export function mockValueProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp {
-  return applyPatch(object, property, { value, writable: true, configurable: true }, 'mockValueProp');
+  return applyPatch(object, property, valueDescriptorFor(object, property, value), 'mockValueProp');
+}
+
+/**
+ * `configurable: true` is the right default — it is what lets a later restore delete a property this
+ * helper introduced — except a property like `Array.prototype.length` is `{ writable: true,
+ * configurable: false }` and forbids *raising* `configurable` back to `true`, even though the
+ * runtime otherwise allows changing the value of a writable-but-non-configurable data property
+ * outright. Keeping `configurable: false`, only when the existing property already demands it, is
+ * what makes `mockValueProp(someArray, 'length', 0)` succeed instead of throwing `Cannot redefine
+ * property`.
+ */
+function valueDescriptorFor<T>(object: T, property: PropertyKey, value: unknown): PatchDescriptor {
+  const previous = Object.getOwnPropertyDescriptor(object, property);
+
+  return previous?.configurable === false && previous.writable === true
+    ? { value, writable: true, configurable: false }
+    : { value, writable: true, configurable: true };
 }
 
 /**

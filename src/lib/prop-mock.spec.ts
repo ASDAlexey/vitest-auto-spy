@@ -83,7 +83,7 @@ describe('a property that refuses to be replaced', () => {
   function sealed(): { value: string } {
     const host = { value: 'real' };
 
-    Object.defineProperty(host, 'value', { value: 'real', configurable: false });
+    Object.defineProperty(host, 'value', { value: 'real', writable: false, configurable: false });
 
     return host;
   }
@@ -114,7 +114,7 @@ describe('a property that refuses to be replaced', () => {
 
     const settings = new Settings();
 
-    Object.defineProperty(settings, 'region', { value: 'eu', configurable: false });
+    Object.defineProperty(settings, 'region', { value: 'eu', writable: false, configurable: false });
 
     expect(() => mockValueProp(settings, 'region', 'us')).toThrow(
       "Build a double instead of patching the real instance: createSpyFromClass(Settings, { gettersToSpyOn: ['region'] }).",
@@ -147,6 +147,41 @@ describe('a property that refuses to be replaced', () => {
 
     expect(() => mockValueProp(host, 'value', 'patched')).toThrow(RangeError);
     expect(countMockedProps()).toBe(0);
+  });
+});
+
+/**
+ * `Array.prototype.length` is `{ writable: true, configurable: false }` — forcing `configurable:
+ * true`, as every other value patch does, is what used to make this throw `Cannot redefine property`
+ * for any array-length write, even though the runtime allows changing the value of a
+ * writable-but-non-configurable data property outright.
+ */
+describe('a property that is writable but not configurable', () => {
+  it('mocks Array.prototype.length in place, and restores the length afterwards', () => {
+    const items = [1, 2, 3];
+
+    const restore = mockValueProp(items, 'length', 0);
+
+    expect(items).toEqual([]);
+
+    // Shrinking `length` deletes the elements past it, same as `items.length = 0` would; restoring
+    // the property only puts the number back, not the elements the assignment already dropped.
+    restore();
+    expect(items).toHaveLength(3);
+    expect(items).toEqual([undefined, undefined, undefined]);
+  });
+
+  it('mocks any writable, non-configurable data property, not only length', () => {
+    const host = { value: 'real' };
+
+    Object.defineProperty(host, 'value', { value: 'real', writable: true, configurable: false });
+
+    const restore = mockValueProp(host, 'value', 'patched');
+
+    expect(host.value).toBe('patched');
+
+    restore();
+    expect(host.value).toBe('real');
   });
 });
 
