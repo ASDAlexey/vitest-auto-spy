@@ -48,7 +48,9 @@ a unit-test target, Analog below 2.7.5, `vite` below 6.4, or Node below 22.12 in
 `.node-version`, CI or a private package's `engines`. `fs-module-cache-not-persisted` warns when
 `fsModuleCache` is on and no CI config caches its directory. Renamed config keys Vitest 5 still
 honours (`experimental.fsModuleCache`, `browser.isolate`, `cache.dir`, …) are left to Vitest's own
-deprecation line.
+deprecation line. `mock-reset-config-unread` notes a `no-redundant-mock-reset` whose `configFile` names
+a config built by a factory or `mergeConfig`, with no flag beside it: the rule cannot see the flags
+that call sets.
 It is worth one run after any large edit to a test suite — especially after a codemod, which is where
 the eaten glob below came from.
 

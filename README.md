@@ -1035,29 +1035,30 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 3 errors, 4 warnings, 1 note
 ```
 
-| Check                               | What it finds                                                                                                                                                             |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tsconfig-glob-matches-nothing`     | An `include` pattern that matches no file — so it type-checks nothing; `info` when nothing beside the config is there to miss yet                                         |
-| `tsconfig-file-missing`             | A `files` entry naming a file that is gone                                                                                                                                |
-| `spec-imported-by-non-spec`         | A production module importing a `*.spec.ts`                                                                                                                               |
-| `spec-exports-fixture`              | A spec importing another spec, whose hooks then run in a foreign file                                                                                                     |
-| `foreign-runner-pragma`             | `@jest-environment` left in a spec, which Vitest never reads                                                                                                              |
-| `dead-runner-config`                | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                                                                                       |
-| `orphan-runner-file`                | A setup file only that dead config referenced                                                                                                                             |
-| `angular-build-splitting-off`       | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                                                                                       |
-| `analog-behind-angular-build`       | `@analogjs/vite-plugin-angular` below 2.7.5 next to `@angular/build` 22.2+ — `TypeError: cache.has is not a function` at startup                                          |
-| `coverage-all-removed`              | `coverage.all` in a config, on a Vitest that stopped reading the key                                                                                                      |
-| `coverage-include-misses-bundle`    | A `coverage.include` of sources only, in a runner config over a bundle                                                                                                    |
-| `coverage-include-recompiles-globs` | A coverage scope large enough that `picomatch` recompiling it per file costs more than the coverage. Info                                                                 |
-| `vitest-5-removed`                  | What Vitest 5 removed — `vitest/reporters`-style imports, `.sequential`, `--outputJson`/`--compare`; error on 5, note on 4. Also `poolOptions` (warning, ignored since 4) |
-| `vitest-5-deprecated`               | `experimental_clearCache` / `experimental_parseSpecifications` on Vitest 5, which nothing warns about at run time. Info                                                   |
-| `vitest-5-clear-mocks`              | `clearMocks: true` restating the Vitest 5 default, or a Vitest 4 suite that never decided and will have mocks cleared after the upgrade. Info                             |
-| `vitest-5-available`                | Vitest 4 with nothing holding back 5 — what it buys (−46 % v8 / −35.5 % istanbul on a 700-file Angular suite with coverage) — or what holds it back. Info                 |
-| `fs-module-cache-not-persisted`     | `fsModuleCache` on, and no CI config caches its directory — every CI run starts cold                                                                                      |
-| `jasmine-era-project`               | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error                                                          |
-| `no-agent-instructions`             | No instruction file names the package. A note, not an error                                                                                                               |
-| `helper-from-wrong-entry`           | A named import taken from an entry that does not export it — `provideAutoSpy` from the root                                                                               |
-| `no-unawaited-helper`               | An `expectEmission` / `stable` / `flushEventLoop` call dropped as a bare statement, so nothing awaits it                                                                  |
+| Check                               | What it finds                                                                                                                                                                        |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tsconfig-glob-matches-nothing`     | An `include` pattern that matches no file — so it type-checks nothing; `info` when nothing beside the config is there to miss yet                                                    |
+| `tsconfig-file-missing`             | A `files` entry naming a file that is gone                                                                                                                                           |
+| `spec-imported-by-non-spec`         | A production module importing a `*.spec.ts`                                                                                                                                          |
+| `spec-exports-fixture`              | A spec importing another spec, whose hooks then run in a foreign file                                                                                                                |
+| `foreign-runner-pragma`             | `@jest-environment` left in a spec, which Vitest never reads                                                                                                                         |
+| `dead-runner-config`                | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                                                                                                  |
+| `orphan-runner-file`                | A setup file only that dead config referenced                                                                                                                                        |
+| `angular-build-splitting-off`       | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                                                                                                  |
+| `analog-behind-angular-build`       | `@analogjs/vite-plugin-angular` below 2.7.5 next to `@angular/build` 22.2+ — `TypeError: cache.has is not a function` at startup                                                     |
+| `coverage-all-removed`              | `coverage.all` in a config, on a Vitest that stopped reading the key                                                                                                                 |
+| `coverage-include-misses-bundle`    | A `coverage.include` of sources only, in a runner config over a bundle                                                                                                               |
+| `coverage-include-recompiles-globs` | A coverage scope large enough that `picomatch` recompiling it per file costs more than the coverage. Info                                                                            |
+| `vitest-5-removed`                  | What Vitest 5 removed — `vitest/reporters`-style imports, `.sequential`, `--outputJson`/`--compare`; error on 5, note on 4. Also `poolOptions` (warning, ignored since 4)            |
+| `vitest-5-deprecated`               | `experimental_clearCache` / `experimental_parseSpecifications` on Vitest 5, which nothing warns about at run time. Info                                                              |
+| `vitest-5-clear-mocks`              | `clearMocks: true` restating the Vitest 5 default, or a Vitest 4 suite that never decided and will have mocks cleared after the upgrade. Info                                        |
+| `mock-reset-config-unread`          | `no-redundant-mock-reset` given a `configFile` whose default export is a factory or `mergeConfig` call and no flag beside it — the rule reads none of the flags that call sets. Info |
+| `vitest-5-available`                | Vitest 4 with nothing holding back 5 — what it buys (−46 % v8 / −35.5 % istanbul on a 700-file Angular suite with coverage) — or what holds it back. Info                            |
+| `fs-module-cache-not-persisted`     | `fsModuleCache` on, and no CI config caches its directory — every CI run starts cold                                                                                                 |
+| `jasmine-era-project`               | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error                                                                     |
+| `no-agent-instructions`             | No instruction file names the package. A note, not an error                                                                                                                          |
+| `helper-from-wrong-entry`           | A named import taken from an entry that does not export it — `provideAutoSpy` from the root                                                                                          |
+| `no-unawaited-helper`               | An `expectEmission` / `stable` / `flushEventLoop` call dropped as a bare statement, so nothing awaits it                                                                             |
 
 The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
 `tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
@@ -1293,8 +1294,8 @@ Add this to the instruction file your agent actually reads — the table below s
 
 ```md
 When writing or fixing tests that use `vitest-auto-spy`, first read
-`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
-the configuration semantics and the common mistakes.
+`node_modules/vitest-auto-spy/AGENTS.md` whole — a short map — then only the topic files in
+`agent-docs/` it names for the task.
 ```
 
 The text is the same everywhere; only the filename changes. **Two files cover the whole field: a
@@ -1344,8 +1345,8 @@ cat >> AGENTS.md <<'MD'
 ## Tests that use `vitest-auto-spy`
 
 When writing or fixing tests that use `vitest-auto-spy`, first read
-`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
-the configuration semantics and the common mistakes.
+`node_modules/vitest-auto-spy/AGENTS.md` whole — a short map — then only the topic files in
+`agent-docs/` it names for the task.
 MD
 
 # 2 — CLAUDE.md: Claude Code, and GLM / Kimi running inside it. One line, no second copy to maintain
@@ -1587,6 +1588,12 @@ Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runti
 > The framework subpaths import **nothing** from their framework — the helpers are structural, so
 > `@nestjs/*`, `react`, `vue`/`pinia` and `svelte` stay your own (already-present) dev dependencies and
 > never reach this package's runtime bundle.
+
+> **`vitest-auto-spy/angular` is a companion to the root, not a copy of it.** Of the core it
+> re-exports only the `Spy<T>` type, the `mock*Prop` helpers with `restoreMockedProps`, the
+> `expectEmission` family and `registerAutoSpyDefaults`. `createSpyFromClass`, `createMock`,
+> `createAutoMock`, `spyOnVoidMethod`, `spyOnOwnMethod`, `stubConstructor`, `asInstance` and the rest
+> stay on `vitest-auto-spy`, so an Angular spec that needs one imports from both.
 
 > **The two entries every suite loads are shipped as one module each.** Importing an entry costs
 > per-module loader work rather than per-byte work, and every consumer imports the root on every spec
@@ -3097,7 +3104,7 @@ off, and `verifyNoPendingRequests()` runs the same check by hand.
 
 It is a separate entry because it is the only part of the package that imports `@angular/common` —
 an **optional** peer, so `vitest-auto-spy/angular` keeps loading in a project that does not have it.
-Like `/angular-router` and unlike every other subpath, it does not re-export the core; it is a companion to
+Like `/angular-router`, it does not re-export the core; it is a companion to
 `vitest-auto-spy/angular`, not a replacement.
 
 ### React (Testing Library)
@@ -3972,7 +3979,7 @@ export can never be.
 | `prefer-settle-dynamic-import`    |   `error`   | suggest           | `await import('./thing')` — or `import('./thing').then(…)` — written in a test body or a hook to settle a module the code under test lazy-loads → `await settleDynamicImport(() => import('./thing'))`. Awaiting the specifier waits for the **module**; the handler's own continuation, the lines after _its_ `await`, is still queued behind it, so the assertion reads the state one turn early. The suggestion wraps the `import()` and imports the helper. Reported only where the innermost enclosing function is the runner's own callback, which is what exempts a `vi.mock` factory, a lazy route's `loadComponent` and a callback the spec hands to production code                                                                                                                 |
 | `prefer-create-mock`              |   `warn`    | suggest           | an object literal under `as SomeType` — `{ id: '1', isOffline: false } as Device`, and the `<Device>{ … }` spelling → `createMock<Device>({ … })`, which takes a `DeepPartial<Device>` and answers a `Device`. A cast asks whether the two types overlap, so it passes a key the type does not declare **and** a required field the fixture never sets; both type gates stay silent and the fixture is then spread into an expected payload. Silent on `as const`, on `as unknown` / `as any` and the double cast built from them, on a cast of anything that is not a literal, and on a literal inside one of this library's own factories. `warn`, not `error`: the repair makes a drifted fixture red on the next type-check, which is the finding and also a migration taken file by file |
 | `no-mock-cast`                    |   `error`   | suggest           | `TestBed.inject(S).m as Mock` — a cast to Vitest's `Mock` / `MockInstance` over a **member access** → `injectSpy(S).m`, which the suggestion writes when the token is in view. `Mock` with no parameters is `Mock<any>`, so `mockReturnValue` takes anything and `toHaveBeenCalledWith` stops comparing arguments; the worse form, `(spy.m.mockReturnValue as Mock)(…)`, gets a message of its own because the cast sits on the member that installs the answer. The name has to resolve to a runner's import, so a domain `Mock` is never reported                                                                                                                                                                                                                                           |
-| `no-redundant-mock-reset`         |   `error`   | `--fix` / suggest | a mock reset **the runner already performs** — `vi.clearAllMocks()` / `resetAllMocks()` / `restoreAllMocks()`, `x.mockClear()` / `mockReset()` / `mockRestore()` — as the first statement of a `beforeEach` no other `beforeEach` precedes, or a clear closing an `afterEach` → delete it. **Silent until** the flags are known: `['error', { clearMocks: true, restoreMocks: true, mockReset: true }]`, `{ configFile }` naming the runner config, or a `vitest.config.*` / `vite.config.*` found above the file. The flag has to match the call: `restoreMocks` alone does not make a `clearAllMocks()` dead, since it never reaches a plain `vi.fn()`. `--fix` only in a file whose only before-hook it is, a suggestion everywhere else, and **never** in a test body                     |
+| `no-redundant-mock-reset`         |   `error`   | `--fix` / suggest | a mock reset **the runner already performs** — `vi.clearAllMocks()` / `resetAllMocks()` / `restoreAllMocks()`, `x.mockClear()` / `mockReset()` / `mockRestore()` — first in a `beforeEach` no other `beforeEach` precedes, or a clear closing an `afterEach` → delete it. **Silent until** the runner's flags are known: `['error', { clearMocks: true }]` and siblings, `{ configFile }`, or a `vitest.config.*` / `vite.config.*` above the file, read as text; a factory or `mergeConfig` in another module is not read through, and `setupAutoSpy({ restoreMocks })` is not the runner's flag. The flag has to match the call: `restoreMocks` never reaches a plain `vi.fn()`. `--fix` only where it is the file's only before-hook, a suggestion elsewhere, **never** in a test body     |
 | `no-unasserted-argument`          |   `warn`    | —                 | a bare `expect(spy).toHaveBeenCalled()` where the file itself says the arguments are the point: the same subject is pinned with `toHaveBeenCalledWith(…)` in another test of the file, or the test's title says `with` and its body asserts nothing else → name the arguments. Narrower than `vitest/prefer-called-with` on purpose — 175 findings against its 1941 on the same suite                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `no-compile-components`           |   `error`   | suggest           | `compileComponents()` under a builder that inlines `templateUrl` / `styleUrls` — a promise already settled; **silent** until `{ builder: 'inline-resources' }` says so, because a JIT setup that loads resources at run time needs the call. One exception the rule cannot see: a component whose template holds a `@defer` block ships async class metadata, so the call stays load-bearing there                                                                                                                                                                                                                                                                                                                                                                                            |
 | `no-sync-testbed-await`           |   `error`   | suggest           | `await` on a TestBed call that answers the TestBed or a fixture — `configureTestingModule`, every `override*`, `resetTestingModule`, `createComponent`, `getLastFixture`; none of them is a promise, so the `await` waits for nothing and the `async` it forced on the hook awaits nothing either. The suggestion drops both. Reads no types, so it reports without `parserOptions.project`                                                                                                                                                                                                                                                                                                                                                                                                   |

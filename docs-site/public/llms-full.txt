@@ -1218,7 +1218,7 @@ on the child it is removing; once discovery has patched it, that call is a call 
 configured — under a strict suite the node cannot be removed from `document.body` at all, and the
 leak then fails later tests in the file far from the cause. `createSpyFromInstance` now reports this
 before it patches anything: without `onlyMethodsToSpyOn` on a live `Node`, the global `window` or another engine-provided event
-target (`XMLHttpRequest`, `AbortSignal`; a class of your own that extends `EventTarget` does not
+target (`XMLHttpRequest`, `AbortSignal`, happy-dom's `MediaQueryList`; a class of your own that extends `EventTarget` does not
 count), it warns through the usual misconfiguration channel (`setMisconfigurationReaction('throw')` turns that
 into a failure right there, before the node is touched). The bare-array shorthand does not silence
 it — `createSpyFromInstance(el, ['addEventListener'])` merges as `methodsToSpyOn`, the _additive_
@@ -15038,8 +15038,10 @@ rule here.
   `export default createProjectConfig({ alias })`, or a `mergeConfig(base, …)` whose `base` lives in
   another module, the flags are set in a file the rule never opens. Its text names no `clearMocks`,
   so up to Vitest 4 the flag reads as off and the rule stays silent, and from Vitest 5 it reads as
-  the default — on — even where the factory turns it off. Write what the factory sets beside the
-  path:
+  the default — on — even where the factory turns it off. `npx vitest-auto-spy doctor` notes a
+  `configFile` like that as
+  [`mock-reset-config-unread`](https://asdalexey.github.io/vitest-auto-spy/utilities/cli#mock-reset-config-unread). Write what the factory sets
+  beside the path:
 
   ```js
   'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', clearMocks: true }],
@@ -17328,6 +17330,16 @@ then fails with `No "X" export is defined on the mock` only when the two share a
 lists the files with a factory and names the module as the error will. Mocking it the same way in
 both is the fix; `vi.resetModules()` before the import is the other way out.
 
+#### `mock-reset-config-unread`
+
+A `no-redundant-mock-reset` entry whose options name a `configFile` and no flag beside it, where that
+file's default export is a call to something other than `defineConfig` / `defineProject` — a factory
+of the project's own, or `mergeConfig`. The rule reads the file as text, so the flags the factory sets
+are out of its sight: it finds no `clearMocks`, stays silent up to Vitest 4 and assumes the default on
+from Vitest 5, whatever the factory does. A note, not a failure. The fix is to write the flags beside
+`configFile`, which win over the file. Only a literal `configFile` is read, resolved against the
+repository root.
+
 #### `coverage-all-removed`
 
 `coverage.all` on Vitest 4 or newer. The key was removed, not renamed: nothing reads it and nothing
@@ -18949,6 +18961,13 @@ beforeEach(() => {
 });
 ```
 
+`vitest-auto-spy/angular` is a companion to the core, not a second copy of it. Of the root entry it
+re-exports only the `Spy<T>` type (since 5.35.0), the `mock*Prop` helpers with `restoreMockedProps`
+and `countMockedProps`, the `expectEmission` family and `registerAutoSpyDefaults` /
+`clearAutoSpyDefaults`. The spy factories and the rest of the runtime — `createSpyFromClass`,
+`createMock`, `createAutoMock`, `spyOnVoidMethod`, `spyOnOwnMethod`, `stubConstructor`,
+`asInstance` — stay on `vitest-auto-spy`, so a spec that needs one keeps two import lines.
+
 The spies are change-detection agnostic, so they work in **both zoneless and zone.js** Angular
 projects — nothing here touches `NgZone` or change detection. You still need the usual Vitest +
 Angular wiring: Angular's own `@angular/build:unit-test` builder, or `@analogjs/vite-plugin-angular`
@@ -19386,9 +19405,9 @@ expect(queryElement(fixture, 'input[name=q]', HTMLInputElement).value).toBe('');
 expect(queryElement(fixture.debugElement, 'circle', SVGCircleElement).getAttribute('r')).toBe('4');
 ```
 
-Both take a `ComponentFixture` or a `DebugElement`; `queryElement` also takes an element found
-earlier, so a query can start inside a row. The last argument is the type to check against and
-return — `HTMLElement` when it is left out, `SVGElement` or plain `Element` for markup that is not
+Both take a fixture — a `ComponentFixture`, or the `DirectiveFixture` of Angular 22.2's
+`TestBed.createDirective` — or a `DebugElement`; `queryElement` also takes an element found earlier,
+so a query can start inside a row. The last argument is the type to check against and return — `HTMLElement` when it is left out, `SVGElement` or plain `Element` for markup that is not
 HTML. `TestBed` renders every component into a `<div>` host, so `hostElement(fixture)` is always an
 `HTMLElement`; the type argument matters for a `DebugElement` further down.
 
@@ -19486,7 +19505,10 @@ flushEffects(); // the no-fixture half: services, stores, runInInjectionContext 
 `fixture.detectChanges()` runs a single change-detection pass and does **not** flush pending
 effects, so an assertion right after it reads state that has not finished computing. In a zoneless
 app the state that matters is signal-derived and effects are what move it forward. `stable` does
-both, in the right order; `flushEffects` is `TestBed.tick()`, run inside the `NgZone`.
+both, in the right order; `flushEffects` is `TestBed.tick()`, run inside the `NgZone`. `stable`
+takes any fixture with `whenStable()`, so on Angular 22.2 the `DirectiveFixture` of
+`TestBed.createDirective(Dir, { tagName })` is awaited the same way — its `detectChanges()` flushes
+no effects either.
 
 ### Both work under zone.js, and the zone is why the tick is wrapped
 
@@ -20904,6 +20926,12 @@ So the host must be **standalone** and must carry the module in its _own_ `impor
 always standalone, `scope` becomes the component's imports, and `props` types
 `fixture.componentInstance`.
 
+On Angular 22.2 and newer a directive that needs no static host attribute, no `TemplateRef` (a
+structural directive) and no sibling markup needs no host component at all:
+`TestBed.createDirective(Dir, { tagName, bindings })` builds the element itself. `stable`,
+`hostElement` and `toHaveDirectiveApplied` take its `DirectiveFixture`; `setInputs` does not, since
+it has no `componentRef` — bind a signal with `inputBinding` and set the signal instead.
+
 ### `toHaveDirectiveApplied`
 
 ```ts
@@ -20922,9 +20950,25 @@ looks like a fix and is not: `schemas: [NO_ERRORS_SCHEMA]` applies to a testing 
 `declarations` and never to a standalone component, so next to a standalone component it is a dead
 entry that reads as if something were deliberately silenced.
 
-It takes a `ComponentFixture` or a `DebugElement`, and anything else is thrown rather than failed —
+It takes a `ComponentFixture`, a `DirectiveFixture` or a `DebugElement`, and searches the element
+the fixture is rooted at as well as everything under it: a `TestBed.createDirective` fixture is
+rooted at the element that carries the directive, and on a `ComponentFixture` a `hostDirectives`
+entry of the component under test counts. Anything else is thrown rather than failed —
 a `nativeElement` or an `undefined` passed by mistake is a wrong argument, and under `.not` a
 failure would have read as a pass.
+
+That makes it the guard for an attribute a `hostDirectives` entry provides. An assertion on the
+attribute alone stays green when the entry is dropped and the attribute is also written statically,
+or set by something else; asserting the entry itself fails instead. The matcher exists only after
+`registerDirectiveMatchers()` from `vitest-auto-spy/angular/matchers` has run — nothing registers it
+for you, so put the call in the setup file:
+
+```ts
+const fixture = TestBed.createComponent(CardComponent); // hostDirectives: [TestIdDirective]
+
+expect(fixture).toHaveDirectiveApplied(TestIdDirective); // no selector: the root element counts
+expect(hostElement(fixture).getAttribute('data-testid')).toBe('card');
+```
 
 ## A stand-in for a child — `createComponentStub`
 
@@ -21291,8 +21335,8 @@ that import this entry and on nobody else.
 Two consequences worth stating plainly:
 
 - Like [`/angular-router`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular-router) — and, since 5.21.0, the `/angular/diagnostics`,
-  `/angular/doubles` and `/angular/matchers` companions — and unlike every other subpath, this one
-  does **not** re-export the core. It is a companion to `vitest-auto-spy/angular`, which stays the
+  `/angular/doubles` and `/angular/matchers` companions — this one does **not** re-export the
+  core. It is a companion to `vitest-auto-spy/angular`, which stays the
   import for spies, `TestBed` helpers and `settleResource`.
 - The entry weighs **2.5 kB min+gzip** (2459 B, measured the way the README badge is: esbuild
   bundle, minified, gzipped, peers external).
@@ -27248,8 +27292,8 @@ GLM or Kimi running inside it, `GEMINI.md` for the Gemini CLI:
 
 ```md
 When writing or fixing tests that use `vitest-auto-spy`, first read
-`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
-the configuration semantics and the common mistakes.
+`node_modules/vitest-auto-spy/AGENTS.md` whole — a short map — then only the topic files in
+`agent-docs/` it names for the task.
 ```
 
 That file is already on disk in every project that installs the package, so the agent pays no
@@ -27301,8 +27345,8 @@ cat >> AGENTS.md <<'MD'
 ## Tests that use `vitest-auto-spy`
 
 When writing or fixing tests that use `vitest-auto-spy`, first read
-`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
-the configuration semantics and the common mistakes.
+`node_modules/vitest-auto-spy/AGENTS.md` whole — a short map — then only the topic files in
+`agent-docs/` it names for the task.
 MD
 
 # 2 — CLAUDE.md: Claude Code, and GLM / Kimi running inside it. One line, no second copy to maintain

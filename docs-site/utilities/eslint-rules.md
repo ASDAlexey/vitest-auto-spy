@@ -1687,8 +1687,10 @@ rule here.
   `export default createProjectConfig({ alias })`, or a `mergeConfig(base, …)` whose `base` lives in
   another module, the flags are set in a file the rule never opens. Its text names no `clearMocks`,
   so up to Vitest 4 the flag reads as off and the rule stays silent, and from Vitest 5 it reads as
-  the default — on — even where the factory turns it off. Write what the factory sets beside the
-  path:
+  the default — on — even where the factory turns it off. `npx vitest-auto-spy doctor` notes a
+  `configFile` like that as
+  [`mock-reset-config-unread`](/utilities/cli#mock-reset-config-unread). Write what the factory sets
+  beside the path:
 
   ```js
   'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', clearMocks: true }],

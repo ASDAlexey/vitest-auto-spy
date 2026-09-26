@@ -258,6 +258,16 @@ then fails with `No "X" export is defined on the mock` only when the two share a
 lists the files with a factory and names the module as the error will. Mocking it the same way in
 both is the fix; `vi.resetModules()` before the import is the other way out.
 
+#### `mock-reset-config-unread`
+
+A `no-redundant-mock-reset` entry whose options name a `configFile` and no flag beside it, where that
+file's default export is a call to something other than `defineConfig` / `defineProject` — a factory
+of the project's own, or `mergeConfig`. The rule reads the file as text, so the flags the factory sets
+are out of its sight: it finds no `clearMocks`, stays silent up to Vitest 4 and assumes the default on
+from Vitest 5, whatever the factory does. A note, not a failure. The fix is to write the flags beside
+`configFile`, which win over the file. Only a literal `configFile` is read, resolved against the
+repository root.
+
 #### `coverage-all-removed`
 
 `coverage.all` on Vitest 4 or newer. The key was removed, not renamed: nothing reads it and nothing

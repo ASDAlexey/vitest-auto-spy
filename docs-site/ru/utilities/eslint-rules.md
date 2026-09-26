@@ -1661,6 +1661,19 @@ expect(injectSpy(AppMetricsService).sendEvent).toHaveBeenCalledWith(payload);
   главнее файла, а несуществующий `configFile` роняет прогон линтера с именем файла, а не оставляет
   правило молчать.
 
+  **Конфиг, собранный в другом месте, читается только в пределах собственного текста.** В
+  `export default createProjectConfig({ alias })` или в `mergeConfig(base, …)`, чей `base` лежит в
+  другом модуле, флаги заданы в файле, который правило не открывает. Его текст не упоминает
+  `clearMocks`, поэтому до Vitest 4 флаг читается выключенным и правило молчит, а с Vitest 5 — как
+  значение по умолчанию, включённым, даже там, где фабрика его выключает. `npx vitest-auto-spy doctor`
+  отмечает такой `configFile` как
+  [`mock-reset-config-unread`](/ru/utilities/cli#mock-reset-config-unread). Запишите рядом с путём
+  то, что ставит фабрика:
+
+  ```js
+  'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', clearMocks: true }],
+  ```
+
 **Флаг должен совпадать с вызовом, а не с семейством.** Три опции — это не три степени одного и того
 же, и чтение их как степеней превращает такое правило в правило, удаляющее нужные сюите строки.
 
@@ -1678,6 +1691,13 @@ expect(injectSpy(AppMetricsService).sendEvent).toHaveBeenCalledWith(payload);
 файл показывает, что получатель — спай от `vi.spyOn`: `const spy = vi.spyOn(api, 'load')`, `let`,
 который хук заполняет однажды, или вызов, написанный по месту. Если получатель — обычный `vi.fn()`
 или имя, записанное больше одного раза, не сообщается ничего.
+
+**`setupAutoSpy({ restoreMocks })` — это не `restoreMocks` раннера.** Раннер восстанавливает в
+`onBeforeTryTask`, перед каждым тестом; `setupAutoSpy` восстанавливает в `afterEach`, после него. Для
+этого правила они не взаимозаменяемы: восстановление в `beforeAll` или перед первым тестом покрыто
+опцией раннера и ничем из того, что делает `setupAutoSpy`. Не передавайте правилу
+`{ restoreMocks: true }` из-за того, что файл настройки вызывает `setupAutoSpy({ restoreMocks: true })`,
+— что происходит между тестами, говорит только флаг конфига раннера.
 
 **Находка и как её закрыть.**
 

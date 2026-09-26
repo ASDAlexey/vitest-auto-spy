@@ -8,6 +8,24 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## Two consumer asks after 5.37.0, answered in docs and `doctor`, 2026-09-26
+
+- [~] **`vitest-auto-spy/angular` re-exporting the core's runtime helpers.** A spec that needs
+  `spyOnVoidMethod` or `createMock` beside `injectSpy` keeps two import lines. 5.35.0 added only the
+  `Spy<T>` type, the one name `injectSpy` returns; the entry stays a companion to the root, not a
+  second copy of it, so its surface is the Angular one plus the few helpers it already carried
+  (`mock*Prop`, the `expectEmission` family, `registerAutoSpyDefaults`). The Angular page, the agent
+  reference, the skill and the README now say so, so an agent stops folding runtime names into the
+  `/angular` import; `helper-from-wrong-entry` still catches one that does.
+- [~] **A notice from `no-redundant-mock-reset` when its `configFile` cannot be read through.** A
+  factory-built or `mergeConfig` runner config reads as "no flags", and the rule stays silent. A rule
+  that prints outside its reports would print once per linted file, or keep state across a lint run,
+  and ESLint has no channel for either; `doctor` already reads the repository's files as text, so the
+  case is its note `mock-reset-config-unread` instead. It reads only a literal `configFile` in a rule
+  entry with no flag beside it, and a default export called anything but `defineConfig` /
+  `defineProject`; a `defineConfig(mergeConfig(…))` wrapper and a config found by the rule's own
+  search are not reported.
+
 ## The teardown net on `aroundEach`, and `guardGlobals` through the definers, 2026-09-26
 
 The per-test tax of `setupAutoSpy()` was mostly the runner's, not ours: each registered hook costs a

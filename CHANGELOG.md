@@ -10,6 +10,67 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`doctor` notes `mock-reset-config-unread`.** A `no-redundant-mock-reset` entry whose options name
+  a `configFile` and no flag beside it, where that file's default export is a call to anything but
+  `defineConfig` / `defineProject` — a project factory such as `createProjectConfig({ alias })`, or
+  `mergeConfig(base, …)`. The rule reads the file as text, so it never sees the flags that call sets:
+  up to Vitest 4 it stays silent on every redundant reset, from Vitest 5 it assumes `clearMocks` on
+  even where the factory turns it off, and nothing says so. The note names the callee and the fix —
+  write the flags beside `configFile`, which win over the file. Only a literal `configFile` is read,
+  resolved against the repository root. The rule itself still reports nothing about its config.
+
+### Changed
+
+- **The block `init` writes into `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` follows the 5.35.0 split.**
+  It called the package's `AGENTS.md` "the authoritative reference"; since 5.35.0 that file is a short
+  map and the reference is `agent-docs/*.md`. The block now says what the skill stub already did: read
+  the map whole, then only the topic files it names, and look a failure up with
+  `grep -n -F '<error text>' node_modules/vitest-auto-spy/agent-docs/errors.md`. The rxjs line names
+  the setup file "or a module / `.d.ts` it loads", since under `@angular/build:unit-test` 22.2 the
+  import may sit in a shared module the setup file reaches and the types in a `.d.ts`. Both land in
+  one change, so the block's `sha=` moves once: **`init --check` reports the root stubs as changed
+  until `npx vitest-auto-spy init` runs again**, and that run rewrites only the block. The pointer in
+  the glob-scoped rule files and the skill stub are unchanged. The hand-written snippets on the agents
+  page and in the README say the same as the block.
+
+### Fixed
+
+- **`createSpyFromInstance` recognises happy-dom's `MediaQueryList` as a live DOM/BOM object.** What
+  `matchMedia()` returns belongs to a class no global names, built on happy-dom's private
+  `EventTarget`, so discovery ran unrestricted over it without the warning that asks for
+  `onlyMethodsToSpyOn`. An event target built on the `EventTarget` the engine built `Node` on now
+  counts too; a user class over the global `EventTarget`, or over a polyfill's, still does not.
+
+### Docs
+
+- **`no-redundant-mock-reset`: only the runner's flags count.** `AGENTS.md` §16, the README and the
+  skill now say what the rule reference already did: `setupAutoSpy({ restoreMocks: true })` restores
+  in an `afterEach`, after the test, and is not the runner's `restoreMocks`, so it is never a reason
+  to pass the rule `{ restoreMocks: true }`. The README also names the factory / `mergeConfig` case,
+  and the Russian rule page gains both paragraphs.
+- **`TestBed.createDirective` on the Angular page.** The zoneless-waiting, `hostElement` and
+  directive-host sections say that `stable`, `hostElement` and `toHaveDirectiveApplied` take Angular
+  22.2's `DirectiveFixture`, and the `toHaveDirectiveApplied` section that the fixture's root element
+  is searched too, so a `hostDirectives` entry of the component under test counts. `AGENTS.md` §13
+  already said so; the site did not.
+- **What `vitest-auto-spy/angular` re-exports from the core.** The Angular page, `AGENTS.md` §13, the
+  skill and the README say it outright: the `Spy<T>` type (5.35.0), the `mock*Prop` helpers with
+  `restoreMockedProps` / `countMockedProps`, the `expectEmission` family and `registerAutoSpyDefaults`
+  / `clearAutoSpyDefaults` — and nothing else. `createSpyFromClass`, `createMock`, `createAutoMock`,
+  `spyOnVoidMethod`, `spyOnOwnMethod`, `stubConstructor`, `asInstance` and the rest stay on
+  `vitest-auto-spy`, so a spec that needs one keeps a second import line rather than folding it into
+  the `/angular` one. The `/angular-http` pages no longer say every other subpath re-exports the core.
+- **`toHaveDirectiveApplied` as the guard for a `hostDirectives` attribute.** `AGENTS.md` §13 and the
+  Angular page (English and Russian) show the matcher asserting the host directive itself, with no
+  selector, next to the attribute check that stays green when the entry is dropped and the attribute
+  is also written statically — and that it exists only after `registerDirectiveMatchers()` from
+  `vitest-auto-spy/angular/matchers` runs in the setup file.
+- **The `createSpyFromInstance` refusal of a non-configurable, non-enumerable member** (`AGENTS.md`
+  §17) says that members the same call replaced before it stay spied until `restoreSpiedInstance` or
+  the `setupAutoSpy()` sweep puts them back.
+
 ## [5.37.0] - 2026-09-26
 
 ### Added
