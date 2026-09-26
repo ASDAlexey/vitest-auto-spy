@@ -5,7 +5,9 @@
  * The bare run is `process.execPath node_modules/vitest/vitest.mjs` rather than `npx vitest` or the
  * `.bin` shim — `npx` is a second install path that can resolve a different version, and the shim
  * is a `.cmd` on Windows. The reporter is passed as a plain filesystem path, so it needs no export
- * subpath of its own; `--reporter=default` is kept alongside it, or the run would look hung.
+ * subpath of its own; `--reporter=default` is kept alongside it, or the run would look hung. On
+ * Vitest 5 `--experimental.diagnostics=false` goes with them: its own after-run hints would repeat
+ * the advice `perf` prints next.
  *
  * `--command` exists because the bare run is not always this repository's suite — see
  * `checks/perf-harness`. There the command owns the configuration, so the reporter cannot be pushed
@@ -16,13 +18,14 @@ import { join, relative } from 'node:path';
 
 import { bareRunWouldMeasureSomethingElse } from './checks/perf-harness';
 import { BARE_RUN_DOCS, NOTHING_TO_READ_DOCS } from './docs';
-import { pathExists, readTextFile, removeFile } from './fs-scan';
+import { parseJsonc, pathExists, readTextFile, removeFile } from './fs-scan';
 import type { PerfRun } from './perf-data';
 import { PERF_OUTPUT_ENV, PERF_PROFILE_ENV, PERF_REPORTER_ENV, parsePerfRun, whyNotAPerfRun } from './perf-data';
 import { describeMerge, mergeRuns, readRuns, resolveReportPaths } from './perf-merge';
 import type { CpuProfile } from './perf-profile';
 import { takeProfiles } from './perf-profiler';
 import type { Profile } from './profile';
+import { isRecord } from './profile';
 import { ownPackageRoot } from './self';
 
 export interface SpawnOutcome {
@@ -220,6 +223,19 @@ function targetPath(options: PerfRunOptions): string {
   return options.out ?? join(options.cwd, 'node_modules', '.cache', 'vitest-auto-spy', `perf-${process.pid}.json`);
 }
 
+/** The major version of the Vitest a bare run starts, read from the manifest beside its entry. */
+function vitestMajor(cwd: string): number | undefined {
+  const manifest = parseJsonc(readTextFile(join(cwd, 'node_modules', 'vitest', 'package.json')) ?? '');
+  const match = isRecord(manifest) && typeof manifest['version'] === 'string' ? /^(\d+)\./.exec(manifest['version']) : null;
+
+  return match === null ? undefined : Number(match[1]);
+}
+
+/** Flags only a Vitest of this major understands; an older one would reject them as unknown. */
+function versionFlags(cwd: string): string[] {
+  return (vitestMajor(cwd) ?? 0) >= 5 ? ['--experimental.diagnostics=false'] : [];
+}
+
 function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | undefined): PerfSource {
   const entry = join(options.cwd, 'node_modules', 'vitest', 'vitest.mjs');
   const reporter = reporterPath(packageRoot);
@@ -247,7 +263,7 @@ function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | un
 
   const outcome = spawn({
     command: process.execPath,
-    args: [entry, 'run', '--reporter=default', `--reporter=${reporter}`, '--logHeapUsage', ...options.paths],
+    args: [entry, 'run', '--reporter=default', `--reporter=${reporter}`, '--logHeapUsage', ...versionFlags(options.cwd), ...options.paths],
     cwd: options.cwd,
     env: { [PERF_OUTPUT_ENV]: target, [PERF_REPORTER_ENV]: reporter, ...profileEnv(options) },
     shell: false,

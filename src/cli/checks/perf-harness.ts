@@ -21,6 +21,7 @@ import { pathExists } from '../fs-scan';
 import { PERF_REPORTER_ENV } from '../perf-data';
 import type { Profile } from '../profile';
 import { type UnitTestTarget, unitTestTargets } from './unit-test-targets';
+import { vitestMajor } from './vitest-5-facts';
 
 /** Config files `vitest run` reads from the directory it is started in. */
 const ROOT_CONFIGS: readonly string[] = [
@@ -36,10 +37,13 @@ const ROOT_CONFIGS: readonly string[] = [
   'vite.config.js',
   'vite.config.mjs',
   'vite.config.cjs',
-  'vitest.workspace.ts',
-  'vitest.workspace.js',
-  'vitest.workspace.json',
 ];
+
+/** Vitest 2 and 3 also start from a workspace file alone; Vitest 4 stopped reading one. */
+const WORKSPACE_CONFIGS: readonly string[] = ['vitest.workspace', 'vitest.projects'].flatMap((name) =>
+  ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs', 'json'].map((extension) => `${name}.${extension}`),
+);
+const WORKSPACE_FILES_DROPPED_IN = 4;
 
 /**
  * `vitest` as the command of the `test` script rather than a word inside it. `npm test` being
@@ -49,7 +53,10 @@ const ROOT_CONFIGS: readonly string[] = [
 const RUNS_VITEST = /(?:^|&&|\|\||;|\s)(?:(?:npx|pnpm|yarn|bunx)\s+(?:--no\s+|-y\s+|dlx\s+)?)?vitest(?:\s|$)/;
 
 export function hasRootConfig(cwd: string): boolean {
-  return ROOT_CONFIGS.some((candidate) => pathExists(join(cwd, candidate)));
+  const major = vitestMajor(cwd);
+  const candidates = major !== undefined && major >= WORKSPACE_FILES_DROPPED_IN ? ROOT_CONFIGS : [...ROOT_CONFIGS, ...WORKSPACE_CONFIGS];
+
+  return candidates.some((candidate) => pathExists(join(cwd, candidate)));
 }
 
 export function scriptRunsVitest(script: string | undefined): boolean {
