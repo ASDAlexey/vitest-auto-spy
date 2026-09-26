@@ -105,8 +105,8 @@ more than half), and a called method retains a third less.
 - **The root entry has internal `ɵ`-prefixed exports.** They are how `/angular` and the framework
   entries reach the shared core, they appear in no `.d.ts`, and they are not API: they can change in
   any release. A test that lists `Object.keys(await import('vitest-auto-spy'))` will see them.
-- **The `CHANGELOG.md` inside the package carries 5.x only** — 418 kB instead of 673 kB, which takes
-  the tarball down to 1 011 kB (−19.5 % with the change above). The full history stays in the
+- **The `CHANGELOG.md` inside the package carries 5.x only** — 427 kB instead of 683 kB, which takes
+  the tarball down to 1 019 kB (−18.9 % with the change above). The full history stays in the
   repository, and the shipped file links to it.
 
 ### Documentation

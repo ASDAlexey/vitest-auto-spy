@@ -4321,7 +4321,7 @@ framework adapters, rxjs layer, console spies and setup helpers each live behind
 
 ### What is in the download
 
-The published tarball is **1 011 kB** over **104 files** (`npm pack --dry-run`, 2026-09-26) against
+The published tarball is **1 019 kB** over **114 files** (`npm pack --dry-run`, 2026-09-26) against
 3.5 MB unpacked. It carries the 5.x changelog only — the full history is in the repository. On
 2026-09-20 it was 867 kB over 96 files; the twelve files the Angular split and the two CLI JSON reports added are most of
 the move from the 818 kB over 84 files this page reported on 2026-09-17. An
