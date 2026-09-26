@@ -10,11 +10,17 @@ Typed test spies generated from a class, a type, or nothing at all.
 ## Read this first
 
 The authoritative reference is **`AGENTS.md`** — a complete cheat sheet with the configuration
-surface, the error→fix table and the anti-pattern list. Read it before writing a spec:
+surface, the error→fix table and the anti-pattern list. It is too large to read whole: read it by
+section, starting with its header, which says which sections every task needs. Five long sections
+(setup file, Angular, ESLint plugin, error→fix, migrating off jasmine-auto-spies) sit next to it in
+`agent-docs/`.
 
 ```bash
-cat node_modules/vitest-auto-spy/AGENTS.md   # in the consuming project
-cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md"        # when this skill came from the plugin
+D=node_modules/vitest-auto-spy               # in the consuming project
+D="${CLAUDE_PLUGIN_ROOT}"                    # when this skill came from the plugin
+sed -n '1,/^## 1\./p' "$D/AGENTS.md"         # the header and its reading map
+grep -n '^## ' "$D/AGENTS.md"                # every section with its line number
+grep -n -F '<text of the error>' "$D/agent-docs/errors.md"   # a failing spec: the fix for that message
 ```
 
 If neither exists, fetch <https://asdalexey.github.io/vitest-auto-spy/llms-full.txt>.
@@ -31,7 +37,9 @@ The **types are the authority** when any doc and the code disagree — check
    helpers (`nextWith`, `observablePropsToSpyOn`) throw without the rxjs import, and since 4.0.0
    that file has to be inside the spec `tsconfig` too — `returnSubject()` is typed as rxjs's
    `Subject<T>` only where the compiler sees the import, and as the structural `SubjectLike<T>`
-   otherwise (`Type 'SubjectLike<T>' is not assignable to type 'Subject<T>'`).
+   otherwise (`Type 'SubjectLike<T>' is not assignable to type 'Subject<T>'`). Put it in a setup
+   file, a spec, or a `.d.ts`: from `@angular/build:unit-test` 22.2.0 a plain `.ts` listed only in
+   the spec `tsconfig`'s `include` is out of the program.
 3. **Follow the suite's existing conventions** — globals vs. explicit `import { describe } from
 'vitest'`, file layout, naming. Match the neighbouring spec.
 
@@ -224,7 +232,8 @@ it('loads', async () => {
 | a suite ported from Jest's `fakeTimers.enableGlobally`                                              | `setupAutoSpy({ globalFakeTimers: true })`                                                                                                                                                        |
 | `toHaveBeenCalledBefore` across an auto-spy and a hand-written `vi.fn()`                            | `setSpyEngine('runner')` / `getSpyEngine()` — `/setup`, Vitest only                                                                                                                               |
 | a nested `describe`'s `beforeAll` landing on real timers                                            | `setupFakeTimers(cfg, { betweenTests: true })`                                                                                                                                                    |
-| setup hooks applying to the first spec file of a worker only                                        | the setup module is cached — run coverage with `--isolate`                                                                                                                                        |
+| setup hooks applying to the first spec file of a worker only                                        | `@angular/build` before 22.2.0 caches the setup module under coverage — upgrade, or run coverage with `--isolate`                                                                                 |
+| slow `ng test --coverage` on `@angular/build` 22.2+                                                 | `vitest` + every `@vitest/coverage-*` to 5 together, no `overrides` (`@analogjs/*` ≥ 2.7.5): 700 specs −46 % v8, −35.5 % istanbul                                                                 |
 | `fakeAsync` inside `test.concurrent`                                                                | `installProxyZonePatch({ scope: 'callback' })`                                                                                                                                                    |
 | an assertion containing a date                                                                      | `mockSystemTime(iso)` — never `vi.spyOn(globalThis, 'Date')`                                                                                                                                      |
 | a spec asserting on tick _order_ under a frozen clock                                               | `useCountingClock()`                                                                                                                                                                              |
@@ -255,6 +264,7 @@ it('loads', async () => {
 | console output a test never asserted on (a `'warn'` from this library does not count)               | `setupAutoSpy({ strayConsole: 'throw' })` fails that test; absorb with `installConsoleSpies()` in `beforeEach`                                                                                    |
 | every guard at its strictest grade in one line                                                      | `setupAutoSpy({ preset: 'strict' })` — plus `enableAngularDiagnostics()` from `/angular/diagnostics` for Angular                                                                                  |
 | an `onlyMethodsToSpyOn` typo or `injectSpy` on a real instance that only warned                     | `setupAutoSpy({ misconfiguration: 'throw' })` throws at the call                                                                                                                                  |
+| `createSpyFromInstance(el)`: `no onlyMethodsToSpyOn was given for a live DOM/BOM object`            | `{ onlyMethodsToSpyOn: [...] }` — a bare array adds to discovery; one method: `spyOnVoidMethod` / `mockValueProp`                                                                                 |
 | which file and call scheduled a timer that outlived its file                                        | `onStrayTimers: 'throw'` (each stray's kind, delay, file and first frame), or `describeStrayTimers()` from `/setup`                                                                               |
 | stray timers charged to a file that only writes `localStorage` (jsdom)                              | `withoutStrayTimerTracking(() => seed())` from `/setup` — its timers are neither counted nor cancelled                                                                                            |
 | `import { consoleErrorSpy }` silencing other files under `isolate: false`                           | `installConsoleSpies()` in `beforeEach`, `restoreConsole()` in `afterEach` — the import installs once per worker                                                                                  |
