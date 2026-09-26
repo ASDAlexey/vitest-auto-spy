@@ -52,7 +52,20 @@ advances one step per `flush()`; in `'immediate'` mode the first step runs on th
 does not recurse.
 
 A callback that throws stops the flush. The frames after it stay pending, and the next `flush()` runs
-them.
+them. Pass `onError` to intercept the throw instead — called with whatever the callback threw, in
+place of letting it propagate out of `flush()` (or, in `'immediate'` mode, out of
+`requestAnimationFrame` itself); rethrow from inside it to keep the default for an error you did not
+mean to swallow:
+
+```ts
+const frames = stubAnimationFrame({
+  onError: (error) => {
+    if (!isExpectedReentrancy(error)) {
+      throw error;
+    }
+  },
+});
+```
 
 ## `stubElementRect(element, rect?)`
 
@@ -67,7 +80,17 @@ mapContainer.getBoundingClientRect(); // DOMRect { x: 0, y: 0, width: 800, heigh
 
 Every call returns a fresh `DOMRect`, as the browser does, so `top`, `right`, `bottom` and `left`
 always agree with the four numbers given. Only the element passed is patched; its siblings keep
-answering zeros. The call returns the undo.
+answering zeros. The call returns the undo, which also carries the installed spy as
+`.getBoundingClientRect`, for a test that must assert the measurement happened rather than only shape
+its result:
+
+```ts
+const stub = stubElementRect(settingsTab, { width: 240 });
+
+component.selectTab('settings');
+
+expect(stub.getBoundingClientRect).toHaveBeenCalled();
+```
 
 ## Taking them off
 

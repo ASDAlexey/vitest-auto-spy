@@ -104,6 +104,37 @@ describe('stubAnimationFrame', () => {
     expect(later).toHaveBeenCalledTimes(1);
   });
 
+  it('calls onError instead of letting a throwing callback propagate, and keeps flushing', () => {
+    const onError = vi.fn();
+    const frames = stubAnimationFrame({ mode: 'queued', onError });
+    const later = vi.fn();
+
+    requestAnimationFrame(() => {
+      throw new Error('boom');
+    });
+    requestAnimationFrame(later);
+
+    expect(() => frames.flush()).not.toThrow();
+    expect(onError).toHaveBeenCalledWith(new Error('boom'));
+    expect(later).toHaveBeenCalledTimes(1);
+    expect(frames.pending).toBe(0);
+  });
+
+  it('still throws when onError rethrows', () => {
+    const frames = stubAnimationFrame({
+      mode: 'queued',
+      onError: (error) => {
+        throw error;
+      },
+    });
+
+    requestAnimationFrame(() => {
+      throw new Error('boom');
+    });
+
+    expect(() => frames.flush()).toThrow('boom');
+  });
+
   it('puts the previous globals back on restore() and drops what is pending', () => {
     const original = globalThis.requestAnimationFrame;
     const frames = stubAnimationFrame({ mode: 'queued' });

@@ -26,6 +26,13 @@ export interface AnimationFrameStubOptions {
    * `document.defaultView`; `null` installs on `globalThis` alone.
    */
   view?: object | null;
+  /**
+   * Called with what a frame callback threw, instead of letting the throw propagate out of
+   * `requestAnimationFrame` (in `'immediate'` mode) or `flush()`. Rethrow from inside to restore the
+   * default behaviour for that error — useful when only a specific, expected error should be
+   * swallowed and everything else should still fail the test.
+   */
+  onError?: (error: unknown) => void;
 }
 
 /** The handle {@link stubAnimationFrame} returns. */
@@ -72,6 +79,10 @@ export interface AnimationFrameStub {
  * an animation loop that requests its own next frame advances one step per `flush()` instead of
  * recursing forever.
  *
+ * A callback that throws stops the rest of that `flush()` (or, in `'immediate'` mode, propagates out
+ * of `requestAnimationFrame` itself) — pass `onError` to intercept it instead, e.g. to tolerate one
+ * specific, expected error and rethrow everything else.
+ *
  * Installed through `mockValueProp` on `globalThis`, and on `document.defaultView` when that is a
  * separate object, so `restoreMockedProps()` — and `setupAutoSpy()` after every test — puts the
  * previous globals back. Install it in `beforeEach` or in the test.
@@ -87,7 +98,7 @@ export function stubAnimationFrame(options: AnimationFrameStubOptions = {}): Ani
     running = true;
 
     try {
-      callback(timestamp);
+      invokeFrame(callback, timestamp, options.onError);
     } finally {
       running = false;
     }
@@ -134,6 +145,19 @@ export function stubAnimationFrame(options: AnimationFrameStubOptions = {}): Ani
       queue.clear();
     },
   };
+}
+
+/** Run one frame callback, handing its throw to `onError` instead of letting it propagate, when given. */
+function invokeFrame(callback: FrameRequestCallback, timestamp: number, onError: ((error: unknown) => void) | undefined): void {
+  try {
+    callback(timestamp);
+  } catch (error) {
+    if (!onError) {
+      throw error;
+    }
+
+    onError(error);
+  }
 }
 
 function install(view: object | null, request: MockFn, cancel: MockFn): RestoreProp[] {
