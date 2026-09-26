@@ -10,14 +10,15 @@
  * matching it costs more than collecting the coverage does. That one is `info`, because the report
  * it produces is correct.
  */
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 
 import { COVERAGE_MATCHING_DOCS } from '../docs';
 import { captures, parseJsonc, readTextFile } from '../fs-scan';
 import type { Profile } from '../profile';
 import { isRecord } from '../profile';
 import type { Finding } from '../report';
-import { UNIT_TEST_BUILDERS } from './unit-test-targets';
+import { UNIT_TEST_BUILDERS, unitTestTargets } from './unit-test-targets';
+import { vitestMajor } from './vitest-5-facts';
 
 /** Where a Vitest config lives when no builder target names one explicitly. */
 const CONFIG_CANDIDATES = [
@@ -32,6 +33,9 @@ const CONFIG_CANDIDATES = [
   'vite.config.js',
   'vite.config.mjs',
 ];
+
+/** The names `runnerConfig: true` looks for, in this order, in the project root and then the workspace root. */
+const BASE_CONFIGS = ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs'].map((extension) => `vitest-base.config.${extension}`);
 
 const WORKSPACE_FILE = /(^|\/)(?:angular|workspace|project)\.json$/;
 const UNIT_TEST_BUILDER = '@angular/build:unit-test';
@@ -202,7 +206,24 @@ export function targetScopeSize(profile: Profile): number {
   return patterns;
 }
 
-/** Runner config files named by an `@angular/build:unit-test` target of this workspace. */
+function baseConfigIn(profile: Profile, roots: readonly string[]): string | undefined {
+  for (const root of new Set(roots)) {
+    const file = BASE_CONFIGS.map((name) => posix.join(root, name)).find(
+      (candidate) => readTextFile(join(profile.cwd, candidate)) !== undefined,
+    );
+
+    if (file !== undefined) {
+      return file;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Runner config files an `@angular/build:unit-test` target of this workspace reads: the one it
+ * names, or the `vitest-base.config.*` that `runnerConfig: true` resolves to.
+ */
 export function unitTestRunnerConfigs(profile: Profile): string[] {
   const found = new Set<string>();
 
@@ -214,23 +235,23 @@ export function unitTestRunnerConfigs(profile: Profile): string[] {
     }
   });
 
+  for (const target of unitTestTargets(profile)) {
+    const base = target.optionBlocks.some((block) => block['runnerConfig'] === true) ? baseConfigIn(profile, [target.root, '']) : undefined;
+
+    if (base !== undefined) {
+      found.add(base);
+    }
+  }
+
   return [...found];
-}
-
-/** The installed major version of a package, read from its own manifest. */
-function installedMajor(cwd: string, packageName: string): number | undefined {
-  const text = readTextFile(join(cwd, 'node_modules', packageName, 'package.json'));
-  const parsed = text === undefined ? undefined : parseJsonc(text);
-  const version = isRecord(parsed) ? parsed['version'] : undefined;
-  const major = typeof version === 'string' ? /^(\d+)\./.exec(version) : null;
-
-  return major === null || major === undefined ? undefined : Number(major[1]);
 }
 
 export function checkCoverageConfig(profile: Profile): Finding[] {
   const runnerConfigs = unitTestRunnerConfigs(profile);
   const targetScope = targetScopeSize(profile);
-  const major = installedMajor(profile.cwd, 'vitest');
+  const major = vitestMajor(profile.cwd);
+  const builderNote =
+    unitTestTargets(profile).length > 0 ? ` Under \`${UNIT_TEST_BUILDER}\`, Vitest 5 needs @angular/build 22.2.0 or newer.` : '';
   const findings: Finding[] = [];
 
   for (const file of [...new Set([...runnerConfigs, ...CONFIG_CANDIDATES])]) {
@@ -259,7 +280,7 @@ export function checkCoverageConfig(profile: Profile): Finding[] {
         severity: 'info',
         file,
         message: `The coverage scope here is ${scopeSize} globs, and Vitest ${major} compiles every one of them again for every file it checks, so matching can cost more than the coverage itself.`,
-        fix: `Upgrade to Vitest ${GLOBS_COMPILED_ONCE_IN}, which compiles them once. To stay on ${major}, use the custom-provider recipe: ${COVERAGE_MATCHING_DOCS}`,
+        fix: `Upgrade to Vitest ${GLOBS_COMPILED_ONCE_IN}, which compiles them once.${builderNote} To stay on ${major}, use the custom-provider recipe: ${COVERAGE_MATCHING_DOCS}`,
       });
     }
 

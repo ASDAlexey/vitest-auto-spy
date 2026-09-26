@@ -16,7 +16,16 @@ import { extractSetupFiles } from '../profile';
 import type { Finding } from '../report';
 import { type UnitTestTarget, unitTestTargets } from './unit-test-targets';
 
-const CONFIGS = ['vitest.config.ts', 'vitest.config.mts', 'vitest.config.js', 'vitest.config.mjs', 'vite.config.ts', 'vite.config.mts'];
+const CONFIGS = [
+  'vitest.config.ts',
+  'vitest.config.mts',
+  'vitest.config.js',
+  'vitest.config.mjs',
+  'vite.config.ts',
+  'vite.config.mts',
+  // What `ng generate config vitest` writes; the builder reads it only under `runnerConfig: true`.
+  ...['ts', 'mts', 'cts', 'js', 'mjs', 'cjs'].map((extension) => `vitest-base.config.${extension}`),
+];
 
 const CONVENTIONAL_SETUP = ['src/test-setup.ts', 'src/setup-tests.ts', 'src/vitest.setup.ts'];
 

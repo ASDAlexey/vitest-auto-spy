@@ -58,6 +58,69 @@ describe('isolationFromAngularBuilder', () => {
     expect(isolationFromAngularBuilder(root)?.isolated).toBe(false);
   });
 
+  it('keeps an `isolate: true` from the runner config the target names, which the builder merges over its default', () => {
+    const target = (options: Record<string, unknown>): string => workspace({ builder: '@angular/build:unit-test', options });
+    const named = createTempRepo({
+      'angular.json': target({ runnerConfig: './vitest-runner.config.ts' }),
+      'vitest-runner.config.ts': 'export default { test: { isolate: true } };',
+    });
+    const found = createTempRepo({
+      'angular.json': target({ runnerConfig: true }),
+      'vitest-base.config.mts': 'export default { test: { isolate: true } };',
+    });
+    const quiet = createTempRepo({
+      'angular.json': target({ runnerConfig: 'vitest-runner.config.ts' }),
+      'vitest-runner.config.ts': '// isolate: true would cost memory\nexport default { test: { isolate: false } };',
+    });
+    const nothingThere = createTempRepo({ 'angular.json': target({ runnerConfig: true }) });
+    const missing = createTempRepo({ 'angular.json': target({ runnerConfig: 'gone.config.ts' }) });
+    const odd = createTempRepo({
+      'angular.json': target({ runnerConfig: '' }),
+      'vitest-base.config.ts': 'export default { test: { isolate: true } };',
+    });
+
+    expect(isolationFromAngularBuilder(named)).toEqual({
+      isolated: true,
+      why: 'vitest-runner.config.ts sets `isolate: true`, which @angular/build:unit-test keeps',
+    });
+    expect(isolationFromAngularBuilder(found)?.why).toBe(
+      'vitest-base.config.mts sets `isolate: true`, which @angular/build:unit-test keeps',
+    );
+    expect(isolationFromAngularBuilder(quiet)?.isolated).toBe(false);
+    expect(isolationFromAngularBuilder(nothingThere)?.isolated).toBe(false);
+    expect(isolationFromAngularBuilder(missing)?.isolated).toBe(false);
+    expect(isolationFromAngularBuilder(odd)?.isolated).toBe(false);
+  });
+
+  it('lets the builder option `isolate: false` beat the runner config from 22.1, and not before', () => {
+    const files = {
+      'angular.json': workspace({
+        builder: '@angular/build:unit-test',
+        options: { isolate: false, runnerConfig: 'vitest-runner.config.ts' },
+      }),
+      'vitest-runner.config.ts': 'export default { test: { isolate: true } };',
+    };
+    const installed = (version: string): Record<string, string> => ({
+      'node_modules/@angular/build/package.json': JSON.stringify({ version }),
+    });
+
+    expect(isolationFromAngularBuilder(createTempRepo(files))?.isolated).toBe(false);
+    expect(isolationFromAngularBuilder(createTempRepo({ ...files, ...installed('22.1.0') }))?.isolated).toBe(false);
+    expect(isolationFromAngularBuilder(createTempRepo({ ...files, ...installed('22.0.5') }))?.isolated).toBe(true);
+  });
+
+  it('knows that 20.x reads no runner config and keeps per-file isolation', () => {
+    const root = createTempRepo({
+      'angular.json': workspace({ builder: '@angular/build:unit-test', options: { runner: 'vitest' } }),
+      'node_modules/@angular/build/package.json': JSON.stringify({ version: '20.3.37' }),
+    });
+
+    expect(isolationFromAngularBuilder(root)).toEqual({
+      isolated: true,
+      why: "@angular/build 20.3.37 reads no runner config and keeps Vitest's per-file isolation",
+    });
+  });
+
   it('reads the older workspace file and the newer target key, and survives the shapes in between', () => {
     const older = createTempRepo({
       'workspace.json': JSON.stringify({ projects: { bench: { targets: { test: { builder: '@angular/build:unit-test' } } } } }),
