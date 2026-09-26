@@ -609,8 +609,9 @@ that chain is the DOM engine's. happy-dom's `Node.removeChild` calls an internal
 on the child it is removing; once discovery has patched it, that call is a call to a spy nobody
 configured — under a strict suite the node cannot be removed from `document.body` at all, and the
 leak then fails later tests in the file far from the cause. `createSpyFromInstance` now reports this
-before it patches anything: without `onlyMethodsToSpyOn` on a live `Node` or another `EventTarget`, it
-warns through the usual misconfiguration channel (`setMisconfigurationReaction('throw')` turns that
+before it patches anything: without `onlyMethodsToSpyOn` on a live `Node`, the global `window` or another engine-provided event
+target (`XMLHttpRequest`, `AbortSignal`; a class of your own that extends `EventTarget` does not
+count), it warns through the usual misconfiguration channel (`setMisconfigurationReaction('throw')` turns that
 into a failure right there, before the node is touched). The bare-array shorthand does not silence
 it — `createSpyFromInstance(el, ['addEventListener'])` merges as `methodsToSpyOn`, the _additive_
 list (§ [The merge](#the-merge)), so discovery still walks the whole node; only

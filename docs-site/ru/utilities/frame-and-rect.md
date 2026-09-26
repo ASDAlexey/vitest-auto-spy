@@ -92,6 +92,11 @@ component.selectTab('settings');
 expect(stub.getBoundingClientRect).toHaveBeenCalled();
 ```
 
+Размеры — это реализация, с которой спай создан, поэтому `vi.resetAllMocks()` или `mockReset()`
+посреди теста очищает вызовы и оставляет размеры, на обоих движках спаев. Исключение — Bun: его
+`mockReset()` сбрасывает реализацию, и элемент начинает отвечать `undefined` — там после сброса
+вызовите `stubElementRect` заново. То же касается спаев `stubAnimationFrame`.
+
 ## Как они снимаются {#taking-them-off}
 
 Оба ставятся через `mockValueProp`. `restoreMockedProps()`, который `setupAutoSpy()` запускает после

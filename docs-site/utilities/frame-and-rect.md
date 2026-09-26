@@ -92,6 +92,11 @@ component.selectTab('settings');
 expect(stub.getBoundingClientRect).toHaveBeenCalled();
 ```
 
+The box is the implementation the spy was created with, so a `vi.resetAllMocks()` or `mockReset()`
+in the middle of a test empties the calls and keeps the box, on both spy engines. Bun is the
+exception: its `mockReset()` drops the implementation, and the element then answers `undefined` —
+call `stubElementRect` again after a reset there. The same holds for the `stubAnimationFrame` spies.
+
 ## Taking them off
 
 Both go through `mockValueProp`. `restoreMockedProps()`, which `setupAutoSpy()` runs after every test,

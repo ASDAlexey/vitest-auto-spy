@@ -10,6 +10,46 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Fixed
+
+- **`createSpyFromInstance` no longer warns about a class of your own that extends `EventTarget`.**
+  The live DOM/BOM check matched any `instanceof EventTarget`, so a plain emitter class — or a bare
+  `new EventTarget()` — was reported as a live host object. It now counts a `Node`, the global
+  `window`, or an object whose prototype chain reaches a constructor the realm exposes as a global
+  other than `EventTarget` itself (`XMLHttpRequest`, `AbortSignal`, …). That also closes the opposite
+  gap on happy-dom, whose `window`, XHR and `AbortSignal` were not `instanceof` the global
+  `EventTarget` and were never reported. When the call passed a bare array or `methodsToSpyOn`, the
+  warning now says those methods are spied in addition to discovery, not instead of it.
+
+- **`createSpyFromInstance` explains a writable, non-configurable, non-enumerable member again.**
+  Since `mockValueProp` accepts a writable non-configurable property (5.33.0), such a member got its
+  spy and then failed with a bare `TypeError: Cannot redefine property` when the factory made it
+  enumerable. It is now refused up front with this package's diagnostic, before anything is patched.
+  A writable, non-configurable member that is already enumerable is spied in place.
+
+- **`no-redundant-smoke-test` leaves alone an element found with `queryElement`.** `expect(minimap())` over a
+  local `minimap = () => queryElement(fixture, 'app-minimap')` asserts which template branch rendered,
+  as the `querySelector` form always did, but the helper was not recognised as a DOM query.
+
+- **`prefer-spy-on-own-method` treats `hostElement(…)` and `queryElement(…)` as real elements**, so a
+  bare void seed on one is suggested as `spyOnVoidMethod` like `fixture.nativeElement` already was.
+
+- **`prefer-render-shallow` looks for template reads in code, not in the file's text.** One
+  `textContent` in a comment, a `'debugElement'` string or the key of a hand-built object
+  (`{ getAttribute: 'nope' }`) silenced the rule for every `TestBed.createComponent` in the file. It
+  now counts identifiers and member names only, and skips members a spec declares (object-literal
+  keys, fake-class fields and methods, interface members); destructuring and `el['textContent']`
+  still count. Under `{ templates: 'never' }`, a `createDirectiveHost` in a comment no longer exempts
+  the file either. **A file that was quiet only because of such a mention now gets its warning** —
+  none did in the consumer suite this was measured on.
+
+### Docs
+
+- The `prefer-render-shallow` word list in the rule docs now includes `hostElement` and
+  `queryElement`, which 5.33.0 added to the rule.
+- `stubElementRect` / `stubAnimationFrame`: a `vi.resetAllMocks()` or `mockReset()` mid-test keeps
+  the stubbed behaviour on both spy engines; Bun's `mockReset()` drops it.
+
 ## [5.33.0] - 2026-09-26
 
 ### Added
