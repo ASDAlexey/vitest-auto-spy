@@ -17,6 +17,7 @@ import {
   createObservablePropSpy,
 } from './observable-spy';
 import { registerObservableSupport } from './observable-support';
+import { mockValueProp } from './prop-mock';
 import { resetAutoSpy } from './reset-auto-spy';
 import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
@@ -350,10 +351,27 @@ describe('createSpyFromInstance — non-configurable members', () => {
       expect(() => createSpyFromInstance(target, { onlyMethodsToSpyOn: ['send'] })).toThrow(
         "[vitest-auto-spy] Cannot spy on 'send' in place: it is a non-configurable, non-enumerable own property",
       );
+      expect(() => createSpyFromInstance(target, { onlyMethodsToSpyOn: ['send'] })).toThrow("mockValueProp(target, 'send', vi.fn())");
       expect(Reflect.get(target, 'send')).toBe(method);
     } finally {
       restoreSpiedInstance(target);
     }
+  });
+
+  it('leaves the member to mockValueProp, which the refusal names', () => {
+    const target: { send?: () => void } = {};
+    const method = (): void => undefined;
+    const spy = vi.fn();
+
+    Object.defineProperty(target, 'send', { value: method, writable: true, configurable: false, enumerable: false });
+
+    const restore = mockValueProp(target, 'send', spy);
+
+    expect(target.send).toBe(spy);
+
+    restore();
+
+    expect(target.send).toBe(method);
   });
 
   it('spies a writable, non-configurable method that is already enumerable', () => {
@@ -455,6 +473,13 @@ describe('createSpyFromInstance — live DOM/BOM objects', () => {
     ['a bare EventTarget', (): object => new EventTarget()],
     ['a literal with an addEventListener method', (): object => ({ addEventListener: (): void => undefined })],
     ['an object inheriting addEventListener from a literal', (): object => Object.create({ addEventListener: (): void => undefined })],
+    [
+      'a user class extending a built-in that is not an event target',
+      (): object =>
+        new (class Registry extends Map<string, () => void> {
+          readonly addEventListener = (): void => undefined;
+        })(),
+    ],
   ])('stays quiet for %s', (_, create) => {
     setMisconfigurationReaction('throw');
     const target = create();

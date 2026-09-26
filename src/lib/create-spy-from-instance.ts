@@ -141,8 +141,8 @@ function warnOnInstanceMisconfiguration(instance: object, className: string | un
  * Bun entries. `instanceof EventTarget` is both too wide and too narrow: a user class that extends
  * `EventTarget` matches, yet happy-dom's `window`, XHR and `AbortSignal` do not (its globals sit on a
  * private `EventTarget` of their own). So an event target counts when it is `Node`, the global
- * object, or when some level of its chain is a constructor the realm exposes as a global other than
- * `EventTarget` itself — `Window`, `XMLHttpRequest`, `AbortSignal` — which a user subclass is not.
+ * object, or when a level of its chain below `EventTarget` is a constructor the realm exposes as a
+ * global — `Window`, `XMLHttpRequest`, `AbortSignal` — which a user subclass is not.
  */
 function looksLikeLiveHostObject(instance: object): boolean {
   if (typeof Reflect.get(instance, 'addEventListener') !== 'function') {
@@ -153,24 +153,23 @@ function looksLikeLiveHostObject(instance: object): boolean {
     return true;
   }
 
+  let engineLevel = false;
+
   for (let level = Reflect.getPrototypeOf(instance); level !== null; level = Reflect.getPrototypeOf(level)) {
-    if (isEngineGlobalLevel(level)) {
-      return true;
+    const constructor: unknown = Object.getOwnPropertyDescriptor(level, 'constructor')?.value;
+
+    if (typeof constructor !== 'function') {
+      continue;
     }
+
+    if (constructor.name === 'EventTarget') {
+      return engineLevel;
+    }
+
+    engineLevel ||= Reflect.get(globalThis, constructor.name) === constructor;
   }
 
   return false;
-}
-
-function isEngineGlobalLevel(level: object): boolean {
-  const constructor: unknown = Object.getOwnPropertyDescriptor(level, 'constructor')?.value;
-
-  return (
-    typeof constructor === 'function' &&
-    constructor !== Object &&
-    constructor.name !== 'EventTarget' &&
-    Reflect.get(globalThis, constructor.name) === constructor
-  );
 }
 
 /**
@@ -214,7 +213,8 @@ function installMember(instance: object, name: PropertyKey, value: unknown, rest
   // mockValueProp can rewrite a writable non-configurable value, but it cannot then be made enumerable.
   if (own?.configurable === false && own.writable === true && !own.enumerable) {
     throw redefineFailure(
-      `Cannot spy on '${String(name)}' in place: it is a non-configurable, non-enumerable own property, so the spy could not be made enumerable for resetAutoSpy to find.`,
+      `Cannot spy on '${String(name)}' in place: it is a non-configurable, non-enumerable own property, so the spy could not be made enumerable for resetAutoSpy to find. ` +
+        `To spy on this one member, mockValueProp(target, '${String(name)}', vi.fn()) replaces its value and keeps it non-enumerable.`,
       instance,
       undefined,
       name,
