@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
+import '../index';
 import { stubElementRect } from './element-rect-stub';
 import { restoreMockedProps } from './prop-mock';
 
@@ -45,5 +46,14 @@ describe('stubElementRect', () => {
 
     expect(Object.hasOwn(element, 'getBoundingClientRect')).toBe(false);
     expect(element.getBoundingClientRect().width).toBe(0);
+  });
+
+  it('hands out the installed spy alongside the restore, for a measurement a test must assert happened', () => {
+    const element = document.createElement('div');
+    const stub = stubElementRect(element, { width: 100 });
+
+    element.getBoundingClientRect();
+
+    expect(stub.getBoundingClientRect).toHaveBeenCalledOnce();
   });
 });

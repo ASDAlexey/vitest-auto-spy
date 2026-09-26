@@ -12,6 +12,7 @@ import { describe, expectTypeOf, it } from 'vitest';
 import type { RestoreProp } from '../auto-spy';
 import {
   type AnimationFrameStub,
+  type ElementRectRestore,
   type ObserverStub,
   intersectionEntry,
   mutationRecord,
@@ -222,12 +223,18 @@ describe('stubAnimationFrame', () => {
     // @ts-expect-error -- the timestamp belongs to flush(), not to the options
     stubAnimationFrame({ timestamp: 0 });
   });
+
+  it('takes onError as a callback given whatever the callback threw', () => {
+    stubAnimationFrame({ onError: (error) => expectTypeOf(error).toEqualTypeOf<unknown>() });
+  });
 });
 
 describe('stubElementRect', () => {
-  it('takes the four numbers a DOMRect is built from, and hands back the undo', () => {
-    expectTypeOf(stubElementRect(host, { width: 800, height: 600 })).toEqualTypeOf<RestoreProp>();
-    expectTypeOf(stubElementRect(host)).toEqualTypeOf<RestoreProp>();
+  it('takes the four numbers a DOMRect is built from, and hands back the undo plus the spy', () => {
+    expectTypeOf(stubElementRect(host, { width: 800, height: 600 })).toEqualTypeOf<ElementRectRestore>();
+    expectTypeOf(stubElementRect(host)).toEqualTypeOf<ElementRectRestore>();
+    expectTypeOf(stubElementRect(host)).toExtend<RestoreProp>();
+    expectTypeOf(stubElementRect(host).getBoundingClientRect).toBeFunction();
 
     // @ts-expect-error -- the edges are derived from x / y / width / height
     stubElementRect(host, { top: 10 });

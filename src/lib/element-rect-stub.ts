@@ -1,4 +1,11 @@
+import { type MockFn, getMockAdapter } from './mock-adapter';
 import { type RestoreProp, mockValueProp } from './prop-mock';
+
+/** The restore callback {@link stubElementRect} returns, carrying the installed spy alongside it. */
+export type ElementRectRestore = RestoreProp & {
+  /** The spy installed as `getBoundingClientRect` — assert on it with `toHaveBeenCalled()` and friends. */
+  readonly getBoundingClientRect: MockFn;
+};
 
 /**
  * Make `element.getBoundingClientRect()` report a box. jsdom lays nothing out and answers zeros for
@@ -14,10 +21,13 @@ import { type RestoreProp, mockValueProp } from './prop-mock';
  * `DOMRect`, so they never disagree with `x` / `y` / `width` / `height`. Every call returns a fresh
  * rect, as the browser does. Installed through `mockValueProp`, so `restoreMockedProps()` — and
  * `setupAutoSpy()` after every test — puts the element's own method back; the returned function
- * does it sooner.
+ * does it sooner. The same return value also carries the installed spy as `.getBoundingClientRect`,
+ * for a spec that needs to assert the measurement happened rather than only shape its result.
  */
-export function stubElementRect(element: Element, rect: DOMRectInit = {}): RestoreProp {
+export function stubElementRect(element: Element, rect: DOMRectInit = {}): ElementRectRestore {
   const { x = 0, y = 0, width = 0, height = 0 } = rect;
+  const getBoundingClientRect = getMockAdapter().createMockFn((): DOMRect => new DOMRect(x, y, width, height), 'getBoundingClientRect');
+  const restore = mockValueProp(element, 'getBoundingClientRect', getBoundingClientRect);
 
-  return mockValueProp(element, 'getBoundingClientRect', (): DOMRect => new DOMRect(x, y, width, height));
+  return Object.assign(restore, { getBoundingClientRect });
 }

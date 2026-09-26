@@ -42,7 +42,7 @@ export {
 } from './lib/animation-frame-stub';
 
 // A `getBoundingClientRect()` that reports a box where the environment lays nothing out
-export { stubElementRect } from './lib/element-rect-stub';
+export { type ElementRectRestore, stubElementRect } from './lib/element-rect-stub';
 
 // Observer globals a component constructs itself, replaced by ones a spec can drive
 export {

@@ -153,6 +153,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   DomRegistrar: '2',
   DuplicateCopiesReaction: '23',
   ElementConstructor: '2 12',
+  ElementRectRestore: '7',
   EmissionObserver: '0 1 2 3 4 12 20 21 22',
   EmissionOptions: '0 1 2 3 4 12 20 21 22',
   EmissionSource: '0 1 2 3 4 12 20 21 22',
