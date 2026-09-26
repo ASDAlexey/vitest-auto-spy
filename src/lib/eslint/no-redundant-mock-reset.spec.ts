@@ -232,3 +232,72 @@ describe('no-redundant-mock-reset, finding the runner config itself', () => {
     );
   });
 });
+
+describe('no-redundant-mock-reset, the clearMocks default of the installed Vitest', () => {
+  const root = mkdtempSync(join(tmpdir(), 'auto-spy-mock-reset-version-'));
+  const code = `beforeEach(() => { vi.clearAllMocks(); });`;
+
+  function project(name: string, version: object, config?: string): string {
+    const directory = join(root, name);
+
+    mkdirSync(join(directory, 'node_modules', 'vitest'), { recursive: true });
+    mkdirSync(join(directory, 'nested'), { recursive: true });
+    writeFileSync(join(directory, 'node_modules', 'vitest', 'package.json'), JSON.stringify(version));
+
+    if (config !== undefined) {
+      writeFileSync(join(directory, 'vitest.config.ts'), `export default { test: { ${config} } };\n`);
+    }
+
+    return directory;
+  }
+
+  function lint(directory: string, source = code, options?: object): LintMessage[] {
+    return runRule(RULE, source, {
+      filename: join(directory, 'nested', 'thing.spec.ts'),
+      linter: new Linter({ configType: 'flat', cwd: directory }),
+      ...(options ? { options } : {}),
+    });
+  }
+
+  afterAll(() => rmSync(root, { force: true, recursive: true }));
+
+  it('counts clearMocks on under Vitest 5 when the config leaves it out, and says it is the default', () => {
+    const v5 = project('v5-unset', { version: '5.0.2' }, 'restoreMocks: true');
+    const [report] = lint(v5);
+
+    expect(report?.message).toMatch(/^`vi\.clearAllMocks\(\)` repeats the reset `clearMocks` \(on by default from Vitest 5\) already ran/);
+    // Again, through the version the first walk cached.
+    expect(lint(v5, `beforeEach(() => { vi.fn().mockClear(); });`)).toHaveLength(1);
+    expect(lint(v5, `beforeEach(() => { vi.resetAllMocks(); });`)).toHaveLength(0);
+  });
+
+  it('names the flag as written where the Vitest 5 config sets clearMocks: true itself', () => {
+    const [report] = lint(project('v5-explicit', { version: '5.1.0' }, 'clearMocks: true'));
+
+    expect(report?.message).toMatch(/repeats the reset `clearMocks: true` already ran/);
+  });
+
+  it('reads a clearMocks the Vitest 5 config names as anything but a literal true as off', () => {
+    expect(lint(project('v5-off', { version: '5.0.2' }, 'clearMocks: false'))).toHaveLength(0);
+    expect(lint(project('v5-expression', { version: '5.0.2' }, 'clearMocks: !!process.env.CI'))).toHaveLength(0);
+  });
+
+  it('keeps clearMocks off where the config leaves it out under Vitest 4, or an unreadable version', () => {
+    expect(lint(project('v4-unset', { version: '4.1.11' }, 'restoreMocks: true'))).toHaveLength(0);
+    expect(lint(project('no-version', {}, 'restoreMocks: true'))).toHaveLength(0);
+    expect(lint(project('odd-version', { version: 'latest' }, 'restoreMocks: true'))).toHaveLength(0);
+  });
+
+  it('applies the default to a configFile, and lets a flag beside it or the inline flags decide', () => {
+    const v5 = project('v5-named', { version: '5.0.2' });
+
+    mkdirSync(join(v5, 'tools'), { recursive: true });
+    writeFileSync(join(v5, 'tools', 'runner.config.ts'), `export default { test: { restoreMocks: true } };\n`);
+
+    expect(lint(v5, code, { configFile: 'tools/runner.config.ts' })[0]?.message).toMatch(/on by default from Vitest 5/);
+    expect(lint(v5, code, { configFile: 'tools/runner.config.ts', clearMocks: true })[0]?.message).toMatch(/`clearMocks: true`/);
+    expect(lint(v5, code, { configFile: 'tools/runner.config.ts', clearMocks: false })).toHaveLength(0);
+    // Inline flags are the whole answer: what they leave out is off, whatever Vitest is installed.
+    expect(lint(v5, code, { restoreMocks: true })).toHaveLength(0);
+  });
+});

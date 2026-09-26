@@ -18,9 +18,15 @@
  *    config that sets them.
  *
  * With neither, the answer is `undefined` and the rule reports nothing. That is the whole reason
- * this file exists rather than a default of "assume Vitest's defaults": Vitest's own default for
- * `clearMocks` has moved between major versions, and a rule that deletes lines on an assumption
- * about a file it never found would be wrong in the one direction that costs a suite its isolation.
+ * this file exists rather than a default of "assume Vitest's defaults": a rule that deletes lines on
+ * an assumption about a file it never found would be wrong in the one direction that costs a suite
+ * its isolation.
+ *
+ * **A config file that leaves `clearMocks` out gets Vitest's default for it**, and that default moved:
+ * off up to Vitest 4, on from Vitest 5. The installed major is read from the nearest
+ * `node_modules/vitest/package.json` above the linted file, cached the same way; not found, or older
+ * than 5, it stays off. A `clearMocks` the config names at all — `false`, an expression — is not the
+ * default and reads as off. The rule's own flags are not defaulted: what they leave out is off.
  *
  * **What the search misses**, said out loud because the workspace this was measured on is the case:
  * a runner config at a path nothing standard names — a `runnerConfig` string of
@@ -41,6 +47,13 @@ export interface RunnerResets {
   clearMocks: boolean;
   mockReset: boolean;
   restoreMocks: boolean;
+  /** `clearMocks` is on only because the config left it to Vitest 5's default. */
+  clearByDefault: boolean;
+}
+
+/** A config's reading before the installed Vitest settles what an unnamed `clearMocks` means. */
+interface ConfigFlags extends Omit<RunnerResets, 'clearByDefault' | 'clearMocks'> {
+  clearMocks: boolean | undefined;
 }
 
 /** The config file names a runner is configured in, in the order a directory is searched. */
@@ -48,29 +61,45 @@ const CONFIG_NAMES = ['vitest.config', 'vite.config', 'vitest-base.config'].flat
   ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs'].map((extension) => `${base}.${extension}`),
 );
 
-/** One walk's answer per directory: the flags, or `null` for "searched, found nothing". */
-const cache = new Map<string, RunnerResets | null>();
+/** One walk's answer per directory: the config's flags, or `null` for "searched, found nothing". */
+const configCache = new Map<string, ConfigFlags | null>();
 
-/** The three flags as a config's text sets them; anything but a literal `true` reads as off. */
-function flagsIn(text: string): RunnerResets {
+/** The installed Vitest's major per directory, or `null` for "searched, found nothing". */
+const versionCache = new Map<string, number | null>();
+
+/** The three flags as a config's text sets them; anything but a literal `true` reads as off, and an unnamed `clearMocks` as unknown. */
+function flagsIn(text: string): ConfigFlags {
   return {
-    clearMocks: /\bclearMocks\s*:\s*true\b/.test(text),
+    clearMocks: /\bclearMocks\b/.test(text) ? /\bclearMocks\s*:\s*true\b/.test(text) : undefined,
     mockReset: /\bmockReset\s*:\s*true\b/.test(text),
     restoreMocks: /\brestoreMocks\s*:\s*true\b/.test(text),
   };
 }
 
 /** The first runner config in one directory, read. */
-function configIn(directory: string): RunnerResets | null {
+function configIn(directory: string): ConfigFlags | null {
   const name = CONFIG_NAMES.find((candidate) => existsSync(join(directory, candidate)));
 
   return name === undefined ? null : flagsIn(readFileSync(join(directory, name), 'utf8'));
 }
 
-/** The nearest runner config at or above `directory`, cached for every directory the walk passed. */
-function search(directory: string): RunnerResets | null {
+/** The major of the Vitest installed in one directory's `node_modules`. */
+function vitestIn(directory: string): number | null {
+  const path = join(directory, 'node_modules', 'vitest', 'package.json');
+
+  if (!existsSync(path)) {
+    return null;
+  }
+
+  const major = /"version"\s*:\s*"(\d+)\./.exec(readFileSync(path, 'utf8'))?.[1];
+
+  return major === undefined ? null : Number(major);
+}
+
+/** The nearest answer `probe` gives at or above `directory`, cached for every directory the walk passed. */
+function nearest<T>(directory: string, cache: Map<string, T | null>, probe: (directory: string) => T | null): T | null {
   const walked: string[] = [];
-  let found: RunnerResets | null = null;
+  let found: T | null = null;
 
   for (let current = directory; ; current = dirname(current)) {
     const cached = cache.get(current);
@@ -81,7 +110,7 @@ function search(directory: string): RunnerResets | null {
     }
 
     walked.push(current);
-    found = configIn(current);
+    found = probe(current);
 
     if (found !== null || dirname(current) === current) {
       break;
@@ -91,6 +120,17 @@ function search(directory: string): RunnerResets | null {
   walked.forEach((entry) => cache.set(entry, found));
 
   return found;
+}
+
+/** A config's flags, with an unnamed `clearMocks` given the default of the Vitest installed beside the file. */
+function settled(context: RuleContext, flags: ConfigFlags): RunnerResets {
+  if (flags.clearMocks !== undefined) {
+    return { ...flags, clearMocks: flags.clearMocks, clearByDefault: false };
+  }
+
+  const clearByDefault = (nearest(dirname(context.filename), versionCache, vitestIn) ?? 0) >= 5;
+
+  return { ...flags, clearMocks: clearByDefault, clearByDefault };
 }
 
 /** The rule's options: the three flags, and the runner config to read them from. */
@@ -103,7 +143,7 @@ function isResetOptions(value: unknown): value is ResetOptions {
 }
 
 /** The runner config `configFile` names, read; loud when it is not there. */
-function namedConfig(context: RuleContext, configFile: string): RunnerResets {
+function namedConfig(context: RuleContext, configFile: string): ConfigFlags {
   const path = resolve(context.cwd, configFile);
 
   if (!existsSync(path)) {
@@ -121,17 +161,20 @@ export function runnerResets(context: RuleContext): RunnerResets | undefined {
   const [options] = context.options;
 
   if (!isResetOptions(options)) {
-    return search(dirname(context.filename)) ?? undefined;
+    const found = nearest(dirname(context.filename), configCache, configIn);
+
+    return found === null ? undefined : settled(context, found);
   }
 
   const base =
     options.configFile === undefined
-      ? { clearMocks: false, mockReset: false, restoreMocks: false }
-      : namedConfig(context, options.configFile);
+      ? { clearMocks: false, mockReset: false, restoreMocks: false, clearByDefault: false }
+      : settled(context, namedConfig(context, options.configFile));
 
   return {
     clearMocks: options.clearMocks ?? base.clearMocks,
     mockReset: options.mockReset ?? base.mockReset,
     restoreMocks: options.restoreMocks ?? base.restoreMocks,
+    clearByDefault: options.clearMocks === undefined && base.clearByDefault,
   };
 }

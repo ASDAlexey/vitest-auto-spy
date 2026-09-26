@@ -35,7 +35,8 @@
  * gap.** On the call alone it would be wrong in every project that leaves those options off, where
  * the hook is the only reset there is. So the options come first —
  * `{ clearMocks, restoreMocks, mockReset }` — and the search of `runner-config.ts` is the fallback.
- * With neither, nothing is reported at all.
+ * With neither, nothing is reported at all. A config found that leaves `clearMocks` out counts it on
+ * where the installed Vitest is 5 or later, whose default it is.
  *
  * **The flag has to match the call, not the family.** The three options are not three grades of one
  * thing. `clearMocks` forgets the calls, `mockReset` also drops the implementation, `restoreMocks`
@@ -274,11 +275,16 @@ function standsAlone(finding: Finding, beforeEaches: EsCallExpression[]): boolea
   return finding.placement.first && !precededByAnotherBeforeEach(finding.fn, beforeEaches);
 }
 
+/** How the message names the option: as the config wrote it, or as the Vitest 5 default nobody wrote. */
+function settingOf(flags: RunnerResets, kind: ResetKind): string {
+  return kind === 'clear' && flags.clearByDefault ? '`clearMocks` (on by default from Vitest 5)' : `\`${FLAG[kind]}: true\``;
+}
+
 /** Build the report, with an edit where the deletion is provably a no-op and a suggestion otherwise. */
-function describeReport(context: RuleContext, finding: Finding, dead: boolean): ReportDescriptor {
+function describeReport(context: RuleContext, flags: RunnerResets, finding: Finding, dead: boolean): ReportDescriptor {
   const { fn, hook, node, placement, reset } = finding;
   const target = placement.statement ?? hookStatement(fn);
-  const data = { call: excerpt(context, node), flag: FLAG[reset.kind], hook };
+  const data = { call: excerpt(context, node), setting: settingOf(flags, reset.kind), hook };
   const report = { data, messageId: dead ? 'deadReset' : 'repeatedReset', node };
 
   if (target === undefined) {
@@ -310,9 +316,9 @@ export const noRedundantMockReset: RuleModule = defineRule({
   ],
   messages: {
     deadReset:
-      '`{{call}}` repeats the reset `{{flag}}: true` already ran just before this `{{hook}}`, and nothing in this file runs in between, so the line does nothing. Delete it.',
+      '`{{call}}` repeats the reset {{setting}} already ran just before this `{{hook}}`, and nothing in this file runs in between, so the line does nothing. Delete it.',
     repeatedReset:
-      '`{{call}}` repeats the reset `{{flag}}: true` makes the runner perform between tests, so the next test starts on the same state with or without it. Delete it.',
+      '`{{call}}` repeats the reset {{setting}} makes the runner perform between tests, so the next test starts on the same state with or without it. Delete it.',
   },
   create: (context) => {
     const findings: Finding[] = [];
@@ -342,7 +348,7 @@ export const noRedundantMockReset: RuleModule = defineRule({
 
         findings.forEach((finding) => {
           if (flags && covered(context, flags, finding.reset) && standsAlone(finding, beforeEaches)) {
-            context.report(describeReport(context, finding, finding.hook === 'beforeEach' && beforeHooks === 1));
+            context.report(describeReport(context, flags, finding, finding.hook === 'beforeEach' && beforeHooks === 1));
           }
         });
       },
