@@ -65,6 +65,21 @@ function makeRstestApi(): { api: RstestApi; created: RstestMock[]; names: string
 }
 
 describe('createRstestMockAdapter', () => {
+  it('builds the sweep sentinel with the adapter, so the entry fails on import outside the runner', () => {
+    const { api, created } = makeRstestApi();
+
+    createRstestMockAdapter(api);
+
+    expect(created).toHaveLength(1);
+    expect(() =>
+      createRstestMockAdapter({
+        fn: () => {
+          throw new Error('not in rstest');
+        },
+      }),
+    ).toThrow('not in rstest');
+  });
+
   it('createMockFn builds a fast spy under the default engine', () => {
     const { api, created } = makeRstestApi();
     const adapter = createRstestMockAdapter(api);
