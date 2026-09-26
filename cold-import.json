@@ -1,5 +1,5 @@
 {
-  "measuredOn": "2026-09-25",
+  "measuredOn": "2026-09-26",
   "node": "v24.19.0",
   "tolerance": {
     "ratio": 0.02,
@@ -8,11 +8,11 @@
   "entries": {
     ".": {
       "modules": 2,
-      "bytes": 172243
+      "bytes": 173821
     },
     "./angular": {
       "modules": 2,
-      "bytes": 192507
+      "bytes": 192802
     },
     "./angular-http": {
       "modules": 8,
@@ -24,7 +24,7 @@
     },
     "./angular/diagnostics": {
       "modules": 14,
-      "bytes": 138252
+      "bytes": 138547
     },
     "./angular/doubles": {
       "modules": 14,
@@ -36,11 +36,11 @@
     },
     "./bun": {
       "modules": 15,
-      "bytes": 170133
+      "bytes": 171711
     },
     "./bun-angular": {
       "modules": 19,
-      "bytes": 207684
+      "bytes": 209262
     },
     "./console": {
       "modules": 13,
@@ -52,11 +52,11 @@
     },
     "./dom-stubs": {
       "modules": 2,
-      "bytes": 51976
+      "bytes": 52625
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 241374
+      "bytes": 244374
     },
     "./jasmine": {
       "modules": 15,
@@ -72,7 +72,7 @@
     },
     "./node": {
       "modules": 2,
-      "bytes": 160650
+      "bytes": 162228
     },
     "./observer-spy": {
       "modules": 3,
@@ -80,15 +80,15 @@
     },
     "./perf-reporter": {
       "modules": 1,
-      "bytes": 4572
+      "bytes": 8599
     },
     "./react": {
       "modules": 2,
-      "bytes": 172243
+      "bytes": 173821
     },
     "./rstest": {
       "modules": 15,
-      "bytes": 183984
+      "bytes": 185562
     },
     "./rxjs": {
       "modules": 6,
@@ -96,7 +96,7 @@
     },
     "./setup": {
       "modules": 2,
-      "bytes": 145247
+      "bytes": 145587
     },
     "./signal-forms": {
       "modules": 3,
@@ -104,11 +104,11 @@
     },
     "./svelte": {
       "modules": 2,
-      "bytes": 172244
+      "bytes": 173822
     },
     "./vue": {
       "modules": 2,
-      "bytes": 172428
+      "bytes": 174006
     },
     "./zone": {
       "modules": 3,
