@@ -6,11 +6,12 @@ import type { CliIo } from './main';
 import type { BaselineRequest, GateRequest, PerfAnalysis, PerfOptions } from './perf';
 import type { PerfBaseline } from './perf-baseline';
 import { baselineDrift, baselineRegressions, buildBaseline, readBaseline, writeBaseline } from './perf-baseline';
-import type { PerfRun, Phase } from './perf-data';
+import type { PerfConfig, PerfFile, PerfRun, Phase } from './perf-data';
 import { formatMs, testsRunOf } from './perf-data';
 import type { GateCandidate, GateOptions, GateRow } from './perf-gate';
 import { GATE_DEFAULTS, measuredFiles, medianFileMs, medianTestMs } from './perf-gate';
 import { HISTORY_LIMIT, appendHistory, historyCandidates, historyEntry, isHistoryPath } from './perf-history';
+import type { LaneSummary } from './perf-lanes';
 import type { PerfSource } from './perf-run';
 import type { Profile } from './profile';
 import { type Finding, REPORT_SCHEMA, type Tally, findingJson, sortFindings, tallyOf } from './report';
@@ -105,7 +106,10 @@ export interface SlowFile {
   readonly file: string;
   readonly totalMs: number;
   readonly tests: number;
-  readonly phases: Readonly<Record<'environment' | 'import' | 'prepare' | 'setup' | 'tests', number>>;
+  readonly phases: Readonly<Record<'environment' | 'import' | 'prepare' | 'setup' | 'tests', number>> & {
+    /** Vitest 5+: the file's transform wait, which `import` and `setup` then no longer include — as the phase table counts it. */
+    readonly transform?: number;
+  };
 }
 
 /** The `--format json` document, which `--format markdown` renders too. */
@@ -126,6 +130,16 @@ export interface PerfDocument {
     readonly medianFileMs: number;
     readonly phases: readonly Phase[];
     readonly slowestFiles: readonly SlowFile[];
+    /** The Vitest version that ran the suite, when the report records it. */
+    readonly vitest?: string;
+    /** The report was written before the run ended. */
+    readonly partial?: true;
+    /** Vitest's resolved config, when the report records it. */
+    readonly config?: PerfConfig;
+    /** Vitest 5+: summed worker start-up, and how many workers were spawned. */
+    readonly startup?: { readonly ms: number; readonly workers: number };
+    /** Vitest 5+: how the run used its worker lanes. */
+    readonly lanes?: LaneSummary;
   } | null;
   readonly budgets: Omit<GateOptions, 'maxWallMs'> & { readonly maxWallMs: number | null };
   readonly gate: {
@@ -137,15 +151,39 @@ export interface PerfDocument {
   readonly findings: readonly Finding[];
 }
 
+/** The phase table's split of one file: the transform wait out of `setup` and `import`, reported on its own. */
+function withoutFetch(row: PerfFile, fetch: number): { import: number; setup: number; transform: number } {
+  const setupFetch = Math.min(row.setupFetch ?? 0, fetch);
+
+  return { import: Math.max(row.imports - (fetch - setupFetch), 0), setup: Math.max(row.setup - setupFetch, 0), transform: fetch };
+}
+
 function slowestFiles(run: PerfRun, cwd: string, top: number | undefined): SlowFile[] {
   return [...measuredFiles(run, cwd)]
     .map(([file, row]) => {
       const phases = { environment: row.environment, prepare: row.prepare, setup: row.setup, import: row.imports, tests: row.tests };
+      const totalMs = Object.values(phases).reduce((sum, ms) => sum + ms, 0);
 
-      return { file, totalMs: Object.values(phases).reduce((sum, ms) => sum + ms, 0), tests: row.testCount, phases };
+      return {
+        file,
+        totalMs,
+        tests: row.testCount,
+        phases: row.fetch === undefined ? phases : { ...phases, ...withoutFetch(row, row.fetch) },
+      };
     })
     .sort((a, b) => b.totalMs - a.totalMs)
     .slice(0, top ?? SLOWEST_FILES_DEFAULT);
+}
+
+/** What a Vitest 5 report adds to the run, each field only when the report has it. */
+function runExtras(run: PerfRun, analysis: PerfAnalysis): Partial<NonNullable<PerfDocument['run']>> {
+  return {
+    ...(run.vitest === undefined ? {} : { vitest: run.vitest }),
+    ...(run.partial === true ? { partial: true as const } : {}),
+    ...(run.config === undefined ? {} : { config: run.config }),
+    ...(run.startup === undefined ? {} : { startup: run.startup }),
+    ...(analysis.lanes === undefined ? {} : { lanes: analysis.lanes }),
+  };
 }
 
 /**
@@ -176,6 +214,7 @@ export function perfJson(source: PerfSource, profile: Profile, options: PerfOpti
             medianFileMs: medianFileMs(measured),
             phases: collected.analysis.phases,
             slowestFiles: slowestFiles(collected.run, profile.cwd, options.top),
+            ...runExtras(collected.run, collected.analysis),
           },
     budgets: { ...gate, maxWallMs: gate.maxWallMs ?? null },
     gate:

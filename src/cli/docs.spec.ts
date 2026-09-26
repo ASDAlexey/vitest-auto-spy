@@ -3,7 +3,15 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { DOCS } from '../lib/message-link';
-import { BARE_RUN_DOCS, COVERAGE_MATCHING_DOCS, DOCTOR_CHECKS, JASMINE_MIGRATION_TABLE_DOCS, NOTHING_TO_READ_DOCS, docsFor } from './docs';
+import {
+  BARE_RUN_DOCS,
+  COVERAGE_MATCHING_DOCS,
+  DOCTOR_CHECKS,
+  JASMINE_MIGRATION_TABLE_DOCS,
+  NOTHING_TO_READ_DOCS,
+  VITEST_5_PERF_DOCS,
+  docsFor,
+} from './docs';
 
 const SITE = join(__dirname, '..', '..', 'docs-site');
 
@@ -39,7 +47,7 @@ function reportedChecks(): string[] {
     ...readdirSync(__dirname).filter((name) => name.startsWith('perf')),
   ].filter((name) => name.endsWith('.ts') && !name.endsWith('.spec.ts'));
   const ids = sources.flatMap((name) =>
-    [...readFileSync(join(__dirname, name), 'utf8').matchAll(/check: '([a-z-]+)'/g)].map((match) => String(match[1])),
+    [...readFileSync(join(__dirname, name), 'utf8').matchAll(/check: '([a-z0-9-]+)'/g)].map((match) => String(match[1])),
   );
 
   return [...new Set(ids)].sort();
@@ -77,7 +85,10 @@ describe('the docs section every finding links to', () => {
     expect(docsFor('unknown-jest-member')).toBeUndefined();
   });
 
-  it.each([BARE_RUN_DOCS, NOTHING_TO_READ_DOCS, COVERAGE_MATCHING_DOCS, JASMINE_MIGRATION_TABLE_DOCS])('%s lands on a heading', (link) => {
-    landsOnHeading(link);
-  });
+  it.each([BARE_RUN_DOCS, NOTHING_TO_READ_DOCS, COVERAGE_MATCHING_DOCS, JASMINE_MIGRATION_TABLE_DOCS, VITEST_5_PERF_DOCS])(
+    '%s lands on a heading',
+    (link) => {
+      landsOnHeading(link);
+    },
+  );
 });

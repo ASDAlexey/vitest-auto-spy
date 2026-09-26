@@ -75,6 +75,17 @@ describe('checkModuleMockLeak', () => {
       'With the `isolate: false` default of @angular/build:unit-test,',
     );
     expect(findings({ 'vitest.config.ts': 'export default {};', ...pair })).toEqual([]);
+    expect(
+      findings({
+        'angular.json': JSON.stringify({
+          projects: {
+            app: { architect: { test: { builder: '@angular/build:unit-test', options: { runnerConfig: 'vitest-runner.config.ts' } } } },
+          },
+        }),
+        'vitest-runner.config.ts': 'export default { test: { isolate: true } };',
+        ...pair,
+      }),
+    ).toEqual([]);
     expect(findings({ 'vitest.config.ts': shared, 'src/a.spec.ts': "vi.mock('@app/x', () => ({}));" })).toEqual([]);
   });
 });

@@ -196,8 +196,12 @@ describe('doctor', () => {
     expect(runCli(['doctor', '--cwd', root, '--ignore', 'no-agent-instruction'], near)).toBe(2);
     expect(near.stderr).toEqual(['Unknown check id for --ignore: no-agent-instruction. Did you mean no-agent-instructions? Nothing ran.']);
     expect(runCli(['doctor', '--cwd', root, '--ignore', 'everything'], far)).toBe(2);
-    expect(far.stderr[0]).toContain('Unknown check id for --ignore: everything. Known ids: angular-build-splitting-off,');
+    expect(far.stderr[0]).toContain(
+      'Unknown check id for --ignore: everything. Known ids: analog-behind-angular-build, angular-build-splitting-off,',
+    );
     expect(runCli(['doctor', '--cwd', root, '--ignore', 'no-agent-instructions,'], recorder())).toBe(0);
+    expect(far.stderr[0]).toContain('vitest-5-available, vitest-5-clear-mocks, vitest-5-deprecated, vitest-5-removed.');
+    expect(runCli(['doctor', '--cwd', root, '--ignore', 'vitest-5-available,fs-module-cache-not-persisted'], recorder())).toBe(0);
   });
 });
 

@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { checkAgentInstructions } from './checks/agent-instructions';
 import { checkAngularBuild, compareVersions, isAffectedVersion, parseVersion } from './checks/angular-build';
+import { checkBuilderSetup } from './checks/builder-setup';
 import {
   arrayPatterns,
   canMatchBundleChunk,
@@ -411,12 +412,14 @@ describe('checkAngularBuild', () => {
         ),
       )[0]?.fix;
 
-    expect(fixOf({})).toBe('Upgrade @angular/build to 22.1.7 or newer, and set `"splitting": true` on the unit-test target.');
+    const upgrade = 'Upgrade @angular/build to 22.1.7 or newer, where splitting is on by default, and remove any `"splitting": false` from';
+
+    expect(fixOf({})).toBe(`${upgrade} the unit-test target.`);
     expect(fixOf({ 'angular.json': JSON.stringify({ projects: { app: projects['a'] } }) })).toBe(
-      'Upgrade @angular/build to 22.1.7 or newer, and set `"splitting": true` on `app:test` in angular.json.',
+      `${upgrade} \`app:test\` in angular.json.`,
     );
     expect(fixOf({ 'angular.json': JSON.stringify({ projects }) })).toBe(
-      'Upgrade @angular/build to 22.1.7 or newer, and set `"splitting": true` on `a:test` in angular.json, `b:test` in angular.json, `c:test` in angular.json and 1 more targets.',
+      `${upgrade} \`a:test\` in angular.json, \`b:test\` in angular.json, \`c:test\` in angular.json and 1 more targets.`,
     );
   });
 
@@ -425,6 +428,39 @@ describe('checkAngularBuild', () => {
     expect(
       checkAngularBuild(readProfile(createTempRepo({ 'node_modules/@angular/build/package.json': JSON.stringify({ version: 22 }) }))),
     ).toEqual([]);
+  });
+
+  describe('with Analog beside it', () => {
+    const manifests = (builder: string | undefined, analog: string | undefined): string =>
+      createTempRepo({
+        'package.json': '{}',
+        ...(builder === undefined ? {} : { 'node_modules/@angular/build/package.json': JSON.stringify({ version: builder }) }),
+        ...(analog === undefined ? {} : { 'node_modules/@analogjs/vite-plugin-angular/package.json': JSON.stringify({ version: analog }) }),
+      });
+
+    it('reports an Analog plugin older than 2.7.5 next to @angular/build 22.2.0 or newer', () => {
+      const [finding, ...rest] = checkAngularBuild(readProfile(manifests('22.2.0', '2.7.4')));
+
+      expect(rest).toEqual([]);
+      expect(finding).toEqual({
+        check: 'analog-behind-angular-build',
+        severity: 'error',
+        file: 'node_modules/@analogjs/vite-plugin-angular/package.json',
+        message:
+          "@analogjs/vite-plugin-angular 2.7.4 is too old for @angular/build 22.2.0: the run dies at startup with `TypeError: cache.has is not a function`, because from 22.2.0 the builder's `SourceFileCache` no longer extends `Map`.",
+        fix: 'Upgrade `@analogjs/vite-plugin-angular` and `@analogjs/vitest-angular` to 2.7.5 or newer.',
+      });
+      expect(checks(checkAngularBuild(readProfile(manifests('23.0.0-next.1', '2.6.0'))))).toEqual(['analog-behind-angular-build']);
+    });
+
+    it('stays quiet on a fixed Analog, on an older builder, and when either version is missing or unreadable', () => {
+      expect(checkAngularBuild(readProfile(manifests('22.2.0', '2.7.5')))).toEqual([]);
+      expect(checkAngularBuild(readProfile(manifests('22.1.9', '2.7.4')))).toEqual([]);
+      expect(checkAngularBuild(readProfile(manifests('22.2.0', undefined)))).toEqual([]);
+      expect(checkAngularBuild(readProfile(manifests(undefined, '2.7.4')))).toEqual([]);
+      expect(checkAngularBuild(readProfile(manifests('22.2.0', 'nonsense')))).toEqual([]);
+      expect(checkAngularBuild(readProfile(manifests('nonsense', '2.7.4')))).toEqual([]);
+    });
   });
 
   it('compares versions the way semver would, prerelease suffix ignored', () => {
@@ -524,6 +560,30 @@ describe('checkCoverageConfig', () => {
     expect(checkCoverageConfig(readProfile(nxStyle))).toEqual([]);
   });
 
+  it('reads the vitest-base config that `runnerConfig: true` resolves, project root first', () => {
+    const sourceOnly = 'export default { test: { coverage: { include: ["src/**/*.ts"] } } };';
+    const trueTarget = (root: string): string =>
+      JSON.stringify({
+        projects: { app: { root, architect: { test: { builder: '@angular/build:unit-test', options: { runnerConfig: true } } } } },
+      });
+    const findings = (files: Record<string, string>): { check: string; file?: string }[] =>
+      checkCoverageConfig(readProfile(createTempRepo({ 'package.json': '{}', ...files })));
+
+    expect(findings({ 'angular.json': trueTarget(''), 'vitest-base.config.mts': sourceOnly })).toEqual([
+      expect.objectContaining({ check: 'coverage-include-misses-bundle', file: 'vitest-base.config.mts' }),
+    ]);
+    expect(findings({ 'angular.json': trueTarget('projects/app/'), 'vitest-base.config.ts': sourceOnly })).toEqual([
+      expect.objectContaining({ check: 'coverage-include-misses-bundle', file: 'vitest-base.config.ts' }),
+    ]);
+    expect(
+      findings({
+        'angular.json': trueTarget('projects/app'),
+        'projects/app/vitest-base.config.mts': sourceOnly,
+        'vitest-base.config.mts': 'export default { test: { coverage: { include: ["spec-*.js"] } } };',
+      }),
+    ).toEqual([expect.objectContaining({ check: 'coverage-include-misses-bundle', file: 'projects/app/vitest-base.config.mts' })]);
+  });
+
   it('reads a workspace file that vanished as empty', () => {
     expect(checkCoverageConfig(profileWith({ files: ['angular.json'] }))).toEqual([]);
   });
@@ -575,7 +635,12 @@ describe('checkCoverageConfig', () => {
       ...vitest('4.1.9'),
     });
 
+    const [finding] = checkCoverageConfig(readProfile(root));
+
     expect(checks(checkCoverageConfig(readProfile(root)))).toEqual(['coverage-include-recompiles-globs']);
+    expect(finding?.fix).toBe(
+      'Upgrade to Vitest 5, which compiles them once. Under `@angular/build:unit-test`, Vitest 5 needs @angular/build 22.2.0 or newer. To stay on 4, use the custom-provider recipe: https://asdalexey.github.io/vitest-auto-spy/adapters/angular#coverage-matching-costs-more-than-coverage',
+    );
   });
 
   it('stays quiet on a scope a person could have written by hand', () => {
@@ -667,6 +732,20 @@ describe('checkAgentInstructions', () => {
     const local = readProfile(createTempRepo({ 'package.json': '{}', '.claude/CLAUDE.md': 'vitest-auto-spy' }));
 
     expect(checkAgentInstructions(local)).toEqual([]);
+  });
+});
+
+describe('checkBuilderSetup and the vitest-base config', () => {
+  it('reports setup files a vitest-base config lists when the target never reads it', () => {
+    const root = createTempRepo({
+      'package.json': '{}',
+      'angular.json': JSON.stringify({ projects: { app: { root: '', architect: { test: { builder: '@angular/build:unit-test' } } } } }),
+      'vitest-base.config.mts': "export default { test: { setupFiles: ['src/test-setup.ts'] } };",
+    });
+
+    expect(checkBuilderSetup(readProfile(root)).map((finding) => finding.message)).toEqual([
+      expect.stringContaining('`src/test-setup.ts`, listed in the `setupFiles` of vitest-base.config.mts, never runs there'),
+    ]);
   });
 });
 

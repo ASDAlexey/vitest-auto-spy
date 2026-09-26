@@ -20,6 +20,8 @@ import { checkScanCap } from './checks/scan-cap';
 import { checkSpecImports } from './checks/spec-imports';
 import { checkTsconfigGlobs } from './checks/tsconfig-globs';
 import { checkUnawaitedHelper } from './checks/unawaited-helper';
+import { checkVitest5ClearMocks, checkVitest5Removed } from './checks/vitest-5';
+import { checkModuleCachePersisted, checkVitest5Available } from './checks/vitest-5-upgrade';
 import type { Profile } from './profile';
 import { type Finding, REPORT_SCHEMA, type Tally, findingJson, sortFindings, tallyOf } from './report';
 import { ownVersion } from './self';
@@ -41,6 +43,10 @@ export function runDoctor(profile: Profile): Finding[] {
     ...checkHelperEntry(profile, graph),
     ...checkUnawaitedHelper(profile, graph),
     ...checkModuleMockLeak(profile, graph),
+    ...checkVitest5Removed(profile, graph),
+    ...checkVitest5ClearMocks(profile, graph),
+    ...checkVitest5Available(profile),
+    ...checkModuleCachePersisted(profile, graph),
   ];
 }
 

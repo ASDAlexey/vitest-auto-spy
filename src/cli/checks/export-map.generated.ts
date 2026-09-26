@@ -372,7 +372,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   SignalLike: '15',
   SpecTiming: '13',
   SpiedFixtures: '12',
-  Spy: '0 1 2 3 4 9 20 21 22',
+  Spy: '0 1 2 3 4 9 12 20 21 22',
   SpyClassOptions: '0 1 2 3 4 20 21 22',
   SpyDisposable: '0 1 2 3 4 20 21 22',
   SpyEngine: '23',
