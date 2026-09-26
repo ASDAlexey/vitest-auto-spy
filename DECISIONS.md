@@ -8,6 +8,160 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## The teardown net on `aroundEach`, and `guardGlobals` through the definers, 2026-09-26
+
+The per-test tax of `setupAutoSpy()` was mostly the runner's, not ours: each registered hook costs a
+promise and a deadline per test (~1.1 µs), and an `onTestFinished` registered per test takes a stack
+(~5.5 µs). Every per-test step now lives in a registry (`guard-registry.ts`) walked by one `beforeEach`
+and one `afterEach`, and the net that re-runs the restores after a skipped `afterEach` runs from
+`aroundEach` where the runner exports it (Vitest 4.1+), after `await runTest()` — measured to run after
+every `afterEach` and `onTestFinished`, including when a spec's `afterEach` threw. Older runners keep the
+per-test `onTestFinished`; the export is read off `import * as vitest`, so a named import cannot break
+linking. The net's state is keyed by task, so `test.concurrent` holds on both paths.
+
+- [~] **Opening steps inside `aroundEach` before `runTest()`, dropping the `beforeEach`.** ~1.2 µs more,
+  but `aroundEach` runs before the runner's `onBeforeTryTask` updates the test state, and the fallback
+  path needs the `beforeEach` anyway. Two orders for one step list is not worth a microsecond.
+
+`guardGlobals` spent ~20–25 µs per test enumerating `globalThis` under jsdom and happy-dom
+(`Reflect.ownKeys` over 550–670 keys). While the guard is on, `Object.defineProperty`,
+`Object.defineProperties` and `Reflect.defineProperty` are wrapped (method-shorthand wrappers with the
+same `name` and `length`, put back at file end only if still installed) to mark a watched object that
+got a non-configurable definition; a test checks only marked objects and keeps naming the test, and a
+full pass once per file stays as the safety net for what went around the wrappers. The wrapper costs
+~2 ns per definition, ~25 definitions per 10-method double, so ~50 ns on ~6 µs — within noise. The
+visible trade: `Object.defineProperty !== original` while a strict file runs, and one extra frame in a
+`Cannot redefine property` stack.
+
+- [~] **Keeping the per-test full pass for the small objects and the DOM prototypes (2.4a alone).** The
+  prototypes are ~10 µs of the happy-dom pass on their own; the definer marks cover them the same way
+  they cover `globalThis`.
+
+## Four trades the improvement round settled, 2026-09-26
+
+- **The root entry hosts the core for `/angular`, `/react`, `/vue` and `/svelte`.** This reopens
+  "Three trades the audit round settled" (2026-09-17) and "De-chunking `index` and `angular`" with a
+  number neither measured: an Angular spec loads the root **and** `/angular`, and as two solo builds
+  they parsed the same ~130 kB of core twice. esbuild's own splitting would share it through a chunk
+  and cost the root alone a module, the shape every non-Angular spec is. Instead the root is the
+  shared file: `scripts/host-entries.mjs` points every module a satellite would inline and the root
+  already bundles at `./index.js`, and the root re-exports what the satellites take under `ɵ` names
+  no declaration carries (45 today; a binding that is already public is imported by its public
+  name). Measured 2026-09-26, a fresh Node process per sample, peers loaded first, 41 interleaved
+  pairs, median: root + `/angular` 7.28 → 5.83 ms, root + `/angular` + `/setup` 9.88 → 8.51 ms,
+  root + `/react` 6.72 → 4.92 ms, root alone 4.94 → 5.00 (noise). Paid: `/angular` alone +0.72 ms,
+  one module more and +2.7 kB min+gzip, because it now loads the root; `/react` alone +0.23 ms.
+  Bytes: root + `/angular` in one bundle 55.8 → 38.4 kB min+gzip, tarball 1 257 → 1 103 kB,
+  `dist` JavaScript −619 kB. The root itself is +3.5 kB on disk and +6 B min+gzip.
+  - [~] `/setup` stays solo. Hosted, root + `/setup` gained 0.55 ms and `/setup` alone lost
+    **2.0 ms**. A setup file runs in every spec, including the ones that never import the root.
+  - [~] `docs-links` and `message-text` are inlined into the satellites, not taken from the root.
+    They are stateless tables, and through the root they would add 9.7 kB of Angular-only doc URLs
+    to the entry most specs load without `/angular`. Anything with module state must not join
+    that list: a satellite holding its own copy of a stateful module while it takes that module's
+    readers from the root splits the state inside one entry.
+  - [~] `src/react.ts`, `svelte.ts` and `vue.ts` keep calling `useVitestAdapter()` themselves. A
+    source-level `export * from './index'` would leave the registration to `src/index.ts`, which
+    `sideEffects` does not name, and Rstest bundles source (see the `sideEffects` entry).
+
+- **Size growth over the last release needs a CHANGELOG line (4.4).** `size-entries.json` and
+  `cold-import.json` carry a `released` block that only the `version` script moves
+  (`--release`). `--check` still fails a stale record past 2 % / 200 B, and now also fails an
+  entry more than **3 %** (and 200 B) above `released` — or a module more in the graph — unless
+  the pending CHANGELOG section (`[Unreleased]`, or a section above the `package.json` version)
+  has a list item or paragraph naming that entry next to a size word. Refreshing the record no
+  longer clears it. Why 3 %: release to release since 4.2.0, the core entries grew 0–3 % when
+  only fixes shipped (5.33.0 +1.2 %, 5.35.0 +1.0 %), and every step above that was a feature or a
+  build change nobody was asked to name (5.19.0 +15 %, 5.25.0 `/setup` +11 %, 5.32.0 +12 %). At 3 %
+  a note would have been due in 25 of ~52 releases, at 5 % in 20. A hard ceiling was the other
+  option and was not taken: the growth is organic API, and the point is that it becomes a
+  decision, not that it stops.
+
+- **The tarball ships the current major's changelog (4.5).** npm 11 packs a changelog only because
+  `files` names it, and cannot pack a file under another name, so `prepack` swaps in a trimmed
+  `CHANGELOG.md` (header, `[Unreleased]`, 5.x, a link to the full file) and `postpack` restores
+  the full one: 673 → 418 kB, tarball 1 103 → 1 011 kB. The 5.26.0 reason for shipping the file —
+  a consumer bumping within the major reads what changed without leaving `node_modules` — is
+  intact. A pack that dies between the two leaves `.changelog-full.md` in the tree, and the next
+  `--trim` refuses to run until `--restore`.
+
+- [~] **How the large consumer suites load the package — measured 2026-09-26; it closes the
+  inline-mode question.** Both large private suites (consumer A, ~2 000 spec files; consumer B,
+  ~860) run through `@angular/build:unit-test` with the Vitest runner. The builder bundles spec
+  entry points with `externalPackages: true`, so `vitest-auto-spy` stays a bare import that Vitest
+  hands to Node's native loader. Neither sets `server.deps.inline`, `deps.optimizer` or
+  `ssr.noExternal`, and both keep the builder's default `isolate: false`. A Node load hook in
+  consumer B's worker (forks, one worker, four spec files) recorded every `dist` file loaded **once
+  for all four files**, and once per file with isolation forced on. Consumer A was read from its
+  configuration, not run. So neither runs the Vite-transform mode, where root + `/setup` cost
+  13–14 ms per spec file, and **minification stays closed** on its original numbers (the ~2 750
+  kB/ms rate is the native-loader one, which is theirs). It also scales the import-time levers: for
+  these suites the package loads once per worker, so a lazy stack probe or a shared core saves ms
+  × workers, not ms × files. Plain-Vitest projects with the default `isolate: true` get the full
+  per-file win. Both suites' setup files import `/angular` in every file (consumer B's the root as
+  well), so "`/angular` without the root" (204 of ~2 000 and 75 of ~860 spec files by static count)
+  never occurs there as a standalone load.
+
+## `rules.ts` holds no rule any more, 2026-09-26
+
+`src/lib/eslint/rules.ts` sat at 490 of its 500 `max-lines` with 36 commits in a month, and this
+file records four separate fights with the limit on it (raised to 520 and put back, "enough for these
+two", `prefer-as-spy` moved out to make room, `prefer-provide-auto-spy` extracted at exactly 500).
+Every new rule opened the same negotiation. The eleven rules still defined inline moved out, one
+module each, next to the others and named after the rule (`no-done-callback.ts`,
+`prefer-inject-spy.ts`, …) — the directory's existing convention, and the specs already carried
+those names. The move was mechanical: code and comments byte for byte, the helpers only one rule
+used went with it. `rules.ts` is now the fix-or-suggestion policy, the imports and the registry: 92
+lines by `max-lines`. The built plugin was compared before and after: 49 rules, the serialised
+`meta` of every rule and the configs identical, ESM and CJS alike. A new rule is a new file plus one
+registry line, so the limit on this file stops being a question; `max-lines` stays at 500.
+
+## The sweep sentinel is built with the first spy, not at import, 2026-09-26
+
+Bun resolves `vitest` to its own `vi`, whose mocks have a read-only `mockClear`, so a module-scope
+sentinel crashed every Vitest entry imported after `/bun`. Vitest and Rstest now share
+`createRunnerMockAdapter`; the Vitest sentinel is built on the adapter's first mock, which is also the
+earliest moment a fast spy can exist, so no sweep is lost. Rstest keeps an eager sentinel
+(`eagerSentinel: true`) so that `/rstest` outside the runner still fails on import instead of
+silently replacing another adapter.
+
+## Unconfigured reads under `test.concurrent`: one report per overlap, naming every suspect, 2026-09-26
+
+A read is noted inside the code under test and carries no task, so an overlap cannot be attributed.
+Charging it to every open window would fail each concurrent test under `'throw'` for one read, and
+charging it to the first to close would judge a stream before a sibling fed it. The read waits for
+the last window it was made under, is judged once, and the report names all of them.
+
+## Fast-spy call state: seeded at four, regrown to seventeen, 2026-09-26
+
+The six arrays behind `mock.*` start as one shared `UNSEEDED` marker. The first call seeds them as
+four-slot PACKED arrays (`[x, x, x, x]` then three `pop()`s — `length = 1` enters the runtime and cost
++100 ns per spy). The fifth call, if no accessor has handed the arrays out since, copies them into
+`[]` by `push`, which lands on V8's own 17-slot growth, so a spy never holds more than it did with
+`[]`. Any accessor read sets `handedOut`, after which the arrays are only ever pushed to — identity is
+never traded for bytes. Rejected: `[x]` literal (−46 % at one call, +5 % at 2–16), fixed capacity 4
+(+13 % at 5–17 calls), `new Array(4)` (HOLEY). Not done yet: a 4 → 8 → 17 cascade (~−20 % more at
+5–8 calls, one more hot-path branch). Measured bytes per spy: 1 634 → 1 018 at one call, 2 041 →
+1 425 at four, +8 B (the flag) from five on.
+
+## Gate: parallel waves, local caches, no `fastCompile`, 2026-09-26
+
+`npm run check` runs in waves through `scripts/check.mjs` (static ∥ → suites ∥ → build → dist ∥ →
+invariants alone); prettier/tsc/ESLint cache under `.cache/check/<lock hash>/` locally, never in CI.
+CI moved build + dist checks to a `dist` lane, sharded shared-env in two, and caches `node_modules`
+by OS + Node major + lockfile. The zone project compiles against `tsconfig.zone.json`. Analog
+`fastCompile` stays off everywhere: in JIT mode (the Vitest default) it emits no `ctorParameters`
+for `@Injectable`, so constructor injection fails with NG0202 in plain Angular, not only in
+`createWithAutoSpies`; with `jit: false` signal inputs are not seen by `setInputs`.
+
+## AGENTS.md is a map, topics live in agent-docs/, 2026-09-26
+
+AGENTS.md is read whole by agents (`cat` in the skill, the `init` stub, Codex's 32 KB chain), so it
+stays under 32 768 bytes: header, reading map, §1, §3, §6, §7, §14 and a stub per section. Every
+other section is one file in `agent-docs/` with the same section number, so "§5" citations stay
+valid. The tarball carries the same bytes; this is about what an agent actually reads, not install
+weight (that stays closed in PRIORITIES.md). A spec in `src/cli/init.spec.ts` guards the size.
+
 ## Who decides `isolate` under `@angular/build:unit-test`, 2026-09-26
 
 The CLI used to say the builder overwrites any `isolate` a runner config sets. Probed with four spec
@@ -1734,6 +1888,8 @@ import cost.
   `/angular-http`, reachable from every other entry. Pinning it separately would cost +1 module on
   the twelve entries that need it, including the root and `/angular`, for ~1.5 kB off three leaves.
   Re-open only with a lever that removes bytes **without** adding a module.
+  **Partly superseded on 2026-09-26 for `/react`, `/vue` and `/svelte`** — see "Four trades the
+  improvement round settled" at the top of this file.
 
 - [~] **De-chunking `index` and `angular` — shipped in `tsup.config.ts`, and both of its numbers
   were wrong.** Recorded rather than dropped, because the estimate is what the bundle pass above
@@ -1746,7 +1902,8 @@ import cost.
   larger number, and nothing downstream should either. One design change fell out of it: a
   **fourth** stateful module, `expect-emission`, had to join the shared chunk — it holds a
   process-wide `defaultTimeoutMs`, and inlining it twice would have made `setEmissionTimeout()`
-  from the root silently miss `expectEmission()` from `/angular`.
+  from the root silently miss `expectEmission()` from `/angular`. **Partly superseded on 2026-09-26** — see "Four
+  trades the improvement round settled" at the top of this file.
 
 - [~] **Micro-optimising `createFunctionSpy`**, re-confirmed with fresh numbers rather than quoted
   from the previous pass. A materialised spy retains 4 794 B, of which **4 117 B is bare
