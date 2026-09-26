@@ -23,7 +23,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-26.7%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-27.1%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -91,60 +91,16 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 - 🤖 Built for AI agents too — one `npx vitest-auto-spy init` writes the pointer into the files your agents actually read and specialises it for this repository, backed by an offline [`AGENTS.md`](#using-this-library-with-an-ai-agent) inside the package, a [per-agent map](#which-file-your-agent-reads) for **Claude Code**, **OpenAI Codex**, **GLM/z.ai**, **Cursor**, **Copilot**, **Gemini CLI** and the rest, `llms.txt` on the docs site, a Claude Code skill, and errors that name their own fix
 - 🟢 100% test coverage, **zero runtime dependencies** (in-tree arg serializer, no `javascript-stringify`)
 
-## New in 5
-
-A major that changes **no helper, no option and no runtime behaviour**. What it changes is what the
-package claims to run on, because both old peer ranges were claims the code could not keep — the
-full list, with what to do about each, is in
-[Upgrading to 5.0](https://asdalexey.github.io/vitest-auto-spy/upgrading-5).
-
-| What you get                                                                                                                                                                                                                        | Verified                                                                                                                            |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| **The Angular range stops being false.** `>=16.0.0` admitted four majors on which an entry point cannot link at all: `ɵSIGNAL` is a value import and arrived in 18, `provideZonelessChangeDetection` in 20. The floor is now `>=20` | Angular 16 through 22 downloaded, their real `export { … }` lists parsed out of `fesm2022/*.mjs`; Angular 19 went EOL on 2026-05-19 |
-| **`@angular/platform-browser` is a declared peer.** `/angular` has always imported `By` from it as a value, and under pnpm's isolated layout that never resolved                                                                    | undeclared → optional peer on the same `>=20` range                                                                                 |
-| **The rxjs range stops promising rxjs 8.** Six operators came from `rxjs/operators`, a path rxjs 8 removes; they now come from the root entry, where rxjs re-exported them in 7.2, and the floor moved with the specifier           | read out of rxjs 7.2.0's own `dist/types/index.d.ts`; every Angular major from 16 to 22 already peers above it                      |
-| **`flushEffects()` is one line.** The `ApplicationRef.tick()` fallback and the spec that deleted `TestBed.tick` at runtime to cover it are both gone                                                                                | `TestBed.tick()` direct; coverage still 100 %                                                                                       |
-
-For almost everyone the whole upgrade is a version number: every Angular still supported by Angular
-satisfies the new floor, and only a project pinning `rxjs@7.0` or `7.1` on purpose has to move.
-
-## New in 4
-
-A major with **one job**: take out of your project the weight this library was making it carry.
-Nothing was removed or renamed and no runtime behaviour changed — the whole cost is two import
-specifiers, listed with their fix in
-[Upgrading to 4.0](https://asdalexey.github.io/vitest-auto-spy/upgrading-4).
-
-| What you get                                                                                                                                                                                                                                                        | Measured                                                                                                                                                        |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **rxjs is out of your TypeScript program.** The declarations named `Observable` and `Subject`, so every consumer loaded rxjs whether the project used it or not. `import type` does not fix that — TypeScript resolves it the same way — so the reference had to go | consumer program **303 → 114 files**, of which **189 → 0** are rxjs; `TS2307` inside a shipped `.d.ts` under `skipLibCheck: false` with no rxjs installed: gone |
-| **Every spec file gets time back.** The DOM stubs and the run diagnostics moved to `vitest-auto-spy/dom-stubs` and `…/diagnostics`, so a spec that never touches a DOM global stops evaluating 27 kB to reach `createSpyFromClass`                                  | **−0.159 ms per spec file** that does not import them, +0.155 ms in the files that do; root entry **15.5 → 12.9 kB** min+gzip                                   |
-| **A second copy of rxjs stops breaking detection.** Observable detection is structural now, so an `Observable` from a duplicated rxjs earns the observable helpers instead of failing with `nextWith is not a function`                                             | —                                                                                                                                                               |
-| **The lint rules stop deciding how much you care.** All nineteen ship as `error`; which findings block a merge is one line of config, documented per rule                                                                                                           | —                                                                                                                                                               |
-
-If you use the observable helpers, keep `import 'vitest-auto-spy/rxjs'` in a setup file, a spec, or
-a `.d.ts` your `tsconfig` includes — that one import is what keeps `returnSubject()` typed as rxjs's
-own `Subject<T>`. From `@angular/build:unit-test` 22.2.0 the test program is the specs, the setup
-files and the `.d.ts` files, so a plain `.ts` listed only in the spec `tsconfig`'s `include` is out.
-
 ## Table of contents
+
+> Reading this on npmjs.com? npm shows only the first part of this file: install, the quick start
+> and how to mock each kind of dependency. The rest (the CLI, agent setup, adapters, utilities, the
+> ESLint plugin, the API reference) is on the [documentation site](https://asdalexey.github.io/vitest-auto-spy/),
+> and the whole README is on [GitHub](https://github.com/ASDAlexey/vitest-auto-spy#readme).
 
 - [Install](#install)
   - [Requirements](#requirements)
   - [Peer dependencies](#peer-dependencies)
-- [The CLI — `doctor`, `perf`, `codemod` and `init`](#the-cli--doctor-perf-codemod-and-init)
-  - [`doctor` — defects that never fail](#doctor--defects-that-never-fail)
-  - [`perf` — where the CPU time actually goes](#perf--where-the-cpu-time-actually-goes)
-  - [`codemod` — migrating a suite off `jest-auto-spies`](#codemod--migrating-a-suite-off-jest-auto-spies)
-  - [`init` — the pointer an agent reads](#init--the-pointer-an-agent-reads)
-- [Using this library with an AI agent](#using-this-library-with-an-ai-agent)
-  - [Point your agent at it once](#point-your-agent-at-it-once)
-  - [Which file your agent reads](#which-file-your-agent-reads)
-  - [Install it in your agent](#install-it-in-your-agent)
-  - [OpenAI Codex](#openai-codex)
-  - [GLM (z.ai), Kimi K3 and other Claude-compatible models](#glm-zai-kimi-k3-and-other-claude-compatible-models)
-  - [Gemini CLI](#gemini-cli)
-  - [Claude Code plugin](#claude-code-plugin)
 - [Availability](#availability)
 - [Quick start](#quick-start)
 - [How to mock](#how-to-mock)
@@ -168,6 +124,21 @@ files and the `.d.ts` files, so a plain `.ts` listed only in the spec `tsconfig`
   - [`fetch` and other globals](#how-to-mock-fetch-and-other-globals)
   - [The console](#how-to-mock-the-console)
   - [A jasmine suite mid-migration](#how-to-mock-a-jasmine-suite-mid-migration)
+- [New in 5](#new-in-5)
+- [New in 4](#new-in-4)
+- [The CLI — `doctor`, `perf`, `codemod` and `init`](#the-cli--doctor-perf-codemod-and-init)
+  - [`doctor` — defects that never fail](#doctor--defects-that-never-fail)
+  - [`perf` — where the CPU time actually goes](#perf--where-the-cpu-time-actually-goes)
+  - [`codemod` — migrating a suite off `jest-auto-spies`](#codemod--migrating-a-suite-off-jest-auto-spies)
+  - [`init` — the pointer an agent reads](#init--the-pointer-an-agent-reads)
+- [Using this library with an AI agent](#using-this-library-with-an-ai-agent)
+  - [Point your agent at it once](#point-your-agent-at-it-once)
+  - [Which file your agent reads](#which-file-your-agent-reads)
+  - [Install it in your agent](#install-it-in-your-agent)
+  - [OpenAI Codex](#openai-codex)
+  - [GLM (z.ai), Kimi K3 and other Claude-compatible models](#glm-zai-kimi-k3-and-other-claude-compatible-models)
+  - [Gemini CLI](#gemini-cli)
+  - [Claude Code plugin](#claude-code-plugin)
 - [Why](#why)
 - [How it works (and what it won't spy)](#how-it-works-and-what-it-wont-spy)
 - [Entry points & runtimes](#entry-points--runtimes)
@@ -369,500 +340,6 @@ link. No upper bound is set on purpose — one would force a release per Angular
 always imported `By` from it as a value, and the Bun preload boots through `platformBrowserTesting()`.
 Under npm's hoisted `node_modules` it resolved by accident — every Angular workspace has it — while
 under pnpm's isolated layout it did not resolve at all. Declaring it makes the accident a contract.
-
-## The CLI — `doctor`, `perf`, `codemod` and `init`
-
-The package ships one executable, with no dependencies and nothing to configure:
-
-```bash
-npx vitest-auto-spy doctor   # read-only. Exits 1 when it finds something
-npx vitest-auto-spy perf     # where the suite's CPU time goes. --gate fails a budget and says why
-npx vitest-auto-spy codemod  # prints the migration diff. Writes nothing without --write
-npx vitest-auto-spy init     # writes the agent instructions pointer
-```
-
-**Exit `0` means "ran, nothing to report"; `1` means "ran, and here is the finding"; `2` means
-"there was nothing to judge".** The third one is the reason to read this line: an unknown flag for a
-known command is an error and **nothing runs** — `init --dryrun` used to write the files and
-`perf --gat` used to pass with no gate at all, which is a typo that reads as a clean CI step. A path
-that matches no file is the same kind of error, because _Nothing left to migrate_ off a tree nobody
-read is not a result. A red suite under `perf --gate` lands there too: a failing test is measured
-until its timeout, and 30 s of timeout looks exactly like 30 s of slow code.
-
-The repository scan behind `doctor` and `codemod` skips the directories git ignores — every
-`.gitignore` from the root down, `.git/info/exclude` and the per-user `core.excludesFile`, read as
-files with no `git` process — and stops at a nested repository or a git worktree — a `.git` entry,
-whether it is a directory or a file. A tree carrying worktrees under it used to be
-listed twice, so `doctor` reported every import graph in duplicate and `codemod --write` could have
-rewritten specs on someone else's branch.
-
-### `doctor` — defects that never fail
-
-Every check shares one property: **nothing consumes the result**. The suite is green,
-`tsc --noEmit` reports zero errors, and the only reader of the stale thing is whoever opens the
-file. That is why they survive for years, and why a per-file linter cannot find most of them — the
-evidence is spread across files.
-
-```
-$ npx vitest-auto-spy doctor
-vitest-auto-spy doctor — /work/app
-1284 files, runner: vitest, entry: vitest-auto-spy/angular
-
-error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
-       The "include" pattern "src*.spec.ts" matches no file.
-       → A pattern that matches nothing type-checks nothing, and `tsc --noEmit` still reports
-         zero errors. Fix the glob or delete the entry.
-
-3 errors, 4 warnings, 1 note
-```
-
-| Check                               | What it finds                                                                                                                                                             |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tsconfig-glob-matches-nothing`     | An `include` pattern that matches no file — so it type-checks nothing; `info` when nothing beside the config is there to miss yet                                         |
-| `tsconfig-file-missing`             | A `files` entry naming a file that is gone                                                                                                                                |
-| `spec-imported-by-non-spec`         | A production module importing a `*.spec.ts`                                                                                                                               |
-| `spec-exports-fixture`              | A spec importing another spec, whose hooks then run in a foreign file                                                                                                     |
-| `foreign-runner-pragma`             | `@jest-environment` left in a spec, which Vitest never reads                                                                                                              |
-| `dead-runner-config`                | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                                                                                       |
-| `orphan-runner-file`                | A setup file only that dead config referenced                                                                                                                             |
-| `angular-build-splitting-off`       | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                                                                                       |
-| `analog-behind-angular-build`       | `@analogjs/vite-plugin-angular` below 2.7.5 next to `@angular/build` 22.2+ — `TypeError: cache.has is not a function` at startup                                          |
-| `coverage-all-removed`              | `coverage.all` in a config, on a Vitest that stopped reading the key                                                                                                      |
-| `coverage-include-misses-bundle`    | A `coverage.include` of sources only, in a runner config over a bundle                                                                                                    |
-| `coverage-include-recompiles-globs` | A coverage scope large enough that `picomatch` recompiling it per file costs more than the coverage. Info                                                                 |
-| `vitest-5-removed`                  | What Vitest 5 removed — `vitest/reporters`-style imports, `.sequential`, `--outputJson`/`--compare`; error on 5, note on 4. Also `poolOptions` (warning, ignored since 4) |
-| `vitest-5-deprecated`               | `experimental_clearCache` / `experimental_parseSpecifications` on Vitest 5, which nothing warns about at run time. Info                                                   |
-| `vitest-5-clear-mocks`              | `clearMocks: true` restating the Vitest 5 default, or a Vitest 4 suite that never decided and will have mocks cleared after the upgrade. Info                             |
-| `vitest-5-available`                | Vitest 4 with nothing holding back 5 — what it buys (−46 % v8 / −35.5 % istanbul on a 700-file Angular suite with coverage) — or what holds it back. Info                 |
-| `fs-module-cache-not-persisted`     | `fsModuleCache` on, and no CI config caches its directory — every CI run starts cold                                                                                      |
-| `jasmine-era-project`               | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error                                                          |
-| `no-agent-instructions`             | No instruction file names the package. A note, not an error                                                                                                               |
-| `helper-from-wrong-entry`           | A named import taken from an entry that does not export it — `provideAutoSpy` from the root                                                                               |
-| `no-unawaited-helper`               | An `expectEmission` / `stable` / `flushEventLoop` call dropped as a bare statement, so nothing awaits it                                                                  |
-
-The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
-`tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
-turning `src/**/*.spec.ts` into `src*.spec.ts` — a valid glob that matches nothing. Nine of 152
-spec tsconfigs still covered their specs.
-
-`doctor` never writes. There is no `--fix`.
-
-The last two checks resolve a **name**, and both read the same table: the entry each helper is
-exported from, generated from this package's own `exports` map by compiling the barrels and reading
-the symbols back out of the compiler. That table is why they are `doctor` checks and not lint rules
-— a per-file linter has none. Both are conservative in the same way: the callee has to have been
-imported from this package in that same file (a rename with `as` still counts), `no-unawaited-helper`
-reports only a call that both begins and ends a statement, and the pair goes quiet when the installed
-major differs from the table's, because a helper moves between entries only in a major. Over this
-repository's own 755 source files they report nothing outside their own fixtures. Neither has a
-fixer.
-
-### `perf` — where the CPU time actually goes
-
-Vitest prints one summary line per run with a phase breakdown; it is the only place those numbers
-surface, and it is for the whole suite, not a file. `perf` reads the same numbers per file — through
-`TestModule.diagnostic()`, Vitest's own public accessor, via a reporter this package ships — and
-turns whichever phase dominates into a list of files and the rule that put them there. Nothing here
-parses terminal output, and without --gate it always exits 0: a slow suite is not a failing one.
-
-```bash
-npx vitest-auto-spy perf              # run the whole suite once and report
-npx vitest-auto-spy perf src/cli      # path passed through to Vitest as a file filter
-npx vitest-auto-spy perf --json out/perf.json  # re-analyse a report instead of running Vitest
-```
-
-```
-$ npx vitest-auto-spy perf src/cli
-vitest-auto-spy perf — /path/to/repo
-16 test files, 860ms wall clock, 17.30s of CPU time summed over the workers
-
-  phase               time    share
-  prepare            6.34s    36.7%
-  environment        5.46s    31.6%
-  setup              3.01s    17.4%
-  transform          1.19s     6.9%
-  import             879ms     5.1%
-  tests              411ms     2.4%
-
-info   perf-environment
-       Environment setup is 31.6% of the measured CPU time, against 2.4% in the test bodies. No
-       spec file could be proved DOM-free, so this names none; 109 were left undecided.
-       → Move what does not need a DOM to the `node` environment. …
-
-0 errors, 0 warnings, 2 notes
-```
-
-That is this repository's own suite: `perf` names zero DOM-free candidates and leaves the rest
-undecided, because `src/test-setup.ts` builds an Angular `TestBed` before every spec. The rule is
-deliberately one-sided — a spec is a candidate only when it, the setup files, and every module they
-import were read, none mentions a DOM name, and every package they import is on a short
-DOM-free allowlist. Anything the rule cannot resolve is **undecided**, never assumed safe: a false
-positive is somebody's suite failing on `document is not defined`.
-
-**The phase totals are CPU time summed across workers**, which is why 860ms of wall clock reads as
-17.30s of CPU above — the six phases are `environment`, `prepare`, `import`, `setup`, `tests` (all
-per file) and `transform` (whole run; per file on Vitest 5). Where the isolation finding suggests `test.isolate: false`,
-it links to this package's own memory measurements rather than repeating the numbers here — that
-flag trades per-file cleanup for memory that grows with the suite.
-
-Two findings are about settings rather than files. `perf-environment-engine` offers `happy-dom` to a
-`jsdom` config whose environment time dominates — 23.2 s of user CPU against 26.5 s on this
-repository's own 117-file suite, and 119 ms against 253 ms per file on a spec that builds a DOM and
-does nothing else. `perf-workers` is the one about **memory**: with no `maxWorkers` declared, Vitest
-takes one worker per core, and a worker measured at ~155 MB on top of a 1.42 GB floor — a cap of four
-cost 2.8 % of wall clock and about 2 GB less on a 16-core machine.
-
-**On Vitest 5 `perf` reads what Vitest 5 reports**, and an older Vitest prints exactly what it did
-before. The advice reads the configuration Vitest resolved — so an option set in a builder or on the
-command line counts, and one you set explicitly is never advised against. `perf-transform` names the
-time files waited for Vite to transform modules and offers `fsModuleCache`; `perf-long-pole` names
-the file still running alone after every other lane went idle; `perf-isolation` prices the worker
-start-ups isolation paid for; `perf-heap` under `isolate: false` lists what each file **added** to its
-worker's heap; and a finding about a switch points at `npx vitest doctor`, Vitest's own A/B runner,
-to confirm it. A run killed or timed out still leaves a `partial` report, which `perf` prints and the
-gate refuses to judge.
-
-**`--gate` is the half that may fail a pipeline**, and it is built so that it only ever fails over
-somebody's code. It judges the `tests` phase alone — the other five are the harness and the machine
-— it counts a file's budget in the median test **of the same run** (2 000 of them, or 10× that
-median for each test in the file, whichever is larger), so the verdict survives a change of hardware
-and a large file of ordinary tests never fails it, and it re-measures every candidate on its own
-before failing anything. A file that is not slow when it has the machine to itself is reported as
-_not reproduced_ rather than as a defect; one that is gets a card saying why — its slowest tests,
-hooks against bodies, and where the CPU profile says the time went.
-
-```bash
-npx vitest-auto-spy perf --gate                                              # a plain Vitest suite
-npx vitest-auto-spy perf --command 'npm test -- {paths:--include=}' --gate   # a suite behind a script
-```
-
-```
-error  perf-gate-slow-file libs/player/src/lib/vod/vod.component.spec.ts
-       The test bodies in this file add up to 9.20s, over the 5.00s budget (…). Re-measured on its own: 8.70s, still over budget.
-
-       ┌─ measurements ────────────────────────────────────────────────
-       │ tests             38   242ms each   20× the median test
-       ├─ slowest tests ───────────────────────────────────────────────
-       │  527ms  focus > moves through the controls
-       ├─ where the time went · CPU profile, 8.41s sampled ────────────
-       │ hooks        ███████████░░░░░░░░░ 54%   test bodies 46%
-       │ by package   ██████░░░░░░░░░░░░░░  28%  jsdom
-       │ in the spec  setUpWith 38%  ·  VodComponent_Template 17%  ·  assertFocus 8%
-       ├─ likely cause ────────────────────────────────────────────────
-       │ Most of the time is set-up that every test repeats: 54% is in hooks — setUpWith alone is 38%.
-       └───────────────────────────────────────────────────────────────
-```
-
-The profiler behind the card is loaded only for the confirmation pass; an ordinary run never pays
-for it. The whole card, and the rule the budget is counted by, are in
-[the CLI docs](https://asdalexey.github.io/vitest-auto-spy/utilities/cli#the-gate).
-
-On an Angular spec the card adds a row of Angular's own costs — TestBed set-up, component creation,
-change detection, JIT compilation, computed styles — and the likely cause reads it first; on Vitest
-4.1+ it also lists the spec's heaviest imports. Three things need no network in CI: `--baseline
-perf-history.jsonl` keeps the last 30 runs in a cache and fails a file only past twice its mean share
-and above every share it was recorded at; `--fail-on-flaky` fails a test that passed only on a retry;
-and `--code-quality <path>`, on `perf` and on `doctor`, writes the findings for the GitLab merge
-request widget. `--format json` prints either command as one JSON document on stdout, with the gate's verdict
-rows, for a script that would otherwise parse the text.
-
-`--command` is also the answer to a bare `vitest run` not being your suite at all: where the suite is
-built by an Angular builder, an Nx target or a script, there is no root config, the defaults sweep up
-every `*.spec.*` in the tree, and every file fails to collect — 1 830 files and 0 test bodies on the
-workspace this was measured in, under a phase table that looked entirely plausible. `perf` refuses to
-call that a measurement and says which of the two entry points to use. Exit `1` means the gate
-failed; exit `2` means there was nothing to judge.
-
-Full reference, phase by phase and finding by finding: **[The CLI](https://asdalexey.github.io/vitest-auto-spy/utilities/cli)**.
-
-### `codemod` — migrating a suite off `jest-auto-spies`
-
-```bash
-npx vitest-auto-spy codemod                    # every *.spec.ts / *.test.ts — dry run
-npx vitest-auto-spy codemod src/app --write    # apply, under a path
-npx vitest-auto-spy codemod --verify           # transform nothing; exit 1 on anything left
-```
-
-Thirteen transforms in three families — four shared, three Jest's, six jasmine's. `--from` picks the
-family (`jest-auto-spies`, `jasmine-auto-spies` / `jasmine`, or `auto`, the default, which reads each
-file). Two are this package's own knowledge: **`auto-spies-import`** splits
-`import { createSpyFromClass, provideAutoSpy, Spy } from 'jest-auto-spies'` across the entry points
-that export each name — from a table read off the **installed** package's export map, not a
-hard-coded list — and **`inject-cast`** rewrites `TestBed.inject(X) as Spy<X>` into
-`asSpy<X>(TestBed.inject(X))`, the cast that fails with `TS2352` once per injected double in a
-migrated suite. The other five are the Jest half: **`jest-types`** transposes `jest.Mock<R, [A]>`
-into the single call signature Vitest takes (a plain rename compiles into the reverse meaning and
-nothing fails until a call site disagrees), **`jest-namespace`** renames the `jest.*` members that
-have a `vi` twin, and `jest-globals-import`, `jasmine-aliases` (`xit` → `it.skip`) and
-`mock-implementation-arity` finish the mechanical part.
-
-The six jasmine transforms take `.and` off the auto-spies helpers (`spy.load.and.nextWith(v)` →
-`spy.load.nextWith(v)`), turn jasmine's own strategies into their `mock*` twins, rewrite the
-`jasmine` global's members onto `vi` / `expect`, rename the matchers Vitest spells differently — and
-give **`spyOn` back the stub it had for free**: jasmine's `spyOn` stubs the method, `vi.spyOn` calls
-through, so a bare rename is green, silent and inverts the behaviour of every unstubbed spy in the
-suite. That one is why this is a codemod and not a `sed` line. A bare `spyOn(` is deliberately not
-enough for `--from auto` to classify a file, for exactly the same reason — that suite says
-`--from jasmine` out loud.
-
-**Dry-run by default**, so the first thing a repository sees is a diff it can reject. `--write`
-applies it, `--only` / `--skip` select transforms by id, `--list` prints them together with the
-generated entry-point table. Past 50 000 files the scan truncates and says so, because _Nothing left
-to migrate_ off a truncated list is a claim about a tree it never looked at;
-`VITEST_AUTO_SPY_SCAN_CAP` raises the cap.
-
-**Every rewrite is parsed before it is written**, with the project's own `typescript`, and its
-diagnostics are compared against the original's. A file the run would have broken is reported as
-`codemod-broke-syntax` and left byte for byte as it was, so the run ends with one file named instead
-of a tree that no longer compiles; where `typescript` is not installed the check is skipped in
-silence rather than turned into an install instruction. JavaScript specs are visited too —
-`*.spec.js`, `*.test.jsx`, the `.cjs` and `.mjs` forms — because a Jest suite that was never
-TypeScript is the suite with the most `jest.` in it.
-
-What it deliberately does not do is guess. A `jest.*` member with no `vi` twin — `requireMock`,
-`replaceProperty`, `createMockFromModule`, `jest.setTimeout`, `requireActual` — is **left exactly as
-it was and reported with what to do instead**, and so is any member in neither list: a mechanical
-`jest.` → `vi.` is right for about thirty members and wrong for a dozen more, and the wrong ones fail
-later as `vi.requireMock is not a function`, which reads as "the runner broke". Same for an import
-name no entry point exports, and for a span it could not reach at all — a template literal, an
-unbalanced bracket. Two more it now reports rather than rewriting into something worse:
-`jest.fn<R, [A]>()` in a file importing from `@jest/globals` (`jest-mock` 29 already takes the whole
-function type, so transposing a second time produces a return type of a return type), and
-`.withArgs(…)` on a `vi.spyOn` chain — `vi.spyOn` has no `calledWith`, so renaming it produces a
-method that does not exist.
-
-`--verify` is the pass to run afterwards: it transforms nothing and matches the files against the
-patterns the codemod removes, exiting 1 on anything left. Matching the _result_ rather than reading
-the diff is the only form that notices a file the transforms declined to enter — and it works the
-same on a file somebody migrated by hand.
-
-Full reference, transform by transform:
-**[The codemod](https://asdalexey.github.io/vitest-auto-spy/utilities/codemod)**.
-
-### `init` — the pointer an agent reads
-
-No coding agent scans dependencies for instructions, so the `AGENTS.md` and the skill shipped
-inside this package's tarball are never discovered on their own. `init` writes the pointer into
-the files that _are_ read — `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, a Claude Code skill stub, and a
-glob-scoped rule file for each tool whose directory already exists — and specialises it for this
-repository's runner, framework and setup file. Everything sits between markers, so a re-run is a
-no-op and `--uninstall` puts the files back.
-
-`init --check` is the CI form, and it compares **the managed block**, not the version stamp inside
-its marker. Upgrading this package no longer turns that step red on a repository whose instructions
-have not changed a word; a plain `init` still refreshes the stamp.
-
-Full reference, including the flags and the CI form: **[The CLI](https://asdalexey.github.io/vitest-auto-spy/utilities/cli)**.
-
-## Using this library with an AI agent
-
-Most tests are now written with an assistant in the loop, so this package ships documentation
-written for one — not a second copy of the README, but the compressed form an agent can act on:
-the decision tree, the configuration semantics, an error→fix table and the anti-patterns.
-
-| What                                                                         | Where                                                  | For                                                      |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------- |
-| [`AGENTS.md`](./AGENTS.md)                                                   | `node_modules/vitest-auto-spy/AGENTS.md`               | any agent, **offline** — it ships inside the npm tarball |
-| [`llms.txt`](https://asdalexey.github.io/vitest-auto-spy/llms.txt)           | the docs site root                                     | a crawler picking the one page it needs                  |
-| [`llms-full.txt`](https://asdalexey.github.io/vitest-auto-spy/llms-full.txt) | the docs site root                                     | reading the entire documentation in one fetch            |
-| A Claude Code skill                                                          | `skills/vitest-auto-spy/SKILL.md`, also in the tarball | Claude Code — and any client that _is_ it, GLM included  |
-| Runtime error messages                                                       | every thrown error ends with `Docs: <url>`             | reading a stack trace instead of guessing                |
-
-### Point your agent at it once
-
-Add this to the instruction file your agent actually reads — the table below says which one that is:
-
-```md
-When writing or fixing tests that use `vitest-auto-spy`, first read
-`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
-the configuration semantics and the common mistakes.
-```
-
-The text is the same everywhere; only the filename changes. **Two files cover the whole field: a
-root `AGENTS.md` and a root `CLAUDE.md`.** Put the identical block in both and every agent below is
-served — including the ones your teammates use and you do not.
-
-### Which file your agent reads
-
-| Agent                                                               | Instruction file it reads                                                                                                                                                                 | Reads `AGENTS.md`?                                                |
-| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| **Claude Code**                                                     | `CLAUDE.md` — project, `.claude/CLAUDE.md` and `~/.claude/CLAUDE.md`, all concatenated                                                                                                    | **No.** Bridge with an `@AGENTS.md` import line, or a symlink     |
-| **OpenAI Codex** — the `codex` CLI, the IDE extension, Codex cloud  | `AGENTS.md`, one per directory from the git root down to the cwd ([below](#openai-codex))                                                                                                 | native                                                            |
-| **GLM (z.ai coding plan)**, **Kimi K3**                             | whatever their client reads — inside Claude Code that is `CLAUDE.md` ([below](#glm-zai-kimi-k3-and-other-claude-compatible-models))                                                       | through the client                                                |
-| **Cursor**                                                          | root `AGENTS.md`; `.cursor/rules/*.mdc` for glob-scoped rules                                                                                                                             | native — and it applies a root `CLAUDE.md` the same always-on way |
-| **GitHub Copilot**                                                  | root `AGENTS.md`; `.github/copilot-instructions.md`                                                                                                                                       | native, coding agent included                                     |
-| **OpenCode**                                                        | `AGENTS.md`, then `CLAUDE.md`, per directory upwards                                                                                                                                      | native                                                            |
-| **Cline**                                                           | root `AGENTS.md`; the `.clinerules/` directory                                                                                                                                            | native                                                            |
-| **Windsurf / Cascade**                                              | root `AGENTS.md`; `.windsurf/rules/*.md` (`.devin/rules/*.md` when present)                                                                                                               | yes                                                               |
-| **Zed**                                                             | **first match wins, no merging**: `.rules` → `.cursorrules` → `.windsurfrules` → `.clinerules` → `.github/copilot-instructions.md` → `AGENT.md` → `AGENTS.md` → `CLAUDE.md` → `GEMINI.md` | yes — only if nothing earlier in that list exists                 |
-| **Gemini CLI**                                                      | `GEMINI.md` ([below](#gemini-cli))                                                                                                                                                        | **not by default**                                                |
-| **Qwen Code**                                                       | `QWEN.md`                                                                                                                                                                                 | native fallback                                                   |
-| **Roo Code**                                                        | root `AGENTS.md`; `.roo/rules/`                                                                                                                                                           | yes                                                               |
-| **Junie**                                                           | root `AGENTS.md` — note that `.junie/AGENTS.md` replaces it outright                                                                                                                      | yes                                                               |
-| **Aider**                                                           | nothing implicitly — list the file: `read: [AGENTS.md]` in `.aider.conf.yml`                                                                                                              | on request                                                        |
-| **Jules, Factory, goose, Amp, Warp, Devin, Kilo, Augment, VS Code** | root `AGENTS.md`                                                                                                                                                                          | native                                                            |
-
-**Do not create `.rules`, `.cursorrules`, `.windsurfrules` or `.clinerules` just to hold this
-snippet.** Zed resolves that list first-match-wins with no merging, so a newly created legacy file
-silently shadows the `AGENTS.md` the rest of the project relies on. Append to one only if it
-already exists.
-
-### Install it in your agent
-
-One command covers every tool in that table, and specialises the text for this repository:
-
-```bash
-npx vitest-auto-spy init          # write it
-npx vitest-auto-spy init --check  # CI: fail when it is missing or out of date
-```
-
-By hand, the same thing is two commands at the repository root:
-
-```bash
-# 1 — AGENTS.md: Codex, Cursor, Copilot, Cline, Windsurf, Zed, OpenCode, Qwen, Roo, Junie, Aider…
-cat >> AGENTS.md <<'MD'
-
-## Tests that use `vitest-auto-spy`
-
-When writing or fixing tests that use `vitest-auto-spy`, first read
-`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
-the configuration semantics and the common mistakes.
-MD
-
-# 2 — CLAUDE.md: Claude Code, and GLM / Kimi running inside it. One line, no second copy to maintain
-printf '\n@AGENTS.md\n' >> CLAUDE.md
-```
-
-`@AGENTS.md` is Claude Code's own import syntax, so the instructions live in exactly one file. A
-symlink (`ln -s AGENTS.md CLAUDE.md`) does the same job if you would rather not have the second file
-at all.
-
-Then, per tool — everything in the right-hand column is optional on top of those two files:
-
-| Agent                                       | Install                                                                                                                                                                  |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Claude Code**                             | `/plugin marketplace add ASDAlexey/vitest-auto-spy`, then `/plugin install vitest-auto-spy@vitest-auto-spy` — [the skill](#claude-code-plugin), no project files touched |
-| **OpenAI Codex**                            | nothing more; optionally `~/.codex/config.toml` from [below](#openai-codex)                                                                                              |
-| **GLM (z.ai)**, **Kimi K3**                 | identical to Claude Code — same client, same plugin command                                                                                                              |
-| **Cursor**                                  | `.cursor/rules/vitest-auto-spy.mdc` to load it only for spec files (see below)                                                                                           |
-| **GitHub Copilot**                          | `.github/instructions/vitest-auto-spy.instructions.md` (see below)                                                                                                       |
-| **Cline**                                   | `.clinerules/vitest-auto-spy.md` — the same three lines, plus `paths: ["**/*.spec.ts","**/*.test.ts"]`                                                                   |
-| **Windsurf / Cascade**                      | `.windsurf/rules/vitest-auto-spy.md` with `trigger: glob` (see below)                                                                                                    |
-| **Roo Code**                                | `.roo/rules/vitest-auto-spy.md` — always on, so keep it to the three-line pointer                                                                                        |
-| **Gemini CLI**                              | `GEMINI.md`, or the `.gemini/settings.json` patch from [below](#gemini-cli)                                                                                              |
-| **Aider**                                   | `.aider.conf.yml`: `read: [AGENTS.md]`                                                                                                                                   |
-| **Zed, OpenCode, Qwen Code, Junie, Jules…** | nothing — the root `AGENTS.md` is the whole install                                                                                                                      |
-
-The glob-scoped variants, for the three tools whose format is not plain Markdown. Each body is the
-same pointer; only the frontmatter differs:
-
-```md
-## <!-- .cursor/rules/vitest-auto-spy.mdc -->
-
-description: How to write tests with vitest-auto-spy
-globs: **/\*.spec.ts, **/_.spec.tsx, \*\*/_.test.ts, \*_/_.test.tsx
-alwaysApply: false
-
----
-
-Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
-`vitest-auto-spy` — the API, the configuration semantics and the common mistakes.
-```
-
-```md
-## <!-- .github/instructions/vitest-auto-spy.instructions.md -->
-
-## applyTo: '**/\*.spec.ts,**/_.spec.tsx,\*\*/_.test.ts,\*_/_.test.tsx'
-
-Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
-`vitest-auto-spy`.
-```
-
-```md
-## <!-- .windsurf/rules/vitest-auto-spy.md — .devin/rules/ when that directory exists -->
-
-trigger: glob
-globs: **/\*.spec.ts, **/\*.test.ts
-
----
-
-Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
-`vitest-auto-spy`.
-```
-
-Cursor's `globs` is a **comma-separated string, not a YAML array**, and a Windsurf rule file is
-capped at 12 000 characters — both are reasons the rule points at the reference instead of copying
-it.
-
-### OpenAI Codex
-
-Codex — the `codex` CLI, the IDE extension and Codex cloud — reads the open `AGENTS.md` convention,
-so a root `AGENTS.md` is the whole integration. Two details decide whether it reaches the model at
-all:
-
-- **The chain is git-root→cwd, at most one file per directory** (`AGENTS.override.md` wins over
-  `AGENTS.md`), concatenated. In a monorepo, put the block in the package's own `AGENTS.md` too when
-  that package runs a different runner — it is the only way to say "this one is `bun test`, the one
-  next door is Vitest", which is exactly the distinction that decides which entry point gets
-  imported.
-- **The whole chain is capped** by `project_doc_max_bytes`, **32 768 bytes by default**; anything
-  over budget is truncated with a warning. If your `AGENTS.md` is already long, keep the pointer
-  near the top of it.
-
-For a repo that keeps its instructions in `CLAUDE.md`, teach Codex to fall back — this is global
-config on your own machine, nothing to commit:
-
-```toml
-# ~/.codex/config.toml
-project_doc_fallback_filenames = ["CLAUDE.md"]   # per directory, when no AGENTS.md is there
-project_doc_max_bytes = 65536                    # raise the 32 KB budget for a monorepo chain
-```
-
-Codex cloud reads the same root `AGENTS.md`, and its agent has **no internet access by default** —
-which is exactly why this reference ships inside the tarball rather than only on the docs site.
-`node_modules/vitest-auto-spy/AGENTS.md` is on disk the moment the setup script has installed
-dependencies, so nothing has to be fetched.
-
-### GLM (z.ai), Kimi K3 and other Claude-compatible models
-
-GLM is a **model**, not an agent — the thing that reads files is the client you run it in.
-
-The z.ai coding plan runs GLM **inside Claude Code**, by pointing `ANTHROPIC_BASE_URL` (with
-`ANTHROPIC_AUTH_TOKEN`) at z.ai's Anthropic-compatible endpoint. File discovery is untouched by
-that: `CLAUDE.md`, `.claude/skills/` and the [plugin](#claude-code-plugin) below behave exactly as
-they do on Claude, because it is the same client. Kimi K3 driven through Claude Code is the same
-story — and there the skill and the plugin are worth more than a pasted snippet, because they load
-only when a spec actually mentions the library and cost no context the rest of the time.
-
-Run GLM through a different client and that client decides: OpenCode, Cline, Roo Code and Kilo Code
-all read the root `AGENTS.md`. Moonshot's own `kimi-cli` reads its own `AGENTS.md` chain, including
-`.kimi/AGENTS.md`.
-
-### Gemini CLI
-
-Gemini CLI reads `GEMINI.md` and does **not** read `AGENTS.md` by default. Either paste the snippet
-into `GEMINI.md`, or name both files once:
-
-```json
-// .gemini/settings.json
-{ "context": { "fileName": ["GEMINI.md", "AGENTS.md"] } }
-```
-
-Qwen Code is derived from Gemini CLI and takes the same `context.fileName` setting, but already
-falls back to `AGENTS.md` on its own.
-
-### Claude Code plugin
-
-The repository is also a Claude Code marketplace, so the skill installs without touching your
-project files:
-
-```
-/plugin marketplace add ASDAlexey/vitest-auto-spy
-/plugin install vitest-auto-spy@vitest-auto-spy
-```
-
-The skill loads only when a spec actually mentions the library, so it costs nothing the rest of
-the time. It works in any client that _is_ Claude Code — the z.ai and Kimi setups above included.
 
 ## Availability
 
@@ -1475,6 +952,542 @@ on post-mutation state. Take the copy at call time instead, in a `mockImplementa
 The whole mapping — both the auto-spies API and jasmine's own globals — is in
 [Migrating from jasmine-auto-spies](#migrating-from-jasmine-auto-spies), and
 `npx vitest-auto-spy codemod --from jasmine` does the rewriting.
+
+## New in 5
+
+A major that changes **no helper, no option and no runtime behaviour**. What it changes is what the
+package claims to run on, because both old peer ranges were claims the code could not keep — the
+full list, with what to do about each, is in
+[Upgrading to 5.0](https://asdalexey.github.io/vitest-auto-spy/upgrading-5).
+
+| What you get                                                                                                                                                                                                                        | Verified                                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **The Angular range stops being false.** `>=16.0.0` admitted four majors on which an entry point cannot link at all: `ɵSIGNAL` is a value import and arrived in 18, `provideZonelessChangeDetection` in 20. The floor is now `>=20` | Angular 16 through 22 downloaded, their real `export { … }` lists parsed out of `fesm2022/*.mjs`; Angular 19 went EOL on 2026-05-19 |
+| **`@angular/platform-browser` is a declared peer.** `/angular` has always imported `By` from it as a value, and under pnpm's isolated layout that never resolved                                                                    | undeclared → optional peer on the same `>=20` range                                                                                 |
+| **The rxjs range stops promising rxjs 8.** Six operators came from `rxjs/operators`, a path rxjs 8 removes; they now come from the root entry, where rxjs re-exported them in 7.2, and the floor moved with the specifier           | read out of rxjs 7.2.0's own `dist/types/index.d.ts`; every Angular major from 16 to 22 already peers above it                      |
+| **`flushEffects()` is one line.** The `ApplicationRef.tick()` fallback and the spec that deleted `TestBed.tick` at runtime to cover it are both gone                                                                                | `TestBed.tick()` direct; coverage still 100 %                                                                                       |
+
+For almost everyone the whole upgrade is a version number: every Angular still supported by Angular
+satisfies the new floor, and only a project pinning `rxjs@7.0` or `7.1` on purpose has to move.
+
+## New in 4
+
+A major with **one job**: take out of your project the weight this library was making it carry.
+Nothing was removed or renamed and no runtime behaviour changed — the whole cost is two import
+specifiers, listed with their fix in
+[Upgrading to 4.0](https://asdalexey.github.io/vitest-auto-spy/upgrading-4).
+
+| What you get                                                                                                                                                                                                                                                        | Measured                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **rxjs is out of your TypeScript program.** The declarations named `Observable` and `Subject`, so every consumer loaded rxjs whether the project used it or not. `import type` does not fix that — TypeScript resolves it the same way — so the reference had to go | consumer program **303 → 114 files**, of which **189 → 0** are rxjs; `TS2307` inside a shipped `.d.ts` under `skipLibCheck: false` with no rxjs installed: gone |
+| **Every spec file gets time back.** The DOM stubs and the run diagnostics moved to `vitest-auto-spy/dom-stubs` and `…/diagnostics`, so a spec that never touches a DOM global stops evaluating 27 kB to reach `createSpyFromClass`                                  | **−0.159 ms per spec file** that does not import them, +0.155 ms in the files that do; root entry **15.5 → 12.9 kB** min+gzip                                   |
+| **A second copy of rxjs stops breaking detection.** Observable detection is structural now, so an `Observable` from a duplicated rxjs earns the observable helpers instead of failing with `nextWith is not a function`                                             | —                                                                                                                                                               |
+| **The lint rules stop deciding how much you care.** All nineteen ship as `error`; which findings block a merge is one line of config, documented per rule                                                                                                           | —                                                                                                                                                               |
+
+If you use the observable helpers, keep `import 'vitest-auto-spy/rxjs'` in a setup file, a spec, or
+a `.d.ts` your `tsconfig` includes — that one import is what keeps `returnSubject()` typed as rxjs's
+own `Subject<T>`. From `@angular/build:unit-test` 22.2.0 the test program is the specs, the setup
+files and the `.d.ts` files, so a plain `.ts` listed only in the spec `tsconfig`'s `include` is out.
+
+## The CLI — `doctor`, `perf`, `codemod` and `init`
+
+The package ships one executable, with no dependencies and nothing to configure:
+
+```bash
+npx vitest-auto-spy doctor   # read-only. Exits 1 when it finds something
+npx vitest-auto-spy perf     # where the suite's CPU time goes. --gate fails a budget and says why
+npx vitest-auto-spy codemod  # prints the migration diff. Writes nothing without --write
+npx vitest-auto-spy init     # writes the agent instructions pointer
+```
+
+**Exit `0` means "ran, nothing to report"; `1` means "ran, and here is the finding"; `2` means
+"there was nothing to judge".** The third one is the reason to read this line: an unknown flag for a
+known command is an error and **nothing runs** — `init --dryrun` used to write the files and
+`perf --gat` used to pass with no gate at all, which is a typo that reads as a clean CI step. A path
+that matches no file is the same kind of error, because _Nothing left to migrate_ off a tree nobody
+read is not a result. A red suite under `perf --gate` lands there too: a failing test is measured
+until its timeout, and 30 s of timeout looks exactly like 30 s of slow code.
+
+The repository scan behind `doctor` and `codemod` skips the directories git ignores — every
+`.gitignore` from the root down, `.git/info/exclude` and the per-user `core.excludesFile`, read as
+files with no `git` process — and stops at a nested repository or a git worktree — a `.git` entry,
+whether it is a directory or a file. A tree carrying worktrees under it used to be
+listed twice, so `doctor` reported every import graph in duplicate and `codemod --write` could have
+rewritten specs on someone else's branch.
+
+### `doctor` — defects that never fail
+
+Every check shares one property: **nothing consumes the result**. The suite is green,
+`tsc --noEmit` reports zero errors, and the only reader of the stale thing is whoever opens the
+file. That is why they survive for years, and why a per-file linter cannot find most of them — the
+evidence is spread across files.
+
+```
+$ npx vitest-auto-spy doctor
+vitest-auto-spy doctor — /work/app
+1284 files, runner: vitest, entry: vitest-auto-spy/angular
+
+error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
+       The "include" pattern "src*.spec.ts" matches no file.
+       → A pattern that matches nothing type-checks nothing, and `tsc --noEmit` still reports
+         zero errors. Fix the glob or delete the entry.
+
+3 errors, 4 warnings, 1 note
+```
+
+| Check                               | What it finds                                                                                                                                                             |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tsconfig-glob-matches-nothing`     | An `include` pattern that matches no file — so it type-checks nothing; `info` when nothing beside the config is there to miss yet                                         |
+| `tsconfig-file-missing`             | A `files` entry naming a file that is gone                                                                                                                                |
+| `spec-imported-by-non-spec`         | A production module importing a `*.spec.ts`                                                                                                                               |
+| `spec-exports-fixture`              | A spec importing another spec, whose hooks then run in a foreign file                                                                                                     |
+| `foreign-runner-pragma`             | `@jest-environment` left in a spec, which Vitest never reads                                                                                                              |
+| `dead-runner-config`                | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                                                                                       |
+| `orphan-runner-file`                | A setup file only that dead config referenced                                                                                                                             |
+| `angular-build-splitting-off`       | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                                                                                       |
+| `analog-behind-angular-build`       | `@analogjs/vite-plugin-angular` below 2.7.5 next to `@angular/build` 22.2+ — `TypeError: cache.has is not a function` at startup                                          |
+| `coverage-all-removed`              | `coverage.all` in a config, on a Vitest that stopped reading the key                                                                                                      |
+| `coverage-include-misses-bundle`    | A `coverage.include` of sources only, in a runner config over a bundle                                                                                                    |
+| `coverage-include-recompiles-globs` | A coverage scope large enough that `picomatch` recompiling it per file costs more than the coverage. Info                                                                 |
+| `vitest-5-removed`                  | What Vitest 5 removed — `vitest/reporters`-style imports, `.sequential`, `--outputJson`/`--compare`; error on 5, note on 4. Also `poolOptions` (warning, ignored since 4) |
+| `vitest-5-deprecated`               | `experimental_clearCache` / `experimental_parseSpecifications` on Vitest 5, which nothing warns about at run time. Info                                                   |
+| `vitest-5-clear-mocks`              | `clearMocks: true` restating the Vitest 5 default, or a Vitest 4 suite that never decided and will have mocks cleared after the upgrade. Info                             |
+| `vitest-5-available`                | Vitest 4 with nothing holding back 5 — what it buys (−46 % v8 / −35.5 % istanbul on a 700-file Angular suite with coverage) — or what holds it back. Info                 |
+| `fs-module-cache-not-persisted`     | `fsModuleCache` on, and no CI config caches its directory — every CI run starts cold                                                                                      |
+| `jasmine-era-project`               | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error                                                          |
+| `no-agent-instructions`             | No instruction file names the package. A note, not an error                                                                                                               |
+| `helper-from-wrong-entry`           | A named import taken from an entry that does not export it — `provideAutoSpy` from the root                                                                               |
+| `no-unawaited-helper`               | An `expectEmission` / `stable` / `flushEventLoop` call dropped as a bare statement, so nothing awaits it                                                                  |
+
+The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
+`tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
+turning `src/**/*.spec.ts` into `src*.spec.ts` — a valid glob that matches nothing. Nine of 152
+spec tsconfigs still covered their specs.
+
+`doctor` never writes. There is no `--fix`.
+
+The last two checks resolve a **name**, and both read the same table: the entry each helper is
+exported from, generated from this package's own `exports` map by compiling the barrels and reading
+the symbols back out of the compiler. That table is why they are `doctor` checks and not lint rules
+— a per-file linter has none. Both are conservative in the same way: the callee has to have been
+imported from this package in that same file (a rename with `as` still counts), `no-unawaited-helper`
+reports only a call that both begins and ends a statement, and the pair goes quiet when the installed
+major differs from the table's, because a helper moves between entries only in a major. Over this
+repository's own 755 source files they report nothing outside their own fixtures. Neither has a
+fixer.
+
+### `perf` — where the CPU time actually goes
+
+Vitest prints one summary line per run with a phase breakdown; it is the only place those numbers
+surface, and it is for the whole suite, not a file. `perf` reads the same numbers per file — through
+`TestModule.diagnostic()`, Vitest's own public accessor, via a reporter this package ships — and
+turns whichever phase dominates into a list of files and the rule that put them there. Nothing here
+parses terminal output, and without --gate it always exits 0: a slow suite is not a failing one.
+
+```bash
+npx vitest-auto-spy perf              # run the whole suite once and report
+npx vitest-auto-spy perf src/cli      # path passed through to Vitest as a file filter
+npx vitest-auto-spy perf --json out/perf.json  # re-analyse a report instead of running Vitest
+```
+
+```
+$ npx vitest-auto-spy perf src/cli
+vitest-auto-spy perf — /path/to/repo
+16 test files, 860ms wall clock, 17.30s of CPU time summed over the workers
+
+  phase               time    share
+  prepare            6.34s    36.7%
+  environment        5.46s    31.6%
+  setup              3.01s    17.4%
+  transform          1.19s     6.9%
+  import             879ms     5.1%
+  tests              411ms     2.4%
+
+info   perf-environment
+       Environment setup is 31.6% of the measured CPU time, against 2.4% in the test bodies. No
+       spec file could be proved DOM-free, so this names none; 109 were left undecided.
+       → Move what does not need a DOM to the `node` environment. …
+
+0 errors, 0 warnings, 2 notes
+```
+
+That is this repository's own suite: `perf` names zero DOM-free candidates and leaves the rest
+undecided, because `src/test-setup.ts` builds an Angular `TestBed` before every spec. The rule is
+deliberately one-sided — a spec is a candidate only when it, the setup files, and every module they
+import were read, none mentions a DOM name, and every package they import is on a short
+DOM-free allowlist. Anything the rule cannot resolve is **undecided**, never assumed safe: a false
+positive is somebody's suite failing on `document is not defined`.
+
+**The phase totals are CPU time summed across workers**, which is why 860ms of wall clock reads as
+17.30s of CPU above — the six phases are `environment`, `prepare`, `import`, `setup`, `tests` (all
+per file) and `transform` (whole run; per file on Vitest 5). Where the isolation finding suggests `test.isolate: false`,
+it links to this package's own memory measurements rather than repeating the numbers here — that
+flag trades per-file cleanup for memory that grows with the suite.
+
+Two findings are about settings rather than files. `perf-environment-engine` offers `happy-dom` to a
+`jsdom` config whose environment time dominates — 23.2 s of user CPU against 26.5 s on this
+repository's own 117-file suite, and 119 ms against 253 ms per file on a spec that builds a DOM and
+does nothing else. `perf-workers` is the one about **memory**: with no `maxWorkers` declared, Vitest
+takes one worker per core, and a worker measured at ~155 MB on top of a 1.42 GB floor — a cap of four
+cost 2.8 % of wall clock and about 2 GB less on a 16-core machine.
+
+**On Vitest 5 `perf` reads what Vitest 5 reports**, and an older Vitest prints exactly what it did
+before. The advice reads the configuration Vitest resolved — so an option set in a builder or on the
+command line counts, and one you set explicitly is never advised against. `perf-transform` names the
+time files waited for Vite to transform modules and offers `fsModuleCache`; `perf-long-pole` names
+the file still running alone after every other lane went idle; `perf-isolation` prices the worker
+start-ups isolation paid for; `perf-heap` under `isolate: false` lists what each file **added** to its
+worker's heap; and a finding about a switch points at `npx vitest doctor`, Vitest's own A/B runner,
+to confirm it. A run killed or timed out still leaves a `partial` report, which `perf` prints and the
+gate refuses to judge.
+
+**`--gate` is the half that may fail a pipeline**, and it is built so that it only ever fails over
+somebody's code. It judges the `tests` phase alone — the other five are the harness and the machine
+— it counts a file's budget in the median test **of the same run** (2 000 of them, or 10× that
+median for each test in the file, whichever is larger), so the verdict survives a change of hardware
+and a large file of ordinary tests never fails it, and it re-measures every candidate on its own
+before failing anything. A file that is not slow when it has the machine to itself is reported as
+_not reproduced_ rather than as a defect; one that is gets a card saying why — its slowest tests,
+hooks against bodies, and where the CPU profile says the time went.
+
+```bash
+npx vitest-auto-spy perf --gate                                              # a plain Vitest suite
+npx vitest-auto-spy perf --command 'npm test -- {paths:--include=}' --gate   # a suite behind a script
+```
+
+```
+error  perf-gate-slow-file libs/player/src/lib/vod/vod.component.spec.ts
+       The test bodies in this file add up to 9.20s, over the 5.00s budget (…). Re-measured on its own: 8.70s, still over budget.
+
+       ┌─ measurements ────────────────────────────────────────────────
+       │ tests             38   242ms each   20× the median test
+       ├─ slowest tests ───────────────────────────────────────────────
+       │  527ms  focus > moves through the controls
+       ├─ where the time went · CPU profile, 8.41s sampled ────────────
+       │ hooks        ███████████░░░░░░░░░ 54%   test bodies 46%
+       │ by package   ██████░░░░░░░░░░░░░░  28%  jsdom
+       │ in the spec  setUpWith 38%  ·  VodComponent_Template 17%  ·  assertFocus 8%
+       ├─ likely cause ────────────────────────────────────────────────
+       │ Most of the time is set-up that every test repeats: 54% is in hooks — setUpWith alone is 38%.
+       └───────────────────────────────────────────────────────────────
+```
+
+The profiler behind the card is loaded only for the confirmation pass; an ordinary run never pays
+for it. The whole card, and the rule the budget is counted by, are in
+[the CLI docs](https://asdalexey.github.io/vitest-auto-spy/utilities/cli#the-gate).
+
+On an Angular spec the card adds a row of Angular's own costs — TestBed set-up, component creation,
+change detection, JIT compilation, computed styles — and the likely cause reads it first; on Vitest
+4.1+ it also lists the spec's heaviest imports. Three things need no network in CI: `--baseline
+perf-history.jsonl` keeps the last 30 runs in a cache and fails a file only past twice its mean share
+and above every share it was recorded at; `--fail-on-flaky` fails a test that passed only on a retry;
+and `--code-quality <path>`, on `perf` and on `doctor`, writes the findings for the GitLab merge
+request widget. `--format json` prints either command as one JSON document on stdout, with the gate's verdict
+rows, for a script that would otherwise parse the text.
+
+`--command` is also the answer to a bare `vitest run` not being your suite at all: where the suite is
+built by an Angular builder, an Nx target or a script, there is no root config, the defaults sweep up
+every `*.spec.*` in the tree, and every file fails to collect — 1 830 files and 0 test bodies on the
+workspace this was measured in, under a phase table that looked entirely plausible. `perf` refuses to
+call that a measurement and says which of the two entry points to use. Exit `1` means the gate
+failed; exit `2` means there was nothing to judge.
+
+Full reference, phase by phase and finding by finding: **[The CLI](https://asdalexey.github.io/vitest-auto-spy/utilities/cli)**.
+
+### `codemod` — migrating a suite off `jest-auto-spies`
+
+```bash
+npx vitest-auto-spy codemod                    # every *.spec.ts / *.test.ts — dry run
+npx vitest-auto-spy codemod src/app --write    # apply, under a path
+npx vitest-auto-spy codemod --verify           # transform nothing; exit 1 on anything left
+```
+
+Thirteen transforms in three families — four shared, three Jest's, six jasmine's. `--from` picks the
+family (`jest-auto-spies`, `jasmine-auto-spies` / `jasmine`, or `auto`, the default, which reads each
+file). Two are this package's own knowledge: **`auto-spies-import`** splits
+`import { createSpyFromClass, provideAutoSpy, Spy } from 'jest-auto-spies'` across the entry points
+that export each name — from a table read off the **installed** package's export map, not a
+hard-coded list — and **`inject-cast`** rewrites `TestBed.inject(X) as Spy<X>` into
+`asSpy<X>(TestBed.inject(X))`, the cast that fails with `TS2352` once per injected double in a
+migrated suite. The other five are the Jest half: **`jest-types`** transposes `jest.Mock<R, [A]>`
+into the single call signature Vitest takes (a plain rename compiles into the reverse meaning and
+nothing fails until a call site disagrees), **`jest-namespace`** renames the `jest.*` members that
+have a `vi` twin, and `jest-globals-import`, `jasmine-aliases` (`xit` → `it.skip`) and
+`mock-implementation-arity` finish the mechanical part.
+
+The six jasmine transforms take `.and` off the auto-spies helpers (`spy.load.and.nextWith(v)` →
+`spy.load.nextWith(v)`), turn jasmine's own strategies into their `mock*` twins, rewrite the
+`jasmine` global's members onto `vi` / `expect`, rename the matchers Vitest spells differently — and
+give **`spyOn` back the stub it had for free**: jasmine's `spyOn` stubs the method, `vi.spyOn` calls
+through, so a bare rename is green, silent and inverts the behaviour of every unstubbed spy in the
+suite. That one is why this is a codemod and not a `sed` line. A bare `spyOn(` is deliberately not
+enough for `--from auto` to classify a file, for exactly the same reason — that suite says
+`--from jasmine` out loud.
+
+**Dry-run by default**, so the first thing a repository sees is a diff it can reject. `--write`
+applies it, `--only` / `--skip` select transforms by id, `--list` prints them together with the
+generated entry-point table. Past 50 000 files the scan truncates and says so, because _Nothing left
+to migrate_ off a truncated list is a claim about a tree it never looked at;
+`VITEST_AUTO_SPY_SCAN_CAP` raises the cap.
+
+**Every rewrite is parsed before it is written**, with the project's own `typescript`, and its
+diagnostics are compared against the original's. A file the run would have broken is reported as
+`codemod-broke-syntax` and left byte for byte as it was, so the run ends with one file named instead
+of a tree that no longer compiles; where `typescript` is not installed the check is skipped in
+silence rather than turned into an install instruction. JavaScript specs are visited too —
+`*.spec.js`, `*.test.jsx`, the `.cjs` and `.mjs` forms — because a Jest suite that was never
+TypeScript is the suite with the most `jest.` in it.
+
+What it deliberately does not do is guess. A `jest.*` member with no `vi` twin — `requireMock`,
+`replaceProperty`, `createMockFromModule`, `jest.setTimeout`, `requireActual` — is **left exactly as
+it was and reported with what to do instead**, and so is any member in neither list: a mechanical
+`jest.` → `vi.` is right for about thirty members and wrong for a dozen more, and the wrong ones fail
+later as `vi.requireMock is not a function`, which reads as "the runner broke". Same for an import
+name no entry point exports, and for a span it could not reach at all — a template literal, an
+unbalanced bracket. Two more it now reports rather than rewriting into something worse:
+`jest.fn<R, [A]>()` in a file importing from `@jest/globals` (`jest-mock` 29 already takes the whole
+function type, so transposing a second time produces a return type of a return type), and
+`.withArgs(…)` on a `vi.spyOn` chain — `vi.spyOn` has no `calledWith`, so renaming it produces a
+method that does not exist.
+
+`--verify` is the pass to run afterwards: it transforms nothing and matches the files against the
+patterns the codemod removes, exiting 1 on anything left. Matching the _result_ rather than reading
+the diff is the only form that notices a file the transforms declined to enter — and it works the
+same on a file somebody migrated by hand.
+
+Full reference, transform by transform:
+**[The codemod](https://asdalexey.github.io/vitest-auto-spy/utilities/codemod)**.
+
+### `init` — the pointer an agent reads
+
+No coding agent scans dependencies for instructions, so the `AGENTS.md` and the skill shipped
+inside this package's tarball are never discovered on their own. `init` writes the pointer into
+the files that _are_ read — `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, a Claude Code skill stub, and a
+glob-scoped rule file for each tool whose directory already exists — and specialises it for this
+repository's runner, framework and setup file. Everything sits between markers, so a re-run is a
+no-op and `--uninstall` puts the files back.
+
+`init --check` is the CI form, and it compares **the managed block**, not the version stamp inside
+its marker. Upgrading this package no longer turns that step red on a repository whose instructions
+have not changed a word; a plain `init` still refreshes the stamp.
+
+Full reference, including the flags and the CI form: **[The CLI](https://asdalexey.github.io/vitest-auto-spy/utilities/cli)**.
+
+## Using this library with an AI agent
+
+Most tests are now written with an assistant in the loop, so this package ships documentation
+written for one — not a second copy of the README, but the compressed form an agent can act on:
+the decision tree, the configuration semantics, an error→fix table and the anti-patterns.
+
+| What                                                                         | Where                                                  | For                                                      |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------- |
+| [`AGENTS.md`](./AGENTS.md)                                                   | `node_modules/vitest-auto-spy/AGENTS.md`               | any agent, **offline** — it ships inside the npm tarball |
+| [`llms.txt`](https://asdalexey.github.io/vitest-auto-spy/llms.txt)           | the docs site root                                     | a crawler picking the one page it needs                  |
+| [`llms-full.txt`](https://asdalexey.github.io/vitest-auto-spy/llms-full.txt) | the docs site root                                     | reading the entire documentation in one fetch            |
+| A Claude Code skill                                                          | `skills/vitest-auto-spy/SKILL.md`, also in the tarball | Claude Code — and any client that _is_ it, GLM included  |
+| Runtime error messages                                                       | every thrown error ends with `Docs: <url>`             | reading a stack trace instead of guessing                |
+
+### Point your agent at it once
+
+Add this to the instruction file your agent actually reads — the table below says which one that is:
+
+```md
+When writing or fixing tests that use `vitest-auto-spy`, first read
+`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
+the configuration semantics and the common mistakes.
+```
+
+The text is the same everywhere; only the filename changes. **Two files cover the whole field: a
+root `AGENTS.md` and a root `CLAUDE.md`.** Put the identical block in both and every agent below is
+served — including the ones your teammates use and you do not.
+
+### Which file your agent reads
+
+| Agent                                                               | Instruction file it reads                                                                                                                                                                 | Reads `AGENTS.md`?                                                |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| **Claude Code**                                                     | `CLAUDE.md` — project, `.claude/CLAUDE.md` and `~/.claude/CLAUDE.md`, all concatenated                                                                                                    | **No.** Bridge with an `@AGENTS.md` import line, or a symlink     |
+| **OpenAI Codex** — the `codex` CLI, the IDE extension, Codex cloud  | `AGENTS.md`, one per directory from the git root down to the cwd ([below](#openai-codex))                                                                                                 | native                                                            |
+| **GLM (z.ai coding plan)**, **Kimi K3**                             | whatever their client reads — inside Claude Code that is `CLAUDE.md` ([below](#glm-zai-kimi-k3-and-other-claude-compatible-models))                                                       | through the client                                                |
+| **Cursor**                                                          | root `AGENTS.md`; `.cursor/rules/*.mdc` for glob-scoped rules                                                                                                                             | native — and it applies a root `CLAUDE.md` the same always-on way |
+| **GitHub Copilot**                                                  | root `AGENTS.md`; `.github/copilot-instructions.md`                                                                                                                                       | native, coding agent included                                     |
+| **OpenCode**                                                        | `AGENTS.md`, then `CLAUDE.md`, per directory upwards                                                                                                                                      | native                                                            |
+| **Cline**                                                           | root `AGENTS.md`; the `.clinerules/` directory                                                                                                                                            | native                                                            |
+| **Windsurf / Cascade**                                              | root `AGENTS.md`; `.windsurf/rules/*.md` (`.devin/rules/*.md` when present)                                                                                                               | yes                                                               |
+| **Zed**                                                             | **first match wins, no merging**: `.rules` → `.cursorrules` → `.windsurfrules` → `.clinerules` → `.github/copilot-instructions.md` → `AGENT.md` → `AGENTS.md` → `CLAUDE.md` → `GEMINI.md` | yes — only if nothing earlier in that list exists                 |
+| **Gemini CLI**                                                      | `GEMINI.md` ([below](#gemini-cli))                                                                                                                                                        | **not by default**                                                |
+| **Qwen Code**                                                       | `QWEN.md`                                                                                                                                                                                 | native fallback                                                   |
+| **Roo Code**                                                        | root `AGENTS.md`; `.roo/rules/`                                                                                                                                                           | yes                                                               |
+| **Junie**                                                           | root `AGENTS.md` — note that `.junie/AGENTS.md` replaces it outright                                                                                                                      | yes                                                               |
+| **Aider**                                                           | nothing implicitly — list the file: `read: [AGENTS.md]` in `.aider.conf.yml`                                                                                                              | on request                                                        |
+| **Jules, Factory, goose, Amp, Warp, Devin, Kilo, Augment, VS Code** | root `AGENTS.md`                                                                                                                                                                          | native                                                            |
+
+**Do not create `.rules`, `.cursorrules`, `.windsurfrules` or `.clinerules` just to hold this
+snippet.** Zed resolves that list first-match-wins with no merging, so a newly created legacy file
+silently shadows the `AGENTS.md` the rest of the project relies on. Append to one only if it
+already exists.
+
+### Install it in your agent
+
+One command covers every tool in that table, and specialises the text for this repository:
+
+```bash
+npx vitest-auto-spy init          # write it
+npx vitest-auto-spy init --check  # CI: fail when it is missing or out of date
+```
+
+By hand, the same thing is two commands at the repository root:
+
+```bash
+# 1 — AGENTS.md: Codex, Cursor, Copilot, Cline, Windsurf, Zed, OpenCode, Qwen, Roo, Junie, Aider…
+cat >> AGENTS.md <<'MD'
+
+## Tests that use `vitest-auto-spy`
+
+When writing or fixing tests that use `vitest-auto-spy`, first read
+`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
+the configuration semantics and the common mistakes.
+MD
+
+# 2 — CLAUDE.md: Claude Code, and GLM / Kimi running inside it. One line, no second copy to maintain
+printf '\n@AGENTS.md\n' >> CLAUDE.md
+```
+
+`@AGENTS.md` is Claude Code's own import syntax, so the instructions live in exactly one file. A
+symlink (`ln -s AGENTS.md CLAUDE.md`) does the same job if you would rather not have the second file
+at all.
+
+Then, per tool — everything in the right-hand column is optional on top of those two files:
+
+| Agent                                       | Install                                                                                                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Claude Code**                             | `/plugin marketplace add ASDAlexey/vitest-auto-spy`, then `/plugin install vitest-auto-spy@vitest-auto-spy` — [the skill](#claude-code-plugin), no project files touched |
+| **OpenAI Codex**                            | nothing more; optionally `~/.codex/config.toml` from [below](#openai-codex)                                                                                              |
+| **GLM (z.ai)**, **Kimi K3**                 | identical to Claude Code — same client, same plugin command                                                                                                              |
+| **Cursor**                                  | `.cursor/rules/vitest-auto-spy.mdc` to load it only for spec files (see below)                                                                                           |
+| **GitHub Copilot**                          | `.github/instructions/vitest-auto-spy.instructions.md` (see below)                                                                                                       |
+| **Cline**                                   | `.clinerules/vitest-auto-spy.md` — the same three lines, plus `paths: ["**/*.spec.ts", "**/*.test.ts"]`                                                                  |
+| **Windsurf / Cascade**                      | `.windsurf/rules/vitest-auto-spy.md` with `trigger: glob` (see below)                                                                                                    |
+| **Roo Code**                                | `.roo/rules/vitest-auto-spy.md` — always on, so keep it to the three-line pointer                                                                                        |
+| **Gemini CLI**                              | `GEMINI.md`, or the `.gemini/settings.json` patch from [below](#gemini-cli)                                                                                              |
+| **Aider**                                   | `.aider.conf.yml`: `read: [AGENTS.md]`                                                                                                                                   |
+| **Zed, OpenCode, Qwen Code, Junie, Jules…** | nothing — the root `AGENTS.md` is the whole install                                                                                                                      |
+
+The glob-scoped variants, for the three tools whose format is not plain Markdown. Each body is the
+same pointer; only the frontmatter differs:
+
+<!-- prettier-ignore-start -->
+
+**`.cursor/rules/vitest-auto-spy.mdc`**
+
+```md
+---
+description: How to write tests with vitest-auto-spy
+globs: **/*.spec.ts, **/*.spec.tsx, **/*.test.ts, **/*.test.tsx
+alwaysApply: false
+---
+
+Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
+`vitest-auto-spy` — the API, the configuration semantics and the common mistakes.
+```
+
+**`.github/instructions/vitest-auto-spy.instructions.md`**
+
+```md
+---
+applyTo: '**/*.spec.ts,**/*.spec.tsx,**/*.test.ts,**/*.test.tsx'
+---
+
+Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
+`vitest-auto-spy` — the API, the configuration semantics and the common mistakes.
+```
+
+**`.windsurf/rules/vitest-auto-spy.md`** (or `.devin/rules/vitest-auto-spy.md` when that directory exists)
+
+```md
+---
+trigger: glob
+globs: **/*.spec.ts, **/*.spec.tsx, **/*.test.ts, **/*.test.tsx
+---
+
+Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
+`vitest-auto-spy` — the API, the configuration semantics and the common mistakes.
+```
+
+<!-- prettier-ignore-end -->
+
+Cursor's `globs` is a **comma-separated string, not a YAML array**, and a Windsurf rule file is
+capped at 12 000 characters — both are reasons the rule points at the reference instead of copying
+it.
+
+### OpenAI Codex
+
+Codex — the `codex` CLI, the IDE extension and Codex cloud — reads the open `AGENTS.md` convention,
+so a root `AGENTS.md` is the whole integration. Two details decide whether it reaches the model at
+all:
+
+- **The chain is git-root→cwd, at most one file per directory** (`AGENTS.override.md` wins over
+  `AGENTS.md`), concatenated. In a monorepo, put the block in the package's own `AGENTS.md` too when
+  that package runs a different runner — it is the only way to say "this one is `bun test`, the one
+  next door is Vitest", which is exactly the distinction that decides which entry point gets
+  imported.
+- **The whole chain is capped** by `project_doc_max_bytes`, **32 768 bytes by default**; anything
+  over budget is truncated with a warning. If your `AGENTS.md` is already long, keep the pointer
+  near the top of it.
+
+For a repo that keeps its instructions in `CLAUDE.md`, teach Codex to fall back — this is global
+config on your own machine, nothing to commit:
+
+```toml
+# ~/.codex/config.toml
+project_doc_fallback_filenames = ["CLAUDE.md"]   # per directory, when no AGENTS.md is there
+project_doc_max_bytes = 65536                    # raise the 32 KB budget for a monorepo chain
+```
+
+Codex cloud reads the same root `AGENTS.md`, and its agent has **no internet access by default** —
+which is exactly why this reference ships inside the tarball rather than only on the docs site.
+`node_modules/vitest-auto-spy/AGENTS.md` is on disk the moment the setup script has installed
+dependencies, so nothing has to be fetched.
+
+### GLM (z.ai), Kimi K3 and other Claude-compatible models
+
+GLM is a **model**, not an agent — the thing that reads files is the client you run it in.
+
+The z.ai coding plan runs GLM **inside Claude Code**, by pointing `ANTHROPIC_BASE_URL` (with
+`ANTHROPIC_AUTH_TOKEN`) at z.ai's Anthropic-compatible endpoint. File discovery is untouched by
+that: `CLAUDE.md`, `.claude/skills/` and the [plugin](#claude-code-plugin) below behave exactly as
+they do on Claude, because it is the same client. Kimi K3 driven through Claude Code is the same
+story — and there the skill and the plugin are worth more than a pasted snippet, because they load
+only when a spec actually mentions the library and cost no context the rest of the time.
+
+Run GLM through a different client and that client decides: OpenCode, Cline, Roo Code and Kilo Code
+all read the root `AGENTS.md`. Moonshot's own `kimi-cli` reads its own `AGENTS.md` chain, including
+`.kimi/AGENTS.md`.
+
+### Gemini CLI
+
+Gemini CLI reads `GEMINI.md` and does **not** read `AGENTS.md` by default. Either paste the snippet
+into `GEMINI.md`, or name both files once:
+
+```json
+// .gemini/settings.json
+{ "context": { "fileName": ["GEMINI.md", "AGENTS.md"] } }
+```
+
+Qwen Code is derived from Gemini CLI and takes the same `context.fileName` setting, but already
+falls back to `AGENTS.md` on its own.
+
+### Claude Code plugin
+
+The repository is also a Claude Code marketplace, so the skill installs without touching your
+project files:
+
+```
+/plugin marketplace add ASDAlexey/vitest-auto-spy
+/plugin install vitest-auto-spy@vitest-auto-spy
+```
+
+The skill loads only when a spec actually mentions the library, so it costs nothing the rest of
+the time. It works in any client that _is_ Claude Code — the z.ai and Kimi setups above included.
 
 ## Why
 

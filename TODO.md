@@ -61,20 +61,6 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       recipe in the strict-lint guide may cover most of the demand without a new export. Reported
       by a consumer's strict-lint pass over five library slices.
 
-## Entry points
-
-- [ ] **A Nest unit on `bun:test` and `node:test` needs a runner-agnostic entry.** `/nestjs`,
-      `/react`, `/vue` and `/svelte` no longer overwrite an adapter another entry registered, but
-      they still `import 'vitest'`, so on Bun they die in `src/lib/vitest-adapter.ts` with
-      `TypeError: Attempted to assign to readonly property` on the module-scope sweep sentinel —
-      a Nest project on Bun cannot load `createNestUnit` at all. Two shapes, and they cost
-      differently. A separate entry (`/nest-unit`, on the pattern `/jasmine-compat` set) re-exporting
-      `createNestUnit`, `provideAutoSpy` and `trackInjections` from `src/lib/nest-unit.ts` without
-      registering an adapter is packaging work — `exports`, `tsup.config.ts`, the export map,
-      `size-entries`, `cold-import`, the docs on both language sides — and touches no behaviour.
-      Making the sentinel lazy instead is one file, and it changes what `pruneMockRegistry` and
-      `clearAllMocks` do, which is the half that needs measuring.
-
 ## Async and timers
 
 - [ ] **`countStrayTimers()` is blind under fake timers, and cannot cheaply be made to see.**
@@ -117,51 +103,15 @@ scheduling` — a frame requested from inside a running frame, except the outer 
 
 ## Guards under `test.concurrent`
 
-- [ ] **The console guard has one slot, and `unconfigured-reads` clears every entry.** The teardown
-      net now keys off `context.task`, so a concurrent neighbour cannot cancel its sibling's, and a
-      warning names what the rest cannot promise. Two ledgers are still single-slot.
-      `stray-console.ts` keeps one `guard.test` / `guard.inTest` pair, and it cannot be keyed by task
-      at all without an async context: the output arrives through the global `console`, carrying
-      nothing that says which test wrote it. `unconfigured-reads.ts` is the tractable one —
-      `openReadWindow()` calls `entries.clear()`, so the second parallel test erases the first's
-      reads and `unconfiguredReads` answers with a false negative; keying it
-      `WeakMap<Task, Map<object, ReadEntry>>` the way `createTeardownLedger` does is the shape, and
-      the work is in the paths that read the ledger back out. The document snapshot stays shared
-      whatever happens: there is one document.
+- [ ] **The console guard has one slot.** The teardown net keys off `context.task`, and
+      `unconfigured-reads` keeps a window per concurrent test, naming every test in flight when a
+      read happened during an overlap. `stray-console.ts` still keeps one `guard.test` /
+      `guard.inTest` pair, and it cannot be keyed by task at all without an async context: the output
+      arrives through the global `console`, carrying nothing that says which test wrote it. The
+      document snapshot stays shared whatever happens: there is one document.
 
 ## Diagnostics
 
-- [ ] **Nothing catches a setup module that stopped being evaluated per file on `@angular/build`
-      before 22.2.0.** 22.2.0 fixed the root cause upstream (angular-cli PR #34143: setup files are no
-      longer wrapped under `--coverage`), so the detector below is only for older builders — kept
-      open because the peer range still reaches Angular 20 and 22.1. §10 already names the
-      trap — `@angular/build:unit-test` under `--coverage` serves every test file as a wrapper around
-      the built bundle, the wrapper is invalidated per file and the bundle behind it is not, so
-      `setupAutoSpy()` runs once per **worker** and only the first file of each worker gets root
-      hooks. It is documented and still expensive to meet: on the Angular suite that hit it, one
-      shard came back with **120 failures, 85 of them `the timers APIs are not mocked`** — a message
-      that sends the reader into the spec it names, which is fine on its own and fails only behind a
-      file that ran before it. Prose cannot reach someone who did not read it; this one is cheap to
-      detect. Record the `expect.getState().testPath` the registration belongs to, and from a hook
-      that survives (it was registered once, which is the whole problem) compare it with the current
-      one — a mismatch means the per-file registration never happened, and the report can name the
-      builder, the coverage flag and the three ways out. Worth pricing the remedies §10 offers while
-      the change is open: `--isolate` was measured on that suite at **150 s against 107 s** for the
-      same shard, and the third way — rewriting the wrapper to call an exported
-      `installPerFileHooks()` — costs nothing at run time and is what they shipped.
-- [ ] **`tableApplies` assumes a helper only moves between entries in a major, and 5.21.0 broke the
-      assumption.** Thirty-two names left `/angular` for three companions in a **minor**, so within
-      one major the export map can now be ahead of the install. The gate compares majors alone, which
-      leaves one case wrong: a newer CLI read against an older install, which is what
-      `npx vitest-auto-spy@latest doctor` is in a repository pinned at 5.20.x. It reports
-      `helper-from-wrong-entry` on a correct `/angular` import and hands back a fix naming an entry
-      that install does not publish, so
-      following it turns working code into `ERR_PACKAGE_PATH_NOT_EXPORTED`. That is the one shape of
-      false positive this check cannot afford, its whole value being the zero-false-positive claim.
-      Narrowing the gate to the full version is not the answer: it would go silent on every older
-      5.x and drop the true findings with the false one. The table knows the version it describes,
-      so the finding could carry it when the two disagree — what this needs first is a decision on
-      that message, not a patch.
 - [ ] **`explainSpy` cannot see a symbol-keyed method.** Methods behind a symbol key are spied and
       reset now, but the report enumerates string keys, so they are missing from the one place a
       reader goes to ask what a double is configured with. The change is small and local to
@@ -262,15 +212,18 @@ scheduling` — a frame requested from inside a running frame, except the outer 
 - [ ] **Bun: the `settledResults` polyfill of an adopted mock** starts empty while `mock.calls` already
       holds the pre-adoption calls, so their indices disagree.
 
-## `doctor` — the catalogue is a fifth built
+## `doctor` — the catalogue is partly built
 
 `npx vitest-auto-spy doctor` ships, and what every check has in common is that **nothing consumes the
 result**: the run is green, and the only reader of a `tsconfig.spec.json` after Jest is gone is
 somebody's editor. A full pass produced **52 checks** in five groups — 15 replaceable patterns, 10
 silent-pass bugs, 10 repository-level ones, 18 configuration/perf hints and 5 deprecation checks
-against this package's own history — and nine of them are built.
+against this package's own history. `doctor` now reports 23 finding ids from the 15 check modules `doctor.ts` imports from
+`src/cli/checks/` (plus the `scan-cap-reached` notice; the `perf-*` ids belong to `perf`) — counted
+2026-09-26 with `grep -ohE "check: '[a-z0-9-]+'"` over the non-spec files of `src/cli`. Not all of
+them map one-to-one onto the catalogue: the Vitest 5, coverage and Angular-builder checks came later.
 
-- [ ] **The other 43 checks of the sharpened catalogue.** The two that are worth naming, because they
+- [ ] **The rest of the sharpened catalogue.** The two that are worth naming, because they
       are the ones a per-file linter can never do, are already shipped: `helper-from-wrong-entry` and
       `no-unawaited-helper`, both driven by `scripts/generate-export-map.mjs`. The rest is a long tail
       to take a few at a time, read-only like the rest of `doctor` — trust before edit rights.
@@ -368,7 +321,12 @@ directory stores third-party plugins under `external_plugins/<name>/` with just
 `.claude-plugin/plugin.json` (plus `.mcp.json` where relevant) and lists them in the root
 `marketplace.json` with `source: "./external_plugins/<name>"`, a `category` and sometimes
 `tags: ["community-managed"]`. Content is copied in by Anthropic — our repo is not referenced as a
-git source, so a directory entry has to be re-synced on every release. \*\*And the shape may not
+git source, so a directory entry has to be re-synced on every release. **And the shape may not
+fit:** when this was last checked (2026-08-28) all 13 external entries were MCP-server wrappers and
+none was a skill-only plugin, so a skills-only submission may not be what they curate. Re-check the
+directory before spending time on the form.
+
+## Funding — a way to support the project, and the two traps in it
 
 Nothing in the repository asks for support today: no `funding` field in `package.json`, no
 `.github/FUNDING.yml`, no section in the README or on the docs site. The mechanics are a couple of
