@@ -10,6 +10,121 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+**Why upgrade.** Eleven entries that crashed on import under `bun:test` load now, and every spec
+file and every test pays less: root plus `/setup` imports 1.8 ms faster under Vitest 5, an Angular
+spec parses the core once instead of twice, `setupAutoSpy()` costs a third less per test (strict
+more than half), and a called method retains a third less.
+
+### Added
+
+- **`setupAutoSpy()` says when its setup module ran once per worker instead of once per spec file.**
+  A setup file whose `setupAutoSpy()` call sits in a module the runner caches — `@angular/build:unit-test`
+  before 22.2.0 under `--coverage` is the known case — gave hooks to the first file of each worker only,
+  and the rest failed somewhere unrelated (`the timers APIs are not mocked`, a leaked global). The first
+  test of a file the call did not register for now prints one line per worker to stderr, naming both
+  files and the three ways out.
+
+### Fixed
+
+- **bun:** every Vitest-side entry now loads on Bun after `vitest-auto-spy/bun`. `vitest-auto-spy`,
+  `/angular`, `/angular/doubles`, `/setup`, `/console`, `/dom-stubs`, `/jasmine`, `/nestjs`, `/react`,
+  `/vue` and `/svelte` crashed on import with `TypeError: Attempted to assign to readonly property`,
+  because the Vitest adapter built its `clearAllMocks` sentinel at module scope with Bun's read-only
+  `vi.fn()`. The sentinel is now built with the adapter's first spy; on Vitest, `vi.clearAllMocks()`,
+  `clearMocks: true` and `mockReset: true` sweep exactly as before. `createNestUnit` and the
+  `/console` spies work on `bun:test`, as the docs already promised.
+- **`unconfiguredReads` no longer loses or misplaces a read under `test.concurrent`.** Every test
+  used to open the one read window by clearing it, so a second concurrent test erased what the first
+  had read and the report said nothing; a stream one test subscribed to and the other fed later was
+  reported as never fed. Each concurrent test now keeps its own window. A read made while only one
+  test was in flight is charged to it; a read made while several were is held until the last of them
+  finishes, judged once, and the report names every test that may have made it — a read does not say
+  which test ran it. Sequential suites see the same reports as before.
+- **`doctor`'s `helper-from-wrong-entry` no longer hands back a fix the install cannot follow.**
+  Thirty-two helpers left `/angular` for three companions in 5.21.0, a minor, so a newer CLI read
+  against an older install of the same major (`npx vitest-auto-spy@latest doctor` in a repository
+  pinned at 5.20.x) reported a correct `/angular` import and told you to move it to an entry that
+  install does not publish — following it turned working code into `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+  The check now reads the `exports` of the copy resolved from each file and names only entries it
+  publishes; when none of them is, or the installed manifest cannot be read, it stays silent. True
+  findings on older 5.x installs are kept.
+
+### Size and memory
+
+- **Importing the root entry and `/setup` no longer formats a stack trace.** Both carried a module-level
+  `new Error().stack` probe to find the library's own directory for call-site reporting, and under
+  Vitest the first formatted stack in a spec file is the expensive one. The probe now runs the first
+  time a strict double or a constructor double actually reports a call site, and not at all in the
+  files that never do; `/setup` loses a probe whose result the bundler had already thrown away. Root
+  plus `/setup` per spec file under Vitest 5 (forks, isolated, median of 93 files over 31 interleaved
+  runs): 8.6 → 6.8 ms (**−1.8 ms, −21 %**); root alone 5.4 → 4.0 ms. Call-site messages are unchanged.
+- **An Angular spec parses the core once instead of twice.** `vitest-auto-spy/angular`,
+  `vitest-auto-spy/react`, `vitest-auto-spy/vue` and `vitest-auto-spy/svelte` now load the core from
+  the root entry instead of each bundling its own ~130 kB copy, and an Angular spec imports the root
+  and `/angular` both. Measured cold, a fresh Node process per sample with the peers loaded first
+  (41 interleaved pairs, median): root + `/angular` **7.28 → 5.83 ms**, root + `/angular` + `/setup`
+  9.88 → 8.51 ms, root + `/react` 6.72 → 4.92 ms; the root on its own is unchanged (4.94 → 5.00 ms,
+  inside the noise). Under `@angular/build:unit-test`, whose default is `isolate: false`, that is
+  paid once per worker; with `isolate: true` it is paid once per spec file.
+- **What it costs, in size.** `/angular` loaded without the root is one module more and
+  **+3.0 kB min+gzip** (30.6 → 33.6 kB) in a bundle, +0.7 ms to import, because it now brings the
+  root with it; root + `/angular` together drop from 55.8 to 38.8 kB min+gzip (−30 %). `/react` and
+  `/svelte` shrink to a 1.1 kB re-export of the root and `/vue` to 1.3 kB, with the same public
+  exports as before; their module graph is the root's plus one module. The tarball goes from
+  1 257 kB to 1 103 kB and `dist` loses 619 kB of JavaScript.
+- **What the per-test savings cost, in size.** `/setup` is +1.7 kB min+gzip (25.7 → 27.4 kB) for the
+  guard registry, the `aroundEach` net with its fallback, the definer marks behind `guardGlobals` and
+  the once-per-worker notice. `/dom-stubs`, `/console`, `/jasmine` and `/nestjs` carry +0.2–0.4 kB
+  each of the shared parts, and every Vitest-side entry +44–83 B for the `clearAllMocks` sentinel
+  that is now built with the first spy so the entry loads on Bun.
+- **A called method retains about a third less.** A spy's six call-state arrays used to start
+  empty, and V8 reserves seventeen slots on the first `push` into an empty array — six times over
+  for a method called once. They are now seeded with room for four calls and regrown to the old
+  size on the fifth, so nothing ever holds more than before. `npm run bench:memory`, bytes per
+  called method: 1 947 → 1 332 B at 10 methods, 1 905 → 1 290 B at 100 (default lazy arm); the
+  eager and `createAutoMock` arms fall by the same 31–33 %. Creating a spy and calling it once is
+  also ~15 % faster. `mockClear`, `mockReset` and the `clearAllMocks` sweep no longer allocate
+  fresh arrays for a spy that is not called again. Arrays a spec read from `mock.*` are the ones
+  every later call appends to, as before.
+
+### Changed
+
+- **`setupAutoSpy()` costs a third less per test, and `preset: 'strict'` more than half less.** Every
+  per-test step now runs from one `beforeEach` and one `afterEach` instead of a hook per guard, and on
+  Vitest 4.1+ the teardown net rides `aroundEach` rather than an `onTestFinished` per test, which made
+  the runner capture a stack for every test. `guardGlobals` no longer enumerates `globalThis` after
+  every test: while it is on, `Object.defineProperty`, `Object.defineProperties` and
+  `Reflect.defineProperty` note which watched object a non-configurable definition reached, a test
+  checks only those, and every object is still compared once per file. Measured on 5 000 empty tests,
+  one worker, library share per test (total minus the runner's own ~8 µs): defaults 11.7 → 7.8 µs on
+  node and 19.3 → 9.8 µs on happy-dom; strict 23.6 → 9.9 µs and 68.0 → 22.3 µs; `guardGlobals: 'warn'`
+  on happy-dom 82.5 → 19.0 µs in total. The report still names the test that sealed a global; a
+  definition that went around those three functions — a sloppy-mode `var`, a `defineProperty` a
+  bundled module captured before the file started — is reported at the end of the file, naming the
+  file. The teardown net keeps its per-test state by task, so `test.concurrent` is safe on both paths.
+- **The root entry has internal `ɵ`-prefixed exports.** They are how `/angular` and the framework
+  entries reach the shared core, they appear in no `.d.ts`, and they are not API: they can change in
+  any release. A test that lists `Object.keys(await import('vitest-auto-spy'))` will see them.
+- **The `CHANGELOG.md` inside the package carries 5.x only** — 418 kB instead of 673 kB, which takes
+  the tarball down to 1 011 kB (−19.5 % with the change above). The full history stays in the
+  repository, and the shipped file links to it.
+
+### Documentation
+
+- **The Cursor, Copilot and Windsurf rule snippets work again when copied.** Prettier had turned
+  their frontmatter into a Markdown heading and escaped the globs on the README, the agents page and
+  `llms-full.txt`, so a copied rule never loaded. They now match byte for byte what
+  `npx vitest-auto-spy init` writes, and a spec keeps them that way.
+- **`AGENTS.md` is a 30 kB map an agent can read whole.** It was 153 kB; ten more sections moved to
+  `agent-docs/` (one file per section, same section numbers), under the 32 KB a Codex chain holds.
+  The skill and the `init` skill stub now say to read the map, then only the topic file the task
+  needs.
+- **The README's first screen on npmjs.com is self-contained.** npm shows only the first ~65 000
+  characters; install, the quick start and every "How to mock" recipe now come first, with a pointer
+  to the docs site for the rest. Nothing was removed.
+- **`NODE_COMPILE_CACHE` recipe** on the Performance page: root + `/setup` imports in 4.32 ms instead
+  of 6.51 ms (−34 %) with a warm cache, what it takes in CI, and why a `v8` coverage job gets nothing.
+
 ## [5.35.0] - 2026-09-26
 
 ### Changed
