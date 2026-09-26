@@ -18,6 +18,7 @@
 //   node scripts/cold-import.mjs               measure and print both tables
 //   node scripts/cold-import.mjs --check       compare part A against the baseline, exit 1 on drift
 //   node scripts/cold-import.mjs --update      rewrite the baseline from this run
+//   node scripts/cold-import.mjs --release     mark the recorded graph as the release baseline
 //   node scripts/cold-import.mjs --no-timing   part A only, no child processes (fast, for CI)
 //   node scripts/cold-import.mjs --runs <n>    timing runs per entry (default 7)
 //   node scripts/cold-import.mjs --markdown    render the tables as markdown
@@ -29,6 +30,7 @@ import { argv, execPath, exit, stderr, stdout, version } from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { renderHeading, renderTable, styleFor } from './bench-table.mjs';
+import { hasSizeNote, readPendingChangelog } from './changelog-notes.mjs';
 import { externalizeBareImports } from './externals.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -39,11 +41,20 @@ const BASELINE = join(REPO, 'cold-import.json');
 const TOLERANCE_RATIO = 0.02;
 const MIN_MODULE_SLACK = 1;
 
+// The same threshold as scripts/size-entries.mjs, where the history behind the number is.
+const NOTE_RATIO = 0.03;
+
 const DEFAULT_RUNS = 7;
 
 function usage() {
   // The file's own header, so the help and the comment cannot drift apart.
-  stdout.write(readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 23).join('\n').replace(/^\/\/ ?/gm, ''));
+  stdout.write(
+    readFileSync(new URL(import.meta.url), 'utf8')
+      .split('\n')
+      .slice(1, 24)
+      .join('\n')
+      .replace(/^\/\/ ?/gm, ''),
+  );
   stdout.write('\n');
 }
 
@@ -239,9 +250,49 @@ function writeBaseline(measurements) {
     node: version,
     tolerance: { ratio: TOLERANCE_RATIO, minModuleSlack: MIN_MODULE_SLACK },
     entries,
+    released: readBaseline()?.released,
   };
 
   writeFileSync(BASELINE, `${JSON.stringify(baseline, undefined, 2)}\n`);
+}
+
+// Run by the `version` script, without measuring: the recorded graph becomes the release baseline.
+function markReleased() {
+  const baseline = readBaseline();
+
+  if (!baseline?.entries) {
+    fail('no cold-import.json to mark as released.');
+  }
+
+  const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8'));
+
+  writeFileSync(
+    BASELINE,
+    `${JSON.stringify({ ...baseline, released: { version: pkg.version, entries: baseline.entries } }, undefined, 2)}\n`,
+  );
+  stdout.write(`cold-import: the recorded graph is now the ${pkg.version} release baseline\n`);
+}
+
+/** The size gate's rule applied to the module graph — see scripts/changelog-notes.mjs. */
+function unexplainedGrowth(measurements, baseline) {
+  const released = baseline.released;
+
+  if (!released?.entries) {
+    return ['cold-import.json has no `released` block — run `node scripts/cold-import.mjs --release` once.'];
+  }
+
+  const { pending } = readPendingChangelog(REPO);
+
+  return measurements.flatMap(({ subpath, modules, bytes }) => {
+    const before = released.entries[subpath];
+    const grew = before && (modules > before.modules || bytes > before.bytes * (1 + NOTE_RATIO));
+
+    if (!grew || hasSizeNote(pending, subpath)) {
+      return [];
+    }
+
+    return [`${subpath}: ${before.modules} -> ${modules} modules, ${before.bytes} -> ${bytes} B since ${released.version}`];
+  });
 }
 
 /** Compare one metric against its baseline; `undefined` when it is inside tolerance. */
@@ -355,6 +406,12 @@ async function main() {
     fail('--runs needs a positive integer');
   }
 
+  if (argv.includes('--release')) {
+    markReleased();
+
+    return;
+  }
+
   const entries = readEntries();
   const missing = entries.filter((entry) => {
     try {
@@ -395,6 +452,17 @@ async function main() {
 
   if (check) {
     const problems = checkAgainstBaseline(measurements, baseline);
+    const unexplained = unexplainedGrowth(measurements, baseline);
+
+    if (unexplained.length > 0) {
+      stderr.write(`\ncold-import: grown past ${NOTE_RATIO * 100}% or a module since the last release, with no CHANGELOG note:\n`);
+
+      for (const problem of unexplained) {
+        stderr.write(`  - ${problem}\n`);
+      }
+
+      stderr.write('cold-import: explain it in the pending CHANGELOG section; `cold-import:update` does not clear this.\n');
+    }
 
     if (problems.length > 0) {
       stderr.write(`\ncold-import: the module graph moved beyond tolerance (${TOLERANCE_RATIO * 100}% or one module):\n`);
@@ -404,6 +472,9 @@ async function main() {
       }
 
       stderr.write('cold-import: if the change is intended, run `npm run cold-import:update` and commit the baseline.\n');
+    }
+
+    if (problems.length > 0 || unexplained.length > 0) {
       exit(1);
     }
 

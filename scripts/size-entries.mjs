@@ -18,16 +18,19 @@
 //   node scripts/size-entries.mjs            # measure every entry and print the table
 //   node scripts/size-entries.mjs --check    # exit 1 when an entry moved past tolerance (CI)
 //   node scripts/size-entries.mjs --update   # rewrite size-entries.json from this measurement
+//   node scripts/size-entries.mjs --release  # mark the recorded sizes as the release baseline
 //   node scripts/size-entries.mjs --markdown # print the table as markdown
-import { build } from 'esbuild';
+//
+// `--check` also fails when an entry is more than 3 % above the last release (`released`) and the
+// pending CHANGELOG section has no note on that entry's size — see scripts/changelog-notes.mjs.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { argv, exit, stderr, stdout } from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { gzipSync } from 'node:zlib';
 
 import { renderTable, styleFor } from './bench-table.mjs';
-import { externalizeBareImports } from './externals.mjs';
+import { hasSizeNote, readPendingChangelog } from './changelog-notes.mjs';
+import { minGzip } from './min-gzip.mjs';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const BASELINE = join(repoRoot, 'size-entries.json');
@@ -42,16 +45,22 @@ const DIST = join(repoRoot, 'dist');
 const TOLERANCE_RATIO = 0.02;
 const TOLERANCE_BYTES = 200;
 
+// Growth over the last release that needs a CHANGELOG note. Release to release since 4.2.0 the core
+// entries grew 0–3 % when only fixes shipped (5.33.0 +1.2 %, 5.35.0 +1.0 %); every step above that
+// was a feature or a build change worth naming: 5.19.0 +15 %, 5.25.0 `/setup` +11 %, 5.32.0 +12 %.
+const NOTE_RATIO = 0.03;
+
 const NOTE =
   'Baseline for scripts/size-entries.mjs: min+gzip bytes per entry point, peers external. ' +
-  'Regenerate with `npm run size:entries:update` and explain the diff in the commit.';
+  'Regenerate with `npm run size:entries:update` and explain the diff in the commit. ' +
+  '`released` moves only in the `version` script; growth over it past 3 % needs a CHANGELOG note.';
 
 function usage() {
   // The file's own header, so the help and the comment cannot drift apart.
   stdout.write(
     readFileSync(new URL(import.meta.url), 'utf8')
       .split('\n')
-      .slice(1, 21)
+      .slice(1, 25)
       .join('\n')
       .replace(/^\/\/ ?/gm, ''),
   );
@@ -110,20 +119,7 @@ function readEntries() {
 }
 
 async function measure(entry) {
-  const result = await build({
-    entryPoints: [entry.path],
-    bundle: true,
-    minify: true,
-    format: 'esm',
-    platform: 'neutral',
-    plugins: [externalizeBareImports],
-    write: false,
-    logLevel: 'silent',
-  });
-
-  const [output] = result.outputFiles;
-
-  return gzipSync(output.contents, { level: 9 }).length;
+  return minGzip(entry.path);
 }
 
 function formatBytes(bytes) {
@@ -151,21 +147,64 @@ function tolerance(baseline) {
   return Math.max(TOLERANCE_BYTES, Math.round(baseline * TOLERANCE_RATIO));
 }
 
+function readBaselineFile() {
+  return existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf8')) : undefined;
+}
+
 function readBaseline() {
-  if (!existsSync(BASELINE)) {
-    return undefined;
-  }
+  const parsed = readBaselineFile();
 
-  const parsed = JSON.parse(readFileSync(BASELINE, 'utf8'));
+  return parsed ? (parsed.entries ?? {}) : undefined;
+}
 
-  return parsed.entries ?? {};
+function writeBaselineFile(entries, released) {
+  // `entries` before `note`: that is the order prettier's sort-json plugin would impose anyway.
+  writeFileSync(BASELINE, `${JSON.stringify({ entries, note: NOTE, released }, undefined, 2)}\n`);
 }
 
 function writeBaseline(measurements) {
-  const entries = Object.fromEntries(measurements.map((row) => [row.name, row.bytes]));
+  writeBaselineFile(Object.fromEntries(measurements.map((row) => [row.name, row.bytes])), readBaselineFile()?.released);
+}
 
-  // `entries` before `note`: that is the order prettier's sort-json plugin would impose anyway.
-  writeFileSync(BASELINE, `${JSON.stringify({ entries, note: NOTE }, undefined, 2)}\n`);
+// No measurement: it runs in the `version` script, where `dist/` may predate the bump.
+function markReleased() {
+  const parsed = readBaselineFile();
+
+  if (!parsed?.entries) {
+    fail('no size-entries.json to mark as released.');
+  }
+
+  const { version } = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+
+  writeBaselineFile(parsed.entries, { version, entries: parsed.entries });
+  stdout.write(`size-entries: the recorded sizes are now the ${version} release baseline\n`);
+}
+
+/** Entries more than `NOTE_RATIO` above the last release that the pending CHANGELOG does not explain. */
+function unexplainedGrowth(measurements) {
+  const released = readBaselineFile()?.released;
+
+  if (!released?.entries) {
+    return ['size-entries.json has no `released` block — run `node scripts/size-entries.mjs --release` once.'];
+  }
+
+  const { pending } = readPendingChangelog(repoRoot);
+
+  return measurements.flatMap(({ name, bytes }) => {
+    const before = released.entries[name];
+
+    if (before === undefined || bytes - before <= Math.max(TOLERANCE_BYTES, before * NOTE_RATIO) || hasSizeNote(pending, name)) {
+      return [];
+    }
+
+    const percent = (((bytes - before) / before) * 100).toFixed(1);
+    const label = name === '.' ? 'the root entry' : `\`${name.slice(1)}\``;
+
+    return [
+      `${name} is ${bytes - before} B (+${percent}%) above ${released.version} (${before} -> ${bytes}), and the pending ` +
+        `CHANGELOG section does not mention its size. Add a line that names ${label} and says what the bytes buy.`,
+    ];
+  });
 }
 
 /** Every way the measurement can disagree with the baseline, as sentences a reader can act on. */
@@ -211,6 +250,12 @@ async function main() {
   const check = argv.includes('--check');
   const update = argv.includes('--update');
 
+  if (argv.includes('--release')) {
+    markReleased();
+
+    return;
+  }
+
   if (!existsSync(DIST)) {
     fail('dist/ is missing — run `npm run build` first.');
   }
@@ -240,7 +285,9 @@ async function main() {
     stdout.write(`size-entries: baseline rewritten for ${measurements.length} entries\n`);
   }
 
-  const problems = baseline && !update ? violations(measurements, baseline) : [];
+  const drift = baseline && !update ? violations(measurements, baseline) : [];
+  const unexplained = baseline && !update ? unexplainedGrowth(measurements) : [];
+  const problems = [...drift, ...unexplained];
   const style = styleFor(stdout, argv);
   const rows = measurements.map(({ name, bytes }) => [name, formatBytes(bytes), formatDelta(bytes, baseline?.[name])]);
   const total = measurements.reduce((sum, row) => sum + row.bytes, 0);
@@ -266,7 +313,14 @@ async function main() {
 
   // A shrink is a violation too: the baseline is a record, and an entry that lost a fifth of its
   // weight is either a win worth writing down or a chunk that stopped being bundled at all.
-  stderr.write('size-entries: if the change is intended, run `npm run size:entries:update` and say why in the commit.\n');
+  if (drift.length > 0) {
+    stderr.write('size-entries: if the change is intended, run `npm run size:entries:update` and say why in the commit.\n');
+  }
+
+  // Re-recording does not clear this one: `released` is not what `--update` writes.
+  if (unexplained.length > 0) {
+    stderr.write('size-entries: growth since the last release is explained in CHANGELOG.md, not by refreshing the baseline.\n');
+  }
 
   if (check) {
     exit(1);
