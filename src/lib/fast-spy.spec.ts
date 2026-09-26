@@ -457,3 +457,124 @@ describe('the run-wide sweeps', () => {
     expect(spy.mock.calls).toEqual([]);
   });
 });
+
+describe('the arrays a spec holds', () => {
+  const fields = ['calls', 'contexts', 'instances', 'invocationCallOrder', 'results', 'settledResults'] as const;
+
+  function arraysOf(spy: FastSpy): unknown[][] {
+    return fields.map((field) => spy.mock[field]);
+  }
+
+  function expectSameArrays(spy: FastSpy, held: unknown[][], length: number): void {
+    fields.forEach((field, index) => {
+      expect(spy.mock[field]).toBe(held[index]);
+      expect(held[index]).toHaveLength(length);
+    });
+  }
+
+  it('records into the arrays read before the first call', () => {
+    const spy = createFastSpy();
+    const held = arraysOf(spy);
+
+    for (let call = 0; call < 6; call++) {
+      spy(call);
+    }
+
+    expectSameArrays(spy, held, 6);
+    expect(held[0]).toEqual([[0], [1], [2], [3], [4], [5]]);
+  });
+
+  it('keeps recording into the arrays read after one call, past the first growth', () => {
+    const spy = createFastSpy();
+
+    spy(0);
+
+    const held = arraysOf(spy);
+
+    for (let call = 1; call < 20; call++) {
+      spy(call);
+    }
+
+    expectSameArrays(spy, held, 20);
+  });
+
+  it('records every call in order when nothing reads the state until the end', () => {
+    const theirs = vi.fn((value: number) => value * 2);
+    const ours = createFastSpy((value: number) => value * 2);
+    const receiver = { theirs, ours };
+
+    for (let call = 0; call < 20; call++) {
+      receiver.theirs(call);
+      receiver.ours(call);
+    }
+
+    expect(ours.mock.calls).toEqual(theirs.mock.calls);
+    expect(ours.mock.results).toEqual(theirs.mock.results);
+    expect(ours.mock.settledResults).toEqual(theirs.mock.settledResults);
+    expect(ours.mock.contexts).toEqual(theirs.mock.contexts);
+    expect(ours.mock.instances).toEqual(theirs.mock.instances);
+    expect(ours.mock.invocationCallOrder).toHaveLength(20);
+    expect(ours.mock.invocationCallOrder).toEqual([...ours.mock.invocationCallOrder].sort((a, b) => a - b));
+  });
+
+  it('records into the arrays read after `mockClear`, and after a sweep', () => {
+    const spy = createFastSpy();
+
+    spy(0);
+    spy.mockClear();
+
+    const afterClear = arraysOf(spy);
+
+    for (let call = 0; call < 6; call++) {
+      spy(call);
+    }
+
+    expectSameArrays(spy, afterClear, 6);
+
+    clearAllFastSpies();
+
+    const afterSweep = arraysOf(spy);
+
+    for (let call = 0; call < 6; call++) {
+      spy(call);
+    }
+
+    expectSameArrays(spy, afterSweep, 6);
+  });
+
+  it('seeds the other fields when one is assigned before the first call', () => {
+    const spy = createFastSpy();
+    const calls: unknown[][] = [];
+
+    spy.mock.calls = calls;
+    spy(1);
+
+    expect(spy.mock.calls).toBe(calls);
+    expect(calls).toEqual([[1]]);
+    expect(spy.mock.invocationCallOrder).toHaveLength(1);
+  });
+
+  it('records the instance of every construction, past the first growth', () => {
+    const Spy = createFastSpy();
+    const built: unknown[] = [];
+
+    for (let call = 0; call < 6; call++) {
+      built.push(Reflect.construct(Spy, []));
+    }
+
+    expect(Spy.mock.instances).toEqual(built);
+    expect(Spy.mock.instances[5]).toBe(built[5]);
+    expect(Spy.mock.contexts[5]).toBe(built[5]);
+  });
+
+  it('leaves nothing behind when a constructor clears its own spy', () => {
+    const Spy: FastSpy = createFastSpy(function build(): void {
+      Spy.mockClear();
+    });
+
+    Reflect.construct(Spy, []);
+
+    expect(Spy.mock.instances).toEqual([]);
+    expect(Object.keys(createFastSpy().mock.instances)).toEqual([]);
+  });
+});

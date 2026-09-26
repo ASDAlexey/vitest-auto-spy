@@ -19,46 +19,14 @@
  */
 import { DISPOSE } from './dispose-symbol';
 import * as DOCS_LINKS from './docs-links';
+import { type FastMockState, FastMockStateBase, type RecordedResult } from './fast-mock-state';
 import { withDocs } from './message-link';
 import { type Helpers, setSharedHelperSink } from './spy-decoration';
 import { hooksOf } from './spy-mark';
 import { FAST_SPY_BRAND, isFastSpy, isThenable } from './spy-probe';
 import type { Func } from './types';
 
-/**
- * One entry of `mock.results`, in the runner's own discriminated shape — a union rather than a
- * loose record, because a spy has to be assignable to the runner's `MockInstance` for a matcher's
- * signature to accept it.
- */
-export type FastMockResult =
-  { type: 'incomplete'; value: undefined } | { type: 'return'; value: unknown } | { type: 'throw'; value: unknown };
-
-/** One entry of `mock.settledResults` — see {@link FastMockResult}. */
-export type FastMockSettledResult =
-  { type: 'fulfilled'; value: unknown } | { type: 'incomplete'; value: undefined } | { type: 'rejected'; value: unknown };
-
-/**
- * What the spy actually pushes and then fills in.
- *
- * The published entry is a union whose `type` decides its `value`, and an entry is recorded as
- * `incomplete` and completed in place after the call returns — which the union, correctly, does not
- * allow. So the recording side keeps this mutable shape and the accessors publish it as the union.
- */
-interface RecordedResult {
-  type: FastMockResult['type'] | FastMockSettledResult['type'];
-  value: unknown;
-}
-
-/** The `mock` property of a fast spy — Vitest's `MockContext`, same fields and same `lastCall`. */
-export interface FastMockState {
-  calls: unknown[][];
-  contexts: unknown[];
-  instances: unknown[];
-  invocationCallOrder: number[];
-  results: FastMockResult[];
-  settledResults: FastMockSettledResult[];
-  readonly lastCall: unknown[] | undefined;
-}
+export type { FastMockResult, FastMockSettledResult, FastMockState } from './fast-mock-state';
 
 /**
  * How `vi.clearAllMocks()` reaches a spy that is in no registry.
@@ -143,105 +111,16 @@ export interface FastSpy extends Func {
  */
 let invocationCallCounter = 1;
 
-/**
- * A spy's call state.
- *
- * Each of the six arrays is exposed through an accessor over a raw field, so that a state object a
- * spec is holding answers with the emptied array after a sweep — which is what the runner's own
- * state does, since its `mockClear` assigns over the same object. A sweep here touches no spy at
- * all, so something has to notice it, and reading is where that has to happen. The spy's own hot
- * path writes to the raw fields, having already noticed.
- */
-class FastMockStateImpl implements FastMockState {
-  recordedCalls: unknown[][] = [];
-  recordedContexts: unknown[] = [];
-  recordedInstances: unknown[] = [];
-  recordedOrder: number[] = [];
-  recordedResults: RecordedResult[] = [];
-  recordedSettledResults: RecordedResult[] = [];
-
+class FastMockStateImpl extends FastMockStateBase {
   readonly #owner: FastSpy;
 
   constructor(owner: FastSpy) {
+    super();
     this.#owner = owner;
   }
 
-  get calls(): unknown[][] {
+  protected sync(): void {
     syncEpochs(this.#owner);
-
-    return this.recordedCalls;
-  }
-
-  set calls(value: unknown[][]) {
-    this.recordedCalls = value;
-  }
-
-  get contexts(): unknown[] {
-    syncEpochs(this.#owner);
-
-    return this.recordedContexts;
-  }
-
-  set contexts(value: unknown[]) {
-    this.recordedContexts = value;
-  }
-
-  get instances(): unknown[] {
-    syncEpochs(this.#owner);
-
-    return this.recordedInstances;
-  }
-
-  set instances(value: unknown[]) {
-    this.recordedInstances = value;
-  }
-
-  get invocationCallOrder(): number[] {
-    syncEpochs(this.#owner);
-
-    return this.recordedOrder;
-  }
-
-  set invocationCallOrder(value: number[]) {
-    this.recordedOrder = value;
-  }
-
-  get results(): FastMockResult[] {
-    syncEpochs(this.#owner);
-
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- see `RecordedResult`: the entries are completed in place, so they are recorded mutably and published as the union.
-    return this.recordedResults as FastMockResult[];
-  }
-
-  set results(value: FastMockResult[]) {
-    this.recordedResults = value;
-  }
-
-  get settledResults(): FastMockSettledResult[] {
-    syncEpochs(this.#owner);
-
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- see `results`.
-    return this.recordedSettledResults as FastMockSettledResult[];
-  }
-
-  set settledResults(value: FastMockSettledResult[]) {
-    this.recordedSettledResults = value;
-  }
-
-  get lastCall(): unknown[] | undefined {
-    const calls = this.calls;
-
-    return calls[calls.length - 1];
-  }
-
-  /** Drop everything recorded, keeping the object identity a spec may be holding. */
-  empty(): void {
-    this.recordedCalls = [];
-    this.recordedContexts = [];
-    this.recordedInstances = [];
-    this.recordedOrder = [];
-    this.recordedResults = [];
-    this.recordedSettledResults = [];
   }
 }
 
@@ -766,14 +645,8 @@ function invoke(spy: FastSpy, thisArg: unknown, args: unknown[], newTarget: Func
   const settled: RecordedResult = { type: 'incomplete', value: undefined };
   const context = newTarget ? undefined : thisArg;
 
-  // The raw fields, not the accessors: the sweep check above has already run, and the accessors
-  // would repeat it six times on the hottest path in the library.
-  state.recordedCalls.push(args);
-  state.recordedOrder.push(invocationCallCounter++);
-  state.recordedResults.push(result);
-  state.recordedSettledResults.push(settled);
-  state.recordedContexts.push(context);
-  state.recordedInstances.push(context);
+  // Not the accessors: the sweep check above has already run, and they would repeat it six times.
+  state.record(args, invocationCallCounter++, result, settled, context);
 
   const implementation = config.onceImplementations.shift() ?? config.implementation;
   let returned: unknown;
@@ -795,8 +668,7 @@ function invoke(spy: FastSpy, thisArg: unknown, args: unknown[], newTarget: Func
   result.value = returned;
 
   if (newTarget) {
-    state.recordedContexts[state.recordedContexts.length - 1] = returned;
-    state.recordedInstances[state.recordedInstances.length - 1] = returned;
+    state.recordInstance(returned);
   }
 
   settleInto(settled, returned);
