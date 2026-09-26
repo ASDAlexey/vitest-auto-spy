@@ -11,7 +11,7 @@
  * The matcher asserts the fact directly, and its failure names the two things that actually cause
  * it in a bundled test build.
  */
-import { type Type, isStandalone } from '@angular/core';
+import { type DebugElement, type Predicate, type Type, isStandalone } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { expect } from 'vitest';
 
@@ -31,20 +31,13 @@ declare global {
   }
 }
 
-/** The `DebugElement` surface this matcher reads. */
-interface DebugElementLike {
-  queryAll(predicate: unknown): DebugElementLike[];
-  /** Always present on a `DebugElement`; it is how "which directives are on this element" is asked. */
-  providerTokens: unknown[];
-}
-
 /** What a matcher hands back to the runner. */
 interface MatcherResult {
   pass: boolean;
   message: () => string;
 }
 
-function rootOf(received: unknown): DebugElementLike | undefined {
+function rootOf(received: unknown): DebugElement | undefined {
   if (typeof received !== 'object' || received === null) {
     return undefined;
   }
@@ -54,16 +47,24 @@ function rootOf(received: unknown): DebugElementLike | undefined {
 
   return typeof candidate === 'object' && candidate !== null && typeof Reflect.get(candidate, 'queryAll') === 'function'
     ? // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- narrowed by the `queryAll` probe above; the matcher accepts a fixture or a DebugElement and reads nothing else.
-      (candidate as DebugElementLike)
+      (candidate as DebugElement)
     : undefined;
 }
 
-function diagnose(directive: Type<unknown>, selector: string | undefined, root: DebugElementLike): string {
-  const matching = selector === undefined ? [] : root.queryAll(By.css(selector));
+/**
+ * `queryAll` plus the root itself: a `TestBed.createDirective` fixture is rooted at the element
+ * that carries the directive, which `queryAll` never returns.
+ */
+function matching(root: DebugElement, predicate: Predicate<DebugElement>): DebugElement[] {
+  return predicate(root) ? [root, ...root.queryAll(predicate)] : root.queryAll(predicate);
+}
+
+function diagnose(directive: Type<unknown>, selector: string | undefined, root: DebugElement): string {
+  const elements = selector === undefined ? [] : matching(root, By.css(selector));
   const where = selector === undefined ? '' : ` on '${selector}'`;
   const prefix = `[vitest-auto-spy] expected ${directive.name} to be applied${where}`;
 
-  if (selector !== undefined && matching.length === 0) {
+  if (selector !== undefined && elements.length === 0) {
     return withDocs(
       `${prefix}, but no element matches that selector.\n` +
         'Run fixture.detectChanges() before asserting, and check the selector against the template.',
@@ -100,18 +101,18 @@ function directiveResult(received: unknown, directive: Type<unknown>, selector?:
   if (!root) {
     throw new Error(
       withDocs(
-        `[vitest-auto-spy] toHaveDirectiveApplied: expected a ComponentFixture or a DebugElement, received ${describeReceived(received)}.\n` +
+        `[vitest-auto-spy] toHaveDirectiveApplied: expected a ComponentFixture, a DirectiveFixture or a DebugElement, received ${describeReceived(received)}.\n` +
           'Pass the fixture itself, or fixture.debugElement — not fixture.nativeElement.',
         DOCS_LINKS.angularDirectiveApplied,
       ),
     );
   }
 
-  const withDirective = root.queryAll(By.directive(directive));
+  const withDirective = matching(root, By.directive(directive));
   const applied =
     selector === undefined
       ? withDirective.length > 0
-      : root.queryAll(By.css(selector)).some((element) => element.providerTokens.includes(directive));
+      : matching(root, By.css(selector)).some((element) => element.providerTokens.includes(directive));
 
   return {
     pass: applied,

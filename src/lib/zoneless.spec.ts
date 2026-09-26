@@ -3,7 +3,8 @@
  * effects. These specs assert exactly that difference: state that only an effect produces is
  * missing before the helper and present after it.
  */
-import { Component, PendingTasks, effect, inject, signal } from '@angular/core';
+import { Component, Directive, PendingTasks, effect, inject, signal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
 
 import { mockValueProp } from './prop-mock';
@@ -56,6 +57,16 @@ class LateThrowingEffectComponent {
   }
 }
 
+@Directive({ selector: '[appEffects]' })
+class EffectsDirective {
+  readonly source = signal(0);
+  readonly seen: number[] = [];
+
+  constructor() {
+    effect(() => this.seen.push(this.source()));
+  }
+}
+
 describe('stable', () => {
   it('flushes the effect a bare detectChanges() leaves pending', async () => {
     const { fixture, component } = renderShallow(EffectsComponent);
@@ -67,6 +78,15 @@ describe('stable', () => {
     await stable(fixture);
 
     expect(component.seen).toContain(5);
+  });
+
+  it('settles a TestBed.createDirective fixture the same way', async () => {
+    const fixture = TestBed.createDirective(EffectsDirective, { tagName: 'section' });
+
+    fixture.directiveInstance.source.set(5);
+    await stable(fixture);
+
+    expect(fixture.directiveInstance.seen).toContain(5);
   });
 
   it('throws the cause when the fixture never stabilises, instead of hanging to the file timeout', async () => {

@@ -1,4 +1,4 @@
-import { Directive, NgModule } from '@angular/core';
+import { Component, Directive, NgModule } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeAll, describe, expect, it } from 'vitest';
 
@@ -79,20 +79,22 @@ describe('toHaveDirectiveApplied', () => {
 
     expect(fixture).not.toHaveDirectiveApplied(HighlightDirective);
     expect(() => expect('a string').toHaveDirectiveApplied(HighlightDirective)).toThrow(
-      /toHaveDirectiveApplied: expected a ComponentFixture or a DebugElement, received string\.\nPass the fixture itself/,
+      /toHaveDirectiveApplied: expected a ComponentFixture, a DirectiveFixture or a DebugElement, received string\.\nPass the fixture itself/,
     );
     expect(() => expect(null).toHaveDirectiveApplied(HighlightDirective)).toThrow(/received null\./);
     expect(() => expect(document.createElement('div')).toHaveDirectiveApplied(HighlightDirective)).toThrow(/received a HTMLDivElement\./);
     // An object, but not one that can be queried — a `nativeElement` handed over by mistake.
     expect(() => expect({ tagName: 'DIV' }).toHaveDirectiveApplied(HighlightDirective)).toThrow(
-      /expected a ComponentFixture or a DebugElement/,
+      /expected a ComponentFixture, a DirectiveFixture or a DebugElement/,
     );
   });
 
   it('refuses something that is not a fixture under `.not` as well', () => {
     // `{ pass: false }` for a wrong argument is a pass under `.not`: `expect(undefined)` then
     // reported that the directive is not applied, about nothing at all.
-    expect(() => expect(undefined).not.toHaveDirectiveApplied(HighlightDirective)).toThrow(/expected a ComponentFixture or a DebugElement/);
+    expect(() => expect(undefined).not.toHaveDirectiveApplied(HighlightDirective)).toThrow(
+      /expected a ComponentFixture, a DirectiveFixture or a DebugElement/,
+    );
   });
 
   it('reports the negated case when the directive is there', () => {
@@ -104,5 +106,25 @@ describe('toHaveDirectiveApplied', () => {
     fixture.detectChanges();
 
     expect(() => expect(fixture).not.toHaveDirectiveApplied(HighlightDirective)).toThrow(/not to be applied, but it is on 1 element/);
+  });
+});
+
+describe('toHaveDirectiveApplied on a TestBed.createDirective fixture', () => {
+  it('finds the directive on the host element the fixture is rooted at', () => {
+    const fixture = TestBed.createDirective(LonerDirective, { tagName: 'section' });
+
+    expect(fixture).toHaveDirectiveApplied(LonerDirective);
+    expect(fixture).toHaveDirectiveApplied(LonerDirective, 'section');
+    expect(fixture).not.toHaveDirectiveApplied(HighlightDirective);
+    expect(() => expect(fixture).not.toHaveDirectiveApplied(LonerDirective)).toThrow(/not to be applied, but it is on 1 element/);
+  });
+
+  it('counts a host directive of the component a fixture is rooted at', () => {
+    @Component({ selector: 'app-hosted', template: '', hostDirectives: [LonerDirective] })
+    class HostedComponent {}
+
+    const fixture = TestBed.createComponent(HostedComponent);
+
+    expect(fixture).toHaveDirectiveApplied(LonerDirective);
   });
 });

@@ -78,8 +78,10 @@ export interface StableOptions {
  * one component. On expiry this throws the cause instead, and names the two things that produce it.
  *
  * Pass `{ label }` when a spec awaits more than one fixture, so the failure says which.
+ *
+ * Any fixture with `whenStable()` is taken — Angular 22.2's `TestBed.createDirective` fixture too.
  */
-export async function stable(fixture: ComponentFixture<unknown>, options: StableOptions = {}): Promise<void> {
+export async function stable(fixture: Pick<ComponentFixture<unknown>, 'whenStable'>, options: StableOptions = {}): Promise<void> {
   flushEffects();
 
   const timeout = options.timeout ?? 2000;
