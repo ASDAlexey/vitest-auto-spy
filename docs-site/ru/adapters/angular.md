@@ -31,6 +31,13 @@ beforeEach(() => {
 });
 ```
 
+`vitest-auto-spy/angular` — спутник ядра, а не вторая его копия. Из корневой точки входа он
+реэкспортирует только тип `Spy<T>` (с 5.35.0), хелперы `mock*Prop` вместе с `restoreMockedProps` и
+`countMockedProps`, семейство `expectEmission` и `registerAutoSpyDefaults` /
+`clearAutoSpyDefaults`. Фабрики спаев и остальной рантайм — `createSpyFromClass`, `createMock`,
+`createAutoMock`, `spyOnVoidMethod`, `spyOnOwnMethod`, `stubConstructor`, `asInstance` — остаются в
+`vitest-auto-spy`, так что спеке, которой нужен один из них, нужны две строки импорта.
+
 Спаи не зависят от детекции изменений, поэтому работают **и в zoneless-, и в zone.js-проектах** на
 Angular — ничто здесь не трогает `NgZone` и детекцию изменений. Обычная обвязка Vitest + Angular
 по-прежнему нужна: собственный билдер Angular `@angular/build:unit-test` или
@@ -430,9 +437,10 @@ expect(queryElement(fixture, 'input[name=q]', HTMLInputElement).value).toBe('');
 expect(queryElement(fixture.debugElement, 'circle', SVGCircleElement).getAttribute('r')).toBe('4');
 ```
 
-Оба принимают `ComponentFixture` или `DebugElement`; `queryElement` принимает ещё и найденный раньше
-элемент, так что запрос можно начать внутри строки. Последний аргумент — тип, с которым сверяется и
-который возвращается: `HTMLElement`, если его не передать, `SVGElement` или просто `Element` для
+Оба принимают фикстуру — `ComponentFixture` или `DirectiveFixture` из `TestBed.createDirective`
+в Angular 22.2 — либо `DebugElement`; `queryElement` принимает ещё и найденный раньше элемент, так
+что запрос можно начать внутри строки. Последний аргумент — тип, с которым сверяется и который
+возвращается: `HTMLElement`, если его не передать, `SVGElement` или просто `Element` для
 разметки не на HTML. `TestBed` рендерит любой компонент в хост-`<div>`, так что
 `hostElement(fixture)` — всегда `HTMLElement`; аргумент с типом нужен для `DebugElement` глубже.
 
@@ -535,7 +543,9 @@ flushEffects(); // половина без фикстуры: сервисы, с�
 эффекты, поэтому проверка сразу после него читает состояние, которое ещё не досчиталось. В
 zoneless-приложении значимое состояние выводится из сигналов, а вперёд его двигают именно эффекты.
 `stable` делает и то и другое, в правильном порядке; `flushEffects` — это `TestBed.tick()`, запущенный
-внутри `NgZone`.
+внутри `NgZone`. `stable` принимает любую фикстуру с `whenStable()`, поэтому на Angular 22.2
+`DirectiveFixture` из `TestBed.createDirective(Dir, { tagName })` дожидаются так же — её
+`detectChanges()` эффекты тоже не сбрасывает.
 
 ### Оба работают и под zone.js, и зона — причина, по которой тик обёрнут {#both-work-under-zone-js-and-the-zone-is-why-the-tick-is-wrapped}
 
@@ -1893,6 +1903,12 @@ fixture.componentInstance.enabled = true; // тип берётся из `props`
 хост всегда standalone, `scope` становится импортами компонента, а `props` типизирует
 `fixture.componentInstance`.
 
+На Angular 22.2 и новее директиве, которой не нужны статический атрибут хоста, `TemplateRef`
+(структурная директива) и соседняя разметка, хост-компонент не нужен вовсе:
+`TestBed.createDirective(Dir, { tagName, bindings })` сам создаёт элемент. `stable`, `hostElement` и
+`toHaveDirectiveApplied` принимают её `DirectiveFixture`; `setInputs` — нет, у неё нет
+`componentRef`: привяжите сигнал через `inputBinding` и меняйте сигнал.
+
 ### `toHaveDirectiveApplied` {#tohavedirectiveapplied}
 
 ```ts
@@ -1911,6 +1927,24 @@ expect(fixture).toHaveDirectiveApplied(TruncateDirective, 'div');
 выглядит починкой и ею не является: `schemas: [NO_ERRORS_SCHEMA]` действует на `declarations`
 тестового модуля и никогда — на standalone-компонент, так что рядом со standalone-компонентом это
 мёртвая запись, которая читается так, будто что-то намеренно приглушили.
+
+Матчер принимает `ComponentFixture`, `DirectiveFixture` или `DebugElement` и ищет и на элементе, в
+котором укоренена фикстура, и под ним: фикстура `TestBed.createDirective` укоренена в элементе с
+самой директивой, а на `ComponentFixture` засчитывается запись `hostDirectives` тестируемого
+компонента.
+
+Поэтому матчер и есть страховка для атрибута, который ставит запись `hostDirectives`. Проверка одного
+атрибута остаётся зелёной, если запись убрали, а атрибут написан ещё и статически или его ставит
+кто-то другой; проверка самой записи в этом случае падает. Матчер появляется только после вызова
+`registerDirectiveMatchers()` из `vitest-auto-spy/angular/matchers` — сам он не регистрируется, так
+что вызов нужен в файле настройки:
+
+```ts
+const fixture = TestBed.createComponent(CardComponent); // hostDirectives: [TestIdDirective]
+
+expect(fixture).toHaveDirectiveApplied(TestIdDirective); // без селектора: корневой элемент тоже считается
+expect(hostElement(fixture).getAttribute('data-testid')).toBe('card');
+```
 
 ## Заглушка вместо дочернего компонента — `createComponentStub` {#a-stand-in-for-a-child-createcomponentstub}
 

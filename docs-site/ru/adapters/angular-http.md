@@ -216,8 +216,7 @@ verifyNoPendingRequests({ ignoreCancelled: true }); // …кроме того, �
 Два следствия, которые стоит проговорить прямо:
 
 - Как и [`/angular-router`](/ru/adapters/angular-router) — и с 5.21.0 спутники `/angular/diagnostics`,
-  `/angular/doubles` и `/angular/matchers` — и в отличие от всех остальных подпутей, этот
-  **не** реэкспортирует ядро. Он спутник `vitest-auto-spy/angular`, который остаётся импортом для
+  `/angular/doubles` и `/angular/matchers` — этот подпуть **не** реэкспортирует ядро. Он спутник `vitest-auto-spy/angular`, который остаётся импортом для
   спаев, хелперов `TestBed` и `settleResource`.
 - Точка входа весит **2.5 kB min+gzip** (2459 B, замерено так же, как для бейджа в README: бандл
   esbuild, минифицированный, gzip, пиры внешние).

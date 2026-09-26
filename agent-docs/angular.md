@@ -26,6 +26,14 @@ helper a suite names once in a setup file must not ride along with every `provid
 the diagnostics, doubles and matcher registrars left on that rule (`trackInjections` stays —
 `createWithAutoSpies` needs its module).
 
+**`/angular` is not a second copy of the core.** Of the root entry it re-exports only the `Spy<T>`
+type (5.35.0), the `mock*Prop` family with `restoreMockedProps` / `countMockedProps`, the
+`expectEmission` family and `registerAutoSpyDefaults` / `clearAutoSpyDefaults`. Every other runtime
+name — `createSpyFromClass`, `createMock`, `createAutoMock`, `createSpyFromInstance`,
+`spyOnVoidMethod`, `spyOnOwnMethod`, `stubConstructor`, `asInstance`, `asSpy` — stays on
+`vitest-auto-spy`, so a spec that needs one keeps a second import line; do not fold it into the
+`/angular` import. `/bun-angular` differs: a runner entry, it re-exports the whole core.
+
 ### The same thing as fixtures — `extendWithAutoSpies` (Vitest 4.1+)
 
 The block above, written once instead of once per dependency, with the types inferred rather than
@@ -476,7 +484,7 @@ and the next line reads the settled value.
 
 Three things to know before reaching for it:
 
-- **It does not re-export the core** — nor does `/angular-router`; every other subpath does. It is a
+- **It does not re-export the core** — nor does `/angular-router`, and `/angular` only a few names (§13). It is a
   companion to `vitest-auto-spy/angular`, which stays the import for spies, `TestBed` helpers and
   `settleResource`.
   Staying narrow is what keeps `@angular/common` — an **optional** peer — out of every other entry.
@@ -1177,6 +1185,22 @@ asserts the fact Angular reports three wrong ways (`NG0303` points at the module
 _is_ declared; `NG0304` calls a missing directive a missing component; a bare attribute reports
 nothing at all). `schemas: [NO_ERRORS_SCHEMA]` next to a standalone component is a dead entry —
 schemas apply to a testing module's `declarations` only.
+
+It is also the guard for an attribute a `hostDirectives` entry puts on the component under test. An
+assertion on the attribute alone stays green when the entry is dropped and the attribute is also
+written statically, or set by something else; the fixture's root element is searched, so the entry
+itself can be asserted with no selector:
+
+```ts
+import { registerDirectiveMatchers } from 'vitest-auto-spy/angular/matchers';
+
+registerDirectiveMatchers(); // once, in the setup file; nothing registers the matcher for you
+
+const fixture = TestBed.createComponent(CardComponent); // hostDirectives: [TestIdDirective]
+
+expect(fixture).toHaveDirectiveApplied(TestIdDirective);
+expect(hostElement(fixture).getAttribute('data-testid')).toBe('card');
+```
 
 Angular ≥ 22.2: when the directive needs no static host attribute, no `TemplateRef` (structural) and
 no sibling markup, `TestBed.createDirective(Dir, { tagName, bindings })` builds the host itself.

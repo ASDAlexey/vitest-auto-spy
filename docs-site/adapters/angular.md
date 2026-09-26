@@ -31,6 +31,13 @@ beforeEach(() => {
 });
 ```
 
+`vitest-auto-spy/angular` is a companion to the core, not a second copy of it. Of the root entry it
+re-exports only the `Spy<T>` type (since 5.35.0), the `mock*Prop` helpers with `restoreMockedProps`
+and `countMockedProps`, the `expectEmission` family and `registerAutoSpyDefaults` /
+`clearAutoSpyDefaults`. The spy factories and the rest of the runtime — `createSpyFromClass`,
+`createMock`, `createAutoMock`, `spyOnVoidMethod`, `spyOnOwnMethod`, `stubConstructor`,
+`asInstance` — stay on `vitest-auto-spy`, so a spec that needs one keeps two import lines.
+
 The spies are change-detection agnostic, so they work in **both zoneless and zone.js** Angular
 projects — nothing here touches `NgZone` or change detection. You still need the usual Vitest +
 Angular wiring: Angular's own `@angular/build:unit-test` builder, or `@analogjs/vite-plugin-angular`
@@ -472,9 +479,9 @@ expect(queryElement(fixture, 'input[name=q]', HTMLInputElement).value).toBe('');
 expect(queryElement(fixture.debugElement, 'circle', SVGCircleElement).getAttribute('r')).toBe('4');
 ```
 
-Both take a `ComponentFixture` or a `DebugElement`; `queryElement` also takes an element found
-earlier, so a query can start inside a row. The last argument is the type to check against and
-return — `HTMLElement` when it is left out, `SVGElement` or plain `Element` for markup that is not
+Both take a fixture — a `ComponentFixture`, or the `DirectiveFixture` of Angular 22.2's
+`TestBed.createDirective` — or a `DebugElement`; `queryElement` also takes an element found earlier,
+so a query can start inside a row. The last argument is the type to check against and return — `HTMLElement` when it is left out, `SVGElement` or plain `Element` for markup that is not
 HTML. `TestBed` renders every component into a `<div>` host, so `hostElement(fixture)` is always an
 `HTMLElement`; the type argument matters for a `DebugElement` further down.
 
@@ -573,7 +580,10 @@ flushEffects(); // the no-fixture half: services, stores, runInInjectionContext 
 `fixture.detectChanges()` runs a single change-detection pass and does **not** flush pending
 effects, so an assertion right after it reads state that has not finished computing. In a zoneless
 app the state that matters is signal-derived and effects are what move it forward. `stable` does
-both, in the right order; `flushEffects` is `TestBed.tick()`, run inside the `NgZone`.
+both, in the right order; `flushEffects` is `TestBed.tick()`, run inside the `NgZone`. `stable`
+takes any fixture with `whenStable()`, so on Angular 22.2 the `DirectiveFixture` of
+`TestBed.createDirective(Dir, { tagName })` is awaited the same way — its `detectChanges()` flushes
+no effects either.
 
 ### Both work under zone.js, and the zone is why the tick is wrapped
 
@@ -2000,6 +2010,12 @@ So the host must be **standalone** and must carry the module in its _own_ `impor
 always standalone, `scope` becomes the component's imports, and `props` types
 `fixture.componentInstance`.
 
+On Angular 22.2 and newer a directive that needs no static host attribute, no `TemplateRef` (a
+structural directive) and no sibling markup needs no host component at all:
+`TestBed.createDirective(Dir, { tagName, bindings })` builds the element itself. `stable`,
+`hostElement` and `toHaveDirectiveApplied` take its `DirectiveFixture`; `setInputs` does not, since
+it has no `componentRef` — bind a signal with `inputBinding` and set the signal instead.
+
 ### `toHaveDirectiveApplied`
 
 ```ts
@@ -2018,9 +2034,25 @@ looks like a fix and is not: `schemas: [NO_ERRORS_SCHEMA]` applies to a testing 
 `declarations` and never to a standalone component, so next to a standalone component it is a dead
 entry that reads as if something were deliberately silenced.
 
-It takes a `ComponentFixture` or a `DebugElement`, and anything else is thrown rather than failed —
+It takes a `ComponentFixture`, a `DirectiveFixture` or a `DebugElement`, and searches the element
+the fixture is rooted at as well as everything under it: a `TestBed.createDirective` fixture is
+rooted at the element that carries the directive, and on a `ComponentFixture` a `hostDirectives`
+entry of the component under test counts. Anything else is thrown rather than failed —
 a `nativeElement` or an `undefined` passed by mistake is a wrong argument, and under `.not` a
 failure would have read as a pass.
+
+That makes it the guard for an attribute a `hostDirectives` entry provides. An assertion on the
+attribute alone stays green when the entry is dropped and the attribute is also written statically,
+or set by something else; asserting the entry itself fails instead. The matcher exists only after
+`registerDirectiveMatchers()` from `vitest-auto-spy/angular/matchers` has run — nothing registers it
+for you, so put the call in the setup file:
+
+```ts
+const fixture = TestBed.createComponent(CardComponent); // hostDirectives: [TestIdDirective]
+
+expect(fixture).toHaveDirectiveApplied(TestIdDirective); // no selector: the root element counts
+expect(hostElement(fixture).getAttribute('data-testid')).toBe('card');
+```
 
 ## A stand-in for a child — `createComponentStub` {#a-stand-in-for-a-child-createcomponentstub}
 
