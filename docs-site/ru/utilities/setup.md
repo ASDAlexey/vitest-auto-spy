@@ -496,9 +496,15 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_7-naming-the-
 Помощник, которого называет отчёт, выбирается по найденному дескриптору: значение —
 `mockValueProp`, геттер — `mockReadonlyPropGetter`, геттер с сеттером — `mockAccessorsProp`.
 
-`globalThis`, `document` и `navigator` сравниваются до и после каждого теста; в отчёт попадают только
-свойства, которые появились _и_ не могут быть убраны. `guardGlobalPatches(reaction)` экспортируется
-для сюиты, которой нужен более узкий охват.
+В отчёт попадают только свойства, которые появились _и_ не могут быть убраны. Снапшот снимается раз на
+файл, в `beforeAll`. Пока проверка включена, `Object.defineProperty`, `Object.defineProperties` и
+`Reflect.defineProperty` отмечают, какой из наблюдаемых объектов получил неконфигурируемое определение,
+и после каждого теста сравниваются только они — поэтому отчёт называет тест, и для `globalThis` тоже, а
+тест, который ничего не запечатал, ничего не стоит. Раз на файл, в очистке того же `beforeAll` (после
+всех `afterAll`), все наблюдаемые объекты сравниваются полностью: так ловится патч из `afterAll` и тот,
+что обошёл эти три функции, — `var` в нестрогом скрипте или `defineProperty`, который собранный модуль
+захватил до начала файла; такой отчёт называет файл, а не тест. В конце файла функции возвращаются на
+место. `guardGlobalPatches(reaction)` экспортируется для сюиты, которой нужен более узкий охват.
 
 ## 8. Как падать на реджекте, который проглотил zone.js {#_8-failing-on-a-rejection-zone-js-swallowed}
 
@@ -1416,21 +1422,23 @@ setupAutoSpy({ misconfiguration: 'throw' });
 который собиралась прочесть сеть первого теста, — раньше из-за этого сеть либо срабатывала для
 теста, чей teardown выполнился, либо молчала для того, чей не выполнился.
 
-Обещать нельзя лишь то, какому тесту принадлежит находка. Снимок документа один на весь документ, по
-построению. Окно консоли и счётчик unconfigured-read открываются и оцениваются на каждый тест, но
-живут в одном слоте — вывод в консоль приходит через глобальный `console`, а не через задачу, так
-что привязать его не к чему. Когда в полёте два теста, находка может быть приписана другому или
-стёрта до того, как её увидят. Первый concurrent-тест воркера получает ровно одно предупреждение,
-которое так и говорит:
+Обещать нельзя лишь то, какому тесту принадлежит находка консоли или документа. Снимок документа
+один на весь документ, по построению, а окно консоли живёт в одном слоте — вывод в консоль приходит
+через глобальный `console`, а не через задачу, так что привязать его не к чему. Когда в полёте два
+теста, такая находка может быть приписана другому или стёрта до того, как её увидят. У счётчика
+unconfigured-read, наоборот, окно на каждый concurrent-тест: чтение, сделанное, пока в полёте было
+несколько тестов, попадает в отчёт один раз, после последнего из них, и называет всех
+([Чтения, которые никто не настроил](../core/strict-mode#reads-nobody-configured)). Первый
+concurrent-тест воркера получает одно предупреждение:
 
 ```text
-[vitest-auto-spy] "CartComponent > loads" runs as test.concurrent, and setupAutoSpy()'s per-test guards judge one test at a time: a console, document or unconfigured-read finding can land on the other test in flight, or be cleared before it is seen.
-Run this file's tests sequentially, or give the files that keep test.concurrent a setup with strayConsole: 'off', documentPollution: 'off' and unconfiguredReads: 'off'. Said once per worker.
+[vitest-auto-spy] "CartComponent > loads" runs as test.concurrent, and setupAutoSpy()'s per-test guards judge one test at a time: a console or document finding can land on the other test in flight, or be cleared before it is seen.
+Run this file's tests sequentially, or give the files that keep test.concurrent a setup with strayConsole: 'off' and documentPollution: 'off'. Said once per worker.
 ```
 
-Раз на воркер, не раз на тест. Запускайте файлы, которым нужен гард, последовательно или оставьте
-`test.concurrent` файлам, чей setup передаёт `strayConsole: 'off'`, `documentPollution: 'off'` и
-`unconfiguredReads: 'off'`.
+Раз на воркер, не раз на тест. Запускайте файлы, которым нужен гард консоли или документа,
+последовательно или оставьте `test.concurrent` файлам, чей setup передаёт `strayConsole: 'off'` и
+`documentPollution: 'off'`.
 
 ## Как переставлять заглушку на каждый тест {#reinstalling-a-stub-for-every-test}
 
@@ -1629,6 +1637,16 @@ Vitest выполняет хуки `afterEach` как стек — самый в
 таймеров. Никто об этом не сообщает, а симптом всплывает совсем в другом месте — утёкший глобал или
 `A function to advance timers was called but the timers APIs are not mocked` в спеке, которая зелёная,
 когда её запускают отдельно.
+
+Теперь `setupAutoSpy()` об этом сообщает. Вызов из настроенного setup-файла запоминает, для какого
+файла спеки он зарегистрировал хуки; когда начинается тест другого файла, а вызова для него не было,
+в stderr уходит одна строка на воркер с обоими файлами и выходами, описанными ниже:
+
+```text
+[vitest-auto-spy] setupAutoSpy() registered its hooks for src/a.spec.ts and not for src/b.spec.ts, which runs after it in the same worker: …
+```
+
+Вызов из файла спеки, например внутри `describe`, — не вызов из setup-файла, о нём не сообщается.
 
 Случай, встреченный в дикой природе, — `@angular/build:unit-test` **до 22.2.0, с покрытием**. Билдер
 тогда отдаёт каждый тестовый файл — setup-файлы тоже — как обёртку, импортирующую собранный бандл,

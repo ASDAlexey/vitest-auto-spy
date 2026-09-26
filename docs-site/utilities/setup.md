@@ -503,11 +503,15 @@ names where `globalThis` carries several hundred. Keys are read with `Reflect.ow
 key is seen as well and the report prints it.
 
 Only properties that appeared _and_ cannot be removed are reported. The snapshot is taken once per
-file, in `beforeAll` — the check advances it itself, so a fresh one before every test would only
-rediscover what the previous check recorded — and every test is compared against it; the other end
-of the file, a patch made in an `afterAll`, is compared in that hook's cleanup, which runs after
-every `afterAll`. It costs about 59 µs per test; the [performance page](/core/performance) carries
-the rest of the per-option figures.
+file, in `beforeAll`. While the guard is on, `Object.defineProperty`, `Object.defineProperties` and
+`Reflect.defineProperty` note which watched object received a non-configurable definition, and after
+each test only those objects are compared — so the report names the test, `globalThis` included, and a
+test that seals nothing costs nothing. Once per file, in the cleanup of that `beforeAll` (after every
+`afterAll`), every watched object is compared in full: that catches a patch made in an `afterAll`, and
+one that went around the three functions — a sloppy-mode `var`, or a `defineProperty` a bundled module
+captured before the file started — which the report then attributes to the file rather than a test.
+The functions are put back at the end of the file. The [performance page](/core/performance) has the
+per-test figures.
 
 **What it cannot see: an _existing_ name redefined with `configurable: false`.** Comparing names is
 what makes the check affordable; answering that question means a `getOwnPropertyDescriptor` for
@@ -1503,21 +1507,23 @@ hands over no task. A concurrent neighbour can therefore no longer clear the fla
 net was about to read, which used to make the net either fire for a test whose teardown did run or
 stay quiet for one whose teardown did not.
 
-What cannot be promised is which test a finding belongs to. The document snapshot is one document,
-by construction. The console window and the unconfigured-read counter are opened and judged per test
-but live in a single slot — console output arrives through the global `console` rather than through
-the task, so there is nothing to key it by. With two tests in flight a finding can be reported
-against the other one, or cleared before it is seen. The first concurrent test a worker runs earns
-one warning saying exactly that:
+What cannot be promised is which test a console or document finding belongs to. The document
+snapshot is one document, by construction, and the console window lives in a single slot — console
+output arrives through the global `console` rather than through the task, so there is nothing to key
+it by. With two tests in flight such a finding can be reported against the other one, or cleared
+before it is seen. The unconfigured-read counter keeps a window per concurrent test instead: a read
+made while several tests were in flight is reported once, after the last of them, naming them all
+([Reads nobody configured](../core/strict-mode#reads-nobody-configured)). The first concurrent test
+a worker runs earns one warning:
 
 ```text
-[vitest-auto-spy] "CartComponent > loads" runs as test.concurrent, and setupAutoSpy()'s per-test guards judge one test at a time: a console, document or unconfigured-read finding can land on the other test in flight, or be cleared before it is seen.
-Run this file's tests sequentially, or give the files that keep test.concurrent a setup with strayConsole: 'off', documentPollution: 'off' and unconfiguredReads: 'off'. Said once per worker.
+[vitest-auto-spy] "CartComponent > loads" runs as test.concurrent, and setupAutoSpy()'s per-test guards judge one test at a time: a console or document finding can land on the other test in flight, or be cleared before it is seen.
+Run this file's tests sequentially, or give the files that keep test.concurrent a setup with strayConsole: 'off' and documentPollution: 'off'. Said once per worker.
 ```
 
-Once per worker, not once per test. Run the files that need a guard sequentially, or keep
-`test.concurrent` for files whose setup passes `strayConsole: 'off'`, `documentPollution: 'off'` and
-`unconfiguredReads: 'off'`.
+Once per worker, not once per test. Run the files that need the console or document guard
+sequentially, or keep `test.concurrent` for files whose setup passes `strayConsole: 'off'` and
+`documentPollution: 'off'`.
 
 ## Reinstalling a stub for every test
 
@@ -1720,6 +1726,16 @@ restore, no `blockNetwork`, no stray-timer cancellation, no `restoreTimerGlobals
 timers. Nothing reports it, and the symptom lands somewhere else entirely — a leaked global, or
 `A function to advance timers was called but the timers APIs are not mocked` in a spec that is green
 when it runs on its own.
+
+`setupAutoSpy()` reports it now. A call made from a configured setup file records the spec file it
+registered its hooks for; when a test of a different file starts and no call registered for that file,
+one line per worker goes to stderr, naming both files and the ways out below:
+
+```text
+[vitest-auto-spy] setupAutoSpy() registered its hooks for src/a.spec.ts and not for src/b.spec.ts, which runs after it in the same worker: …
+```
+
+A call made from a spec file, as in a `describe` block, is not a setup-file call and is never reported.
 
 The case seen in the wild is `@angular/build:unit-test` **before 22.2.0, with coverage**. The
 builder then serves each test file — setup files included — as a wrapper that imports the built

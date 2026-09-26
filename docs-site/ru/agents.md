@@ -57,13 +57,15 @@ _выводить_, стоит токенов на каждой задаче и 
 действительно установлена. Но что-то всё равно должно сказать агенту его прочитать. Ровно эту строку
 и пишет `init`.
 
-Он длинный — каждый экспорт, каждая опция конфигурации и каждая ошибка, которую бросает пакет, —
-поэтому написан так, чтобы его читали по разделам, а не целиком. `AGENTS.md` — ядро, и в его шапке
-карта разделов: пять нужны любому спеку, остальные по задаче или по стеку. Пять самых длинных —
-setup-файл, Angular, ESLint-плагин, Error → fix и переезд с `jasmine-auto-spies` — лежат рядом, в
-`node_modules/vitest-auto-spy/agent-docs/`, и у каждого в ядре есть заглушка, которая говорит, когда
-его открывать; Error → fix — таблица, в которой ищут `grep` по тексту ошибки, а не читают подряд.
-Скилл из пакета и заглушка, которую пишет `init`, сначала отправляют агента к этой карте.
+Справочник длинный — каждый экспорт, каждая опция конфигурации и каждая ошибка, которую бросает
+пакет, — поэтому он разбит на части. Сам `AGENTS.md` — карта примерно на 30 kB: меньше 32 KB,
+которые вмещает цепочка Codex, и достаточно мала, чтобы прочитать её целиком. В ней точки входа,
+рецепт на 90% случаев, `Spy<T>` против `T`, сброс и `fakeAsync`, а для каждого остального раздела —
+заглушка, которая говорит, когда его открывать. Остальное — фабрики, конфигурация, хелперы по типу
+возврата, setup-файл, Angular, ESLint-плагин, Error → fix, чек-лист перед отчётом об успехе и прочее —
+лежит рядом, в `node_modules/vitest-auto-spy/agent-docs/`, по файлу на раздел с теми же номерами.
+Error → fix — таблица, в которой ищут `grep` по тексту ошибки, а не читают подряд. Скилл из пакета и
+заглушка, которую пишет `init`, сначала отправляют агента к этой карте.
 
 ## Более дешёвый вывод прогона — `--reporter=agent` {#cheaper-run-output-—-reporter-agent}
 
@@ -185,7 +187,7 @@ printf '\nRead `AGENTS.md` in this directory — it is the single source.\n' >> 
 | **GLM (z.ai)**, **Kimi K3**                 | как у Claude Code — тот же клиент, та же команда плагина                                                                                                                |
 | **Cursor**                                  | `.cursor/rules/vitest-auto-spy.mdc`, чтобы грузить его только для файлов спек (см. ниже)                                                                                |
 | **GitHub Copilot**                          | `.github/instructions/vitest-auto-spy.instructions.md` (см. ниже)                                                                                                       |
-| **Cline**                                   | `.clinerules/vitest-auto-spy.md` — те же три строки плюс `paths: ["**/*.spec.ts","**/*.test.ts"]`                                                                       |
+| **Cline**                                   | `.clinerules/vitest-auto-spy.md` — те же три строки плюс `paths: ["**/*.spec.ts", "**/*.test.ts"]`                                                                       |
 | **Windsurf / Cascade**                      | `.windsurf/rules/vitest-auto-spy.md` с `trigger: glob` (см. ниже)                                                                                                       |
 | **Roo Code**                                | `.roo/rules/vitest-auto-spy.md` — всегда включён, так что ограничьтесь указателем в три строки                                                                          |
 | **Gemini CLI**                              | `GEMINI.md` или правка `.gemini/settings.json` [отсюда](#gemini-cli)                                                                                                    |
@@ -195,39 +197,45 @@ printf '\nRead `AGENTS.md` in this directory — it is the single source.\n' >> 
 Варианты с glob-областью — для трёх инструментов, чей формат не является чистым Markdown. Тело у всех
 одно и то же, отличается только frontmatter:
 
+<!-- prettier-ignore-start -->
+
+**`.cursor/rules/vitest-auto-spy.mdc`**
+
 ```md
-## <!-- .cursor/rules/vitest-auto-spy.mdc -->
-
+---
 description: How to write tests with vitest-auto-spy
-globs: **/\*.spec.ts, **/_.spec.tsx, \*\*/_.test.ts, \*_/_.test.tsx
+globs: **/*.spec.ts, **/*.spec.tsx, **/*.test.ts, **/*.test.tsx
 alwaysApply: false
-
 ---
 
 Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
 `vitest-auto-spy` — the API, the configuration semantics and the common mistakes.
 ```
 
-```md
-## <!-- .github/instructions/vitest-auto-spy.instructions.md -->
-
-## applyTo: '**/\*.spec.ts,**/_.spec.tsx,\*\*/_.test.ts,\*_/_.test.tsx'
-
-Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
-`vitest-auto-spy`.
-```
+**`.github/instructions/vitest-auto-spy.instructions.md`**
 
 ```md
-## <!-- .windsurf/rules/vitest-auto-spy.md — .devin/rules/ when that directory exists -->
-
-trigger: glob
-globs: **/\*.spec.ts, **/\*.test.ts
-
+---
+applyTo: '**/*.spec.ts,**/*.spec.tsx,**/*.test.ts,**/*.test.tsx'
 ---
 
 Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
-`vitest-auto-spy`.
+`vitest-auto-spy` — the API, the configuration semantics and the common mistakes.
 ```
+
+**`.windsurf/rules/vitest-auto-spy.md`** (или `.devin/rules/vitest-auto-spy.md`, если есть эта папка)
+
+```md
+---
+trigger: glob
+globs: **/*.spec.ts, **/*.spec.tsx, **/*.test.ts, **/*.test.tsx
+---
+
+Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
+`vitest-auto-spy` — the API, the configuration semantics and the common mistakes.
+```
+
+<!-- prettier-ignore-end -->
 
 `globs` у Cursor — это **строка через запятую, а не YAML-массив**, а файл правила Windsurf ограничен
 12 000 символами; и то и другое — причины, по которым правило указывает на справочник, а не копирует

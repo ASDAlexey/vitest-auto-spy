@@ -443,9 +443,11 @@ Both are conservative on purpose.
   repository and stays silent when the majors differ. The rule of thumb behind that — a helper only
   moves between entries in a major — stopped holding in 5.21.0, when thirty-two of them left
   `/angular` for three companions in a minor. Within one major the table can therefore be ahead of
-  the install, which matters in one direction: run a **newer** CLI than the installed copy
-  (`npx vitest-auto-spy@latest doctor` against a pinned 5.20.x) and the entry a fix names may not be
-  published there yet. Run the CLI the repository installed and the two cannot disagree.
+  the install, so `helper-from-wrong-entry` also reads the `exports` of the copy resolved from each
+  file and names only entries that copy publishes. Run a **newer** CLI than the installed one
+  (`npx vitest-auto-spy@latest doctor` against a pinned 5.20.x) and a helper whose new entry is not
+  published there yet is simply not reported; when the installed manifest cannot be read at all, the
+  check stays silent rather than guess.
 - `no-unawaited-helper` reports one shape and one only — a call that both begins a statement and
   ends one. Anything the promise could still flow out of is left alone: `await`, `return`, an
   assignment, an argument, a `.then`, a concise arrow body, an explicit `void`. So is a method of
