@@ -6,6 +6,7 @@ import { defineConfig } from 'tsup';
 // One list, shared with the scripts that measure this build — see scripts/externals.mjs for why it
 // is not four hand-copied arrays any more.
 import { PEER_EXTERNALS } from './scripts/externals.mjs';
+import { planHostedEntries } from './scripts/host-entries.mjs';
 
 // Ship no sourcemaps, and do NOT minify — not even whitespace. Two separate reasons, and the second
 // one is the expensive one to rediscover:
@@ -67,17 +68,14 @@ const WRAPPED_CJS_ENTRIES = ['src/eslint-plugin.ts'];
 // The entries built as one file each. Every consumer imports the root on every spec, every Angular
 // consumer imports the root and `/angular`, and every project with a setup file loads `/setup` in
 // every spec file on top of that.
-const SOLO_ENTRIES = [
-  'src/index.ts',
-  'src/angular.ts',
-  'src/dom-stubs.ts',
-  'src/diagnostics.ts',
-  'src/setup.ts',
-  'src/node.ts',
-  'src/react.ts',
-  'src/vue.ts',
-  'src/svelte.ts',
-];
+const SOLO_ENTRIES = ['src/dom-stubs.ts', 'src/diagnostics.ts', 'src/setup.ts', 'src/node.ts'];
+
+// The root entry is solo too, and it hosts the core for the entries loaded beside it: each of these
+// imports whatever the root already bundles from `./index.js` instead of inlining a second copy
+// (scripts/host-entries.mjs). `/node` cannot join: it must not load Vitest.
+const HOST_ENTRY = 'src/index.ts';
+
+const HOSTED_ENTRIES = ['src/angular.ts', 'src/react.ts', 'src/vue.ts', 'src/svelte.ts'];
 
 // tsup runs the array below with `Promise.all`, so `clean: true` on any one pass is a race against
 // every other pass's output — and the passes here are no longer independent: three of them emit
@@ -168,6 +166,19 @@ function useSharedState(): Plugin {
   };
 }
 
+const hosted = await planHostedEntries({
+  root: '.',
+  host: HOST_ENTRY,
+  publicBarrel: 'src/auto-spy.ts',
+  hostFile: 'index.js',
+  satellites: HOSTED_ENTRIES,
+  external: PEER_EXTERNALS,
+  plugins: () => [useSharedState()],
+  // Stateless tables the satellites mostly read entries of that the root never does: 9.7 kB of
+  // Angular doc URLs would otherwise move into the root, which most specs load without `/angular`.
+  inline: ['src/lib/docs-links.ts', 'src/lib/message-text.ts'],
+});
+
 export default defineConfig([
   {
     ...SHARED,
@@ -195,7 +206,7 @@ export default defineConfig([
     // build has no reason to follow the JavaScript split — one pass over every entry keeps the
     // shared `.d.ts` chunks shared, where letting the unsplit pass below emit its own gave
     // `index.d.ts` and `angular.d.ts` a private copy of the type graph and cost ~106 kB.
-    dts: { entry: [...CHUNKED_ENTRIES, ...SOLO_ENTRIES, ...WRAPPED_CJS_ENTRIES] },
+    dts: { entry: [...CHUNKED_ENTRIES, HOST_ENTRY, ...HOSTED_ENTRIES, ...SOLO_ENTRIES, ...WRAPPED_CJS_ENTRIES] },
     esbuildPlugins: [useSharedState()],
   },
   {
@@ -229,6 +240,12 @@ export default defineConfig([
     // keeps every entry — solo or chunked — pointing at the one copy, and `smoke:dist` asserts it
     // across `index`+`setup`, `index`+`angular`+`setup` and `index`+`vue`. The remaining entries
     // stay chunked because nobody loads them per spec file.
+    //
+    // The root, `/angular` and the framework entries left this pass on 2026-09-26 for the two below:
+    // solo, each carried the same ~130 kB core, and an Angular spec loads the root and `/angular`
+    // both. Root + `/angular` 7.28 → 5.83 ms, root + `/react` 6.72 → 4.92 ms, root alone unchanged.
+    // `/setup` stays solo: hosted, root + `/setup` gained 0.55 ms but `/setup` alone lost 2.0 ms, and
+    // a setup file runs in every spec, including the ones that never import the root.
     entry: SOLO_ENTRIES,
     format: ['esm'] as const,
     splitting: false,
@@ -236,6 +253,28 @@ export default defineConfig([
     dts: false,
     clean: false,
     esbuildPlugins: [useSharedState()],
+  },
+  {
+    ...SHARED,
+    // The root entry, one file plus `shared-state.js`, re-exporting under `ɵ` names what the
+    // entries below take from it. None of those names reach a declaration.
+    entry: { index: HOST_ENTRY },
+    format: ['esm'] as const,
+    splitting: false,
+    dts: false,
+    clean: false,
+    esbuildPlugins: [useSharedState(), hosted.hostPlugin()],
+  },
+  {
+    ...SHARED,
+    // `/angular`, `/react`, `/vue` and `/svelte`: their own code plus `index.js` and
+    // `shared-state.js`. `/react` and `/svelte` shrink to a re-export of the root.
+    entry: HOSTED_ENTRIES,
+    format: ['esm'] as const,
+    splitting: false,
+    dts: false,
+    clean: false,
+    esbuildPlugins: [useSharedState(), hosted.satellitePlugin()],
   },
   {
     ...SHARED,

@@ -11,8 +11,11 @@ import { defineConfig } from 'vitest/config';
 //
 // The Angular plugin is here for the same reason the zone is: `stable()` behaves differently under
 // a real `NgZone`, and only a TestBed that has one can say so.
+//
+// Not `fastCompile`: under Vitest it runs in JIT mode and emits no `ctorParameters` for an
+// `@Injectable`, so constructor injection fails with NG0202. The narrow tsconfig buys most of it.
 export default defineConfig({
-  plugins: [angular({ tsconfig: 'tsconfig.spec.json' })],
+  plugins: [angular({ tsconfig: 'tsconfig.zone.json' })],
   test: {
     // `globals: true` is a requirement of the patch, not a preference: it replaces the runner's
     // globals, and an imported `it` is a module binding nothing can reach.
