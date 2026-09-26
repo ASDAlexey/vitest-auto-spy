@@ -30,7 +30,7 @@
   },
   "note": "Baseline for scripts/size-entries.mjs: min+gzip bytes per entry point, peers external. Regenerate with `npm run size:entries:update` and explain the diff in the commit. `released` moves only in the `version` script; growth over it past 3 % needs a CHANGELOG note.",
   "released": {
-    "version": "5.37.0",
+    "version": "5.38.0",
     "entries": {
       ".": 27065,
       "./bun": 25212,
