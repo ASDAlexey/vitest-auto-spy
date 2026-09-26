@@ -119,6 +119,29 @@ describe('toHaveDirectiveApplied on a TestBed.createDirective fixture', () => {
     expect(() => expect(fixture).not.toHaveDirectiveApplied(LonerDirective)).toThrow(/not to be applied, but it is on 1 element/);
   });
 
+  it('points a component under test at its hostDirectives and imports rather than at createDirectiveHost', () => {
+    @Component({ selector: 'app-bare', template: '<span></span>' })
+    class BareComponent {}
+
+    const fixture = TestBed.createComponent(BareComponent);
+
+    expect(() => expect(fixture).toHaveDirectiveApplied(LonerDirective)).toThrow(
+      /^\[vitest-auto-spy\] expected LonerDirective to be applied, but it is not on BareComponent's host element or in its template\.\nTo apply it, list LonerDirective in BareComponent's hostDirectives if the component should carry it, or in its imports if its template uses it\.\nDocs: /,
+    );
+    expect(() => expect(fixture).toHaveDirectiveApplied(HighlightDirective)).toThrow(
+      /To apply it, add the NgModule that declares HighlightDirective to BareComponent's imports if its template uses it\./,
+    );
+    expect(() => expect(fixture.debugElement.children[0]).toHaveDirectiveApplied(LonerDirective)).toThrow(
+      /Build the host with createDirectiveHost/,
+    );
+  });
+
+  it('keeps the createDirectiveHost hint for a directive fixture', () => {
+    const fixture = TestBed.createDirective(LonerDirective, { tagName: 'section' });
+
+    expect(() => expect(fixture).toHaveDirectiveApplied(HighlightDirective)).toThrow(/Build the host with createDirectiveHost/);
+  });
+
   it('counts a host directive of the component a fixture is rooted at', () => {
     @Component({ selector: 'app-hosted', template: '', hostDirectives: [LonerDirective] })
     class HostedComponent {}

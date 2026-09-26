@@ -11,10 +11,11 @@
  * The matcher asserts the fact directly, and its failure names the two things that actually cause
  * it in a bundled test build.
  */
-import { type DebugElement, type Predicate, type Type, isStandalone } from '@angular/core';
+import { type DebugElement, type Predicate, type Type, isStandalone, reflectComponentType } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { expect } from 'vitest';
 
+import { DIRECTIVE_HOST } from './directive-host';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { count } from './message-text';
@@ -59,6 +60,26 @@ function matching(root: DebugElement, predicate: Predicate<DebugElement>): Debug
   return predicate(root) ? [root, ...root.queryAll(predicate)] : root.queryAll(predicate);
 }
 
+function isClass(value: unknown): value is Type<unknown> {
+  return typeof value === 'function';
+}
+
+/** Angular does not export the host `TestBed.createDirective` builds; its selector is the only handle. */
+const TESTBED_DIRECTIVE_HOST = 'ng-directive-test-component';
+
+/** The component a fixture is rooted at, unless `createDirectiveHost` or `TestBed.createDirective` built it for the spec. */
+function componentUnderTest(root: DebugElement): string | undefined {
+  const type: unknown = Reflect.get(Object(root.componentInstance), 'constructor');
+
+  if (!isClass(type) || !root.providerTokens.includes(type) || Reflect.get(type, DIRECTIVE_HOST) === true) {
+    return undefined;
+  }
+
+  const mirror = reflectComponentType(type);
+
+  return mirror === null || mirror.selector.includes(TESTBED_DIRECTIVE_HOST) ? undefined : type.name;
+}
+
 function diagnose(directive: Type<unknown>, selector: string | undefined, root: DebugElement): string {
   const elements = selector === undefined ? [] : matching(root, By.css(selector));
   const where = selector === undefined ? '' : ` on '${selector}'`;
@@ -68,6 +89,19 @@ function diagnose(directive: Type<unknown>, selector: string | undefined, root: 
     return withDocs(
       `${prefix}, but no element matches that selector.\n` +
         'Run fixture.detectChanges() before asserting, and check the selector against the template.',
+      DOCS_LINKS.angularDirectiveApplied,
+    );
+  }
+
+  const component = componentUnderTest(root);
+
+  if (component !== undefined) {
+    const scope = isStandalone(directive)
+      ? `list ${directive.name} in ${component}'s hostDirectives if the component should carry it, or in its imports if its template uses it`
+      : `add the NgModule that declares ${directive.name} to ${component}'s imports if its template uses it`;
+
+    return withDocs(
+      `${prefix}, but it is not on ${component}'s host element or in its template.\n` + `To apply it, ${scope}.`,
       DOCS_LINKS.angularDirectiveApplied,
     );
   }

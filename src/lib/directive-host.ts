@@ -39,6 +39,9 @@ export interface DirectiveHostOptions<Props extends object> {
   selector?: string;
 }
 
+/** Marks a class built here, so a failing `toHaveDirectiveApplied` can tell it from a component under test. */
+export const DIRECTIVE_HOST = Symbol.for('vitest-auto-spy.directive-host');
+
 /**
  * Build a standalone host component for a directive under test.
  *
@@ -76,6 +79,8 @@ export function createDirectiveHost<Props extends object = Record<never, never>>
     imports: [...(options.scope ?? [])],
     template: options.template,
   });
+
+  Reflect.set(DirectiveHost, DIRECTIVE_HOST, true);
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the class is built here and the decorator returns it unchanged; `Props` describes the fields the constructor copies on, which no runtime construction can prove to the compiler.
   return decorate(DirectiveHost) as Type<Props>;
