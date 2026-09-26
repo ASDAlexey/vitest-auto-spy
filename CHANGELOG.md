@@ -80,6 +80,10 @@ with no npm `overrides`, and the docs now say how and what it buys: on a zoneles
   - `--format json` adds `run.vitest`, `run.config`, `run.startup` and `run.lanes`, and `transform` in
     `slowestFiles[].phases`; `--format markdown` names the Vitest version, prints the lanes line and
     adds a `Transform` column.
+  - `vitest-auto-spy/perf-reporter` grows from 1.07 kB to 1.74 kB min+gzip (+0.67 kB): the
+    resolved config, the per-file lane and fetch times, and the partial report below. It loads once,
+    in the Vitest main process, and only on a run `perf` measures or a config that names it; no
+    worker and no spec imports it.
 
 - **A killed run still leaves a `perf` report.** The reporter rewrites the report as files finish, at
   most every two seconds, marked `partial: true`, so a run CI killed or timed out is not lost. `perf`
