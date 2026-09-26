@@ -339,6 +339,40 @@ describe('createSpyFromInstance — misconfiguration reports', () => {
   });
 });
 
+describe('createSpyFromInstance — non-configurable members', () => {
+  it('explains a non-enumerable, non-configurable method instead of failing with a bare TypeError', () => {
+    const target: { send?: () => void } = {};
+    const method = (): void => undefined;
+
+    Object.defineProperty(target, 'send', { value: method, writable: true, configurable: false, enumerable: false });
+
+    try {
+      expect(() => createSpyFromInstance(target, { onlyMethodsToSpyOn: ['send'] })).toThrow(
+        "[vitest-auto-spy] Cannot spy on 'send' in place: it is a non-configurable, non-enumerable own property",
+      );
+      expect(Reflect.get(target, 'send')).toBe(method);
+    } finally {
+      restoreSpiedInstance(target);
+    }
+  });
+
+  it('spies a writable, non-configurable method that is already enumerable', () => {
+    const target: { send: () => string } = {} as { send: () => string };
+
+    Object.defineProperty(target, 'send', { value: () => 'real', writable: true, configurable: false, enumerable: true });
+
+    const spy = createSpyFromInstance(target, { onlyMethodsToSpyOn: ['send'] });
+
+    spy.send.mockReturnValue('spied');
+
+    expect(target.send()).toBe('spied');
+
+    restoreSpiedInstance(target);
+
+    expect(target.send()).toBe('real');
+  });
+});
+
 describe('createSpyFromInstance — live DOM/BOM objects', () => {
   afterEach(() => {
     setMisconfigurationReaction(undefined);
@@ -396,6 +430,40 @@ describe('createSpyFromInstance — live DOM/BOM objects', () => {
 
     expect(() => createSpyFromInstance(el)).toThrow('no onlyMethodsToSpyOn was given for a live DOM/BOM object');
     expect(el.addEventListener).toBe(realAddEventListener);
+  });
+
+  it('says that a bare array adds to discovery rather than restricting it', () => {
+    setMisconfigurationReaction('throw');
+    const el = document.createElement('div');
+
+    expect(() => createSpyFromInstance(el, ['focus'])).toThrow(
+      'The methods listed (a bare array is methodsToSpyOn) are spied in addition to that discovery, not instead of it.',
+    );
+  });
+
+  it.each([
+    ['the global object', (): object => globalThis],
+    ['an engine event target that is not a Node', (): object => new XMLHttpRequest()],
+  ])('recognizes %s as a live host object', (_, create) => {
+    setMisconfigurationReaction('throw');
+
+    expect(() => createSpyFromInstance(create())).toThrow('no onlyMethodsToSpyOn was given for a live DOM/BOM object');
+  });
+
+  it.each([
+    ['a user class extending EventTarget', (): object => new (class Emitter extends EventTarget {})()],
+    ['a bare EventTarget', (): object => new EventTarget()],
+    ['a literal with an addEventListener method', (): object => ({ addEventListener: (): void => undefined })],
+    ['an object inheriting addEventListener from a literal', (): object => Object.create({ addEventListener: (): void => undefined })],
+  ])('stays quiet for %s', (_, create) => {
+    setMisconfigurationReaction('throw');
+    const target = create();
+
+    try {
+      expect(() => createSpyFromInstance(target)).not.toThrow();
+    } finally {
+      restoreSpiedInstance(target);
+    }
   });
 });
 

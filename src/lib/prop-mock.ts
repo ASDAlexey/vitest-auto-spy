@@ -551,7 +551,7 @@ export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, gett
  * 'isGuest', true)` can — and records the undo. (`TS2540` on a class **getter** is
  * {@link mockReadonlyProp}.)
  *
- * Also works on `Array.prototype.length` (`{ writable: true, configurable: false }`), including the
+ * Also works on an array's own `length` (`{ writable: true, configurable: false }`), including the
  * undo — though restoring the number does not repopulate elements a shrink already deleted, which is
  * the array setter's own behaviour, not something any restore mechanism can undo.
  *
@@ -570,7 +570,7 @@ export function mockValueProp<T>(object: T, property: PropertyKey, value: unknow
 
 /**
  * `configurable: true` is the right default — it is what lets a later restore delete a property this
- * helper introduced — except a property like `Array.prototype.length` is `{ writable: true,
+ * helper introduced — except a property like an array's `length` is `{ writable: true,
  * configurable: false }` and forbids *raising* `configurable` back to `true`, even though the
  * runtime otherwise allows changing the value of a writable-but-non-configurable data property
  * outright. Keeping `configurable: false`, only when the existing property already demands it, is

@@ -132,23 +132,44 @@ function warnOnInstanceMisconfiguration(instance: object, className: string | un
   }
 
   if (config.onlyMethodsToSpyOn.length === 0 && looksLikeLiveHostObject(instance)) {
-    warnOnUndiscriminatedHostDiscovery(label);
+    warnOnUndiscriminatedHostDiscovery(label, config.methodsToSpyOn.length > 0);
   }
 }
 
 /**
- * Best-effort recognition of a live DOM/BOM object — every environment that has one (a real browser,
- * jsdom, happy-dom) exposes `Node` and `EventTarget` globally, so this needs no DOM import that would
- * break the Node and Bun entries. `Node` alone is not enough: happy-dom's `window`, `document` and
- * XHR are not `instanceof Node`, and are not `instanceof` the realm's own global `EventTarget` either
- * (a cross-realm identity mismatch in how it wires those globals) — a real browser and jsdom do not
- * share that gap, so the second check still catches them there. A custom `EventTarget` subclass is a
- * false positive, and a host object neither check recognizes is a false negative; either way the cost
- * is only the warning below, never a broken double.
+ * Best-effort recognition of a live DOM/BOM object, with no DOM import that would break the Node and
+ * Bun entries. `instanceof EventTarget` is both too wide and too narrow: a user class that extends
+ * `EventTarget` matches, yet happy-dom's `window`, XHR and `AbortSignal` do not (its globals sit on a
+ * private `EventTarget` of their own). So an event target counts when it is `Node`, the global
+ * object, or when some level of its chain is a constructor the realm exposes as a global other than
+ * `EventTarget` itself — `Window`, `XMLHttpRequest`, `AbortSignal` — which a user subclass is not.
  */
 function looksLikeLiveHostObject(instance: object): boolean {
+  if (typeof Reflect.get(instance, 'addEventListener') !== 'function') {
+    return false;
+  }
+
+  if ((typeof Node !== 'undefined' && instance instanceof Node) || instance === globalThis) {
+    return true;
+  }
+
+  for (let level = Reflect.getPrototypeOf(instance); level !== null; level = Reflect.getPrototypeOf(level)) {
+    if (isEngineGlobalLevel(level)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isEngineGlobalLevel(level: object): boolean {
+  const constructor: unknown = Object.getOwnPropertyDescriptor(level, 'constructor')?.value;
+
   return (
-    (typeof Node !== 'undefined' && instance instanceof Node) || (typeof EventTarget !== 'undefined' && instance instanceof EventTarget)
+    typeof constructor === 'function' &&
+    constructor !== Object &&
+    constructor.name !== 'EventTarget' &&
+    Reflect.get(globalThis, constructor.name) === constructor
   );
 }
 
@@ -160,11 +181,17 @@ function looksLikeLiveHostObject(instance: object): boolean {
  * whichever test happens to remove the node next — nowhere near the line that created the spy.
  * `onlyMethodsToSpyOn` skips discovery entirely, so this only fires without it.
  */
-function warnOnUndiscriminatedHostDiscovery(label: string): void {
+function warnOnUndiscriminatedHostDiscovery(label: string, listedAdditions: boolean): void {
+  const additions = listedAdditions
+    ? 'The methods listed (a bare array is methodsToSpyOn) are spied in addition to that discovery, not instead of it. '
+    : '';
+
   reportMisconfiguration(
     withDocs(
       `[vitest-auto-spy] ${label}: no onlyMethodsToSpyOn was given for a live DOM/BOM object, so every method the engine ` +
-        "put on its prototype chain gets spied too, not just the class's own. A node still attached to the document can " +
+        "put on its prototype chain gets spied too, not just the class's own. " +
+        additions +
+        'A node still attached to the document can ' +
         'then fail to be removed, or worse, from inside the engine rather than the spec. List the methods the test ' +
         "actually needs: onlyMethodsToSpyOn: ['addEventListener']. For a single method on a node that must keep living " +
         "a normal DOM lifecycle, mockValueProp(el, 'addEventListener', vi.fn()) or spyOnVoidMethod(el, 'focus') leaves " +
@@ -182,6 +209,18 @@ function warnOnUndiscriminatedHostDiscovery(label: string): void {
  * step every inherited method would be spied and none of them resettable.
  */
 function installMember(instance: object, name: PropertyKey, value: unknown, restores: RestoreProp[]): void {
+  const own = Object.getOwnPropertyDescriptor(instance, name);
+
+  // mockValueProp can rewrite a writable non-configurable value, but it cannot then be made enumerable.
+  if (own?.configurable === false && own.writable === true && !own.enumerable) {
+    throw redefineFailure(
+      `Cannot spy on '${String(name)}' in place: it is a non-configurable, non-enumerable own property, so the spy could not be made enumerable for resetAutoSpy to find.`,
+      instance,
+      undefined,
+      name,
+    );
+  }
+
   restores.push(mockValueProp(instance, name, value));
   Object.defineProperty(instance, name, { enumerable: true });
 }
