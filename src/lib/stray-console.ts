@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect } from 'vitest';
 
 import { consoleCause } from './console-causes';
 import type { GuardReaction } from './guard-reaction';
+import type { OpenStep } from './guard-registry';
 import { currentSpecFile } from './spec-file';
 import { ownFrames, stackFrames } from './stack-frames';
 import { describeStrayConsole } from './stray-console-report';
@@ -182,7 +183,8 @@ function isAllowed(text: string, allow: readonly (RegExp | string)[]): boolean {
 
 /** The frame worth quoting: the first one outside dependencies, or the direct caller when all are. */
 export function callerFrame(boundary: unknown, host: FrameHost = Error): string {
-  const holder: { stack?: string } = new Error();
+  // A plain holder where the host can fill it, so the stack is taken once rather than twice.
+  const holder: { stack?: string } = host.captureStackTrace === undefined ? new Error() : {};
 
   host.captureStackTrace?.(holder, boundary);
 
@@ -436,12 +438,12 @@ export interface ConsoleTeardown {
 }
 
 /**
- * Arm the guard and register its per-test hooks; `undefined` when the reaction is `'off'`. The file
- * end gets its own `afterAll` unless `ownFileEnd` is `false`, for a caller that sweeps it with the rest.
+ * Arm the guard; `undefined` when the reaction is `'off'`. Given `open`, the per-test step joins that
+ * list and the file end is left to the caller's sweep; without it, the guard registers its own hooks.
  */
 export function watchStrayConsole(
   option: StrayConsoleOptions | StrayConsoleReaction | undefined,
-  ownFileEnd = true,
+  open?: OpenStep[],
 ): ConsoleTeardown | undefined {
   const options = resolveStrayConsole(option);
 
@@ -450,19 +452,20 @@ export function watchStrayConsole(
   }
 
   const guard = armConsoleGuard(options);
+  const openWindow = (): void => openConsoleWindow(guard);
 
   // Registered from the setup file, so it runs before any `beforeAll` of the spec, and after its import.
   beforeAll(() => {
     guard.outsidePhase = 'beforeAll';
   });
-  beforeEach(() => {
-    openConsoleWindow(guard);
-  });
 
-  if (ownFileEnd) {
+  if (open === undefined) {
+    beforeEach(openWindow);
     afterAll(() => {
       finishConsoleFile(guard);
     });
+  } else {
+    open.push(openWindow);
   }
 
   return {
