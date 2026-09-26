@@ -276,6 +276,20 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#reads-nobody-
 - **Когда.** От `beforeEach` из `setupAutoSpy`, который идёт раньше любого хука спек-файла, до его
   `afterEach`, который идёт после них. Собственный `beforeEach` спеки внутри намеренно — именно там
   большинство сюит запускает код под тестом; сбор, `beforeAll` и `afterAll` — снаружи.
+- **Под `test.concurrent`.** У каждого concurrent-теста своё окно, поэтому стартующий сосед больше
+  не стирает то, что прочёл другой. Чтение не несёт ничего, что говорило бы, какой тест его сделал:
+  сделанное, пока в полёте был один тест, записывается на него, а сделанное, пока их было несколько,
+  ждёт последнего из них, оценивается один раз — поток, который кто-то из них к тому времени
+  накормил, находкой не считается — и называет всех:
+
+  ```text
+  [vitest-auto-spy] Router.url was read 1 time on a strict double and nothing configured it, so the code under test got undefined.
+  Configure it in the test: accessorSpies.getters.url.mockReturnValue(…), or mockReturnValue(undefined) when undefined is the answer meant.
+  It happened while 2 concurrent tests were in flight ("Cart > loads", "Cart > saves"), and a read does not say which test made it; it is reported once, as the last of them finishes.
+  ```
+
+  При `'throw'` падает последний из них.
+
 - **Настраивают** `accessorSpies.getters.x.mockReturnValue(…)` / `mockImplementation(…)`
   (`mockReturnValueOnce` считается, пока не кончится его очередь, как у метода), `overrides: { x: … }` —
   на месте вызова или в строке `registerAutoSpyDefaults` — и `mockReadonlyProp(double, 'x', …)`; поток —

@@ -447,13 +447,13 @@ prevent.
 
 ### Retained memory per double
 
-`npm run bench:memory`, 2026-09-17, Node v24.19.0, **Vitest 5.0.0**. 500 doubles held alive at once,
+`npm run bench:memory`, 2026-09-26, Node v24.19.0, **Vitest 5.0.0**. 500 doubles held alive at once,
 5 repeats per cell (median), 4 GC passes forced per settle. Each cell is heap delta divided by the
 500 doubles, i.e. **bytes per double** — the number in parentheses divides that further by the
 method count, i.e. bytes per method. The mock registry is pruned between arms; without that, every
 arm after the first would carry forward everything the earlier arms allocated, and the numbers would
 be a running total rather than each library's own footprint. Pruning was verified clean — worst
-residual 0.2% — and run-to-run spread was at worst ±42%, on the one cell small enough for the noise
+residual 0.0% — and run-to-run spread was at worst ±40%, on the one cell small enough for the noise
 floor to matter: the default arm's untouched 10-method double, which is now a couple of hundred
 bytes against a 512 KiB floor. Every other cell reproduced within ±1%.
 
@@ -461,13 +461,13 @@ bytes against a 512 KiB floor. Every other cell reproduced within ±1%.
 
 | Arm                                  |     10 methods, untouched |            10, all called |     100 methods, untouched |            100, all called |
 | ------------------------------------ | ------------------------: | ------------------------: | -------------------------: | -------------------------: |
-| vitest-auto-spy default lazy         |     **224 B** (22/method) | 19 471 B (1 947 B/method) |     **242 B** (2 B/method) | 190 559 B (1 906 B/method) |
-| vitest-auto-spy `lazySpies: 'proxy'` |    1 857 B (186 B/method) | 20 459 B (2 046 B/method) |      4 097 B (41 B/method) | 189 096 B (1 891 B/method) |
-| vitest-auto-spy `lazySpies: false`   |    5 800 B (580 B/method) | 18 805 B (1 880 B/method) |    55 518 B (555 B/method) | 185 188 B (1 852 B/method) |
-| jest-auto-spies                      | 67 246 B (6 725 B/method) | 77 802 B (7 780 B/method) | 674 658 B (6 747 B/method) | 779 710 B (7 797 B/method) |
-| jasmine-auto-spies                   | 69 719 B (6 972 B/method) | 80 287 B (8 029 B/method) | 699 473 B (6 995 B/method) | 804 525 B (8 045 B/method) |
-| @bugsplat/vitest-auto-spies          | 67 250 B (6 725 B/method) | 77 822 B (7 782 B/method) | 674 675 B (6 747 B/method) | 779 725 B (7 797 B/method) |
-| hand-written `vi.fn()`               | 47 258 B (4 726 B/method) | 57 825 B (5 783 B/method) | 476 862 B (4 769 B/method) | 581 910 B (5 819 B/method) |
+| vitest-auto-spy default lazy         |     **221 B** (22/method) | 13 317 B (1 332 B/method) |     **243 B** (2 B/method) | 128 956 B (1 290 B/method) |
+| vitest-auto-spy `lazySpies: 'proxy'` |    1 860 B (186 B/method) | 14 264 B (1 426 B/method) |      4 097 B (41 B/method) | 127 496 B (1 275 B/method) |
+| vitest-auto-spy `lazySpies: false`   |    5 800 B (580 B/method) | 12 633 B (1 263 B/method) |    55 542 B (555 B/method) | 123 605 B (1 236 B/method) |
+| jest-auto-spies                      | 67 246 B (6 725 B/method) | 77 834 B (7 783 B/method) | 674 661 B (6 747 B/method) | 779 725 B (7 797 B/method) |
+| jasmine-auto-spies                   | 69 733 B (6 973 B/method) | 80 296 B (8 030 B/method) | 699 481 B (6 995 B/method) | 804 533 B (8 045 B/method) |
+| @bugsplat/vitest-auto-spies          | 67 257 B (6 726 B/method) | 77 829 B (7 783 B/method) | 674 678 B (6 747 B/method) | 779 731 B (7 797 B/method) |
+| hand-written `vi.fn()`               | 47 258 B (4 726 B/method) | 57 825 B (5 783 B/method) | 476 862 B (4 769 B/method) | 581 883 B (5 819 B/method) |
 
 **Every row moved against the edition this replaces, and only one of the two reasons is this
 package.** The other is the runner: on Vitest 5 a bare `vi.fn()` retains 4 726 B where it retained
@@ -475,12 +475,19 @@ package.** The other is the runner: on Vitest 5 a bare `vi.fn()` retains 4 726 B
 Read the columns against each other on this table, never against a number from the Vitest 4 edition.
 
 This package's own rows moved for reasons of their own. [The spy engine](#the-spy-engine) is the one
-behind the "all called" cells: a materialised method retains **1 906 B** against the runner's own
-5 783 B, and an eagerly built but never-called one (`lazySpies: false`, untouched) **555 B**, because
+behind the "all called" cells: a materialised method retains **1 290 B** against the runner's own
+5 819 B, and an eagerly built but never-called one (`lazySpies: false`, untouched) **555 B**, because
 a spy that is never called allocates none of the six arrays `vi.fn()` allocates up front. A smaller
 part of the same story is that the helper bundle now lives on the prototype every spy inherits
 rather than being copied onto each spy — worth 48 B per materialised method, visible in every "all
 called" cell.
+
+The "all called" cells dropped by a further third on 2026-09-26, and that one is the spy's call state
+alone. Its six arrays used to start empty, and V8 reserves seventeen slots on the first `push` into an
+empty array — about 900 B of empty slots on a method called once. They are now seeded with room for
+four calls and regrown to the old seventeen on the fifth, so a method called one to four times holds
+30–38 % less and one called more often holds what it did (+8 B). 1 947 → 1 332 B per called method
+at 10 methods, 1 905 → 1 290 B at 100.
 
 The **untouched** cells of the default arm moved for a different reason and by two orders of
 magnitude: the lazy placeholder is now one shared accessor pair per method name for the whole run
@@ -493,9 +500,9 @@ change that turned `lazySpies: 'proxy'` from the lighter arm into the heavier on
 
 | Arm                               | untouched | 10 members called | 100 members called |
 | --------------------------------- | --------: | ----------------: | -----------------: |
-| vitest-auto-spy `createAutoMock`  |     705 B |          19 546 B |          188 305 B |
-| vitest-mock-extended `mock`       |     353 B |          60 143 B |          602 216 B |
-| @golevelup/ts-vitest `createMock` |     496 B |         116 462 B |        1 158 265 B |
+| vitest-auto-spy `createAutoMock`  |     705 B |          13 353 B |          126 700 B |
+| vitest-mock-extended `mock`       |     353 B |          60 138 B |          602 182 B |
+| @golevelup/ts-vitest `createMock` |     496 B |         116 462 B |        1 158 269 B |
 
 The untouched cell is 705 B where the previous edition measured 1 184 B, and that is this package
 too: an auto-mock's Proxy handler used to be an object and seven trap closures per double, and it is
@@ -518,7 +525,7 @@ now one handler for the whole run, with everything that varies kept on the Proxy
 4. **Full materialisation is no longer a measurement of `@vitest/spy` for every arm.** It still is
    for four of them: the hand-written control retains 5 783 B per mock after one call and the three
    jest-auto-spies-family libraries land 35–39% above it. This package's spy is not one of the
-   runner's, so it sits **3.0× below that floor** at 1 923 B — the same shape the micro-benchmark
+   runner's, so it sits **4.4× below that floor** at about 1 310 B — the same shape the micro-benchmark
    shows, measured in bytes instead of microseconds.
 
 **Where this package loses on memory, at full weight:**
@@ -526,10 +533,10 @@ now one handler for the whole run, with everything that varies kept on the Proxy
 - Untouched `createAutoMock<T>()` retains **705 B** against `vitest-mock-extended`'s **353 B** and
   `@golevelup`'s **496 B** — 2.0× and 1.4× worse, still last in its family. That is the bare Proxy
   before anything is touched, and it is the one memory row this package still loses; from the first
-  member called onwards it is 3.1× lighter than `vitest-mock-extended` and 6.0× lighter than
+  member called onwards it is 4.5× lighter than `vitest-mock-extended` and 8.7× lighter than
   `@golevelup`.
 - `lazySpies: false` is marginally cheaper than the default when every method is called anyway —
-  18 805 vs 19 471 B at 10 methods, 185 188 vs 190 559 B at 100. The placeholder accessors the
+  12 633 vs 13 317 B at 10 methods, 123 605 vs 128 956 B at 100. The placeholder accessors the
   default installs are not free once they have been replaced, and a spec that touches the whole
   surface gives them nothing to save.
 
@@ -666,38 +673,46 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 23.2 kB min+gzip, and that is the whole core entry bundled together. It is also the
-largest number a consumer can pay for the core, because entries are separate subpaths and a project
-only pays for the ones it imports:
+The badge says 27.1 kB min+gzip, and that is the whole core entry bundled together. Entries are
+separate subpaths and a project pays for the ones it imports:
 
-| Imported                                      |    min+gzip |
-| --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **23.2 kB** |
-| `vitest-auto-spy/angular`                     |     27.1 kB |
-| `vitest-auto-spy/angular/doubles`             |      9.7 kB |
-| `vitest-auto-spy/angular/diagnostics`         |      6.0 kB |
-| `vitest-auto-spy/angular/matchers`            |      1.7 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     23.2 kB |
-| `vitest-auto-spy/setup`                       |     21.8 kB |
-| `vitest-auto-spy/node`                        |     22.0 kB |
-| `vitest-auto-spy/dom-stubs`                   |      7.1 kB |
-| `vitest-auto-spy/rxjs`                        |      2.6 kB |
-| `vitest-auto-spy/angular-router`              |      9.6 kB |
-| `vitest-auto-spy/signal-forms`                |      1.4 kB |
-| `vitest-auto-spy/zone`                        |      1.1 kB |
+| Imported                                                     |    min+gzip |
+| ------------------------------------------------------------ | ----------: |
+| `.` — the core entry, what the badge measures                | **27.1 kB** |
+| `vitest-auto-spy/angular` on its own                         |     33.6 kB |
+| `.` and `vitest-auto-spy/angular` together — an Angular spec |     38.8 kB |
+| `vitest-auto-spy/angular/doubles`                            |     10.8 kB |
+| `vitest-auto-spy/angular/diagnostics`                        |      6.3 kB |
+| `vitest-auto-spy/angular/matchers`                           |      1.8 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`                 |     27.1 kB |
+| `vitest-auto-spy/setup`                                      |     27.4 kB |
+| `vitest-auto-spy/node`                                       |     25.5 kB |
+| `vitest-auto-spy/dom-stubs`                                  |      8.9 kB |
+| `vitest-auto-spy/rxjs`                                       |      2.2 kB |
+| `vitest-auto-spy/angular-router`                             |     10.4 kB |
+| `vitest-auto-spy/signal-forms`                               |      1.2 kB |
+| `vitest-auto-spy/zone`                                       |      1.2 kB |
 
 **The three Angular companion rows are not an addition, they are `/angular` taken apart.** A project
 that used to import everything from `vitest-auto-spy/angular` paid 30.4 kB in every Angular spec
-file; it now pays 27.1 kB there and the companion rows once, in the setup file that calls
+file; after the split it paid 26.3 kB there and the companion rows once, in the setup file that calls
 `enableAngularDiagnostics`, `registerSignalMatchers` or the Material dialog doubles.
 
-**The framework rows are not a framework tax.** `react`, `vue` and `svelte` weigh what the core
-weighs, within a rounding error of each other, because that is what they are: `src/react.ts` is a
-barrel — a `registerMockAdapter` call and `export * from './auto-spy'` — and its own code is seven
-bytes in the bundle. Nobody should go looking for weight in it.
+**`/angular` takes the core from the root entry.** An Angular spec imports both, and until
+2026-09-26 each carried its own copy of the ~130 kB core, parsed twice per spec file. Now
+`dist/angular.js` holds only the Angular helpers and imports the rest from `dist/index.js`, so the two
+together are 38.8 kB rather than 55.8 kB, and root + `/angular` imports in 5.8 ms instead of 7.3 ms.
+The price is paid by `/angular` imported alone: it brings the root with it, 33.6 kB instead of 30.6 kB.
 
-Every figure here is the committed baseline in `size-entries.json` as of 2026-09-22, which is what
-`size:entries:check` and the badge both read; an earlier edition of this table quoted 15.1, 18.7 and
+**The framework rows are the core row.** `dist/react.js`, `vue.js` and `svelte.js` are 1.1–1.3 kB
+re-exports of `dist/index.js` (`/vue` adds `provideAutoSpy`), so they weigh what the core weighs, and
+a process that loads the root next to one of them loads the core once.
+
+Every figure here is the committed baseline in `size-entries.json` as of 2026-09-26, which is what
+`size:entries:check` and the badge both read. Growth of more than 3 % over the last release fails that
+check until the changelog says what the bytes are for.
+
+How the rows got here, oldest first: an earlier edition of this table quoted 15.1, 18.7 and
 14.5 kB for the first three rows, taken before the defaults registry, the outside-a-hook report and
 the shadowed-provider check. `/dom-stubs` last moved for `stubWebStorage`, +256 B, and `/angular` for
 `createComponentStub`, +1.02 kB; the core rows last moved for the claim
@@ -769,8 +784,9 @@ framework adapters, rxjs layer, console spies and setup helpers each live behind
 
 ### What is in the download
 
-The published tarball is **867 kB** over **96 files** (`npm pack --dry-run`, 2026-09-20) against
-3.2 MB unpacked; the twelve files the Angular split and the two CLI JSON reports added are most of
+The published tarball is **1 011 kB** over **104 files** (`npm pack --dry-run`, 2026-09-26) against
+3.5 MB unpacked. It carries the 5.x changelog only — the full history is in the repository. On
+2026-09-20 it was 867 kB over 96 files; the twelve files the Angular split and the two CLI JSON reports added are most of
 the move from the 818 kB over 84 files this page reported on 2026-09-17. An
 intermediate measurement of this same tree — after the standalone bundles described below, before
 the repair round's code — read 751 kB over 82 files; the edition before that measured 584 kB across
@@ -784,15 +800,14 @@ Where the bytes are is more useful than the total. The two largest JavaScript fi
 `dist/cli.js` at 252 kB and `dist/eslint-plugin.cjs` at 180 kB, sit on the far side of the line a
 spec run ever crosses: the first is the `vitest-auto-spy` executable — grown by the codemod's
 parse-what-it-wrote check, the perf tooling and the JSON reports — and the second is loaded by
-ESLint, so **no spec file ever loads either**. `dist/angular.js` at 160 kB and `dist/index.js` at
-144 kB are the two a spec does load, and they are large on purpose, built unsplit so each carries its
-own copy of what it needs rather than reaching a shared chunk through the loader.
-`tsup.config.ts` records the measurement behind that decision — root plus `/angular`
-plus `/setup` goes 7.7 → 5.9 ms under Node's native loader, and `/setup` alone 5.6 → 3.1 ms, on the
-numbers below. Disk is the cheap side of that trade.
+ESLint, so **no spec file ever loads either**. `dist/index.js` at 170 kB is the one file a spec always loads; `dist/angular.js` is 59 kB on top of
+it, because it imports the core from the root rather than carrying a copy. `tsup.config.ts` records
+the measurements behind both moves — root plus `/angular` plus `/setup` went 7.7 → 5.9 ms when the
+entries stopped reaching shared chunks through the loader, and 9.9 → 8.5 ms when `/angular` started
+taking the core from the root instead of carrying its own. Disk is the cheap side of that trade.
 
-`/setup`, `/react`, `/vue`, `/svelte` and `/node` are built the same way, and they are the entries
-where it shows most, because each of them used to be a shell reaching for twelve to fourteen modules
+`/setup` and `/node` are built as one file each, and so were `/react`, `/vue` and `/svelte` until they
+became re-exports of the root. It shows most in them, because each of them used to be a shell reaching for twelve to fourteen modules
 through the loader and is now one. Per spec file, on Node 24, median of 25 runs: `/setup` 5.6 → 3.1 ms,
 the root entry plus `/setup` 7.0 → 4.9 ms, `/react` 5.5 → 3.1 ms, `/node` 3.4 → 1.7 ms, and the
 heaviest Angular shape — root plus `/angular` plus `/setup` — 7.7 → 5.9 ms. The bill is **+108 kB in
@@ -800,6 +815,13 @@ the tarball** and about 442 kB in `dist/`, paid once at install, by a dependency
 production bundle. `npm run cold-import` measures those imports against a committed baseline in
 `cold-import.json`, counting modules as well as bytes, so an entry that quietly grows a loader graph
 again fails a check.
+
+Two of those milliseconds were not loading at all. The root entry and `/setup` each found the
+library's own directory — needed to tell the caller's frame from the library's in a call-site
+message — by formatting a stack trace at import, and under Vitest the first formatted stack in a spec
+file costs most of a millisecond. The probe now runs when a strict or constructor double first reports
+a call site. Root plus `/setup` per spec file under Vitest 5, median of 93 files over 31 interleaved
+runs: 8.6 → 6.8 ms; the root entry alone 5.4 → 4.0 ms.
 
 Everything else splits as intended: within the chunked pass no module is emitted twice, and not one
 byte of a peer dependency — `vitest`, `@angular/*`, `rxjs` — is inlined anywhere in `dist/`. That
@@ -817,7 +839,7 @@ disconnected registries. CommonJS now ships only where a `require()` actually wo
 second entry: `vitest-auto-spy/node` and `vitest-auto-spy/eslint-plugin`.
 
 One last thing the total does not say: the two biggest files in the download are not code at all.
-`README.md` is 355 kB and `AGENTS.md` 434 kB, and both ship deliberately — the second is what makes
+`README.md` is 417 kB and `AGENTS.md` with `agent-docs/` 389 kB, and both ship deliberately — the second is what makes
 the package legible to a coding agent that has only the installed copy to read.
 
 ## Which Node version
@@ -872,6 +894,50 @@ every case. `npm run bench` still cannot compare two runtimes — a separate pro
 the runner outside the measurement, is the only honest way to do that — but it is no longer the GC
 it was measuring.
 :::
+
+## Node's compile cache
+
+From Node 22.1, `NODE_COMPILE_CACHE` keeps V8's compiled code for every module Node loads in a
+directory on disk and reuses it on the next start. Vitest's workers inherit the variable from the
+parent process, so one line in the environment covers the whole run. Measured on this package in
+plain Node with a warm cache: the root entry imports in 2.97 ms instead of 4.17 ms, and the root plus
+`/setup` — what a spec file loads from this package — in **4.32 ms instead of 6.51 ms (−34%)**. The
+runner and every other externalized dependency are cached the same way, so on a real suite the
+saving is not limited to this package.
+
+```bash
+# locally: any directory that survives between runs
+export NODE_COMPILE_CACHE=node_modules/.cache/node-compile
+npx vitest run
+```
+
+```yaml
+# GitHub Actions: restore the directory, or every job starts cold
+env:
+  NODE_COMPILE_CACHE: ${{ github.workspace }}/.node-compile-cache
+steps:
+  - uses: actions/cache@v4
+    with:
+      path: .node-compile-cache
+      key: node-compile-${{ runner.os }}-${{ matrix.node }}-${{ hashFiles('package-lock.json') }}
+  - run: npx vitest run
+```
+
+Three things decide whether it pays:
+
+- **The directory must persist.** The cache is written when the process exits. A CI job that starts
+  from an empty directory writes a cache nobody reads and pays for the writing on top. Restore it the
+  way you restore `node_modules/.vite`, keyed on the Node version and the lockfile — the cache is
+  tied to the Node version that wrote it.
+- **Coverage with the `v8` provider gets nothing.** Vitest switches the compile cache off in its
+  workers under `coverage.provider: 'v8'`, because V8's coverage is less precise on deserialised
+  code. Under `istanbul`, which instruments the source instead, the cache stays on. A plain test job
+  next to a v8 coverage job still benefits.
+- **It covers what Node compiles itself.** Files Vite transforms for the test — your specs and any
+  inlined dependency — are evaluated by Vitest's module runner, and the numbers above do not measure
+  them.
+
+`NODE_DISABLE_COMPILE_CACHE=1` turns it off for one run without touching the configuration.
 
 ## What to reach for
 
@@ -936,24 +1002,30 @@ goes from 70 ns to about **1.75 µs** — 116 ns before 5.6 recorded origins (No
 ### What the /setup guards cost per test
 
 The guards in [`setupAutoSpy()`](/utilities/setup) run on every test, so their price is multiplied by
-the size of the suite rather than by the number of doubles. Measured over 10 000 tests on happy-dom,
-one worker, Node v24.19.0, 2026-09-17 — **per test**:
+the size of the suite rather than by the number of doubles. Measured over 5 000 empty tests, one
+worker, Node v24.19.0, Vitest 5.0, 2026-09-26. The figures are the **whole** time of a test, runner
+included: an empty test with no setup file costs about 8 µs on its own, so the library's share is the
+figure minus that.
 
-| Setting                                       | per test |
-| --------------------------------------------- | -------: |
-| `setupAutoSpy()` with its defaults            |    19 µs |
-| `setupAutoSpy({ strayConsole: 'throw' })`     |    22 µs |
-| `setupAutoSpy({ documentPollution: 'warn' })` |    23 µs |
-| `setupAutoSpy({ guardGlobals: 'warn' })`      |    59 µs |
-| `setupAutoSpy({ preset: 'strict' })`          |    67 µs |
+| Setting                                   |  node | happy-dom |
+| ----------------------------------------- | ----: | --------: |
+| no setup file (the runner alone)          |  8 µs |      8 µs |
+| `setupAutoSpy()` with its defaults        | 16 µs |     18 µs |
+| `setupAutoSpy({ strayConsole: 'throw' })` |     — |     23 µs |
+| `setupAutoSpy({ guardGlobals: 'warn' })`  |     — |     19 µs |
+| `setupAutoSpy({ preset: 'strict' })`      | 18 µs |     30 µs |
 
-Ten thousand tests at the strict preset is two thirds of a second across the whole run, which is
-below the round-to-round spread of any suite measurement on this page. Two of the three things that
-keep it there are worth naming, because they are the reason the per-test figure does not grow with
-the guard list: `guardGlobals` takes its snapshot once per **file** and diffs against it, rather than
-snapshotting before every test, and the document check rides the `onTestFinished` the teardown net
-registers anyway instead of adding a second one, which is about 7 µs a test on its own. The third is
-`guardGlobals` spending some of that back — roughly 8 µs — on the DOM prototypes it now watches.
+With coverage on (istanbul) the same runs read 20 / 23 µs for the defaults and 33 / 28 µs for the
+strict preset, against 10 / 11 µs for an empty test.
+
+Ten thousand tests at the strict preset is about a fifth of a second of library time across the whole
+run. Three things keep the per-test figure from growing with the guard list. Every guard adds a step to
+one `beforeEach` and one `afterEach` instead of registering hooks of its own — the runner charges a
+promise and a timer per hook per test, about 1 µs each. The teardown net rides `aroundEach` on Vitest
+4.1 and later instead of an `onTestFinished` per test, which captured a stack each time, about 5 µs.
+And `guardGlobals` no longer lists `globalThis` after every test — that alone was 20–25 µs under a DOM
+environment: while it is on, the three `defineProperty` functions note which watched object got a
+non-configurable definition, a test checks only those, and every object is compared once per file.
 
 `documentPollution: { nodes: true }` is the option whose cost depends on the page rather than on the
 suite: it compares the children of `<html>`, `<head>` and `<body>` as well as their attributes, and

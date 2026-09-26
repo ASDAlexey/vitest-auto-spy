@@ -290,6 +290,20 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#reads-nobody-
 - **When.** From `setupAutoSpy`'s `beforeEach`, which runs before any hook of the spec file, to its
   `afterEach`, which runs after them. The spec's own `beforeEach` is inside on purpose — that is where
   most suites run the code under test — and collection, `beforeAll` and `afterAll` are outside.
+- **Under `test.concurrent`.** Each concurrent test keeps its own window, so a neighbour starting
+  can no longer clear what another has read. A read carries nothing that says which test made it:
+  one made while only one test was in flight is charged to that test, and one made while several
+  were waits for the last of them, is judged once — a stream any of them fed by then is not a
+  finding — and names them all:
+
+  ```text
+  [vitest-auto-spy] Router.url was read 1 time on a strict double and nothing configured it, so the code under test got undefined.
+  Configure it in the test: accessorSpies.getters.url.mockReturnValue(…), or mockReturnValue(undefined) when undefined is the answer meant.
+  It happened while 2 concurrent tests were in flight ("Cart > loads", "Cart > saves"), and a read does not say which test made it; it is reported once, as the last of them finishes.
+  ```
+
+  Under `'throw'` it is the last of them to finish that fails.
+
 - **Configured by** `accessorSpies.getters.x.mockReturnValue(…)` / `mockImplementation(…)` (a
   `mockReturnValueOnce` counts until its queue runs out, as for a method), `overrides: { x: … }` — on
   the call site or in a `registerAutoSpyDefaults` row — and `mockReadonlyProp(double, 'x', …)`; a
