@@ -181,7 +181,9 @@ describe('noticeAngularBuildSplitting', () => {
     expect(written).toHaveLength(1);
     expect(written[0]).toContain('[vitest-auto-spy] @angular/build 22.1.6 builds the unit-test bundle with code splitting off');
     expect(written[0]).toContain('`--coverage` grows by hundreds of megabytes with no plateau');
-    expect(written[0]).toContain('Upgrade to 22.1.7 or newer and set `"splitting": true` on the test target');
+    expect(written[0]).toContain(
+      'Upgrade to 22.1.7 or newer, where splitting is on by default, and remove any `"splitting": false` from the test target',
+    );
     expect(written[0]).toContain('reports this as angular-build-splitting-off');
     expect(written[0]).toContain('setupAutoSpy({ angularBuildHint: false })');
     expect(written[0]).toContain('Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular');

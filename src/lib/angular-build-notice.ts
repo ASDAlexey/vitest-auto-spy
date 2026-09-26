@@ -6,7 +6,7 @@
  * a self-contained bundle, a mid-size suite emits hundreds of chunks (791 chunks / 596 MB on a
  * 784-spec suite), and `--coverage` grows by hundreds of megabytes with no plateau until the run is
  * killed. The builder emits no warning. PR #33961 restores the option with splitting on by default,
- * so 22.1.7 closes the window.
+ * so 22.1.7 closes the window. 22.2.0 deprecates the option again, since Vitest 5 no longer needs it.
  *
  * Two readers share the window and the wording, so they cannot drift: the `doctor` check, which a
  * person has to run, and the notice `setupAutoSpy()` prints from inside the run where it hurts.
@@ -70,7 +70,8 @@ export function describeSplittingOff(version: string): string {
   return `@angular/build ${version} builds the unit-test bundle with code splitting off: one self-contained bundle per spec, and \`--coverage\` grows by hundreds of megabytes with no plateau.`;
 }
 
-export const SPLITTING_OFF_FIX = 'Upgrade to 22.1.7 or newer and set `"splitting": true` on the test target.';
+export const SPLITTING_OFF_FIX =
+  'Upgrade to 22.1.7 or newer, where splitting is on by default, and remove any `"splitting": false` from the test target.';
 
 export type ReadFile = (path: string) => string | undefined;
 
@@ -144,8 +145,8 @@ function readInstalledVersionFromCwd(): string | undefined {
  * Say once per process that the builder is in the window — in the run where it hurts, which the
  * doctor check and the docs page, both of which have to be sought out, cannot.
  *
- * The builder runs Vitest with `isolate: false` and evaluates the setup file once per worker, so
- * the flag on `globalThis` makes this one line per worker. Both arguments are injectable for the
+ * The builder runs Vitest with `isolate: false`, so a worker keeps its `globalThis` across spec
+ * files and the flag on it makes this one line per worker. Both arguments are injectable for the
  * spec: the channel, and the version source.
  */
 export function noticeAngularBuildSplitting(
