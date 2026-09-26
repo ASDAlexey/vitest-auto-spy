@@ -57,7 +57,7 @@ export const LEGACY_FILES: readonly Target[] = [
 
 const SPEC_GLOBS = '**/*.spec.ts, **/*.spec.tsx, **/*.test.ts, **/*.test.tsx';
 
-const POINTER = [
+export const POINTER = [
   'Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses',
   '`vitest-auto-spy` — the API, the configuration semantics and the common mistakes.',
 ].join('\n');
@@ -66,7 +66,7 @@ function scopedBody(profile: Profile): string {
   return `${POINTER}\n\nThis repository imports from \`${profile.entry}\`.`;
 }
 
-const FRONTMATTER: Record<string, string> = {
+export const FRONTMATTER: Readonly<Record<string, string>> = {
   '.cursor/rules/vitest-auto-spy.mdc': `---\ndescription: How to write tests with vitest-auto-spy\nglobs: ${SPEC_GLOBS}\nalwaysApply: false\n---`,
   '.github/instructions/vitest-auto-spy.instructions.md': `---\napplyTo: '${SPEC_GLOBS.split(', ').join(',')}'\n---`,
   '.windsurf/rules/vitest-auto-spy.md': `---\ntrigger: glob\nglobs: ${SPEC_GLOBS}\n---`,
@@ -80,12 +80,12 @@ export function skillStub(frontmatter: string, version: string): string {
   const body = [
     '# vitest-auto-spy',
     '',
-    'This is a pointer, not a copy. The authoritative reference ships inside the package. Read it by',
-    'section, starting with its header, which says which sections every task needs:',
+    'This is a pointer, not a copy. The authoritative reference ships inside the package. Its',
+    '`AGENTS.md` is a short map: read it whole, then only the topic files it names for the task:',
     '',
     '```bash',
-    "sed -n '1,/^## 1\\./p' node_modules/vitest-auto-spy/AGENTS.md          # the header and its reading map",
-    "grep -n '^## ' node_modules/vitest-auto-spy/AGENTS.md                   # every section with its line",
+    'cat node_modules/vitest-auto-spy/AGENTS.md                                    # the map',
+    'cat node_modules/vitest-auto-spy/agent-docs/factories.md                      # one topic file',
     "grep -n -F '<error text>' node_modules/vitest-auto-spy/agent-docs/errors.md  # the fix for a failure",
     '```',
     '',
