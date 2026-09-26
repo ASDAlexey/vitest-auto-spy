@@ -224,6 +224,7 @@
     "assets",
     "skills",
     "AGENTS.md",
+    "agent-docs",
     "CHANGELOG.md",
     "README.md",
     "LICENSE"
@@ -307,17 +308,20 @@
     "bench:vs:fast": "node scripts/bench-run.mjs --fast",
     "bench:vs:precise": "node scripts/bench-run.mjs --precise",
     "bench:angular": "node bench-angular/run.mjs",
+    "bench:angular-builder": "node bench-angular-builder/run.mjs",
     "bench:memory": "vitest run --config vitest.bench.memory.config.mts",
     "bench:suite": "node scripts/bench-suite.mjs",
     "bench:check": "node scripts/bench-check.mjs",
     "bench:smoke": "node scripts/bench-smoke.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "format": "prettier -w \"src/**/*.ts\" \"**/*.md\"",
+    "format": "prettier -w \"src/**/*.ts\" \"**/*.md\" && node scripts/agents-sync.mjs",
     "format:check": "prettier -c \"src/**/*.ts\" \"**/*.md\"",
+    "agents:sync": "node scripts/agents-sync.mjs",
+    "agents:sync:check": "node scripts/agents-sync.mjs --check",
     "deps:check": "node scripts/check-dep-drift.mjs",
     "jscpd": "jscpd",
-    "check": "npm run deps:check && npm run typecheck && npm run lint && npm run format:check && npm run jscpd && npm run export-map:check && npm run llms:check && npm run docs:check && npm run ru:check && npm run plugin:sync:check && npm run skill:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run types:budget && npm run test:shared-env && npm run test:zone && npm run test:happy-dom && npm run test:invariants && npm run test:node && npm run test:bun && npm run test:bun:angular && npm run test:bun:isolate && npm run test:rstest && npm run build && npm run smoke:dist && npm run size:entries:check && npm run size:badge:check && npm run test:bun:preload && npm run cold-import:check",
+    "check": "npm run deps:check && npm run typecheck && npm run lint && npm run format:check && npm run agents:sync:check && npm run jscpd && npm run export-map:check && npm run llms:check && npm run docs:check && npm run ru:check && npm run plugin:sync:check && npm run skill:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run types:budget && npm run test:shared-env && npm run test:zone && npm run test:happy-dom && npm run test:invariants && npm run test:node && npm run test:bun && npm run test:bun:angular && npm run test:bun:isolate && npm run test:rstest && npm run build && npm run smoke:dist && npm run size:entries:check && npm run size:badge:check && npm run test:bun:preload && npm run cold-import:check",
     "prepublishOnly": "npm run build",
     "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && node scripts/generate-export-map.mjs && node scripts/stamp-changelog.mjs && git add .claude-plugin alias src/cli/checks/export-map.generated.ts CHANGELOG.md"
   },
@@ -353,25 +357,17 @@
       "optional": true
     }
   },
-  "overrides": {
-    "@analogjs/vitest-angular": {
-      "vitest": "$vitest"
-    },
-    "@angular/build": {
-      "vitest": "$vitest"
-    }
-  },
   "devDependencies": {
-    "@analogjs/vite-plugin-angular": "^2.2.0",
-    "@analogjs/vitest-angular": "^2.2.0",
-    "@angular/build": "^22.1.7",
-    "@angular/common": "^22.1.5",
-    "@angular/compiler": "^22.1.5",
-    "@angular/compiler-cli": "^22.1.5",
-    "@angular/core": "^22.1.5",
-    "@angular/forms": "22.1.5",
-    "@angular/platform-browser": "^22.1.5",
-    "@angular/router": "^22.1.5",
+    "@analogjs/vite-plugin-angular": "^2.7.5",
+    "@analogjs/vitest-angular": "^2.7.5",
+    "@angular/build": "^22.2.0",
+    "@angular/common": "^22.2.0",
+    "@angular/compiler": "^22.2.0",
+    "@angular/compiler-cli": "^22.2.0",
+    "@angular/core": "^22.2.0",
+    "@angular/forms": "22.2.0",
+    "@angular/platform-browser": "^22.2.0",
+    "@angular/router": "^22.2.0",
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.2",
     "@eslint/js": "^10.0.1",
     "@happy-dom/global-registrator": "^20.14.0",

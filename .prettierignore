@@ -9,3 +9,8 @@ CHANGELOG.md
 # third-party text that reformatting would silently rewrite.
 .claude
 tasks
+
+# Formatted by `npm run agents:sync`: prettier first, then the table padding stripped, which prettier
+# would put back. `agents:sync:check` is their format check.
+AGENTS.md
+agent-docs

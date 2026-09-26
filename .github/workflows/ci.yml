@@ -202,6 +202,10 @@ jobs:
         if: matrix.half == 'files'
         run: npm run format:check
 
+      - name: Agent docs
+        if: matrix.half == 'files'
+        run: npm run agents:sync:check
+
       - name: Copy-paste detector
         if: matrix.half == 'files'
         run: npm run jscpd
