@@ -1,9 +1,9 @@
 /**
  * The jasmine compatibility layer on the real `bun:test` runtime.
  *
- * `vitest-auto-spy/jasmine` cannot be imported here — that entry registers the Vitest adapter, and
- * registering it means importing `vitest`, which Bun cannot load. `vitest-auto-spy/jasmine-compat`
- * is the Vitest-free way in, and this file is the proof that the claim holds: the namespaces are
+ * `vitest-auto-spy/jasmine` is typed against Vitest's `Mock`, so a Bun suite goes through
+ * `vitest-auto-spy/jasmine-compat`, the Vitest-free way in, and this file is the proof that the claim
+ * holds: the namespaces are
  * written against the `MockAdapter`, so the same `.and` / `.calls` / `.withArgs` a Vitest suite gets
  * are the ones Bun's `mock()` gets.
  */
