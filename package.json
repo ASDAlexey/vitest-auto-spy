@@ -321,9 +321,11 @@
     "agents:sync:check": "node scripts/agents-sync.mjs --check",
     "deps:check": "node scripts/check-dep-drift.mjs",
     "jscpd": "jscpd",
-    "check": "npm run deps:check && npm run typecheck && npm run lint && npm run format:check && npm run agents:sync:check && npm run jscpd && npm run export-map:check && npm run llms:check && npm run docs:check && npm run ru:check && npm run plugin:sync:check && npm run skill:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run types:budget && npm run test:shared-env && npm run test:zone && npm run test:happy-dom && npm run test:invariants && npm run test:node && npm run test:bun && npm run test:bun:angular && npm run test:bun:isolate && npm run test:rstest && npm run build && npm run smoke:dist && npm run size:entries:check && npm run size:badge:check && npm run test:bun:preload && npm run cold-import:check",
+    "check": "node scripts/check.mjs",
     "prepublishOnly": "npm run build",
-    "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && node scripts/generate-export-map.mjs && node scripts/stamp-changelog.mjs && git add .claude-plugin alias src/cli/checks/export-map.generated.ts CHANGELOG.md"
+    "prepack": "node scripts/pack-changelog.mjs --trim",
+    "postpack": "node scripts/pack-changelog.mjs --restore",
+    "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && node scripts/generate-export-map.mjs && node scripts/stamp-changelog.mjs && node scripts/size-entries.mjs --release && node scripts/cold-import.mjs --release && git add .claude-plugin alias src/cli/checks/export-map.generated.ts CHANGELOG.md size-entries.json cold-import.json"
   },
   "peerDependencies": {
     "@angular/common": ">=20.0.0",
