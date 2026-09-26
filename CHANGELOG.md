@@ -77,6 +77,10 @@ more than half), and a called method retains a third less.
   the once-per-worker notice. `/dom-stubs`, `/console`, `/jasmine` and `/nestjs` carry +0.2–0.4 kB
   each of the shared parts, and every Vitest-side entry +44–83 B for the `clearAllMocks` sentinel
   that is now built with the first spy so the entry loads on Bun.
+- **What the root pays for both.** `vitest-auto-spy` is +1.1 kB min+gzip (26.7 → 27.8 kB): 0.74 kB
+  is the 46 `ɵ` exports that let `/angular` and the framework entries drop their own copy of the
+  core, and most of the rest is the seeded call-state arrays below (+1.3 kB minified before gzip,
+  net of what left `fast-spy`), which buy back a third of every called method's memory.
 - **A called method retains about a third less.** A spy's six call-state arrays used to start
   empty, and V8 reserves seventeen slots on the first `push` into an empty array — six times over
   for a method called once. They are now seeded with room for four calls and regrown to the old
