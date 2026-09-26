@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import '../index';
 import { stubElementRect } from './element-rect-stub';
@@ -54,6 +54,17 @@ describe('stubElementRect', () => {
 
     element.getBoundingClientRect();
 
+    expect(stub.getBoundingClientRect).toHaveBeenCalledOnce();
+  });
+
+  it('keeps reporting the box after the mocks are reset mid-test', () => {
+    const element = document.createElement('div');
+    const stub = stubElementRect(element, { width: 100 });
+
+    vi.resetAllMocks();
+    vi.mocked(stub.getBoundingClientRect).mockReset();
+
+    expect(element.getBoundingClientRect().width).toBe(100);
     expect(stub.getBoundingClientRect).toHaveBeenCalledOnce();
   });
 });
