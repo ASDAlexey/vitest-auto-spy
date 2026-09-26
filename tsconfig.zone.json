@@ -1,0 +1,8 @@
+{
+  // The Angular plugin compiles its whole program before the first test runs; over
+  // `tsconfig.spec.json` that is every spec in the repository, for a project of four files.
+  "extends": "./tsconfig.spec.json",
+  // Every zone file stays in the program: a decorated file outside it compiles down the plugin's
+  // fallback path, which emits a `_decorate` helper import nothing in this repository resolves.
+  "include": ["src/zone-tests/**/*.ts", "src/**/*.d.ts"]
+}
