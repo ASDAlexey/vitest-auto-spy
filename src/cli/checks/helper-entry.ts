@@ -12,9 +12,11 @@
  * has. And it survives in the wild for the same reason `tsconfig-glob-matches-nothing` does: the
  * files it fires in are usually the files no `tsc` program covers.
  */
+import { dirname, join } from 'node:path';
+
 import type { Profile } from '../profile';
 import type { Finding } from '../report';
-import { entryExports, findEntryImports, ownersOf, scanSources } from './entry-imports';
+import { entryExports, findEntryImports, installedEntries, ownersOf, scanSources } from './entry-imports';
 import type { SourceGraph } from './graph';
 
 /**
@@ -37,13 +39,23 @@ function findingFor(file: string, entry: string, name: string, owners: readonly 
   };
 }
 
+/**
+ * Only owners the install resolved from the file publishes: the table can be a minor ahead of it
+ * (5.21.0 moved helpers in one), and a fix naming a missing entry is `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+ */
+function publishedOwners(profile: Profile, file: string, name: string): readonly string[] {
+  const published = installedEntries(join(profile.cwd, dirname(file)));
+
+  return ownersOf(name).filter((owner) => published?.has(owner) === true);
+}
+
 export function checkHelperEntry(profile: Profile, graph: SourceGraph): Finding[] {
   return scanSources(profile, graph, (file, text, report) => {
     for (const { entry, name } of findEntryImports(text)) {
       const exported = entryExports(entry);
-      const owners = candidates(ownersOf(name), profile.entry);
+      const owners = exported === undefined || exported.has(name) ? [] : candidates(publishedOwners(profile, file, name), profile.entry);
 
-      if (exported !== undefined && !exported.has(name) && owners.length > 0) {
+      if (owners.length > 0) {
         report(findingFor(file, entry, name, owners));
       }
     }

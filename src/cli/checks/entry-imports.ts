@@ -16,6 +16,7 @@ import { AWAITABLE_HELPERS, ENTRY_SPECIFIERS, EXPORTED_BY, EXPORT_MAP_VERSION } 
 import type { SourceGraph } from './graph';
 import { isInsideLiteral, literalSpans } from './literals';
 
+const PACKAGE = 'vitest-auto-spy';
 const ENTRIES = ENTRY_SPECIFIERS.split(' ');
 const AWAITABLE = new Set(AWAITABLE_HELPERS.split(' '));
 const NO_OWNERS: readonly string[] = [];
@@ -118,12 +119,17 @@ function majorOf(version: string): string | undefined {
   return captures(version, /^(\d+)\./g)[0];
 }
 
-function versionAt(path: string | undefined): string | undefined {
+interface Manifest {
+  readonly version: string;
+  readonly exports: unknown;
+}
+
+function manifestAt(path: string | undefined): Manifest | undefined {
   const text = path === undefined ? undefined : readTextFile(path);
   const parsed = text === undefined ? undefined : parseJsonc(text);
   const version = isRecord(parsed) ? parsed['version'] : undefined;
 
-  return typeof version === 'string' ? version : undefined;
+  return isRecord(parsed) && typeof version === 'string' ? { version, exports: parsed['exports'] } : undefined;
 }
 
 /**
@@ -140,9 +146,8 @@ function resolvedManifest(directory: string): string | undefined {
   }
 }
 
-/** The version of this package the consuming repository actually has installed, if it can be read. */
-export function installedVersion(cwd: string): string | undefined {
-  const resolved = versionAt(resolvedManifest(cwd));
+function findManifest(cwd: string): Manifest | undefined {
+  const resolved = manifestAt(resolvedManifest(cwd));
 
   if (resolved !== undefined) {
     return resolved;
@@ -151,10 +156,10 @@ export function installedVersion(cwd: string): string | undefined {
   let directory = cwd;
 
   for (;;) {
-    const version = versionAt(join(directory, 'node_modules/vitest-auto-spy/package.json'));
+    const manifest = manifestAt(join(directory, 'node_modules/vitest-auto-spy/package.json'));
 
-    if (version !== undefined) {
-      return version;
+    if (manifest !== undefined) {
+      return manifest;
     }
 
     const parent = dirname(directory);
@@ -167,6 +172,39 @@ export function installedVersion(cwd: string): string | undefined {
   }
 }
 
+const MANIFESTS = new Map<string, Manifest | undefined>();
+
+function installedManifest(directory: string): Manifest | undefined {
+  if (!MANIFESTS.has(directory)) {
+    MANIFESTS.set(directory, findManifest(directory));
+  }
+
+  return MANIFESTS.get(directory);
+}
+
+/** The version of this package the consuming repository actually has installed, if it can be read. */
+export function installedVersion(cwd: string): string | undefined {
+  return installedManifest(cwd)?.version;
+}
+
+/**
+ * The entry specifiers the install resolved from `directory` publishes, or `undefined` when there
+ * is no install to read or its manifest has no `exports`.
+ */
+export function installedEntries(directory: string): ReadonlySet<string> | undefined {
+  const exports = installedManifest(directory)?.exports;
+
+  if (typeof exports === 'string') {
+    return new Set([PACKAGE]);
+  }
+
+  if (!isRecord(exports)) {
+    return undefined;
+  }
+
+  return new Set(Object.keys(exports).map((key) => (key === '.' ? PACKAGE : `${PACKAGE}${key.slice(1)}`)));
+}
+
 /**
  * Whether the generated table describes the version the repository resolves.
  *
@@ -174,9 +212,9 @@ export function installedVersion(cwd: string): string | undefined {
  * comment used to claim: thirty-two helpers moved out of `/angular` into three companion entries in
  * a **minor**. Within one major the table can therefore be ahead of the install, and the case it is
  * wrong about is a newer CLI (`npx vitest-auto-spy@latest doctor`) read against an older install —
- * the fix text then names an entry that install does not publish. `TODO.md` carries it; the gate is
- * left as it is rather than narrowed here, because going silent on every older 5.x would drop the
- * true findings as well. An unreadable or unparsable version falls back to reporting: the CLI is
+ * the fix text then names an entry that install does not publish. `helper-from-wrong-entry` answers
+ * that per owner with `installedEntries`; the gate is left as it is rather than narrowed here,
+ * because going silent on every older 5.x would drop the true findings as well. An unreadable or unparsable version falls back to reporting: the CLI is
  * normally run from the installed package, and staying silent because one lockfile is unusual is the
  * worse mistake.
  */
