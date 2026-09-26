@@ -5,11 +5,12 @@
  * about the options: the order the steps run in, which test a step's outcome belongs to, and what
  * happens in the run where the hook never started at all.
  */
-import { afterEach, beforeEach, onTestFinished } from 'vitest';
+import * as vitest from 'vitest';
 
 import * as DOCS_LINKS from './docs-links';
 import type { DocumentWatch } from './document-guard';
 import { libraryWarn } from './guard-reaction';
+import type { GuardRegistry } from './guard-registry';
 import { withDocs } from './message-link';
 import { count, taskName } from './message-text';
 import { countMockedProps } from './prop-mock';
@@ -53,63 +54,74 @@ export function runTeardown(steps: readonly TeardownStep[], context?: unknown): 
   }
 }
 
+/** Vitest's `aroundEach`, as far as the net uses it. */
+export type AroundEach = (hook: (runTest: () => Promise<void>, context: unknown) => Promise<void>) => void;
+
+/** `aroundEach` where the runner has it (Vitest 4.1 and later). Read off the namespace so an older runner still links. */
+export function runnerAroundEach(runner: object = vitest): AroundEach | undefined {
+  const around: unknown = Reflect.get(runner, 'aroundEach');
+
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the runner's own export, narrowed to a function; its parameter types are the runner's and this package does not depend on them.
+  return typeof around === 'function' ? (around as AroundEach) : undefined;
+}
+
 /**
  * The teardown hook, and the net that catches the run where it never happened.
  *
- * Vitest runs `afterEach` hooks in **reverse** registration order, so the hook a setup file
- * registers is the *last* to run — and a hook the spec file registered, which therefore runs first,
- * takes the whole chain down with it when it throws. Nothing here runs, the patches stay in place,
- * and the next test reads values somebody else installed.
- *
- * That is neither hypothetical nor loud. One spec kept a long-standing
- * `afterEach(() => vi.restoreAllMocks())`; migrating it to
- * `provideAutoSpy(LayoutStateService, { gettersToSpyOn: [...] })` made the restored getter return
- * `undefined`, `ngOnDestroy` called it as a signal, the `TypeError` aborted the hook — and the
- * failure surfaced in a different `describe` as a template error about a null profile. With the
- * hand-rolled `vi.fn()` it replaced, the restored getter was still callable, so the mine had been
- * sitting there invisible.
- *
- * `onTestFinished` is the answer because Vitest runs it after the `afterEach` chain and runs it
- * whatever that chain did — measured in both orderings rather than assumed. It is registered per
- * test from a `beforeEach`, and does nothing at all unless the hook was skipped, so the ordinary
- * path costs one boolean.
+ * Vitest runs `afterEach` hooks in reverse registration order, so the setup file's runs last, and a
+ * spec's `afterEach` that throws skips it: the patches stay and the next test reads them. The net
+ * runs after the whole `afterEach` chain whatever it did — from `aroundEach` where the runner has it,
+ * else from a per-test `onTestFinished`, which costs a stack capture per test.
  */
-export function installTeardown(steps: readonly TeardownStep[], restores: readonly TeardownStep[], documents?: DocumentWatch): void {
+export function installTeardown(registry: GuardRegistry, documents?: DocumentWatch, runner: object = vitest): void {
+  const around = runnerAroundEach(runner);
   const ledger = createTeardownLedger();
   // One full explanation per file: a run where every test's hooks throw repeated it hundreds of times.
   let skippedInFile = 0;
 
-  beforeEach((context) => {
-    ledger.begin(context);
+  const settle = (context: unknown): void => {
+    const entry = ledger.settle(context);
+
+    if (entry === undefined) {
+      return;
+    }
+
+    if (!entry.ran) {
+      const leaked = countMockedProps();
+
+      runTeardown(registry.restores);
+
+      skippedInFile += 1;
+      const test = testNameOf(context);
+
+      libraryWarn(skippedInFile === 1 ? describeSkippedTeardown(leaked, test) : describeSkippedAgain(leaked, skippedInFile, test));
+    }
+
+    entry.closeDocument?.();
+  };
+
+  registry.open.push((context) => {
+    ledger.begin(context, documents?.open());
     noticeConcurrentTest(context);
 
-    const closeDocument = documents?.open();
-
-    // One registration, not two: the runner takes a stack for every `onTestFinished` it is handed
-    // (`withTimeout(handler, …, new Error(…))`), which is about 7 µs a test — the largest single
-    // item in what `setupAutoSpy()` costs by default.
-    onTestFinished(() => {
-      if (!ledger.ran(context)) {
-        const leaked = countMockedProps();
-
-        runTeardown(restores);
-
-        skippedInFile += 1;
-        const test = testNameOf(context);
-
-        libraryWarn(skippedInFile === 1 ? describeSkippedTeardown(leaked, test) : describeSkippedAgain(leaked, skippedInFile, test));
-      }
-
-      closeDocument?.();
-    });
+    if (around === undefined) {
+      vitest.onTestFinished(() => settle(context));
+    }
   });
 
-  afterEach((context) => {
+  around?.(async (runTest, context) => {
     try {
-      runTeardown(steps, context);
+      await runTest();
     } finally {
-      // In a `finally`, because `runTeardown` rethrows what a step threw and the restores have run
-      // by then regardless — the net's job is the hook that never started, not the one that failed.
+      settle(context);
+    }
+  });
+
+  vitest.afterEach((context) => {
+    try {
+      runTeardown(registry.teardown, context);
+    } finally {
+      // The restores have run by now even if a check threw; the net is for the hook that never started.
       ledger.done(context);
     }
   });
@@ -129,47 +141,63 @@ export function testNameOf(context: unknown): string | undefined {
   return task === undefined ? undefined : taskName(task);
 }
 
-/** Whether the shared `afterEach` has run for a given test. Exported for its spec: the hooks it serves cannot observe it. */
+/** What the net learns about one test: whether the shared `afterEach` ran, and the document check it opened. */
+export interface LedgerEntry {
+  ran: boolean;
+  closeDocument: (() => void) | undefined;
+}
+
+/** Exported for its spec: the hooks it serves cannot observe it. */
 export interface TeardownLedger {
-  begin(context: unknown): void;
+  begin(context: unknown, closeDocument?: () => void): void;
   done(context: unknown): void;
-  ran(context: unknown): boolean;
+  /** Hand back the test's entry and forget it; `undefined` for a test whose `beforeEach` step never ran. */
+  settle(context: unknown): LedgerEntry | undefined;
 }
 
 /**
- * Remember per test, not per file, whether the teardown ran.
- *
- * A single flag is right for a suite that runs one test at a time and wrong for `test.concurrent`:
- * the flag a second test clears in its `beforeEach` is the one the first test's net reads, so the
- * net either fires for a test whose teardown did run or stays quiet for one whose teardown did not.
- * The task object the runner hands every hook is the key that cannot be confused; the flag stays as
- * the fallback for a context that carries none.
+ * Keyed by the runner's task, so under `test.concurrent` one test's net never reads another's entry.
+ * A single slot stays as the fallback for a context that carries no task.
  */
 export function createTeardownLedger(): TeardownLedger {
-  const ranFor = new WeakSet<object>();
-  let ranWithoutTask = false;
+  const byTask = new WeakMap<object, LedgerEntry>();
+  let withoutTask: LedgerEntry | undefined;
+
+  const entryOf = (context: unknown): LedgerEntry | undefined => {
+    const task = taskOf(context);
+
+    return task === undefined ? withoutTask : byTask.get(task);
+  };
 
   return {
-    begin: (context): void => {
-      if (taskOf(context) === undefined) {
-        ranWithoutTask = false;
-      }
-    },
-    done: (context): void => {
+    begin: (context, closeDocument): void => {
+      const entry: LedgerEntry = { ran: false, closeDocument };
       const task = taskOf(context);
 
       if (task === undefined) {
-        ranWithoutTask = true;
-
-        return;
+        withoutTask = entry;
+      } else {
+        byTask.set(task, entry);
       }
-
-      ranFor.add(task);
     },
-    ran: (context): boolean => {
+    done: (context): void => {
+      const entry = entryOf(context);
+
+      if (entry !== undefined) {
+        entry.ran = true;
+      }
+    },
+    settle: (context): LedgerEntry | undefined => {
+      const entry = entryOf(context);
       const task = taskOf(context);
 
-      return task === undefined ? ranWithoutTask : ranFor.has(task);
+      if (task === undefined) {
+        withoutTask = undefined;
+      } else {
+        byTask.delete(task);
+      }
+
+      return entry;
     },
   };
 }
@@ -180,10 +208,10 @@ let warnedAboutConcurrency = false;
 export function describeConcurrentTest(test: string | undefined): string {
   return withDocs(
     `[vitest-auto-spy] ${test === undefined ? 'A test' : `"${test}"`} runs as test.concurrent, and setupAutoSpy()'s per-test ` +
-      'guards judge one test at a time: a console, document or unconfigured-read finding can land on the other test in flight, ' +
+      'guards judge one test at a time: a console or document finding can land on the other test in flight, ' +
       'or be cleared before it is seen.\n' +
-      "Run this file's tests sequentially, or give the files that keep test.concurrent a setup with strayConsole: 'off', " +
-      "documentPollution: 'off' and unconfiguredReads: 'off'. Said once per worker.",
+      "Run this file's tests sequentially, or give the files that keep test.concurrent a setup with strayConsole: 'off' " +
+      "and documentPollution: 'off'. Said once per worker.",
     DOCS_LINKS.setupConcurrent,
   );
 }

@@ -12,7 +12,7 @@
  *  3. **Draining the runner's restore registry.** Every `vi.spyOn` adds an entry that only
  *     `vi.restoreAllMocks()` removes; with a shared environment that list grows for the whole run.
  */
-import { afterAll, beforeAll, beforeEach, expect, vi } from 'vitest';
+import { afterAll, beforeAll, expect, vi } from 'vitest';
 
 import { noticeAngularBuildSplitting } from './angular-build-notice';
 import * as DOCS_LINKS from './docs-links';
@@ -20,24 +20,23 @@ import { type DocumentPollutionOptions, type DocumentPollutionReaction, watchDoc
 import { abandonEmissionWaits } from './emission-timeout';
 import { type FakeTimersConfig, setupFakeTimers } from './fake-timers';
 import { type BoundaryRepair, type StrayListenerReport, installFileBoundary } from './file-boundary';
-import { annotateFrozenClockTimeout, readFrozenClock } from './frozen-clock';
-import { setDefaultStrictMode, takeStrictViolations } from './function-spy';
-import { type GlobalPatchReaction, type GlobalSnapshot, checkSealedAdditions, snapshotWatchedGlobals } from './global-patch-guard';
-import { type GuardReaction, libraryWarn, reactToFindings } from './guard-reaction';
-import { annotateHookTimeout, readRunnerTimeouts } from './hook-timeout';
+import { setDefaultStrictMode } from './function-spy';
+import type { GlobalPatchReaction } from './global-patch-guard';
+import { type GuardReaction, libraryWarn } from './guard-reaction';
+import { type GuardRegistry, addRestore, createGuardRegistry } from './guard-registry';
 import { withDocs } from './message-link';
-import { count, displayPath } from './message-text';
+import { count } from './message-text';
 import { type MisconfigurationReaction, setMisconfigurationReaction } from './misconfiguration';
 import { trackMockRegistry } from './mock-registry';
 import { type BlockNetworkOptions, blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
 import { type OutsideHookReaction, beginPropEpoch, reportPropsOutsideHooks, restoreMockedProps } from './prop-mock';
-import { type PrototypePollutionReaction, type PrototypeSnapshot, checkPrototypePollution, snapshotPrototypes } from './prototype-guard';
-import { type TeardownStep, installTeardown } from './setup-teardown';
-import { currentSpecFile } from './spec-file';
+import type { PrototypePollutionReaction } from './prototype-guard';
+import { armDiagnostics } from './setup-guards';
+import { recordSetupRegistration } from './setup-per-file';
+import { installTeardown } from './setup-teardown';
 import { type StrayConsoleOptions, type StrayConsoleReaction, watchStrayConsole } from './stray-console';
 import { strayTimersError, strayTimersReport } from './stray-failure';
-import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
 import {
   type StrayTimer,
   cancelStrayTimers,
@@ -47,10 +46,9 @@ import {
   withoutStrayTimerTracking,
 } from './stray-timers';
 import { type StrictSurvey, createStrictSurvey } from './strict-survey';
-import { describeSwallowedStrictCalls } from './swallowed-strict';
 import { restoreTimerGlobals } from './timer-globals';
 import type { UnstubbedCallHandler, UnstubbedReadHandler } from './types';
-import { openReadWindow, reportUnconfiguredReads, setUnconfiguredReadsDefault } from './unconfigured-reads';
+import { setUnconfiguredReadsDefault } from './unconfigured-reads';
 import { restoreWebStorage } from './web-storage';
 import { writeWarning } from './write-warning';
 
@@ -514,151 +512,6 @@ function reportDuplicateCopies(reaction: DuplicateCopiesReaction): void {
   libraryWarn(report);
 }
 
-const LATE_ASSERTION_ADVICE =
-  'An assertion that settles after its test has ended cannot fail it, so that test passed without it. Return or await the ' +
-  'promise — `.then(() => expect(…))` or an async helper called without await is the usual cause.';
-
-const UNHANDLED_ERROR_ADVICE =
-  'Under zone.js a rejection nothing handled fails no test. Await the promise, or assert on it with ' +
-  '`await expect(promise).rejects.toThrow(…)`.';
-
-function describeReason(reason: unknown): string {
-  return reason instanceof Error ? `${reason.name}: ${String(reason.message.split('\n')[0])}` : `rejected with ${String(reason)}`;
-}
-
-function surfacedIn(testName: string): string {
-  return testName === '' ? 'outside any test' : `in "${testName}"`;
-}
-
-/**
- * Turn what was captured into the failure message.
- *
- * Both halves of it are load-bearing. The reason names the defect, and "attributed to" names the
- * test the runner was in when zone.js gave up — which is not always the test that created the
- * promise, and pretending otherwise would send the reader to the wrong file.
- *
- * Exported for this module's own spec: the hook below fails the test it runs after, so the wording
- * can only be asserted on by building it directly.
- */
-export function describeStrayRejections(rejections: readonly StrayRejection[]): string {
-  const tests = new Set(rejections.map((rejection) => rejection.testName));
-  const [only] = tests;
-  const shared = tests.size === 1 && only !== undefined ? ` ${surfacedIn(only)}` : '';
-  const lines = rejections.map(
-    (rejection) => `  - ${describeReason(rejection.reason)}${shared === '' ? ` — surfaced ${surfacedIn(rejection.testName)}` : ''}`,
-  );
-  const advice = rejections.some((rejection) => rejection.assertion) ? LATE_ASSERTION_ADVICE : UNHANDLED_ERROR_ADVICE;
-  const one = rejections.length === 1;
-
-  return withDocs(
-    `[vitest-auto-spy] ${count(rejections.length, 'promise rejection')} went unhandled${shared}, and zone.js swallowed ` +
-      `${one ? 'it' : 'them'} into console.error:\n${lines.join('\n')}\n${advice}`,
-    DOCS_LINKS.setupRejections,
-  );
-}
-
-/**
- * What the runner has already blamed the test that just ran for.
- *
- * Reached through `Object(...)` at every step rather than guarded: the shape is the runner's, this
- * package does not depend on its types, and a missing link anywhere on the path means the same
- * thing as an empty list. `errors` is on `task.result` by the time `afterEach` runs — verified
- * against the runner rather than assumed, for a passing test (absent), a synchronous failure and an
- * asynchronous one (present, one entry).
- *
- * Exported for this module's own spec, which builds the context by hand.
- */
-export function reportedErrors(context: unknown): readonly unknown[] {
-  const result: unknown = Reflect.get(Object(Reflect.get(Object(context), 'task')), 'result');
-  const errors: unknown = Reflect.get(Object(result), 'errors');
-
-  return Array.isArray(errors) ? errors : [];
-}
-
-/**
- * Whether a rejection is one the runner has already told the reader about.
- *
- * Identity first, and then message-and-stack, because the runner processes an error on its way into
- * `result.errors` and does not promise to hand back the object that was thrown. Two failures that
- * agree on both of those are the same throw seen twice, which is precisely the case worth dropping.
- */
-function alreadyReported(reason: unknown, reported: readonly unknown[]): boolean {
-  return reported.some((error) => error === reason || sameFailure(error, reason));
-}
-
-function sameFailure(reported: unknown, reason: unknown): boolean {
-  const message: unknown = Reflect.get(Object(reason), 'message');
-
-  return (
-    typeof message === 'string' &&
-    Reflect.get(Object(reported), 'message') === message &&
-    Reflect.get(Object(reported), 'stack') === Reflect.get(Object(reason), 'stack')
-  );
-}
-
-/**
- * Fail the test whatever was captured is attributed to — minus what the runner has already said.
- *
- * An `async` test that fails an assertion leaves its own `AssertionError` where this can find it:
- * the runner reports the failure, and the same error arrives here as a rejection nobody handled. The
- * report then carried two messages per failure, and the first thing a reader does with the second
- * one is go looking for a defect that is not there. A rejection the runner has already attributed to
- * this test is not news, whatever else it is, so it is dropped — the check exists to surface the
- * rejections that fail *no* test.
- *
- * A named function rather than an inline hook body, so the spec can exercise the failure without
- * the hook failing the very test doing the asserting.
- */
-export function reportStrayRejections(context?: unknown): void {
-  const reported = reportedErrors(context);
-  const stray = flushStrayRejections().filter((rejection) => !alreadyReported(rejection.reason, reported));
-
-  if (stray.length > 0) {
-    throw new Error(describeStrayRejections(stray));
-  }
-}
-
-/**
- * Fail the test whose strict throws something swallowed — minus the ones the runner already reported.
- * Exported for this module's own spec: a real swallowed throw fails the test doing the asserting.
- */
-export function reportSwallowedStrictCalls(context: unknown, reaction: GuardReaction): void {
-  const reported = reportedErrors(context);
-  const swallowed = takeStrictViolations().filter((error) => !alreadyReported(error, reported));
-  const findings = swallowed.length > 0 ? [describeSwallowedStrictCalls(swallowed, expect.getState().currentTestName)] : [];
-
-  reactToFindings(findings, reaction);
-}
-
-/**
- * Extend a hook timeout the runner has already blamed this test for with the reason it happened.
- *
- * The budgets are read per test rather than once at setup, because `vi.setConfig({ testTimeout })`
- * at the top of a spec file runs *after* the setup file did and would otherwise leave a cached pair
- * describing a run that no longer exists. The read is six property lookups on a path the teardown
- * already walks.
- *
- * Exported for this module's own spec: reaching it through a real hook timeout would cost the very
- * budget it reports on, and would fail the test doing the asserting.
- */
-export function annotateTimedOutHooks(context?: unknown): void {
-  annotateHookTimeout(reportedErrors(context), readRunnerTimeouts());
-}
-
-/**
- * Explain a timeout the frozen clock accounts for.
- *
- * Runs after {@link annotateTimedOutHooks} so a hook that timed out under a frozen clock carries
- * both sentences: they answer different questions — which budget ran out, and why the work never
- * finished — and the second is useless without the first naming the hook.
- *
- * Exported for this module's own spec, for the same reason as its neighbour: reaching it through a
- * real timeout would cost the budget it reports on.
- */
-export function annotateFrozenClockTimeouts(context?: unknown): void {
-  annotateFrozenClockTimeout(reportedErrors(context), readFrozenClock());
-}
-
 function restoreRunnerMocks(): void {
   vi.restoreAllMocks();
 }
@@ -671,221 +524,6 @@ function restoreRunnerMocks(): void {
  */
 function resetInstalledConsoleSpies(): void {
   globalThis.__vitestAutoSpyResetConsoleSpies__?.();
-}
-
-/**
- * Arm the non-configurable-patch guard, handing back the check to run after each test.
- *
- * Registered here rather than through `guardGlobalPatches` (which stays the standalone entry point)
- * so that the check is one of the steps above: it throws, and the restores have to survive it.
- */
-function watchGlobalPatches(reaction: GlobalPatchReaction): TeardownStep[] {
-  if (reaction === 'off') {
-    return [];
-  }
-
-  let before: GlobalSnapshot[] = [];
-
-  // Taken once for the file rather than before every test: the check advances the snapshot itself, so
-  // a fresh one would only rediscover what the previous check recorded — and `getOwnPropertyNames`
-  // over `globalThis` is 20 µs a test, which is most of what this option costs. From `beforeAll` and
-  // not the first `beforeEach`, so a patch made in the file's own `beforeAll` is seen too; the check
-  // in its cleanup runs after every `afterAll` and covers the other end of the file.
-  beforeAll(() => {
-    before = snapshotWatchedGlobals();
-
-    return (): void => {
-      checkSealedAdditions(before, reaction);
-    };
-  });
-
-  return [
-    (): void => {
-      checkSealedAdditions(before, reaction);
-    },
-  ];
-}
-
-/**
- * Arm the prototype-pollution guard, handing back the check to run after each test.
- *
- * Registered here rather than through `guardPrototypePollution` (which stays the standalone entry
- * point) so that the check is one of the steps above: it throws, and the restores have to survive it.
- */
-function watchPrototypePollution(reaction: PrototypePollutionReaction): TeardownStep[] {
-  if (reaction === 'off') {
-    return [];
-  }
-
-  reportPrototypeLeftovers();
-
-  let before: PrototypeSnapshot[] = [];
-
-  // From `beforeAll`, not the first `beforeEach`: a key written in the file's own `beforeAll` used to
-  // land in the baseline as "what the environment had", and one written in an `afterAll` was never
-  // looked at. The check in the `beforeAll` cleanup runs after every `afterAll`, so both ends of the
-  // file are covered; the per-test step advances the same snapshot and keeps naming the test.
-  beforeAll(() => {
-    before = snapshotPrototypes();
-
-    return (): void => {
-      checkPrototypePollution(before, reaction);
-    };
-  });
-
-  return [
-    (): void => {
-      checkPrototypePollution(before, reaction);
-    },
-  ];
-}
-
-declare global {
-  // A `globalThis` augmentation has to be declared with `var`.
-  var __vitestAutoSpyPrototypeBaseline__: PrototypeSnapshot[] | undefined;
-  var __vitestAutoSpyPreviousSpecFile__: string | undefined;
-}
-
-/**
- * Take off a key an earlier spec file left on a built-in prototype while it was being imported,
- * collected, or torn down.
- *
- * None of those three is reachable from a hook: the write happens before the file's own `beforeAll`
- * or after its last `afterAll`, and the *next* file dies during collection — `for…in` over the hooks
- * object spreads the inherited key — so nothing in the worker runs to report it, and the rest of the
- * worker's files fail as a block with no stack. A setup file, though, is executed before each file is
- * collected. That is the one seam left, and this is what stands in it: the key comes off, the run
- * survives, and the report names the file that ran last rather than the innocent one about to start.
- *
- * Never a throw, whatever the grade: the file that would fail is not the file that wrote the key.
- * Never `console.warn` either — there is no task yet, and Vitest drops intercepted output that
- * belongs to none.
- */
-export function reportPrototypeLeftovers(write: (message: string) => void = writeWarning): void {
-  const baseline = (globalThis.__vitestAutoSpyPrototypeBaseline__ ??= snapshotPrototypes());
-  const previous = globalThis.__vitestAutoSpyPreviousSpecFile__;
-  const starting = currentSpecFile();
-
-  // Recorded as each file starts: the next file's setup reads it, before that file is collected.
-  globalThis.__vitestAutoSpyPreviousSpecFile__ = typeof starting === 'string' ? starting : undefined;
-  const findings = baseline.flatMap((snapshot) => {
-    const added = Object.keys(snapshot.object).filter((key) => !snapshot.keys.has(key));
-
-    added.forEach((key) => {
-      // A key that will not delete is adopted into the baseline, so the next file is not told about
-      // it again — there is nothing anyone can do about it by then.
-      if (!Reflect.deleteProperty(snapshot.object, key)) {
-        snapshot.keys.add(key);
-      }
-    });
-
-    return added.length > 0 ? [describePrototypeLeftover(snapshot.name, added, previous)] : [];
-  });
-
-  if (findings.length > 0) {
-    write(findings.join('\n'));
-  }
-}
-
-/** Exported for its spec. */
-export function describePrototypeLeftover(name: string, added: readonly string[], previous: string | undefined): string {
-  const keys = added.map((key) => `"${key}"`).join(', ');
-  const culprit =
-    previous === undefined
-      ? 'a spec file that ran earlier in this worker'
-      : `the previous spec file of this worker, ${displayPath(previous)}`;
-
-  return withDocs(
-    `[vitest-auto-spy] ${keys} was left on ${name} by ${culprit} — while it was imported, collected or in an afterAll — ` +
-      'and has been taken off.\n' +
-      "Left on, the key stops every later spec file in the worker from collecting: Vitest walks a file's hooks with for…in. " +
-      'In that file, patch the prototype of the class an object came from, never Object.getPrototypeOf(someObjectLiteral).',
-    DOCS_LINKS.setupPrototypeEarlierFile,
-  );
-}
-
-/**
- * The hook-timeout annotation, as a step or as nothing at all.
- *
- * First of the diagnostics on purpose: it adds a sentence to a failure the runner has already
- * recorded, and every step after it may throw. Its own contribution is a string, never a throw.
- */
-function watchHookTimeouts(enabled: boolean): TeardownStep[] {
-  return enabled ? [annotateTimedOutHooks] : [];
-}
-
-/** The frozen-clock annotation, as a step or as nothing at all. It adds a string and never throws. */
-function watchFrozenClock(enabled: boolean): TeardownStep[] {
-  return enabled ? [annotateFrozenClockTimeouts] : [];
-}
-
-/**
- * Claim zone's rejection slot for this worker, handing back the per-test report step.
- *
- * Kept last of the diagnostics, which is as late as the read can be made without a restore running
- * first: every await point before it is one more chance for zone's microtask drain to have handed
- * the rejection over.
- */
-function watchSwallowedStrictCalls(reaction: GuardReaction): TeardownStep[] {
-  if (reaction === 'off') {
-    return [];
-  }
-
-  // Drained per test, so a throw from an earlier test's teardown is not charged to this one.
-  beforeEach(() => {
-    takeStrictViolations();
-  });
-
-  return [(context): void => reportSwallowedStrictCalls(context, reaction)];
-}
-
-/**
- * Mark every test out for the read counter, whatever the grade: a double's own `onUnstubbedRead` is
- * judged by the same step, and it has no other way to learn where a test starts and ends.
- */
-function watchUnconfiguredReads(reaction: UnconfiguredReadsReaction): TeardownStep[] {
-  beforeEach(() => {
-    openReadWindow();
-  });
-
-  return [(): void => reportUnconfiguredReads(reaction)];
-}
-
-function watchStrayRejections(enabled: boolean): TeardownStep[] {
-  if (!enabled) {
-    return [];
-  }
-
-  // The claim happens now, once per worker, exactly as `strayTimers` does.
-  afterAll(trackStrayRejections());
-
-  return [reportStrayRejections];
-}
-
-/**
- * The steps that run before any hook is registered: what the run is told, and what it is handed.
- *
- * Both are one-shot rather than per test — nothing takes a repair off again — and both have to
- * happen before a spec file's own `beforeEach`, which is where a missing storage first fails.
- */
-/**
- * The steps of the shared `afterEach` that report rather than restore.
- *
- * Kept apart from the restores because the split is not cosmetic: these are the steps that throw on
- * purpose, the restores are the ones that put the environment back, and the net that re-runs the
- * restores must not re-run a check that has already reported. See {@link runTeardown} for why the
- * two nevertheless live in one hook.
- */
-function buildDiagnostics(options: SetupAutoSpyOptions): TeardownStep[] {
-  return [
-    ...watchHookTimeouts(options.hookTimeoutHint ?? true),
-    ...watchFrozenClock(options.frozenClockHint ?? true),
-    ...watchGlobalPatches(options.guardGlobals ?? 'off'),
-    ...watchPrototypePollution(options.prototypePollution ?? 'throw'),
-    ...watchSwallowedStrictCalls(options.swallowedStrictCalls ?? (options.strict === true ? 'throw' : 'off')),
-    ...watchUnconfiguredReads(options.unconfiguredReads ?? 'off'),
-    ...watchStrayRejections(options.strayRejections ?? false),
-  ];
 }
 
 function prepareEnvironment(options: SetupAutoSpyOptions): void {
@@ -968,30 +606,47 @@ export function describeAbandonedWaits(abandoned: readonly string[], test: strin
   );
 }
 
-/** The steps of the shared `afterEach` that put the environment back, in the order they have to run. */
-function buildRestores(options: SetupAutoSpyOptions): TeardownStep[] {
-  const restores: TeardownStep[] = [];
+/**
+ * The file-end sweep `strayTimers` needs, or none. Wrapping happens now, once per worker; the sweep is
+ * per file, because "still wanted?" only becomes an unambiguous no once the file is over.
+ */
+function strayTimerSweeps(options: SetupAutoSpyOptions): BoundaryRepair[] {
+  if (!(options.strayTimers ?? false)) {
+    return [];
+  }
 
+  trackStrayTimers();
+
+  return [
+    (): (() => void) => {
+      const timers = describeStrayTimers();
+      const cancelled = cancelStrayTimers();
+
+      return (): void => reportStrayTimers(cancelled, options.onStrayTimers, timers);
+    },
+  ];
+}
+
+/** The teardown steps that put the environment back, in the order they have to run. */
+function armRestores(registry: GuardRegistry, options: SetupAutoSpyOptions): void {
   if (options.restoreProps ?? true) {
-    restores.push(restoreMockedProps);
+    addRestore(registry, restoreMockedProps);
     reportPropsOutsideHooks(options.propsOutsideHooks ?? 'warn');
   }
 
   if (options.restoreMocks ?? false) {
-    restores.push(restoreRunnerMocks);
+    addRestore(registry, restoreRunnerMocks);
   }
 
   if (options.resetConsoleSpies ?? true) {
-    restores.push(resetInstalledConsoleSpies);
+    addRestore(registry, resetInstalledConsoleSpies);
   }
 
   // Last of the restores: whatever came before may have uninstalled fake timers, and under happy-dom
   // that removes a timer global rather than putting it back.
   if (options.restoreTimerGlobals ?? true) {
-    restores.push(restoreTimerGlobals);
+    addRestore(registry, restoreTimerGlobals);
   }
-
-  return restores;
 }
 
 /** Flips `strict` for one run without editing the setup file: `VITEST_AUTO_SPY_STRICT=1 vitest run <slice>`. */
@@ -1055,36 +710,23 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
   const options = surveyInstead(applyPreset(strict === undefined ? input : { ...input, strict }));
 
   reportDuplicateCopies(options.duplicateCopies ?? 'throw');
-
+  recordSetupRegistration();
   prepareEnvironment(options);
 
-  // The per-test epoch opens before any hook this call registers. `blockNetwork` below installs its
-  // stubs through the mock*Prop journal, and a patch stamped with the previous test's epoch is graded
-  // as written outside a hook — until this registration moved ahead of it, the sweep reported the
-  // library's own stubs (`open`, `send`, `fetch`) under `propsOutsideHooks`. Guarded by the same
-  // option as the sweep that reads the epoch: with `restoreProps` off nothing grades patches, so no
-  // epoch is ever needed.
+  // Its `beforeEach` is registered here, ahead of every hook below. The epoch is its first step:
+  // `blockNetwork` installs its stubs through the mock*Prop journal, and a patch stamped with the
+  // previous test's epoch is graded as written outside a hook. With `restoreProps` off nothing grades.
+  const registry = createGuardRegistry();
+
   if (options.restoreProps ?? true) {
-    beforeEach(beginPropEpoch);
+    registry.open.push(beginPropEpoch);
   }
 
   // The file-end report runs in the boundary sweep: a sibling report that throws first would otherwise
   // skip its own `afterAll`, and the output would be charged to the next file.
-  const consoleGuard = watchStrayConsole(options.strayConsole, false);
+  const consoleGuard = watchStrayConsole(options.strayConsole, registry.open);
 
-  const sweeps: BoundaryRepair[] = [];
-
-  if (options.strayTimers ?? false) {
-    // Wrapping happens now, once per worker; the sweep is per file, because "still wanted?" only
-    // becomes an unambiguous no once the file is over.
-    trackStrayTimers();
-    sweeps.push(() => {
-      const timers = describeStrayTimers();
-      const cancelled = cancelStrayTimers();
-
-      return (): void => reportStrayTimers(cancelled, options.onStrayTimers, timers);
-    });
-  }
+  const sweeps = strayTimerSweeps(options);
 
   if (consoleGuard) {
     sweeps.push(consoleGuard.closeFile);
@@ -1100,7 +742,7 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
   armUnconfiguredReads(options);
   armMisconfiguration(options.misconfiguration);
   // Not a teardown step: it has to look after the TestBed's own teardown, which an `afterEach` here
-  // precedes. Its per-test check rides the `onTestFinished` the net registers anyway.
+  // precedes, so its per-test check rides the net.
   const documents = watchDocumentPollution(options.documentPollution ?? 'off');
 
   if (options.globalFakeTimers) {
@@ -1108,27 +750,27 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
   }
 
   if (options.blockNetwork) {
-    // Per test rather than once: the stubs are registered as property patches, so `restoreProps`
-    // takes them off again after every test, and re-installing is what keeps them in place. The
-    // options are read once here rather than per test — `beforeEach` hands its callback a
-    // `TestContext`, which a bare `beforeEach(blockNetwork)` would pass on as the options object.
+    // Per test: `restoreProps` takes the stubs off after every test. Read once, not handed the context.
     const blockOptions = options.blockNetwork === true ? {} : options.blockNetwork;
 
-    beforeEach(() => {
+    registry.open.push(() => {
       blockNetwork(blockOptions);
     });
   }
 
   // The console goes back first, so a spy the test installed cannot absorb what the steps after it
   // print, and the report goes last, so it can quote them.
-  const diagnostics = buildDiagnostics(options);
-  const restores = buildRestores(options);
-  const consoleRestore = consoleGuard ? [consoleGuard.restore] : [];
-  const consoleReport = consoleGuard ? [consoleGuard.report] : [];
-  // Never empty: the read report's step is always there, since a double's own `onUnstubbedRead` needs it.
-  installTeardown(
-    [...consoleRestore, abandonPendingWaits, ...diagnostics, ...restores, ...consoleReport],
-    [...consoleRestore, abandonPendingWaits, ...restores],
-    documents,
-  );
+  if (consoleGuard) {
+    addRestore(registry, consoleGuard.restore);
+  }
+
+  addRestore(registry, abandonPendingWaits);
+  armDiagnostics(registry, options);
+  armRestores(registry, options);
+
+  if (consoleGuard) {
+    registry.teardown.push(consoleGuard.report);
+  }
+
+  installTeardown(registry, documents);
 }

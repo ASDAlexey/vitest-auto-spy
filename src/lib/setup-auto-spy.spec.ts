@@ -14,20 +14,16 @@ import { captureMockRegistry, getMockRegistrySize, resetMockRegistryTracking } f
 import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
 import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
 import { snapshotPrototypes } from './prototype-guard';
+import { applyPreset, describeAbandonedWaits, reportStrayTimers, setupAutoSpy, warnAboutSuppressedLeaks } from './setup-auto-spy';
 import {
   annotateFrozenClockTimeouts,
   annotateTimedOutHooks,
-  applyPreset,
-  describeAbandonedWaits,
   describeStrayRejections,
   reportPrototypeLeftovers,
   reportStrayRejections,
-  reportStrayTimers,
   reportSwallowedStrictCalls,
   reportedErrors,
-  setupAutoSpy,
-  warnAboutSuppressedLeaks,
-} from './setup-auto-spy';
+} from './setup-guards';
 import {
   createTeardownLedger,
   describeConcurrentTest,
@@ -1264,25 +1260,30 @@ describe('the ledger the teardown net reads', () => {
     const first = { task: { name: 'first' } };
     const second = { task: { name: 'second' } };
 
-    ledger.begin(first);
+    const closeFirst = vi.fn();
+
+    ledger.begin(first, closeFirst);
     ledger.begin(second);
     ledger.done(second);
 
-    expect(ledger.ran(second)).toBe(true);
-    expect(ledger.ran(first)).toBe(false);
+    expect(ledger.settle(second)).toEqual({ ran: true, closeDocument: undefined });
+    expect(ledger.settle(first)).toEqual({ ran: false, closeDocument: closeFirst });
+    // Settled once: a second read finds nothing, as for a test whose `beforeEach` step never ran.
+    expect(ledger.settle(first)).toBeUndefined();
+    ledger.done(first);
+    expect(ledger.settle(first)).toBeUndefined();
   });
 
-  it('falls back to a single flag where the runner hands a context with no task', () => {
+  it('falls back to a single slot where the runner hands a context with no task', () => {
     const ledger = createTeardownLedger();
 
     ledger.begin(undefined);
-    expect(ledger.ran(undefined)).toBe(false);
-
     ledger.done(undefined);
-    expect(ledger.ran(undefined)).toBe(true);
+    expect(ledger.settle(undefined)).toEqual({ ran: true, closeDocument: undefined });
 
     ledger.begin(undefined);
-    expect(ledger.ran(undefined)).toBe(false);
+    expect(ledger.settle(undefined)).toEqual({ ran: false, closeDocument: undefined });
+    expect(ledger.settle(undefined)).toBeUndefined();
   });
 });
 
@@ -1314,7 +1315,11 @@ describe('the notice a concurrent test earns', () => {
     expect(written[0]).toMatch(
       /^\[vitest-auto-spy\] "cart > loads" runs as test\.concurrent, and setupAutoSpy\(\)'s per-test guards judge one test at a time/,
     );
-    expect(written[0]).toMatch(/Run this file's tests sequentially[\s\S]*Said once per worker\.\nDocs: \S+#under-test-concurrent$/);
+    expect(written[0]).toMatch(
+      /Run this file's tests sequentially, or give the files that keep test\.concurrent a setup with strayConsole: 'off' and documentPollution: 'off'\. Said once per worker\.\nDocs: \S+#under-test-concurrent$/,
+    );
+    // Unconfigured reads no longer lose a sibling's reads under test.concurrent, so the advice leaves them out.
+    expect(written[0]).not.toContain('unconfigured');
   });
 });
 
