@@ -1,7 +1,10 @@
-node_modules/
+# Without the slash, so a worktree whose `node_modules` is a symlink to the main checkout ignores it too.
+node_modules
 dist/
 # `coverage-*/` catches ad-hoc runs with `--coverage.reportsDirectory=` — each one is an 18 MB report.
 coverage/
+# prettier, tsc and ESLint caches of `npm run check`.
+.cache/
 coverage-*/
 .vitest/
 *.tgz

@@ -49,7 +49,7 @@ const plugins = {
 export default defineConfig([
   // `--ext .ts` is gone in flat config, and `eslint .` would otherwise pick up every `.js`/`.mjs`
   // in the repository — scripts and generated packages that no ruleset here was ever written for.
-  globalIgnores(['dist', 'coverage', 'alias', 'bench', '**/*.cjs', '**/*.js', '**/*.mjs', '**/*.mts', '**/*.config.ts']),
+  globalIgnores(['dist', 'coverage', '.cache', 'alias', 'bench', '**/*.cjs', '**/*.js', '**/*.mjs', '**/*.mts', '**/*.config.ts']),
 
   // ===== Library source =====
   {

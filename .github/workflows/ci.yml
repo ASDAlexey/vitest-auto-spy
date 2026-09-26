@@ -29,23 +29,39 @@ jobs:
       matrix:
         # previous LTS (22), latest LTS (24), latest current release (26)
         node: [22, 24, 26]
-        lane: [coverage, shared-env, dom-and-runners]
+        # `shared-env` runs in two shards: each is still one worker, and the lane gives every file a
+        # fresh global either way, so a shard loses nothing but half the wait. `dist` is the build
+        # and every check that reads it, off the coverage lane that used to carry it after 70 s.
+        lane: [coverage, shared-env 1/2, shared-env 2/2, dom-and-runners, dist]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # `npm ci` took 8-13 s of every job to rebuild the same tree. The tools' own caches inside
+      # `node_modules` stay out of it, so a restored tree is exactly what `npm ci` produced.
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            node_modules
+            !node_modules/.cache
+            !node_modules/.vite
+          key: node-modules-${{ runner.os }}-node${{ matrix.node }}-${{ hashFiles('package-lock.json') }}
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ matrix.node }}
-          cache: npm
+          cache: ${{ steps.node-modules.outputs.cache-hit != 'true' && 'npm' || '' }}
 
       # The lockfile is generated with npm 11; pin it — exact, and the same 11.19.1 as
       # auto-release.yml — so `npm ci` interprets the dependency tree the same way everywhere.
       # Only Node 22 bundles npm 10 — 24 and 26 ship 11, and reinstalling it cost 4-7 s a job.
       - name: Pin npm
-        if: matrix.node == 22
+        if: matrix.node == 22 && steps.node-modules.outputs.cache-hit != 'true'
         run: npm i -g npm@11.19.1
 
-      - run: npm ci --no-audit --no-fund
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
 
       # Worker counts and every later comparison of these lanes are only as good as the capacity of
       # the runner they ran on, and a hosted image is free to change it: `cpu.max` reads
@@ -64,8 +80,10 @@ jobs:
       # One shared environment, one worker — the mode `setupAutoSpy()` exists for. A property patch
       # or a registry left behind by one file surfaces here and nowhere else.
       - name: Test (shared environment, isolate false)
-        if: matrix.lane == 'shared-env'
-        run: npm run test:shared-env
+        if: startsWith(matrix.lane, 'shared-env')
+        env:
+          LANE: ${{ matrix.lane }}
+        run: npm run test:shared-env -- --shard="${LANE#shared-env }"
 
       # `vitest-auto-spy/zone` is the only entry that touches zone.js, and the runs above deliberately
       # load none of it — so `fakeAsync` / `waitForAsync` are covered here or nowhere.
@@ -104,7 +122,7 @@ jobs:
         run: npm run test:rstest
 
       - name: Build
-        if: matrix.lane == 'coverage'
+        if: matrix.lane == 'dist'
         run: npm run build
 
       # The suites above import `src/`; people import `dist/`, cut by tsup into a bundle per entry
@@ -114,23 +132,23 @@ jobs:
       # coverage at 100 %. This loads each built entry in its own process and runs the cross-entry
       # checks that can see it.
       - name: Smoke the built package
-        if: matrix.lane == 'coverage'
+        if: matrix.lane == 'dist'
         run: npm run smoke:dist
 
       # Both read `dist/`, so they can only run after the build. Deterministic counts — bundled
       # bytes and module-graph size — so a shared runner cannot make them flap.
       - name: Per-entry size baseline
-        if: matrix.lane == 'coverage'
+        if: matrix.lane == 'dist'
         run: npm run size:entries:check
 
       # The README badge quotes the size of this same fresh dist. auto-release rewrites it at
       # release time; this catches the drift between a code change and the release that follows it.
       - name: Minzip badge is current
-        if: matrix.lane == 'coverage'
+        if: matrix.lane == 'dist'
         run: npm run size:badge:check
 
       - name: Module-graph baseline
-        if: matrix.lane == 'coverage'
+        if: matrix.lane == 'dist'
         run: npm run cold-import:check
 
       # Only the coverage lane writes `coverage/`, and the HTML report in it is the fastest way to
@@ -163,13 +181,25 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      # Same key as the Node 24 test lanes, so every Node 24 job restores one tree.
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            node_modules
+            !node_modules/.cache
+            !node_modules/.vite
+          key: node-modules-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-          cache: npm
+          cache: ${{ steps.node-modules.outputs.cache-hit != 'true' && 'npm' || '' }}
 
       # Node 24 bundles npm 11, the version the lockfile is generated with.
-      - run: npm ci --no-audit --no-fund
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
 
       - name: Type-check
         if: matrix.half == 'types'
@@ -277,13 +307,25 @@ jobs:
 
       # Dependencies still come from the npm lockfile — Bun is the runtime under test here, not the
       # package manager, and a second lockfile would be a second dependency tree to keep honest.
+      # Same key as the Node 24 test lanes, so every Node 24 job restores one tree.
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            node_modules
+            !node_modules/.cache
+            !node_modules/.vite
+          key: node-modules-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-          cache: npm
+          cache: ${{ steps.node-modules.outputs.cache-hit != 'true' && 'npm' || '' }}
 
       # Node 24 bundles npm 11, the version the lockfile is generated with.
-      - run: npm ci --no-audit --no-fund
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
 
       - name: Test (bun:test — core + rxjs, no preload)
         run: npm run test:bun
@@ -327,13 +369,25 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      # Same key as the Node 24 test lanes, so every Node 24 job restores one tree.
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            node_modules
+            !node_modules/.cache
+            !node_modules/.vite
+          key: node-modules-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-          cache: npm
+          cache: ${{ steps.node-modules.outputs.cache-hit != 'true' && 'npm' || '' }}
 
       # Node 24 bundles npm 11, the version the lockfile is generated with.
-      - run: npm ci --no-audit --no-fund
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
 
       - name: Build
         run: npm run build
@@ -489,13 +543,25 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      # Same key as the Node 24 test lanes, so every Node 24 job restores one tree.
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            node_modules
+            !node_modules/.cache
+            !node_modules/.vite
+          key: node-modules-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-          cache: npm
+          cache: ${{ steps.node-modules.outputs.cache-hit != 'true' && 'npm' || '' }}
 
       # Node 24 bundles npm 11, the version the lockfile is generated with.
-      - run: npm ci --no-audit --no-fund
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
 
       - name: Build
         run: npm run build
