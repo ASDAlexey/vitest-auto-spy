@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { entryExports, findEntryImports, installedVersion, isAwaitableHelper, ownersOf, tableApplies } from './checks/entry-imports';
-import { EXPORT_MAP_VERSION } from './checks/export-map.generated';
+import { ENTRY_SPECIFIERS, EXPORT_MAP_VERSION } from './checks/export-map.generated';
 import { buildGraph } from './checks/graph';
 import { checkHelperEntry } from './checks/helper-entry';
 import { isInsideLiteral, literalSpans } from './checks/literals';
@@ -24,8 +24,18 @@ const checks = (findings: readonly { check: string }[]): string[] => findings.ma
 
 const run = (files: Readonly<Record<string, string>>): ReturnType<typeof readProfile> => readProfile(createTempRepo(files));
 
+/** An install manifest publishing `entries`, the way `exports` spells them. */
+const installed = (version: string, entries: readonly string[]): string =>
+  JSON.stringify({
+    name: 'vitest-auto-spy',
+    version,
+    exports: Object.fromEntries(entries.map((entry) => [`.${entry.slice('vitest-auto-spy'.length)}`, './index.js'])),
+  });
+
+const CURRENT_INSTALL = installed(EXPORT_MAP_VERSION, ENTRY_SPECIFIERS.split(' '));
+
 const helperFindings = (files: Readonly<Record<string, string>>): ReturnType<typeof checkHelperEntry> => {
-  const profile = run({ 'package.json': '{}', ...files });
+  const profile = run({ 'package.json': '{}', 'node_modules/vitest-auto-spy/package.json': CURRENT_INSTALL, ...files });
 
   return checkHelperEntry(profile, buildGraph(profile));
 };
@@ -222,6 +232,7 @@ describe('checkHelperEntry', () => {
   it('names only the repository own entry when that is one of the candidates', () => {
     const profile = run({
       'package.json': JSON.stringify({ devDependencies: { '@nestjs/core': '11.0.0' } }),
+      'node_modules/vitest-auto-spy/package.json': CURRENT_INSTALL,
       'src/a.spec.ts': "import { provideAutoSpy } from 'vitest-auto-spy';",
     });
     const findings = checkHelperEntry(profile, buildGraph(profile));
@@ -273,6 +284,43 @@ describe('checkHelperEntry', () => {
     });
 
     expect(findings).toEqual([]);
+  });
+
+  it('stays quiet when the entry the fix would name is missing from an older install of the same major', () => {
+    const findings = helperFindings({
+      'node_modules/vitest-auto-spy/package.json': installed('5.20.0', ['vitest-auto-spy', 'vitest-auto-spy/angular']),
+      'src/a.spec.ts': "import { provideWindowDouble } from 'vitest-auto-spy/angular';",
+    });
+
+    expect(findings).toEqual([]);
+  });
+
+  it('names only the owners the install publishes when some of them are missing', () => {
+    const findings = helperFindings({
+      'node_modules/vitest-auto-spy/package.json': installed(EXPORT_MAP_VERSION, ['vitest-auto-spy', 'vitest-auto-spy/angular']),
+      'src/a.spec.ts': "import { provideAutoSpy } from 'vitest-auto-spy';",
+    });
+
+    expect(findings[0]?.fix).toContain('Change the specifier to `vitest-auto-spy/angular`.');
+  });
+
+  it('reads an `exports` string as the root entry alone', () => {
+    const findings = helperFindings({
+      'node_modules/vitest-auto-spy/package.json': JSON.stringify({ version: EXPORT_MAP_VERSION, exports: './index.js' }),
+      'src/a.spec.ts': "import { flushEventLoop } from 'vitest-auto-spy/angular';",
+    });
+
+    expect(findings[0]?.fix).toContain('Change the specifier to `vitest-auto-spy`.');
+  });
+
+  it('stays quiet when no install can be read, or its manifest has no exports', () => {
+    const spec = { 'src/a.spec.ts': "import { provideAutoSpy } from 'vitest-auto-spy';" };
+    const bare = run({ 'package.json': '{}', ...spec });
+
+    expect(checkHelperEntry(bare, buildGraph(bare))).toEqual([]);
+    expect(
+      helperFindings({ 'node_modules/vitest-auto-spy/package.json': JSON.stringify({ version: EXPORT_MAP_VERSION }), ...spec }),
+    ).toEqual([]);
   });
 });
 
