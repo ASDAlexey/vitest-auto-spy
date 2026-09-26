@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.36.0] - 2026-09-26
+
 **Why upgrade.** Eleven entries that crashed on import under `bun:test` load now, and every spec
 file and every test pays less: root plus `/setup` imports 1.8 ms faster under Vitest 5, an Angular
 spec parses the core once instead of twice, `setupAutoSpy()` costs a third less per test (strict
@@ -8604,7 +8606,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.35.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.36.0...HEAD
+[5.36.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.35.0...v5.36.0
 [5.35.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.34.0...v5.35.0
 [5.34.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.33.0...v5.34.0
 [5.33.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.32.2...v5.33.0
