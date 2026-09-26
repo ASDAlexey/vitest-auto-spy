@@ -57,6 +57,8 @@ describe('prefer-render-shallow', () => {
     ['querySelector', 'const row = host.querySelector(".row");'],
     ['textContent', "expect(host.textContent).toContain('3 items');"],
     ['triggerEventHandler', "row.triggerEventHandler('click');"],
+    ['hostElement', 'const host = hostElement(fixture);'],
+    ['queryElement', 'const row = queryElement(fixture, ".row");'],
   ])('stays silent when the file reads the template through %s', (_label, read) => {
     expect(lint(`${stateOnly}\n${read}`)).toEqual([]);
   });

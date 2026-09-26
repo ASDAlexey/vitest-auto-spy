@@ -21,6 +21,8 @@ const TEMPLATE_READS = [
   'nativeElement',
   'debugElement',
   'elementRef',
+  'hostElement',
+  'queryElement',
   'querySelector',
   'getComputedStyle',
   'triggerEventHandler',
