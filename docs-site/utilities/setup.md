@@ -869,8 +869,8 @@ warning, and the two places that already say so — the
 [`doctor` check](/utilities/cli#doctor-—-defects-that-never-fail) `angular-build-splitting-off` and the
 [Angular page](/adapters/angular#when-the-unit-test-build-has-code-splitting-off) — both have to
 be sought out. This one line is printed from inside the run where it hurts, to stderr, once per
-worker: the builder runs Vitest with `isolate: false` and evaluates the setup file once, and the
-notice keeps a flag on `globalThis` so a second evaluation says nothing.
+worker: by default the builder runs Vitest with `isolate: false`, so `globalThis` outlives each spec file in a
+worker, and the notice keeps a flag there that silences every later evaluation of the setup file.
 
 The builder is recognised by the marker its own `vitest-mock-patch` setup file leaves on
 `globalThis` (`Symbol.for('@angular/cli/vitest-mock-patch')`, set before any user setup file runs),
@@ -1721,14 +1721,19 @@ timers. Nothing reports it, and the symptom lands somewhere else entirely — a 
 `A function to advance timers was called but the timers APIs are not mocked` in a spec that is green
 when it runs on its own.
 
-The case seen in the wild is `@angular/build:unit-test` **with coverage**. The builder then serves
-each test file as a wrapper that imports the built bundle, the setup module stays resolved in the
-shared environment, and its top level never runs again; without coverage the same run is fine, which
-is what makes it read as "coverage broke the tests".
+The case seen in the wild is `@angular/build:unit-test` **before 22.2.0, with coverage**. The
+builder then serves each test file — setup files included — as a wrapper that imports the built
+bundle, the setup module stays resolved in the shared environment, and its top level never runs
+again; without coverage the same run is fine, which is what makes it read as "coverage broke the
+tests". **`@angular/build` 22.2.0 fixes it** (angular-cli PR #34143): setup files are no longer
+wrapped, so their hooks are registered for every spec file under `--coverage` too.
 
-Two ways out: run coverage with per-file isolation (`ng test <project> --coverage --isolate`, or
-`isolate: true` in the config for that case alone), or call `setupAutoSpy()` from something that is
-evaluated per file rather than from a module the runner can cache.
+On an older builder there are two ways out: run coverage with per-file isolation
+(`ng test <project> --coverage --isolate`, or `isolate: true` in the config for that case alone —
+the builder keeps a runner config's `test.isolate` unless the target sets its own `isolate` option), or
+call `setupAutoSpy()` from something that is evaluated per file rather than from a module the runner
+can cache. On any version, keep the call at the top level of the setup file itself: a module the
+setup file imports for its side effects can still land in a shared chunk and run once per worker.
 
 ## The setup file that gets its own copy of Angular
 

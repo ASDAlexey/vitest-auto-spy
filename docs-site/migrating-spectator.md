@@ -220,7 +220,11 @@ workaround described above, that goes as well.
 
 `vitest-auto-spy/angular` needs the usual Vitest + Angular wiring
 (`@analogjs/vite-plugin-angular` plus a TestBed setup file), or Angular's own
-`@angular/build:unit-test` builder. See [the Angular adapter](/adapters/angular).
+`@angular/build:unit-test` builder. With Analog on `@angular/build` 22.2, both
+`@analogjs/vite-plugin-angular` and `@analogjs/vitest-angular` need 2.7.5 or newer — older ones fail
+at startup with `TypeError: cache.has is not a function`, which `npx vitest-auto-spy doctor` reports
+as [`analog-behind-angular-build`](/utilities/cli#analog-behind-angular-build). See
+[the Angular adapter](/adapters/angular).
 
 ## The translation table
 

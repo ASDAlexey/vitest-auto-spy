@@ -186,9 +186,10 @@ Node **≥ 22** is the floor. Node 18 and 20 are both past end-of-life, and ever
 supported range already needs more than either: Vitest 4 declares `^20.0.0 || ^22.0.0 || >=24.0.0`,
 and the Vite 7 it pulls is stricter still, at `^20.19.0 || >=22.12.0` — on Node 18 the run dies with
 `TypeError: crypto.hash is not a function` before a single spec loads. Vitest 5 tightens further, to
-`^22.12.0 || ^24.0.0 || >=26.0.0`. CI exercises Node 22, 24 and 26; the published output is still
-ES2022. Which of the three to actually run — and what it costs — is measured in [Performance → Which
-Node version](https://asdalexey.github.io/vitest-auto-spy/core/performance#which-node-version).
+`^22.12.0 || ^24.0.0 || >=26.0.0`, and peers `@types/node` at `^22.0.0 || >=24.0.0` — optional, but
+checked once installed, so a workspace still on `@types/node` 20 meets `ERESOLVE`. CI exercises Node
+22, 24 and 26; the published output is still ES2022. Which of the three to actually run — and what
+it costs — is measured in [Performance → Which Node version](https://asdalexey.github.io/vitest-auto-spy/core/performance#which-node-version).
 
 Ships **ESM with bundled `.d.ts` types**. Two subpaths additionally ship a CommonJS build —
 `vitest-auto-spy/node` (a `node --test` suite written in CJS) and `vitest-auto-spy/eslint-plugin`
@@ -229,7 +230,7 @@ since 4.0.0, into its TypeScript program either:
 | `vitest-auto-spy/rxjs`                | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) and `createObservableWithValues`                                                                                                                                                                  | `rxjs`                                                   |
 | `vitest-auto-spy/dom-stubs`           | the globals a component builds for itself — `stubIntersectionObserver`, `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `stubMediaElement`, `stubAbortController`, `stubAnimationFrame`, `stubElementRect` and the entry builders. On the root entry until 4.0.0 | —                                                        |
 | `vitest-auto-spy/diagnostics`         | `compareTestRuns` / `summarizeTestRun` / `formatTestRunComparison` and `diffByField` — the two reports a counter cannot give. On the root entry until 4.0.0; pure functions, so this one can be imported from a plain Node script too                                          | —                                                        |
-| `vitest-auto-spy/angular`             | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, the `mock*Prop` helpers — the matchers, diagnostics and doubles below left this entry in 5.21.0                                                                                | `@angular/core`                                          |
+| `vitest-auto-spy/angular`             | `provideAutoSpy`, `injectSpy` and the `Spy<T>` type it returns, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, the `mock*Prop` helpers — the matchers, diagnostics and doubles below left this entry in 5.21.0                                               | `@angular/core`                                          |
 | `vitest-auto-spy/angular/diagnostics` | `enableAngularDiagnostics` and the whole TestBed timing family. A companion to `/angular`, not a second copy of the core — moved off it in 5.21.0                                                                                                                              | `@angular/core`                                          |
 | `vitest-auto-spy/angular/doubles`     | The Material dialog trio and the `Window`/`Document` platform doubles; registers the Vitest adapter, so its doubles spy out of the box. A companion to `/angular`, moved off it in 5.21.0                                                                                      | `@angular/core`                                          |
 | `vitest-auto-spy/angular/matchers`    | `registerDirectiveMatchers`, `registerResourceMatchers`, `registerSignalMatchers` — one `expect.extend` each, from the setup file. A companion to `/angular`, moved off it in 5.21.0                                                                                           | `@angular/core`, `@angular/platform-browser`             |
@@ -364,7 +365,9 @@ suite that never touched an observable.
 If you _do_ use the observable layer, `import 'vitest-auto-spy/rxjs'` has to sit in a file this
 `tsconfig` includes as well as in the runtime setup — that import is what makes `returnSubject()`
 rxjs's own `Subject<T>` rather than the structural `SubjectLike<T>`. See
-[Upgrading to 4.0](https://asdalexey.github.io/vitest-auto-spy/upgrading-4).
+[Upgrading to 4.0](https://asdalexey.github.io/vitest-auto-spy/upgrading-4). Under `@angular/build:unit-test` from 22.2.0, being listed in
+`include` is not enough: the builder compiles only specs, `providersFile`, `setupFiles` and `.d.ts`
+files, so the import belongs in one of those.
 
 ```jsonc
 {
@@ -4668,6 +4671,71 @@ They sit alongside [`enableTestBedDiagnostics()`](https://asdalexey.github.io/vi
 which reports the same per-file cost from inside the `TestBed`. Use the Vitest flags to find which
 files are expensive, and the diagnostics to find where inside one the time goes.
 
+### Vitest 5 under the Angular unit-test builder
+
+The one lever in this section that needs no change to a spec is the runner's major — once coverage
+is on. `@angular/build` 22.2.0 is the first release whose `@angular/build:unit-test` accepts Vitest 5
+(peer range `^4.0.8 || ^5.0.0`; before 22.2.0 it stopped at `^4`). On a 700-file, 11 491-test
+Angular 22.2 suite built on this library, switching the builder's runner from Vitest 4.1.11 to 5.0.2
+and changing nothing else:
+
+| coverage provider          | Vitest 4.1.11 | Vitest 5.0.2 |                  wall time |
+| -------------------------- | ------------: | -----------: | -------------------------: |
+| v8 (the builder's default) |       16.50 s |   **8.91 s** | **−46.0 %** (1.85× faster) |
+| istanbul                   |       37.07 s |  **23.92 s** | **−35.5 %** (1.55× faster) |
+
+Where it comes from, and where it does not:
+
+- **Without coverage there is no gain** — 6.16 s against 5.97 s at the median. The tests themselves
+  run at the same speed on both majors; what Vitest 5 shortens is coverage processing.
+- **With v8** the last test finishes at the same moment on both. Vitest 4 then spends about 9.3 s
+  converting and merging the V8 coverage, Vitest 5 about 1.1 s.
+- **With istanbul** both phases shrink: the run with per-worker instrumentation from about 27 s to
+  16–20 s, the merge from 8–9 s to about 6 s.
+- **Angular 22.1 → 22.2 alone is noise.** On Vitest 4 it moves wall time by −2.0 % (v8) and −3.4 %
+  (istanbul); the speed-up is Vitest 5's.
+- **The gain grows with the suite.** At 150 spec files (2 454 tests) the same switch gives −15.5 %
+  (v8) and −17.7 % (istanbul): such a run carries 2.5–3 s of fixed bundling and `ng` start-up, and
+  the coverage post-processing Vitest 5 shortens is a smaller share of it.
+- **Memory does not move.** Peak RSS of the whole process tree changes by −1.8 % (v8) and +2.5 %
+  (istanbul), within noise.
+
+**How it was measured.** A workspace mirroring `ng new` 22.2.0 `--defaults`: zoneless, jsdom, the
+builder's defaults (`isolate: false` included), `strict` and `strictTemplates`, and one setup file
+that imports `vitest-auto-spy/angular` and `vitest-auto-spy/rxjs`. `vitest-auto-spy` 5.34.0 was
+installed from the npm tarball. The suite is generated, in the shape of real consumer suites: 370
+services with 3–6 dependencies each through `provideAutoSpy` and `injectSpy`, 251 standalone
+components rendered through `TestBed` and `whenStable()`, 36 pipes and 43 functional guards. Each
+run is `ng test --watch=false --coverage`, with the provider picked by a `--runner-config` whose
+only line is `test.coverage.provider`. Apple M4 Max, 16 cores, Node v24.19.0, 2026-09-26; one
+discarded warm-up and 5 measured runs per cell, interleaved round-robin, median reported. The ranges
+do not overlap: the slowest Vitest 5 run (9.32 s v8, 24.60 s istanbul) is below the fastest Vitest 4
+run (16.01 s, 35.44 s).
+The generator, the arm setup, the runner and the raw runs are in
+[`bench-angular-builder/`](https://github.com/ASDAlexey/vitest-auto-spy/tree/master/bench-angular-builder);
+`npm run bench:angular-builder` repeats the measurement.
+
+**What it does not show.** It is one machine, and not a quiet one, so read the ratios rather than the
+seconds. The suite is synthetic — its shape and size match the consumer suites, but those were not
+run. The builder cache was warm, as in local development; with `CI=true` it is off, which adds the
+same 2.5–3 s to every run and makes the percentage slightly smaller. A CI runner with fewer cores
+was not measured.
+
+**Taking it:**
+
+- `@angular/build` (and `@angular/cli`) **22.2.0 or newer**.
+- `vitest` and every `@vitest/coverage-*` package on 5, moved **in lockstep** — a coverage package
+  pins `vitest` to its own exact version.
+- On Analog, `@analogjs/vite-plugin-angular` and `@analogjs/vitest-angular` **2.7.5 or newer**.
+- No npm `overrides` — the peer ranges admit Vitest 5 as they are.
+- Vitest 5 turns `clearMocks` on by default; the one spec pattern that breaks, and the fix, are in
+  [Vitest → The one thing that can still break your specs](https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest#the-one-thing-that-can-still-break-your-specs).
+  The 11 491 tests above needed no change: every spy is created per test by `provideAutoSpy`.
+
+None of it is required. This package still supports Vitest 2.1 and newer and Angular 20 and newer,
+and a workspace on an older `@angular/build` keeps working as it is — this is a reason to upgrade,
+not a condition.
+
 ## Why this is not written in Rust
 
 The question arrives with scale: a suite of ten or twenty thousand tests, a CI bill that is a real
@@ -6047,6 +6115,14 @@ Changing nothing but the runner is **−7.7 %**. The engine is worth **−6.1 %*
 **−8.1 %** on Vitest 5 over handing each method to `vi.fn()`. Slowest pairing to fastest — Vitest 4
 with runner mocks, against Vitest 5 with the default engine — is 1473 ms → 1276 ms, **−13.4 %**.
 
+**On Angular the difference is larger, and it is in coverage.** `@angular/build` 22.2.0 is the first
+release whose `@angular/build:unit-test` runs on Vitest 5. On a 700-file, 11 491-test Angular 22.2
+suite built on this library, switching the builder's runner from Vitest 4.1.11 to 5.0.2 took a run
+with v8 coverage from 16.50 s to 8.91 s (**−46 %**, 1.85×) and with istanbul from 37.07 s to 23.92 s
+(**−35.5 %**, 1.55×), with peak memory unchanged. Without coverage the two majors are level, and at
+150 spec files the gain is −15.5 % / −17.7 % — the table, the method and what to upgrade are in
+[Performance → Vitest 5 under the Angular unit-test builder](https://asdalexey.github.io/vitest-auto-spy/core/performance#vitest-5-under-the-angular-unit-test-builder).
+
 ### The one thing that can still break your specs
 
 `clearMocks` defaults to `true` in Vitest 5, so `vi.clearAllMocks()` runs before every test. That is
@@ -6230,8 +6306,10 @@ import { injectSpy, provideAutoSpy, renderShallow, stable } from 'vitest-auto-sp
 ```
 
 It needs an Angular-aware Vitest setup (for example `@analogjs/vite-plugin-angular` plus a
-`setupTestBed()` call). See [Angular](https://asdalexey.github.io/vitest-auto-spy/adapters/angular) — and
-[Angular on Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular) for the same suite under `bun test`.
+`setupTestBed()` call). Next to `@angular/build` 22.2 the Analog packages have to be 2.7.5 or newer,
+or the run stops at startup with `TypeError: cache.has is not a function` — [`doctor` reports
+it](https://asdalexey.github.io/vitest-auto-spy/utilities/cli#analog-behind-angular-build). See [Angular](https://asdalexey.github.io/vitest-auto-spy/adapters/angular) — and [Angular on
+Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular) for the same suite under `bun test`.
 
 ---
 
@@ -6971,6 +7049,10 @@ declare module 'vitest-auto-spy' {
 }
 ```
 
+Under `@angular/build:unit-test` from 22.2.0, keep that declaration in a `.d.ts` (with an `import` or
+`export {}`, so it stays an augmentation), a spec or a setup file: the builder no longer compiles a
+plain `.ts` that is only listed in `tsconfig.spec.json`'s `include`.
+
 The one import that makes the helpers _exist_ is the one that makes them rxjs-typed, so the two
 cannot drift apart.
 
@@ -6985,7 +7067,8 @@ The catch worth knowing: the type follows the **import**, not the installed pack
 `import 'vitest-auto-spy/rxjs'` sits in a setup file outside the `tsconfig` your specs are checked
 with, you get `SubjectLike<T>` back and an annotation like the one above stops compiling. Move the
 import somewhere the compiler sees it — the same place it has to be for the helpers to be
-registered at runtime.
+registered at runtime. Under `@angular/build:unit-test` from 22.2.0 the compiler sees only specs, the
+`providersFile`, the `setupFiles` and `.d.ts` files; a plain `.ts` listed in `include` is not enough.
 
 ## The backing subject, and how long it lives
 
@@ -8407,8 +8490,8 @@ warning, and the two places that already say so — the
 [`doctor` check](https://asdalexey.github.io/vitest-auto-spy/utilities/cli#doctor-—-defects-that-never-fail) `angular-build-splitting-off` and the
 [Angular page](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#when-the-unit-test-build-has-code-splitting-off) — both have to
 be sought out. This one line is printed from inside the run where it hurts, to stderr, once per
-worker: the builder runs Vitest with `isolate: false` and evaluates the setup file once, and the
-notice keeps a flag on `globalThis` so a second evaluation says nothing.
+worker: by default the builder runs Vitest with `isolate: false`, so `globalThis` outlives each spec file in a
+worker, and the notice keeps a flag there that silences every later evaluation of the setup file.
 
 The builder is recognised by the marker its own `vitest-mock-patch` setup file leaves on
 `globalThis` (`Symbol.for('@angular/cli/vitest-mock-patch')`, set before any user setup file runs),
@@ -9259,14 +9342,19 @@ timers. Nothing reports it, and the symptom lands somewhere else entirely — a 
 `A function to advance timers was called but the timers APIs are not mocked` in a spec that is green
 when it runs on its own.
 
-The case seen in the wild is `@angular/build:unit-test` **with coverage**. The builder then serves
-each test file as a wrapper that imports the built bundle, the setup module stays resolved in the
-shared environment, and its top level never runs again; without coverage the same run is fine, which
-is what makes it read as "coverage broke the tests".
+The case seen in the wild is `@angular/build:unit-test` **before 22.2.0, with coverage**. The
+builder then serves each test file — setup files included — as a wrapper that imports the built
+bundle, the setup module stays resolved in the shared environment, and its top level never runs
+again; without coverage the same run is fine, which is what makes it read as "coverage broke the
+tests". **`@angular/build` 22.2.0 fixes it** (angular-cli PR #34143): setup files are no longer
+wrapped, so their hooks are registered for every spec file under `--coverage` too.
 
-Two ways out: run coverage with per-file isolation (`ng test <project> --coverage --isolate`, or
-`isolate: true` in the config for that case alone), or call `setupAutoSpy()` from something that is
-evaluated per file rather than from a module the runner can cache.
+On an older builder there are two ways out: run coverage with per-file isolation
+(`ng test <project> --coverage --isolate`, or `isolate: true` in the config for that case alone —
+the builder keeps a runner config's `test.isolate` unless the target sets its own `isolate` option), or
+call `setupAutoSpy()` from something that is evaluated per file rather than from a module the runner
+can cache. On any version, keep the call at the top level of the setup file itself: a module the
+setup file imports for its side effects can still land in a shared chunk and run once per worker.
 
 ## The setup file that gets its own copy of Angular
 
@@ -14824,6 +14912,16 @@ rule here.
   these three values are literals in every config that sets them. **With neither an option nor a
   config found, the rule reports nothing at all.**
 
+  **A config that leaves `clearMocks` out gets Vitest's default for it, and that default depends on
+  the version.** Up to Vitest 4 it is off; from Vitest 5 it is on. The rule reads the installed major
+  from the nearest `node_modules/vitest/package.json` above the linted file: on Vitest 5 or later a
+  found config (or a `configFile`) without `clearMocks` counts it on, so a `vi.clearAllMocks()` or a
+  `mockClear()` opening the first `beforeEach` is reported, and the message says the flag is the
+  default rather than something the config wrote. On Vitest 4 and older, or where no Vitest is found,
+  nothing changes: an unnamed `clearMocks` is off. A `clearMocks` the config names as anything but a
+  literal `true` — `false`, an expression — reads as off on every version. The flags written as the
+  rule's options are not defaulted: what they leave out is off, whatever Vitest is installed.
+
   A runner config at a path the search does not look for is named instead, and read the same way:
 
   ```js
@@ -17082,16 +17180,26 @@ migration: a year as a setting that configured nothing.
 
 `@angular/build` in `[22.1.5, 22.1.7)`. The unit-test bundle is built with code splitting off, so
 `--coverage` grows by hundreds of megabytes with no plateau and the builder emits no warning — the run
-either finishes slowly or is killed for memory. The fix names the unit-test targets to set
-`"splitting": true` on. See
+either finishes slowly or is killed for memory. The fix is the upgrade: splitting is on by default
+from 22.1.7, and the fix names the unit-test targets to remove any `"splitting": false` from (22.2.0
+deprecates the option, since Vitest 5 no longer needs it). See
 [what it trades, and the escape hatch](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#when-the-unit-test-build-has-code-splitting-off);
 `setupAutoSpy()` also says this once per worker from inside the affected run.
+
+#### `analog-behind-angular-build`
+
+`@angular/build` 22.2.0 or newer beside `@analogjs/vite-plugin-angular` older than 2.7.5. From 22.2.0
+the builder's `SourceFileCache` no longer extends `Map`, and the older Analog host calls `cache.has`
+on it, so the run dies at startup with `TypeError: cache.has is not a function` before a single spec
+is collected. The error names neither package. The fix is to upgrade `@analogjs/vite-plugin-angular`
+and `@analogjs/vitest-angular` to 2.7.5 or newer. The check stays quiet when either package is not
+installed.
 
 #### `builder-setup-unreached`
 
 An `@angular/build:unit-test` or `@nx/angular:unit-test` target whose options (with `nx.json`
-`targetDefaults`) name neither `setupFiles` nor `runnerConfig`, in a project whose Vitest config lists
-setup files or that has `src/test-setup.ts`. The builder never runs it, so `setupAutoSpy()`, its
+`targetDefaults`) name neither `setupFiles` nor `runnerConfig`, in a project whose Vitest config
+(`vitest-base.config.*` included) lists setup files or that has `src/test-setup.ts`. The builder never runs it, so `setupAutoSpy()`, its
 `strict`, registered matchers and the mock adapter are missing under that target only. The fix is the
 `setupFiles` option for that target; `nx.json` `targetDefaults` carries it for every project that
 shares the layout, and `runnerConfig` pointed at the Vitest config works too.
@@ -17100,7 +17208,9 @@ shares the layout, and `runnerConfig` pointed at the Vitest config works too.
 
 The same module mocked with a factory in one spec and as an automock or `{ spy: true }` in another,
 when the environment is shared (`isolate: false` in a Vitest config, or the Angular unit-test
-builder's default — the finding says which). Vitest hands the factory to the later automock, which
+builder's default — the finding says which). The builder's default counts from `@angular/build` 21,
+unless the target's own `isolate` option or the runner config it names sets `isolate: true`; 20.x
+keeps Vitest's per-file isolation. Vitest hands the factory to the later automock, which
 then fails with `No "X" export is defined on the mock` only when the two share a worker. The finding
 lists the files with a factory and names the module as the error will. Mocking it the same way in
 both is the fix; `vi.resetModules()` before the import is the other way out.
@@ -17117,14 +17227,95 @@ file it checks: `isIncluded()` calls `picomatch.isMatch(file, patterns, options)
 matchers on every call, and the `globCache` beside it memoises only the verdict. Nothing fails. Vitest
 5 compiles the list once; on 4, the custom-provider recipe in
 [coverage matching costs more than coverage](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#coverage-matching-costs-more-than-coverage)
-took one 1 725-file shard from 229.59 s to 22.88 s with a byte-identical report.
+took one 1 725-file shard from 229.59 s to 22.88 s with a byte-identical report. Under
+`@angular/build:unit-test`, Vitest 5 needs `@angular/build` 22.2.0 or newer, and the fix says so when
+the workspace has such a target.
 
 #### `coverage-include-misses-bundle`
 
-A source-only `coverage.include` in the runner config of an `@angular/build:unit-test` target.
+A source-only `coverage.include` in the runner config of an `@angular/build:unit-test` target — the
+file its `runnerConfig` names, or, for `runnerConfig: true`, the `vitest-base.config.*` the builder
+finds in the project root or the workspace root.
 Coverage is matched twice — first against the executed bundle chunks, then against the remapped
 sources. A list of `.ts` globs loses every counter on the first pass, and the run stays green — see
 [coverage under the unit-test builder](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#coverage-under-the-unit-test-builder).
+
+#### `vitest-5-removed`
+
+What Vitest 5 removed, found in the repository: an import from `vitest/reporters` or `vitest/coverage`
+(use `vitest/node`), `vitest/environments` or `vitest/snapshot` (use `vitest/runtime`),
+`vitest/runners` or `vitest/suite` (use `TestRunner` from `vitest`) or `vitest/mocker` (use
+`@vitest/mocker`); a `.sequential` chain on `test`, `it`, `describe` or `suite` (use
+`{ concurrent: false }`); `--outputJson` or `--compare` in a script that runs Vitest, and
+`benchmark.outputJson` or `benchmark.compare` in a config (use `--reporter=json --outputFile=<path>`,
+and `writeResult` with `bench.from()`). On Vitest 5 each one is an error, because it is broken now:
+the specifier stops resolving, collection throws, the command stops with `Unknown option`, or the key
+is ignored in silence. On Vitest 4 the same lines work, so they are notes for the upgrade: the exit
+code does not move, and the replacements for the imports and for `.sequential` already work on 4.1,
+so the change can land before the upgrade. Before Vitest 4 the check says nothing — the way to 5 goes
+through Vitest 4's own migration first. The `{ sequential: true }` test option is not read.
+
+One more entry is older than Vitest 5: `poolOptions` in a config on Vitest 4 or newer is a warning.
+Vitest removed it in 4 and prints one deprecation line, then runs without every option inside it, so
+a `singleFork` or a thread cap there configures nothing. The fix is the top-level option the Vitest 4
+migration guide maps it to.
+
+`test.workspace` is not reported: Vitest 4 and 5 both throw at startup and name `test.projects`, so
+no green suite has it. The renamed config keys Vitest 5 still honours — `experimental.fsModuleCache`
+and `experimental.fsModuleCachePath` (now top-level), `browser.isolate`, `browser.fileParallelism`
+and `browser.api` (now top-level `isolate`, `fileParallelism`, `api`), `deps.optimizer.web` (now
+`deps.optimizer.client`) and `cache.dir` (now Vite's `cacheDir`) — are not reported either: Vitest 5
+prints a deprecation naming the replacement on every run, and on Vitest 4 the new spelling does not
+exist yet.
+
+#### `vitest-5-deprecated`
+
+`experimental_clearCache()` or `experimental_parseSpecifications()` called on Vitest 5, which renamed
+them to `clearCache()` and `parseSpecifications()`. A note: the old names still work, and unlike the
+renamed config keys nothing warns at run time — only the type carries `@deprecated`. Vitest 4 has no
+other name for them, so the check is quiet there.
+
+#### `vitest-5-clear-mocks`
+
+Vitest 5 turns `clearMocks` on by default: it calls `vi.clearAllMocks()` before every test, which
+clears each mock's recorded calls and keeps its implementation. On Vitest 5 an explicit
+`clearMocks: true` in a config restates the default and gets a note saying so. On Vitest 4 the note
+goes to a repository whose configs never set `clearMocks` (nor `mockReset: true`, which clears as
+well) and whose Vitest scripts do not pass `--clearMocks`: after the upgrade, a test that counts calls
+made in `beforeAll` or in an earlier `it` starts failing. `npx vitest run --clearMocks` on Vitest 4
+runs the suite the way Vitest 5 will, so the cost is known before the upgrade; under
+`@angular/build:unit-test`, set `clearMocks: true` in the runner config for that one run. Writing
+`clearMocks: false` keeps today's behaviour.
+
+#### `vitest-5-available`
+
+A note on Vitest 4, and the reason to read the one above. When nothing in the repository holds the
+upgrade back, it says what Vitest 5 buys: on an Angular 22.2 suite of 700 spec files with coverage, the
+run went from 16.50 s to 8.91 s with v8 (−46 %) and from 37.07 s to 23.92 s with istanbul (−35.5 %);
+without coverage the two majors are level. The method and the table are in
+[Vitest 5 under the Angular unit-test builder](https://asdalexey.github.io/vitest-auto-spy/core/performance#vitest-5-under-the-angular-unit-test-builder).
+
+When something does hold it back, the note names that instead, with the fix for each:
+`@angular/build` older than 22.2.0 beside an `@angular/build:unit-test` target (the first release
+whose builder runs Vitest 5), `@analogjs/vite-plugin-angular` or `@analogjs/vitest-angular` older than
+2.7.5, `vite` older than 6.4, or a Node version below 22.12 in `.nvmrc`, `.node-version`, a CI config
+(`node-version:` or a `node:` image) or the `engines` of a private package. The `engines` of a
+published package is left out, because it describes the package's consumers rather than where its
+tests run. Vitest 2 and 3 get no note: the measurement is Vitest 4 against 5.
+
+#### `fs-module-cache-not-persisted`
+
+`fsModuleCache` turned on — top-level, under `experimental`, or `--fsModuleCache` in a script — on
+Vitest 4 or newer, in a repository with a CI config (`.github/workflows/*.yml`, `.gitlab-ci.yml` and
+`.gitlab/**/*.yml`, `.circleci/config.yml`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`) of which
+none caches the cache directory: `fsModuleCachePath`, or by default `node_modules/.vitest-cache` on
+Vitest 5 and `node_modules/.experimental-vitest-cache` on Vitest 4. A CI config counts as caching it
+when it names that directory, or one above it such as `node_modules`, as a path. Every CI run then
+starts with an empty cache and pays the full transform, and the setting only ever helps locally.
+`cache: npm` in `actions/setup-node` does not count: it keeps npm's download cache, not
+`node_modules`. Vitest wipes the cache itself when the lockfile changes, so a key on the lockfile hash
+is enough. `npm ci` deletes `node_modules` before it installs, so a CI that runs it should point
+`fsModuleCachePath` outside `node_modules` and cache that directory.
 
 #### `jasmine-era-project`
 
@@ -17255,6 +17446,9 @@ finding a card of what the CPU profile saw — the slowest tests, hooks against 
 went by package and in your own code, and a likely cause. [The gate](#the-gate) shows a whole card
 and the rule behind the budget; the rest of this section is the advice `perf` prints on every run.
 
+On Vitest 5 a bare run also passes `--experimental.diagnostics=false`, so Vitest's own after-run
+hints do not repeat what `perf` prints.
+
 ```
 $ npx vitest-auto-spy perf src/cli
 vitest-auto-spy perf — /Users/alexeypopov/Desktop/projects/vitest-auto-spy
@@ -17295,20 +17489,26 @@ the setup file that decided it.
 on the clock and 17.30s of CPU because the work was spread across several workers. A phase total
 larger than the wall clock is not a bug.
 
-| Phase         | What Vitest measures (its own `ModuleDiagnostic` wording)                                   |
-| ------------- | ------------------------------------------------------------------------------------------- |
-| `environment` | The time to import and initiate an environment (`jsdom`, `happy-dom`, `node`) for the file  |
-| `prepare`     | The time Vitest spends setting up the test harness — runner, mocks — for the file           |
-| `import`      | The time to import the test module: everything it imports, plus running its suite callbacks |
-| `setup`       | The time to import the configured setup file(s) for the file                                |
-| `tests`       | Accumulated duration of the test bodies and hooks themselves                                |
-| `transform`   | Whole-run transform time (esbuild/Vite), not tracked per file so it has no per-file finding |
+| Phase         | What Vitest measures (its own `ModuleDiagnostic` wording)                                      |
+| ------------- | ---------------------------------------------------------------------------------------------- |
+| `environment` | The time to import and initiate an environment (`jsdom`, `happy-dom`, `node`) for the file     |
+| `prepare`     | The time Vitest spends setting up the test harness — runner, mocks — for the file              |
+| `import`      | The time to import the test module: everything it imports, plus running its suite callbacks    |
+| `setup`       | The time to import the configured setup file(s) for the file                                   |
+| `tests`       | Accumulated duration of the test bodies and hooks themselves                                   |
+| `transform`   | Transform time (esbuild/Vite): whole-run before Vitest 5, per file on 5 — see `perf-transform` |
 
 A phase only produces findings once it is worth a reader's afternoon: below 30 % of the total, or
 below 5 s of total CPU time across the whole run, `perf` says so and stops rather than naming files
 over noise.
 
 ### The advice it prints
+
+On Vitest 5 the report also records the configuration Vitest actually resolved — `isolate`, `pool`,
+`maxWorkers`, `environment`, `fsModuleCache` — and which of them you set yourself (Vitest's
+`providedOptions`). When it is there, the advice below reads those values instead of searching the
+`vite(st).config.*` text, so a setting made in a builder, a workspace project or on the command line
+counts. An option you set explicitly is never advised against: Vitest's own hints follow the same rule.
 
 #### `perf-environment`
 
@@ -17330,16 +17530,37 @@ workers, 126.4 s reported against 2.44 s actually spent. `perf` counts each dist
 the finding prices the move honestly: a worker's environment is only saved when **every** file it
 ran is DOM-free, and when a DOM-using neighbour means the move frees nothing, the finding says so.
 
+On Vitest 5 each file also reports the lane it ran on (`concurrencyId`), and `perf` counts a value once
+per lane rather than once over the run, so two lanes that happen to report the same environment time
+are no longer merged into one. Vitest 5 reports a `workerId` per file as well, but it is a new number
+for every file even when the worker is reused under `isolate: false`, so `perf` does not group by it.
+
 #### `perf-environment-engine`
 
 The other half of the same advice, for the files `perf-environment` cannot move: a spec that genuinely needs a DOM still has to build one, and `happy-dom` builds it for
 less. Measured on this package's own Angular suite, the same 117 files and the same assertions:
 **26.5 s of user CPU against 23.2 s**, or 12 % less. On a spec that builds a DOM and does nothing
 else the gap is far wider — 253 ms against 119 ms of environment time per file — so how much of it a
-suite gets back depends on how much of a file the environment is. It fires only when a
-`vite(st).config.*` names `jsdom` and nothing in those configs mentions `happy-dom` — a suite that
-has already made the choice does not get asked again — and it names the config that sets `jsdom`. It is a swap, not a flag: `happy-dom` implements less of the platform, so change
-one project at a time and keep the suite green after each.
+suite gets back depends on how much of a file the environment is. It fires only when the run used
+`jsdom` — read from the resolved config on Vitest 5, from a `vite(st).config.*` that names `jsdom`
+before it — and nothing in those configs mentions `happy-dom`: a suite that has already made the
+choice does not get asked again. It names the config that sets `jsdom`. It is a swap, not a flag:
+`happy-dom` implements less of the platform, so change one project at a time and keep the suite green
+after each.
+
+#### `perf-transform`
+
+Vitest 5 only. From Vitest 5 each file reports how long its collection and setup waited for the Vite
+server to transform modules (`collectFetchDuration` + `setupFetchDuration`), and the phase table counts
+that wait as `transform` instead of inside `import` and `setup` — the split Vitest's own summary line
+makes. The finding fires when that wait is 30 % or more of the measured CPU time and the module cache
+is off. It prints the seconds the files waited, summed over them, and advises `fsModuleCache: true`:
+the next run reads the transformed modules from `node_modules/.vitest-cache` instead of transforming
+them again, so the printed wait is the ceiling of what it saves. On CI the cache only helps when that
+directory is kept between pipelines, in the job's cache — the finding says so. It does not fire when
+`fsModuleCache` is already on, or when you set it explicitly (to `false`, say). On a Vitest 4 report the
+option is spelled `experimental.fsModuleCache` and the directory is
+`node_modules/.experimental-vitest-cache`.
 
 #### `perf-import`
 
@@ -17347,6 +17568,11 @@ It fires when `import` dominates, and names every spec that reaches its subject
 through a barrel — an `index`/`public-api` module with no declaration of its own, only re-exports —
 because a spec importing one loads everything the barrel re-exports to use one export from it. It
 does not fire in the run above, because `import` is only 5.1 % of this repository's total.
+
+On Vitest 5 the transform wait is counted under `transform`, so `import` is evaluation alone — running
+the modules the spec reaches — and the finding says so. Waiting for Vite to transform them is
+`perf-transform`'s business, and `isolate: false` does not change it: the server transforms each module
+once either way.
 
 #### `perf-isolation`
 
@@ -17356,8 +17582,20 @@ It is framed as a trade, not a win, and links to this package's own memory measu
 ([`core/performance#memory-under-isolate-false`](https://asdalexey.github.io/vitest-auto-spy/core/performance#memory-under-isolate-false))
 rather than repeating the numbers here: without isolation, every double a file created stays alive
 for the rest of the worker, so peak memory grows with the suite. `perf` does not suggest the flag
-when a `vite(st).config.*` already sets `isolate: false` — reporting a setting a reader already
-made is not a finding.
+when the run already has `isolate: false` — read from the resolved config on Vitest 5, and before it
+from a `vite(st).config.*` or an Angular builder that passes it — when the pool is `vmThreads` or
+`vmForks`, which give every file a fresh context either way, or when you set `isolate` yourself.
+`@angular/build:unit-test` passes `isolate: false` from 21.0, but it merges the `test` block of the
+runner config the target names over that default, so a `test.isolate: true` there stands and `perf`
+still offers the trade; from 22.1 the target's own `isolate` option beats both.
+
+On Vitest 5 the finding also says what isolation cost at start-up: how many workers were spawned and
+their start-up time summed (spawn, bundle load and environment — `state.startupTime` and
+`state.workersSpawned`). When more workers were spawned than there are lanes, it prints the wall-clock
+saving by the estimate Vitest 5's own isolate hint makes: the summed start-up spread over the lanes,
+less the one start-up per lane that stays when workers are reused — `startup ÷ lanes − startup ÷
+workers`, with lanes the smaller of the file count and `maxWorkers` (or the highest lane the run used).
+It is printed as "at least": module evaluation the reused workers also save is not in it.
 
 #### `perf-workers`
 
@@ -17371,6 +17609,37 @@ is over a minute, and only when no `maxWorkers` is declared: below that the sett
 a suite that has set it has already had this thought. The finding counts the cores of the machine it
 ran on and suggests half of them, in the runner config it found. The number itself is a property of
 the machine, not of the suite — compare the wall clock before and after fixing it.
+
+On Vitest 5 the count comes from the run rather than from the machine: the resolved `maxWorkers`, or
+the highest lane a file ran on. A run that never used more than half the cores is not told to cap them.
+
+#### `perf-long-pole`
+
+Vitest 5 only. Every file reports the lane it ran on (`concurrencyId`) and when it started, so `perf`
+can lay the run out lane by lane. The header then carries one line — how many lanes, how busy they were
+over the span from the first start to the last end, and which file ran alone at the end:
+
+```text
+15 lanes busy 40.5% of the 2.58s span; src/cli/report.spec.ts ran alone for the last 10ms
+```
+
+The finding fires on the file that was still running after every other lane had gone idle, when that
+tail is at least 2 s and at least 30 % of the span: for that long the run's wall clock was one file.
+Split the file so its tests can spread over several lanes, or keep Vitest's results cache between CI
+runs — its sequencer starts the files it knows are slow first, and a slow file started last is the run's
+wall clock. A file's time on its lane is its `prepare` + `setup` + `import` + `tests`; the environment is
+left out, because a reused worker does not pay it per file.
+
+#### `perf-vitest-doctor`
+
+Vitest 5 only, and one line. When a finding fires that is about a switch — `perf-isolation`,
+`perf-environment-engine`, `perf-transform` or `perf-workers` — and the run was measured on Vitest 5 or
+later, `perf` points at `npx vitest doctor`: **Vitest's** own A/B runner, not this package's `doctor`.
+It re-runs the suite once per pool, isolation, DOM-engine and module-cache candidate, halves
+`maxWorkers` while that keeps helping, and recommends only a switch it measured faster on this machine.
+`perf` names the switch from one run; `vitest doctor` is the way to confirm it before keeping it.
+`perf-environment` does not trigger it: moving files to `node` with a docblock is not a candidate
+`vitest doctor` measures.
 
 ### When there is nothing to read
 
@@ -17389,6 +17658,14 @@ reporter, and the message prints the two lines to add
 ([below](#when-a-bare-run-is-not-your-suite)). A report whose files all sit outside `--cwd` was
 measured in another checkout: pass `--cwd` the directory it was measured in.
 
+The reporter does not wait for the end of the run to write: as files finish it rewrites the report,
+at most every two seconds, marked `partial: true`, so a run Vitest never finished — killed, crashed or
+timed out — still leaves one behind. `perf` prints what the finished files measured, under a warning
+that the run did not finish and how many files the report holds, and the gate refuses to judge it
+exactly as it refuses a red run: the files it never reached are not in the report, and a verdict over
+part of a suite is an all-clear it did not earn. `--format json` carries `run.partial: true`, and
+`--format markdown` says "the run did not finish" in place of "the suite did not pass".
+
 ### Flaky tests and the heap
 
 Two findings are made on every run, however cheap it was, because neither is about the phases.
@@ -17397,7 +17674,12 @@ Two findings are made on every run, however cheap it was, because neither is abo
 
 It names every file with a test that passed only on a retry — Vitest's own
 `TestCase.diagnostic().flaky` — and the tests by name. It is a warning, and the run stays green. Its
-failed attempts are counted in the file's time, so the gate also judges such a file slower than it is.
+failed attempts are counted in the file's time, so the gate also judges such a file slower than it
+is. On a report that records retries, the fix says how many failed attempts that was, and when a file
+has one retried test whose body the report kept, the message prints what it cost across all its
+attempts. The attempts cannot be subtracted: Vitest times a retried test from its first attempt to its
+pass as one duration. For the same reason a `perf-gate-slow-test` finding on a retried test says its
+time covers every attempt, and a `perf-gate-slow-file` finding counts the failed attempts inside it.
 `--fail-on-flaky` makes it an error and exits 1, the way Playwright's `failOnFlakyTests` and nextest's
 `flaky-result = "fail"` do: a retry that hides a real race is a test that will fail on somebody else's
 merge request.
@@ -17406,9 +17688,12 @@ merge request.
 
 It lists the five files with the most heap used after them, in megabytes, whenever the run
 recorded heap. A bare run passes `--logHeapUsage` itself; a `--command` run needs `logHeapUsage: true`
-in the configuration it reaches. It is a note and says what it cannot tell: under `isolate: false` the
-number after a file also carries every file that ran before it in the same worker, so a file that stays
-high with isolation on is the one that allocates.
+in the configuration it reaches. It is a note. Under `isolate: false` the number after a file also
+carries every file that ran before it in the same worker. On Vitest 5 `perf` takes that apart: with the
+resolved `isolate: false`, each lane keeps one worker, so it orders the lane's files by start and lists
+what each file **added** to the heap over the file before it — the five that grew it most. That is the
+file that leaves memory behind, without guessing. With isolation on, or on an older report, it lists
+the heap after each file as before.
 
 ### When a bare run is not your suite
 
@@ -17421,8 +17706,9 @@ files, 29 s of wall clock, 0 test bodies executed**, and a phase table that look
 plausible because transform and environment are real seconds however the files ended.
 
 `perf` refuses both halves of that. Before running anything it checks whether a bare run would be
-this repository's suite at all — no root `vite(st).config.*`, and a `test` script that does not
-invoke `vitest` itself — and stops instead of spending the half-minute. It prints one way out: the
+this repository's suite at all — no root `vite(st).config.*` (on Vitest 2 and 3 a
+`vitest.workspace.*` or `vitest.projects.*` counts too; Vitest 4 stopped reading those), and a `test`
+script that does not invoke `vitest` itself — and stops instead of spending the half-minute. It prints one way out: the
 builder command below, with your project and target filled in, when it found an Angular or Nx
 unit-test target; otherwise the two reporter lines and the `--command` to run. And
 whatever the source, a report in which **no test body finished** is not printed as a measurement:
@@ -17571,8 +17857,9 @@ styles at 15 %.
        │ TestBed rebuilds the testing module and the component for every test: 40% is TestBed set-up and component creation. (…)
 ```
 
-**The slowest imports come from Vitest.** On Vitest 4.1 and newer the confirmation pass raises
-`experimental.importDurations.limit` for its own run only, and the card lists the spec's heaviest
+**The slowest imports come from Vitest.** On Vitest 4.1 and newer a measured run asks for the ten
+slowest imports of each file when the config sets no `experimental.importDurations.limit`, and the
+confirmation pass raises a lower limit for its own run only, so no config is needed. The card lists the spec's heaviest
 direct imports with everything they pulled in: a package by its name, a module by its path. A module
 another file imported first was paid for there and is not listed. An older Vitest, or a harness whose
 spec is a bundled chunk, leaves the section out.
@@ -17609,8 +17896,8 @@ still taken over the whole run.
 
 **Exit codes.** `0` — the report was read and nothing failed. `1` — the gate failed, and that is the
 only thing that means "your suite is over budget". `2` — there was nothing to judge: no Vitest, no
-report, a `--json` file that does not parse, a run in which no test body executed, or a red suite
-under `--gate`.
+report, a `--json` file that does not parse, a run in which no test body executed, or a red or
+unfinished suite under `--gate`.
 
 ### The two tables, and the shards they were merged from
 
@@ -17661,6 +17948,14 @@ milliseconds), `budgets`, `gate` (`status`, `confirmation` and the
 verdict rows), `tally` and every finding — and moves the output of any suite it runs to stderr, so
 stdout stays parseable. A run with nothing to judge still prints a document, with `error` and
 `run: null`.
+
+When the report has them, the document adds `run.vitest` (the Vitest version), `run.partial`,
+`run.config` (the resolved options and `provided`), `run.startup` (`{ ms, workers }`) and `run.lanes`
+(`{ lanes, spanMs, busy, longPole?: { file, aloneMs } }`). On Vitest 5 each `slowestFiles[].phases`
+also carries `transform`, with `import` and `setup` net of it, as in the phase table. The markdown
+report names the Vitest version on the summary line, prints the lanes line under it and adds a
+`Transform` column to the slowest-files table. None of these appear for a report without the data, and
+a report of an older Vitest prints exactly what it printed before. The report format is version 4.
 
 A sharded pipeline writes one report per job, and a rule that compares a file against **the median
 of its own run** then compares it against a quarter of the evidence. `--json` takes a directory or a
@@ -18522,7 +18817,7 @@ and [`/angular/doubles`](#window-and-document-without-losing-the-real-one) — s
 spies stops evaluating code it never calls.
 
 ```ts
-import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+import { type Spy, injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
 
 TestBed.configureTestingModule({
   providers: [
@@ -18541,7 +18836,21 @@ beforeEach(() => {
 
 The spies are change-detection agnostic, so they work in **both zoneless and zone.js** Angular
 projects — nothing here touches `NgZone` or change detection. You still need the usual Vitest +
-Angular wiring (`@analogjs/vite-plugin-angular` plus a TestBed setup file).
+Angular wiring: Angular's own `@angular/build:unit-test` builder, or `@analogjs/vite-plugin-angular`
+plus a TestBed setup file. On `@angular/build` 22.2 the Analog pair —
+`@analogjs/vite-plugin-angular` and `@analogjs/vitest-angular` — has to be **2.7.5 or newer**;
+older ones stop at startup with `TypeError: cache.has is not a function`, which
+`npx vitest-auto-spy doctor` reports as
+[`analog-behind-angular-build`](https://asdalexey.github.io/vitest-auto-spy/utilities/cli#analog-behind-angular-build).
+
+**What the unit-test builder compiles, from 22.2.0**
+From `@angular/build` 22.2.0 the `@angular/build:unit-test` program is built from the spec files,
+the `providersFile`, the `setupFiles` and the `.d.ts` files `tsconfig.spec.json` includes — and
+whatever they import. A plain `.ts` that only sits in that `include` — one holding
+`import 'vitest-auto-spy/rxjs'` or a `declare module` augmentation — is no longer part of it, and
+what it declared disappears from every spec. Move it into a setup file, a spec, or a `.d.ts` — one
+with an `import` or `export {}`, so an augmentation stays an augmentation. Earlier builders
+compile the whole `include`.
 
 **Running the same suite on Bun**
 `bun test` cannot run Angular specs out of the box — Bun ships no DOM and cannot resolve
@@ -19736,11 +20045,11 @@ approach.
 ### The rule: a `vi.mock` factory must not use object spread
 
 Angular's builder sets `'object-rest-spread': false` unconditionally in `getFeatureSupport`
-(`@angular/build/src/tools/esbuild/utils.js:172`) — a deliberate workaround for a V8 performance
-defect, [crbug/v8/11536](https://bugs.chromium.org/p/v8/issues/detail?id=11536). So `{ ...actual, x }`
-never survives as spread: it is downlevelled to a bundle-scope `__spreadValues` helper. `vi.mock`
-factories are hoisted above the bundle's own initialisation, so the factory reaches that helper
-before it exists.
+(`@angular/build/src/tools/esbuild/utils.js:166` in 22.2.0) — a deliberate workaround for a V8
+performance defect, [crbug/v8/11536](https://bugs.chromium.org/p/v8/issues/detail?id=11536). So
+`{ ...actual, x }` never survives as spread: it is downlevelled to a bundle-scope `__spreadValues`
+helper. `vi.mock` factories are hoisted above the bundle's own initialisation, so the factory
+reaches that helper before it exists.
 
 ```ts
 // ❌ the spread compiles to a helper the hoisted factory runs before it is initialised
@@ -19797,8 +20106,8 @@ Worth saying plainly, because the claim it replaces was stated too broadly once 
 was a toy: no components, no templates, no barrels, no `externalDependencies` entries, and jsdom
 rather than happy-dom. It says `vi.mock('@angular/core')` is not categorically blocked and that
 spread is what breaks the factory; it does not say every mock of every module will work in a real
-application suite. The `splitting` option discussed below was never executed against it, because no
-published `@angular/build` ships it yet.
+application suite. The `splitting` option discussed below was never executed against it: it did not
+exist yet when the fixture was measured.
 
 ## When the unit-test build has code splitting off
 
@@ -19819,22 +20128,25 @@ be:
   run is killed. **The builder emits no warning in either mode.**
 
 PR #33961 restores a `splitting` option with splitting **on** by default, so 22.1.7 closes the
-window: upgrade and set `"splitting": true` on the test target.
+window: upgrade to 22.1.7 or newer and remove any `"splitting": false` from the test target — the
+default is the fix. From 22.2.0 the option is deprecated ("No longer needed with Vitest 5"), still
+defaulting to `true`, so there is nothing to set.
 
 Neither the doctor nor this page is where the failure is noticed, so
-[`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_13-the-builder-version-that-eats-memory-named-in-the-run)
-says it in the run itself: when the process is a worker of the unit-test builder and the installed
+[`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_13-the-builder-version-that-eats-memory-named-in-the-run) says
+it in the run itself: when the process is a worker of the unit-test builder and the installed
 `@angular/build` is in the window, the setup file writes one line to stderr — once per worker, since
-the builder evaluates it once — naming the version, both exits and the opt-out. It reads a single
-`node_modules/@angular/build/package.json` for that, and nothing else depends on the read.
-`setupAutoSpy({ angularBuildHint: false })` silences it.
+the notice keeps a flag on `globalThis` that silences every later evaluation — naming the version,
+both exits and the opt-out. It reads a single `node_modules/@angular/build/package.json` for that,
+and nothing else depends on the read. `setupAutoSpy({ angularBuildHint: false })` silences it.
 
 ### The escape hatch, and why it is not shipped here
 
-Until then the only lever is to patch the installed builder in place. The shape of that patch — a
-version-guarded `postinstall` that rewrites `disableCodeSplitting: true,` in `node_modules` — is
-copy-pasteable, and is yours to own once you paste it: it is neither run nor tested by this
-repository, and it depends entirely on that literal still being there.
+On 22.1.5 and 22.1.6, short of upgrading, the only lever is to patch the installed builder in place.
+The shape of that patch — a version-guarded `postinstall` that rewrites
+`disableCodeSplitting: true,` in `node_modules` — is copy-pasteable, and is yours to own once you
+paste it: it is neither run nor tested by this repository, and it depends entirely on that literal
+still being there.
 
 ```js
 // scripts/patch-angular-build.cjs — delete this once you are on @angular/build 22.1.7
@@ -19884,11 +20196,21 @@ automatic means a `postinstall` that rewrites another package's files inside `no
 is the single most alarming thing a test library can do to a supply-chain audit — the same posture
 that keeps this package's own bundles unminified and readable. It is also string surgery against a
 literal at no fixed path, so an upstream refactor breaks it silently, which is the worst failure
-mode for a package whose whole pitch is that failures name their own cause. And its useful life is
-weeks. Whether a workspace trades a 596 MB bundle graph for anything at all is the app team's call,
-not a test-double library's; the diagnosis belongs here, the mutation does not.
+mode for a package whose whole pitch is that failures name their own cause. And its useful life was
+weeks: 22.1.7 closed the window it existed for. Whether a workspace trades a 596 MB bundle graph for
+anything at all is the app team's call, not a test-double library's; the diagnosis belongs here, the
+mutation does not.
 
 ## Coverage under the unit-test builder
+
+**On 22.2.0, Vitest 5 cuts a coverage run by a third to a half**
+From `@angular/build` 22.2.0 the builder runs on Vitest 5, and that is where coverage gets cheaper.
+On a 700-file, 11 491-test zoneless Angular 22.2 suite using this library, with the builder's
+defaults, moving the runner from Vitest 4.1.11 to 5.0.2 took `ng test --coverage` from 16.50 s to
+8.91 s with v8 (**−46 %**) and from 37.07 s to 23.92 s with istanbul (**−35.5 %**); without coverage
+the two are level. The upgrade takes `vitest` and `@vitest/coverage-*` 5 together and, on Analog,
+2.7.5 or newer — no `overrides`. Older builders keep working on Vitest 4. Table, method and caveats:
+[Performance → Vitest 5 under the Angular unit-test builder](https://asdalexey.github.io/vitest-auto-spy/core/performance#vitest-5-under-the-angular-unit-test-builder).
 
 Two settings in this area read as configuration and configure nothing. `npx vitest-auto-spy doctor`
 reports both — `coverage-all-removed` and `coverage-include-misses-bundle` — because neither one
@@ -19951,7 +20273,9 @@ the filename — never the compiled matcher. So every filename recompiles every 
 `BaseCoverageProvider.getGlobMatchers()` builds the two matchers on first use and keeps them, so on
 Vitest 5 the surcharge below is gone and the wrapper is unnecessary. Everything from here to the end
 of this section applies to Vitest 4 and earlier — which the package still supports, its peer range
-being `>=2.1.0`. Upgrading is the cheaper fix where it is available.
+being `>=2.1.0`. Upgrading is the cheaper fix where it is available — and under
+`@angular/build:unit-test` it is available from 22.2.0, whose peer range admits Vitest 5 (before
+22.2 it stopped at `^4`); no `overrides` are needed. Analog users need 2.7.5 or newer for the same.
 
 Profiled on one shard of a 1 725-file Angular suite, with a scope of 124 include globs plus 304
 negations:
@@ -23033,7 +23357,11 @@ import 'vitest-auto-spy/rxjs';
 That is the same import the observable helpers already need at runtime; if your suite calls
 `nextWith` at all, it is somewhere in your repository already. What the error is telling you is that
 it is somewhere the **compiler** cannot see — typically a Vitest `setupFiles` entry that no
-`tsconfig` includes. Add the file to `include`, or put the import in a spec-side file.
+`tsconfig` includes. Add the file to `include`, or put the import in a spec-side file. Under
+`@angular/build:unit-test` from 22.2.0 the rule is narrower: the builder compiles the specs, the
+`providersFile`, the `setupFiles` and the `.d.ts` files of `tsconfig.spec.json`, so a plain `.ts`
+that is only listed in `include` no longer counts — put the import in a setup file, a spec, or a
+`.d.ts`.
 
 Suites that never annotate the result (`const subject = spy.load.returnSubject()`) are unaffected
 either way.
@@ -24306,12 +24634,12 @@ Most `jasmine-auto-spies` suites are Angular suites on Karma, and Angular ships 
 the half of the move this page does not cover — the **runner** swap. The two are complementary: the
 schematics change the builder and the syntax of the runner's own globals, and the codemod above
 changes the doubles. Version numbers matter here, so they are stated rather than implied
-(`@angular/core` dist-tags at the time of writing: `latest` **22.1.4**, `v21-lts` **21.2.22**,
-`v20-lts` **20.3.30**):
+(`@angular/core` dist-tags on 2026-09-26: `latest` **22.2.0**, `v21-lts` **21.2.24**,
+`v20-lts` **20.3.32**):
 
-- **`@angular/build:unit-test` is `[EXPERIMENTAL]` in every version**, 22 included. Nothing about
-  that stops it working; it does mean the builder options are not covered by Angular's deprecation
-  policy yet.
+- **`@angular/build:unit-test` is `[EXPERIMENTAL]` up to 22.1.x** and drops the label in **22.2.0**
+  (angular-cli PR #34095). Nothing about the label stops it working; on an older version it does
+  mean the builder options are not covered by Angular's deprecation policy.
 - **`runner` was required in v20** and had no default. From **v21** it defaults to `"vitest"`, so a
   v21+ config can omit it and a v20 one cannot.
 - **`ng generate @schematics/angular:refactor-jasmine-vitest` exists from v21 only**, and it is
@@ -24573,7 +24901,11 @@ workaround described above, that goes as well.
 
 `vitest-auto-spy/angular` needs the usual Vitest + Angular wiring
 (`@analogjs/vite-plugin-angular` plus a TestBed setup file), or Angular's own
-`@angular/build:unit-test` builder. See [the Angular adapter](https://asdalexey.github.io/vitest-auto-spy/adapters/angular).
+`@angular/build:unit-test` builder. With Analog on `@angular/build` 22.2, both
+`@analogjs/vite-plugin-angular` and `@analogjs/vitest-angular` need 2.7.5 or newer — older ones fail
+at startup with `TypeError: cache.has is not a function`, which `npx vitest-auto-spy doctor` reports
+as [`analog-behind-angular-build`](https://asdalexey.github.io/vitest-auto-spy/utilities/cli#analog-behind-angular-build). See
+[the Angular adapter](https://asdalexey.github.io/vitest-auto-spy/adapters/angular).
 
 ## The translation table
 
@@ -25768,9 +26100,15 @@ checked against a primary source on 2026-09-02.
 - **22.0.0** (2026-06-03) removed the experimental builders — "The experimental
   `@angular-devkit/build-angular:jest` and `@angular-devkit/build-angular:web-test-runner` builders
   have been removed." — and shipped "stabilize refactor-jasmine-vitest schematic" (`de630c2f`).
-  Stabilised is a statement about its coverage of test patterns, not its listing: in 22.1.6 the
-  collection entry still reads `[EXPERIMENTAL] Refactors Jasmine tests to use Vitest APIs.` and is
-  `"hidden": true`, so it does not appear in `ng generate --help` and has to be named in full.
+  Stabilised is a statement about its coverage of test patterns, not its listing: in 22.1.6, and
+  still in 22.2.0, the collection entry reads
+  `[EXPERIMENTAL] Refactors Jasmine tests to use Vitest APIs.` and is `"hidden": true`, so it does
+  not appear in `ng generate --help` and has to be named in full.
+- **22.2.0 makes a new project a Vitest 5 project** (checked against the `@schematics/angular`
+  22.2.0 tarball on 2026-09-26). `ng new` pins `vitest` at `^5.0.0` — 22.1.x pinned `^4.0.8` —
+  the Karma-to-Vitest migration and the `vitest-browser` schematic add `@vitest/coverage-*` and the
+  browser providers at the same range, and `ng generate config vitest` writes
+  `vitest-base.config.mts` where it used to write `vitest-base.config.ts`.
 
 ---
 
@@ -26747,6 +27085,14 @@ whether it loads) over a body that only points at the tarball, so the copy canno
 installed. But something still has to tell the agent to read it. That one line is what `init`
 writes.
 
+It is long — every export, every configuration option and every error this package throws — so it
+is written to be read by section, not whole. `AGENTS.md` is the core, and its header maps the
+sections: five that every spec needs, the rest by task or by stack. The five longest — the setup
+file, Angular, the ESLint plugin, Error → fix and migrating off `jasmine-auto-spies` — ship next to
+it in `node_modules/vitest-auto-spy/agent-docs/`, each with a stub in the core that says when to
+open it; Error → fix is a table to grep by the message rather than read. The shipped skill and the
+stub `init` writes send the agent to that map first.
+
 ## Cheaper run output — `--reporter=agent`
 
 Vitest 4.1 ships a reporter written for this: the same failures, without the passing-test roll call
@@ -27052,10 +27398,12 @@ These account for the large majority of broken specs, and every one of them is c
    [`settleDynamicImport` / `flushEventLoop`](https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop).
 10. **Assuming a setup file's hooks reach every spec file.** They belong to the file whose
     collection imported the module, and a runner that keeps that module cached across files —
-    `@angular/build:unit-test` under `--coverage` is the case seen in the wild — gives them to the
-    first file of each worker and to no other. Nothing reports it; the symptom is a leaked global or
-    real timers in a spec that passes on its own. Run coverage with `--isolate`, or call
-    [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) from something evaluated per file.
+    `@angular/build:unit-test` before 22.2.0 under `--coverage` is the case seen in the wild — gives
+    them to the first file of each worker and to no other. Nothing reports it; the symptom is a
+    leaked global or real timers in a spec that passes on its own. `@angular/build` 22.2.0 fixes it;
+    on an older builder run coverage with `--isolate`, or call [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup)
+    from something evaluated per file. Either way keep the call at the top level of the setup file,
+    not in a module it imports.
 11. **`vi.spyOn(console, 'error')` to keep a spec quiet.** With no implementation it calls through,
     so the line still prints — and under `strayConsole` the test fails on it. Install the silent
     spies with `installConsoleSpies()` from [`vitest-auto-spy/console`](https://asdalexey.github.io/vitest-auto-spy/utilities/console) in a

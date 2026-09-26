@@ -55,6 +55,14 @@ whether it loads) over a body that only points at the tarball, so the copy canno
 installed. But something still has to tell the agent to read it. That one line is what `init`
 writes.
 
+It is long — every export, every configuration option and every error this package throws — so it
+is written to be read by section, not whole. `AGENTS.md` is the core, and its header maps the
+sections: five that every spec needs, the rest by task or by stack. The five longest — the setup
+file, Angular, the ESLint plugin, Error → fix and migrating off `jasmine-auto-spies` — ship next to
+it in `node_modules/vitest-auto-spy/agent-docs/`, each with a stub in the core that says when to
+open it; Error → fix is a table to grep by the message rather than read. The shipped skill and the
+stub `init` writes send the agent to that map first.
+
 ## Cheaper run output — `--reporter=agent`
 
 Vitest 4.1 ships a reporter written for this: the same failures, without the passing-test roll call
@@ -361,10 +369,12 @@ These account for the large majority of broken specs, and every one of them is c
    [`settleDynamicImport` / `flushEventLoop`](/utilities/event-loop).
 10. **Assuming a setup file's hooks reach every spec file.** They belong to the file whose
     collection imported the module, and a runner that keeps that module cached across files —
-    `@angular/build:unit-test` under `--coverage` is the case seen in the wild — gives them to the
-    first file of each worker and to no other. Nothing reports it; the symptom is a leaked global or
-    real timers in a spec that passes on its own. Run coverage with `--isolate`, or call
-    [`setupAutoSpy()`](/utilities/setup) from something evaluated per file.
+    `@angular/build:unit-test` before 22.2.0 under `--coverage` is the case seen in the wild — gives
+    them to the first file of each worker and to no other. Nothing reports it; the symptom is a
+    leaked global or real timers in a spec that passes on its own. `@angular/build` 22.2.0 fixes it;
+    on an older builder run coverage with `--isolate`, or call [`setupAutoSpy()`](/utilities/setup)
+    from something evaluated per file. Either way keep the call at the top level of the setup file,
+    not in a module it imports.
 11. **`vi.spyOn(console, 'error')` to keep a spec quiet.** With no implementation it calls through,
     so the line still prints — and under `strayConsole` the test fails on it. Install the silent
     spies with `installConsoleSpies()` from [`vitest-auto-spy/console`](/utilities/console) in a

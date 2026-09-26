@@ -90,9 +90,10 @@ Node **≥ 22** is the floor. Node 18 and 20 are both past end-of-life, and ever
 supported range already needs more than either: Vitest 4 declares `^20.0.0 || ^22.0.0 || >=24.0.0`,
 and the Vite 7 it pulls is stricter still, at `^20.19.0 || >=22.12.0` — on Node 18 the run dies with
 `TypeError: crypto.hash is not a function` before a single spec loads. Vitest 5 tightens further, to
-`^22.12.0 || ^24.0.0 || >=26.0.0`. CI exercises Node 22, 24 and 26; the published output is still
-ES2022. Which of the three to actually run — and what it costs — is measured in [Performance → Which
-Node version](./performance#which-node-version).
+`^22.12.0 || ^24.0.0 || >=26.0.0`, and peers `@types/node` at `^22.0.0 || >=24.0.0` — optional, but
+checked once installed, so a workspace still on `@types/node` 20 meets `ERESOLVE`. CI exercises Node
+22, 24 and 26; the published output is still ES2022. Which of the three to actually run — and what
+it costs — is measured in [Performance → Which Node version](./performance#which-node-version).
 
 Ships **ESM with bundled `.d.ts` types**. Two subpaths additionally ship a CommonJS build —
 `vitest-auto-spy/node` (a `node --test` suite written in CJS) and `vitest-auto-spy/eslint-plugin`
@@ -133,7 +134,7 @@ since 4.0.0, into its TypeScript program either:
 | `vitest-auto-spy/rxjs`                | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) and `createObservableWithValues`                                                                                                                                                                  | `rxjs`                                                   |
 | `vitest-auto-spy/dom-stubs`           | the globals a component builds for itself — `stubIntersectionObserver`, `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `stubMediaElement`, `stubAbortController`, `stubAnimationFrame`, `stubElementRect` and the entry builders. On the root entry until 4.0.0 | —                                                        |
 | `vitest-auto-spy/diagnostics`         | `compareTestRuns` / `summarizeTestRun` / `formatTestRunComparison` and `diffByField` — the two reports a counter cannot give. On the root entry until 4.0.0; pure functions, so this one can be imported from a plain Node script too                                          | —                                                        |
-| `vitest-auto-spy/angular`             | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, the `mock*Prop` helpers — the matchers, diagnostics and doubles below left this entry in 5.21.0                                                                                | `@angular/core`                                          |
+| `vitest-auto-spy/angular`             | `provideAutoSpy`, `injectSpy` and the `Spy<T>` type it returns, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, the `mock*Prop` helpers — the matchers, diagnostics and doubles below left this entry in 5.21.0                                               | `@angular/core`                                          |
 | `vitest-auto-spy/angular/diagnostics` | `enableAngularDiagnostics` and the whole TestBed timing family. A companion to `/angular`, not a second copy of the core — moved off it in 5.21.0                                                                                                                              | `@angular/core`                                          |
 | `vitest-auto-spy/angular/doubles`     | The Material dialog trio and the `Window`/`Document` platform doubles; registers the Vitest adapter, so its doubles spy out of the box. A companion to `/angular`, moved off it in 5.21.0                                                                                      | `@angular/core`                                          |
 | `vitest-auto-spy/angular/matchers`    | `registerDirectiveMatchers`, `registerResourceMatchers`, `registerSignalMatchers` — one `expect.extend` each, from the setup file. A companion to `/angular`, moved off it in 5.21.0                                                                                           | `@angular/core`, `@angular/platform-browser`             |
@@ -268,7 +269,9 @@ suite that never touched an observable.
 If you _do_ use the observable layer, `import 'vitest-auto-spy/rxjs'` has to sit in a file this
 `tsconfig` includes as well as in the runtime setup — that import is what makes `returnSubject()`
 rxjs's own `Subject<T>` rather than the structural `SubjectLike<T>`. See
-[Upgrading to 4.0](/upgrading-4).
+[Upgrading to 4.0](/upgrading-4). Under `@angular/build:unit-test` from 22.2.0, being listed in
+`include` is not enough: the builder compiles only specs, `providersFile`, `setupFiles` and `.d.ts`
+files, so the import belongs in one of those.
 
 ```jsonc
 {

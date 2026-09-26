@@ -8,6 +8,30 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## Who decides `isolate` under `@angular/build:unit-test`, 2026-09-26
+
+The CLI used to say the builder overwrites any `isolate` a runner config sets. Probed with four spec
+files sharing a global, one worker, `ng test --no-coverage`, on 22.1.9 + Vitest 4.1, 22.2.0 + Vitest
+4.1, 22.2.0 + Vitest 5.0, 21.2.24 + Vitest 4.0 and 20.3.37 + Vitest 3.2:
+
+| run                                               | 20.3     | 21.2     | 22.1 / 22.2       |
+| ------------------------------------------------- | -------- | -------- | ----------------- |
+| nothing set, or a runner config without `isolate` | isolated | shared   | shared            |
+| runner config `test.isolate: true`                | —        | isolated | isolated          |
+| runner config `test.isolate: false`               | —        | shared   | shared            |
+| `--isolate` / `--no-isolate`                      | —        | —        | isolated / shared |
+| runner config `true` + `--no-isolate`             | —        | —        | shared            |
+| runner config `false` + `--isolate`               | —        | —        | isolated          |
+
+20.x loads no runner config (`config: false`) and has no `isolate` option; 21.x has no `isolate`
+option either. The builder merges the runner config's `test` block over its `isolate: false` default,
+and its own option overrides only when set — from 22.1 either way, in 22.0 only `true` (read from the
+22.0.0 source, not run). Shipped: `doctor`'s `module-mock-leak` and `perf`'s `perf-isolation` read the
+runner config a target names (`runnerConfig: true` included) and the installed `@angular/build`.
+
+- [~] **`--isolate` passed in a `package.json` script.** Not read: a flag on one script is a choice
+  for that run, and the target's options stay what every other run of the suite gets.
+
 ## git's exclude rules in the repository scan, 2026-09-23
 
 Shipped: nested `.gitignore` files, each relative to its directory, the root's `.git/info/exclude`
@@ -1462,8 +1486,8 @@ by reading the installed sources, and is worth not re-deriving:
 - **Coverage is matched twice.** `@vitest/coverage-v8` 4.1.9 calls `isIncluded` on the executed
   script's URL (`dist/provider.js:247`) before any remap, and again on the remapped source path when
   `excludeAfterRemap` is on (`:61`). `@angular/build` 22.1.3 forces that flag on
-  (`src/builders/unit-test/runners/vitest/plugins.js:415`) and prepends `spec-*.js`, `chunk-*.js` to
-  the target's `coverageInclude` (`:421`) — which is why a list written in the **runner config**
+  (`src/builders/unit-test/runners/vitest/plugins.js:415`; `:422` in 22.2.0) and prepends
+  `spec-*.js`, `chunk-*.js` to the target's `coverageInclude` (`:421`; `:429` in 22.2.0) — which is why a list written in the **runner config**
   instead loses every counter on the first pass and reports nothing.
 - **Order in the list is irrelevant**, presence is not. `isIncluded` calls
   `pm.isMatch(filename, glob, { contains: true, dot: true, ignore })` with the array, so any pattern
@@ -1555,10 +1579,11 @@ before the whole-file heuristic is widened again:
 - **A `DOCUMENT` stand-in read as a template read.** `{ querySelector: document.querySelector.bind(document), … }`
   put four of the fourteen `TEMPLATE_READS` words into the source, and the one spec in that repo
   rendering a template nobody reads was the one spec the rule never reported. Subtracted shape is
-  `name: document.name` with the two names matching — a delegation and nothing else. Deliberately
-  **not** an AST pass: property keys and `ObjectPattern` keys are the same node shape, so skipping
-  keys would drop `const { nativeElement } = fixture` and turn an under-reporting rule into a
-  wrong one.
+  `name: document.name` with the two names matching — a delegation and nothing else. The scan
+  became an AST pass in 5.34.0 (a comment or a string silenced the file), and it skips a key only
+  where the `Property` sits in an `ObjectExpression`: an `ObjectPattern` key shares the node shape,
+  and skipping it too would drop `const { nativeElement } = fixture` and turn an under-reporting
+  rule into a wrong one.
 - **`'never'` reported the `'as-needed'` wording.** A policy that does not ask about reads printed
   "nothing in this file reads either", on a spec with thirty-five `querySelector` calls. Third
   message id, not a data placeholder in the first: the two findings share a rewrite, not a claim.
@@ -1859,7 +1884,7 @@ children go 0 → 400) and already fixed by `renderShallow` (4.1× here, 16.2× 
   the app team's call, not a test-double library's.
 
   **Shipped instead — three read-only pieces, no mutation.** The `doctor` check
-  `angular-build-splitting-off` (`src/cli/checks/angular-build.ts:65`); the
+  `angular-build-splitting-off` (`checkAngularBuild` in `src/cli/checks/angular-build.ts`); the
   `docs-site/adapters/angular.md` section carrying the patch script verbatim with its
   "delete this from 22.1.7" note; and `angularBuildHint`
   (`src/lib/angular-build-notice.ts`), a one-shot runtime notice that recognises the builder by

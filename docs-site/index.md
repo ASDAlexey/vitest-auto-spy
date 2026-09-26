@@ -30,7 +30,7 @@ features:
     details: 'registerAutoSpyDefaults(Router, config) once in a setup file and every provideAutoSpy or createSpyFromClass starts from it — merged with what the call site adds, not replaced. One Angular suite carried 23 different configurations of the same class across 109 spec files; a dozen classes go in as one table, each row checked against its own class, and an InjectionToken registers the same way from vitest-auto-spy/angular, clearAutoSpyDefaults taking one row back.'
     link: /core/create-spy-from-class
   - title: Vitest 5 on the same install
-    details: 'One package spans Vitest 2.1 through 5.x — no second major, no version-split types, no edit to a spec. The same suite runs 7.7 % faster on Vitest 5, and the bundled spy engine adds another 8.1 % over vi.fn().'
+    details: 'One package spans Vitest 2.1 through 5.x — no second major, no version-split types, no edit to a spec. The same suite runs 7.7 % faster on Vitest 5, and the bundled spy engine adds another 8.1 % over vi.fn(). On Angular 22.2, whose unit-test builder is the first to run Vitest 5, a 700-file suite with v8 coverage goes from 16.50 s to 8.91 s — 46 % less time, 1.85× faster.'
     link: /runtimes/vitest#vitest-5
   - title: One core, four runtimes
     details: 'vi.fn() and its equivalents sit behind an adapter that each entry point registers on import, so the same spec file runs on Vitest, bun:test, node:test and Rstest.'

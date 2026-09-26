@@ -14,7 +14,7 @@ and [`/angular/doubles`](#window-and-document-without-losing-the-real-one) — s
 spies stops evaluating code it never calls.
 
 ```ts
-import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+import { type Spy, injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
 
 TestBed.configureTestingModule({
   providers: [
@@ -33,7 +33,22 @@ beforeEach(() => {
 
 The spies are change-detection agnostic, so they work in **both zoneless and zone.js** Angular
 projects — nothing here touches `NgZone` or change detection. You still need the usual Vitest +
-Angular wiring (`@analogjs/vite-plugin-angular` plus a TestBed setup file).
+Angular wiring: Angular's own `@angular/build:unit-test` builder, or `@analogjs/vite-plugin-angular`
+plus a TestBed setup file. On `@angular/build` 22.2 the Analog pair —
+`@analogjs/vite-plugin-angular` and `@analogjs/vitest-angular` — has to be **2.7.5 or newer**;
+older ones stop at startup with `TypeError: cache.has is not a function`, which
+`npx vitest-auto-spy doctor` reports as
+[`analog-behind-angular-build`](/utilities/cli#analog-behind-angular-build).
+
+::: warning What the unit-test builder compiles, from 22.2.0
+From `@angular/build` 22.2.0 the `@angular/build:unit-test` program is built from the spec files,
+the `providersFile`, the `setupFiles` and the `.d.ts` files `tsconfig.spec.json` includes — and
+whatever they import. A plain `.ts` that only sits in that `include` — one holding
+`import 'vitest-auto-spy/rxjs'` or a `declare module` augmentation — is no longer part of it, and
+what it declared disappears from every spec. Move it into a setup file, a spec, or a `.d.ts` — one
+with an `import` or `export {}`, so an augmentation stays an augmentation. Earlier builders
+compile the whole `include`.
+:::
 
 ::: tip Running the same suite on Bun
 `bun test` cannot run Angular specs out of the box — Bun ships no DOM and cannot resolve
@@ -1237,11 +1252,11 @@ approach.
 ### The rule: a `vi.mock` factory must not use object spread
 
 Angular's builder sets `'object-rest-spread': false` unconditionally in `getFeatureSupport`
-(`@angular/build/src/tools/esbuild/utils.js:172`) — a deliberate workaround for a V8 performance
-defect, [crbug/v8/11536](https://bugs.chromium.org/p/v8/issues/detail?id=11536). So `{ ...actual, x }`
-never survives as spread: it is downlevelled to a bundle-scope `__spreadValues` helper. `vi.mock`
-factories are hoisted above the bundle's own initialisation, so the factory reaches that helper
-before it exists.
+(`@angular/build/src/tools/esbuild/utils.js:166` in 22.2.0) — a deliberate workaround for a V8
+performance defect, [crbug/v8/11536](https://bugs.chromium.org/p/v8/issues/detail?id=11536). So
+`{ ...actual, x }` never survives as spread: it is downlevelled to a bundle-scope `__spreadValues`
+helper. `vi.mock` factories are hoisted above the bundle's own initialisation, so the factory
+reaches that helper before it exists.
 
 ```ts
 // ❌ the spread compiles to a helper the hoisted factory runs before it is initialised
@@ -1299,8 +1314,8 @@ Worth saying plainly, because the claim it replaces was stated too broadly once 
 was a toy: no components, no templates, no barrels, no `externalDependencies` entries, and jsdom
 rather than happy-dom. It says `vi.mock('@angular/core')` is not categorically blocked and that
 spread is what breaks the factory; it does not say every mock of every module will work in a real
-application suite. The `splitting` option discussed below was never executed against it, because no
-published `@angular/build` ships it yet.
+application suite. The `splitting` option discussed below was never executed against it: it did not
+exist yet when the fixture was measured.
 
 ## When the unit-test build has code splitting off
 
@@ -1321,22 +1336,25 @@ be:
   run is killed. **The builder emits no warning in either mode.**
 
 PR #33961 restores a `splitting` option with splitting **on** by default, so 22.1.7 closes the
-window: upgrade and set `"splitting": true` on the test target.
+window: upgrade to 22.1.7 or newer and remove any `"splitting": false` from the test target — the
+default is the fix. From 22.2.0 the option is deprecated ("No longer needed with Vitest 5"), still
+defaulting to `true`, so there is nothing to set.
 
 Neither the doctor nor this page is where the failure is noticed, so
-[`setupAutoSpy()`](/utilities/setup#_13-the-builder-version-that-eats-memory-named-in-the-run)
-says it in the run itself: when the process is a worker of the unit-test builder and the installed
+[`setupAutoSpy()`](/utilities/setup#_13-the-builder-version-that-eats-memory-named-in-the-run) says
+it in the run itself: when the process is a worker of the unit-test builder and the installed
 `@angular/build` is in the window, the setup file writes one line to stderr — once per worker, since
-the builder evaluates it once — naming the version, both exits and the opt-out. It reads a single
-`node_modules/@angular/build/package.json` for that, and nothing else depends on the read.
-`setupAutoSpy({ angularBuildHint: false })` silences it.
+the notice keeps a flag on `globalThis` that silences every later evaluation — naming the version,
+both exits and the opt-out. It reads a single `node_modules/@angular/build/package.json` for that,
+and nothing else depends on the read. `setupAutoSpy({ angularBuildHint: false })` silences it.
 
 ### The escape hatch, and why it is not shipped here
 
-Until then the only lever is to patch the installed builder in place. The shape of that patch — a
-version-guarded `postinstall` that rewrites `disableCodeSplitting: true,` in `node_modules` — is
-copy-pasteable, and is yours to own once you paste it: it is neither run nor tested by this
-repository, and it depends entirely on that literal still being there.
+On 22.1.5 and 22.1.6, short of upgrading, the only lever is to patch the installed builder in place.
+The shape of that patch — a version-guarded `postinstall` that rewrites
+`disableCodeSplitting: true,` in `node_modules` — is copy-pasteable, and is yours to own once you
+paste it: it is neither run nor tested by this repository, and it depends entirely on that literal
+still being there.
 
 ```js
 // scripts/patch-angular-build.cjs — delete this once you are on @angular/build 22.1.7
@@ -1386,11 +1404,22 @@ automatic means a `postinstall` that rewrites another package's files inside `no
 is the single most alarming thing a test library can do to a supply-chain audit — the same posture
 that keeps this package's own bundles unminified and readable. It is also string surgery against a
 literal at no fixed path, so an upstream refactor breaks it silently, which is the worst failure
-mode for a package whose whole pitch is that failures name their own cause. And its useful life is
-weeks. Whether a workspace trades a 596 MB bundle graph for anything at all is the app team's call,
-not a test-double library's; the diagnosis belongs here, the mutation does not.
+mode for a package whose whole pitch is that failures name their own cause. And its useful life was
+weeks: 22.1.7 closed the window it existed for. Whether a workspace trades a 596 MB bundle graph for
+anything at all is the app team's call, not a test-double library's; the diagnosis belongs here, the
+mutation does not.
 
 ## Coverage under the unit-test builder
+
+::: tip On 22.2.0, Vitest 5 cuts a coverage run by a third to a half
+From `@angular/build` 22.2.0 the builder runs on Vitest 5, and that is where coverage gets cheaper.
+On a 700-file, 11 491-test zoneless Angular 22.2 suite using this library, with the builder's
+defaults, moving the runner from Vitest 4.1.11 to 5.0.2 took `ng test --coverage` from 16.50 s to
+8.91 s with v8 (**−46 %**) and from 37.07 s to 23.92 s with istanbul (**−35.5 %**); without coverage
+the two are level. The upgrade takes `vitest` and `@vitest/coverage-*` 5 together and, on Analog,
+2.7.5 or newer — no `overrides`. Older builders keep working on Vitest 4. Table, method and caveats:
+[Performance → Vitest 5 under the Angular unit-test builder](../core/performance#vitest-5-under-the-angular-unit-test-builder).
+:::
 
 Two settings in this area read as configuration and configure nothing. `npx vitest-auto-spy doctor`
 reports both — `coverage-all-removed` and `coverage-include-misses-bundle` — because neither one
@@ -1453,7 +1482,9 @@ the filename — never the compiled matcher. So every filename recompiles every 
 `BaseCoverageProvider.getGlobMatchers()` builds the two matchers on first use and keeps them, so on
 Vitest 5 the surcharge below is gone and the wrapper is unnecessary. Everything from here to the end
 of this section applies to Vitest 4 and earlier — which the package still supports, its peer range
-being `>=2.1.0`. Upgrading is the cheaper fix where it is available.
+being `>=2.1.0`. Upgrading is the cheaper fix where it is available — and under
+`@angular/build:unit-test` it is available from 22.2.0, whose peer range admits Vitest 5 (before
+22.2 it stopped at `^4`); no `overrides` are needed. Analog users need 2.7.5 or newer for the same.
 :::
 
 Profiled on one shard of a 1 725-file Angular suite, with a scope of 124 include globs plus 304

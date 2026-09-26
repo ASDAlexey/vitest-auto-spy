@@ -1150,6 +1150,71 @@ They sit alongside [`enableTestBedDiagnostics()`](../adapters/angular#where-a-sp
 which reports the same per-file cost from inside the `TestBed`. Use the Vitest flags to find which
 files are expensive, and the diagnostics to find where inside one the time goes.
 
+### Vitest 5 under the Angular unit-test builder
+
+The one lever in this section that needs no change to a spec is the runner's major — once coverage
+is on. `@angular/build` 22.2.0 is the first release whose `@angular/build:unit-test` accepts Vitest 5
+(peer range `^4.0.8 || ^5.0.0`; before 22.2.0 it stopped at `^4`). On a 700-file, 11 491-test
+Angular 22.2 suite built on this library, switching the builder's runner from Vitest 4.1.11 to 5.0.2
+and changing nothing else:
+
+| coverage provider          | Vitest 4.1.11 | Vitest 5.0.2 |                  wall time |
+| -------------------------- | ------------: | -----------: | -------------------------: |
+| v8 (the builder's default) |       16.50 s |   **8.91 s** | **−46.0 %** (1.85× faster) |
+| istanbul                   |       37.07 s |  **23.92 s** | **−35.5 %** (1.55× faster) |
+
+Where it comes from, and where it does not:
+
+- **Without coverage there is no gain** — 6.16 s against 5.97 s at the median. The tests themselves
+  run at the same speed on both majors; what Vitest 5 shortens is coverage processing.
+- **With v8** the last test finishes at the same moment on both. Vitest 4 then spends about 9.3 s
+  converting and merging the V8 coverage, Vitest 5 about 1.1 s.
+- **With istanbul** both phases shrink: the run with per-worker instrumentation from about 27 s to
+  16–20 s, the merge from 8–9 s to about 6 s.
+- **Angular 22.1 → 22.2 alone is noise.** On Vitest 4 it moves wall time by −2.0 % (v8) and −3.4 %
+  (istanbul); the speed-up is Vitest 5's.
+- **The gain grows with the suite.** At 150 spec files (2 454 tests) the same switch gives −15.5 %
+  (v8) and −17.7 % (istanbul): such a run carries 2.5–3 s of fixed bundling and `ng` start-up, and
+  the coverage post-processing Vitest 5 shortens is a smaller share of it.
+- **Memory does not move.** Peak RSS of the whole process tree changes by −1.8 % (v8) and +2.5 %
+  (istanbul), within noise.
+
+**How it was measured.** A workspace mirroring `ng new` 22.2.0 `--defaults`: zoneless, jsdom, the
+builder's defaults (`isolate: false` included), `strict` and `strictTemplates`, and one setup file
+that imports `vitest-auto-spy/angular` and `vitest-auto-spy/rxjs`. `vitest-auto-spy` 5.34.0 was
+installed from the npm tarball. The suite is generated, in the shape of real consumer suites: 370
+services with 3–6 dependencies each through `provideAutoSpy` and `injectSpy`, 251 standalone
+components rendered through `TestBed` and `whenStable()`, 36 pipes and 43 functional guards. Each
+run is `ng test --watch=false --coverage`, with the provider picked by a `--runner-config` whose
+only line is `test.coverage.provider`. Apple M4 Max, 16 cores, Node v24.19.0, 2026-09-26; one
+discarded warm-up and 5 measured runs per cell, interleaved round-robin, median reported. The ranges
+do not overlap: the slowest Vitest 5 run (9.32 s v8, 24.60 s istanbul) is below the fastest Vitest 4
+run (16.01 s, 35.44 s).
+The generator, the arm setup, the runner and the raw runs are in
+[`bench-angular-builder/`](https://github.com/ASDAlexey/vitest-auto-spy/tree/master/bench-angular-builder);
+`npm run bench:angular-builder` repeats the measurement.
+
+**What it does not show.** It is one machine, and not a quiet one, so read the ratios rather than the
+seconds. The suite is synthetic — its shape and size match the consumer suites, but those were not
+run. The builder cache was warm, as in local development; with `CI=true` it is off, which adds the
+same 2.5–3 s to every run and makes the percentage slightly smaller. A CI runner with fewer cores
+was not measured.
+
+**Taking it:**
+
+- `@angular/build` (and `@angular/cli`) **22.2.0 or newer**.
+- `vitest` and every `@vitest/coverage-*` package on 5, moved **in lockstep** — a coverage package
+  pins `vitest` to its own exact version.
+- On Analog, `@analogjs/vite-plugin-angular` and `@analogjs/vitest-angular` **2.7.5 or newer**.
+- No npm `overrides` — the peer ranges admit Vitest 5 as they are.
+- Vitest 5 turns `clearMocks` on by default; the one spec pattern that breaks, and the fix, are in
+  [Vitest → The one thing that can still break your specs](../runtimes/vitest#the-one-thing-that-can-still-break-your-specs).
+  The 11 491 tests above needed no change: every spy is created per test by `provideAutoSpy`.
+
+None of it is required. This package still supports Vitest 2.1 and newer and Angular 20 and newer,
+and a workspace on an older `@angular/build` keeps working as it is — this is a reason to upgrade,
+not a condition.
+
 ## Why this is not written in Rust
 
 The question arrives with scale: a suite of ten or twenty thousand tests, a CI bill that is a real

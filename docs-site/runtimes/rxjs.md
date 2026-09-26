@@ -106,6 +106,10 @@ declare module 'vitest-auto-spy' {
 }
 ```
 
+Under `@angular/build:unit-test` from 22.2.0, keep that declaration in a `.d.ts` (with an `import` or
+`export {}`, so it stays an augmentation), a spec or a setup file: the builder no longer compiles a
+plain `.ts` that is only listed in `tsconfig.spec.json`'s `include`.
+
 The one import that makes the helpers _exist_ is the one that makes them rxjs-typed, so the two
 cannot drift apart.
 
@@ -120,7 +124,8 @@ The catch worth knowing: the type follows the **import**, not the installed pack
 `import 'vitest-auto-spy/rxjs'` sits in a setup file outside the `tsconfig` your specs are checked
 with, you get `SubjectLike<T>` back and an annotation like the one above stops compiling. Move the
 import somewhere the compiler sees it — the same place it has to be for the helpers to be
-registered at runtime.
+registered at runtime. Under `@angular/build:unit-test` from 22.2.0 the compiler sees only specs, the
+`providersFile`, the `setupFiles` and `.d.ts` files; a plain `.ts` listed in `include` is not enough.
 
 ## The backing subject, and how long it lives
 

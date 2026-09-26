@@ -223,16 +223,26 @@ migration: a year as a setting that configured nothing.
 
 `@angular/build` in `[22.1.5, 22.1.7)`. The unit-test bundle is built with code splitting off, so
 `--coverage` grows by hundreds of megabytes with no plateau and the builder emits no warning — the run
-either finishes slowly or is killed for memory. The fix names the unit-test targets to set
-`"splitting": true` on. See
+either finishes slowly or is killed for memory. The fix is the upgrade: splitting is on by default
+from 22.1.7, and the fix names the unit-test targets to remove any `"splitting": false` from (22.2.0
+deprecates the option, since Vitest 5 no longer needs it). See
 [what it trades, and the escape hatch](/adapters/angular#when-the-unit-test-build-has-code-splitting-off);
 `setupAutoSpy()` also says this once per worker from inside the affected run.
+
+#### `analog-behind-angular-build`
+
+`@angular/build` 22.2.0 or newer beside `@analogjs/vite-plugin-angular` older than 2.7.5. From 22.2.0
+the builder's `SourceFileCache` no longer extends `Map`, and the older Analog host calls `cache.has`
+on it, so the run dies at startup with `TypeError: cache.has is not a function` before a single spec
+is collected. The error names neither package. The fix is to upgrade `@analogjs/vite-plugin-angular`
+and `@analogjs/vitest-angular` to 2.7.5 or newer. The check stays quiet when either package is not
+installed.
 
 #### `builder-setup-unreached`
 
 An `@angular/build:unit-test` or `@nx/angular:unit-test` target whose options (with `nx.json`
-`targetDefaults`) name neither `setupFiles` nor `runnerConfig`, in a project whose Vitest config lists
-setup files or that has `src/test-setup.ts`. The builder never runs it, so `setupAutoSpy()`, its
+`targetDefaults`) name neither `setupFiles` nor `runnerConfig`, in a project whose Vitest config
+(`vitest-base.config.*` included) lists setup files or that has `src/test-setup.ts`. The builder never runs it, so `setupAutoSpy()`, its
 `strict`, registered matchers and the mock adapter are missing under that target only. The fix is the
 `setupFiles` option for that target; `nx.json` `targetDefaults` carries it for every project that
 shares the layout, and `runnerConfig` pointed at the Vitest config works too.
@@ -241,7 +251,9 @@ shares the layout, and `runnerConfig` pointed at the Vitest config works too.
 
 The same module mocked with a factory in one spec and as an automock or `{ spy: true }` in another,
 when the environment is shared (`isolate: false` in a Vitest config, or the Angular unit-test
-builder's default — the finding says which). Vitest hands the factory to the later automock, which
+builder's default — the finding says which). The builder's default counts from `@angular/build` 21,
+unless the target's own `isolate` option or the runner config it names sets `isolate: true`; 20.x
+keeps Vitest's per-file isolation. Vitest hands the factory to the later automock, which
 then fails with `No "X" export is defined on the mock` only when the two share a worker. The finding
 lists the files with a factory and names the module as the error will. Mocking it the same way in
 both is the fix; `vi.resetModules()` before the import is the other way out.
@@ -258,14 +270,95 @@ file it checks: `isIncluded()` calls `picomatch.isMatch(file, patterns, options)
 matchers on every call, and the `globCache` beside it memoises only the verdict. Nothing fails. Vitest
 5 compiles the list once; on 4, the custom-provider recipe in
 [coverage matching costs more than coverage](/adapters/angular#coverage-matching-costs-more-than-coverage)
-took one 1 725-file shard from 229.59 s to 22.88 s with a byte-identical report.
+took one 1 725-file shard from 229.59 s to 22.88 s with a byte-identical report. Under
+`@angular/build:unit-test`, Vitest 5 needs `@angular/build` 22.2.0 or newer, and the fix says so when
+the workspace has such a target.
 
 #### `coverage-include-misses-bundle`
 
-A source-only `coverage.include` in the runner config of an `@angular/build:unit-test` target.
+A source-only `coverage.include` in the runner config of an `@angular/build:unit-test` target — the
+file its `runnerConfig` names, or, for `runnerConfig: true`, the `vitest-base.config.*` the builder
+finds in the project root or the workspace root.
 Coverage is matched twice — first against the executed bundle chunks, then against the remapped
 sources. A list of `.ts` globs loses every counter on the first pass, and the run stays green — see
 [coverage under the unit-test builder](/adapters/angular#coverage-under-the-unit-test-builder).
+
+#### `vitest-5-removed`
+
+What Vitest 5 removed, found in the repository: an import from `vitest/reporters` or `vitest/coverage`
+(use `vitest/node`), `vitest/environments` or `vitest/snapshot` (use `vitest/runtime`),
+`vitest/runners` or `vitest/suite` (use `TestRunner` from `vitest`) or `vitest/mocker` (use
+`@vitest/mocker`); a `.sequential` chain on `test`, `it`, `describe` or `suite` (use
+`{ concurrent: false }`); `--outputJson` or `--compare` in a script that runs Vitest, and
+`benchmark.outputJson` or `benchmark.compare` in a config (use `--reporter=json --outputFile=<path>`,
+and `writeResult` with `bench.from()`). On Vitest 5 each one is an error, because it is broken now:
+the specifier stops resolving, collection throws, the command stops with `Unknown option`, or the key
+is ignored in silence. On Vitest 4 the same lines work, so they are notes for the upgrade: the exit
+code does not move, and the replacements for the imports and for `.sequential` already work on 4.1,
+so the change can land before the upgrade. Before Vitest 4 the check says nothing — the way to 5 goes
+through Vitest 4's own migration first. The `{ sequential: true }` test option is not read.
+
+One more entry is older than Vitest 5: `poolOptions` in a config on Vitest 4 or newer is a warning.
+Vitest removed it in 4 and prints one deprecation line, then runs without every option inside it, so
+a `singleFork` or a thread cap there configures nothing. The fix is the top-level option the Vitest 4
+migration guide maps it to.
+
+`test.workspace` is not reported: Vitest 4 and 5 both throw at startup and name `test.projects`, so
+no green suite has it. The renamed config keys Vitest 5 still honours — `experimental.fsModuleCache`
+and `experimental.fsModuleCachePath` (now top-level), `browser.isolate`, `browser.fileParallelism`
+and `browser.api` (now top-level `isolate`, `fileParallelism`, `api`), `deps.optimizer.web` (now
+`deps.optimizer.client`) and `cache.dir` (now Vite's `cacheDir`) — are not reported either: Vitest 5
+prints a deprecation naming the replacement on every run, and on Vitest 4 the new spelling does not
+exist yet.
+
+#### `vitest-5-deprecated`
+
+`experimental_clearCache()` or `experimental_parseSpecifications()` called on Vitest 5, which renamed
+them to `clearCache()` and `parseSpecifications()`. A note: the old names still work, and unlike the
+renamed config keys nothing warns at run time — only the type carries `@deprecated`. Vitest 4 has no
+other name for them, so the check is quiet there.
+
+#### `vitest-5-clear-mocks`
+
+Vitest 5 turns `clearMocks` on by default: it calls `vi.clearAllMocks()` before every test, which
+clears each mock's recorded calls and keeps its implementation. On Vitest 5 an explicit
+`clearMocks: true` in a config restates the default and gets a note saying so. On Vitest 4 the note
+goes to a repository whose configs never set `clearMocks` (nor `mockReset: true`, which clears as
+well) and whose Vitest scripts do not pass `--clearMocks`: after the upgrade, a test that counts calls
+made in `beforeAll` or in an earlier `it` starts failing. `npx vitest run --clearMocks` on Vitest 4
+runs the suite the way Vitest 5 will, so the cost is known before the upgrade; under
+`@angular/build:unit-test`, set `clearMocks: true` in the runner config for that one run. Writing
+`clearMocks: false` keeps today's behaviour.
+
+#### `vitest-5-available`
+
+A note on Vitest 4, and the reason to read the one above. When nothing in the repository holds the
+upgrade back, it says what Vitest 5 buys: on an Angular 22.2 suite of 700 spec files with coverage, the
+run went from 16.50 s to 8.91 s with v8 (−46 %) and from 37.07 s to 23.92 s with istanbul (−35.5 %);
+without coverage the two majors are level. The method and the table are in
+[Vitest 5 under the Angular unit-test builder](/core/performance#vitest-5-under-the-angular-unit-test-builder).
+
+When something does hold it back, the note names that instead, with the fix for each:
+`@angular/build` older than 22.2.0 beside an `@angular/build:unit-test` target (the first release
+whose builder runs Vitest 5), `@analogjs/vite-plugin-angular` or `@analogjs/vitest-angular` older than
+2.7.5, `vite` older than 6.4, or a Node version below 22.12 in `.nvmrc`, `.node-version`, a CI config
+(`node-version:` or a `node:` image) or the `engines` of a private package. The `engines` of a
+published package is left out, because it describes the package's consumers rather than where its
+tests run. Vitest 2 and 3 get no note: the measurement is Vitest 4 against 5.
+
+#### `fs-module-cache-not-persisted`
+
+`fsModuleCache` turned on — top-level, under `experimental`, or `--fsModuleCache` in a script — on
+Vitest 4 or newer, in a repository with a CI config (`.github/workflows/*.yml`, `.gitlab-ci.yml` and
+`.gitlab/**/*.yml`, `.circleci/config.yml`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`) of which
+none caches the cache directory: `fsModuleCachePath`, or by default `node_modules/.vitest-cache` on
+Vitest 5 and `node_modules/.experimental-vitest-cache` on Vitest 4. A CI config counts as caching it
+when it names that directory, or one above it such as `node_modules`, as a path. Every CI run then
+starts with an empty cache and pays the full transform, and the setting only ever helps locally.
+`cache: npm` in `actions/setup-node` does not count: it keeps npm's download cache, not
+`node_modules`. Vitest wipes the cache itself when the lockfile changes, so a key on the lockfile hash
+is enough. `npm ci` deletes `node_modules` before it installs, so a CI that runs it should point
+`fsModuleCachePath` outside `node_modules` and cache that directory.
 
 #### `jasmine-era-project`
 
@@ -396,6 +489,9 @@ finding a card of what the CPU profile saw — the slowest tests, hooks against 
 went by package and in your own code, and a likely cause. [The gate](#the-gate) shows a whole card
 and the rule behind the budget; the rest of this section is the advice `perf` prints on every run.
 
+On Vitest 5 a bare run also passes `--experimental.diagnostics=false`, so Vitest's own after-run
+hints do not repeat what `perf` prints.
+
 ```
 $ npx vitest-auto-spy perf src/cli
 vitest-auto-spy perf — /Users/alexeypopov/Desktop/projects/vitest-auto-spy
@@ -436,20 +532,26 @@ the setup file that decided it.
 on the clock and 17.30s of CPU because the work was spread across several workers. A phase total
 larger than the wall clock is not a bug.
 
-| Phase         | What Vitest measures (its own `ModuleDiagnostic` wording)                                   |
-| ------------- | ------------------------------------------------------------------------------------------- |
-| `environment` | The time to import and initiate an environment (`jsdom`, `happy-dom`, `node`) for the file  |
-| `prepare`     | The time Vitest spends setting up the test harness — runner, mocks — for the file           |
-| `import`      | The time to import the test module: everything it imports, plus running its suite callbacks |
-| `setup`       | The time to import the configured setup file(s) for the file                                |
-| `tests`       | Accumulated duration of the test bodies and hooks themselves                                |
-| `transform`   | Whole-run transform time (esbuild/Vite), not tracked per file so it has no per-file finding |
+| Phase         | What Vitest measures (its own `ModuleDiagnostic` wording)                                      |
+| ------------- | ---------------------------------------------------------------------------------------------- |
+| `environment` | The time to import and initiate an environment (`jsdom`, `happy-dom`, `node`) for the file     |
+| `prepare`     | The time Vitest spends setting up the test harness — runner, mocks — for the file              |
+| `import`      | The time to import the test module: everything it imports, plus running its suite callbacks    |
+| `setup`       | The time to import the configured setup file(s) for the file                                   |
+| `tests`       | Accumulated duration of the test bodies and hooks themselves                                   |
+| `transform`   | Transform time (esbuild/Vite): whole-run before Vitest 5, per file on 5 — see `perf-transform` |
 
 A phase only produces findings once it is worth a reader's afternoon: below 30 % of the total, or
 below 5 s of total CPU time across the whole run, `perf` says so and stops rather than naming files
 over noise.
 
 ### The advice it prints
+
+On Vitest 5 the report also records the configuration Vitest actually resolved — `isolate`, `pool`,
+`maxWorkers`, `environment`, `fsModuleCache` — and which of them you set yourself (Vitest's
+`providedOptions`). When it is there, the advice below reads those values instead of searching the
+`vite(st).config.*` text, so a setting made in a builder, a workspace project or on the command line
+counts. An option you set explicitly is never advised against: Vitest's own hints follow the same rule.
 
 #### `perf-environment`
 
@@ -471,16 +573,37 @@ workers, 126.4 s reported against 2.44 s actually spent. `perf` counts each dist
 the finding prices the move honestly: a worker's environment is only saved when **every** file it
 ran is DOM-free, and when a DOM-using neighbour means the move frees nothing, the finding says so.
 
+On Vitest 5 each file also reports the lane it ran on (`concurrencyId`), and `perf` counts a value once
+per lane rather than once over the run, so two lanes that happen to report the same environment time
+are no longer merged into one. Vitest 5 reports a `workerId` per file as well, but it is a new number
+for every file even when the worker is reused under `isolate: false`, so `perf` does not group by it.
+
 #### `perf-environment-engine`
 
 The other half of the same advice, for the files `perf-environment` cannot move: a spec that genuinely needs a DOM still has to build one, and `happy-dom` builds it for
 less. Measured on this package's own Angular suite, the same 117 files and the same assertions:
 **26.5 s of user CPU against 23.2 s**, or 12 % less. On a spec that builds a DOM and does nothing
 else the gap is far wider — 253 ms against 119 ms of environment time per file — so how much of it a
-suite gets back depends on how much of a file the environment is. It fires only when a
-`vite(st).config.*` names `jsdom` and nothing in those configs mentions `happy-dom` — a suite that
-has already made the choice does not get asked again — and it names the config that sets `jsdom`. It is a swap, not a flag: `happy-dom` implements less of the platform, so change
-one project at a time and keep the suite green after each.
+suite gets back depends on how much of a file the environment is. It fires only when the run used
+`jsdom` — read from the resolved config on Vitest 5, from a `vite(st).config.*` that names `jsdom`
+before it — and nothing in those configs mentions `happy-dom`: a suite that has already made the
+choice does not get asked again. It names the config that sets `jsdom`. It is a swap, not a flag:
+`happy-dom` implements less of the platform, so change one project at a time and keep the suite green
+after each.
+
+#### `perf-transform`
+
+Vitest 5 only. From Vitest 5 each file reports how long its collection and setup waited for the Vite
+server to transform modules (`collectFetchDuration` + `setupFetchDuration`), and the phase table counts
+that wait as `transform` instead of inside `import` and `setup` — the split Vitest's own summary line
+makes. The finding fires when that wait is 30 % or more of the measured CPU time and the module cache
+is off. It prints the seconds the files waited, summed over them, and advises `fsModuleCache: true`:
+the next run reads the transformed modules from `node_modules/.vitest-cache` instead of transforming
+them again, so the printed wait is the ceiling of what it saves. On CI the cache only helps when that
+directory is kept between pipelines, in the job's cache — the finding says so. It does not fire when
+`fsModuleCache` is already on, or when you set it explicitly (to `false`, say). On a Vitest 4 report the
+option is spelled `experimental.fsModuleCache` and the directory is
+`node_modules/.experimental-vitest-cache`.
 
 #### `perf-import`
 
@@ -488,6 +611,11 @@ It fires when `import` dominates, and names every spec that reaches its subject
 through a barrel — an `index`/`public-api` module with no declaration of its own, only re-exports —
 because a spec importing one loads everything the barrel re-exports to use one export from it. It
 does not fire in the run above, because `import` is only 5.1 % of this repository's total.
+
+On Vitest 5 the transform wait is counted under `transform`, so `import` is evaluation alone — running
+the modules the spec reaches — and the finding says so. Waiting for Vite to transform them is
+`perf-transform`'s business, and `isolate: false` does not change it: the server transforms each module
+once either way.
 
 #### `perf-isolation`
 
@@ -497,8 +625,20 @@ It is framed as a trade, not a win, and links to this package's own memory measu
 ([`core/performance#memory-under-isolate-false`](/core/performance#memory-under-isolate-false))
 rather than repeating the numbers here: without isolation, every double a file created stays alive
 for the rest of the worker, so peak memory grows with the suite. `perf` does not suggest the flag
-when a `vite(st).config.*` already sets `isolate: false` — reporting a setting a reader already
-made is not a finding.
+when the run already has `isolate: false` — read from the resolved config on Vitest 5, and before it
+from a `vite(st).config.*` or an Angular builder that passes it — when the pool is `vmThreads` or
+`vmForks`, which give every file a fresh context either way, or when you set `isolate` yourself.
+`@angular/build:unit-test` passes `isolate: false` from 21.0, but it merges the `test` block of the
+runner config the target names over that default, so a `test.isolate: true` there stands and `perf`
+still offers the trade; from 22.1 the target's own `isolate` option beats both.
+
+On Vitest 5 the finding also says what isolation cost at start-up: how many workers were spawned and
+their start-up time summed (spawn, bundle load and environment — `state.startupTime` and
+`state.workersSpawned`). When more workers were spawned than there are lanes, it prints the wall-clock
+saving by the estimate Vitest 5's own isolate hint makes: the summed start-up spread over the lanes,
+less the one start-up per lane that stays when workers are reused — `startup ÷ lanes − startup ÷
+workers`, with lanes the smaller of the file count and `maxWorkers` (or the highest lane the run used).
+It is printed as "at least": module evaluation the reused workers also save is not in it.
 
 #### `perf-workers`
 
@@ -512,6 +652,37 @@ is over a minute, and only when no `maxWorkers` is declared: below that the sett
 a suite that has set it has already had this thought. The finding counts the cores of the machine it
 ran on and suggests half of them, in the runner config it found. The number itself is a property of
 the machine, not of the suite — compare the wall clock before and after fixing it.
+
+On Vitest 5 the count comes from the run rather than from the machine: the resolved `maxWorkers`, or
+the highest lane a file ran on. A run that never used more than half the cores is not told to cap them.
+
+#### `perf-long-pole`
+
+Vitest 5 only. Every file reports the lane it ran on (`concurrencyId`) and when it started, so `perf`
+can lay the run out lane by lane. The header then carries one line — how many lanes, how busy they were
+over the span from the first start to the last end, and which file ran alone at the end:
+
+```text
+15 lanes busy 40.5% of the 2.58s span; src/cli/report.spec.ts ran alone for the last 10ms
+```
+
+The finding fires on the file that was still running after every other lane had gone idle, when that
+tail is at least 2 s and at least 30 % of the span: for that long the run's wall clock was one file.
+Split the file so its tests can spread over several lanes, or keep Vitest's results cache between CI
+runs — its sequencer starts the files it knows are slow first, and a slow file started last is the run's
+wall clock. A file's time on its lane is its `prepare` + `setup` + `import` + `tests`; the environment is
+left out, because a reused worker does not pay it per file.
+
+#### `perf-vitest-doctor`
+
+Vitest 5 only, and one line. When a finding fires that is about a switch — `perf-isolation`,
+`perf-environment-engine`, `perf-transform` or `perf-workers` — and the run was measured on Vitest 5 or
+later, `perf` points at `npx vitest doctor`: **Vitest's** own A/B runner, not this package's `doctor`.
+It re-runs the suite once per pool, isolation, DOM-engine and module-cache candidate, halves
+`maxWorkers` while that keeps helping, and recommends only a switch it measured faster on this machine.
+`perf` names the switch from one run; `vitest doctor` is the way to confirm it before keeping it.
+`perf-environment` does not trigger it: moving files to `node` with a docblock is not a candidate
+`vitest doctor` measures.
 
 ### When there is nothing to read
 
@@ -530,6 +701,14 @@ reporter, and the message prints the two lines to add
 ([below](#when-a-bare-run-is-not-your-suite)). A report whose files all sit outside `--cwd` was
 measured in another checkout: pass `--cwd` the directory it was measured in.
 
+The reporter does not wait for the end of the run to write: as files finish it rewrites the report,
+at most every two seconds, marked `partial: true`, so a run Vitest never finished — killed, crashed or
+timed out — still leaves one behind. `perf` prints what the finished files measured, under a warning
+that the run did not finish and how many files the report holds, and the gate refuses to judge it
+exactly as it refuses a red run: the files it never reached are not in the report, and a verdict over
+part of a suite is an all-clear it did not earn. `--format json` carries `run.partial: true`, and
+`--format markdown` says "the run did not finish" in place of "the suite did not pass".
+
 ### Flaky tests and the heap
 
 Two findings are made on every run, however cheap it was, because neither is about the phases.
@@ -538,7 +717,12 @@ Two findings are made on every run, however cheap it was, because neither is abo
 
 It names every file with a test that passed only on a retry — Vitest's own
 `TestCase.diagnostic().flaky` — and the tests by name. It is a warning, and the run stays green. Its
-failed attempts are counted in the file's time, so the gate also judges such a file slower than it is.
+failed attempts are counted in the file's time, so the gate also judges such a file slower than it
+is. On a report that records retries, the fix says how many failed attempts that was, and when a file
+has one retried test whose body the report kept, the message prints what it cost across all its
+attempts. The attempts cannot be subtracted: Vitest times a retried test from its first attempt to its
+pass as one duration. For the same reason a `perf-gate-slow-test` finding on a retried test says its
+time covers every attempt, and a `perf-gate-slow-file` finding counts the failed attempts inside it.
 `--fail-on-flaky` makes it an error and exits 1, the way Playwright's `failOnFlakyTests` and nextest's
 `flaky-result = "fail"` do: a retry that hides a real race is a test that will fail on somebody else's
 merge request.
@@ -547,9 +731,12 @@ merge request.
 
 It lists the five files with the most heap used after them, in megabytes, whenever the run
 recorded heap. A bare run passes `--logHeapUsage` itself; a `--command` run needs `logHeapUsage: true`
-in the configuration it reaches. It is a note and says what it cannot tell: under `isolate: false` the
-number after a file also carries every file that ran before it in the same worker, so a file that stays
-high with isolation on is the one that allocates.
+in the configuration it reaches. It is a note. Under `isolate: false` the number after a file also
+carries every file that ran before it in the same worker. On Vitest 5 `perf` takes that apart: with the
+resolved `isolate: false`, each lane keeps one worker, so it orders the lane's files by start and lists
+what each file **added** to the heap over the file before it — the five that grew it most. That is the
+file that leaves memory behind, without guessing. With isolation on, or on an older report, it lists
+the heap after each file as before.
 
 ### When a bare run is not your suite
 
@@ -562,8 +749,9 @@ files, 29 s of wall clock, 0 test bodies executed**, and a phase table that look
 plausible because transform and environment are real seconds however the files ended.
 
 `perf` refuses both halves of that. Before running anything it checks whether a bare run would be
-this repository's suite at all — no root `vite(st).config.*`, and a `test` script that does not
-invoke `vitest` itself — and stops instead of spending the half-minute. It prints one way out: the
+this repository's suite at all — no root `vite(st).config.*` (on Vitest 2 and 3 a
+`vitest.workspace.*` or `vitest.projects.*` counts too; Vitest 4 stopped reading those), and a `test`
+script that does not invoke `vitest` itself — and stops instead of spending the half-minute. It prints one way out: the
 builder command below, with your project and target filled in, when it found an Angular or Nx
 unit-test target; otherwise the two reporter lines and the `--command` to run. And
 whatever the source, a report in which **no test body finished** is not printed as a measurement:
@@ -712,8 +900,9 @@ styles at 15 %.
        │ TestBed rebuilds the testing module and the component for every test: 40% is TestBed set-up and component creation. (…)
 ```
 
-**The slowest imports come from Vitest.** On Vitest 4.1 and newer the confirmation pass raises
-`experimental.importDurations.limit` for its own run only, and the card lists the spec's heaviest
+**The slowest imports come from Vitest.** On Vitest 4.1 and newer a measured run asks for the ten
+slowest imports of each file when the config sets no `experimental.importDurations.limit`, and the
+confirmation pass raises a lower limit for its own run only, so no config is needed. The card lists the spec's heaviest
 direct imports with everything they pulled in: a package by its name, a module by its path. A module
 another file imported first was paid for there and is not listed. An older Vitest, or a harness whose
 spec is a bundled chunk, leaves the section out.
@@ -750,8 +939,8 @@ still taken over the whole run.
 
 **Exit codes.** `0` — the report was read and nothing failed. `1` — the gate failed, and that is the
 only thing that means "your suite is over budget". `2` — there was nothing to judge: no Vitest, no
-report, a `--json` file that does not parse, a run in which no test body executed, or a red suite
-under `--gate`.
+report, a `--json` file that does not parse, a run in which no test body executed, or a red or
+unfinished suite under `--gate`.
 
 ### The two tables, and the shards they were merged from
 
@@ -802,6 +991,14 @@ milliseconds), `budgets`, `gate` (`status`, `confirmation` and the
 verdict rows), `tally` and every finding — and moves the output of any suite it runs to stderr, so
 stdout stays parseable. A run with nothing to judge still prints a document, with `error` and
 `run: null`.
+
+When the report has them, the document adds `run.vitest` (the Vitest version), `run.partial`,
+`run.config` (the resolved options and `provided`), `run.startup` (`{ ms, workers }`) and `run.lanes`
+(`{ lanes, spanMs, busy, longPole?: { file, aloneMs } }`). On Vitest 5 each `slowestFiles[].phases`
+also carries `transform`, with `import` and `setup` net of it, as in the phase table. The markdown
+report names the Vitest version on the summary line, prints the lanes line under it and adds a
+`Transform` column to the slowest-files table. None of these appear for a report without the data, and
+a report of an older Vitest prints exactly what it printed before. The report format is version 4.
 
 A sharded pipeline writes one report per job, and a rule that compares a file against **the median
 of its own run** then compares it against a quarter of the evidence. `--json` takes a directory or a

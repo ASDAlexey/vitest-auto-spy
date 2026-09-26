@@ -85,7 +85,11 @@ import 'vitest-auto-spy/rxjs';
 That is the same import the observable helpers already need at runtime; if your suite calls
 `nextWith` at all, it is somewhere in your repository already. What the error is telling you is that
 it is somewhere the **compiler** cannot see — typically a Vitest `setupFiles` entry that no
-`tsconfig` includes. Add the file to `include`, or put the import in a spec-side file.
+`tsconfig` includes. Add the file to `include`, or put the import in a spec-side file. Under
+`@angular/build:unit-test` from 22.2.0 the rule is narrower: the builder compiles the specs, the
+`providersFile`, the `setupFiles` and the `.d.ts` files of `tsconfig.spec.json`, so a plain `.ts`
+that is only listed in `include` no longer counts — put the import in a setup file, a spec, or a
+`.d.ts`.
 
 Suites that never annotate the result (`const subject = spy.load.returnSubject()`) are unaffected
 either way.

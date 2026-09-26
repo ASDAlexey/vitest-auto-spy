@@ -270,6 +270,12 @@ checked against a primary source on 2026-09-02.
 - **22.0.0** (2026-06-03) removed the experimental builders — "The experimental
   `@angular-devkit/build-angular:jest` and `@angular-devkit/build-angular:web-test-runner` builders
   have been removed." — and shipped "stabilize refactor-jasmine-vitest schematic" (`de630c2f`).
-  Stabilised is a statement about its coverage of test patterns, not its listing: in 22.1.6 the
-  collection entry still reads `[EXPERIMENTAL] Refactors Jasmine tests to use Vitest APIs.` and is
-  `"hidden": true`, so it does not appear in `ng generate --help` and has to be named in full.
+  Stabilised is a statement about its coverage of test patterns, not its listing: in 22.1.6, and
+  still in 22.2.0, the collection entry reads
+  `[EXPERIMENTAL] Refactors Jasmine tests to use Vitest APIs.` and is `"hidden": true`, so it does
+  not appear in `ng generate --help` and has to be named in full.
+- **22.2.0 makes a new project a Vitest 5 project** (checked against the `@schematics/angular`
+  22.2.0 tarball on 2026-09-26). `ng new` pins `vitest` at `^5.0.0` — 22.1.x pinned `^4.0.8` —
+  the Karma-to-Vitest migration and the `vitest-browser` schematic add `@vitest/coverage-*` and the
+  browser providers at the same range, and `ng generate config vitest` writes
+  `vitest-base.config.mts` where it used to write `vitest-base.config.ts`.

@@ -1663,6 +1663,16 @@ rule here.
   these three values are literals in every config that sets them. **With neither an option nor a
   config found, the rule reports nothing at all.**
 
+  **A config that leaves `clearMocks` out gets Vitest's default for it, and that default depends on
+  the version.** Up to Vitest 4 it is off; from Vitest 5 it is on. The rule reads the installed major
+  from the nearest `node_modules/vitest/package.json` above the linted file: on Vitest 5 or later a
+  found config (or a `configFile`) without `clearMocks` counts it on, so a `vi.clearAllMocks()` or a
+  `mockClear()` opening the first `beforeEach` is reported, and the message says the flag is the
+  default rather than something the config wrote. On Vitest 4 and older, or where no Vitest is found,
+  nothing changes: an unnamed `clearMocks` is off. A `clearMocks` the config names as anything but a
+  literal `true` — `false`, an expression — reads as off on every version. The flags written as the
+  rule's options are not defaulted: what they leave out is off, whatever Vitest is installed.
+
   A runner config at a path the search does not look for is named instead, and read the same way:
 
   ```js

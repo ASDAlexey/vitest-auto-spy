@@ -10,6 +10,155 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Changed
+
+- **`AGENTS.md` is read by section now, and carries a third of what it did.** At 538 kB it was more
+  than most agents can hold, while the skill and the stub `init` writes told them to `cat` it whole.
+  The core stays in `AGENTS.md` (153 kB) with a header that maps the sections — the five every spec
+  needs, the rest by task or by stack. The five longest move verbatim to `agent-docs/` in the package
+  (`setup.md`, `angular.md`, `eslint.md`, `errors.md`, `migration-jasmine.md`), each with a stub in
+  the core under its old section number, so every `§N` reference still lands. The table padding a
+  formatter adds, a third of the bytes, is gone; no word changed. The shipped skill and the skill
+  stub point at the map and grep `agent-docs/errors.md` by the message. A stub written by an earlier
+  `init` is reported as changed by `init --check` until `npx vitest-auto-spy init` is run again.
+
+**Why upgrade.** An Angular 22.2 project can move its `@angular/build:unit-test` runner to Vitest 5
+with no npm `overrides`, and the docs now say how and what it buys: on a zoneless 700-spec,
+11,491-test suite built on this library, `ng test --coverage` drops from 16.50 s to 8.91 s with v8
+(**−46 %, 1.85×**) and from 37.07 s to 23.92 s with istanbul (**−35.5 %, 1.55×**). Next to it,
+`doctor` names the Analog release that crashes on `@angular/build` 22.2 before a spec loads.
+
+### Added
+
+- **`vitest-auto-spy/angular` exports the `Spy<T>` type**, the type `injectSpy` returns, so
+  `import { type Spy, injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular'` compiles; on 5.34.0
+  it failed with `TS2459: Module '"vitest-auto-spy/angular"' declares 'Spy' locally, but it is not
+  exported`, and the Angular examples in these docs were written that way. It is the core `Spy<T>`,
+  not a copy; the rest of the core stays on `vitest-auto-spy`. `doctor` no longer flags the import.
+
+- **`doctor` reports `analog-behind-angular-build`.** `@angular/build` 22.2 no longer hands its
+  compiler a `Map` as the source-file cache, and `@analogjs/vite-plugin-angular` before 2.7.5 calls
+  `cache.has` on it, so the run dies at startup with `TypeError: cache.has is not a function`
+  (`host.js:72`) before a spec loads. The check fires when the installed `@angular/build` is 22.2.0
+  or newer and the installed `@analogjs/vite-plugin-angular` is older than 2.7.5, and the fix line
+  says to upgrade both `@analogjs` packages to 2.7.5.
+
+- **`doctor` reads the repository for Vitest 5.** Five new checks, all feature-detected from the
+  installed Vitest major; Vitest 2 and 3 see no new output. `vitest-5-removed` — imports of the
+  subpaths Vitest 5 dropped, `.sequential`, `--outputJson`/`--compare` and `benchmark.outputJson`/
+  `benchmark.compare`: errors on 5, upgrade notes on 4; plus `poolOptions`, a warning from Vitest 4
+  on, since the run silently drops every option in it. `vitest-5-deprecated` — the renamed
+  programmatic calls. `vitest-5-clear-mocks` — the new `clearMocks` default, both ways.
+  `vitest-5-available` — on Vitest 4, what 5 buys (on a 700-spec Angular 22.2 suite with coverage,
+  16.50 s → 8.91 s with v8, 37.07 s → 23.92 s with istanbul; level without coverage) or what blocks
+  it. `fs-module-cache-not-persisted` — the module cache on, and CI never keeping it.
+
+- **`perf` reads what Vitest 5 reports.** Everything below is Vitest 5 only and feature-detected: a
+  report from an older Vitest prints exactly what it printed before. The report format is version 4.
+  - The run records the configuration Vitest resolved — `isolate`, `pool`, `maxWorkers`,
+    `environment`, `fsModuleCache`, `coverage` — and which options you set yourself; the advice reads
+    those instead of the config text, so a builder or command-line setting counts, and an option set
+    explicitly is never advised against.
+  - `transform` is per file: the time a file's collection and setup waited for Vite
+    (`collectFetchDuration` + `setupFetchDuration`), taken out of `import` and `setup` as Vitest 5's
+    own summary does. The new `perf-transform` finding fires when that wait is 30 % or more of the CPU
+    time with the module cache off, and advises `fsModuleCache: true`, kept in the CI cache.
+  - The new `perf-long-pole` finding lays the run out lane by lane (`concurrencyId`) and names the file
+    still running alone after every other lane went idle, when that tail is at least 2 s and 30 % of
+    the span; the header gains a lanes line.
+  - `perf-isolation` prints the workers spawned and their summed start-up, with an "at least"
+    wall-clock saving by Vitest 5's own estimate; `perf-workers` counts the lanes the run used rather
+    than the machine's cores; under `isolate: false`, `perf-heap` lists what each file added to its
+    lane's heap instead of the running total.
+  - Environment time is counted once per lane and value, so two lanes that report the same time are
+    no longer merged. `workerId` is not used: Vitest 5 gives every file a new one, even in a reused
+    worker.
+  - A finding about a switch adds `perf-vitest-doctor`, pointing at `npx vitest doctor` — Vitest's
+    own A/B runner — to confirm it before keeping it.
+  - A bare run passes `--experimental.diagnostics=false`, so Vitest's own after-run hints do not repeat
+    `perf`'s.
+  - `--format json` adds `run.vitest`, `run.config`, `run.startup` and `run.lanes`, and `transform` in
+    `slowestFiles[].phases`; `--format markdown` names the Vitest version, prints the lanes line and
+    adds a `Transform` column.
+
+- **A killed run still leaves a `perf` report.** The reporter rewrites the report as files finish, at
+  most every two seconds, marked `partial: true`, so a run CI killed or timed out is not lost. `perf`
+  prints what the finished files measured under a warning that the run did not finish, and the gate
+  refuses to judge it, as it refuses a red run. Any Vitest version.
+
+### Changed
+
+- **The code-splitting fix no longer recommends a deprecated option.** For `@angular/build` in
+  `[22.1.5, 22.1.7)`, `angular-build-splitting-off` and the `angularBuildHint` notice used to say to
+  set `"splitting": true` on the unit-test target. Splitting is on by default from 22.1.7 and 22.2
+  deprecates the option, so the fix now says to upgrade to 22.1.7 or newer and remove any
+  `"splitting": false`.
+
+- **`no-redundant-mock-reset` knows the Vitest 5 default.** A runner config found without `clearMocks`
+  now counts it as on when the installed Vitest (the nearest `node_modules/vitest`) is 5 or newer, and
+  the message says "`clearMocks` (on by default from Vitest 5)". On Vitest 4 and older nothing
+  changes; inline rule options are not defaulted, and with no config found the rule stays silent.
+
+- **A measured `perf` run on Vitest 4.1 and newer collects the ten slowest imports of each file** when
+  the config sets no `experimental.importDurations.limit`, so the gate's card lists them with no
+  config change. An older Vitest leaves the section out, as before.
+
+- **`perf` no longer takes a lone `vitest.workspace.*` as a root config on Vitest 4 and newer**,
+  which stopped reading it; on Vitest 2 and 3 it (and `vitest.projects.*`, in every extension those
+  versions accept) still counts.
+
+### Fixed
+
+- **`module-mock-leak` and `perf-isolation` read the `isolate` the Angular builder actually uses.**
+  Both assumed `@angular/build:unit-test` overwrites a runner config's `test.isolate`; it merges the
+  runner config over its own `isolate: false` default, and only the target's `isolate` option beats it
+  (from 22.1; in 22.0 only `isolate: true` does), checked with `ng test` on 20.3, 21.2, 22.1 and 22.2.
+  They now read the runner config the target names, `runnerConfig: true` included, so a workspace
+  that sets `test.isolate: true` there no longer gets a leak warning for an environment it does not
+  share. On `@angular/build` 20.x, which keeps Vitest's per-file isolation, neither assumes sharing.
+
+- **The `doctor` coverage checks find the runner config Angular generates.** On Angular 22.2,
+  `ng generate config vitest` writes `vitest-base.config.mts`, and the unit-test target may point at
+  it with `runnerConfig: true`; the checks looked for neither, so its coverage settings were never
+  read. Both are found now.
+
+- **`createSpyFromInstance` no longer warns about a class of your own that extends a built-in and
+  has an `addEventListener`.** The live DOM/BOM check counted any level of the prototype chain whose
+  constructor is a global, so `class Registry extends Map { addEventListener … }` was reported as a
+  live host object. The global level now has to sit below `EventTarget`, as `Window`,
+  `XMLHttpRequest` and `AbortSignal` do.
+
+- **The refusal of a non-configurable, non-enumerable member names the repair the docs name.** It now
+  says that `mockValueProp(target, 'X', vi.fn())` spies that one member, as the troubleshooting table
+  in `AGENTS.md` already did; the advice after it could only point at a `{ ...object }` copy, which
+  drops a non-enumerable member.
+
+### Docs
+
+- `AGENTS.md` §2: the live DOM node paragraph read "reports this itself — a class of your own that
+  extends `EventTarget` does not count, before patching anything"; the aside now sits with the list
+  of event targets it qualifies.
+- The skill's troubleshooting table has a row for the live DOM/BOM warning.
+- `DECISIONS.md`: the `prefer-render-shallow` note still called the template-read scan "deliberately
+  not an AST pass"; it has been one since 5.34.0.
+- Angular 22.2 builder notes, each bounded by version so older builders keep their advice: from
+  `@angular/build` 22.2.0 setup files run per spec file under `--coverage` too, so setup hooks no
+  longer reach only the first file of a worker; the test program is the specs, the setup files and
+  the `.d.ts` files, so `import 'vitest-auto-spy/rxjs'` belongs in one of those rather than a plain
+  `.ts` listed only in `include`; Analog needs 2.7.5 next to it; and an Angular project runs Vitest 5
+  with no npm `overrides`.
+- **What Vitest 5 is worth on the Angular 22.2 builder, measured.** README, `AGENTS.md` §10, the
+  skill and the Performance page state it: `vitest` and every `@vitest/coverage-*` bumped to 5
+  together, `@angular/build` 22.2.0 or newer, `@analogjs/*` 2.7.5 or newer, no `overrides`. On a
+  zoneless 700-spec, 11,491-test suite using vitest-auto-spy 5.34.0 from npm, builder defaults,
+  `ng test --coverage`, Apple M4 Max, Node v24.19.0, median of five interleaved runs, Vitest 4.1.11
+  → 5.0.2 takes v8 from 16.50 s to 8.91 s (−46 %, 1.85×) and istanbul from 37.07 s to 23.92 s
+  (−35.5 %, 1.55×). With coverage off the two take the same time — the gain is coverage processing —
+  so it grows with the suite: −15.5 % (v8) and −17.7 % (istanbul) at 150 specs. Peak memory does not
+  change. The peer ranges still start at Vitest 2.1 and Angular 20; this is an incentive, not a
+  requirement. `bench-angular-builder/` (`npm run bench:angular-builder`) reproduces it, and the raw
+  runs behind these numbers ship in `bench-angular-builder/results/`.
+
 ## [5.34.0] - 2026-09-26
 
 ### Fixed

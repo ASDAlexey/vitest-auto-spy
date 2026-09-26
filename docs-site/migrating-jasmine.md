@@ -660,12 +660,12 @@ Most `jasmine-auto-spies` suites are Angular suites on Karma, and Angular ships 
 the half of the move this page does not cover — the **runner** swap. The two are complementary: the
 schematics change the builder and the syntax of the runner's own globals, and the codemod above
 changes the doubles. Version numbers matter here, so they are stated rather than implied
-(`@angular/core` dist-tags at the time of writing: `latest` **22.1.4**, `v21-lts` **21.2.22**,
-`v20-lts` **20.3.30**):
+(`@angular/core` dist-tags on 2026-09-26: `latest` **22.2.0**, `v21-lts` **21.2.24**,
+`v20-lts` **20.3.32**):
 
-- **`@angular/build:unit-test` is `[EXPERIMENTAL]` in every version**, 22 included. Nothing about
-  that stops it working; it does mean the builder options are not covered by Angular's deprecation
-  policy yet.
+- **`@angular/build:unit-test` is `[EXPERIMENTAL]` up to 22.1.x** and drops the label in **22.2.0**
+  (angular-cli PR #34095). Nothing about the label stops it working; on an older version it does
+  mean the builder options are not covered by Angular's deprecation policy.
 - **`runner` was required in v20** and had no default. From **v21** it defaults to `"vitest"`, so a
   v21+ config can omit it and a v20 one cannot.
 - **`ng generate @schematics/angular:refactor-jasmine-vitest` exists from v21 only**, and it is

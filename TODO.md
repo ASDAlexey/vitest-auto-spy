@@ -131,7 +131,10 @@ scheduling` — a frame requested from inside a running frame, except the outer 
 
 ## Diagnostics
 
-- [ ] **Nothing catches a setup module that stopped being evaluated per file.** §10 already names the
+- [ ] **Nothing catches a setup module that stopped being evaluated per file on `@angular/build`
+      before 22.2.0.** 22.2.0 fixed the root cause upstream (angular-cli PR #34143: setup files are no
+      longer wrapped under `--coverage`), so the detector below is only for older builders — kept
+      open because the peer range still reaches Angular 20 and 22.1. §10 already names the
       trap — `@angular/build:unit-test` under `--coverage` serves every test file as a wrapper around
       the built bundle, the wrapper is invalidated per file and the bundle behind it is not, so
       `setupAutoSpy()` runs once per **worker** and only the first file of each worker gets root

@@ -23,7 +23,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-26.6%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-26.7%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -122,8 +122,10 @@ specifiers, listed with their fix in
 | **A second copy of rxjs stops breaking detection.** Observable detection is structural now, so an `Observable` from a duplicated rxjs earns the observable helpers instead of failing with `nextWith is not a function`                                             | —                                                                                                                                                               |
 | **The lint rules stop deciding how much you care.** All nineteen ship as `error`; which findings block a merge is one line of config, documented per rule                                                                                                           | —                                                                                                                                                               |
 
-If you use the observable helpers, keep `import 'vitest-auto-spy/rxjs'` somewhere your `tsconfig`
-includes — that one import is what keeps `returnSubject()` typed as rxjs's own `Subject<T>`.
+If you use the observable helpers, keep `import 'vitest-auto-spy/rxjs'` in a setup file, a spec, or
+a `.d.ts` your `tsconfig` includes — that one import is what keeps `returnSubject()` typed as rxjs's
+own `Subject<T>`. From `@angular/build:unit-test` 22.2.0 the test program is the specs, the setup
+files and the `.d.ts` files, so a plain `.ts` listed only in the spec `tsconfig`'s `include` is out.
 
 ## Table of contents
 
@@ -275,11 +277,24 @@ shipped since 4.1 is worth another **−6.1 % on Vitest 4 and −8.1 % on Vitest
 every method with the runner's own `vi.fn()` (`setSpyEngine('runner')`). End to end, the slowest
 pairing to the fastest is 1473 ms → 1276 ms, **−13.4 %**.
 
+**On Angular 22.2 the runner switch is the bigger lever.** From `@angular/build` 22.2.0 the
+`@angular/build:unit-test` builder runs Vitest 5 with no npm `overrides`: bump `vitest` and every
+`@vitest/coverage-*` to 5 together (and `@analogjs/*` to 2.7.5 or newer on Analog). Measured
+2026-09-26 on a zoneless 700-spec, 11,491-test suite built on vitest-auto-spy 5.34.0, builder
+defaults, `ng test --coverage`, Apple M4 Max, Node v24.19.0, median of five interleaved runs:
+**v8 16.50 s → 8.91 s (−46 %, 1.85×)** and **istanbul 37.07 s → 23.92 s (−35.5 %, 1.55×)** going
+from Vitest 4.1.11 to 5.0.2. The gain is all coverage processing — with coverage off both take the
+same time — so it grows with the suite: at 150 specs it is −15.5 % (v8) and −17.7 % (istanbul).
+Peak memory does not change. This is a reason to upgrade, not a requirement: the peer ranges still
+start at Vitest 2.1 and Angular 20. Details in
+[Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance).
+
 Node **≥ 22** is the library's own floor now — Node 18 and 20 are both past end of life, and every
 runner this library supports already needed more: Vitest 4 pulls in Vite 7 (`^20.19.0 || >=22.12.0`)
 and calls `crypto.hash` (added in Node 20.12), so Node 18 died with
 `TypeError: crypto.hash is not a function` before a spec loads. Vitest 5 raises its own floor to
-`^22.12.0 || ^24.0.0 || >=26.0.0`, and `@angular/build` 22 needs `^22.22.3 || ^24.15.0 || >=26.0.0`.
+`^22.12.0 || ^24.0.0 || >=26.0.0` (and its optional `@types/node` peer to `^22 || >=24`), and
+`@angular/build` 22 needs `^22.22.3 || ^24.15.0 || >=26.0.0`.
 CI tests Node 22, 24 and 26, so 22 is what is actually exercised. Which version to run is measured in
 [Performance → Which Node version](https://asdalexey.github.io/vitest-auto-spy/core/performance#which-node-version):
 the break is between 22 and 24, where a cold import more than halves.
@@ -401,23 +416,29 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 3 errors, 4 warnings, 1 note
 ```
 
-| Check                               | What it finds                                                                                                                     |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `tsconfig-glob-matches-nothing`     | An `include` pattern that matches no file — so it type-checks nothing; `info` when nothing beside the config is there to miss yet |
-| `tsconfig-file-missing`             | A `files` entry naming a file that is gone                                                                                        |
-| `spec-imported-by-non-spec`         | A production module importing a `*.spec.ts`                                                                                       |
-| `spec-exports-fixture`              | A spec importing another spec, whose hooks then run in a foreign file                                                             |
-| `foreign-runner-pragma`             | `@jest-environment` left in a spec, which Vitest never reads                                                                      |
-| `dead-runner-config`                | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                                               |
-| `orphan-runner-file`                | A setup file only that dead config referenced                                                                                     |
-| `angular-build-splitting-off`       | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                                               |
-| `coverage-all-removed`              | `coverage.all` in a config, on a Vitest that stopped reading the key                                                              |
-| `coverage-include-misses-bundle`    | A `coverage.include` of sources only, in a runner config over a bundle                                                            |
-| `coverage-include-recompiles-globs` | A coverage scope large enough that `picomatch` recompiling it per file costs more than the coverage. Info                         |
-| `jasmine-era-project`               | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error                  |
-| `no-agent-instructions`             | No instruction file names the package. A note, not an error                                                                       |
-| `helper-from-wrong-entry`           | A named import taken from an entry that does not export it — `provideAutoSpy` from the root                                       |
-| `no-unawaited-helper`               | An `expectEmission` / `stable` / `flushEventLoop` call dropped as a bare statement, so nothing awaits it                          |
+| Check                               | What it finds                                                                                                                                                             |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tsconfig-glob-matches-nothing`     | An `include` pattern that matches no file — so it type-checks nothing; `info` when nothing beside the config is there to miss yet                                         |
+| `tsconfig-file-missing`             | A `files` entry naming a file that is gone                                                                                                                                |
+| `spec-imported-by-non-spec`         | A production module importing a `*.spec.ts`                                                                                                                               |
+| `spec-exports-fixture`              | A spec importing another spec, whose hooks then run in a foreign file                                                                                                     |
+| `foreign-runner-pragma`             | `@jest-environment` left in a spec, which Vitest never reads                                                                                                              |
+| `dead-runner-config`                | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                                                                                       |
+| `orphan-runner-file`                | A setup file only that dead config referenced                                                                                                                             |
+| `angular-build-splitting-off`       | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                                                                                       |
+| `analog-behind-angular-build`       | `@analogjs/vite-plugin-angular` below 2.7.5 next to `@angular/build` 22.2+ — `TypeError: cache.has is not a function` at startup                                          |
+| `coverage-all-removed`              | `coverage.all` in a config, on a Vitest that stopped reading the key                                                                                                      |
+| `coverage-include-misses-bundle`    | A `coverage.include` of sources only, in a runner config over a bundle                                                                                                    |
+| `coverage-include-recompiles-globs` | A coverage scope large enough that `picomatch` recompiling it per file costs more than the coverage. Info                                                                 |
+| `vitest-5-removed`                  | What Vitest 5 removed — `vitest/reporters`-style imports, `.sequential`, `--outputJson`/`--compare`; error on 5, note on 4. Also `poolOptions` (warning, ignored since 4) |
+| `vitest-5-deprecated`               | `experimental_clearCache` / `experimental_parseSpecifications` on Vitest 5, which nothing warns about at run time. Info                                                   |
+| `vitest-5-clear-mocks`              | `clearMocks: true` restating the Vitest 5 default, or a Vitest 4 suite that never decided and will have mocks cleared after the upgrade. Info                             |
+| `vitest-5-available`                | Vitest 4 with nothing holding back 5 — what it buys (−46 % v8 / −35.5 % istanbul on a 700-file Angular suite with coverage) — or what holds it back. Info                 |
+| `fs-module-cache-not-persisted`     | `fsModuleCache` on, and no CI config caches its directory — every CI run starts cold                                                                                      |
+| `jasmine-era-project`               | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error                                                          |
+| `no-agent-instructions`             | No instruction file names the package. A note, not an error                                                                                                               |
+| `helper-from-wrong-entry`           | A named import taken from an entry that does not export it — `provideAutoSpy` from the root                                                                               |
+| `no-unawaited-helper`               | An `expectEmission` / `stable` / `flushEventLoop` call dropped as a bare statement, so nothing awaits it                                                                  |
 
 The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
 `tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
@@ -480,7 +501,7 @@ positive is somebody's suite failing on `document is not defined`.
 
 **The phase totals are CPU time summed across workers**, which is why 860ms of wall clock reads as
 17.30s of CPU above — the six phases are `environment`, `prepare`, `import`, `setup`, `tests` (all
-per file) and `transform` (whole run). Where the isolation finding suggests `test.isolate: false`,
+per file) and `transform` (whole run; per file on Vitest 5). Where the isolation finding suggests `test.isolate: false`,
 it links to this package's own memory measurements rather than repeating the numbers here — that
 flag trades per-file cleanup for memory that grows with the suite.
 
@@ -490,6 +511,16 @@ repository's own 117-file suite, and 119 ms against 253 ms per file on a spec th
 does nothing else. `perf-workers` is the one about **memory**: with no `maxWorkers` declared, Vitest
 takes one worker per core, and a worker measured at ~155 MB on top of a 1.42 GB floor — a cap of four
 cost 2.8 % of wall clock and about 2 GB less on a 16-core machine.
+
+**On Vitest 5 `perf` reads what Vitest 5 reports**, and an older Vitest prints exactly what it did
+before. The advice reads the configuration Vitest resolved — so an option set in a builder or on the
+command line counts, and one you set explicitly is never advised against. `perf-transform` names the
+time files waited for Vite to transform modules and offers `fsModuleCache`; `perf-long-pole` names
+the file still running alone after every other lane went idle; `perf-isolation` prices the worker
+start-ups isolation paid for; `perf-heap` under `isolate: false` lists what each file **added** to its
+worker's heap; and a finding about a switch points at `npx vitest doctor`, Vitest's own A/B runner,
+to confirm it. A run killed or timed out still leaves a `partial` report, which `perf` prints and the
+gate refuses to judge.
 
 **`--gate` is the half that may fail a pipeline**, and it is built so that it only ever fails over
 somebody's code. It judges the `tests` phase alone — the other five are the harness and the machine
@@ -1513,7 +1544,7 @@ Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runti
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | :----: |
 | `vitest-auto-spy`                     | `createSpyFromClass`, `createAutoMock`, `createFunctionSpy`, sync + promise + accessor spies, `errorHandler`, types                                                                                                                                                                                                                                                                                                                                                       | `vitest`                                                 |   ✅   |
 | `vitest-auto-spy/rxjs`                | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) and `createObservableWithValues`                                                                                                                                                                                                                                                                                                                                                             | `rxjs`                                                   |   ✅   |
-| `vitest-auto-spy/angular`             | `provideAutoSpy`, `injectSpy`, `renderShallow`, `setInputs`, `hostElement`/`queryElement`, `createWithAutoSpies`, `stable`/`flushEffects`, `settleResource`, `mockResourceProp`, the `mock*Prop` helpers, `trackRecomputations` / `trackEffectRuns` — the diagnostics, doubles and matchers below moved off this entry in 5.21.0                                                                                                                                          | `@angular/core`                                          |   ✅   |
+| `vitest-auto-spy/angular`             | `provideAutoSpy`, `injectSpy` and the `Spy<T>` type it returns, `renderShallow`, `setInputs`, `hostElement`/`queryElement`, `createWithAutoSpies`, `stable`/`flushEffects`, `settleResource`, `mockResourceProp`, the `mock*Prop` helpers, `trackRecomputations` / `trackEffectRuns` — the diagnostics, doubles and matchers below moved off this entry in 5.21.0                                                                                                         | `@angular/core`                                          |   ✅   |
 | `vitest-auto-spy/angular/diagnostics` | `enableAngularDiagnostics` and the whole TestBed timing family — a companion to `/angular`, no core re-export; moved off `/angular` in 5.21.0                                                                                                                                                                                                                                                                                                                             | `@angular/core`                                          |   ✅   |
 | `vitest-auto-spy/angular/doubles`     | the `window` / `document` and Material-dialog doubles; registers the Vitest adapter, so its doubles spy out of the box; moved off `/angular` in 5.21.0                                                                                                                                                                                                                                                                                                                    | `@angular/core`                                          |   ✅   |
 | `vitest-auto-spy/angular/matchers`    | `registerDirectiveMatchers`, `registerResourceMatchers`, `registerSignalMatchers` — a companion to `/angular`, no core re-export; moved off `/angular` in 5.21.0                                                                                                                                                                                                                                                                                                          | `@angular/core`, `@angular/platform-browser`             |   ✅   |
@@ -2573,7 +2604,9 @@ beforeEach(() => {
 > zone.js** Angular projects — nothing here touches `NgZone` or change detection.
 > You only need the usual Vitest + Angular wiring:
 > [`@analogjs/vite-plugin-angular`](https://www.npmjs.com/package/@analogjs/vite-plugin-angular)
-> plus a TestBed setup file (e.g. `@analogjs/vitest-angular`'s `setupTestBed()`).
+> plus a TestBed setup file (e.g. `@analogjs/vitest-angular`'s `setupTestBed()`). Next to
+> `@angular/build` 22.2 or newer, both `@analogjs` packages need 2.7.5 or newer — older ones crash at
+> startup with `TypeError: cache.has is not a function`.
 
 > **Lazy by default, everywhere.** Every factory builds each method spy on first access
 > (`lazySpies: true`), since Angular tests typically spy a wide service but call
@@ -3659,13 +3692,15 @@ Whatever is turned on, the hooks belong to the spec file whose collection import
 Vitest re-imports setup files per spec file, so that is normally invisible — until something keeps
 the module in the cache across files, and then only the **first** file of each worker gets any of
 them: no property restore, no `blockNetwork`, no stray-timer cancellation, no global fake timers,
-and no report that they are missing. The case seen in the wild is `@angular/build:unit-test` with
-coverage, where each test file is served as a wrapper around the built bundle and the setup module
-is never re-evaluated. Run that with `--isolate`, or call `setupAutoSpy()` from something evaluated
-per file. The one thing that once-per-worker evaluation is used _for_: under `@angular/build` in
-`[22.1.5, 22.1.7)`, where the unit-test bundle is built with code splitting off and `--coverage`
-grows by hundreds of megabytes with no plateau, the first evaluation writes one line to stderr
-naming the version, both exits and the opt-out (`angularBuildHint: false`) — see
+and no report that they are missing. The case seen in the wild is `@angular/build:unit-test` before
+22.2.0 with coverage, where each test file is served as a wrapper around the built bundle and the
+setup module is never re-evaluated; 22.2.0 runs setup files per spec file under `--coverage` too
+(angular-cli#34143). On an older builder, run that with `--isolate`, or call `setupAutoSpy()` from
+something evaluated per file. One notice is printed once per worker on purpose, through a flag on
+`globalThis` rather than module evaluation: under `@angular/build` in `[22.1.5, 22.1.7)`, where the
+unit-test bundle is built with code splitting off and `--coverage` grows by hundreds of megabytes
+with no plateau, the first run of the setup file writes one line to stderr naming the version, both
+exits and the opt-out (`angularBuildHint: false`) — see
 [the Angular page](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#when-the-unit-test-build-has-code-splitting-off).
 
 #### `node:test` retains every mock

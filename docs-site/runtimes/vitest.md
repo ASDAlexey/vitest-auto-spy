@@ -54,6 +54,14 @@ Changing nothing but the runner is **−7.7 %**. The engine is worth **−6.1 %*
 **−8.1 %** on Vitest 5 over handing each method to `vi.fn()`. Slowest pairing to fastest — Vitest 4
 with runner mocks, against Vitest 5 with the default engine — is 1473 ms → 1276 ms, **−13.4 %**.
 
+**On Angular the difference is larger, and it is in coverage.** `@angular/build` 22.2.0 is the first
+release whose `@angular/build:unit-test` runs on Vitest 5. On a 700-file, 11 491-test Angular 22.2
+suite built on this library, switching the builder's runner from Vitest 4.1.11 to 5.0.2 took a run
+with v8 coverage from 16.50 s to 8.91 s (**−46 %**, 1.85×) and with istanbul from 37.07 s to 23.92 s
+(**−35.5 %**, 1.55×), with peak memory unchanged. Without coverage the two majors are level, and at
+150 spec files the gain is −15.5 % / −17.7 % — the table, the method and what to upgrade are in
+[Performance → Vitest 5 under the Angular unit-test builder](../core/performance#vitest-5-under-the-angular-unit-test-builder).
+
 ### The one thing that can still break your specs
 
 `clearMocks` defaults to `true` in Vitest 5, so `vi.clearAllMocks()` runs before every test. That is
@@ -237,5 +245,7 @@ import { injectSpy, provideAutoSpy, renderShallow, stable } from 'vitest-auto-sp
 ```
 
 It needs an Angular-aware Vitest setup (for example `@analogjs/vite-plugin-angular` plus a
-`setupTestBed()` call). See [Angular](/adapters/angular) — and
-[Angular on Bun](/runtimes/bun-angular) for the same suite under `bun test`.
+`setupTestBed()` call). Next to `@angular/build` 22.2 the Analog packages have to be 2.7.5 or newer,
+or the run stops at startup with `TypeError: cache.has is not a function` — [`doctor` reports
+it](/utilities/cli#analog-behind-angular-build). See [Angular](/adapters/angular) — and [Angular on
+Bun](/runtimes/bun-angular) for the same suite under `bun test`.
