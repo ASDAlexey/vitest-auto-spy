@@ -1,6 +1,6 @@
 # vitest-auto-spy — Error → fix
 
-Part of the agent reference [`AGENTS.md`](../AGENTS.md): the entry points, the factories and the checklist live there. Section numbers are shared with it.
+Part of the agent reference [`AGENTS.md`](../AGENTS.md), which maps every section to its file. Section numbers are shared with it.
 
 ## 17. Error → fix
 
@@ -67,6 +67,7 @@ Part of the agent reference [`AGENTS.md`](../AGENTS.md): the entry points, the f
 | `Spread syntax requires ...iterable[Symbol.iterator] to be a function`, at load time | a module-scope spread of an imported binding, inside a bundle | build the array in a function or a getter — `no-import-time-spread` (§16) |
 | `the timers APIs are not mocked` in a nested `describe`'s `beforeAll` | fakes armed in `beforeEach` only; Jest armed them for the whole file | `setupFakeTimers(cfg, { betweenTests: true })` / `setupAutoSpy({ globalFakeTimers: true })` |
 | setup-file hooks reaching only the first spec file of a worker | the setup module stayed cached (Angular unit-test builder before 22.2.0 + coverage; 22.2.0 fixed it) | upgrade `@angular/build` to 22.2.0+; on an older one, run coverage with `--isolate` or call `setupAutoSpy()` from a per-file module |
+| `setupAutoSpy() registered its hooks for A and not for B, which runs after it in the same worker` | the setup module was evaluated once per worker, not per spec file (Angular unit-test builder before 22.2.0 + coverage) | upgrade `@angular/build` to 22.2.0+, run coverage with `--isolate`, or call `setupAutoSpy()` at the top level of the setup file itself |
 | `no DOM could be installed` | `bun-angular` preload with no DOM package | `bun add -d @happy-dom/global-registrator` (or `jsdom`) |
 | `cannot read "…" referenced by …: ENOENT at …` | a `templateUrl` / `styleUrl` path does not resolve; the errno (`ENOENT`, `EACCES`) and the resolved path say why | fix the path, relative to the component file |
 | duplicate-copy report from `setupAutoSpy()` | two installs, or one loaded as both ESM and CJS | dedupe the dependency; `setupAutoSpy({ duplicateCopies: 'warn' })` to downgrade. A setup file that initialises the Angular test environment before the library loads splits Angular the same way — two copies, a second `TestBed`, and `No mock adapter registered` or overrides that never apply: `resolve.dedupe: ['@angular/core', '@angular/common', '@angular/platform-browser', '@angular/compiler', 'rxjs']` plus `test.server.deps.inline: ['vitest-auto-spy']` (Vitest 1 and up) leaves one copy of each |

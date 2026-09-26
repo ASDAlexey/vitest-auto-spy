@@ -1,6 +1,6 @@
 # vitest-auto-spy — Angular
 
-Part of the agent reference [`AGENTS.md`](../AGENTS.md): the entry points, the factories and the checklist live there. Section numbers are shared with it.
+Part of the agent reference [`AGENTS.md`](../AGENTS.md), which maps every section to its file. Section numbers are shared with it.
 
 ## 13. Angular
 

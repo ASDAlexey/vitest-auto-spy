@@ -1,6 +1,6 @@
 # vitest-auto-spy — Setup file
 
-Part of the agent reference [`AGENTS.md`](../AGENTS.md): the entry points, the factories and the checklist live there. Section numbers are shared with it.
+Part of the agent reference [`AGENTS.md`](../AGENTS.md), which maps every section to its file. Section numbers are shared with it.
 
 ## 10. Setup file
 
@@ -512,7 +512,8 @@ under `--coverage` serves every test file as a wrapper around the built bundle, 
 is never re-evaluated — only the first file of each worker gets them, and the rest fail somewhere
 unrelated. 22.2.0 runs setup files per spec file under `--coverage` as well (angular-cli#34143). On
 an older builder, run coverage with `--isolate`, or call `setupAutoSpy()` from something evaluated
-per file.
+per file. `setupAutoSpy()` prints one stderr line per worker when a test of a file it did not register
+for starts (`registered its hooks for … and not for …`).
 
 ### Freezing and counting the clock
 
@@ -760,21 +761,24 @@ cancels — jsdom answers every Web Storage write with a real `setTimeout(…, 0
 storage probe runs under it.
 
 **`test.concurrent` earns one warning per worker, and it is worth reading rather than silencing.**
-The per-test guards assume one test at a time: the document snapshot, the console window and the
-unconfigured-read counter are opened and judged per test, so with two in flight a finding can be
-charged to the other one — or cleared before anything sees it. The restores still run for every
-test, and the skipped-teardown net now remembers per test rather than per file, which is the half
-that was simply wrong. Run the files that need a guard sequentially, or keep `test.concurrent` for
-files whose setup passes `strayConsole: 'off'`, `documentPollution: 'off'` and
-`unconfiguredReads: 'off'`.
+The console and document guards assume one test at a time: the document snapshot and the console
+window are opened and judged per test, so with two in flight a finding can be charged to the other
+one — or cleared before anything sees it. The unconfigured-read counter keeps a window per concurrent
+test, and a read made while several were in flight is reported once, after the last, naming them
+all. The restores still run for every test, and the skipped-teardown net remembers per test rather
+than per file. Run the files that need the console or document guard sequentially, or keep
+`test.concurrent` for files whose setup passes `strayConsole: 'off'` and `documentPollution: 'off'`.
 
-**What `/setup` costs per test**, measured on happy-dom over 10 000 empty tests (2026-09-17, Node
-24): the default `setupAutoSpy()` **19 µs**, `guardGlobals` **59 µs** (it snapshots once per file
-now, not once per test), `documentPollution` **23 µs** — it shares the `onTestFinished` the teardown
-net registers anyway — and `preset: 'strict'` **67 µs**. `documentPollution: { nodes: true }` over a
-`<head>` of 1000 children is **0.19 ms** per test rather than 7.1 ms, because the children are walked
-as a sibling chain instead of through a live `HTMLCollection`; an `ignoreNodes` selector's answer for
-an element is decided at snapshot time and reused for that test.
+**What `/setup` costs per test**, measured over 5 000 empty tests, one worker (2026-09-26, Node 24,
+Vitest 5), as the whole time of a test with the runner's own ~8 µs included: the default
+`setupAutoSpy()` **16 µs** on node and **18 µs** on happy-dom, `guardGlobals` **19 µs** on happy-dom,
+`strayConsole: 'throw'` **23 µs**, and `preset: 'strict'` **18 / 30 µs**. Every guard is a step in one
+`beforeEach` and one `afterEach`; the teardown net rides `aroundEach` on Vitest 4.1+; and
+`guardGlobals` checks only the objects the wrapped `defineProperty` functions marked, with a full pass
+once per file. `documentPollution: { nodes: true }` over a `<head>` of 1000 children is **0.19 ms**
+per test rather than 7.1 ms, because the children are walked as a sibling chain instead of through a
+live `HTMLCollection`; an `ignoreNodes` selector's answer for an element is decided at snapshot time
+and reused for that test.
 
 ### Hook order differs from Jest
 
