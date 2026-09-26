@@ -77,12 +77,16 @@ export interface TestCandidate extends CandidateBase {
   readonly file: string;
   /** The test's full name, as Vitest reported it. */
   readonly name: string;
+  /** It passed only on a retry, so its time covers every attempt. */
+  readonly retried?: true;
 }
 
 /** The bodies of one file, added up. */
 export interface FileTotalCandidate extends CandidateBase {
   readonly check: 'perf-gate-slow-file';
   readonly file: string;
+  /** Failed attempts of tests that passed on a retry, all inside `ms`. */
+  readonly retries?: number;
 }
 
 /**
@@ -193,6 +197,7 @@ function slowTests(path: string, file: PerfFile, options: GateOptions): TestCand
       ms: entry.ms,
       budget: options.maxTestMs,
       budgetNote: `--max-test-ms ${Math.round(options.maxTestMs)}`,
+      ...(file.flaky?.includes(entry.name) === true ? { retried: true as const } : {}),
     }));
 }
 
@@ -210,6 +215,7 @@ function slowFile(path: string, file: PerfFile, medianTest: number, options: Gat
       ms: file.tests,
       budget,
       budgetNote: `the largest of --max-file-ms ${Math.round(options.maxFileMs)}, --max-file-tests ${options.maxFileTests} × the median test of this run (${formatMs(medianTest)}), and ${options.factor}× that median for each of its ${file.testCount} tests`,
+      ...(file.retries === undefined || file.retries === 0 ? {} : { retries: file.retries }),
     },
   ];
 }
@@ -300,7 +306,9 @@ function describe(candidate: GateCandidate): string {
   }
 
   if (candidate.check === 'perf-gate-slow-test') {
-    return `\`${candidate.name}\` spent ${formatMs(candidate.ms)} in its body, over the ${formatMs(candidate.budget)} budget (${candidate.budgetNote}).`;
+    const retried = candidate.retried === true ? ' It passed only on a retry, and that time covers every attempt.' : '';
+
+    return `\`${candidate.name}\` spent ${formatMs(candidate.ms)} in its body, over the ${formatMs(candidate.budget)} budget (${candidate.budgetNote}).${retried}`;
   }
 
   if (candidate.check === 'perf-gate-regression' && candidate.against === 'history') {
@@ -311,7 +319,12 @@ function describe(candidate: GateCandidate): string {
     return `The test bodies in this file take ${candidate.grewBy.toFixed(1)}× the share of the run they took when the baseline was recorded — ${formatMs(candidate.ms)} against the ${formatMs(candidate.budget)} that share is worth here (${candidate.budgetNote}).`;
   }
 
-  return `The test bodies in this file add up to ${formatMs(candidate.ms)}, over the ${formatMs(candidate.budget)} budget (${candidate.budgetNote}).`;
+  const retries =
+    candidate.retries === undefined
+      ? ''
+      : ` ${candidate.retries === 1 ? '1 failed attempt' : `${candidate.retries} failed attempts`} of tests that passed on a retry are inside that time.`;
+
+  return `The test bodies in this file add up to ${formatMs(candidate.ms)}, over the ${formatMs(candidate.budget)} budget (${candidate.budgetNote}).${retries}`;
 }
 
 const FIXES: Record<GateCheck, string> = {
