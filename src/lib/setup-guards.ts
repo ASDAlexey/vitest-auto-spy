@@ -5,7 +5,7 @@ import { afterAll, beforeAll, expect } from 'vitest';
 import * as DOCS_LINKS from './docs-links';
 import { annotateFrozenClockTimeout, readFrozenClock } from './frozen-clock';
 import { takeStrictViolations } from './function-spy';
-import { type GlobalPatchReaction, createGlobalPatchWatch } from './global-patch-guard';
+import { type GlobalPatchReaction, openGlobalPatchWatch } from './global-patch-guard';
 import { type GuardReaction, reactToFindings } from './guard-reaction';
 import type { GuardRegistry } from './guard-registry';
 import { annotateHookTimeout, readRunnerTimeouts } from './hook-timeout';
@@ -183,19 +183,11 @@ export function describePrototypeLeftover(name: string, added: readonly string[]
 }
 
 function watchGlobalPatches(registry: GuardRegistry, reaction: GlobalPatchReaction): void {
-  if (reaction === 'off') {
-    return;
+  const watch = openGlobalPatchWatch(reaction);
+
+  if (watch !== undefined) {
+    registry.teardown.push(() => watch.checkTest());
   }
-
-  const watch = createGlobalPatchWatch(reaction);
-
-  // From `beforeAll`, so a patch in the file's own `beforeAll` is seen; the cleanup runs after every `afterAll`.
-  beforeAll(() => {
-    watch.openFile();
-
-    return (): void => watch.closeFile();
-  });
-  registry.teardown.push(() => watch.checkTest());
 }
 
 function watchPrototypePollution(registry: GuardRegistry, reaction: PrototypePollutionReaction): void {

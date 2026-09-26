@@ -289,8 +289,21 @@ export function createGlobalPatchWatch(
  *   choice while a large suite is being cleaned up), `'off'` registers nothing.
  */
 export function guardGlobalPatches(reaction: GlobalPatchReaction): void {
-  if (reaction === 'off') {
+  const watch = openGlobalPatchWatch(reaction);
+
+  if (watch === undefined) {
     return;
+  }
+
+  afterEach(() => {
+    watch.checkTest();
+  });
+}
+
+/** Registers the per-file half; scheduling `checkTest` is the caller's, so `setupAutoSpy` can fold it into its own hook. */
+export function openGlobalPatchWatch(reaction: GlobalPatchReaction): GlobalPatchWatch | undefined {
+  if (reaction === 'off') {
+    return undefined;
   }
 
   const watch = createGlobalPatchWatch(reaction);
@@ -302,7 +315,5 @@ export function guardGlobalPatches(reaction: GlobalPatchReaction): void {
     return (): void => watch.closeFile();
   });
 
-  afterEach(() => {
-    watch.checkTest();
-  });
+  return watch;
 }
