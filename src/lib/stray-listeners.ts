@@ -23,6 +23,9 @@
  * until it has run, nothing is removable and the count reads 0, so a run that never drew the line
  * cannot strip the framework's own wiring by mistake.
  *
+ * A registration made by the DOM environment's own code (jsdom, happy-dom) is neither counted nor
+ * swept: it belongs to no file, and taking it off breaks the environment for every later one.
+ *
  * One blind spot, by construction: a `{ once: true }` listener the platform already detached after
  * firing. Watching it go means wrapping the listener itself, which would change its identity — the
  * very thing the platform and the code under test match `removeEventListener` by — so the entry
@@ -35,6 +38,7 @@ import { defineHelper } from './define-helper';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { markOwnedPatch } from './owned-patch';
+import { isLibraryFrame, stackFrames } from './stack-frames';
 import { type MadeIn, describeOriginOf, originNow } from './stray-failure';
 
 /** One registration past the baseline, and where it was added — what {@link describeStrayListeners} hands back. */
@@ -209,6 +213,28 @@ function forgetEntries(tracking: TargetTracking, type: string, listener: unknown
   tracking.entries = tracking.entries.filter((entry) => entry.type !== type || entry.listener !== listener || entry.capture !== capture);
 }
 
+/** The stack frames of the wrappers in this file, which say nothing about where the call came from. */
+const OWN_MODULE_FRAME = /stray-listeners\.[jt]s/;
+
+/** The DOM environments' own packages; `@asamuzakjp/dom-selector` is jsdom's selector engine. */
+const ENVIRONMENT_FRAME = /[/\\]node_modules[/\\](?:jsdom|happy-dom|@asamuzakjp[/\\][^/\\]+)[/\\]/;
+
+const environmentVerdicts = new WeakMap<RecordedListener, boolean>();
+
+/** Decided on the first caller frame, lazily, so only an entry that outlived the baseline pays for formatting its stack. */
+function isEnvironmentEntry(entry: RecordedListener): boolean {
+  let verdict = environmentVerdicts.get(entry);
+
+  if (verdict === undefined) {
+    const caller = stackFrames(entry.trace.stack).find((frame) => !OWN_MODULE_FRAME.test(frame) && !isLibraryFrame(frame));
+
+    verdict = caller !== undefined && ENVIRONMENT_FRAME.test(caller);
+    environmentVerdicts.set(entry, verdict);
+  }
+
+  return verdict;
+}
+
 /** What was registered past the baseline — an empty hand before one has been drawn, on purpose. */
 function strayEntries(tracking: TargetTracking): RecordedListener[] {
   const { baseline } = tracking;
@@ -217,7 +243,7 @@ function strayEntries(tracking: TargetTracking): RecordedListener[] {
     return [];
   }
 
-  return tracking.entries.filter((entry) => !baseline.has(entry));
+  return tracking.entries.filter((entry) => !baseline.has(entry) && !isEnvironmentEntry(entry));
 }
 
 /**
@@ -441,9 +467,6 @@ export function countStrayListeners(targets?: readonly TrackedListenerTarget[]):
 
   return total;
 }
-
-/** The stack frames of the wrappers in this file, which say nothing about where the call came from. */
-const OWN_MODULE_FRAME = /stray-listeners\.[jt]s/;
 
 function describeEntry(name: string, entry: RecordedListener): StrayListener {
   return { target: name, type: entry.type, ...describeOriginOf(entry, OWN_MODULE_FRAME) };

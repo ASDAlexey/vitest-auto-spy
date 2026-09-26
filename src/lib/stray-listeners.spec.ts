@@ -1,3 +1,4 @@
+import { compileFunction } from 'node:vm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -8,6 +9,15 @@ import {
   removeStrayListeners,
   trackStrayListeners,
 } from './stray-listeners';
+
+/** Registers from code whose stack frame reads as `filename`, the way a dependency's own call does. */
+function registerFrom(filename: string, target: EventTarget, type: string, listener: () => void): void {
+  const register = compileFunction('target.addEventListener(type, listener, { capture: true });', ['target', 'type', 'listener'], {
+    filename,
+  });
+
+  Reflect.apply(register, undefined, [target, type, listener]);
+}
 
 /** A stand-in target: real `EventTarget` semantics — registration, removal, dispatch — under a name. */
 function namedTarget(name: string): TrackedListenerTarget {
@@ -234,6 +244,38 @@ describe('stray listeners', () => {
     expect(countStrayListeners([named])).toBe(0);
   });
 
+  it.each([
+    '/app/node_modules/@asamuzakjp/dom-selector/src/js/event.js',
+    '/app/node_modules/.pnpm/jsdom@30.0.1/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js',
+    'C:\\app\\node_modules\\happy-dom\\lib\\match-media\\MediaQueryList.js',
+  ])('leaves a registration the DOM environment makes itself uncounted and attached (%s)', (filename) => {
+    const named = namedTarget('stand-in');
+    const heard = vi.fn();
+
+    track(named);
+    baselineStrayListeners([named]);
+    registerFrom(filename, named.target, 'focus', heard);
+
+    expect(countStrayListeners([named])).toBe(0);
+    expect(describeStrayListeners([named])).toEqual([]);
+    expect(removeStrayListeners([named])).toBe(0);
+
+    named.target.dispatchEvent(new Event('focus'));
+
+    expect(heard).toHaveBeenCalledTimes(1);
+  });
+
+  it('still counts a registration another dependency makes', () => {
+    const named = namedTarget('stand-in');
+
+    track(named);
+    baselineStrayListeners([named]);
+    registerFrom('/app/node_modules/@angular/cdk/fesm2022/a11y.mjs', named.target, 'keydown', () => undefined);
+
+    expect(countStrayListeners([named])).toBe(1);
+    expect(removeStrayListeners([named])).toBe(1);
+  });
+
   it('names the target, the type, the spec file and the registration line', () => {
     const named = namedTarget('reports');
 
@@ -372,6 +414,19 @@ describe('the default targets', () => {
 
     expect(globalThis.addEventListener).toBe(globalAdd);
     expect(document.addEventListener).toBe(documentAdd);
+  });
+
+  it('keeps the wiring the environment adds the first time a document is queried', () => {
+    stops.push(trackStrayListeners());
+    baselineStrayListeners();
+
+    const queried = document.implementation.createHTMLDocument();
+
+    queried.body.append(queried.createElement('p'));
+    queried.querySelectorAll('*');
+
+    expect(describeStrayListeners()).toEqual([]);
+    expect(removeStrayListeners()).toBe(0);
   });
 
   it('tracks globalThis alone where the environment has no document', () => {
