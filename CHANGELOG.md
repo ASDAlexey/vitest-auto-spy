@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.33.0] - 2026-09-26
+
 ### Added
 
 - **`stubElementRect` hands back the installed `getBoundingClientRect` spy alongside the restore.**
@@ -8286,7 +8288,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.32.2...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.33.0...HEAD
+[5.33.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.32.2...v5.33.0
 [5.32.2]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.32.1...v5.32.2
 [5.32.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.32.0...v5.32.1
 [5.32.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.31.0...v5.32.0
