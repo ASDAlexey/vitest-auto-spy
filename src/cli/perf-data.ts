@@ -24,14 +24,14 @@ export const PERF_REPORTER_ENV = 'VITEST_AUTO_SPY_PERF_REPORTER';
  */
 export const PERF_PROFILE_ENV = 'VITEST_AUTO_SPY_PERF_PROFILE';
 
-export const PERF_FORMAT_VERSION = 3;
+export const PERF_FORMAT_VERSION = 4;
 
 /**
  * Every version this build reads. Version 2 added the per-test data the gate judges, version 3 the
- * flaky tests and the heap; an older report simply carries none of it, which is a report with fewer
- * findings in it rather than a bad one.
+ * flaky tests and the heap, version 4 workers, lanes, fetch waits and the resolved config; an older
+ * report simply carries none of it, which is a report with fewer findings in it rather than a bad one.
  */
-const READABLE_VERSIONS: readonly number[] = [1, 2, 3];
+const READABLE_VERSIONS: readonly number[] = [1, 2, 3, 4];
 
 /**
  * Below this, a test body is not evidence of anything: 40 ms is the machine rather than somebody's
@@ -78,6 +78,30 @@ export interface PerfFile {
   readonly heap?: number;
   /** The spec's heaviest direct imports. Only a run that collects import durations records them. */
   readonly slowImports?: readonly PerfImport[];
+  /** Vitest 5+: the id of the file's run in a worker, new for every file even when the worker is reused — groups nothing. */
+  readonly workerId?: number;
+  /** Vitest 5+: the concurrency slot, 1 to `maxWorkers`. */
+  readonly lane?: number;
+  /** When the file started, in epoch milliseconds. */
+  readonly start?: number;
+  /** Vitest 5+: time collect and setup spent waiting for transforms, already inside `imports`/`setup`. */
+  readonly fetch?: number;
+  /** Vitest 5+: the part of `fetch` spent in setup files, so `setup` and `import` both lose their own share. */
+  readonly setupFetch?: number;
+  /** Failed attempts before a pass, summed over the file's tests. */
+  readonly retries?: number;
+}
+
+/** What the run was configured with, read from Vitest's resolved config rather than the config text. */
+export interface PerfConfig {
+  readonly isolate?: boolean;
+  readonly pool?: string;
+  readonly maxWorkers?: number;
+  readonly environment?: string;
+  readonly fsModuleCache?: boolean;
+  readonly coverage?: string;
+  /** Vitest 5+: options the user set explicitly, which advice should not second-guess. */
+  readonly provided?: readonly string[];
 }
 
 export interface PerfRun {
@@ -85,7 +109,7 @@ export interface PerfRun {
   readonly version: number;
   /** Vitest's project root, so a reader can relativise `file` even from another directory. */
   readonly root: string;
-  /** Transform time for the whole run: Vitest tracks it per run, not per file. */
+  /** Transform time for the whole run, from Vitest 4 and older; Vitest 5 reports `fetch` per file instead. */
   readonly transform: number;
   /** Wall clock of the run. The phase sums are CPU time across workers and exceed it. */
   readonly wall: number;
@@ -96,6 +120,13 @@ export interface PerfRun {
    */
   readonly failed: number;
   readonly files: readonly PerfFile[];
+  /** The Vitest version that ran the suite. */
+  readonly vitest?: string;
+  readonly config?: PerfConfig;
+  /** Vitest 5+: summed worker spawn, bundle load and environment setup, and how many workers. */
+  readonly startup?: { readonly ms: number; readonly workers: number };
+  /** Written before the run ended — a crashed or killed run keeps the files that finished. */
+  readonly partial?: boolean;
 }
 
 export type PhaseName = 'environment' | 'import' | 'prepare' | 'setup' | 'tests' | 'transform';
@@ -111,6 +142,8 @@ export interface Phase {
 type FileKey = 'environment' | 'imports' | 'prepare' | 'setup' | 'tests';
 
 /** `environment` is not among them: it is measured once per worker, not once per file — see `environmentOf`. */
+const OPTIONAL_FILE_NUMBERS = ['workerId', 'lane', 'start', 'fetch', 'setupFetch', 'retries'] as const;
+
 const FILE_PHASES: readonly (readonly [PhaseName, FileKey])[] = [
   ['import', 'imports'],
   ['tests', 'tests'],
@@ -162,6 +195,13 @@ function parseFile(value: unknown): PerfFile | undefined {
   const flaky = parseNames(value['flaky']);
   const heap = numberAt(value, 'heap');
   const slowImports = parseImports(value['slowImports']);
+  const optional = Object.fromEntries(
+    OPTIONAL_FILE_NUMBERS.flatMap((key) => {
+      const number = numberAt(value, key);
+
+      return number === undefined ? [] : [[key, number]];
+    }),
+  );
 
   return {
     file: value['file'],
@@ -175,7 +215,37 @@ function parseFile(value: unknown): PerfFile | undefined {
     ...(flaky.length === 0 ? {} : { flaky }),
     ...(heap === undefined ? {} : { heap }),
     ...(slowImports.length === 0 ? {} : { slowImports }),
+    ...optional,
   };
+}
+
+function parseConfig(value: unknown): PerfConfig | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const maxWorkers = numberAt(value, 'maxWorkers');
+
+  return {
+    ...(typeof value['isolate'] === 'boolean' ? { isolate: value['isolate'] } : {}),
+    ...(typeof value['pool'] === 'string' ? { pool: value['pool'] } : {}),
+    ...(maxWorkers === undefined ? {} : { maxWorkers }),
+    ...(typeof value['environment'] === 'string' ? { environment: value['environment'] } : {}),
+    ...(typeof value['fsModuleCache'] === 'boolean' ? { fsModuleCache: value['fsModuleCache'] } : {}),
+    ...(typeof value['coverage'] === 'string' ? { coverage: value['coverage'] } : {}),
+    ...(Array.isArray(value['provided']) ? { provided: parseNames(value['provided']) } : {}),
+  };
+}
+
+function parseStartup(value: unknown): PerfRun['startup'] {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const ms = numberAt(value, 'ms');
+  const workers = numberAt(value, 'workers');
+
+  return ms === undefined || workers === undefined ? undefined : { ms, workers };
 }
 
 /** Why a text is not a report this build reads, worded to follow the file name. */
@@ -224,6 +294,9 @@ export function parsePerfRun(text: string): PerfRun | undefined {
     }
   }
 
+  const config = parseConfig(parsed['config']);
+  const startup = parseStartup(parsed['startup']);
+
   return {
     version,
     root: typeof parsed['root'] === 'string' ? parsed['root'] : '',
@@ -231,6 +304,10 @@ export function parsePerfRun(text: string): PerfRun | undefined {
     wall: numberAt(parsed, 'wall') ?? 0,
     failed: numberAt(parsed, 'failed') ?? 0,
     files,
+    ...(typeof parsed['vitest'] === 'string' ? { vitest: parsed['vitest'] } : {}),
+    ...(config === undefined ? {} : { config }),
+    ...(startup === undefined ? {} : { startup }),
+    ...(parsed['partial'] === true ? { partial: true } : {}),
   };
 }
 
@@ -292,20 +369,60 @@ export function medianOf(values: readonly number[]): number {
  * that is 126.4 s against the 2.44 s actually spent, inflated 51.7×, which is enough to make the
  * phase dominate any report with many files per worker.
  *
- * Files of one worker carry the identical float, so the distinct values are the environments the run
- * built. Two workers landing on the same `performance.now()` difference would be counted once; that
- * undercounts by one environment where the alternative overcounts by the file count.
+ * Files of one worker carry the identical float, so the distinct values stand in for the workers;
+ * two workers landing on the same `performance.now()` difference are counted once, which undercounts
+ * by one environment where the alternative overcounts by the file count. On Vitest 5 the lane splits
+ * such a collision: a lane runs one worker at a time. `workerId` cannot group them — it is new for
+ * every file, even when `isolate: false` reuses the worker.
  */
 export function environmentOf(files: readonly PerfFile[]): number {
-  return [...new Set(files.map((file) => file.environment))].reduce((total, ms) => total + ms, 0);
+  const workers = new Map<string, number>();
+
+  for (const file of files) {
+    workers.set(`${String(file.lane)}:${file.environment}`, file.environment);
+  }
+
+  return [...workers.values()].reduce((total, ms) => total + ms, 0);
+}
+
+/**
+ * Vitest 5+: transform waits measured per file. Collect and setup include the time the worker spent
+ * waiting for the server to transform modules, so that wait is taken out of both and reported as
+ * `transform` — Vitest 5's own `computeDurationBreakdown` split. Without it on every file the
+ * whole-run `transform` stands, and `import`/`setup` stay as measured.
+ */
+function fetchSplit(run: PerfRun): { readonly transform: number; readonly import: number; readonly setup: number } | undefined {
+  const measured = run.files.filter((file): file is PerfFile & { readonly fetch: number } => file.fetch !== undefined);
+
+  if (run.files.length === 0 || measured.length < run.files.length) {
+    return undefined;
+  }
+
+  let transform = 0;
+  let imports = 0;
+  let setup = 0;
+
+  for (const file of measured) {
+    const setupFetch = Math.min(file.setupFetch ?? 0, file.fetch);
+
+    transform += file.fetch;
+    setup += Math.max(file.setup - setupFetch, 0);
+    imports += Math.max(file.imports - (file.fetch - setupFetch), 0);
+  }
+
+  return { transform, import: imports, setup };
 }
 
 /** The six phases, largest share first. A phase with no time is kept — its absence is information. */
 export function phasesOf(run: PerfRun): Phase[] {
+  const split = fetchSplit(run);
   const raw: readonly (readonly [PhaseName, number])[] = [
     ['environment', environmentOf(run.files)],
-    ...FILE_PHASES.map(([name, key]): readonly [PhaseName, number] => [name, sumOf(run, key)]),
-    ['transform', run.transform],
+    ...FILE_PHASES.map(([name, key]): readonly [PhaseName, number] => [
+      name,
+      split !== undefined && (name === 'import' || name === 'setup') ? split[name] : sumOf(run, key),
+    ]),
+    ['transform', split?.transform ?? run.transform],
   ];
   const total = raw.reduce((sum, [, ms]) => sum + ms, 0);
 

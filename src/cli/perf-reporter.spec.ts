@@ -13,12 +13,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { readTextFile } from './fs-scan';
 import { PERF_OUTPUT_ENV, PERF_PROFILE_ENV, parsePerfRun } from './perf-data';
-import type { PerfProject, PerfTestModule } from './perf-reporter';
-import PerfReporter from './perf-reporter';
+import type { PerfProject, PerfTestModule, PerfVitest } from './perf-reporter';
+import PerfReporter, { PARTIAL_WRITE_MS } from './perf-reporter';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.useRealTimers();
   removeTempRepos();
 });
 
@@ -108,6 +109,7 @@ describe('PerfReporter, an ordinary run', () => {
   it('adds nothing to any setup files and collects no imports, whether the variable is unset or empty', () => {
     const projects = [project(0)];
 
+    vi.stubEnv(PERF_OUTPUT_ENV, undefined);
     vi.stubEnv(PERF_PROFILE_ENV, undefined);
     new PerfReporter().onInit({ config: { root: '/repo' }, state: { transformTime: 0 }, projects });
     vi.stubEnv(PERF_PROFILE_ENV, '');
@@ -234,5 +236,171 @@ describe('PerfReporter, ordering', () => {
     ]);
 
     expect(report.files[0]?.cases.map((entry) => entry.name)).toEqual(['a', 'b']);
+  });
+});
+
+describe('PerfReporter, a measured run', () => {
+  it('collects the top ten imports when the config collects none, and leaves a configured limit alone', () => {
+    vi.stubEnv(PERF_OUTPUT_ENV, '/tmp/perf.json');
+    vi.stubEnv(PERF_PROFILE_ENV, undefined);
+
+    const unset: PerfProject = { config: { setupFiles: [], experimental: { importDurations: {} } } };
+    const projects = [project(0), project(5), project(), unset];
+
+    new PerfReporter().onInit({ config: { root: '/repo' }, state: { transformTime: 0 }, projects });
+
+    expect(projects.map((each) => each.config.experimental?.importDurations?.limit)).toEqual([10, 5, undefined, 10]);
+    expect(projects[0]?.config.setupFiles).toEqual(['/repo/setup.ts']);
+  });
+
+  it('records what Vitest 5 says about the worker, the lane, the fetch wait and the retries', () => {
+    const tests = [
+      { fullName: 'a', diagnostic: () => ({ duration: 1, startTime: 300, flaky: true, retryCount: 2 }) },
+      { fullName: 'b', diagnostic: () => ({ duration: 1, startTime: 200, flaky: true }) },
+      { fullName: 'c', diagnostic: () => ({ duration: 1, startTime: 400, retryCount: 5 }) },
+      { fullName: 'd', diagnostic: () => ({ duration: 1 }) },
+    ];
+    const withTask: PerfTestModule = {
+      moduleId: '/repo/a.spec.ts',
+      diagnostic: () => ({
+        environmentSetupDuration: 0,
+        prepareDuration: 0,
+        collectDuration: 0,
+        setupDuration: 0,
+        duration: 0,
+        workerId: 4,
+        concurrencyId: 2,
+      }),
+      children: { allTests: () => tests },
+      task: { collectFetchDuration: 30, result: { startTime: 100 } },
+    };
+    const [fromTask, fromTests] = new PerfReporter().report([withTask, { ...withTask, task: { setupFetchDuration: 7 } }]).files;
+
+    expect(fromTask).toMatchObject({ workerId: 4, lane: 2, start: 100, fetch: 30, setupFetch: 0, retries: 2 });
+    expect(fromTests).toMatchObject({ start: 200, fetch: 7, setupFetch: 7 });
+  });
+
+  it('records none of them for a file that never reached a worker, or an older Vitest', () => {
+    const idle: PerfTestModule = {
+      moduleId: '/repo/a.spec.ts',
+      diagnostic: () => ({
+        environmentSetupDuration: 0,
+        prepareDuration: 0,
+        collectDuration: 0,
+        setupDuration: 0,
+        duration: 0,
+        workerId: 0,
+        concurrencyId: 0,
+      }),
+      task: {},
+    };
+
+    expect(new PerfReporter().report([idle]).files[0]).toEqual({
+      file: '/repo/a.spec.ts',
+      environment: 0,
+      prepare: 0,
+      setup: 0,
+      imports: 0,
+      tests: 0,
+      testCount: 0,
+      cases: [],
+    });
+  });
+
+  it('records the Vitest version, the start-up and the resolved config of the first project', () => {
+    const reporter = new PerfReporter();
+    const vitest: PerfVitest = {
+      version: '5.0.0',
+      config: { root: '/repo', pool: 'forks', coverage: { enabled: true, provider: 'v8' } },
+      state: { transformTime: 0, startupTime: 80, workersSpawned: 3 },
+      projects: [
+        {
+          config: {
+            setupFiles: [],
+            isolate: false,
+            pool: 'threads',
+            maxWorkers: 4,
+            environment: 'jsdom',
+            fsModuleCache: true,
+            providedOptions: { pool: true, isolate: false, environment: true },
+          },
+        },
+      ],
+    };
+
+    reporter.onInit(vitest);
+
+    expect(reporter.report([])).toMatchObject({
+      vitest: '5.0.0',
+      startup: { ms: 80, workers: 3 },
+      config: {
+        isolate: false,
+        pool: 'threads',
+        maxWorkers: 4,
+        environment: 'jsdom',
+        fsModuleCache: true,
+        coverage: 'v8',
+        provided: ['pool', 'environment'],
+      },
+    });
+  });
+
+  it('reads the Vitest 4 spelling of the module cache, and the root config when there are no projects', () => {
+    const reporter = new PerfReporter();
+
+    reporter.onInit({
+      config: { root: '/repo', experimental: { fsModuleCache: false }, coverage: { enabled: false, provider: 'v8' } },
+      state: { transformTime: 0 },
+    });
+
+    const report = reporter.report([]);
+
+    expect(report.config).toEqual({ fsModuleCache: false });
+    expect(report).not.toHaveProperty('vitest');
+    expect(report).not.toHaveProperty('startup');
+    expect(report).not.toHaveProperty('partial');
+  });
+
+  it('rewrites a partial report as files finish, at most once per interval, and the whole one at the end', () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+
+    const root = createTempRepo({ 'package.json': '{}' });
+    const target = join(root, 'perf.json');
+    const reporter = new PerfReporter();
+    const read = () => parsePerfRun(readTextFile(target) ?? '');
+
+    vi.stubEnv(PERF_OUTPUT_ENV, target);
+    reporter.onInit({ config: { root }, state: { transformTime: 0 } });
+    reporter.onTestModuleEnd(module(join(root, 'a.spec.ts')));
+
+    expect(read()).toMatchObject({ partial: true, files: [{ file: join(root, 'a.spec.ts') }] });
+
+    reporter.onTestModuleEnd(module(join(root, 'b.spec.ts')));
+    reporter.onTestModuleEnd(module(join(root, 'c.spec.ts')));
+
+    expect(read()?.files).toHaveLength(1);
+
+    vi.advanceTimersByTime(PARTIAL_WRITE_MS);
+
+    expect(read()?.files).toHaveLength(3);
+
+    vi.advanceTimersByTime(PARTIAL_WRITE_MS);
+    reporter.onTestModuleEnd(module(join(root, 'd.spec.ts')));
+
+    expect(read()?.files).toHaveLength(4);
+
+    reporter.onTestModuleEnd(module(join(root, 'e.spec.ts')));
+
+    reporter.onTestRunEnd([module(join(root, 'a.spec.ts'))]);
+    vi.advanceTimersByTime(PARTIAL_WRITE_MS);
+
+    expect(read()).not.toHaveProperty('partial');
+    expect(read()?.files).toHaveLength(1);
+  });
+
+  it('writes nothing as files finish when no report was asked for', () => {
+    vi.stubEnv(PERF_OUTPUT_ENV, '');
+
+    expect(() => new PerfReporter().onTestModuleEnd(module('/repo/a.spec.ts'))).not.toThrow();
   });
 });

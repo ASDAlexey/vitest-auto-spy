@@ -47,7 +47,39 @@ describe('mergeRuns', () => {
   it('is only as rich as its poorest input, so the version is the minimum of the reports', () => {
     expect(mergeRuns([input('one.json', { version: 2 }), input('two.json', { version: 1 })]).run.version).toBe(1);
     expect(mergeRuns([input('one.json', { version: 3 }), input('two.json', { version: 2 })]).run.version).toBe(2);
-    expect(mergeRuns([input('one.json', { version: 3 }), input('two.json', { version: 3 })]).run.version).toBe(PERF_FORMAT_VERSION);
+    expect(
+      mergeRuns([input('one.json', { version: PERF_FORMAT_VERSION }), input('two.json', { version: PERF_FORMAT_VERSION })]).run.version,
+    ).toBe(PERF_FORMAT_VERSION);
+  });
+
+  it("moves each shard's worker and lane ids past the previous shard's, because every machine counts from 1", () => {
+    const merged = mergeRuns([
+      input('one.json', { files: [file('/repo/a.spec.ts', { workerId: 1, lane: 1 }), file('/repo/b.spec.ts', { workerId: 3, lane: 2 })] }),
+      input('two.json', { files: [file('/repo/c.spec.ts', { workerId: 1, lane: 1 }), file('/repo/d.spec.ts')] }),
+    ]);
+
+    expect(merged.run.files.map((entry) => [entry.workerId, entry.lane])).toEqual([
+      [1, 1],
+      [3, 2],
+      [4, 3],
+      [undefined, undefined],
+    ]);
+  });
+
+  it('sums the start-up, keeps the first version and config, and is partial when any shard is', () => {
+    const merged = mergeRuns([
+      input('one.json', { startup: { ms: 100, workers: 2 }, vitest: '5.0.0', config: { pool: 'forks' } }),
+      input('two.json', { startup: { ms: 50, workers: 1 }, vitest: '5.0.1', config: { pool: 'threads' }, partial: true }),
+      input('three.json'),
+    ]);
+
+    expect(merged.run).toMatchObject({ startup: { ms: 150, workers: 3 }, vitest: '5.0.0', config: { pool: 'forks' }, partial: true });
+  });
+
+  it('adds none of the Vitest 5 fields when no shard carried them', () => {
+    const merged = mergeRuns([input('one.json'), input('two.json')]);
+
+    expect(Object.keys(merged.run).sort()).toEqual(['failed', 'files', 'root', 'transform', 'version', 'wall']);
   });
 
   it('collects the files of every report, sorted by path', () => {

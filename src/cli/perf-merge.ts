@@ -16,7 +16,9 @@
  * every conclusion drawn from that number — worker counts, whether a phase is worth an afternoon —
  * would be wrong by the same factor. `version` is the minimum, because a merged report is only as
  * rich as its poorest input: one version 1 shard among four leaves the whole merge without the
- * per-test data the gate judges.
+ * per-test data the gate judges. `startup` is summed like `transform`; the run is `partial` when any
+ * shard is. Worker and lane ids restart at 1 on every machine, so each shard's are shifted past the
+ * previous shard's largest — two shards' worker 1 are two workers, and grouping by id must say so.
  *
  * **One root, and the files moved onto it.** GitLab clones each job separately, so the same tree
  * arrives at a different absolute path in every shard. The merged `root` is the first non-empty one
@@ -75,24 +77,42 @@ function reroot(path: string, from: string, to: string): string {
   return rest.startsWith('/') || rest.startsWith('\\') ? `${to}${rest}` : path;
 }
 
+/** The run-level numbers of the merge; the files are merged separately. */
+function mergedRun(inputs: readonly MergeInput[]): Omit<PerfRun, 'files' | 'root'> {
+  const runs = inputs.map((input) => input.run);
+  const vitest = runs.find((run) => run.vitest !== undefined)?.vitest;
+  const config = runs.find((run) => run.config !== undefined)?.config;
+  const startups = runs.flatMap((run) => (run.startup === undefined ? [] : [run.startup]));
+  const startup = startups.reduce((total, each) => ({ ms: total.ms + each.ms, workers: total.workers + each.workers }), {
+    ms: 0,
+    workers: 0,
+  });
+
+  return {
+    version: Math.min(PERF_FORMAT_VERSION, ...runs.map((run) => run.version)),
+    transform: runs.reduce((total, run) => total + run.transform, 0),
+    wall: Math.max(0, ...runs.map((run) => run.wall)),
+    // A shard that went red makes the whole merged run red: the gate must refuse it, and one
+    // green shard is not evidence that the other three passed.
+    failed: runs.reduce((total, run) => total + run.failed, 0),
+    ...(vitest === undefined ? {} : { vitest }),
+    ...(config === undefined ? {} : { config }),
+    ...(startups.length === 0 ? {} : { startup }),
+    ...(runs.some((run) => run.partial === true) ? { partial: true } : {}),
+  };
+}
+
 /** Merges several reports into the one report they would have been if the suite had not been sharded. */
 export function mergeRuns(inputs: readonly MergeInput[]): MergeResult {
   const root = trimRoot(inputs.find((input) => input.run.root !== '')?.run.root ?? '');
   const kept = new Map<string, PerfFile>();
   const carriedBy = new Map<string, string[]>();
   const empty: string[] = [];
-  let transform = 0;
-  let wall = 0;
-  let version = PERF_FORMAT_VERSION;
-  let failed = 0;
+  const offset: Ids = { workerId: 0, lane: 0 };
 
   for (const input of inputs) {
     const from = trimRoot(input.run.root);
-
-    transform += input.run.transform;
-    wall = Math.max(wall, input.run.wall);
-    failed += input.run.failed;
-    version = Math.min(version, input.run.version);
+    const shift = { ...offset };
 
     if (input.run.files.length === 0) {
       empty.push(input.path);
@@ -100,7 +120,7 @@ export function mergeRuns(inputs: readonly MergeInput[]): MergeResult {
 
     for (const file of input.run.files) {
       const path = reroot(file.file, from, root);
-      const moved: PerfFile = path === file.file ? file : { ...file, file: path };
+      const moved = shifted(path === file.file ? file : { ...file, file: path }, shift, offset);
       const previous = kept.get(path);
 
       carriedBy.set(path, [...(carriedBy.get(path) ?? []), input.path]);
@@ -112,12 +132,28 @@ export function mergeRuns(inputs: readonly MergeInput[]): MergeResult {
   }
 
   return {
-    // A shard that went red makes the whole merged run red: the gate must refuse it, and one
-    // green shard is not evidence that the other three passed.
-    run: { version, root, transform, wall, failed, files: [...kept.values()].sort((a, b) => a.file.localeCompare(b.file)) },
+    run: { ...mergedRun(inputs), root, files: [...kept.values()].sort((a, b) => a.file.localeCompare(b.file)) },
     duplicates: duplicatesOf(carriedBy),
     empty: empty.sort(),
   };
+}
+
+type Ids = Record<'lane' | 'workerId', number>;
+
+/** The file with its ids moved past the earlier shards', and `next` raised past its own. */
+function shifted(file: PerfFile, by: Readonly<Ids>, next: Ids): PerfFile {
+  let moved = file;
+
+  for (const key of ['workerId', 'lane'] as const) {
+    const id = file[key];
+
+    if (id !== undefined) {
+      moved = { ...moved, [key]: id + by[key] };
+      next[key] = Math.max(next[key], id + by[key]);
+    }
+  }
+
+  return moved;
 }
 
 function duplicatesOf(carriedBy: ReadonlyMap<string, readonly string[]>): string[] {
