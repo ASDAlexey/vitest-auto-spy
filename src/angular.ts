@@ -18,6 +18,8 @@ import { useVitestAdapter } from './lib/use-vitest-adapter';
 useVitestAdapter();
 
 export { injectSpy, provideAutoSpy, provideAutoSpyForToken, type AngularTokenProvider, type AngularValueProvider } from './lib/angular';
+// Only the type `injectSpy` returns: this entry is a companion to the core, not a second copy of it.
+export type { Spy } from './lib/types';
 // The core's registration with one more key, an `InjectionToken`, over the same registry.
 export { clearAutoSpyDefaults, registerAutoSpyDefaults, type AutoSpyTokenDefaults } from './lib/angular-spy-defaults';
 export { extendWithAutoSpies, type AutoSpyFixture, type ExtendWithAutoSpiesOptions, type SpiedFixtures } from './lib/angular-fixtures';

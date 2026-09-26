@@ -10,7 +10,7 @@ import { InjectionToken, type InputSignal, type Type } from '@angular/core';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { Mock } from 'vitest';
 
-import { createComponentStub, injectSpy, overrideAutoSpy, provideAutoSpy } from '../angular';
+import { type Spy as AngularSpy, createComponentStub, injectSpy, overrideAutoSpy, provideAutoSpy } from '../angular';
 import type { Spy } from '../auto-spy';
 
 interface FlagDefaults {
@@ -135,5 +135,15 @@ describe('injectSpy on a generic class', () => {
     >();
     expectTypeOf(injectSpy(Plain).load).returns.toEqualTypeOf<number>();
     expectTypeOf(injectSpy(PLAIN)).toEqualTypeOf<Spy<Plain>>();
+  });
+});
+
+describe('Spy from the /angular entry', () => {
+  it('is the core Spy, so one import covers a TestBed spec', () => {
+    expectTypeOf<AngularSpy<ModalRef>>().toEqualTypeOf<Spy<ModalRef>>();
+    expectTypeOf<AngularSpy<Plain, { overload: 'first' }>>().toEqualTypeOf<Spy<Plain, { overload: 'first' }>>();
+
+    const spy: AngularSpy<Plain> = injectSpy(Plain);
+    spy.load.mockReturnValue(2);
   });
 });
