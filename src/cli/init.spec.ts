@@ -335,8 +335,13 @@ describe('the target table', () => {
   it('points the skill stub at the tarball rather than copying it', () => {
     const stub = skillStub('name: vitest-auto-spy', '1.0.0');
 
-    expect(stub).toContain('cat node_modules/vitest-auto-spy/AGENTS.md');
+    expect(stub).toContain("grep -n '^## ' node_modules/vitest-auto-spy/AGENTS.md");
+    expect(stub).toContain('node_modules/vitest-auto-spy/agent-docs/errors.md');
     expect(stub).toContain('doctor');
+  });
+
+  it('never tells an agent to read the whole reference at once', () => {
+    expect(skillStub('name: vitest-auto-spy', '1.0.0')).not.toContain('cat node_modules');
   });
 });
 
