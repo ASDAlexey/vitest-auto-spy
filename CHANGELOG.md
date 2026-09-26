@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.39.0] - 2026-09-26
+
 ### Changed
 
 - **`toHaveDirectiveApplied` names the component under test in its failure.** On a fixture from
@@ -8727,7 +8729,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.38.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.39.0...HEAD
+[5.39.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.38.0...v5.39.0
 [5.38.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.37.0...v5.38.0
 [5.37.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.36.0...v5.37.0
 [5.36.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.35.0...v5.36.0
