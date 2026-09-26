@@ -52,7 +52,20 @@ jsdom и happy-dom ничего не раскладывают и планиру�
 рекурсии не случается.
 
 Колбэк, который бросает исключение, останавливает `flush`. Кадры после него остаются в ожидании, и
-следующий `flush()` их выполнит.
+следующий `flush()` их выполнит. Передайте `onError`, чтобы перехватить бросок: колбэк получает то,
+что было брошено, и исключение не распространяется из `flush()` (а в режиме `'immediate'` — из
+самого `requestAnimationFrame`). Бросьте его обратно изнутри, чтобы сохранить умолчание для ошибки,
+которую не хотели проглотить:
+
+```ts
+const frames = stubAnimationFrame({
+  onError: (error) => {
+    if (!isExpectedReentrancy(error)) {
+      throw error;
+    }
+  },
+});
+```
 
 ## `stubElementRect(element, rect?)` {#stubelementrect-element-rect}
 
@@ -67,7 +80,17 @@ mapContainer.getBoundingClientRect(); // DOMRect { x: 0, y: 0, width: 800, heigh
 
 Каждый вызов возвращает новый `DOMRect`, как и браузер, поэтому `top`, `right`, `bottom` и `left`
 всегда согласованы с четырьмя заданными числами. Патчится только переданный элемент, соседние
-по-прежнему отвечают нулями. Вызов возвращает функцию отмены.
+по-прежнему отвечают нулями. Вызов возвращает функцию отмены, которая заодно несёт установленный
+спай как `.getBoundingClientRect`, — для теста, которому нужно убедиться, что измерение вообще
+произошло, а не только задать его результат:
+
+```ts
+const stub = stubElementRect(settingsTab, { width: 240 });
+
+component.selectTab('settings');
+
+expect(stub.getBoundingClientRect).toHaveBeenCalled();
+```
 
 ## Как они снимаются {#taking-them-off}
 
