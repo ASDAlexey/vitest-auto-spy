@@ -130,6 +130,8 @@ describe(RULE, () => {
       'hostFixture.debugElement.nativeElement',
       "fixture.debugElement.query(By.css('a')).nativeElement",
       "fixture.nativeElement.querySelector('button')!",
+      'hostElement(fixture)',
+      "queryElement(fixture, 'button')",
       'document',
       'window',
       'document.body',
@@ -170,6 +172,7 @@ describe(RULE, () => {
     expect(verify(`const event = other;\ncreateSpyFromInstance(event, ${seed});`)).toEqual([]);
     expect(verify(`const document = createMock<Document>();\ncreateSpyFromInstance(document, ${seed});`)).toEqual([]);
     expect(verify(`class MouseEvent {}\ncreateSpyFromInstance(new MouseEvent(), ${seed});`)).toEqual([]);
+    expect(verify(`const hostElement = () => component;\ncreateSpyFromInstance(hostElement(), ${seed});`)).toEqual([]);
   });
 
   it('stays silent on every option set the helpers do not spell', () => {

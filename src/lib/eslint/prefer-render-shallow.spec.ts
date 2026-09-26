@@ -59,8 +59,27 @@ describe('prefer-render-shallow', () => {
     ['triggerEventHandler', "row.triggerEventHandler('click');"],
     ['hostElement', 'const host = hostElement(fixture);'],
     ['queryElement', 'const row = queryElement(fixture, ".row");'],
+    ['a destructured nativeElement', 'const { nativeElement } = fixture;'],
+    ['a renamed destructured debugElement', 'const { debugElement: root } = fixture;'],
+    ['a computed member', "expect(host['textContent']).toContain('3 items');"],
+    ['a helper named after the read', 'const host = nativeElementOf(fixture);'],
+    ['a bare getComputedStyle', 'const style = getComputedStyle(host);'],
   ])('stays silent when the file reads the template through %s', (_label, read) => {
     expect(lint(`${stateOnly}\n${read}`)).toEqual([]);
+  });
+
+  it.each([
+    ['a line comment', "// the component's textContent is irrelevant here"],
+    ['a block comment', '/* no querySelector, no nativeElement */'],
+    ['a string literal', "const label = 'debugElement';"],
+    ['a template literal', 'const note = `reads innerHTML`;'],
+    ['an object key', "resolveAgainst({ getAttribute: 'nope' });"],
+    ['a quoted object key', "resolveAgainst({ 'classList': [] });"],
+    ['a class member', 'class FakeElement { textContent = ""; getAttribute() { return null; } }'],
+    ['a type member', 'interface Row { nativeElement: unknown; querySelector(selector: string): void }'],
+    ['a By that is not the Angular one', 'const other = Things.css;'],
+  ])('still reports when the word only appears in %s', (_label, noise) => {
+    expect(lint(`${noise}\n${stateOnly}`)).toEqual([`vitest-auto-spy/${RULE}`]);
   });
 
   it('reports every createComponent of a file that reads nothing', () => {
@@ -293,6 +312,10 @@ describe('prefer-render-shallow, { templates: "never" }', () => {
     ],
   ])('leaves a directive harness alone, built %s', (_label, code) => {
     expect(lintWith(code, NEVER)).toEqual([]);
+  });
+
+  it('still reports a component spec that only mentions a harness in a comment', () => {
+    expect(lintWith('// no createDirectiveHost here\nTestBed.createComponent(CardComponent);', NEVER)).toEqual([`vitest-auto-spy/${RULE}`]);
   });
 
   it('still reports a component spec that builds no harness', () => {
