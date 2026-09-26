@@ -21,12 +21,14 @@ import { toPosix } from './fs-scan';
 import type { CliIo } from './main';
 import { MONOCHROME, type Painter, outputWidth, painterFor, wrapText } from './paint';
 import type { BaselineOptions } from './perf-baseline';
-import { DOMINATES, domEngineFindings, isolationFindings, workerFindings } from './perf-config';
+import { DOMINATES, domEngineFindings, isolationFindings, transformFindings, vitestDoctorFindings, workerFindings } from './perf-config';
 import type { PerfFile, PerfRun, Phase } from './perf-data';
 import { formatMs, formatShare, measuredNothing, phasesOf, shareOf, testsRunOf, totalOf } from './perf-data';
 import { formatEvidence } from './perf-evidence';
 import type { GateCandidate, GateOptions, GateRow } from './perf-gate';
 import { gateCandidates, gateVerdict, isJudged, measuredFiles, medianFileMs, medianTestMs, suspectFiles } from './perf-gate';
+import type { LaneSummary } from './perf-lanes';
+import { formatLanes, lanesOf, longPoleFindings } from './perf-lanes';
 import type { CpuProfile } from './perf-profile';
 import { packageOf, summariseProfile } from './perf-profile';
 import type { Collected } from './perf-report';
@@ -55,6 +57,8 @@ export interface PerfAnalysis {
   readonly total: number;
   readonly fileCount: number;
   readonly findings: readonly Finding[];
+  /** Vitest 5+: how the run used its worker lanes, when the report places files on them. */
+  readonly lanes?: LaneSummary;
 }
 
 interface EnvironmentCandidate {
@@ -83,18 +87,20 @@ function nodeCandidates(specs: readonly string[], measured: ReadonlyMap<string, 
  * What moving these specs to `node` would actually free. An environment belongs to a worker, not to
  * a file, so it is only saved when **every** file that worker ran is DOM-free; a single DOM-using
  * file left behind rebuilds it and the move buys nothing. Files of one worker carry the identical
- * `environment` value, which is what groups them here.
+ * `environment` value, and on Vitest 5 the same lane too, which splits two workers that collide.
+ * Vitest 5.0's `workerId` cannot group them: measured, it is new for every file, even on a reused worker.
  */
 function movableEnvironment(measured: ReadonlyMap<string, PerfFile>, domFree: ReadonlySet<string>): number {
-  const workers = new Map<number, { files: number; free: number }>();
+  const workers = new Map<string, { ms: number; files: number; free: number }>();
 
   for (const [spec, file] of measured) {
-    const worker = workers.get(file.environment) ?? { files: 0, free: 0 };
+    const key = `${String(file.lane)}:${file.environment}`;
+    const worker = workers.get(key) ?? { ms: file.environment, files: 0, free: 0 };
 
-    workers.set(file.environment, { files: worker.files + 1, free: worker.free + (domFree.has(spec) ? 1 : 0) });
+    workers.set(key, { ms: worker.ms, files: worker.files + 1, free: worker.free + (domFree.has(spec) ? 1 : 0) });
   }
 
-  return [...workers].reduce((total, [ms, worker]) => (worker.files === worker.free ? total + ms : total), 0);
+  return [...workers.values()].reduce((total, worker) => (worker.files === worker.free ? total + worker.ms : total), 0);
 }
 
 function environmentFix(movable: number, setupFiles: readonly string[]): string {
@@ -160,7 +166,14 @@ function barrelCandidates(graph: SourceGraph): BarrelCandidate[] {
   return [...widest.values()].sort((a, b) => b.reach - a.reach || a.spec.localeCompare(b.spec));
 }
 
-function importFindings(phases: readonly Phase[], graph: SourceGraph): Finding[] {
+/** Vitest 5 splits the transform wait out of `import`, which then is evaluation alone. */
+function importPhase(run: PerfRun): string {
+  return run.files.length > 0 && run.files.every((file) => file.fetch !== undefined)
+    ? 'Evaluating imported modules — the wait for their transforms is counted under `transform` —'
+    : 'Importing modules';
+}
+
+function importFindings(phases: readonly Phase[], graph: SourceGraph, run: PerfRun): Finding[] {
   if (shareOf(phases, 'import') < DOMINATES) {
     return [];
   }
@@ -175,7 +188,7 @@ function importFindings(phases: readonly Phase[], graph: SourceGraph): Finding[]
     {
       check: 'perf-import',
       severity: 'info',
-      message: `Importing modules is ${formatShare(shareOf(phases, 'import'))} of the measured CPU time, and ${ranked.length} spec files reach their subject through a barrel.${remainder(ranked.length)}`,
+      message: `${importPhase(run)} is ${formatShare(shareOf(phases, 'import'))} of the measured CPU time, and ${ranked.length} spec files reach their subject through a barrel.${remainder(ranked.length)}`,
       fix: 'Import the module itself in the files listed below: a barrel loads its whole directory to hand over one export.',
     },
     ...ranked.slice(0, LIST_LIMIT).map((entry): Finding => ({
@@ -191,26 +204,28 @@ function importFindings(phases: readonly Phase[], graph: SourceGraph): Finding[]
 export function analysePerf(run: PerfRun, profile: Profile, failOnFlaky = false): PerfAnalysis {
   const phases = phasesOf(run);
   const total = totalOf(phases);
-  const base = { phases, total, fileCount: run.files.length };
   const measured = measuredFiles(run, profile.cwd);
-  const always = [...flakyFindings(measured, failOnFlaky), ...heapFindings(measured)];
+  const lanes = lanesOf(measured);
+  const base = { phases, total, fileCount: run.files.length, ...(lanes === undefined ? {} : { lanes }) };
+  const always = [...flakyFindings(measured, failOnFlaky), ...heapFindings(measured, run.config?.isolate === false)];
 
   if (total < QUIET_MS) {
     return { ...base, findings: always };
   }
 
   const graph = buildGraph(profile);
+  const advice = [
+    ...environmentFindings(phases, profile, graph, measured),
+    ...domEngineFindings(phases, graph, run),
+    ...transformFindings(phases, graph, run),
+    ...importFindings(phases, graph, run),
+    ...isolationFindings(phases, graph, profile, run),
+    ...workerFindings(total, graph, run),
+  ];
 
   return {
     ...base,
-    findings: [
-      ...always,
-      ...environmentFindings(phases, profile, graph, measured),
-      ...domEngineFindings(phases, graph),
-      ...importFindings(phases, graph),
-      ...isolationFindings(phases, graph, profile),
-      ...workerFindings(total, graph),
-    ],
+    findings: [...always, ...advice, ...longPoleFindings(lanes), ...vitestDoctorFindings(run, advice)],
   };
 }
 
@@ -553,7 +568,11 @@ function renderInto(source: PerfSource, profile: Profile, io: CliIo, options: Pe
     return PERF_NO_MEASUREMENT;
   }
 
-  if (source.runFailed) {
+  if (source.run.partial === true) {
+    io.err(
+      `warning  The run did not finish: this report was written before its end and holds the ${count(source.run.files.length, 'file')} that completed. The timings below are what those files measured.\n`,
+    );
+  } else if (source.runFailed) {
     io.err('warning  The suite did not pass. The timings below are still what the run measured.\n');
   }
 
@@ -579,7 +598,9 @@ function reportMeasured(source: PerfMeasured, profile: Profile, io: CliIo, optio
   io.out(
     `${count(analysis.fileCount, 'test file')}, ${count(testsRunOf(source.run), 'test')}, ${formatMs(source.run.wall)} wall clock, ${formatMs(analysis.total)} of CPU time summed over the workers`,
   );
-  io.out(`median test ${formatMs(medianTestMs(measured))}, median file ${formatMs(medianFileMs(measured))}\n`);
+  const lanes = analysis.lanes === undefined ? '' : `\n${formatLanes(analysis.lanes)}`;
+
+  io.out(`median test ${formatMs(medianTestMs(measured))}, median file ${formatMs(medianFileMs(measured))}${lanes}\n`);
 
   if (source.note !== undefined) {
     io.out(`${source.note}\n`);
@@ -615,6 +636,15 @@ function judgeMeasured(source: PerfMeasured, profile: Profile, io: CliIo, option
     reportOnly(findings, io, options.minSeverity);
 
     return 0;
+  }
+
+  if (source.run.partial === true) {
+    io.err(
+      '\nThe gate does not judge a run that did not finish: the files it never reached are not in the report, and a verdict over part of a suite is an all-clear it did not earn. Let the run finish, then gate it.',
+    );
+    collected.gate = 'refused';
+
+    return PERF_NO_MEASUREMENT;
   }
 
   if (source.runFailed) {

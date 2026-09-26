@@ -118,7 +118,7 @@ describe('parsePerfRun', () => {
   it('refuses anything that is not a report of the version it understands', () => {
     expect(parsePerfRun('not json')).toBeUndefined();
     expect(parsePerfRun('[]')).toBeUndefined();
-    expect(parsePerfRun('{"version":4,"files":[]}')).toBeUndefined();
+    expect(parsePerfRun('{"version":5,"files":[]}')).toBeUndefined();
     expect(parsePerfRun('{"version":1}')).toBeUndefined();
     expect(parsePerfRun('{"version":"1","files":[]}')).toBeUndefined();
     expect(parsePerfRun('{"version":1e999,"files":[]}')).toBeUndefined();
@@ -1129,13 +1129,13 @@ describe('readPerfRun, the two shapes a handed-over report can have', () => {
     const several = readPerfRun(options(root, { json: 'reports' }));
 
     expect(single.ok ? '' : single.error.split('\n')[0]).toBe(
-      'Cannot read the perf report: reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3.',
+      'Cannot read the perf report: reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3, 4.',
     );
     expect(several.ok ? '' : several.error.split('\n')).toEqual([
       'Cannot read any of the 3 perf reports:',
       '  reports/a.json is not valid JSON',
       '  reports/b.json is JSON, but not a perf report: it has no `files` list',
-      '  reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3',
+      '  reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3, 4',
       'Point --json at the file `perf --out` or the perf reporter wrote.',
       'Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#when-there-is-nothing-to-read',
     ]);
@@ -1224,5 +1224,18 @@ describe('the isolation finding and a builder that already decided', () => {
 
     expect(checks(analysePerf(heavy(plain), readProfile(plain)).findings)).toContain('perf-isolation');
     expect(checks(analysePerf(heavy(builder), readProfile(builder)).findings)).not.toContain('perf-isolation');
+  });
+
+  it('still offers the trade when the runner config the builder reads turned isolation back on', () => {
+    const heavy = (root: string): PerfRun =>
+      run({ root, files: [file(join(root, 'src/case-0.spec.ts'), { setup: 4_000, prepare: 4_000, tests: 100, testCount: 4 })] });
+    const isolated = cleanRepo(1, {
+      'angular.json': JSON.stringify({
+        projects: { bench: { architect: { test: { builder: '@angular/build:unit-test', options: { runnerConfig: true } } } } },
+      }),
+      'vitest-base.config.ts': 'export default { test: { isolate: true } };\n',
+    });
+
+    expect(checks(analysePerf(heavy(isolated), readProfile(isolated)).findings)).toContain('perf-isolation');
   });
 });

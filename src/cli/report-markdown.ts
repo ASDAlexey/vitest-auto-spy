@@ -5,6 +5,7 @@
  */
 import type { DoctorDocument } from './doctor';
 import { formatMs } from './perf-data';
+import { formatLanes } from './perf-lanes';
 import type { PerfDocument } from './perf-report';
 import type { Finding, Tally } from './report';
 
@@ -42,32 +43,47 @@ export function doctorMarkdown(document: DoctorDocument): string {
   ].join('\n\n');
 }
 
+type SlowRow = NonNullable<PerfDocument['run']>['slowestFiles'][number];
+
+/** The one verdict on the run the summary line carries: unfinished outranks red. */
+function runState(run: NonNullable<PerfDocument['run']>): string {
+  if (run.partial === true) {
+    return ' — **the run did not finish**';
+  }
+
+  return run.failed ? ' — **the suite did not pass**' : '';
+}
+
+function slowestTable(files: readonly SlowRow[]): string {
+  const transform = files.some((file) => file.phases.transform !== undefined);
+  const headers = ['File', 'Total', 'Tests', 'Environment', 'Setup', ...(transform ? ['Transform'] : []), 'Import', 'Bodies'];
+
+  return markdownTable(
+    headers,
+    files.map((file) => [
+      file.file,
+      formatMs(file.totalMs),
+      file.tests,
+      formatMs(file.phases.environment),
+      formatMs(file.phases.setup),
+      ...(transform ? [formatMs(file.phases.transform ?? 0)] : []),
+      formatMs(file.phases.import),
+      formatMs(file.phases.tests),
+    ]),
+  );
+}
+
 function runSection(run: NonNullable<PerfDocument['run']>): string[] {
-  const summary = `${run.files} test files, ${run.tests} tests, ${formatMs(run.wallMs)} wall clock, ${formatMs(run.cpuMs)} of CPU time${run.failed ? ' — **the suite did not pass**' : ''}`;
+  const vitest = run.vitest === undefined ? '' : ` on Vitest ${run.vitest}`;
+  const summary = `${run.files} test files, ${run.tests} tests, ${formatMs(run.wallMs)} wall clock, ${formatMs(run.cpuMs)} of CPU time${vitest}${runState(run)}`;
+  const lanes = run.lanes === undefined ? [] : [formatLanes(run.lanes)];
   const phases = markdownTable(
     ['Phase', 'Time', 'Share'],
     run.phases.map((phase) => [phase.name, formatMs(phase.ms), `${(phase.share * 100).toFixed(1)}%`]),
   );
-  const slowest =
-    run.slowestFiles.length === 0
-      ? []
-      : [
-          '#### Slowest files',
-          markdownTable(
-            ['File', 'Total', 'Tests', 'Environment', 'Setup', 'Import', 'Bodies'],
-            run.slowestFiles.map((file) => [
-              file.file,
-              formatMs(file.totalMs),
-              file.tests,
-              formatMs(file.phases.environment),
-              formatMs(file.phases.setup),
-              formatMs(file.phases.import),
-              formatMs(file.phases.tests),
-            ]),
-          ),
-        ];
+  const slowest = run.slowestFiles.length === 0 ? [] : ['#### Slowest files', slowestTable(run.slowestFiles)];
 
-  return [summary, phases, ...slowest];
+  return [summary, ...lanes, phases, ...slowest];
 }
 
 function gateSection(gate: NonNullable<PerfDocument['gate']>): string[] {
