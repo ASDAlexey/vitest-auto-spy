@@ -9,17 +9,16 @@ Typed test spies generated from a class, a type, or nothing at all.
 
 ## Read this first
 
-The authoritative reference is **`AGENTS.md`** — a complete cheat sheet with the configuration
-surface, the error→fix table and the anti-pattern list. It is too large to read whole: read it by
-section, starting with its header, which says which sections every task needs. Five long sections
-(setup file, Angular, ESLint plugin, error→fix, migrating off jasmine-auto-spies) sit next to it in
-`agent-docs/`.
+The authoritative reference is **`AGENTS.md`** — the configuration surface, the error→fix table and
+the anti-pattern list. `AGENTS.md` itself is a map of about 30 kB: read it whole. Its header says
+which sections every task needs; each section outside it is one file in `agent-docs/`, with the same
+section number. Read the topic file you need, not all of them, and grep the long ones.
 
 ```bash
 D=node_modules/vitest-auto-spy               # in the consuming project
 D="${CLAUDE_PLUGIN_ROOT}"                    # when this skill came from the plugin
-sed -n '1,/^## 1\./p' "$D/AGENTS.md"         # the header and its reading map
-grep -n '^## ' "$D/AGENTS.md"                # every section with its line number
+cat "$D/AGENTS.md"                           # the map, with the sections every spec needs
+cat "$D/agent-docs/factories.md"             # one topic file, named in the map
 grep -n -F '<text of the error>' "$D/agent-docs/errors.md"   # a failing spec: the fix for that message
 ```
 
