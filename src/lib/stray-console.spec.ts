@@ -297,7 +297,6 @@ describe('the guard on a stand-in console', () => {
 
     expect(message).toMatch(/wrote to console\.warn 1 time while the file was being imported and nothing absorbed it/);
     expect(message).toContain('console.warn: from a static block');
-    process.stdout.write(`\nDBG2 ${message}\n`);
     expect(message).toMatch(
       /Written while src\/lib\/stray-console\.spec\.ts was evaluated, before any hook — no spy can absorb it; fix it at src\/lib\/stray-console\.spec\.ts:\d+:\d+\./,
     );
@@ -668,7 +667,4 @@ describe('setupAutoSpy({ strayConsole: "throw" })', () => {
   it.fails('fails on a library warning, which is console output like any other', () => {
     console.warn('[vitest-auto-spy] a misconfiguration report');
   });
-});
-it('tmpdebug', () => {
-  process.stdout.write(`\nDBG1 ${describeStrayConsole({ calls: [], total: 1 }, 'a test')}\n`);
 });
