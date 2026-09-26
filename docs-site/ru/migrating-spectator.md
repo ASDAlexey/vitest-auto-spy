@@ -217,7 +217,11 @@ npm un @ngneat/spectator
 только как описанный выше обходной путь — он уходит тоже.
 
 `vitest-auto-spy/angular` требует обычной обвязки Vitest + Angular (`@analogjs/vite-plugin-angular`
-плюс файл настройки TestBed) либо собственного билдера Angular `@angular/build:unit-test`. См.
+плюс файл настройки TestBed) либо собственного билдера Angular `@angular/build:unit-test`. С Analog
+на `@angular/build` 22.2 и `@analogjs/vite-plugin-angular`, и `@analogjs/vitest-angular` должны быть
+2.7.5 или новее — более старые падают на старте с `TypeError: cache.has is not a function`, и
+`npx vitest-auto-spy doctor` сообщает об этом как
+[`analog-behind-angular-build`](/ru/utilities/cli#analog-behind-angular-build). См.
 [адаптер Angular](/ru/adapters/angular).
 
 ## Таблица перевода {#the-translation-table}

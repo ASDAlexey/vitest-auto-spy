@@ -43,7 +43,9 @@ Node **≥ 22** — это нижняя граница. У Node 18 и 20 зак�
 `^20.0.0 || ^22.0.0 || >=24.0.0`, а Vite 7, который он за собой тянет, ещё строже —
 `^20.19.0 || >=22.12.0`; на Node 18 прогон падает с `TypeError: crypto.hash is not a function`,
 не успев загрузить ни одной спеки. Vitest 5 закручивает гайки дальше, до
-`^22.12.0 || ^24.0.0 || >=26.0.0`. CI гоняет Node 22, 24 и 26; публикуемый вывод по-прежнему
+`^22.12.0 || ^24.0.0 || >=26.0.0`, а `@types/node` берёт в peer-зависимости как
+`^22.0.0 || >=24.0.0` — опционально, но с проверкой, если пакет установлен, так что рабочее
+пространство, оставшееся на `@types/node` 20, получит `ERESOLVE`. CI гоняет Node 22, 24 и 26; публикуемый вывод по-прежнему
 ES2022. Какую из трёх запускать на самом деле — и чего это стоит — измерено в
 [Производительности → Какая версия Node](./performance#which-node-version).
 
@@ -72,7 +74,7 @@ CommonJS — `vitest-auto-spy/node` (сюита `node --test`, написанн�
 | `vitest-auto-spy/rxjs`                | спаев за observable (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) и `createObservableWithValues`                                                                                                                                                                                 | `rxjs`                      |
 | `vitest-auto-spy/dom-stubs`           | глобальные объекты, которые компонент создаёт себе сам, — `stubIntersectionObserver`, `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `stubMediaElement`, `stubAbortController`, `stubAnimationFrame`, `stubElementRect` и билдеры записей. До 4.0.0 жили в корневой точке входа | —                           |
 | `vitest-auto-spy/diagnostics`         | `compareTestRuns` / `summarizeTestRun` / `formatTestRunComparison` и `diffByField` — два отчёта, которых счётчик не даст. До 4.0.0 жили в корневой точке входа; чистые функции, так что этот подпуть импортируется и из простого Node-скрипта                                                  | —                           |
-| `vitest-auto-spy/angular`             | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, хелперы `mock*Prop` — матчеры, диагностика и дубли уехали в 5.21.0 к спутникам ниже                                                                                                            |
+| `vitest-auto-spy/angular`             | `provideAutoSpy`, `injectSpy` и возвращаемый им тип `Spy<T>`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, хелперы `mock*Prop` — матчеры, диагностика и дубли уехали в 5.21.0 к спутникам ниже                                                                             |
 | `vitest-auto-spy/angular/diagnostics` | `enableAngularDiagnostics` и вся семья таймингов TestBed; спутник `/angular`, уехавший из него в 5.21.0                                                                                                                                                                                        |
 | `vitest-auto-spy/angular/doubles`     | Тройка диалога Material и дубли `Window`/`Document`; регистрирует мок-адаптер; спутник `/angular`                                                                                                                                                                                              |
 | `vitest-auto-spy/angular/matchers`    | `registerDirectiveMatchers`, `registerResourceMatchers`, `registerSignalMatchers` — по одному `expect.extend` из setup-файла                                                                                                                                                                   | `@angular/core`             |
@@ -203,7 +205,9 @@ npx rstest run
 Если вы _всё же_ пользуетесь слоем observable, `import 'vitest-auto-spy/rxjs'` должен стоять и в
 файле, который попадает в этот `tsconfig`, и в рантайм-настройке: именно этот импорт делает
 `returnSubject()` настоящим `Subject<T>` из rxjs, а не структурным `SubjectLike<T>`. См.
-[Переход на 4.0](/ru/upgrading-4).
+[Переход на 4.0](/ru/upgrading-4). Под `@angular/build:unit-test` начиная с 22.2.0 одного
+упоминания в `include` мало: билдер компилирует только спеки, `providersFile`, `setupFiles` и
+`.d.ts`-файлы, так что импорт должен стоять в одном из них.
 
 ```jsonc
 {

@@ -273,7 +273,12 @@ api.get.and.returnValue(of([])); // .and, .calls, .withArgs снова на ме
 - **22.0.0** (2026-06-03) удалил экспериментальные билдеры — "The experimental
   `@angular-devkit/build-angular:jest` and `@angular-devkit/build-angular:web-test-runner` builders
   have been removed." — и привёз "stabilize refactor-jasmine-vitest schematic" (`de630c2f`).
-  Стабилизация здесь — утверждение о покрытии тестовых паттернов, а не о видимости: в 22.1.6 запись в
-  коллекции по-прежнему читается как `[EXPERIMENTAL] Refactors Jasmine tests to use Vitest APIs.` и
-  помечена `"hidden": true`, так что в `ng generate --help` схематик не появляется и звать его надо
-  полным именем.
+  Стабилизация здесь — утверждение о покрытии тестовых паттернов, а не о видимости: в 22.1.6 и всё
+  ещё в 22.2.0 запись в коллекции читается как
+  `[EXPERIMENTAL] Refactors Jasmine tests to use Vitest APIs.` и помечена `"hidden": true`, так что в
+  `ng generate --help` схематик не появляется и звать его надо полным именем.
+- **22.2.0 делает новый проект проектом на Vitest 5** (сверено с тарболом `@schematics/angular`
+  22.2.0 на 2026-09-26). `ng new` пинит `vitest` на `^5.0.0` — 22.1.x пинил `^4.0.8`, — миграция с
+  Karma на Vitest и схематик `vitest-browser` ставят `@vitest/coverage-*` и браузерные провайдеры на
+  тот же диапазон, а `ng generate config vitest` пишет `vitest-base.config.mts` там, где раньше писал
+  `vitest-base.config.ts`.

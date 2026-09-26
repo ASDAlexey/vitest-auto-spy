@@ -54,6 +54,14 @@ Vitest 5, — а TypeScript отказывается сливать деклар
 по сравнению с тем, чтобы отдавать каждый метод в `vi.fn()`. От самой медленной пары к самой быстрой —
 Vitest 4 с моками раннера против Vitest 5 с движком по умолчанию — 1473 мс → 1276 мс, **−13,4 %**.
 
+**На Angular разница больше, и она в покрытии.** `@angular/build` 22.2.0 — первый релиз, чей
+`@angular/build:unit-test` работает на Vitest 5. На Angular 22.2-сюите из 700 файлов и 11 491 теста,
+построенной на этой библиотеке, переключение раннера билдера с Vitest 4.1.11 на 5.0.2 сократило прогон с
+покрытием v8 с 16,50 с до 8,91 с (**−46 %**, в 1,85 раза), а с istanbul — с 37,07 с до 23,92 с
+(**−35,5 %**, в 1,55 раза); пиковая память не изменилась. Без покрытия два мажора идут вровень, а на
+150 файлах спек выигрыш −15,5 % / −17,7 % — таблица, методика и что обновлять описаны в
+[Производительность → Vitest 5 под Angular unit-test builder](../core/performance#vitest-5-under-the-angular-unit-test-builder).
+
 ### Единственное, что всё ещё может сломать ваши спеки {#the-one-thing-that-can-still-break-your-specs}
 
 В Vitest 5 `clearMocks` по умолчанию `true`, поэтому `vi.clearAllMocks()` выполняется перед каждым тестом.
@@ -236,5 +244,7 @@ import { injectSpy, provideAutoSpy, renderShallow, stable } from 'vitest-auto-sp
 ```
 
 Ему нужна настройка Vitest, знающая про Angular (например, `@analogjs/vite-plugin-angular` плюс вызов
-`setupTestBed()`). См. [Angular](/ru/adapters/angular) — и
+`setupTestBed()`). Рядом с `@angular/build` 22.2 пакеты Analog должны быть версии 2.7.5 или новее,
+иначе прогон падает на старте с `TypeError: cache.has is not a function` —
+[`doctor` об этом сообщает](/ru/utilities/cli#analog-behind-angular-build). См. [Angular](/ru/adapters/angular) — и
 [Angular на Bun](/ru/runtimes/bun-angular) для того же набора под `bun test`.
