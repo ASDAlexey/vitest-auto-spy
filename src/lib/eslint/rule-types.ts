@@ -273,6 +273,8 @@ export interface EsSourceCode {
    * first argument of a call, so the token is that call's opening parenthesis.
    */
   getTokenBefore(node: EsNode): EsNode;
+  /** The `Program` node, for a question asked of the whole file. */
+  readonly ast: EsNode;
   /**
    * What the parser published. ESLint always sets the property — it is `{}` for a parser that
    * publishes nothing — so a rule that needs types can tell the difference and stay silent rather
