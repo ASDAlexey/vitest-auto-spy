@@ -130,6 +130,7 @@ export const setupDocument = 'https://asdalexey.github.io/vitest-auto-spy/utilit
 export const setupListeners = 'https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_19-listeners-that-outlive-their-file';
 export const setupConcurrent = 'https://asdalexey.github.io/vitest-auto-spy/utilities/setup#under-test-concurrent';
 export const setupPerTest = 'https://asdalexey.github.io/vitest-auto-spy/utilities/setup#reinstalling-a-stub-for-every-test';
+export const setupPerFile = 'https://asdalexey.github.io/vitest-auto-spy/utilities/setup#the-hooks-belong-to-the-file-this-call-ran-in';
 export const setupWrongHook = 'https://asdalexey.github.io/vitest-auto-spy/utilities/setup#a-patch-put-in-the-wrong-hook-stops-applying';
 export const signalFormsCreate = 'https://asdalexey.github.io/vitest-auto-spy/adapters/signal-forms#the-injection-context-—-createform';
 export const signalFormsErrors = 'https://asdalexey.github.io/vitest-auto-spy/adapters/signal-forms#the-errors-—-tohavefielderrors';
