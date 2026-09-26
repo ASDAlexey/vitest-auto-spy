@@ -87,6 +87,25 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       internal clock, which is exactly the private-API dependency the Angular canary exists to
       contain.
 
+- [ ] **`trackStrayTimers()` can report a frame nothing in the test scheduled, when a zoneless
+      Angular effect requests one before `stubAnimationFrame()` installs.** The tracker wraps the
+      native `requestAnimationFrame` once per worker, ahead of any per-test stub, so a frame
+      requested during `TestBed.createComponent(...)` — a component's own `effect()` field running
+      synchronously inside Angular's zoneless scheduler — is recorded against the real, native
+      scheduler rather than the stub a `beforeEach` installs afterwards. If that native call never
+      resolves before the file's `afterAll` sweep, it is reported as a stray frame with a stack
+      pointing at the component's field initializer, even in a spec that never touches
+      `stubAnimationFrame` at all, or one that deliberately installs it after construction so an
+      unrelated frame stays native. The two known workarounds — install `stubAnimationFrame({ mode:
+'queued' })` before `TestBed.createComponent` and drain explicitly after every input change, or
+      keep the frame hand-rolled when it must stay untracked — are project-side, not package
+      behaviour; nothing here yet tells a reader which one a given false positive needs, or offers a
+      way to mark one native call as intentionally unobserved. `mode: 'immediate'` has the sharper
+      failure: run synchronously from inside the same construction call, it re-enters Angular's own
+      `ApplicationRef.synchronize` and throws `Schedulers cannot synchronously execute watches while
+scheduling` — a frame requested from inside a running frame, except the outer frame is the
+      framework's own tick rather than spec code.
+
 - [ ] **`nextWithValues` on an observable property, for subscribers that are already on.** The
       warning shipped; the semantics did not. Reaching a current subscriber means the property target
       has to replay its configured values into the subject it published instead of swapping in a new
