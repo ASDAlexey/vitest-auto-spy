@@ -23,6 +23,7 @@ export const DOCTOR_CHECKS: readonly string[] = [
   'fs-module-cache-not-persisted',
   'helper-from-wrong-entry',
   'jasmine-era-project',
+  'mock-reset-config-unread',
   'module-mock-leak',
   'no-agent-instructions',
   'no-unawaited-helper',

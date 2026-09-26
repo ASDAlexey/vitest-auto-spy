@@ -14,6 +14,7 @@ import { checkForeignPragma } from './checks/foreign-pragma';
 import { buildGraph, isSpecFile } from './checks/graph';
 import { checkHelperEntry } from './checks/helper-entry';
 import { checkJasmineEra } from './checks/jasmine-era';
+import { checkMockResetConfig } from './checks/mock-reset-config';
 import { checkModuleMockLeak } from './checks/module-mock-leak';
 import { checkOrphanRunnerConfig } from './checks/orphan-runner-config';
 import { checkScanCap } from './checks/scan-cap';
@@ -43,6 +44,7 @@ export function runDoctor(profile: Profile): Finding[] {
     ...checkHelperEntry(profile, graph),
     ...checkUnawaitedHelper(profile, graph),
     ...checkModuleMockLeak(profile, graph),
+    ...checkMockResetConfig(profile, graph),
     ...checkVitest5Removed(profile, graph),
     ...checkVitest5ClearMocks(profile, graph),
     ...checkVitest5Available(profile),
