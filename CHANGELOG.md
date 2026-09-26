@@ -10,6 +10,18 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Changed
+
+- **`toHaveDirectiveApplied` names the component under test in its failure.** On a fixture from
+  `TestBed.createComponent(Card)` it said the directive was on no element of the fixture and advised
+  `createDirectiveHost` — a host for a spec, not a fix for `Card`. It now says the directive is not on
+  `Card`'s host element or in its template, and to list it in `Card`'s `hostDirectives` or `imports`
+  (or, for a directive declared by an NgModule, that module in `Card`'s `imports`). A host built by
+  `createDirectiveHost` or by Angular 22.2's `TestBed.createDirective` still gets the
+  `createDirectiveHost` hint. `/angular/matchers` is +254 B min+gzip (1761 → 2015 B, +14.4 %) and
+  +1.3 kB to import (17594 → 18929 B): the second message and the host check; `createDirectiveHost`
+  itself is not pulled in — only its `Symbol.for` brand is shared.
+
 ## [5.38.0] - 2026-09-26
 
 ### Added

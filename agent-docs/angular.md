@@ -1189,7 +1189,9 @@ schemas apply to a testing module's `declarations` only.
 It is also the guard for an attribute a `hostDirectives` entry puts on the component under test. An
 assertion on the attribute alone stays green when the entry is dropped and the attribute is also
 written statically, or set by something else; the fixture's root element is searched, so the entry
-itself can be asserted with no selector:
+itself can be asserted with no selector. On a fixture of the component under test the failure names
+that component's `hostDirectives` / `imports` as the fix; only a spec-built host (`createDirectiveHost`,
+`TestBed.createDirective`) is pointed at `createDirectiveHost`:
 
 ```ts
 import { registerDirectiveMatchers } from 'vitest-auto-spy/angular/matchers';

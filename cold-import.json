@@ -8,11 +8,11 @@
   "entries": {
     ".": {
       "modules": 2,
-      "bytes": 178917
+      "bytes": 179332
     },
     "./angular": {
       "modules": 3,
-      "bytes": 238217
+      "bytes": 238767
     },
     "./angular-http": {
       "modules": 8,
@@ -20,31 +20,31 @@
     },
     "./angular-router": {
       "modules": 9,
-      "bytes": 87660
+      "bytes": 87799
     },
     "./angular/diagnostics": {
       "modules": 14,
-      "bytes": 138810
+      "bytes": 138949
     },
     "./angular/doubles": {
       "modules": 14,
-      "bytes": 96258
+      "bytes": 96397
     },
     "./angular/matchers": {
       "modules": 4,
-      "bytes": 17594
+      "bytes": 18929
     },
     "./bun": {
       "modules": 15,
-      "bytes": 172047
+      "bytes": 172462
     },
     "./bun-angular": {
       "modules": 19,
-      "bytes": 209598
+      "bytes": 210013
     },
     "./console": {
       "modules": 13,
-      "bytes": 91946
+      "bytes": 92085
     },
     "./diagnostics": {
       "modules": 2,
@@ -60,7 +60,7 @@
     },
     "./jasmine": {
       "modules": 15,
-      "bytes": 143944
+      "bytes": 144083
     },
     "./jasmine-compat": {
       "modules": 5,
@@ -68,11 +68,11 @@
     },
     "./nestjs": {
       "modules": 15,
-      "bytes": 134929
+      "bytes": 135068
     },
     "./node": {
       "modules": 2,
-      "bytes": 162567
+      "bytes": 162982
     },
     "./observer-spy": {
       "modules": 3,
@@ -84,11 +84,11 @@
     },
     "./react": {
       "modules": 3,
-      "bytes": 180011
+      "bytes": 180426
     },
     "./rstest": {
       "modules": 15,
-      "bytes": 188127
+      "bytes": 188542
     },
     "./rxjs": {
       "modules": 6,
@@ -96,7 +96,7 @@
     },
     "./setup": {
       "modules": 2,
-      "bytes": 155361
+      "bytes": 156117
     },
     "./signal-forms": {
       "modules": 3,
@@ -104,11 +104,11 @@
     },
     "./svelte": {
       "modules": 3,
-      "bytes": 180012
+      "bytes": 180427
     },
     "./vue": {
       "modules": 3,
-      "bytes": 180227
+      "bytes": 180642
     },
     "./zone": {
       "modules": 3,

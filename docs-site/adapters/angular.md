@@ -2041,6 +2041,11 @@ entry of the component under test counts. Anything else is thrown rather than fa
 a `nativeElement` or an `undefined` passed by mistake is a wrong argument, and under `.not` a
 failure would have read as a pass.
 
+The fix it names depends on what the fixture is rooted at. On a fixture of the component under test,
+the directive belongs in that component's `hostDirectives` or its `imports`, and the failure says so
+by name; a host built by `createDirectiveHost` or `TestBed.createDirective` exists only in the spec,
+so there the failure still points at `createDirectiveHost({ template, scope })`.
+
 That makes it the guard for an attribute a `hostDirectives` entry provides. An assertion on the
 attribute alone stays green when the entry is dropped and the attribute is also written statically,
 or set by something else; asserting the entry itself fails instead. The matcher exists only after
