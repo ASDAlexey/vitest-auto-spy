@@ -1,0 +1,8 @@
+{"arm": "B-700", "provider": "v8", "bundle_done": 2.89, "run_banner": 3.08, "summary": 15.83, "report_header": 15.84, "report_end": 16.13, "exit": 16.23}
+{"arm": "C-700", "provider": "v8", "bundle_done": 2.76, "run_banner": 2.96, "summary": 8.65, "report_header": 8.65, "report_end": 8.95, "exit": 9.04}
+{"arm": "B-700", "provider": "istanbul", "bundle_done": 2.82, "run_banner": 3.03, "summary": 36.14, "report_header": 36.14, "report_end": 36.44, "exit": 36.57}
+{"arm": "C-700", "provider": "istanbul", "bundle_done": 2.71, "run_banner": 2.9, "summary": 22.37, "report_header": 22.38, "report_end": 22.66, "exit": 22.78}
+{"arm": "B-700", "provider": "v8", "bundle_done": 2.74, "run_banner": 2.88, "summary": 16.19, "report_header": 16.19, "report_end": 17.03, "exit": 17.28}
+{"arm": "C-700", "provider": "v8", "bundle_done": 3.14, "run_banner": 3.31, "summary": 9.26, "report_header": 9.26, "report_end": 9.63, "exit": 9.73}
+{"arm": "B-700", "provider": "istanbul", "bundle_done": 3.39, "run_banner": 3.88, "summary": 37.41, "report_header": 37.41, "report_end": 37.72, "exit": 37.86}
+{"arm": "C-700", "provider": "istanbul", "bundle_done": 3.09, "run_banner": 3.35, "summary": 23.52, "report_header": 23.52, "report_end": 23.84, "exit": 23.99}

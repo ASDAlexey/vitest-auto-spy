@@ -1,0 +1,8 @@
+{"arm": "B-700", "provider": "v8", "bundle_done": 2.79, "run_banner": 2.95, "last_test_line": 6.78, "first_test_line": 3.99, "summary": 16.08, "report_header": 16.08, "report_end": 16.39, "exit": 16.49}
+{"arm": "C-700", "provider": "v8", "bundle_done": 2.84, "run_banner": 3.0, "last_test_line": 7.22, "first_test_line": 4.01, "summary": 8.33, "report_header": 8.33, "report_end": 8.63, "exit": 8.73}
+{"arm": "B-700", "provider": "istanbul", "bundle_done": 2.95, "run_banner": 3.16, "last_test_line": 30.86, "first_test_line": 5.08, "summary": 40.3, "report_header": 40.31, "report_end": 40.72, "exit": 40.89}
+{"arm": "C-700", "provider": "istanbul", "bundle_done": 4.31, "run_banner": 4.73, "last_test_line": 20.81, "first_test_line": 6.55, "summary": 26.41, "report_header": 26.42, "report_end": 26.76, "exit": 26.9}
+{"arm": "C-700", "provider": "istanbul", "bundle_done": 3.29, "run_banner": 3.51, "last_test_line": 23.09, "first_test_line": 5.54, "summary": 29.42, "report_header": 29.43, "report_end": 29.96, "exit": 30.17}
+{"arm": "B-700", "provider": "istanbul", "bundle_done": 3.76, "run_banner": 4.1, "last_test_line": 31.18, "first_test_line": 6.13, "summary": 39.15, "report_header": 39.15, "report_end": 39.49, "exit": 39.61}
+{"arm": "C-700", "provider": "v8", "bundle_done": 3.02, "run_banner": 3.22, "last_test_line": 7.8, "first_test_line": 4.3, "summary": 8.96, "report_header": 8.97, "report_end": 9.39, "exit": 9.53}
+{"arm": "B-700", "provider": "v8", "bundle_done": 3.0, "run_banner": 3.17, "last_test_line": 7.31, "first_test_line": 4.28, "summary": 16.52, "report_header": 16.52, "report_end": 16.82, "exit": 16.91}
