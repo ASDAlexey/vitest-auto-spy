@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.35.0] - 2026-09-26
+
 ### Changed
 
 - **`AGENTS.md` is read by section now, and carries a third of what it did.** At 538 kB it was more
@@ -8483,7 +8485,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.34.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.35.0...HEAD
+[5.35.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.34.0...v5.35.0
 [5.34.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.33.0...v5.34.0
 [5.33.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.32.2...v5.33.0
 [5.32.2]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.32.1...v5.32.2
