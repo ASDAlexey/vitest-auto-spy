@@ -10,6 +10,46 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`stubElementRect` hands back the installed `getBoundingClientRect` spy alongside the restore.**
+  The return value stays callable — `stubElementRect(el)()` still restores the element's own method —
+  and now also carries `.getBoundingClientRect`, for a spec that must assert the measurement happened
+  rather than only shape the box it reports.
+
+- **`createSpyFromInstance` warns before it patches a live DOM/BOM object without `onlyMethodsToSpyOn`.**
+  Full discovery on a live `Node` (or another `EventTarget`) reaches the engine's own prototype chain,
+  not just the class's, and can spy a Symbol-keyed internal the engine calls on its own — happy-dom's
+  `Node.prototype[Symbol(clearCache)]`, called from `removeChild`, is one. Under a strict double the
+  node could then no longer be removed from `document.body`, from inside `removeChild` rather than the
+  spec, and the leak cascaded into later tests. The report goes through the same
+  `reportMisconfiguration` channel as every other misconfiguration (`warn` by default, `throw` under
+  `setMisconfigurationReaction('throw')`), and names `onlyMethodsToSpyOn`, `mockValueProp` and
+  `spyOnVoidMethod` as the way to keep the rest of the node real.
+
+- **`stubAnimationFrame` takes an `onError` callback.** Called with whatever a frame's callback threw,
+  instead of letting it propagate out of `requestAnimationFrame` (in `'immediate'` mode) or stop the
+  rest of a `flush()`. Rethrow from inside it to keep the default behaviour for an error the callback
+  did not expect — for a component whose zoneless effect re-enters the scheduler on a synchronous
+  frame, tolerating that one message without giving up on every other throw.
+
+### Fixed
+
+- **`prefer-render-shallow` no longer misses a file that reads the template through `hostElement`/
+  `queryElement`.** Its own `TEMPLATE_READS` list matched `nativeElement`, `querySelector` and the
+  rest of the raw DOM idioms it replaces, but not the helper names themselves — so a spec migrated
+  from `fixture.nativeElement` to `hostElement(fixture)` lost the very read that had kept the rule
+  quiet, and `TestBed.createComponent` was reported as unnecessary on a file that still measures a
+  real element.
+
+- **`mockValueProp` no longer throws on a writable, non-configurable property.** It always forced
+  `configurable: true`, so `Array.prototype.length` — `{ writable: true, configurable: false }` —
+  threw `Cannot redefine property` on every array-length write, even though the runtime allows
+  changing the value of a writable-but-non-configurable data property outright. It now keeps
+  `configurable: false` when the property already demands it, and only forces `true` when the
+  property is new or already configurable. The undo restores the number, not elements a shrink
+  already deleted — the array setter's own behaviour, unrelated to this package.
+
 ## [5.32.2] - 2026-09-25
 
 ### Fixed
