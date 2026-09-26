@@ -218,7 +218,9 @@ function isDomQuery(node: EsNode): boolean {
   const { callee } = node;
 
   return (
-    DOM_QUERIES.has(memberName(callee) ?? '') || (isMemberExpression(callee) && isIdentifier(callee.object) && callee.object.name === 'By')
+    DOM_QUERIES.has(memberName(callee) ?? '') ||
+    (isIdentifier(callee) && callee.name === 'queryElement') ||
+    (isMemberExpression(callee) && isIdentifier(callee.object) && callee.object.name === 'By')
   );
 }
 

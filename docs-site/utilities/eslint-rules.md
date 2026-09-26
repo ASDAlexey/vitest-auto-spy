@@ -496,7 +496,7 @@ answer.
   `expect(isRestrictedProfile(MEMBER_ROLE.CHILD)).toBeTruthy()` and
   `expect(el.querySelector('expand-card')).toBeTruthy()` are not smoke tests. Neither is a DOM query
   behind a name: `expect(minimap()).not.toBeNull()` where the file's own `minimap` helper calls
-  `querySelector`, `query(All)`, `getElement*`, `closest` or `By.*`, or where a name is bound once to
+  `querySelector`, `query(All)`, `getElement*`, `closest`, `By.*` or `queryElement`, or where a name is bound once to
   such a result. That asserts which branch of the template rendered. A builder under
   `toBeInstanceOf` is left alone too: that pairs two names and asserts they resolve to each other,
   which is wiring.
@@ -929,8 +929,8 @@ exported, written to as `spy.m = …` or read for another member, and nothing is
 void seed also needs the target to be real, read from the expression or one name away: `new
 MouseEvent(…)` and every global `…Event` constructor, `document` and `window`,
 `document.createElement(…)` / `createElementNS` / `createEvent` / `querySelector` / `getElementById`,
-`document.body`, `fixture.nativeElement`, `….debugElement.nativeElement` and
-`….query(…).nativeElement`. A double — `createAutoMock<Event>()`, `createSpyFromClass(Event)`, a cast
+`document.body`, `fixture.nativeElement`, `….debugElement.nativeElement`,
+`….query(…).nativeElement`, `hostElement(…)` and `queryElement(…)`. A double — `createAutoMock<Event>()`, `createSpyFromClass(Event)`, a cast
 literal, a name nothing in the file settles — is never reported.
 
 **Finding, and the repair.**
@@ -2363,11 +2363,16 @@ coverage, and keep one real render per component where those branches matter.
 where nothing reads the rendered template. Under `{ templates: 'never' }`, every
 `TestBed.createComponent` and every `keepTemplate: true`.
 
-**Decides on.** A substring scan of the **whole file**, not of the fixture the call returned. The
-words are `nativeElement`, `debugElement`, `elementRef`, `querySelector`, `getComputedStyle`,
-`triggerEventHandler`, `innerHTML`, `innerText`, `textContent`, `getAttribute`, `classList`,
-`shadowRoot`, `By.css` and `By.directive`, matched as text rather than resolved. One read anywhere
-silences the file.
+**Decides on.** The identifiers of the **whole file**, not the fixture the call returned. The words
+are `nativeElement`, `debugElement`, `elementRef`, `hostElement`, `queryElement`, `querySelector`,
+`getComputedStyle`, `triggerEventHandler`, `innerHTML`, `innerText`, `textContent`, `getAttribute`,
+`classList` and `shadowRoot`, matched inside an identifier or member name (so a `nativeElementOf()`
+helper counts too), plus `By.css` and `By.directive`. One read anywhere silences the file.
+
+Only code counts. A comment, a string or template literal, and a member the spec **declares** rather
+than reads — the key of `{ getAttribute: 'nope' }`, a field or method of a fake class, an interface
+member — spell the word and read nothing, so none of them silences the file. A destructuring
+`const { nativeElement } = fixture` and a computed `el['textContent']` are reads and do.
 
 Asking the file rather than the fixture is deliberate. A component suite parks the fixture in a
 `let`, fills it in `beforeEach` and reads `debugElement` three helpers away; following one variable
@@ -2383,8 +2388,8 @@ dropped, and only where the two names match: that is a delegation and can be not
 `document.querySelector('.row')` still counts, because a fixture attached to the document is read
 exactly that way.
 
-Under `{ templates: 'never' }` the read scan is not run at all; the only exemption is a file that
-mentions `createDirectiveHost`, because a directive attaches to an element and something has to
+Under `{ templates: 'never' }` the read scan is not run at all; the only exemption is a file whose
+code calls or imports `createDirectiveHost`, because a directive attaches to an element and something has to
 render that element.
 
 **Finding, and the repair.**

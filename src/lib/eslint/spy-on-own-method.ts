@@ -53,6 +53,7 @@ const EVENT_CONSTRUCTOR = /^[A-Za-z]*Event$/;
 const DOM_GLOBALS = new Set(['document', 'window']);
 const NODE_FACTORIES = new Set(['createElement', 'createElementNS', 'createEvent', 'getElementById', 'querySelector']);
 const NODE_MEMBERS = new Set(['body', 'documentElement']);
+const ELEMENT_HELPERS = new Set(['hostElement', 'queryElement']);
 const FIXTURE_NAME = /fixture$/i;
 // `using` disposes what it holds, and the helpers hand back the spy rather than the instance.
 const DECLARATION_KINDS = new Set(['const', 'let', 'var']);
@@ -165,6 +166,10 @@ function isRealObject(scope: EsScope, node: EsNode, follow: boolean): boolean {
   }
 
   if (isCallExpression(value)) {
+    if (isIdentifier(value.callee) && ELEMENT_HELPERS.has(value.callee.name)) {
+      return bindingState(scope, value.callee.name) !== 'taken';
+    }
+
     return (
       isMemberExpression(value.callee) &&
       NODE_FACTORIES.has(String(memberName(value.callee))) &&

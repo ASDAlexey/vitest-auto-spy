@@ -486,7 +486,10 @@ it('emits after the timeout', async () => {
   чтение метода или сигнала, запрос к DOM, выражение над коллекцией — всё это правило не трогает:
   матчер не отличает их от субъекта, а проверка при этом единственная, что покрывает поведение.
   `expect(isRestrictedProfile(MEMBER_ROLE.CHILD)).toBeTruthy()` и
-  `expect(el.querySelector('expand-card')).toBeTruthy()` — не smoke-тесты. Билдер под
+  `expect(el.querySelector('expand-card')).toBeTruthy()` — не smoke-тесты. Как и запрос к DOM за
+  именем: `expect(minimap()).not.toBeNull()`, где собственный хелпер файла `minimap` вызывает
+  `querySelector`, `query(All)`, `getElement*`, `closest`, `By.*` или `queryElement`, или где имя один
+  раз связано с таким результатом. Это проверка того, какая ветка шаблона отрисовалась. Билдер под
   `toBeInstanceOf` тоже не трогается: он связывает два имени и утверждает, что одно разрешается в
   другое, а это проводка, а не существование.
 - **Хотя бы один работающий тест блока должен добираться до субъекта тем же путём** — именно это
@@ -912,8 +915,8 @@ beforeEach(() => {
 отчёта нет. Голому void-сиду нужна ещё и настоящая цель, видная из выражения или через одно имя:
 `new MouseEvent(…)` и любой глобальный конструктор `…Event`, `document` и `window`,
 `document.createElement(…)` / `createElementNS` / `createEvent` / `querySelector` / `getElementById`,
-`document.body`, `fixture.nativeElement`, `….debugElement.nativeElement` и
-`….query(…).nativeElement`. Дубль — `createAutoMock<Event>()`, `createSpyFromClass(Event)`,
+`document.body`, `fixture.nativeElement`, `….debugElement.nativeElement`,
+`….query(…).nativeElement`, `hostElement(…)` и `queryElement(…)`. Дубль — `createAutoMock<Event>()`, `createSpyFromClass(Event)`,
 приведённый литерал, имя, значение которого файл не задаёт, — не сообщается никогда.
 
 **Находка и ремонт.**
@@ -2299,11 +2302,17 @@ const route = TestBed.inject(ActivatedRoute);
 файле, где никто не читает отрендеренный шаблон. При `{ templates: 'never' }` — каждый
 `TestBed.createComponent` и каждый `keepTemplate: true`.
 
-**На чём решает.** На поиске подстрок по **файлу целиком**, а не по той фикстуре, которую вернул
-вызов. Слова: `nativeElement`, `debugElement`, `elementRef`, `querySelector`, `getComputedStyle`,
-`triggerEventHandler`, `innerHTML`, `innerText`, `textContent`, `getAttribute`, `classList`,
-`shadowRoot`, `By.css` и `By.directive` — ищутся как текст, без разрешения имён. Одно чтение где
-угодно глушит файл.
+**На чём решает.** На идентификаторах **файла целиком**, а не той фикстуры, которую вернул вызов.
+Слова: `nativeElement`, `debugElement`, `elementRef`, `hostElement`, `queryElement`, `querySelector`,
+`getComputedStyle`, `triggerEventHandler`, `innerHTML`, `innerText`, `textContent`, `getAttribute`,
+`classList` и `shadowRoot` — ищутся внутри имени идентификатора или члена (так что хелпер
+`nativeElementOf()` тоже считается), плюс `By.css` и `By.directive`. Одно чтение где угодно глушит
+файл.
+
+Считается только код. Комментарий, строковый или шаблонный литерал и член, который спека
+**объявляет**, а не читает, — ключ `{ getAttribute: 'nope' }`, поле или метод фейкового класса, член
+интерфейса — пишут слово, но ничего не читают, поэтому ни один из них файл не глушит. Деструктуризация
+`const { nativeElement } = fixture` и вычисляемый `el['textContent']` — это чтения, и они глушат.
 
 Спрашивать файл, а не фикстуру — сознательное решение. Сюита компонента кладёт фикстуру в `let`,
 наполняет её в `beforeEach` и читает `debugElement` через три хелпера; слежение за одной переменной
@@ -2319,8 +2328,8 @@ const route = TestBed.inject(ActivatedRoute);
 может. Голый `document.querySelector('.row')` продолжает считаться, потому что фикстуру, прикреплённую
 к документу, читают ровно так.
 
-При `{ templates: 'never' }` поиск чтений не выполняется вовсе; единственное исключение — файл,
-упоминающий `createDirectiveHost`, потому что директива навешивается на элемент, а этот элемент
+При `{ templates: 'never' }` поиск чтений не выполняется вовсе; единственное исключение — файл, чей
+код вызывает или импортирует `createDirectiveHost`, потому что директива навешивается на элемент, а этот элемент
 кто-то должен отрендерить.
 
 **Находка и как её закрыть.**

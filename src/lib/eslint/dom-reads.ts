@@ -7,15 +7,20 @@
  * helper that returns it, a `debugElement` read through a local alias — and a rule that reports on
  * half of them is worse than one that reports on none. One DOM read anywhere silences the file, so
  * the rule under-reports by construction and never claims a spec reads nothing when it does.
+ *
+ * A read is looked for in the **code**, not the text: a comment, a string literal and the key of an
+ * object the spec builds itself (`{ getAttribute: 'nope' }`) all spell the word and read nothing, and
+ * each of them used to silence every `createComponent` in the file.
  */
-import type { RuleContext } from './rule-types';
+import { anyInSubtree, isCallExpression, isIdentifier, isMemberExpression, propertyName } from './rule-types';
+import type { EsNode, RuleContext } from './rule-types';
 
 /**
  * Members and helpers that only mean something against a rendered template.
  *
- * Matched as substrings of the source, not resolved: `By.css` reached through an import alias, a
- * `querySelector` on a node pulled out three helpers ago and a `textContent` read inside a matcher
- * all count, and each one is a reason to leave the file alone.
+ * Matched as substrings of an identifier, not resolved: a `querySelector` on a node pulled out three
+ * helpers ago, a `nativeElementOf(fixture)` helper and a `textContent` read inside a matcher all
+ * count, and each one is a reason to leave the file alone.
  */
 const TEMPLATE_READS = [
   'nativeElement',
@@ -32,9 +37,13 @@ const TEMPLATE_READS = [
   'getAttribute',
   'classList',
   'shadowRoot',
-  'By.css',
-  'By.directive',
 ];
+
+/** The `By` predicates, whose own names are too common to count without the `By.` in front. */
+const BY_PREDICATES = new Set(['css', 'directive']);
+
+/** Nodes whose key declares a member rather than reads one: an object literal, a class, a type. */
+const MEMBER_DECLARATIONS = new Set(['Property', 'PropertyDefinition', 'MethodDefinition', 'TSPropertySignature', 'TSMethodSignature']);
 
 /**
  * How much of a template a project is willing to render, from the rule's option.
@@ -70,13 +79,38 @@ export const RENDER_MESSAGES = {
  * harness, not the markup under test, and banning it would ban testing directives at all — including
  * the way this package's own documentation recommends.
  *
- * Asked of the file for the same reason `readsRenderedTemplate` is: the host reaches
+ * Asked of the file for the same reason a template read is: the host reaches
  * `TestBed.createComponent` through a `hostOf(component)` helper as often as it arrives inline, and
  * an exemption that only recognised the inline form would send every directive suite to a
  * per-line disable.
  */
-export function buildsDirectiveHarness(source: string): boolean {
-  return source.includes('createDirectiveHost');
+function buildsDirectiveHarness(context: RuleContext): boolean {
+  return anyInSubtree(context, context.sourceCode.ast, (node) => isIdentifier(node) && node.name === 'createDirectiveHost', true);
+}
+
+/** The name a node spells in code — an identifier, or the string of `el['textContent']`. */
+function spelledName(node: EsNode): string | undefined {
+  if (isIdentifier(node)) {
+    return node.name;
+  }
+
+  const value: unknown = Reflect.get(node, 'value');
+
+  return node.type === 'Literal' && isMemberExpression(node.parent) && node.parent.property === node && typeof value === 'string'
+    ? value
+    : undefined;
+}
+
+/** Whether `node` is the key of a member being declared, not read: `{ getAttribute: 'nope' }`. */
+function declaresMember(node: EsNode): boolean {
+  const { parent } = node;
+
+  if (!MEMBER_DECLARATIONS.has(parent.type) || Reflect.get(parent, 'key') !== node || Reflect.get(parent, 'computed') === true) {
+    return false;
+  }
+
+  // A destructuring key reads the member, and a shorthand key is its own value.
+  return parent.type !== 'Property' || (parent.parent.type === 'ObjectExpression' && Reflect.get(parent, 'value') !== node);
 }
 
 /**
@@ -84,39 +118,59 @@ export function buildsDirectiveHarness(source: string): boolean {
  *
  * `{ provide: DOCUMENT, useValue: { querySelector: document.querySelector.bind(document), … } }` is
  * how a spec swaps `location` or `defaultView` while leaving the rest of the document alone, and
- * every key it copies over is a word from {@link TEMPLATE_READS}. Asked of the whole file, that mock
- * answered "this file reads the template" and the rule went quiet on exactly the spec it exists for
- * — measured on a consumer suite, where the only component spec rendering a template nobody reads
- * was also the only one silenced.
+ * every key it copies over is a word from {@link TEMPLATE_READS}. Counted, that mock answered "this
+ * file reads the template" and the rule went quiet on exactly the spec it exists for — measured on a
+ * consumer suite, where the only component spec rendering a template nobody reads was also the only
+ * one silenced.
  *
  * Just the `name: document.name` shape, and only where the two names match: that is a delegation and
  * can be nothing else. A bare `document.querySelector('.row')` elsewhere is left counting, because a
  * fixture attached to the document is read exactly that way.
  */
-const DOCUMENT_DELEGATION = /\b(\w+)\s*:\s*document\s*\.\s*\1\b/g;
+function delegatesToDocument(name: string, member: EsNode): boolean {
+  if (!isMemberExpression(member) || !isIdentifier(member.object) || member.object.name !== 'document') {
+    return false;
+  }
 
-/**
- * Whether `source` reads the rendered template anywhere.
- *
- * The delegation is stripped once rather than inside the search: rebuilding the whole file per
- * member — fourteen times per `createComponent`, and again for the next one — was 77 % of the
- * plugin's time on a 1.7 MB spec. The answer is about the file, so the caller asks it once.
- */
-export function readsRenderedTemplate(source: string): boolean {
-  const read = source.replace(DOCUMENT_DELEGATION, '');
+  let value: EsNode = member;
 
-  return TEMPLATE_READS.some((member) => read.includes(member));
+  while (
+    (isMemberExpression(value.parent) && value.parent.object === value) ||
+    (isCallExpression(value.parent) && value.parent.callee === value)
+  ) {
+    value = value.parent;
+  }
+
+  return propertyName(value.parent) === name && Reflect.get(value.parent, 'value') === value;
+}
+
+/** Whether one node of the file reads the rendered template. */
+function readsTemplate(node: EsNode): boolean {
+  const name = spelledName(node);
+
+  if (name === undefined) {
+    return false;
+  }
+
+  const { parent } = node;
+
+  if (isMemberExpression(parent) && parent.property === node && isIdentifier(parent.object) && parent.object.name === 'By') {
+    return BY_PREDICATES.has(name);
+  }
+
+  return TEMPLATE_READS.some((member) => name.includes(member)) && !declaresMember(node) && !delegatesToDocument(name, parent);
 }
 
 /**
  * Whether this file may render a template the rule would otherwise report.
  *
- * The two policies ask different questions of the same text — "is the template read back" against
+ * The two policies ask different questions of the same file — "is the template read back" against
  * "is this a directive harness" — and both are about the file, which is why the caller asks this
- * once and keeps the answer.
+ * once and keeps the answer. One walk, stopping at the first match: on a 1.7 MB spec the whole-file
+ * question is most of what the plugin costs.
  */
 export function rendersOnlyWhatIsRead(context: RuleContext): boolean {
-  const source = context.sourceCode.getText();
-
-  return templatePolicy(context) === 'as-needed' ? readsRenderedTemplate(source) : buildsDirectiveHarness(source);
+  return templatePolicy(context) === 'as-needed'
+    ? anyInSubtree(context, context.sourceCode.ast, readsTemplate, true)
+    : buildsDirectiveHarness(context);
 }

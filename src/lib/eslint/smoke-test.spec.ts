@@ -282,6 +282,7 @@ it('leaves alone an element a DOM query found — that asserts which branch of t
 
   expect(count("const minimap = () => fixture.debugElement.query(By.css('app-minimap-2d'));")).toBe(0);
   expect(count("function minimap() { return host.querySelector('app-minimap-2d'); }")).toBe(0);
+  expect(count("const minimap = () => queryElement(fixture, 'app-minimap-2d');")).toBe(0);
   expect(count("const minimap = () => fixture.debugElement.children.find(byCss('app-minimap-2d'));")).toBe(1);
   expect(count("const minimap = () => $$(By.tagName('app-minimap-2d'));")).toBe(0);
   expect(count("let minimap;\nbeforeEach(() => { minimap = host.querySelectorAll('app-minimap-2d'); });", 'minimap')).toBe(0);
