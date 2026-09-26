@@ -57,8 +57,15 @@ function locationOf(frame: string): string {
   return /((?:file:\/\/)?[^\s()]+:\d+:\d+)\)?$/.exec(frame)?.[1] ?? '';
 }
 
+let libraryDirectory: string | undefined;
+
 // The library's own directory: in the repository its source sits next to the specs that call it.
-const LIBRARY_DIRECTORY = locationOf(String(String(new Error('probe').stack).split('\n')[1])).replace(/[^/\\]*$/, '');
+// Lazy: a stack at import costs ~1 ms under Vitest.
+export function ownDirectory(): string {
+  libraryDirectory ??= locationOf(String(String(new Error('probe').stack).split('\n')[1])).replace(/[^/\\]*$/, '');
+
+  return libraryDirectory;
+}
 
 function isCallingCode(location: string, library: string): boolean {
   return (
@@ -69,7 +76,7 @@ function isCallingCode(location: string, library: string): boolean {
 }
 
 /** `, from src/pay.ts:12:5` — the first frame outside the library and the runner; empty when there is none. */
-export function calledFrom(stack: string | undefined, library = LIBRARY_DIRECTORY): string {
+export function calledFrom(stack: string | undefined, library = ownDirectory()): string {
   const location = String(stack)
     .split('\n')
     .slice(1)

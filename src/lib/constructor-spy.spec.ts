@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Registers the Vitest mock adapter, which the constructor double is built on.
 import '../index';
@@ -121,5 +121,37 @@ describe('stubConstructor', () => {
 
     expect(Widget).toBe(widget);
     expect(widget.instances).toEqual([]);
+  });
+});
+
+describe('ownDirectory', () => {
+  it('reads the stack on first use rather than at import, once, and resolves to this directory', async () => {
+    const original = Error.prepareStackTrace;
+    let probes = 0;
+
+    Error.prepareStackTrace = (error, frames) => {
+      probes += error.message === 'probe' ? 1 : 0;
+
+      return original === undefined
+        ? [String(error), ...frames.map((frame) => `    at ${String(frame)}`)].join('\n')
+        : original(error, frames);
+    };
+
+    try {
+      vi.resetModules();
+
+      const fresh = await import('./constructor-spy');
+
+      expect(probes).toBe(0);
+
+      const here = /((?:file:\/\/)?[^\s()]+):\d+:\d+\)?$/.exec(String(String(new Error().stack).split('\n')[1]))?.[1];
+
+      expect(fresh.calledFrom(`Error\n    at x (${fresh.ownDirectory()}pay.ts:1:1)`)).toBe('');
+      expect(fresh.ownDirectory()).toBe(String(here).replace(/[^/\\]*$/, ''));
+      expect(fresh.ownDirectory()).toMatch(/[/\\]src[/\\]lib[/\\]$/);
+      expect(probes).toBe(1);
+    } finally {
+      Error.prepareStackTrace = original;
+    }
   });
 });

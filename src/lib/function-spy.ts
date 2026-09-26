@@ -137,15 +137,21 @@ function frameLocation(frame: string): string {
   return /((?:file:\/\/)?[^\s()]+:\d+:\d+)\)?$/.exec(frame)?.[1] ?? '';
 }
 
-// This module's own directory: in the repository the library's source sits next to its specs, where the
-// dist-only filter in `ownFrames` would quote the dispatch instead of the caller.
-const LIBRARY_DIRECTORY = frameLocation(String(stackFrames(new Error('probe').stack)[0])).replace(/[^/\\]*$/, '');
+let libraryDirectory: string | undefined;
+
+// In the repository the library's source sits next to its specs, where `ownFrames` would quote the dispatch.
+// Lazy: the first formatted stack in a spec file costs ~1 ms under Vitest.
+export function ownDirectory(): string {
+  libraryDirectory ??= frameLocation(String(stackFrames(new Error('probe').stack)[0])).replace(/[^/\\]*$/, '');
+
+  return libraryDirectory;
+}
 
 function isCallingCode(location: string): boolean {
   return (
     location !== '' &&
     !/node_modules|node:/.test(location) &&
-    (!location.startsWith(LIBRARY_DIRECTORY) || /\.(spec|test)\.[cm]?[jt]sx?:/.test(location))
+    (!location.startsWith(ownDirectory()) || /\.(spec|test)\.[cm]?[jt]sx?:/.test(location))
   );
 }
 

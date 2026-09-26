@@ -454,3 +454,34 @@ describe('createFunctionSpy — construction', () => {
     }
   });
 });
+
+describe('ownDirectory', () => {
+  it('reads the stack on first use rather than at import, once, and resolves to this directory', async () => {
+    const original = Error.prepareStackTrace;
+    let probes = 0;
+
+    Error.prepareStackTrace = (error, frames) => {
+      probes += error.message === 'probe' ? 1 : 0;
+
+      return original === undefined
+        ? [String(error), ...frames.map((frame) => `    at ${String(frame)}`)].join('\n')
+        : original(error, frames);
+    };
+
+    try {
+      vi.resetModules();
+
+      const { ownDirectory } = await import('./function-spy');
+
+      expect(probes).toBe(0);
+
+      const here = /((?:file:\/\/)?[^\s()]+):\d+:\d+\)?$/.exec(String(String(new Error().stack).split('\n')[1]))?.[1];
+
+      expect(ownDirectory()).toBe(String(here).replace(/[^/\\]*$/, ''));
+      expect(ownDirectory()).toMatch(/[/\\]src[/\\]lib[/\\]$/);
+      expect(probes).toBe(1);
+    } finally {
+      Error.prepareStackTrace = original;
+    }
+  });
+});
