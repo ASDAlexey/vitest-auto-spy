@@ -6,7 +6,13 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { type GlobalSnapshot, checkSealedAdditions, guardGlobalPatches, snapshotWatchedGlobals } from './global-patch-guard';
+import {
+  type GlobalSnapshot,
+  checkSealedAdditions,
+  createGlobalPatchWatch,
+  guardGlobalPatches,
+  snapshotWatchedGlobals,
+} from './global-patch-guard';
 import { mockValueProp } from './prop-mock';
 
 const SEALED = 'cookie';
@@ -168,6 +174,124 @@ describe('guardGlobalPatches', () => {
 
   it('registers nothing when it is off', () => {
     expect(() => guardGlobalPatches('off')).not.toThrow();
+  });
+});
+
+describe('createGlobalPatchWatch', () => {
+  const { defineProperty, defineProperties } = Object;
+  const reflectDefine = Reflect.defineProperty;
+
+  /** A watch over one throwaway object, standing in for `document`. */
+  function watchOver(target: object): ReturnType<typeof createGlobalPatchWatch> {
+    return createGlobalPatchWatch('throw', () => [{ name: 'document', object: target }]);
+  }
+
+  afterEach(() => {
+    Object.defineProperty = defineProperty;
+    Object.defineProperties = defineProperties;
+    Reflect.defineProperty = reflectDefine;
+  });
+
+  it('checks, per test, only an object a sealing definition reached', () => {
+    const target = {};
+    const watch = watchOver(target);
+
+    watch.openFile();
+    Object.defineProperty(target, SEALED, { value: 'a=1' });
+
+    expect(() => watch.checkTest()).toThrow(/"createGlobalPatchWatch > checks, per test, .*" \(.*\) redefined document\.cookie/);
+    expect(() => watch.checkTest()).not.toThrow();
+    watch.closeFile();
+  });
+
+  it('leaves the object untouched for a definition that can be undone, and for an object nobody watches', () => {
+    const target = {};
+    const watch = watchOver(target);
+
+    watch.openFile();
+    Object.defineProperty(target, SEALED, { value: 'a=1', configurable: true });
+    Object.defineProperty({}, SEALED, { value: 'a=1' });
+    Reflect.defineProperty({}, SEALED, { value: 'a=1' });
+
+    expect(() => watch.checkTest()).not.toThrow();
+    watch.closeFile();
+  });
+
+  it('sees Object.defineProperties and Reflect.defineProperty as well', () => {
+    const target = {};
+    const other = {};
+    const watch = createGlobalPatchWatch('throw', () => [
+      { name: 'document', object: target },
+      { name: 'navigator', object: other },
+    ]);
+
+    watch.openFile();
+    Object.defineProperties(target, { cookie: { value: 'a=1' } });
+
+    expect(() => watch.checkTest()).toThrow(/redefined document\.cookie/);
+
+    expect(Reflect.defineProperty(other, 'userAgent', { value: 'x' })).toBe(true);
+
+    expect(() => watch.checkTest()).toThrow(/redefined navigator\.userAgent/);
+    watch.closeFile();
+  });
+
+  it('notes nothing for a Reflect.defineProperty the object refused', () => {
+    const target = Object.preventExtensions({});
+    const watch = watchOver(target);
+
+    watch.openFile();
+
+    expect(Reflect.defineProperty(target, SEALED, { value: 'a=1' })).toBe(false);
+    expect(() => watch.checkTest()).not.toThrow();
+    watch.closeFile();
+  });
+
+  it('leaves a definition that went around the definers to the file-end pass', () => {
+    const target = {};
+    const watch = watchOver(target);
+
+    watch.openFile();
+    // Captured before the guard armed, the way a bundled module keeps its own `defineProperty`.
+    defineProperty(target, SEALED, { value: 'a=1' });
+
+    expect(() => watch.checkTest()).not.toThrow();
+    expect(() => watch.closeFile()).toThrow(/redefined document\.cookie/);
+  });
+
+  it('puts the originals back at the file end, and a wrapper kept past it notes nothing', () => {
+    const target = {};
+    const watch = watchOver(target);
+
+    watch.openFile();
+    const kept = Object.defineProperty;
+
+    expect(kept).not.toBe(defineProperty);
+    expect(kept.name).toBe('defineProperty');
+    expect(kept.length).toBe(3);
+
+    watch.closeFile();
+
+    expect(Object.defineProperty).toBe(defineProperty);
+    expect(Object.defineProperties).toBe(defineProperties);
+    expect(Reflect.defineProperty).toBe(reflectDefine);
+
+    kept(target, SEALED, { value: 'a=1' });
+
+    expect(() => watch.checkTest()).not.toThrow();
+  });
+
+  it('arms once per file, and keeps a definer someone else installed on top of it', () => {
+    const watch = watchOver({});
+    const other = (): void => undefined;
+
+    watch.openFile();
+    watch.openFile();
+    Reflect.set(Object, 'defineProperty', other);
+    watch.closeFile();
+
+    expect(Reflect.get(Object, 'defineProperty')).toBe(other);
+    expect(Object.defineProperties).toBe(defineProperties);
   });
 });
 
