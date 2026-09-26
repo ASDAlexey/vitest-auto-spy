@@ -18,11 +18,10 @@
 // Usage:
 //   node scripts/size-badge.mjs           # rewrite the README badge
 //   node scripts/size-badge.mjs --check   # exit 1 if the badge is stale (CI)
-import { build } from 'esbuild';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { gzipSync } from 'node:zlib';
+import { resolve } from 'node:path';
 
-import { externalizeBareImports } from './externals.mjs';
+import { minGzip } from './min-gzip.mjs';
 
 const ENTRY = 'dist/index.js';
 const README = 'README.md';
@@ -35,21 +34,8 @@ const README = 'README.md';
 // label, colour and link survive a rewrite untouched.
 const BADGE_RE = /(\[!\[minzipped size\]\(https:\/\/img\.shields\.io\/badge\/minzip-)([^-)]+)(-[^)]*\)\][^\n]*)/;
 
-async function measure() {
-  const result = await build({
-    entryPoints: [ENTRY],
-    bundle: true,
-    minify: true,
-    format: 'esm',
-    platform: 'neutral',
-    plugins: [externalizeBareImports],
-    write: false,
-    logLevel: 'silent',
-  });
-
-  const [output] = result.outputFiles;
-
-  return gzipSync(output.contents, { level: 9 }).length;
+function measure() {
+  return minGzip(resolve(ENTRY));
 }
 
 function format(bytes) {
