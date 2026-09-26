@@ -1683,6 +1683,17 @@ rule here.
   over the file, and a `configFile` that does not exist fails the lint run by name rather than
   leaving the rule silent.
 
+  **A config built somewhere else is read only as far as its own text.** In
+  `export default createProjectConfig({ alias })`, or a `mergeConfig(base, …)` whose `base` lives in
+  another module, the flags are set in a file the rule never opens. Its text names no `clearMocks`,
+  so up to Vitest 4 the flag reads as off and the rule stays silent, and from Vitest 5 it reads as
+  the default — on — even where the factory turns it off. Write what the factory sets beside the
+  path:
+
+  ```js
+  'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', clearMocks: true }],
+  ```
+
 **The flag has to match the call, not the family.** The three options are not three grades of one
 thing, and reading them that way is how a rule like this turns into a rule that deletes lines a
 suite needs.

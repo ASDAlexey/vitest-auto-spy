@@ -977,6 +977,7 @@ spies.get(PricingService).total.mockReturnValue(100);
 // zoneless waiting
 await stable(fixture); // flush effects, then await the fixture; fails at 2000 ms naming the cause
 await stable(fixture, { timeout: 5000, label: 'the products fixture' });
+await stable(TestBed.createDirective(TooltipDirective, { tagName: 'button' })); // any fixture with whenStable()
 flushEffects(); // the no-fixture half: services, stores, runInInjectionContext
 
 // resources — one wait for httpResource(), resource() and rxResource()
@@ -1176,6 +1177,11 @@ asserts the fact Angular reports three wrong ways (`NG0303` points at the module
 _is_ declared; `NG0304` calls a missing directive a missing component; a bare attribute reports
 nothing at all). `schemas: [NO_ERRORS_SCHEMA]` next to a standalone component is a dead entry —
 schemas apply to a testing module's `declarations` only.
+
+Angular ≥ 22.2: when the directive needs no static host attribute, no `TemplateRef` (structural) and
+no sibling markup, `TestBed.createDirective(Dir, { tagName, bindings })` builds the host itself.
+`stable(fixture)`, `hostElement(fixture)` and `toHaveDirectiveApplied` take its `DirectiveFixture`;
+`setInputs` does not (no `componentRef`) — bind a signal with `inputBinding` and set it.
 
 ### A stand-in for a child — `createComponentStub`
 

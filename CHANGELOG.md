@@ -10,6 +10,50 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`stable()` takes Angular 22.2's `TestBed.createDirective` fixture.** It only ever awaited
+  `whenStable()`, but was typed on `ComponentFixture`, so `await stable(TestBed.createDirective(Dir,
+  { tagName }))` failed with `TS2345` and specs fell back to `detectChanges()`, which flushes no
+  effects. It now accepts any fixture with `whenStable()`; nothing in the signature names
+  `DirectiveFixture`, so Angular 20 and 21 compile as before.
+
+### Fixed
+
+- **`toHaveDirectiveApplied` finds a directive on the element a fixture is rooted at.** It searched
+  with `queryAll`, which never returns the root, so on a `TestBed.createDirective` fixture — rooted at
+  the element that carries the directive — it failed with `it is not on any element of this fixture`
+  and advised `createDirectiveHost`. The root is searched too; on a `ComponentFixture` that also counts
+  a `hostDirectives` entry of the component under test.
+- **`vitest-auto-spy/eslint-plugin` is assignable to ESLint's own `Plugin` and flat-config types.**
+  `plugins: { 'vitest-auto-spy': autoSpy }` in a typed `eslint.config.ts`, or in
+  `new Linter().verify(code, [...])`, failed with `TS2322` / `TS2769`: `configs.*.plugins` was
+  `Record<string, unknown>` and each rule's `create` was typed on the library's own context. The
+  configs now name the plugin type, and a published rule is typed the way ESLint calls it. The plugin
+  still imports nothing from ESLint.
+- **`strayListeners` no longer blames a spec file for jsdom's own wiring, and no longer strips it.**
+  Under Vitest 5, assigning a window global in jsdom or happy-dom also writes it to the environment's
+  real window, so the tracking wrapper sat where jsdom's internals call it too. The first
+  `querySelectorAll`, `matches` or `getComputedStyle` on a document makes jsdom's selector engine
+  register nine focus, keyboard and mouse listeners on the window, once; the file that happened to
+  run it failed under `onStrayListeners: 'throw'` with `left 9 window/document listeners attached`,
+  and the sweep took them off, which broke `:focus` and `:hover` matching for every later file in
+  the worker. The same held under a VM pool (`vmThreads`, the Analog default) on any Vitest version.
+  A registration whose first caller frame is inside `jsdom`, `happy-dom` or `@asamuzakjp/*` is now
+  the environment's and is neither counted nor swept — which also covers the `resize` listener
+  happy-dom's `matchMedia` adds per `change` listener. A `document.querySelectorAll('*')` warm-up
+  placed before `setupAutoSpy()` to work around this can go.
+- **Stray timer and listener reports quote the caller instead of `__VITEST_HELPER__`.** When every
+  frame of a registration was inside dependencies, the first one shown was the `vi.defineHelper`
+  wrapper around the tracker. It is now skipped like the library's own frames.
+
+### Docs
+
+- **`no-redundant-mock-reset` says what it cannot read.** A runner config assembled by a factory or
+  a `mergeConfig` from another module sets `clearMocks` in a file the rule never opens; the docs now
+  say to write the flag beside `configFile`. The Vitest 5 default for a config that leaves it out
+  arrived in 5.35.0.
+
 ## [5.36.0] - 2026-09-26
 
 **Why upgrade.** Eleven entries that crashed on import under `bun:test` load now, and every spec

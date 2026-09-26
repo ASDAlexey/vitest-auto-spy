@@ -202,7 +202,9 @@ setupAutoSpy({ strayListeners: true }); // wrap addEventListener, sweep what the
 
 The split is the one `pruneMockRegistry` uses: a `beforeAll` marks the listeners already on
 `window`/`document` — registered while the module graph was evaluated, a framework's one-time
-initialisation — and the `afterAll` takes off everything added since. The pieces are exported too:
+initialisation — and the `afterAll` takes off everything added since. A registration jsdom or
+happy-dom makes itself (jsdom wires nine focus, keyboard and mouse listeners the first time a
+document is queried) is the environment's: neither counted nor swept. The pieces are exported too:
 `trackStrayListeners()` (idempotent, returns the undo), `baselineStrayListeners()`,
 `removeStrayListeners()` (returns how many), `countStrayListeners()` (throws before
 `trackStrayListeners()` has run, like the timer counter) and `describeStrayListeners()` — each
