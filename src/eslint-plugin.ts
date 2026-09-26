@@ -28,13 +28,25 @@ export type RuleSeverity = 'error' | 'off' | 'warn';
 
 /** A flat-config object: the plugin under its name, plus the rules it turns on. */
 export interface FlatConfig {
-  plugins: Record<string, unknown>;
+  plugins: Record<string, AutoSpyEslintPlugin>;
   rules: Record<string, RuleSeverity>;
+}
+
+/**
+ * One visitor of a published rule. A method signature is bivariant in its parameter, which lets a
+ * visitor typed on its selector's node fit ESLint's `(...args: any[]) => void`.
+ */
+type PluginRuleVisitor = { visit(node: unknown): void }['visit'];
+
+/** A rule as the plugin publishes it: ESLint calls `create`, so no caller needs its context type. */
+export interface PluginRule {
+  meta: RuleModule['meta'];
+  create(context: never): Record<string, PluginRuleVisitor>;
 }
 
 /** The plugin object, as ESLint consumes it. */
 export interface AutoSpyEslintPlugin {
-  rules: Record<string, RuleModule>;
+  rules: Record<string, PluginRule>;
   configs: { recommended: FlatConfig; strict: FlatConfig; typeErrors: FlatConfig };
 }
 
