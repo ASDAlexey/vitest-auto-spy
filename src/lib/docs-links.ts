@@ -73,6 +73,7 @@ export const createSpyFromClassAccessors =
 export const createSpyFromClassInstanceMethods =
   'https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#instancemethodstospyon-—-callables-that-are-not-on-the-prototype';
 export const createSpyFromClassLazySpies = 'https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#lazy-spies-—-lazyspies';
+export const createSpyFromClassLiveDomNode = 'https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#live-dom-node';
 export const createSpyFromClassReturns =
   'https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#returns-—-the-value-where-the-spy-is-built';
 export const mockConstructor = 'https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles#mockconstructor-factory-name';

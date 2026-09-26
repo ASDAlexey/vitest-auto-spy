@@ -130,6 +130,48 @@ function warnOnInstanceMisconfiguration(instance: object, className: string | un
   if (config.gettersToSpyOn.length > 0 || config.settersToSpyOn.length > 0) {
     warnOnAccessorNamingAMethod(label, config, new Set(getCallableMemberNames(instance)));
   }
+
+  if (config.onlyMethodsToSpyOn.length === 0 && looksLikeLiveHostObject(instance)) {
+    warnOnUndiscriminatedHostDiscovery(label);
+  }
+}
+
+/**
+ * Best-effort recognition of a live DOM/BOM object — every environment that has one (a real browser,
+ * jsdom, happy-dom) exposes `Node` and `EventTarget` globally, so this needs no DOM import that would
+ * break the Node and Bun entries. `Node` alone is not enough: happy-dom's `window`, `document` and
+ * XHR are not `instanceof Node`, and are not `instanceof` the realm's own global `EventTarget` either
+ * (a cross-realm identity mismatch in how it wires those globals) — a real browser and jsdom do not
+ * share that gap, so the second check still catches them there. A custom `EventTarget` subclass is a
+ * false positive, and a host object neither check recognizes is a false negative; either way the cost
+ * is only the warning below, never a broken double.
+ */
+function looksLikeLiveHostObject(instance: object): boolean {
+  return (
+    (typeof Node !== 'undefined' && instance instanceof Node) || (typeof EventTarget !== 'undefined' && instance instanceof EventTarget)
+  );
+}
+
+/**
+ * Full prototype discovery on a live host object reaches past its own class into the engine's, and
+ * that half of the chain can carry Symbol-keyed bookkeeping the engine calls on its own — happy-dom's
+ * `Node.prototype[Symbol(clearCache)]`, called from `removeChild`, is the one that surfaces this. A
+ * strict double then refuses the call it never meant to receive, from inside `removeChild`, in
+ * whichever test happens to remove the node next — nowhere near the line that created the spy.
+ * `onlyMethodsToSpyOn` skips discovery entirely, so this only fires without it.
+ */
+function warnOnUndiscriminatedHostDiscovery(label: string): void {
+  reportMisconfiguration(
+    withDocs(
+      `[vitest-auto-spy] ${label}: no onlyMethodsToSpyOn was given for a live DOM/BOM object, so every method the engine ` +
+        "put on its prototype chain gets spied too, not just the class's own. A node still attached to the document can " +
+        'then fail to be removed, or worse, from inside the engine rather than the spec. List the methods the test ' +
+        "actually needs: onlyMethodsToSpyOn: ['addEventListener']. For a single method on a node that must keep living " +
+        "a normal DOM lifecycle, mockValueProp(el, 'addEventListener', vi.fn()) or spyOnVoidMethod(el, 'focus') leaves " +
+        'the rest of the node real.',
+      DOCS_LINKS.createSpyFromClassLiveDomNode,
+    ),
+  );
 }
 
 /**

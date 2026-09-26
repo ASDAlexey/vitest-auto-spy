@@ -8,6 +8,7 @@ import { type Observable, firstValueFrom } from 'rxjs';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createSpyFromInstance, restoreSpiedInstance } from './create-spy-from-instance';
+import { setMisconfigurationReaction } from './misconfiguration';
 import { registerMockAdapter } from './mock-adapter';
 import {
   addObservableHelpersToCalledWithObject,
@@ -335,6 +336,66 @@ describe('createSpyFromInstance — misconfiguration reports', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe('createSpyFromInstance — live DOM/BOM objects', () => {
+  afterEach(() => {
+    setMisconfigurationReaction(undefined);
+  });
+
+  it('warns when discovery runs unrestricted on a live DOM node', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const el = document.createElement('div');
+
+    try {
+      createSpyFromInstance(el);
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'createSpyFromInstance(HTMLDivElement): no onlyMethodsToSpyOn was given for a live DOM/BOM object, so every ' +
+            "method the engine put on its prototype chain gets spied too, not just the class's own.",
+        ),
+      );
+    } finally {
+      restoreSpiedInstance(el);
+      warn.mockRestore();
+    }
+  });
+
+  it('stays quiet when onlyMethodsToSpyOn restricts discovery to the named methods', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const el = document.createElement('div');
+
+    try {
+      createSpyFromInstance(el, { onlyMethodsToSpyOn: ['addEventListener'] });
+
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      restoreSpiedInstance(el);
+      warn.mockRestore();
+    }
+  });
+
+  it('stays quiet for a plain object, which is never a live host object', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      spyOn(new PaymentsClient());
+
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('fails at the call site, before anything is patched, when misconfiguration is set to throw', () => {
+    setMisconfigurationReaction('throw');
+    const el = document.createElement('div');
+    const realAddEventListener = el.addEventListener;
+
+    expect(() => createSpyFromInstance(el)).toThrow('no onlyMethodsToSpyOn was given for a live DOM/BOM object');
+    expect(el.addEventListener).toBe(realAddEventListener);
   });
 });
 
