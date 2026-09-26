@@ -60,6 +60,36 @@ const CROSS_ENTRY = [
     `,
   },
   {
+    name: 'a call site reported from dist names the caller, not the library',
+    entries: ['./node'],
+    body: `
+      const { createSpyFromClass, mockConstructor } = await import(NODE);
+
+      class PaymentService {
+        charge() { return 0; }
+      }
+
+      const Client = mockConstructor(() => ({}), 'Client');
+      let unbound = '';
+      try { Client(); } catch (error) { unbound = String(error.message); }
+      assert(/called without \`new\`, from [^\\n]*\\[eval\\d*\\]:\\d+:\\d+/.test(unbound), 'mockConstructor did not name this module: ' + unbound);
+
+      const payments = createSpyFromClass(PaymentService, { strict: true });
+      let strict = '';
+      try { payments.charge(); } catch (error) { strict = String(error.message); }
+      assert(/Called from [^\\n]*\\[eval\\d*\\]:\\d+:\\d+/.test(strict), 'the strict double did not name this module: ' + strict);
+    `,
+  },
+  {
+    name: '/setup takes no stack probe at import',
+    entries: ['./setup'],
+    body: `
+      const { readFileSync } = await import('node:fs');
+
+      assert(!readFileSync(new URL(SETUP), 'utf8').includes('Error("probe")'), 'dist/setup.js formats a stack at import again');
+    `,
+  },
+  {
     name: 'rxjs helpers reach a double built by the root entry',
     entries: ['./node', './rxjs'],
     body: `
