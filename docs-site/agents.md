@@ -103,8 +103,8 @@ GLM or Kimi running inside it, `GEMINI.md` for the Gemini CLI:
 
 ```md
 When writing or fixing tests that use `vitest-auto-spy`, first read
-`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
-the configuration semantics and the common mistakes.
+`node_modules/vitest-auto-spy/AGENTS.md` whole — a short map — then only the topic files in
+`agent-docs/` it names for the task.
 ```
 
 That file is already on disk in every project that installs the package, so the agent pays no
@@ -157,8 +157,8 @@ cat >> AGENTS.md <<'MD'
 ## Tests that use `vitest-auto-spy`
 
 When writing or fixing tests that use `vitest-auto-spy`, first read
-`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
-the configuration semantics and the common mistakes.
+`node_modules/vitest-auto-spy/AGENTS.md` whole — a short map — then only the topic files in
+`agent-docs/` it names for the task.
 MD
 
 # 2 — CLAUDE.md: Claude Code, and GLM / Kimi running inside it. One line, no second copy to maintain

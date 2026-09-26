@@ -40,6 +40,20 @@ describe('renderBody', () => {
     expect(renderBody(profileWith({ framework: 'none' }))).toContain('createSpyFromClass(Class)`');
   });
 
+  it('points at AGENTS.md as a map over the agent-docs topic files, with the errors lookup', () => {
+    const body = renderBody(profileWith({}));
+
+    expect(body).toContain('`node_modules/vitest-auto-spy/AGENTS.md` whole, then only the `agent-docs/*.md` files it names.');
+    expect(body).toContain("`grep -n -F '<error text>' node_modules/vitest-auto-spy/agent-docs/errors.md`");
+    expect(body).not.toContain('authoritative reference');
+  });
+
+  it('lets the rxjs import live in a module or a .d.ts the setup file loads', () => {
+    expect(renderBody(profileWith({ hasRxjs: true, setupFiles: ['src/test-setup.ts'] }))).toContain(
+      '`src/test-setup.ts` or a module / `.d.ts` it loads. Without it they throw',
+    );
+  });
+
   it('omits the rxjs bullet entirely when rxjs is not installed', () => {
     expect(renderBody(profileWith({ hasRxjs: false }))).not.toContain('vitest-auto-spy/rxjs');
   });

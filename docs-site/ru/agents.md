@@ -107,8 +107,8 @@ npx vitest-auto-spy init
 
 ```md
 When writing or fixing tests that use `vitest-auto-spy`, first read
-`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
-the configuration semantics and the common mistakes.
+`node_modules/vitest-auto-spy/AGENTS.md` whole — a short map — then only the topic files in
+`agent-docs/` it names for the task.
 ```
 
 Этот файл уже лежит на диске в каждом проекте, который поставил пакет, так что агент не платит за
@@ -161,8 +161,8 @@ cat >> AGENTS.md <<'MD'
 ## Tests that use `vitest-auto-spy`
 
 When writing or fixing tests that use `vitest-auto-spy`, first read
-`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
-the configuration semantics and the common mistakes.
+`node_modules/vitest-auto-spy/AGENTS.md` whole — a short map — then only the topic files in
+`agent-docs/` it names for the task.
 MD
 
 # 2 — CLAUDE.md: Claude Code и GLM / Kimi внутри него. Одна строка, вторую копию поддерживать не надо

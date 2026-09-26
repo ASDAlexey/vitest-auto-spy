@@ -43,7 +43,7 @@ function rxjsBullet(profile: Profile, facts: BlockFacts): string | undefined {
 
   const target = facts.setupFile ?? profile.setupFiles[0] ?? 'the test setup file';
 
-  return `- Observable spies (\`nextWith\`, \`observablePropsToSpyOn\`) need \`import 'vitest-auto-spy/rxjs'\` once, in\n  \`${target}\`. Without it they throw "Observable spies require rxjs".`;
+  return `- Observable spies (\`nextWith\`, \`observablePropsToSpyOn\`) need \`import 'vitest-auto-spy/rxjs'\` once, in\n  \`${target}\` or a module / \`.d.ts\` it loads. Without it they throw "Observable spies require rxjs".`;
 }
 
 /**
@@ -58,16 +58,17 @@ function companionsBullet(facts: BlockFacts): string | undefined {
 
   const list = facts.companions.map((entry) => `\`${entry}\``).join(', ');
 
-  return `- Setup helpers also come from ${list}, which since 5.21.0 are separate\n  entries and do not re-export the core.`;
+  return `- Setup helpers also come from ${list}, separate entries since\n  5.21.0 that do not re-export the core.`;
 }
 
 export function renderBody(profile: Profile, facts: BlockFacts = NO_FACTS): string {
   const lines = [
     '## Tests that use `vitest-auto-spy`',
     '',
-    'Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses',
-    '`vitest-auto-spy` — it is the authoritative reference for the API, the configuration semantics',
-    'and the common mistakes. Where it and the code disagree, `dist/*.d.ts` wins.',
+    'For a spec that uses `vitest-auto-spy`, read the short map',
+    '`node_modules/vitest-auto-spy/AGENTS.md` whole, then only the `agent-docs/*.md` files it names.',
+    "On a failure: `grep -n -F '<error text>' node_modules/vitest-auto-spy/agent-docs/errors.md`.",
+    'Where docs and code disagree, `dist/*.d.ts` wins.',
     '',
     `- This repository imports from \`${profile.entry}\`. Each entry registers its mock adapter on`,
     '  import, so the wrong one leaves the wrong adapter installed and the spies fail at runtime.',
@@ -75,8 +76,7 @@ export function renderBody(profile: Profile, facts: BlockFacts = NO_FACTS): stri
     companionsBullet(facts),
     rxjsBullet(profile, facts),
     '- `methodsToSpyOn` **adds** to the auto-discovered prototype methods; the exhaustive whitelist is',
-    '  `onlyMethodsToSpyOn`. For methods that live on the instance rather than the prototype, use',
-    '  `createAutoMock<T>()`.',
+    '  `onlyMethodsToSpyOn`. For methods on the instance, not the prototype, use `createAutoMock<T>()`.',
     '- `Spy<T>` is a mapped type and drops `#private` members, so it is not assignable to `T`. Declare',
     '  the variable as `Spy<T>`, or pass `asInstance(spy)` where the real type is required.',
     '- `npx vitest-auto-spy doctor` reports suite-level defects that never fail a run.',
