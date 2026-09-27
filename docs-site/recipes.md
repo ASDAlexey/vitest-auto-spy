@@ -185,18 +185,19 @@ in every file has declared its variables as `T` instead of `Spy<T>`.
 
 ## ngrx signals
 
-A `signalStore()` puts everything on the **instance**, so prototype discovery finds nothing at all:
+A `signalStore()` puts everything on the **instance**, so prototype discovery cannot see its members.
+A class built on it gets `fillMissing: true` by default, whatever methods its own body declares:
 
 ```ts
-// either name every member you touch…
-provideAutoSpy(TaskStore, { instanceMethodsToSpyOn: ['entities', 'isLoading', 'load'] });
+// every withMethods / withProps member answers with a spy
+provideAutoSpy(TaskStore, { returns: { load: undefined } });
 
 // …or skip the class and mock from the type, which needs no prototype
 const store = createAutoMock<TaskStore>();
 ```
 
-`createAutoMock<T>()` is usually the better trade for a store: every accessed member becomes a spy
-lazily, so nothing has to be listed and the list cannot fall behind the store.
+`createAutoMock<T>()` is the trade when there is no class to hand; for a class, the default above
+already means nothing has to be listed and no list can fall behind the store.
 
 An `rxMethod` is a function with a `destroy` property, which a bare mock does not have — build it
 explicitly, or the component's cleanup throws:

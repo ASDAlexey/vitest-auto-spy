@@ -41,6 +41,13 @@ files (angular-cli#34134), so put the import in one of those. That is the _only_
 `import { Observable, Subject } from 'rxjs'` and load 189 rxjs `.d.ts` files into every consumer's
 program (303 files against 114 without it), `import type` included — TypeScript resolves a type-only import the same way.
 
+Called only to open the stream — a strict double whose prop must be configured before the code
+subscribes — `spy.items$.returnSubject();` as a bare statement trips `rxjs-x/no-floating-observables`:
+the Subject it returns is dropped. Keep it when the spec pushes through it later, typed
+`let items$: SubjectOf<Item[]>` (exported by the root entry and by `/angular`), or write
+`void spy.items$.returnSubject();` when it never does — the rule's default `ignoreVoid: true` accepts
+that.
+
 ```ts
 // argument dispatch — other arguments return undefined
 users.getName.calledWith(1).mockReturnValue('Ada');

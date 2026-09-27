@@ -1348,7 +1348,8 @@ be:
 PR #33961 restores a `splitting` option with splitting **on** by default, so 22.1.7 closes the
 window: upgrade to 22.1.7 or newer and remove any `"splitting": false` from the test target — the
 default is the fix. From 22.2.0 the option is deprecated ("No longer needed with Vitest 5"), still
-defaulting to `true`, so there is nothing to set.
+defaulting to `true`, so there is nothing to set — and a `"splitting"` key left on a target is reported
+by `doctor` as [`angular-build-splitting-deprecated`](/utilities/cli#angular-build-splitting-deprecated).
 
 Neither the doctor nor this page is where the failure is noticed, so
 [`setupAutoSpy()`](/utilities/setup#_13-the-builder-version-that-eats-memory-named-in-the-run) says

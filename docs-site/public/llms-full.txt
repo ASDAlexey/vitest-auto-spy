@@ -5071,18 +5071,19 @@ in every file has declared its variables as `T` instead of `Spy<T>`.
 
 ## ngrx signals
 
-A `signalStore()` puts everything on the **instance**, so prototype discovery finds nothing at all:
+A `signalStore()` puts everything on the **instance**, so prototype discovery cannot see its members.
+A class built on it gets `fillMissing: true` by default, whatever methods its own body declares:
 
 ```ts
-// either name every member you touch…
-provideAutoSpy(TaskStore, { instanceMethodsToSpyOn: ['entities', 'isLoading', 'load'] });
+// every withMethods / withProps member answers with a spy
+provideAutoSpy(TaskStore, { returns: { load: undefined } });
 
 // …or skip the class and mock from the type, which needs no prototype
 const store = createAutoMock<TaskStore>();
 ```
 
-`createAutoMock<T>()` is usually the better trade for a store: every accessed member becomes a spy
-lazily, so nothing has to be listed and the list cannot fall behind the store.
+`createAutoMock<T>()` is the trade when there is no class to hand; for a class, the default above
+already means nothing has to be listed and no list can fall behind the store.
 
 An `rxMethod` is a function with a `destroy` property, which a bare mock does not have — build it
 explicitly, or the component's cleanup throws:
@@ -10404,6 +10405,9 @@ The handle:
 - `pending` — how many requested frames have not run.
 - `flush(timestamp?)` — run every frame requested so far, as one browser frame. The timestamp defaults
   to `performance.now()`. A frame cancelled by an earlier callback of the same flush does not run.
+- `flushAll(timestamp?)` — run frames until none is pending, including frames requested from inside
+  a frame, for code that chains through several. It throws after 1000 rounds: only a loop that never
+  stops requesting its next frame gets there, and that one wants `flush()`, one frame per call.
 - `requestAnimationFrame` / `cancelAnimationFrame` — the installed spies, for
   `expect(frames.cancelAnimationFrame).toHaveBeenCalledWith(handle)`.
 - `restore()` — put the previous globals back and drop what is pending, before the test ends.
@@ -10412,6 +10416,12 @@ The handle:
 waits for the next frame in a browser. An animation loop that requests its own next frame therefore
 advances one step per `flush()`; in `'immediate'` mode the first step runs on the spot and the loop
 does not recurse.
+
+**A handle the stub did not issue goes to the real `cancelAnimationFrame`.** Install the stub after
+a render and a native frame is already pending — zoneless Angular's scheduler races one against a
+timer, and cancels the loser. The stub's handles start far above the small integers jsdom and
+happy-dom hand out, so a cancel for any other handle is passed on to the `cancelAnimationFrame` the
+stub replaced, and that native frame is cancelled rather than left behind as a pending timer.
 
 A callback that throws stops the flush. The frames after it stay pending, and the next `flush()` runs
 them. Pass `onError` to intercept the throw instead — called with whatever the callback threw, in
@@ -15843,6 +15853,29 @@ without an edit: a chained `compileComponents()`, a key `renderShallow` spells d
 configured spy between the calls, a comment the edit would delete, the two-argument
 `createComponent`.
 
+**A component created per test, after the spies are tuned.** When the constructor reads spy state and
+each test tunes the spies first, `renderShallow` cannot sit in `beforeEach` with the tuning after it.
+Render per test instead, and move the `injectSpy` reads — with the defaults and the one test's
+tuning — into `beforeCreate`, which runs after the module is configured and before the constructor:
+
+```ts
+const render = (tune: () => void = () => undefined) =>
+  renderShallow(SlidesComponent, {
+    providers: [provideAutoSpy(StateService)],
+    detectChanges: false,
+    beforeCreate: () => {
+      state = injectSpy(StateService);
+      state.savedUi.mockReturnValue(DEFAULT_UI);
+      tune();
+    },
+  });
+
+it('restores the collapsed layout', () => {
+  const { component } = render(() => state.savedUi.mockReturnValue(COLLAPSED_UI));
+  // …
+});
+```
+
 **Severity.** `warn`, and the only one of the three graded severities that is graded on the _kind_
 of finding rather than on the evidence behind it. Every other rule names something wrong or dead;
 this one names a file that could render more cheaply, which is an architectural choice a suite makes
@@ -17300,6 +17333,15 @@ from 22.1.7, and the fix names the unit-test targets to remove any `"splitting":
 deprecates the option, since Vitest 5 no longer needs it). See
 [what it trades, and the escape hatch](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#when-the-unit-test-build-has-code-splitting-off);
 `setupAutoSpy()` also says this once per worker from inside the affected run.
+
+#### `angular-build-splitting-deprecated`
+
+`@angular/build` 22.2.0 or newer, and a unit-test target — its `options`, a configuration, or an Nx
+target default — that sets `"splitting"`. 22.2.0 marks the option deprecated ("No longer needed with
+Vitest 5"). `true` is its default, so the key changes nothing and the finding is `info`; `false` is
+still honoured and builds every spec as a self-contained bundle, the memory cost
+[`angular-build-splitting-off`](#angular-build-splitting-off) describes, so it is a `warning`. The
+fix names the target to remove the key from.
 
 #### `analog-behind-angular-build`
 
@@ -20267,7 +20309,8 @@ be:
 PR #33961 restores a `splitting` option with splitting **on** by default, so 22.1.7 closes the
 window: upgrade to 22.1.7 or newer and remove any `"splitting": false` from the test target — the
 default is the fix. From 22.2.0 the option is deprecated ("No longer needed with Vitest 5"), still
-defaulting to `true`, so there is nothing to set.
+defaulting to `true`, so there is nothing to set — and a `"splitting"` key left on a target is reported
+by `doctor` as [`angular-build-splitting-deprecated`](https://asdalexey.github.io/vitest-auto-spy/utilities/cli#angular-build-splitting-deprecated).
 
 Neither the doctor nor this page is where the failure is noticed, so
 [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_13-the-builder-version-that-eats-memory-named-in-the-run) says

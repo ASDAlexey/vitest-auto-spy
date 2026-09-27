@@ -533,6 +533,47 @@ describe('fillMissing', () => {
     expect(String(storage)).toBe('[object Object]');
     expect(Object.keys(storage)).not.toContain('toString');
   });
+
+  describe('on a class built on an ngrx signalStore()', () => {
+    // The shape `signalStore()` returns: a class named `SignalStore` with its own injectable def,
+    // assigning every withMethods member in the constructor.
+    function signalStore(): new () => { toggle(id: string): void } {
+      return class SignalStore {
+        static ɵprov = {};
+
+        toggle!: (id: string) => void;
+      };
+    }
+
+    class LayersStore extends signalStore() {
+      reset(): void {}
+    }
+
+    it('answers the members the store assigns on the instance, with a class method beside them', () => {
+      const store = createSpyFromClass(LayersStore, { returns: { toggle: undefined } });
+
+      store.toggle('a');
+
+      expect(store.toggle).toHaveBeenCalledWith('a');
+      expect(store.reset).toBeTypeOf('function');
+    });
+
+    it('keeps an explicit fillMissing: false', () => {
+      const store = createSpyFromClass(LayersStore, { fillMissing: false });
+
+      expect(store.toggle).toBeUndefined();
+    });
+
+    it('leaves a class that only shares the name alone', () => {
+      class SignalStore {
+        toggle!: (id: string) => void;
+
+        reset(): void {}
+      }
+
+      expect(createSpyFromClass(SignalStore).toggle).toBeUndefined();
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

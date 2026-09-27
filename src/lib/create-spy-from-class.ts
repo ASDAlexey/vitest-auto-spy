@@ -36,7 +36,8 @@ export interface ResolvedSpyConfiguration {
   settersToSpyOn: string[];
   gettersToSpyOn: string[];
   autoSpyAccessors: boolean;
-  fillMissing: boolean;
+  /** `undefined` when nothing set it, so an ngrx `signalStore()` class can default it on — see {@link isSignalStoreClass}. */
+  fillMissing: boolean | undefined;
   lazySpies: boolean | 'proxy';
   returns: Record<string, unknown>;
   selfReturning: string[];
@@ -60,7 +61,7 @@ const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
   settersToSpyOn: [],
   gettersToSpyOn: [],
   autoSpyAccessors: false,
-  fillMissing: false,
+  fillMissing: undefined,
   lazySpies: true,
   returns: {},
   selfReturning: [],
@@ -584,7 +585,7 @@ export function resolveConfiguration<T>(
     settersToSpyOn: methodsToSpyOnOrConfig.settersToSpyOn ?? [],
     gettersToSpyOn: methodsToSpyOnOrConfig.gettersToSpyOn ?? [],
     autoSpyAccessors: methodsToSpyOnOrConfig.autoSpyAccessors ?? false,
-    fillMissing: methodsToSpyOnOrConfig.fillMissing ?? false,
+    fillMissing: methodsToSpyOnOrConfig.fillMissing,
     lazySpies: methodsToSpyOnOrConfig.lazySpies ?? true,
     returns: methodsToSpyOnOrConfig.returns ?? {},
     selfReturning: methodsToSpyOnOrConfig.selfReturning ?? [],
@@ -614,9 +615,9 @@ export function resolveConfiguration<T>(
  *
  * @remarks
  * Discovery walks the **prototype chain**, so a callable assigned in the constructor is invisible to
- * it: an arrow-function property, an Angular `signal()` field, and every method of an ngrx
- * `signalStore()`, which live on the instance. Name those in `instanceMethodsToSpyOn` — or build the
- * double from the type instead, with `createAutoMock<T>()`, which reads no prototype at all.
+ * it: an arrow-function property, an Angular `signal()` field. Name those in `instanceMethodsToSpyOn`
+ * — or build the double from the type instead, with `createAutoMock<T>()`, which reads no prototype
+ * at all. A class built on an ngrx `signalStore()` gets `fillMissing: true` by default.
  */
 export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   ObjectClass: ClassType<T>,
@@ -782,7 +783,27 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   // `autoSpy` is assembled key-by-key from the runtime method/accessor names;
   // its concrete `Spy<T>` shape only exists structurally after assembly.
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the spy object is built dynamically from runtime-discovered names; its `Spy<T>` shape cannot be expressed before assembly.
-  return (config.fillMissing ? fillMissingMembers(assembled, unstubbed) : assembled) as Spy<T, Options>;
+  return (fillsMissing(ObjectClass, config) ? fillMissingMembers(assembled, unstubbed) : assembled) as Spy<T, Options>;
+}
+
+function fillsMissing(ObjectClass: ClassType<unknown>, config: ResolvedSpyConfiguration): boolean {
+  return config.fillMissing ?? isSignalStoreClass(ObjectClass);
+}
+
+/**
+ * A class built on ngrx `signalStore()` carries every `withMethods` / `withProps` member on the
+ * instance, so prototype discovery sees only what the subclass body declares. The empty-prototype
+ * fallback covered a store with no body and dropped every store member once one method was added.
+ * Matched by the base class ngrx generates: named `SignalStore`, with its own Angular injectable def.
+ */
+function isSignalStoreClass(ObjectClass: ClassType<unknown>): boolean {
+  for (let current: unknown = ObjectClass; typeof current === 'function'; current = Object.getPrototypeOf(current)) {
+    if (current.name === 'SignalStore' && Object.hasOwn(current, 'ɵprov')) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**

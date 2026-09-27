@@ -945,9 +945,11 @@ the code does read the ref (it calls `destroy`), seed one from the method's own 
 export `RxMethodRef`: `returns: { load: createAutoMock<ReturnType<Store['load']>>() }`.
 
 A `signalStore()` class keeps its methods and `rxMethod`s on the instance, not the prototype, so
-discovery finds none of them. `provideAutoSpy(Store, { fillMissing: true, returns: { … } })` answers
-every such member with a spy — `returns` and `strict` apply to them as to any method — instead of a
-long `instanceMethodsToSpyOn` list.
+discovery finds none of them. A class whose chain reaches the `SignalStore` base ngrx generates gets
+`fillMissing: true` by default, so `provideAutoSpy(Store, { returns: { … } })` answers every such
+member with a spy — `returns` and `strict` apply to them as to any method — whether or not the class
+body still declares methods of its own; no `instanceMethodsToSpyOn` list, no `fillMissing` to write.
+`fillMissing: false` turns it off for one store.
 
 ```ts
 // shallow rendering — configureTestingModule + NO_ERRORS_SCHEMA + overrideComponent, in one call
@@ -958,6 +960,20 @@ const { fixture, component } = renderShallow(TaskListComponent, {
 // other options: imports, keepTemplate, keepModules, keepChildren, keepHostDirectives, template, beforeCreate, detectChanges
 // COVERAGE: the override recompiles the component under JIT for the rest of the file (keepTemplate too),
 // so its AOT template/host branches leave coverage — keep one real TestBed render first where they matter
+
+// the component reads spies in its constructor and each test tunes them first: render per test, and
+// do the injectSpy() reads plus the tuning in beforeCreate — after configure, before the constructor
+const render = (tune: () => void = () => undefined) =>
+  renderShallow(SlidesComponent, {
+    providers: [provideAutoSpy(StateService)],
+    detectChanges: false,
+    beforeCreate: () => {
+      state = injectSpy(StateService);
+      state.savedUi.mockReturnValue(DEFAULT_UI); // the defaults beforeEach used to set
+      tune();
+    },
+  });
+const { component } = render(() => state.savedUi.mockReturnValue(COLLAPSED_UI));
 
 // change an input after the first render — one setInput per key, then the wait, in one await
 await setInputs(fixture, { projectId: 7 }); // a name the component does not declare is refused here

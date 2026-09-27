@@ -64,8 +64,9 @@ _something_, and that something would be truthy: `if (service.optionalThing)` in
 would then take the wrong branch, silently, which is the exact failure mode the protocol deny-list
 in §2 exists to remove. A loud `TypeError` on the spec's own line is the better of the two.
 
-For an ngrx `signalStore()`, prefer `createAutoMock<T>()` over listing every member: it mocks from
-the type, needs no prototype, and the list cannot fall behind the store. Its **signal** members want
+For an ngrx `signalStore()` class, list nothing: a class built on the `SignalStore` base ngrx
+generates gets `fillMissing: true` by default, so every instance member answers with a spy.
+`createAutoMock<T>()` stays the answer when there is no class to hand. Its **signal** members want
 `mockSignalProp`, not a method spy — a store's state is read during the first render, so a method spy
 there answers `undefined` to the template.
 

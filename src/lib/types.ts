@@ -1012,6 +1012,9 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
    * one are indistinguishable, and filling every unknown key by default would silence a genuine
    * typo on every class in the suite. Naming the members in {@link instanceMethodsToSpyOn} stays the
    * alternative when the list is short and worth stating.
+   *
+   * The one default: a class built on an ngrx `signalStore()` gets it on, since its `withMethods` /
+   * `withProps` members live on the instance whatever its own body declares. `false` turns it off.
    */
   fillMissing?: boolean;
   /**
