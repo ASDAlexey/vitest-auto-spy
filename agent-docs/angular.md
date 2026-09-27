@@ -472,10 +472,30 @@ resource's **default** value and passes.
 
 | Call | Does |
 | --- | --- |
-| `provideHttpTesting(opts?)` | `provideHttpClient()` + `provideHttpClientTesting()`; `{ verifyOnTeardown }` defaults to `true`, and takes `{ ignoreCancelled }` instead of `false` |
+| `provideHttpTesting(opts?)` | `provideHttpClient(...features)` + `provideHttpClientTesting()`; `{ verifyOnTeardown }` defaults to `true`, and takes `{ ignoreCancelled }` instead of `false`; `{ interceptors: [fn] }` for functional interceptors under test, `{ features: [...] }` for any other `provideHttpClient()` feature |
 | `expectRequest(matcher, opts?)` | tick, then the one match — `.request`, `.flush(body, opts?)`, `.error(status, opts?)` |
 | `expectNoRequest(matcher?, opts?)` | tick, then assert nothing matched; no argument means "nothing at all was requested" |
 | `verifyNoPendingRequests(opts?)` | the teardown check by hand, for mid-test use or a suite with `verifyOnTeardown: false`; `{ ignoreCancelled: true }` forgives a request the code under test unsubscribed from |
+
+An interceptor under test goes into the same call, and the teardown check stays armed — do not
+hand-write `provideHttpClient(withInterceptors([...]))` + `provideHttpClientTesting()` +
+`afterEach(verifyNoPendingRequests)`:
+
+```ts
+TestBed.configureTestingModule({
+  providers: [...provideHttpTesting({ interceptors: [authInterceptor], features: [withInterceptorsFromDi()] })],
+});
+
+TestBed.inject(HttpClient).get('/api/me').subscribe();
+const pending = expectRequest('/api/me'); // the request as the interceptors sent it
+
+expect(pending.request.headers.get('Authorization')).toBe('Bearer token');
+await pending.error(401); // the subscriber sees the error the interceptor mapped
+```
+
+`interceptors` run in array order, before any from `features`. Every feature goes into one
+`provideHttpClient()` call, so Angular's own conflict checks still fire, and the testing backend is
+provided after it, so it wins over `withXhr()`.
 
 `matcher` is a URL (matched against either `url` or `urlWithParams`), a `RegExp` over
 `urlWithParams`, or a predicate `(request) => boolean`. `{ method }` is case-insensitive.

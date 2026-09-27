@@ -29,7 +29,14 @@
  * take the open requests with `match(() => true)`, which is one-shot, so whichever looks first
  * owns them and one unanswered request is never reported twice.
  */
-import { type HttpRequest, provideHttpClient } from '@angular/common/http';
+import {
+  type HttpFeature,
+  type HttpFeatureKind,
+  type HttpInterceptorFn,
+  type HttpRequest,
+  provideHttpClient,
+  withInterceptors,
+} from '@angular/common/http';
 import { HttpTestingController, type TestRequest, provideHttpClientTesting } from '@angular/common/http/testing';
 import { type EnvironmentProviders, type Provider, provideEnvironmentInitializer } from '@angular/core';
 import { TestBed, getTestBed } from '@angular/core/testing';
@@ -68,6 +75,17 @@ export interface HttpTestingOptions {
    * test cancelled, by unsubscribing, no longer fails the test.
    */
   verifyOnTeardown?: boolean | { ignoreCancelled?: boolean };
+  /**
+   * Functional interceptors under test — `withInterceptors(interceptors)`, in the same
+   * `provideHttpClient()` call, so every request `expectRequest` sees has been through them.
+   * They run before any interceptor from `features`.
+   */
+  interceptors?: readonly HttpInterceptorFn[];
+  /**
+   * Any other `provideHttpClient()` feature — `withInterceptorsFromDi()`, `withXsrfConfiguration()`,
+   * `withJsonpSupport()` — passed through to that one call, where Angular checks them against each other.
+   */
+  features?: readonly HttpFeature<HttpFeatureKind>[];
 }
 
 /** The body types `TestRequest#flush` takes, read off Angular rather than restated here. */
@@ -185,17 +203,19 @@ function armVerification(ignoreCancelled: boolean): void {
  *
  * ```ts
  * TestBed.configureTestingModule({ providers: [...provideHttpTesting(), provideAutoSpy(Analytics)] });
+ * TestBed.configureTestingModule({ providers: [...provideHttpTesting({ interceptors: [authInterceptor] })] });
  * ```
  *
- * It is `provideHttpClient()` + `provideHttpClientTesting()`, plus — unless `verifyOnTeardown` is
- * `false` — the environment initializer that arms the end-of-test check: a suite whose interceptors
- * are the thing under test keeps its own `provideHttpClient(withInterceptors([…]))` and adds
- * `provideHttpClientTesting()` after it.
+ * It is `provideHttpClient(...features)` + `provideHttpClientTesting()`, in the order Angular
+ * requires, plus — unless `verifyOnTeardown` is `false` — the environment initializer that arms the
+ * end-of-test check. `interceptors` and `features` go into that one `provideHttpClient()` call, so a
+ * suite testing an interceptor keeps the check too.
  */
 export function provideHttpTesting(options: HttpTestingOptions = {}): (EnvironmentProviders | Provider)[] {
   assertAngularInternals();
 
-  const providers = [provideHttpClient(), provideHttpClientTesting()];
+  const features = options.interceptors === undefined ? [] : [withInterceptors([...options.interceptors])];
+  const providers = [provideHttpClient(...features, ...(options.features ?? [])), provideHttpClientTesting()];
   const verify = options.verifyOnTeardown;
 
   if (verify === false) {

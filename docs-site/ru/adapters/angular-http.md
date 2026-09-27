@@ -41,10 +41,51 @@ TestBed.configureTestingModule({
 });
 ```
 
-Это `provideHttpClient()` + `provideHttpClientTesting()` одним спредом и намеренно ничего сверх
-того. Сюита, в которой под тестом находятся сами интерцепторы, оставляет свой
-`provideHttpClient(withInterceptors([...]))` и добавляет `provideHttpClientTesting()` после него —
-этот хелпер про случай, которым является любая другая спека.
+Это `provideHttpClient(...features)` + `provideHttpClientTesting()` одним спредом, в том порядке,
+которого требует Angular, плюс — если `verifyOnTeardown` не `false` — environment initializer,
+который взводит проверку в конце теста. Модуль, собранный без него, на teardown не проверяется.
+
+### `interceptors` и `features` {#interceptors-and-features}
+
+Сюита, в которой под тестом находится интерцептор, передаёт его сюда, а не пишет свои
+`provideHttpClient(withInterceptors([...]))` + `provideHttpClientTesting()` — раньше это стоило ей
+проверки на teardown и `afterEach(() => verifyNoPendingRequests())`, написанного руками:
+
+```ts
+import { HttpClient, type HttpInterceptorFn } from '@angular/common/http';
+
+const authInterceptor: HttpInterceptorFn = (request, next) => next(request.clone({ setHeaders: { Authorization: 'Bearer token' } }));
+
+TestBed.configureTestingModule({ providers: [...provideHttpTesting({ interceptors: [authInterceptor] })] });
+
+TestBed.inject(HttpClient).get('/api/me').subscribe();
+
+const pending = expectRequest('/api/me');
+
+expect(pending.request.headers.get('Authorization')).toBe('Bearer token'); // as the interceptor sent it
+await pending.flush({ id: 1 });
+```
+
+`expectRequest` видит запрос после всех интерцепторов: заголовок, который один из них добавил, лежит
+в `request.headers`, а URL, который он переписал, и есть тот, что надо матчить. `error(status)` тоже
+проходит обратно через них, так что подписчик получает ту ошибку, в которую интерцептор превратил
+статус.
+
+`features` принимает любую другую фичу `provideHttpClient()` — `withInterceptorsFromDi()` для
+интерцептора-класса, `withXsrfConfiguration()`, `withJsonpSupport()`:
+
+```ts
+providers: [
+  ...provideHttpTesting({ interceptors: [authInterceptor], features: [withInterceptorsFromDi()] }),
+  { provide: HTTP_INTERCEPTORS, useClass: LegacyInterceptor, multi: true },
+],
+```
+
+| Правило                            | Почему                                                                                                                                |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Один вызов `provideHttpClient()`   | `interceptors` становится `withInterceptors(interceptors)` в том же вызове, что и `features`, и проверки конфликтов Angular видят всё |
+| `interceptors` раньше `features`   | они выполняются в порядке массива, затем интерцепторы из `features` — в своём                                                         |
+| `provideHttpClientTesting()` после | тестовый бэкенд заменяет настоящий, так что `withXhr()` в `features` всё равно не уходит в сеть                                       |
 
 ### `verifyOnTeardown` {#verifyonteardown}
 

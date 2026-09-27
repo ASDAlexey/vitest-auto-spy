@@ -41,11 +41,50 @@ TestBed.configureTestingModule({
 });
 ```
 
-It is `provideHttpClient()` + `provideHttpClientTesting()` in one spread, plus — unless
-`verifyOnTeardown` is `false` — the environment initializer that arms the end-of-test check. A suite
-whose interceptors are the thing under test keeps its own `provideHttpClient(withInterceptors([...]))`
-and adds `provideHttpClientTesting()` after it — this helper is for the case that is every other
-spec, and a module built without it is not checked on teardown.
+It is `provideHttpClient(...features)` + `provideHttpClientTesting()` in one spread, in the order
+Angular requires, plus — unless `verifyOnTeardown` is `false` — the environment initializer that arms
+the end-of-test check. A module built without it is not checked on teardown.
+
+### `interceptors` and `features`
+
+A suite whose interceptor is the thing under test passes it here instead of writing its own
+`provideHttpClient(withInterceptors([...]))` + `provideHttpClientTesting()` — which used to cost it
+the teardown check and an `afterEach(() => verifyNoPendingRequests())` written by hand:
+
+```ts
+import { HttpClient, type HttpInterceptorFn } from '@angular/common/http';
+
+const authInterceptor: HttpInterceptorFn = (request, next) => next(request.clone({ setHeaders: { Authorization: 'Bearer token' } }));
+
+TestBed.configureTestingModule({ providers: [...provideHttpTesting({ interceptors: [authInterceptor] })] });
+
+TestBed.inject(HttpClient).get('/api/me').subscribe();
+
+const pending = expectRequest('/api/me');
+
+expect(pending.request.headers.get('Authorization')).toBe('Bearer token'); // as the interceptor sent it
+await pending.flush({ id: 1 });
+```
+
+`expectRequest` sees the request after every interceptor has run: a header one added is on
+`request.headers`, and a URL one rewrote is the URL to match. `error(status)` goes back through them
+too, so the subscriber receives whatever error an interceptor mapped the status to.
+
+`features` takes any other `provideHttpClient()` feature — `withInterceptorsFromDi()` for a class
+interceptor, `withXsrfConfiguration()`, `withJsonpSupport()`:
+
+```ts
+providers: [
+  ...provideHttpTesting({ interceptors: [authInterceptor], features: [withInterceptorsFromDi()] }),
+  { provide: HTTP_INTERCEPTORS, useClass: LegacyInterceptor, multi: true },
+],
+```
+
+| Rule                               | Why                                                                                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| One `provideHttpClient()` call     | `interceptors` becomes `withInterceptors(interceptors)` in the same call as `features`, so Angular's conflict checks see all of them |
+| `interceptors` before `features`   | they run in array order, then the interceptors `features` brings, in theirs                                                          |
+| `provideHttpClientTesting()` after | the testing backend replaces the real one, so a `withXhr()` in `features` still never reaches the network                            |
 
 ### `verifyOnTeardown`
 
