@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.42.0] - 2026-09-27
+
 ### Added
 
 - **`npx vitest-auto-spy ng-test` — sharding and changed-only runs under the Angular unit-test
@@ -8922,7 +8924,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.41.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.42.0...HEAD
+[5.42.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.41.0...v5.42.0
 [5.41.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.40.1...v5.41.0
 [5.40.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.40.0...v5.40.1
 [5.40.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.39.0...v5.40.0
