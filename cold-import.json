@@ -116,7 +116,7 @@
     }
   },
   "released": {
-    "version": "5.40.0",
+    "version": "5.40.1",
     "entries": {
       ".": {
         "modules": 2,
@@ -128,35 +128,35 @@
       },
       "./angular-http": {
         "modules": 8,
-        "bytes": 30784
+        "bytes": 30900
       },
       "./angular-router": {
         "modules": 9,
-        "bytes": 87799
+        "bytes": 87833
       },
       "./angular/diagnostics": {
         "modules": 14,
-        "bytes": 140080
+        "bytes": 140114
       },
       "./angular/doubles": {
         "modules": 14,
-        "bytes": 96397
+        "bytes": 96431
       },
       "./angular/matchers": {
         "modules": 4,
-        "bytes": 18929
+        "bytes": 19972
       },
       "./bun": {
         "modules": 15,
-        "bytes": 173593
+        "bytes": 173627
       },
       "./bun-angular": {
         "modules": 19,
-        "bytes": 211144
+        "bytes": 211178
       },
       "./console": {
         "modules": 13,
-        "bytes": 92085
+        "bytes": 92119
       },
       "./diagnostics": {
         "modules": 2,
@@ -172,7 +172,7 @@
       },
       "./jasmine": {
         "modules": 15,
-        "bytes": 144482
+        "bytes": 144516
       },
       "./jasmine-compat": {
         "modules": 5,
@@ -180,7 +180,7 @@
       },
       "./nestjs": {
         "modules": 15,
-        "bytes": 135467
+        "bytes": 135501
       },
       "./node": {
         "modules": 2,
@@ -200,7 +200,7 @@
       },
       "./rstest": {
         "modules": 15,
-        "bytes": 189673
+        "bytes": 189707
       },
       "./rxjs": {
         "modules": 6,
