@@ -92,7 +92,9 @@ error as `cause`; one scheduled outside a test fails the file at the sweep. The 
 it is still installed (`globalFakeTimers` is); a rethrow `config.onUnhandledError` takes reports
 nothing. Fix it where the stream is subscribed — an error callback or `catchError` — or assert the
 error. `flushUnhandledObservableErrors()` is the same check by hand: it returns `{ error, test }` (or
-`{ error, outsideTest }`) for each rethrow that threw.
+`{ error, outsideTest }`) for each rethrow that threw; assert the errors alone with
+`expect(flushUnhandledObservableErrors()).toMatchObject([{ error: new Error('502') }])` — it checks the
+count and ignores `test`, with no `.map(({ error }) => error)`.
 
 **`countStrayTimers()` cannot see a timer scheduled under fake timers, and that does not compose
 away.** `vi.useFakeTimers()` assigns its own `setTimeout` over the tracking wrapper, so everything
@@ -768,6 +770,8 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_16-console-ou
 - **Pin everything a test logged in one assertion:** `consoleOutput()` from `/console` returns
   `{ error?, warn?, info?, log?, debug?, trace? }`, each the argument lists of its calls, only the
   channels written to — `expect(consoleOutput()).toStrictEqual({ info: [['done']] })`; `{}` is silence.
+  "Only these channels, whatever they said" is `expect(Object.keys(consoleOutput())).toStrictEqual(['info'])`
+  (keys in alphabetical order), which `no-unsafe-assignment` accepts where `{ info: expect.any(Array) }` does not.
   It throws while no spy is on `console`, so it never reports silence it did not hear.
 - The wrapper forwards every call unchanged, so Vitest's attribution and `onConsoleLog` still work.
   `guardStrayConsole(reaction)` registers the same guard on its own.

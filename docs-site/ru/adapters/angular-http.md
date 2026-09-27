@@ -185,10 +185,30 @@ await expectRequest((request) => request.body?.id === 7).flush({}); // по че
 | ------------------------- | ------------------------------------------------------------------------------------------- |
 | `request`                 | `HttpRequest` в том виде, в каком его отправил код под тестом — URL, метод, заголовки, тело |
 | `flush(body, options?)`   | ответить и досчитать; `options` — это `{ headers, status, statusText }`                     |
-| `error(status, options?)` | уронить со статусом и досчитать так же; `options` — это `{ headers, statusText }`           |
+| `error(status, options?)` | уронить со статусом и досчитать так же; `options` — это `{ headers, statusText, error }`    |
 
 `flush()` и `error()` — `async`, потому что досчёт требует дать пройти микротаске, а синхронный
 вызов этого не умеет. Пишите `await`, и следующая строка читает уже досчитанное значение.
+
+`error(0)` — сетевой сбой: до клиента не дошёл никакой ответ, как при упавшем сервере или
+заблокированном запросе. `{ error }` — то, что окажется в `HttpErrorResponse.error`; по умолчанию
+`new ProgressEvent('error')`, если спека не передала своё:
+
+```ts
+const offline = new ProgressEvent('error');
+let failure: HttpErrorResponse | undefined;
+
+http.get('/api/products').subscribe({ error: (error: HttpErrorResponse) => (failure = error) });
+await expectRequest('/api/products').error(0, { error: offline });
+
+expect(failure?.error).toBe(offline);
+```
+
+`{ tick: false }` пропускает tick перед поиском и после ответа. Это для модуля со своим частичным
+`DOCUMENT`: во время tick Angular читает члены настоящего документа, и tick падает с
+`inject(...).body?.querySelector is not a function` — `expectRequest` сообщает об этом как о
+подменённом `DOCUMENT`. Без tick `httpResource()` ничего не отправляет, так что опция подходит для
+вызова `HttpClient`, чей запрос уже ушёл; `expectNoRequest` принимает ту же опцию.
 
 ```ts
 const created = expectRequest('/api/products', { method: 'POST' });
@@ -225,6 +245,21 @@ verifyNoPendingRequests({ ignoreCancelled: true }); // …кроме того, �
 называет начиная с Angular 5.
 
 Ничего не делает, если тест вообще не настраивал HTTP-тестирование.
+
+## `injectHttpTesting()` {#injecthttptesting}
+
+`HttpTestingController`, который поставил `provideHttpTesting()`, — для сервиса, возвращающего
+Observable: запрос уже ушёл, когда метод сервиса вернул управление, дожидаться нечего, и `expectOne` /
+`match` / `expectNone` отвечают синхронно.
+
+```ts
+service.load().subscribe((items) => received.push(items));
+injectHttpTesting().expectOne('/api/items').flush([]);
+```
+
+Проверка из teardown остаётся включённой. Без `provideHttpTesting()` бросает то же сообщение
+`this TestBed has no HttpTestingController`, что и `expectRequest`, а не ошибку о провайдере токена,
+который спека не называла.
 
 ## Что говорит каждое падение {#what-each-failure-says}
 

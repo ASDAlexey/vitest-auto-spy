@@ -261,7 +261,8 @@ is installed when it runs — `globalFakeTimers` qualifies; a spec whose own `af
 `vi.useRealTimers()` has discarded the timer by then. A rethrow that `config.onUnhandledError` takes
 reports nothing, as rxjs would. `flushUnhandledObservableErrors()` is the same check by hand: it runs
 the pending rethrows and returns `{ error, test }` for each that threw — `{ error, outsideTest }` for
-one scheduled outside a test.
+one scheduled outside a test. To assert the errors alone, compare with `toMatchObject`, which checks
+the count and ignores `test`: `expect(flushUnhandledObservableErrors()).toMatchObject([{ error: new Error('502') }])`.
 
 ### With Vitest 4.1's `--detect-async-leaks`
 

@@ -478,6 +478,7 @@ resource's **default** value and passes.
 | `provideHttpTesting(opts?)` | `provideHttpClient(...features)` + `provideHttpClientTesting()`; `{ verifyOnTeardown }` defaults to `true`, and takes `{ ignoreCancelled }` instead of `false`; `{ interceptors: [fn] }` for functional interceptors under test, `{ features: [...] }` for any other `provideHttpClient()` feature |
 | `expectRequest(matcher, opts?)` | tick, then the one match — `.request`, `.flush(body, opts?)`, `.error(status, opts?)` |
 | `expectNoRequest(matcher?, opts?)` | tick, then assert nothing matched; no argument means "nothing at all was requested" |
+| `injectHttpTesting()` | the `HttpTestingController` itself, for a synchronous `expectOne` / `match` / `expectNone` on an Observable service — no tick needed; throws the same missing-providers message |
 | `verifyNoPendingRequests(opts?)` | the teardown check by hand, for mid-test use or a suite with `verifyOnTeardown: false`; `{ ignoreCancelled: true }` forgives a request the code under test unsubscribed from |
 
 An interceptor under test goes into the same call, and the teardown check stays armed — do not
@@ -506,6 +507,10 @@ provided after it, so it wins over `withXhr()`.
 
 `matcher` is a URL (matched against either `url` or `urlWithParams`), a `RegExp` over
 `urlWithParams`, or a predicate `(request) => boolean`. `{ method }` is case-insensitive.
+`.error(0)` is a network failure; `.error(status, { error })` sets the payload `HttpErrorResponse.error`
+carries (default `new ProgressEvent('error')`). A module that provides a partial `DOCUMENT` double
+fails Angular's tick (`inject(...).body?.querySelector is not a function`, reported as a doubled
+`DOCUMENT`): pass `{ tick: false }` to `expectRequest` / `expectNoRequest` when the request is already out.
 `flush()` and `error()` are `async` because settling requires letting a microtask run — `await` them,
 and the next line reads the settled value.
 

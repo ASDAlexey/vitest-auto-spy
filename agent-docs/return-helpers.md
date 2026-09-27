@@ -29,7 +29,7 @@ produce `nextWith is not a function` with nothing pointing at the duplicate. `Pr
 
 `returnSubject()` and `nextWithPerCall()` return `SubjectOf<T>` — rxjs's own `Subject<T>` wherever
 `import 'vitest-auto-spy/rxjs'` is in the TypeScript program, the structural `SubjectLike<T>`
-(`next` / `error` / `complete` / `asObservable` / `closed`) where it is not. The switch is one
+(`next` / `error` / `complete` / `unsubscribe` / `asObservable` / `closed`) where it is not. The switch is one
 augmentable interface, `AutoSpyRxjsTypes<T>`, which `/rxjs` fills in with `subject: Subject<T>`;
 augment it yourself only to plug in a different subject type. If
 `const s: Subject<T> = spy.m.returnSubject()` fails to compile, the import is missing from the
@@ -47,6 +47,10 @@ the Subject it returns is dropped. Keep it when the spec pushes through it later
 `let items$: SubjectOf<Item[]>` (exported by the root entry and by `/angular`), or write
 `void spy.items$.returnSubject();` when it never does — the rule's default `ignoreVoid: true` accepts
 that.
+
+`SubjectOf` is rxjs's `Subject` only where `import 'vitest-auto-spy/rxjs'` is in the program — the
+`/angular` export does not add it. Without it the variable is `SubjectLike`: `next` / `error` /
+`complete` compile, `pipe()` or an argument typed `Subject<T>` does not.
 
 ```ts
 // argument dispatch — other arguments return undefined

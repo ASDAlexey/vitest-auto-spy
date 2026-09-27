@@ -39,6 +39,10 @@ jsdom и happy-dom ничего не раскладывают и планиру�
 Что есть у хэндла:
 
 - `pending` — сколько запрошенных кадров ещё не выполнено.
+- `lastHandle` — хэндл, который вернул последний вызов `requestAnimationFrame`, `undefined` до
+  первого. Хэндлы начинаются выше 2^30 (см. ниже), поэтому отмену проверяйте по нему —
+  `expect(frames.cancelAnimationFrame).toHaveBeenLastCalledWith(frames.lastHandle)`, — а не по
+  литералу вроде `1`.
 - `flush(timestamp?)` — выполнить все запрошенные к этому моменту кадры как один кадр браузера. Метка
   времени по умолчанию — `performance.now()`. Кадр, отменённый более ранним колбэком того же `flush`,
   не выполняется.
@@ -47,7 +51,8 @@ jsdom и happy-dom ничего не раскладывают и планиру�
   туда доходит только цикл, который никогда не перестаёт запрашивать следующий кадр, а ему нужен
   `flush()`, по кадру за вызов.
 - `requestAnimationFrame` / `cancelAnimationFrame` — установленные спаи, для
-  `expect(frames.cancelAnimationFrame).toHaveBeenCalledWith(handle)`.
+  `expect(frames.cancelAnimationFrame).toHaveBeenCalledWith(handle)`. Типизированы как
+  `Mock<RequestAnimationFrameFn>` / `Mock<CancelAnimationFrameFn>`, так что `.mock.calls` читается типизированно.
 - `restore()` — вернуть прежние глобалы и выбросить ожидающие кадры до конца теста.
 
 **Кадр, запрошенный изнутри выполняющегося кадра, ждёт следующего `flush()`** в обоих режимах — так

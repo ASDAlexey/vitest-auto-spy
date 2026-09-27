@@ -176,14 +176,34 @@ It **ticks before it looks**, which is the step that makes an `httpResource()` t
 
 What comes back is small on purpose:
 
-| Member                    | What it does                                                                            |
-| ------------------------- | --------------------------------------------------------------------------------------- |
-| `request`                 | the `HttpRequest` as the code under test sent it — URL, method, headers, body           |
-| `flush(body, options?)`   | answer it, then settle; `options` is `{ headers, status, statusText }`                  |
-| `error(status, options?)` | fail it with a status, then settle the same way; `options` is `{ headers, statusText }` |
+| Member                    | What it does                                                                                   |
+| ------------------------- | ---------------------------------------------------------------------------------------------- |
+| `request`                 | the `HttpRequest` as the code under test sent it — URL, method, headers, body                  |
+| `flush(body, options?)`   | answer it, then settle; `options` is `{ headers, status, statusText }`                         |
+| `error(status, options?)` | fail it with a status, then settle the same way; `options` is `{ headers, statusText, error }` |
 
 `flush()` and `error()` are `async` because settling requires letting a microtask run, and no
 synchronous call can do that. `await` them, and the line after reads the settled value.
+
+`error(0)` is a network failure — no response reached the client, as when the server is down or the
+request was blocked. `{ error }` is the payload `HttpErrorResponse.error` carries, a
+`new ProgressEvent('error')` unless the spec passes its own:
+
+```ts
+const offline = new ProgressEvent('error');
+let failure: HttpErrorResponse | undefined;
+
+http.get('/api/products').subscribe({ error: (error: HttpErrorResponse) => (failure = error) });
+await expectRequest('/api/products').error(0, { error: offline });
+
+expect(failure?.error).toBe(offline);
+```
+
+`{ tick: false }` skips the tick before the lookup and after the answer. It is for a module that
+provides its own partial `DOCUMENT` — Angular reads the real document's members while it ticks, and
+the tick then fails with `inject(...).body?.querySelector is not a function`, which `expectRequest`
+reports as a doubled `DOCUMENT`. Without the tick an `httpResource()` issues nothing, so it suits an
+`HttpClient` call whose request is already out; `expectNoRequest` takes the same option.
 
 ```ts
 const created = expectRequest('/api/products', { method: 'POST' });
@@ -221,6 +241,21 @@ verifyNoPendingRequests({ ignoreCancelled: true }); // …except what the code u
 
 A no-op when the test configured no HTTP testing at all, and when the testing module has already
 been reset — except for the requests that reset took, which it reports.
+
+## `injectHttpTesting()`
+
+The `HttpTestingController` `provideHttpTesting()` installed, for a service that returns an
+Observable: the request is already out when the service method returns, so there is nothing to
+settle, and `expectOne` / `match` / `expectNone` answer synchronously.
+
+```ts
+service.load().subscribe((items) => received.push(items));
+injectHttpTesting().expectOne('/api/items').flush([]);
+```
+
+The teardown check stays armed. Without `provideHttpTesting()` it throws the same
+`this TestBed has no HttpTestingController` message as `expectRequest`, not a missing-provider
+error for a token the spec never named.
 
 ## What each failure says
 

@@ -10,6 +10,82 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`stubAnimationFrame(...).lastHandle`: the handle the latest `requestAnimationFrame` returned.**
+  5.40.0 moved the stub's handles above 2^30 so a native frame's cancel could be told apart, and a
+  spec that asserted `expect(frames.cancelAnimationFrame).toHaveBeenLastCalledWith(1)` broke on the
+  upgrade with nothing in that entry saying so. `lastHandle` is `undefined` before the first request,
+  so the assertion reads `toHaveBeenLastCalledWith(frames.lastHandle)` and survives any numbering.
+- **`injectHttpTesting()` from `/angular-http`: the `HttpTestingController` `provideHttpTesting()`
+  installed.** A spec of a service that returns an Observable has its request out before the method
+  returns, so it calls `expectOne` / `match` / `expectNone` synchronously, and `expectRequest` (which
+  ticks and flushes asynchronously) is not a drop-in there; such specs kept a
+  `TestBed.inject(HttpTestingController)` beside `...provideHttpTesting()`. Without the providers it
+  throws the message `expectRequest` gives, naming `provideHttpTesting()`.
+- **`expectRequest(...).error(status, { error })`: the payload the `HttpErrorResponse` carries.** The
+  helper always failed the request with `new ProgressEvent('error')`, so a spec that pinned
+  `HttpErrorResponse.error` stayed on `HttpTestingController`. The default is unchanged. `error(0)` is
+  documented as the network failure it is.
+- **`{ tick: false }` on `expectRequest` and `expectNoRequest`.** Both tick the app first, and a module
+  that provides a partial `DOCUMENT` double fails that tick inside Angular
+  (`inject(...).body?.querySelector is not a function`). The option skips the tick before the lookup and
+  after the answer, for an `HttpClient` call whose request is already out.
+
+### Fixed
+
+- **`toHaveSignalValue` and `toHaveResourceValue` compare the contents of a `Set` and a `Map`.** They
+  called the matcher context's `equals` without `iterableEquality`, so a collection had no own keys to
+  compare and any two Sets, or any two Maps, were equal:
+  `expect(signal(new Set(['a']))).toHaveSignalValue(new Set(['b']), { strict: true })` passed, nested
+  in an object as well. Both now compare with the testers `toEqual` uses, and `{ strict: true }` with
+  those of `toStrictEqual` (array holes inside a collection and `ArrayBuffer` bytes included). The
+  non-strict branch also ignored testers registered through `expect.addEqualityTesters`; both modes
+  apply them now. An assertion on a Set- or Map-valued signal that passed only because of this can
+  newly fail.
+- **A tick that fails on a doubled `DOCUMENT` says so.** `expectRequest` / `expectNoRequest` failed with
+  Angular's bare `TypeError`; when the module's `DOCUMENT` is not the real document, the error now names
+  it and `{ tick: false }`, with Angular's error as `cause`. A tick failure under the real document is
+  rethrown as it was.
+- **`jasmine.mapContaining` / `setContaining` / `arrayWithExactContents` compare a nested `Set` or
+  `Map` by its contents**, for the same reason: `new Map([['a', new Set([1])]])` contained
+  `new Map([['a', new Set([2])]])`.
+
+### Changed
+
+- **`stubAnimationFrame`'s spies are typed `Mock<RequestAnimationFrameFn>` /
+  `Mock<CancelAnimationFrameFn>`** instead of `(...args: any[]) => any`, so
+  `frames.requestAnimationFrame.mock.calls` compiles and is typed. Both function types are exported
+  from `/dom-stubs` and spelled without the DOM lib. A spec that called the spy with arguments
+  `requestAnimationFrame` does not take now fails to compile.
+
+### Size
+
+`/angular/matchers` **2799 → 2936 B** min+gzip (+137 B, +4.9 %) and +1.0 kB to import (22906 →
+23887 B, one module more): the shared equality module the signal and resource matchers now use.
+`/jasmine` 19161 → 19203 B (+42 B) and +1.3 kB to import (148816 → 150096 B, one module more): the
+same module, for the collection matchers. `/angular-http` 3770 → 3997 B (+227 B, +6.0 %) and +0.9 kB
+to import (31370 → 32313 B): `injectHttpTesting`, the `{ tick }` option, the doubled-`DOCUMENT`
+message and the `error` payload. `/dom-stubs` +14 B.
+
+### Documentation
+
+- **The 5.40.0 handle range is a change a spec may have to act on.** A literal handle (`1`, `2`) in an
+  assertion against `frames.cancelAnimationFrame` fails from 5.40.0; assert against `frames.lastHandle`
+  or the value `requestAnimationFrame` returned. The frame page, `agent-docs/doubles.md`, the README
+  and the skill say so.
+- **`SubjectOf` from `/angular` is still rxjs's `Subject` only with `vitest-auto-spy/rxjs` in the
+  program.** `agent-docs/return-helpers.md` and the API page recommended the `/angular` export for a
+  variable holding `returnSubject()` without repeating that; without the import it is `SubjectLike`,
+  so `next()` compiles and `pipe()` does not. `SubjectLike`'s member list in `agent-docs` gains
+  `unsubscribe`.
+- **Asserting the errors `flushUnhandledObservableErrors()` returned, without `.map(({ error }) => error)`:**
+  `expect(flushUnhandledObservableErrors()).toMatchObject([{ error: new Error('502') }])` checks the
+  count and ignores `test`. The setup page and `agent-docs/setup.md` show it.
+- **"Only these console channels" is `expect(Object.keys(consoleOutput())).toStrictEqual(['info'])`**,
+  keys in alphabetical order; `{ info: expect.any(Array) }` trips `no-unsafe-assignment`.
+  `agent-docs/setup.md` and the `consoleOutput` docs show it.
+
 ## [5.45.0] - 2026-09-27
 
 ### Added

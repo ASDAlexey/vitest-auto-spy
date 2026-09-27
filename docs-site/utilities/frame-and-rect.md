@@ -40,13 +40,18 @@ Replaces `requestAnimationFrame` and `cancelAnimationFrame` with spies whose tim
 The handle:
 
 - `pending` — how many requested frames have not run.
+- `lastHandle` — the handle the latest `requestAnimationFrame` call returned, `undefined` before the
+  first. Handles start above 2^30 (see below), so assert a cancel against it —
+  `expect(frames.cancelAnimationFrame).toHaveBeenLastCalledWith(frames.lastHandle)` — never against a
+  literal such as `1`.
 - `flush(timestamp?)` — run every frame requested so far, as one browser frame. The timestamp defaults
   to `performance.now()`. A frame cancelled by an earlier callback of the same flush does not run.
 - `flushAll(timestamp?)` — run frames until none is pending, including frames requested from inside
   a frame, for code that chains through several. It throws after 1000 rounds: only a loop that never
   stops requesting its next frame gets there, and that one wants `flush()`, one frame per call.
 - `requestAnimationFrame` / `cancelAnimationFrame` — the installed spies, for
-  `expect(frames.cancelAnimationFrame).toHaveBeenCalledWith(handle)`.
+  `expect(frames.cancelAnimationFrame).toHaveBeenCalledWith(handle)`. Typed as
+  `Mock<RequestAnimationFrameFn>` / `Mock<CancelAnimationFrameFn>`, so `.mock.calls` reads typed.
 - `restore()` — put the previous globals back and drop what is pending, before the test ends.
 
 **A frame requested from inside a running frame waits for the next `flush()`**, in both modes, as it
