@@ -4,7 +4,7 @@
  * `new ActivatedRoute()` rather than with a list of names written here — a future Angular that adds
  * or renames a member fails this file instead of shipping a double that lacks it.
  */
-import { Component, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { TestBed } from '@angular/core/testing';
 import {
@@ -21,6 +21,7 @@ import {
 import { BehaviorSubject, type Observable, firstValueFrom, map } from 'rxjs';
 import { describe, expect, it } from 'vitest';
 
+import '../angular';
 import {
   assertRouteWiring,
   createActivatedRoute,
@@ -29,6 +30,7 @@ import {
   readTitleKey,
   withTitle,
 } from './angular-router';
+import { mockResourceProp } from './resource-prop';
 
 function current<T>(source: Observable<T>): Promise<T> {
   return firstValueFrom(source);
@@ -57,6 +59,16 @@ function sortedKeys(value: object): string[] {
 })
 class ProductComponent {
   readonly id = toSignal(inject(ActivatedRoute).paramMap.pipe(map((params) => params.get('id'))));
+}
+
+@Component({
+  selector: 'vas-profile',
+  standalone: true,
+  template: `<span>{{ name() }}</span>`,
+})
+class ProfileComponent {
+  private readonly user = inject(ActivatedRoute).resources?.['user'];
+  readonly name = computed(() => (this.user?.hasValue() ? String(this.user.value()) : 'loading'));
 }
 
 @Component({
@@ -361,6 +373,56 @@ describe('createActivatedRoute — resolve and title', () => {
     expect(double.route.snapshot.title).toBe('Products');
     expect(double.route.snapshot.data['kind']).toBe('list');
     expect(await current(double.route.title)).toBe('Products');
+  });
+});
+
+describe('createActivatedRoute — resources', () => {
+  it('leaves resources out, as a route whose config has no resources function', () => {
+    const { route } = createActivatedRoute();
+
+    expect(route.resources).toBeUndefined();
+    expect(route.snapshot.resources).toBeUndefined();
+  });
+
+  it('hands the route and its snapshot one record, with exactly the own keys a real route has', () => {
+    const resources = {};
+    const { route } = createActivatedRoute({ resources });
+
+    expect(route.resources).toBe(resources);
+    expect(route.snapshot.resources).toBe(resources);
+    expect(sortedKeys(route)).toEqual(sortedKeys(new ActivatedRoute()));
+    expect(sortedKeys(route.snapshot)).toEqual(sortedKeys(new ActivatedRouteSnapshot()));
+  });
+
+  it('carries the same record into every new snapshot, as a navigation that keeps the route does', () => {
+    const resources = {};
+    const double = createActivatedRoute({ resources, children: [{ resources: {} }] });
+    const before = double.route.snapshot;
+
+    double.setParams({ id: '8' });
+
+    expect(double.route.snapshot).not.toBe(before);
+    expect(double.route.snapshot.resources).toBe(resources);
+    expect(double.route.firstChild?.resources).toBe(double.children[0]?.route.snapshot.resources);
+    expect(double.route.firstChild?.resources).not.toBe(resources);
+  });
+
+  it('drives a component that reads route.resources, through mockResourceProp on the record', () => {
+    const resources = {};
+
+    TestBed.configureTestingModule({ providers: [provideActivatedRoute({ resources })] });
+
+    const user = mockResourceProp(resources, 'user', undefined as string | undefined, { status: 'loading' });
+    const fixture = TestBed.createComponent(ProfileComponent);
+
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('loading');
+
+    user.set('Ada');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Ada');
+    expect(injectActivatedRoute().route.snapshot.resources?.['user']).toBe(user.resource);
   });
 });
 

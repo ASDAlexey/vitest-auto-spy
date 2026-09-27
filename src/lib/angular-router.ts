@@ -53,6 +53,12 @@ export interface ActivatedRouteChange {
   url?: UrlSegment[] | string;
 }
 
+/**
+ * `ActivatedRoute.resources` where the installed `@angular/router` has it (22.2 on), `never` before —
+ * so the init key stays harmless on 20 and 21.
+ */
+export type RouteResources = NonNullable<ActivatedRoute[Extract<'resources', keyof ActivatedRoute>]>;
+
 /** The route a spec starts from: what a navigation moves, plus what stays fixed for the route's life. */
 export interface ActivatedRouteInit extends ActivatedRouteChange {
   /** The outlet the route is rendered into. Default `'primary'`. */
@@ -63,6 +69,11 @@ export interface ActivatedRouteInit extends ActivatedRouteChange {
   routeConfig?: Route | null;
   /** The resolve record — the snapshot's own `_resolve`, kept apart from `data` as Angular keeps it. */
   resolve?: ResolveData;
+  /**
+   * The record a route's `resources` function returned — `route.resources` and `snapshot.resources`,
+   * the same object on every snapshot, as a navigation that keeps the route carries it over.
+   */
+  resources?: RouteResources;
   /** Child routes, each a double of its own: `route.children`, `firstChild` and a child's `parent` answer them. */
   children?: readonly ActivatedRouteInit[];
 }
@@ -103,6 +114,7 @@ export interface FixedParts {
   outlet: string;
   component: Type<unknown> | null;
   routeConfig: Route | null;
+  resources?: RouteResources | undefined;
 }
 
 export interface Streams {
@@ -279,7 +291,18 @@ function buildSnapshot(state: RouteState, fixed: FixedParts): ActivatedRouteSnap
     fixed.routeConfig,
     state.resolve,
   ];
-  return Reflect.construct(ActivatedRouteSnapshot, args);
+  const snapshot: ActivatedRouteSnapshot = Reflect.construct(ActivatedRouteSnapshot, args);
+
+  withResources(snapshot, fixed);
+
+  return snapshot;
+}
+
+// Only when given: before 22.2 neither class has the field, and an own key would set the double apart.
+function withResources(target: object, fixed: FixedParts): void {
+  if (fixed.resources !== undefined) {
+    Reflect.set(target, 'resources', fixed.resources);
+  }
 }
 
 /** The one failure this file reports: a member Angular's own wiring did not put the double's value into. */
@@ -387,6 +410,7 @@ function constructRoute(streams: Streams, fixed: FixedParts, snapshot: Activated
   ]);
 
   route.snapshot = snapshot;
+  withResources(route, fixed);
 
   return route;
 }
@@ -396,6 +420,7 @@ function buildActivatedRoute(init: ActivatedRouteInit): { double: ActivatedRoute
     outlet: init.outlet ?? PRIMARY_OUTLET,
     component: init.component ?? null,
     routeConfig: init.routeConfig ?? null,
+    resources: init.resources,
   };
   let state = initialState(init);
   const streams = streamsOf(state);

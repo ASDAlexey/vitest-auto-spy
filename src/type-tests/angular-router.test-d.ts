@@ -11,6 +11,7 @@ import {
   type ActivatedRoute,
   type ActivatedRouteSnapshot,
   type Params,
+  type ResourceResult,
   type Event as RouterNavigationEvent,
   UrlSegment,
 } from '@angular/router';
@@ -54,6 +55,23 @@ describe('provideActivatedRoute', () => {
 
     // @ts-expect-error — a title is a string; the route's own strategy resolves it
     provideActivatedRoute({ title: 7 });
+  });
+});
+
+describe('resources', () => {
+  it("takes the record Angular's own route carries, and reads it back as Angular types it", () => {
+    const resources: ResourceResult = {};
+
+    provideActivatedRoute({ resources });
+    provideActivatedRoute({ resources: {} });
+
+    expectTypeOf(createActivatedRoute({ resources }).route.resources).toEqualTypeOf<ResourceResult | undefined>();
+    expectTypeOf(createActivatedRoute().route.snapshot.resources).toEqualTypeOf<ResourceResult | undefined>();
+  });
+
+  it('rejects a value that is not a resource', () => {
+    // @ts-expect-error — a resource, not its value
+    provideActivatedRoute({ resources: { user: 'Ada' } });
   });
 });
 
