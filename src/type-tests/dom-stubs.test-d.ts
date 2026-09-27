@@ -213,6 +213,10 @@ describe('stubAnimationFrame', () => {
   it('answers one handle whichever mode it runs in', () => {
     expectTypeOf(stubAnimationFrame()).toEqualTypeOf<AnimationFrameStub>();
     expectTypeOf(stubAnimationFrame({ mode: 'queued' }).pending).toEqualTypeOf<number>();
+    expectTypeOf(stubAnimationFrame().lastHandle).toEqualTypeOf<number | undefined>();
+    expectTypeOf(stubAnimationFrame().requestAnimationFrame.mock.calls).toEqualTypeOf<[callback: (timestamp: number) => void][]>();
+    expectTypeOf(stubAnimationFrame().cancelAnimationFrame.mock.lastCall).toEqualTypeOf<[handle: number] | undefined>();
+    expectTypeOf(stubAnimationFrame().requestAnimationFrame).returns.toEqualTypeOf<number>();
     expectTypeOf(stubAnimationFrame().flush).toBeCallableWith(16);
     expectTypeOf(stubAnimationFrame().flush).toBeCallableWith();
     expectTypeOf(stubAnimationFrame().flushAll).toBeCallableWith(16);

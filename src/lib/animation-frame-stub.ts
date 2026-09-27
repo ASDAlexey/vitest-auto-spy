@@ -7,6 +7,8 @@
  * an array and loop over it later — and both assign the global by hand, forget
  * `cancelAnimationFrame`, and leak into the next file under `isolate: false`.
  */
+import type { Mock } from 'vitest';
+
 import { type MockFn, getMockAdapter } from './mock-adapter';
 import { type RestoreProp, mockValueProp } from './prop-mock';
 import { currentView } from './web-storage';
@@ -35,14 +37,25 @@ export interface AnimationFrameStubOptions {
   onError?: (error: unknown) => void;
 }
 
+/** `requestAnimationFrame` as the stub installs it, spelled without the DOM lib. */
+export type RequestAnimationFrameFn = (callback: (timestamp: number) => void) => number;
+
+/** `cancelAnimationFrame` as the stub installs it. */
+export type CancelAnimationFrameFn = (handle: number) => void;
+
 /** The handle {@link stubAnimationFrame} returns. */
 export interface AnimationFrameStub {
   /** How many requested frames have not run yet. */
   readonly pending: number;
+  /**
+   * The handle the latest `requestAnimationFrame` call returned, or `undefined` before the first one.
+   * Handles start above 2^30, so assert against this rather than a literal such as `1`.
+   */
+  readonly lastHandle: number | undefined;
   /** The spy installed as `requestAnimationFrame`. */
-  readonly requestAnimationFrame: MockFn;
+  readonly requestAnimationFrame: Mock<RequestAnimationFrameFn>;
   /** The spy installed as `cancelAnimationFrame`. */
-  readonly cancelAnimationFrame: MockFn;
+  readonly cancelAnimationFrame: Mock<CancelAnimationFrameFn>;
   /**
    * Run every frame requested so far, as one browser frame. A frame requested from inside one of
    * them waits for the next `flush()`, as it waits for the next frame in a browser.
@@ -153,12 +166,13 @@ export function stubAnimationFrame(options: AnimationFrameStubOptions = {}): Ani
     get pending(): number {
       return queue.size;
     },
-    requestAnimationFrame: request,
-    cancelAnimationFrame: cancel,
-    flush,
-    flushAll: (timestamp?: number): void => {
-      flushUntilIdle(queue, () => flush(timestamp));
+    get lastHandle(): number | undefined {
+      return lastId === FIRST_HANDLE ? undefined : lastId;
     },
+    requestAnimationFrame: asRunnerMock<RequestAnimationFrameFn>(request),
+    cancelAnimationFrame: asRunnerMock<CancelAnimationFrameFn>(cancel),
+    flush,
+    flushAll: (timestamp?: number): void => flushUntilIdle(queue, () => flush(timestamp)),
     restore(): void {
       // Newest first, as restoreMockedProps() does: happy-dom's window reads through to globalThis, so
       // its recorded descriptor is the stub, and undoing it last would put the stub back.
@@ -166,6 +180,11 @@ export function stubAnimationFrame(options: AnimationFrameStubOptions = {}): Ani
       queue.clear();
     },
   };
+}
+
+function asRunnerMock<Fn extends CancelAnimationFrameFn | RequestAnimationFrameFn>(mock: MockFn): Mock<Fn> {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `createMockFn` returns the runner's own mock; `MockFn` is only its adapter-neutral name.
+  return mock as Mock<Fn>;
 }
 
 /** One browser frame: what is queued now, skipping a frame an earlier callback cancelled. */

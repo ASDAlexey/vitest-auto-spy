@@ -106,6 +106,20 @@ describe('stubAnimationFrame', () => {
     expect(kept).toHaveBeenCalledTimes(1);
   });
 
+  it('exposes the latest handle it issued, and nothing before the first request', () => {
+    const frames = stubAnimationFrame({ mode: 'queued' });
+
+    expect(frames.lastHandle).toBeUndefined();
+
+    requestAnimationFrame(vi.fn());
+    const second = requestAnimationFrame(vi.fn());
+    cancelAnimationFrame(second);
+
+    expect(frames.lastHandle).toBe(second);
+    expect(frames.cancelAnimationFrame).toHaveBeenLastCalledWith(frames.lastHandle);
+    expect(frames.pending).toBe(1);
+  });
+
   it('drops a handle it did not issue when there is nothing to pass it on to', () => {
     mockValueProp(globalThis, 'cancelAnimationFrame', undefined);
     const frames = stubAnimationFrame({ mode: 'queued', view: null });

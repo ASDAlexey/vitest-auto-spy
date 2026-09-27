@@ -39,6 +39,8 @@ export {
   type AnimationFrameMode,
   type AnimationFrameStub,
   type AnimationFrameStubOptions,
+  type CancelAnimationFrameFn,
+  type RequestAnimationFrameFn,
 } from './lib/animation-frame-stub';
 
 // A `getBoundingClientRect()` that reports a box where the environment lays nothing out
