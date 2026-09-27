@@ -20,8 +20,23 @@ function componentIdCollision(match: RegExpExecArray): string {
   );
 }
 
+const JSDOM_NOT_IMPLEMENTED = /\bNot implemented: (\S+?)(?:\s|$)/;
+
 /** One sentence on why this output was written, or `undefined` when nothing here recognises it. */
 export function consoleCause(output: string): string | undefined {
+  if (output.includes('Iframe page loading is disabled')) {
+    return (
+      "happy-dom's `disableIframePageLoading` refused an iframe `src` and logged it: absorb it with a console spy in the test " +
+      'that adds the iframe, or run the file on jsdom (`// @vitest-environment jsdom`), which leaves a remote `src` unloaded and silent.'
+    );
+  }
+
+  const missing = JSDOM_NOT_IMPLEMENTED.exec(output);
+
+  if (missing) {
+    return `jsdom has no \`${String(missing[1])}\` and logs instead of throwing: stub it in the spec, or absorb the line with a console spy.`;
+  }
+
   const collision = COMPONENT_ID_COLLISION.exec(output);
 
   if (collision) {

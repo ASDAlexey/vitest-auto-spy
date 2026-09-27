@@ -31,6 +31,22 @@ describe('consoleCause', () => {
     );
   });
 
+  it("names happy-dom's refused iframe and the two ways out", () => {
+    const cause = consoleCause(
+      'NotSupportedError: Failed to load iframe page "https://sso.example/logout". Iframe page loading is disabled.',
+    );
+
+    expect(cause).toContain('`disableIframePageLoading`');
+    expect(cause).toContain('`// @vitest-environment jsdom`');
+  });
+
+  it('names the API jsdom logged as missing', () => {
+    expect(consoleCause('Error: Not implemented: navigation (except hash changes)')).toBe(
+      'jsdom has no `navigation` and logs instead of throwing: stub it in the spec, or absorb the line with a console spy.',
+    );
+    expect(consoleCause('Error: Not implemented: window.scrollTo')).toContain('`window.scrollTo`');
+  });
+
   it('recognises nothing else', () => {
     expect(consoleCause('load failed')).toBeUndefined();
   });
