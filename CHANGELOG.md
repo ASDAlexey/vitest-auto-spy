@@ -10,6 +10,48 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`stubAnimationFrame` gets `flushAll(timestamp?)`**, which runs frames until none is pending,
+  including those requested from inside a frame. Code whose callbacks chain through several frames
+  needed `while (frames.pending) frames.flush()` in the spec. It throws after 1000 rounds, which only a
+  loop that never stops requesting reaches.
+  `/dom-stubs` is +323 B min+gzip (8877 → 9200 B, +3.6 %) and +1.7 kB to import (53818 → 55476 B):
+  `flushAll`, the cancel forwarding, and the array-length snapshot in the `mockValueProp` it bundles.
+- **`doctor` check `angular-build-splitting-deprecated`.** `@angular/build` 22.2.0 deprecates the
+  unit-test `splitting` option ("No longer needed with Vitest 5"). A target that still sets it is
+  reported: `info` for `true`, the default and a no-op, `warning` for `false`, which 22.2 still honours
+  at the memory cost `angular-build-splitting-off` describes. The setup docs now say not to add the key.
+- **`SubjectOf` is exported from `vitest-auto-spy/angular`**, so an Angular spec can type the variable
+  that keeps what `returnSubject()` returned without a second import from the root entry. The
+  observables docs show `void spy.x$.returnSubject();` for the case where nothing reads it, which
+  `rxjs-x/no-floating-observables` accepts.
+
+### Changed
+
+- **A class built on an ngrx `signalStore()` gets `fillMissing: true` by default** in
+  `createSpyFromClass` / `provideAutoSpy`. Its `withMethods` / `withProps` members live on the
+  instance, so discovery saw only what the class body declared: a store with an empty body took the
+  empty-prototype fallback and answered every member, while one method left in the body made every
+  store member absent, and `returns: { toggle: … }` failed with "not a method". The base ngrx
+  generates is recognised by name (`SignalStore`) and its own `ɵprov`. `fillMissing: false` turns it
+  off.
+- **`stubAnimationFrame`'s `cancelAnimationFrame` passes a handle it did not issue on to the
+  `cancelAnimationFrame` it replaced.** Installed after a render, the stub received zoneless Angular's
+  cancel for the native frame its scheduler had raced against a timer, dropped it, and left that frame
+  pending: one leaked timer per test under a strict setup. Handles the stub issues now start at 2^30,
+  above the ids jsdom and happy-dom hand out.
+- The recipes and the `prefer-render-shallow` docs show a per-test `renderShallow` whose `beforeCreate`
+  does the `injectSpy` reads and the test's own tuning, for a component that reads spies in its
+  constructor.
+
+### Fixed
+
+- **`mockValueProp(array, 'length', n)` puts back the elements it truncated.** Shrinking `length`
+  deletes every element past it, and the undo wrote only the number back, so a shared constant came
+  back as an array of holes and every later test that read it failed. The truncated slots are copied
+  before the patch and restored with the length; holes stay holes.
+
 ## [5.39.0] - 2026-09-26
 
 ### Changed
