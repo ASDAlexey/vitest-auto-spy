@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
-import { count, currentTask, displayFrame, displayPath, taskName } from './message-text';
+import { count, currentTask, displayFrame, displayPath, sourceClassName, taskName } from './message-text';
 
 describe('message text', () => {
   it('counts in the singular and the plural', () => {
     expect(count(1, 'timer')).toBe('1 timer');
     expect(count(3, 'timer')).toBe('3 timers');
     expect(count(2, 'property', 'properties')).toBe('2 properties');
+  });
+
+  it('takes a bundler rename off a class name and leaves a source name alone', () => {
+    expect(sourceClassName('_CartService')).toBe('CartService');
+    expect(sourceClassName('CartService$1')).toBe('CartService');
+    expect(sourceClassName('_private_helper')).toBe('_private_helper');
+    expect(sourceClassName('CartService')).toBe('CartService');
   });
 
   it('prints a path relative to the runner root, and leaves a path outside it alone', () => {
