@@ -39,7 +39,9 @@ reads a `calledWith` chain **is** the implementation they replace. So a `mockRet
 after a chain turns every call into that one value, and a chain opened after a `mockReturnValue` is
 never consulted. Neither fails, which leaves the spec green on a branch nobody configured, so both
 orders are reported as a misconfiguration — a warning, or a throw under
-[`setupAutoSpy({ misconfiguration: 'throw' })`](/utilities/setup) and the `strict` preset.
+[`setupAutoSpy({ misconfiguration: 'throw' })`](/utilities/setup) and the `strict` preset. Not
+reported: a wrapper that delegates — `vi.when(spy)` (Vitest 5), or a `mockImplementation` built from
+`spy.getMockImplementation()` — since the chain still answers every call it passes through.
 
 Where both are wanted — one value for these arguments, another for everything else — the fallback
 goes in the spy's own container, which a chain still wins over: the

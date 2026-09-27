@@ -969,7 +969,8 @@ so `cart.total.mockReturnValue(3)` says it in one step.
 ### `lazySpies: 'proxy'` — one trap object instead of a placeholder per method
 
 `'proxy'` is what a class of **8 methods or more** gets when `lazySpies` is not set; pass it to get it
-on a narrower one. The record carries no property for a method until something reads it, and the
+on a narrower one. The width is the number of methods the double spies — after `onlyMethodsToSpyOn`
+narrows it and `methodsToSpyOn` / `instanceMethodsToSpyOn` add to it. The record carries no property for a method until something reads it, and the
 traps answer every method name from one set shared by every double of the class.
 
 ```ts
@@ -1003,7 +1004,8 @@ Pass `lazySpies: true` — or register it once with `registerAutoSpyDefaults(Cla
 times.
 
 **It is not a different double.** `Object.keys`, spread, `JSON.stringify`, `in`,
-`hasOwnProperty`, `Object.getOwnPropertyDescriptor`, `delete`, `Object.freeze`, key order, `returns`,
+`hasOwnProperty`, `Object.getOwnPropertyDescriptor` (the same accessor shape, though a fresh pair per
+call), `delete`, `Object.freeze`, key order, `returns`,
 `overrides` and `fillMissing` all behave exactly as they do on the accessor path — `src/lib/lazy-spy-proxy.spec.ts`
 asserts the two against each other rather than against hand-written expectations. Reading a
 descriptor deliberately does **not** build the spy, for the same reason `resetAutoSpy` can skip an
@@ -1450,7 +1452,9 @@ reads a `calledWith` chain **is** the implementation they replace. So a `mockRet
 after a chain turns every call into that one value, and a chain opened after a `mockReturnValue` is
 never consulted. Neither fails, which leaves the spec green on a branch nobody configured, so both
 orders are reported as a misconfiguration — a warning, or a throw under
-[`setupAutoSpy({ misconfiguration: 'throw' })`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) and the `strict` preset.
+[`setupAutoSpy({ misconfiguration: 'throw' })`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) and the `strict` preset. Not
+reported: a wrapper that delegates — `vi.when(spy)` (Vitest 5), or a `mockImplementation` built from
+`spy.getMockImplementation()` — since the chain still answers every call it passes through.
 
 Where both are wanted — one value for these arguments, another for everything else — the fallback
 goes in the spy's own container, which a chain still wins over: the
@@ -2383,7 +2387,8 @@ after them is never consulted.
 `vi.when` (Vitest 5) is the exception that is not one. It reads the spy's implementation and wraps
 it: the calls it has a row for get its answer, every other call reaches the library's dispatch, so a
 `calledWith` on the same method keeps deciding — in either order, with no warning. After
-`vi.when(spy)[Symbol.dispose]()` or `mockReset()` the dispatch answers alone again.
+`vi.when(spy)[Symbol.dispose]()` or `mockReset()` the dispatch answers alone again. A `vi.when` over a
+`mockReturnValue` is still reported: the `mockReturnValue` had already replaced the dispatch.
 `vi.when(spy, { onUnmatched: 'throw' })` is the per-method counterpart of `strict: true`.
 
 That has one visible edge. `mockReturnValueOnce` installs a one-shot implementation that is
@@ -3579,15 +3584,15 @@ times). The figures are the **`p75`** column: these cases allocate spy objects b
 thousand, so `hz` swings several-fold between runs as GC pauses land in different samples, while
 `p75` reproduces to the fourth decimal.
 
-| Operation                                                  | per call (p75) |
-| ---------------------------------------------------------- | -------------: |
-| spy a 10-method class, call 2 methods — lazy (the default) |    **2.25 µs** |
-| the same, eager (`lazySpies: false`)                       |        3.21 µs |
-| spy a 40-method class, call 3 methods — lazy               |    **6.04 µs** |
-| the same, eager                                            |       11.50 µs |
-| `createAutoMock<Service>()` + 4 accesses                   |        1.79 µs |
-| `calledWith` dispatch, 3 configured calls                  |        0.21 µs |
-| unconfigured dispatch, 3 calls with two object arguments   |        0.25 µs |
+| Operation                                                 | per call (p75) |
+| --------------------------------------------------------- | -------------: |
+| spy a 10-method class, call 2 methods — `lazySpies: true` |    **2.25 µs** |
+| the same, eager (`lazySpies: false`)                      |        3.21 µs |
+| spy a 40-method class, call 3 methods — `lazySpies: true` |    **6.04 µs** |
+| the same, eager                                           |       11.50 µs |
+| `createAutoMock<Service>()` + 4 accesses                  |        1.79 µs |
+| `calledWith` dispatch, 3 configured calls                 |        0.21 µs |
+| unconfigured dispatch, 3 calls with two object arguments  |        0.25 µs |
 
 Measured 2026-09-04 on Node v24.19.0, Vitest 4.1.11, Apple M4 Max. Every row moved in this package's
 favour when [the spy engine](#the-spy-engine) landed in 4.1 — by between 1.6× and 6× — and the two
@@ -3614,7 +3619,8 @@ costs `tsc` on a generated fixture and fails the gate past a budget — the numb
 
 ## Why it is fast
 
-`lazySpies` is on by default for every factory: a spy is built on first access rather than for every
+`lazySpies` is on by default for `createSpyFromClass` and `provideAutoSpy` — accessor placeholders
+below 8 methods, a `Proxy` from 8: a spy is built on first access rather than for every
 method up front, so a twenty-method service a test touches twice builds two spies. `provideAutoSpy`
 was the only entry with that default until v2; now the core has it too, and the two are the same
 speed.
@@ -10844,7 +10850,7 @@ collaborators.get(FeatureFlagService).isOn.mockReturnValue(true);
 
 TestBed.inject(CheckoutFacade).start();
 
-expect(collaborators.names()).toEqual(['FeatureFlagService']); // analytics was never asked for
+expect(collaborators.names({ clean: true })).toEqual(['FeatureFlagService']); // analytics was never asked for
 ```
 
 ## The question it answers
@@ -10875,15 +10881,18 @@ Returns an `InjectionLog`:
 | -------------------- | ------------------------------------------------------------------------ |
 | `providers`          | the `{ provide, useFactory }` list to spread into a testing module       |
 | `injectedTokens()`   | the tokens DI asked for, in the order their factories ran — a copy       |
-| `names()`            | the same list as names, which is what makes a failing `toEqual` readable |
+| `names(options?)`    | the same list as names, which is what makes a failing `toEqual` readable |
 | `wasInjected(token)` | whether DI ever constructed `token`                                      |
 | `get<D>(token)`      | the double registered for `token`, typed as `Spy<D>`                     |
 | `reset()`            | forget the record; the doubles are untouched                             |
 
 `injectedTokens()` hands back a copy, so mutating it changes nothing. `names()` reads the class name
-off the token rather than off a literal, because the Angular plugin's decorator downlevelling renames
-compiled classes; an `InjectionToken`, or a class a minifier stripped the name from, is named by its
-`String` form.
+off the token rather than off a literal, and hands it back as is: the Angular plugin's decorator
+downlevelling compiles `FeatureFlagService` to a class named `_FeatureFlagService`, and that is what
+`names()` returns. `names({ clean: true })` takes a bundler's rename off — esbuild's leading `_`,
+Rollup's `$1` suffix — so the list matches the names you wrote and the ones every failure message of
+this package prints. An `InjectionToken`, or a class a minifier stripped the name from, is named by
+its `String` form either way.
 
 `reset()` clears the record only. The doubles survive it — reset those with `resetAutoSpy` if the
 spec needs their call history cleared too.
@@ -17159,21 +17168,23 @@ npx vitest-auto-spy codemod  # dry run by default. Exits 1 when it left somethin
 npx vitest-auto-spy ng-test  # ng test with --shard / --changed the Angular builder does not pass through
 ```
 
-They are one binary because they answer one question from four directions — _is anything in this
-test suite quietly not doing what it looks like it is doing?_ `doctor` asks it of the repository,
-`perf` asks it of the suite's own clock, `init` asks it of the agent about to write the next spec,
-and [`codemod`](https://asdalexey.github.io/vitest-auto-spy/utilities/codemod) asks it of every span a migration off `jest-auto-spies` would
-otherwise rename into the reverse meaning. This page covers the first three; the codemod
-[has its own](https://asdalexey.github.io/vitest-auto-spy/utilities/codemod), because most of what it does is refuse.
+The first four are one binary because they answer one question from four directions — _is anything
+in this test suite quietly not doing what it looks like it is doing?_ `doctor` asks it of the
+repository, `perf` asks it of the suite's own clock, `init` asks it of the agent about to write the
+next spec, and [`codemod`](https://asdalexey.github.io/vitest-auto-spy/utilities/codemod) asks it of every span a migration off
+`jest-auto-spies` would otherwise rename into the reverse meaning.
+[`ng-test`](#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder) runs the Angular
+builder's suite with the Vitest levers the builder does not pass through. This page covers everything
+but the codemod, which [has its own](https://asdalexey.github.io/vitest-auto-spy/utilities/codemod), because most of what it does is refuse.
 
 **The exit codes mean the same thing in all five**, which is what makes any of them a single CI
-line:
+line — except that a run `ng-test` hands to `ng` exits with `ng`'s own code:
 
-| Exit | Meaning                                                                                                                                                                                                                                                                                                                                 |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | The command ran and has nothing to report                                                                                                                                                                                                                                                                                               |
-| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date or a stale copy of the skill, `perf --gate` a confirmed budget                                                                                                               |
-| `2`  | It could not do the job it was asked to do: an unknown command, an unknown flag for a known command, a flag value it cannot use, an unknown transform id on `--only` / `--skip`, a `codemod` path that matches no file, a `perf` run with nothing to judge, or an `ng-test` without a single unit-test target or without `--list-tests` |
+| Exit | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | The command ran and has nothing to report                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date or a stale copy of the skill, `perf --gate` a confirmed budget                                                                                                                                                                                                                                                                |
+| `2`  | It could not do the job it was asked to do: an unknown command, an unknown flag for a known command, a flag value it cannot use, an unknown transform id on `--only` / `--skip`, a `codemod` path that matches no file, a `perf` run with nothing to judge, or an `ng-test` without a single unit-test target or without `--list-tests`, without `@angular/cli`, with a failed `git diff`, with several targets and no `--target`, or with an `--include` list too long for the platform |
 
 The unknown flag is the one worth stating on its own, because a parser that accepts everything makes
 a typo invisible: `init --dryrun` wrote the files a `--dry-run` would only have described, and
@@ -17425,13 +17436,26 @@ Vitest 5, whose coverage the builder runs with istanbul — its runner config sa
 `coverage.provider: 'istanbul'`, or `@vitest/coverage-istanbul` is installed without
 `@vitest/coverage-v8` — and whose runner config does not turn on `fsModuleCache`. Under the builder
 esbuild has bundled the code already, so the one transform left worth caching is istanbul's
-instrumentation: on a 700-file Angular 22.2 suite the cache took a coverage run from 24.55 s to
-13.20 s (−46 %), and from 27.01 s to 15.85 s (−41 %) with the builder cache off, as it is on CI. With
-v8 it gained nothing, and the check stays quiet. The fix names the runner config to add
-`fsModuleCache: true` to or, for a target without one, says to add `"runnerConfig"` to the target: the
-builder has no option of its own for it. With a CI config that does not cache
-`node_modules/.vitest-cache`, the fix says to persist it too, as
-[`fs-module-cache-not-persisted`](#fs-module-cache-not-persisted) does. Quiet on `@angular/build` 20,
+instrumentation. The gain depends on the suite, so read −46 % as the top of the range:
+
+| Suite (Angular 22.2, Vitest 5)               | istanbul, cold | istanbul, warm cache | v8, cold | v8, warm cache |
+| -------------------------------------------- | -------------- | -------------------- | -------- | -------------- |
+| 700 spec files                               | 24.55 s        | 13.20 s (−46 %)      | —        | no gain        |
+| 700 spec files, builder cache off (as on CI) | 27.01 s        | 15.85 s (−41 %)      | —        | —              |
+| 862 spec files                               | 48 s           | 39 s (−19 %)         | 19–22 s  | 18.7–22.5 s    |
+| 862 spec files, CI profile (`CI=1`, 3 forks) | 51–53 s        | 41–44 s              | 31–32 s  | 30 s           |
+
+On the 862-file suite v8 beat istanbul with a warm cache about 2x, and peaked at 7.5–8 GB RSS
+against istanbul's 10–11 GB, with 100 % coverage on both. With v8 the cache gains nothing, and the
+check stays quiet. On that suite a warm cache did not go stale either: an edited `.ts` import or
+component `.html` was picked up with both providers.
+
+The cache pays off on CI only when CI keeps `node_modules/.vitest-cache` between runs; every fresh
+checkout starts cold. The fix names the runner config to add `fsModuleCache: true` to or, for a
+target without one, says to add `"runnerConfig"` to the target: the builder has no option of its own
+for it. With a CI config that does not cache `node_modules/.vitest-cache`, the fix says to persist it
+too, as [`fs-module-cache-not-persisted`](#fs-module-cache-not-persisted) does. It also offers the
+switch to `coverage.provider: 'v8'` as the alternative that needs no cache. Quiet on `@angular/build` 20,
 which reads no runner config, on Vitest 4, where it was not measured, and for a target that runs in
 `browsers` unless its runner config names istanbul itself: the gain was measured on jsdom in Node,
 never in browser mode. Targets that share a runner
@@ -18479,7 +18503,7 @@ npx vitest-auto-spy ng-test --changed origin/main      # what the branch reaches
 npx vitest-auto-spy ng-test --related src/app/cart/cart.service.ts --dry-run
 ```
 
-It lists the target's specs with `ng test --list-tests` (`@angular/build` 21 or newer), picks the ones
+It lists the target's specs with `ng run <project>:<target> --list-tests` (`@angular/build` 21 or newer), picks the ones
 this run gets and hands them to the builder as `--include` paths — and since `@angular/build` 22.2 the
 builder compiles only the included specs. A shard is split the way Vitest's own `--shard` splits, by a
 hash of the path in near-equal parts, so every spec runs in exactly one shard. `--changed` reads
@@ -18487,10 +18511,12 @@ hash of the path in near-equal parts, so every spec runs in exactly one shard. `
 imports reach a changed file: relative imports, `compilerOptions.paths` aliases, and a template or a
 stylesheet through the component that names it. A config, a lockfile, `angular.json`, a `tsconfig`,
 or a change the target's `setupFiles` / `providersFile` reach runs every spec; nothing reached runs
-nothing and exits 0.
+nothing and exits 0. `--related` takes a comma-separated list: `--related a.ts,b.ts` runs the specs
+those files reach.
 
 Everything after `--` goes to `ng run <project>:<target>` as typed, behind `--watch=false`; an
-`--include` there narrows what is listed. `--target` picks the target when there is more than one,
+`--include` there narrows what is listed. `--target project[:target]` picks the target when there is more than one (a lone unit-test target is
+used without it, and an ambiguous choice exits 2 listing the targets),
 and `--dry-run` prints the `ng` command instead of running it. The exit code is `ng`'s. A list
 too long for the platform's command line (32 767 characters on Windows) folds every directory whose
 specs are all selected into one `dir/**/*.spec.ts` glob; if that is still too long, `ng-test` exits 2
@@ -20636,7 +20662,7 @@ imports: absent with `all: true`, present once `include` is declared.
 `ng test` passes no Vitest flag through. `test.repeats` and `test.shard` in the runner config still
 reach Vitest; `--changed` and `--related` do not, because Vitest's module graph holds the builder's
 bundles. [`npx vitest-auto-spy ng-test`](https://asdalexey.github.io/vitest-auto-spy/utilities/cli#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder)
-does both through `--include`, so the builder compiles only the specs that run:
+does both through `--include`, so from `@angular/build` 22.2 the builder compiles only the specs that run:
 `ng-test --shard 2/4`, `ng-test --changed origin/main`.
 
 ## Coverage matching costs more than coverage
@@ -20769,12 +20795,15 @@ registerSignalMatchers(); // once, in your setup file
 
 expect(component.total).toHaveSignalValue(3);
 expect(component.items).toHaveSignalValue([{ id: 1 }]);
+expect(component.buttonConfig).toHaveSignalValue({ label: 'Save', color: undefined }, { strict: true });
 ```
 
 `expect(component.total).toBeTruthy()` passes for every signal ever created — a signal is a
 function. The matcher reads it, deep-compares with the runner's own equality, and rejects anything
 that is not a zero-argument getter, so the missing-parentheses mistake fails instead of quietly
-passing.
+passing. The comparison is `toEqual`'s: an `undefined` property, an array hole and the object's class
+do not count. `{ strict: true }` compares the way `toStrictEqual` does, so a spec already on
+`expect(sig()).toStrictEqual(x)` keeps its precision when it moves to the matcher.
 
 A spy is a zero-argument callable too, so the matcher recognises one and refuses it **without
 reading it** — `expect(service.load).toHaveSignalValue(undefined)` would otherwise pass on the
@@ -21198,7 +21227,8 @@ rooted at the element that carries the directive, and on a `ComponentFixture` a 
 entry of the component under test counts. A structural directive counts as well — `*dir` and
 `<ng-template dir>` put it on the comment Angular leaves in place of the template, and the search
 takes that anchor in; assert it without a selector, because the element it renders does not carry
-it, and a selector naming that element fails with a message that says so. Anything else is
+it, and a selector naming that element fails with a message that says so — whether the directive
+rendered the element or not. Anything else is
 thrown rather than failed — a `nativeElement` or an `undefined` passed by mistake is a wrong
 argument, and under `.not` a failure would have read as a pass.
 
@@ -24342,8 +24372,9 @@ is a _native_ Vitest/Bun method that `node:test` does not have; the normalised
 `mock.calls[0].arguments`, not `mock.calls[0]`. See [node:test](https://asdalexey.github.io/vitest-auto-spy/runtimes/node).
 
 **Angular.** `provideAutoSpy` defaults to **lazy** spies here (`jest-auto-spies` was always eager).
-Behaviour is identical; if you depend on every spy existing before first access, pass
-`{ lazySpies: false }`.
+Calls and assertions behave identically; a class of 8 or more methods gets a `Proxy` double. Pass
+`{ lazySpies: true }` for a plain object, or `{ lazySpies: false }` if you depend on every spy
+existing before first access.
 
 ## What you gain by moving
 
@@ -26853,7 +26884,7 @@ for `hostElement` / `queryElement`; `/angular/diagnostics` adds
 `AngularDiagnosticsOptions`, `SpecTiming` and `TestBedDiagnosticsOptions`; `/angular/doubles` adds
 `MatDialogRefInit<Ref>`, `MatDialogRefDouble<Ref>`, `DialogRefLike`, `DialogResult<Ref>`,
 `DialogComponent<Ref>` and `DialogDataOf<T, Token>` for the dialog doubles, `PlatformOverrides<T>` for the window and document
-ones; `/angular/matchers` adds `ResourceLike` and `SignalLike`; `/dom-stubs` adds
+ones; `/angular/matchers` adds `ResourceLike`, `SignalLike` and `SignalValueOptions`; `/dom-stubs` adds
 `WebStorageKey`, `WebStorageStub` and `WebStorageStubOptions` for `stubWebStorage`, and
 `AnimationFrameStub`, `AnimationFrameStubOptions` and `AnimationFrameMode` for `stubAnimationFrame`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` and `HttpTestingOptions` for

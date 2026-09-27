@@ -16,15 +16,15 @@ times). The figures are the **`p75`** column: these cases allocate spy objects b
 thousand, so `hz` swings several-fold between runs as GC pauses land in different samples, while
 `p75` reproduces to the fourth decimal.
 
-| Operation                                                  | per call (p75) |
-| ---------------------------------------------------------- | -------------: |
-| spy a 10-method class, call 2 methods — lazy (the default) |    **2.25 µs** |
-| the same, eager (`lazySpies: false`)                       |        3.21 µs |
-| spy a 40-method class, call 3 methods — lazy               |    **6.04 µs** |
-| the same, eager                                            |       11.50 µs |
-| `createAutoMock<Service>()` + 4 accesses                   |        1.79 µs |
-| `calledWith` dispatch, 3 configured calls                  |        0.21 µs |
-| unconfigured dispatch, 3 calls with two object arguments   |        0.25 µs |
+| Operation                                                 | per call (p75) |
+| --------------------------------------------------------- | -------------: |
+| spy a 10-method class, call 2 methods — `lazySpies: true` |    **2.25 µs** |
+| the same, eager (`lazySpies: false`)                      |        3.21 µs |
+| spy a 40-method class, call 3 methods — `lazySpies: true` |    **6.04 µs** |
+| the same, eager                                           |       11.50 µs |
+| `createAutoMock<Service>()` + 4 accesses                  |        1.79 µs |
+| `calledWith` dispatch, 3 configured calls                 |        0.21 µs |
+| unconfigured dispatch, 3 calls with two object arguments  |        0.25 µs |
 
 Measured 2026-09-04 on Node v24.19.0, Vitest 4.1.11, Apple M4 Max. Every row moved in this package's
 favour when [the spy engine](#the-spy-engine) landed in 4.1 — by between 1.6× and 6× — and the two
@@ -51,7 +51,8 @@ costs `tsc` on a generated fixture and fails the gate past a budget — the numb
 
 ## Why it is fast
 
-`lazySpies` is on by default for every factory: a spy is built on first access rather than for every
+`lazySpies` is on by default for `createSpyFromClass` and `provideAutoSpy` — accessor placeholders
+below 8 methods, a `Proxy` from 8: a spy is built on first access rather than for every
 method up front, so a twenty-method service a test touches twice builds two spies. `provideAutoSpy`
 was the only entry with that default until v2; now the core has it too, and the two are the same
 speed.

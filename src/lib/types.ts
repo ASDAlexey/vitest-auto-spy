@@ -1078,7 +1078,8 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
    * and defines nothing until a method is read. The accessor path's first read drops the double into a
    * property dictionary as wide as the class; the proxy never does, so at 8–16 methods it is ~1.4 kB
    * against ~2.1 kB with one method called, and at 45 methods ~1.4 kB against ~4.4 kB, built 2–6×
-   * faster.
+   * faster. The width is the number of methods the double spies, after `onlyMethodsToSpyOn` narrows
+   * it and `methodsToSpyOn` / `instanceMethodsToSpyOn` add to it.
    *
    * What a wide class's proxy double changes, and the reason to pass `lazySpies: true`: every read of
    * a member pays a trap (~20 ns); `util.types.isProxy` is `true`; `console.log` shows only the

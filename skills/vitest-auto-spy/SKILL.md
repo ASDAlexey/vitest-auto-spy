@@ -358,7 +358,9 @@ it('loads', async () => {
   The family that installs an implementation (`mockImplementation`, `mockReturnValue`,
   `mockReturnThis`, `mockThrow`, `mockResolvedValue`, `mockRejectedValue`) replaces the very dispatch
   a chain is read by, so one of the two silently decides nothing and the spec goes green on a branch
-  nobody configured. Both orders are reported (warn, or throw under the `strict` preset). Want a
+  nobody configured. Both orders are reported (warn, or throw under the `strict` preset) — except a
+  wrapper that delegates: `vi.when(spy)` (Vitest 5), or a `mockImplementation` built from
+  `spy.getMockImplementation()`, since the chain still answers every call it passes through. Want a
   fallback **and** a per-argument value? Put the fallback in the container — `returns:` where the
   double is built, or `resolveWith` / `nextWith` / `failWith` — which a `calledWith` still wins over.
 - **`calledWith(x);` on its own is a stub, not an assertion.** It configures "answer `undefined`
@@ -372,7 +374,8 @@ it('loads', async () => {
   it took to stderr, with where the first three were scheduled; `onStrayTimers` receives every one's
   file and frames in `timers` instead of the warning.
 - **Never assert a signal with `toBeTruthy()`** — every signal is truthy. Use
-  `toHaveSignalValue(v)` after `registerSignalMatchers()` from `vitest-auto-spy/angular/matchers`.
+  `toHaveSignalValue(v)` after `registerSignalMatchers()` from `vitest-auto-spy/angular/matchers`
+  (`toEqual` semantics; `toHaveSignalValue(v, { strict: true })` for `toStrictEqual`'s).
 - **Never assert a resource with `expect(r.value()).toEqual(...)` alone** — an unresolved resource
   still holds its _default_, so that passes while proving nothing. `toHaveResourceValue(v)` after
   `registerResourceMatchers()`, from the same `/angular/matchers` entry, fails unless the resource

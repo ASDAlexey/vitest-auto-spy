@@ -28,7 +28,7 @@ createSpyFromClass(MyService, {
 | `onlyMethodsToSpyOn` | **Exhaustive whitelist.** Skips discovery; anything not listed is absent. |
 | `instanceMethodsToSpyOn` | **Additive.** The name to prefer in new code (see below). |
 | `autoSpyAccessors` | Merged with the explicit getter/setter lists. |
-| `lazySpies` | Unset: `true` (accessor placeholders) below 8 methods, `'proxy'` (a `Proxy`, lighter once touched) from 8. Explicit `true` / `false` / `'proxy'` apply at any width. Calls, `Object.keys`, spread and snapshots behave the same in every mode. |
+| `lazySpies` | Unset: `true` (accessor placeholders) below 8 methods, `'proxy'` (a `Proxy`, lighter once touched) from 8, counting the methods the double spies (after `onlyMethodsToSpyOn` / `methodsToSpyOn`). Explicit `true` / `false` / `'proxy'` apply at any width. Calls, `Object.keys`, spread and snapshots behave the same in every mode. |
 | `strict` | Throw on a method nobody configured, instead of answering `undefined` (below). |
 | `onUnstubbedCall` | The general form of `strict`; its return value becomes the call's return value. |
 | `selfReturning` | The named methods answer the double itself — a default like `returns`; a name in both answers `returns`. |
@@ -251,7 +251,8 @@ Precedence, first one set wins: the double's `onUnstubbedCall` → the double's 
   double is built, or `resolveWith` / `nextWith` / `failWith` — which a `calledWith` still wins over.
   The report is this library's own spy engine's, so Vitest and Rstest have it; Bun, `node:test` and
   `setSpyEngine('runner')` do not. The `Once` family is never reported.
-  `vi.when(spy)` (Vitest 5) is not reported either: it wraps the dispatch rather than replacing it,
+  `vi.when(spy)` (Vitest 5) is not reported either, nor any `mockImplementation` built from
+  `spy.getMockImplementation()`: it wraps the dispatch rather than replacing it,
   so a `calledWith` on the same method still answers every call `vi.when` has no row for. A
   `vi.when` over a `mockReturnValue` still is.
 - **A throw something swallowed still fails the test.** Under `setupAutoSpy({ strict: true })` every

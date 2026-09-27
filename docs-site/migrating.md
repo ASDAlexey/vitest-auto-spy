@@ -329,8 +329,9 @@ is a _native_ Vitest/Bun method that `node:test` does not have; the normalised
 `mock.calls[0].arguments`, not `mock.calls[0]`. See [node:test](/runtimes/node).
 
 **Angular.** `provideAutoSpy` defaults to **lazy** spies here (`jest-auto-spies` was always eager).
-Behaviour is identical; if you depend on every spy existing before first access, pass
-`{ lazySpies: false }`.
+Calls and assertions behave identically; a class of 8 or more methods gets a `Proxy` double. Pass
+`{ lazySpies: true }` for a plain object, or `{ lazySpies: false }` if you depend on every spy
+existing before first access.
 
 ## What you gain by moving
 

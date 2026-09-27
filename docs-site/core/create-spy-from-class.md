@@ -360,7 +360,8 @@ so `cart.total.mockReturnValue(3)` says it in one step.
 ### `lazySpies: 'proxy'` — one trap object instead of a placeholder per method
 
 `'proxy'` is what a class of **8 methods or more** gets when `lazySpies` is not set; pass it to get it
-on a narrower one. The record carries no property for a method until something reads it, and the
+on a narrower one. The width is the number of methods the double spies — after `onlyMethodsToSpyOn`
+narrows it and `methodsToSpyOn` / `instanceMethodsToSpyOn` add to it. The record carries no property for a method until something reads it, and the
 traps answer every method name from one set shared by every double of the class.
 
 ```ts
@@ -394,7 +395,8 @@ Pass `lazySpies: true` — or register it once with `registerAutoSpyDefaults(Cla
 times.
 
 **It is not a different double.** `Object.keys`, spread, `JSON.stringify`, `in`,
-`hasOwnProperty`, `Object.getOwnPropertyDescriptor`, `delete`, `Object.freeze`, key order, `returns`,
+`hasOwnProperty`, `Object.getOwnPropertyDescriptor` (the same accessor shape, though a fresh pair per
+call), `delete`, `Object.freeze`, key order, `returns`,
 `overrides` and `fillMissing` all behave exactly as they do on the accessor path — `src/lib/lazy-spy-proxy.spec.ts`
 asserts the two against each other rather than against hand-written expectations. Reading a
 descriptor deliberately does **not** build the spy, for the same reason `resetAutoSpy` can skip an
