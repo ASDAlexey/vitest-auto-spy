@@ -33,7 +33,7 @@ const MODULE_CACHE_VITEST_FROM = 5;
 
 const BASE_CONFIG_EXTENSIONS = ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs'];
 
-interface TargetConfig {
+export interface TargetConfig {
   readonly target: UnitTestTarget;
   /** The runner config the target names, repository-relative, when one exists. */
   readonly config: string | undefined;
@@ -70,7 +70,7 @@ function targetConfig(profile: Profile, target: UnitTestTarget): TargetConfig {
   return { target, config, keys: keysOf(profile, config), browsers };
 }
 
-function builderTargets(profile: Profile): TargetConfig[] {
+export function builderTargets(profile: Profile): TargetConfig[] {
   if (!isRunnerConfigRead(profile)) {
     return [];
   }

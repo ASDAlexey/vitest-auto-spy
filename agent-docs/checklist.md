@@ -58,6 +58,12 @@ v8 was about 2x faster than istanbul with the cache there, and the cache pays of
 `analog-module-cache-inline-styles` warns that `fsModuleCache` under the Analog plugin breaks the
 warm run of any spec reaching a component with inline `styles`. `angular-build-happy-dom` notes a
 builder target on jsdom only because `happy-dom` is not installed.
+Two warn when `vitest run` and the builder set up a different test world for the same specs:
+`runner-dom-differs-from-builder` — a `vitest.config.*` / `vite.config.*` on `environment: 'jsdom'`
+beside a builder target that runs happy-dom (fix: `environment: 'happy-dom'`; a jsdom-only spec keeps
+`// @vitest-environment jsdom`) — and `analog-testbed-laxer-than-builder` — Analog's `setupTestBed()`
+without `errorOnUnknownElements` / `errorOnUnknownProperties`, which the builder's TestBed turns on
+(fix: `setupTestBed({ errorOnUnknownElements: true, errorOnUnknownProperties: true })`).
 `analog-fast-compile-ctor-injection` warns that Analog `fastCompile` in JIT mode leaves
 `@Injectable` constructor parameters without a token (NG0202). `mock-reset-config-unread` notes a
 `no-redundant-mock-reset` whose `configFile` names a config built by a factory or `mergeConfig`,

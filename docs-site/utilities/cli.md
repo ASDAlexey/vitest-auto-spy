@@ -326,6 +326,32 @@ An `@angular/build:unit-test` or `@nx/angular:unit-test` target whose options (w
 `setupFiles` option for that target; `nx.json` `targetDefaults` carries it for every project that
 shares the layout, and `runnerConfig` pointed at the Vitest config works too.
 
+#### `runner-dom-differs-from-builder`
+
+A `vitest.config.*` or `vite.config.*` — the config `vitest run` and the IDE pick up, which the
+builder never reads — that sets `environment: 'jsdom'`, in a workspace with `jsdom` and `happy-dom`
+both installed and an `@angular/build:unit-test` / `@nx/angular:unit-test` target that runs on
+happy-dom: the builder picks it whenever it resolves, unless the target's own runner config sets
+`environment`. The same specs then run on two DOMs, and a spec can pass under `vitest run` and fail
+under `ng test` / `nx test`, or the other way round. A config at the repository root covers every
+target; one in a project directory covers the targets under it. A warning. The fix aligns on
+happy-dom — `environment: 'happy-dom'` in the runner config — which on a 48-file Angular suite also
+took Duration from 1.37 s to 1.10 s (−20 %); a spec that needs jsdom keeps it with a
+`// @vitest-environment jsdom` comment at its top. Quiet for a target that runs in `browsers`, and
+for the config a target names as its `runnerConfig`, which the builder reads itself.
+
+#### `analog-testbed-laxer-than-builder`
+
+A file that calls `setupTestBed()` from `@analogjs/vitest-angular/setup-testbed` without
+`errorOnUnknownElements` or `errorOnUnknownProperties`, in a workspace that also has an
+`@angular/build:unit-test` / `@nx/angular:unit-test` target. Analog leaves both off unless asked; the
+builder initialises its TestBed with both `true`. A misspelt element or input binding in a template
+then only logs under `vitest run` and fails the test under `ng test` / `nx test`. A warning; the fix
+is the call the builder makes, `setupTestBed({ errorOnUnknownElements: true, errorOnUnknownProperties: true })`.
+A flag written with any value counts as a decision and is not reported, and neither is a call whose
+options are not an object literal, which this cannot read. A renamed import (`setupTestBed as setup`)
+is followed.
+
 #### `module-mock-leak`
 
 The same module mocked with a factory in one spec and as an automock or `{ spy: true }` in another,
@@ -854,9 +880,29 @@ recorded heap. A bare run passes `--logHeapUsage` itself; a `--command` run need
 in the configuration it reaches. It is a note. Under `isolate: false` the number after a file also
 carries every file that ran before it in the same worker. On Vitest 5 `perf` takes that apart: with the
 resolved `isolate: false`, each lane keeps one worker, so it orders the lane's files by start and lists
-what each file **added** to the heap over the file before it — the five that grew it most. That is the
-file that leaves memory behind, without guessing. With isolation on, or on an older report, it lists
-the heap after each file as before.
+what each file **added** to the heap over the file before it — the five that grew it most. With
+isolation on, or on an older report, it lists the heap after each file as before.
+
+Growth is not always something the spec kept. A reused worker evaluates a module once and keeps it for
+every file after it, so the first file in a lane to import a heavy graph — `@sentry/angular` is about
+7.5 MB of heap on its own — pays for it, and another lane order names another file. The reporter tells
+the two apart from Vitest's import durations: after each file it records the modules the worker
+evaluated for the first time, the ones the lane's previous file had not. A file whose growth comes
+with a first load taking 50 ms or more is listed in a second note, worded as such:
+
+```text
+info  perf-heap  Heap growth that comes with modules a worker evaluated for the first time, largest first:
+                 libs/utils/capture-exception.util.spec.ts: first load of `@sentry/angular` in this worker (+8 MB),
+                 not retained by the spec.
+```
+
+When the same module was first loaded in several lanes, each of those files is one reading of what the
+load costs. A file that grew more than twice the middle reading keeps the rest in the first note, as
+`+21 MB beyond the first load of @sentry/angular`, and a file that loaded nothing new stays there with
+its whole growth. With a single reading the whole growth is put down to the load. Vitest reports the
+heaviest entries of the worker's whole module table, so a measured run asks for thirty of them under
+`isolate: false`, where it would ask for ten; a first load too light to make that list is not
+recognised, and its growth is reported as kept.
 
 ### When a bare run is not your suite
 
@@ -1021,7 +1067,7 @@ styles at 15 %.
 ```
 
 **The slowest imports come from Vitest.** On Vitest 4.1 and newer a measured run asks for the ten
-slowest imports of each file when the config sets no `experimental.importDurations.limit`, and the
+slowest imports of each file (thirty under `isolate: false`, for [`perf-heap`](#perf-heap)) when the config sets no `experimental.importDurations.limit`, and the
 confirmation pass raises a lower limit for its own run only, so no config is needed. The card lists the spec's heaviest
 direct imports with everything they pulled in: a package by its name, a module by its path. A module
 another file imported first was paid for there and is not listed. An older Vitest, or a harness whose

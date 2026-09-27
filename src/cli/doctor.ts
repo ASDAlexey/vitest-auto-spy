@@ -20,6 +20,7 @@ import { checkJasmineEra } from './checks/jasmine-era';
 import { checkMockResetConfig } from './checks/mock-reset-config';
 import { checkModuleMockLeak } from './checks/module-mock-leak';
 import { checkOrphanRunnerConfig } from './checks/orphan-runner-config';
+import { checkAnalogTestBed, checkRunnerDom } from './checks/runner-parity';
 import { checkScanCap } from './checks/scan-cap';
 import { checkSpecImports } from './checks/spec-imports';
 import { checkTsconfigGlobs } from './checks/tsconfig-globs';
@@ -42,6 +43,8 @@ export function runDoctor(profile: Profile): Finding[] {
     ...checkAngularBuild(profile),
     ...checkBuilderSetup(profile),
     ...checkBuilderSpeed(profile),
+    ...checkRunnerDom(profile, graph),
+    ...checkAnalogTestBed(profile, graph),
     ...checkCoverageConfig(profile),
     ...checkAgentInstructions(profile),
     ...checkJasmineEra(profile),
