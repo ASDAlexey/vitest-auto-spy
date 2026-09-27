@@ -538,8 +538,9 @@ Four things to know:
 - **List it after `provideRouter()`** — the later provider of `ActivatedRoute` wins, and
   `injectActivatedRoute()` throws naming the one that did. With the real router present, the double
   still works as `relativeTo` for `router.createUrlTree`.
-- **One node, no tree.** `root` is the route itself, `parent` / `firstChild` are `null`. For
-  `route.parent.params` patch that member with `mockReadonlyProp`, or use `RouterTestingHarness`.
+- **No parent above it.** `root` is the route itself and `parent` is `null`; below it there are only
+  the routes passed as `children`. For `route.parent.params` patch that member with
+  `mockReadonlyProp`, or use `RouterTestingHarness`.
 - **`title` is given, not resolved; no navigation, no input binding.** `provideActivatedRoute({
 title: 'Product 7' })` answers `route.snapshot.title` — the double puts the string under the
   router's own `RouteTitleKey`, read off the installed router, and does not run a `title: () => …`
@@ -857,10 +858,11 @@ collaborators.get(FeatureFlagService).isOn.mockReturnValue(true);
 
 TestBed.inject(CheckoutFacade).start();
 
-expect(collaborators.names()).toEqual(['FeatureFlagService']); // analytics was never asked for
+expect(collaborators.names({ clean: true })).toEqual(['FeatureFlagService']); // analytics was never asked for
 ```
 
-`providers`, `injectedTokens()` (in factory-run order), `names()`, `wasInjected(token)`,
+`providers`, `injectedTokens()` (in factory-run order), `names()` (raw `Function.name`, so `_Service`
+under esbuild; `names({ clean: true })` strips the rename), `wasInjected(token)`,
 `get<D>(token)` → `Spy<D>`, `reset()` (the record only — the doubles survive). A class token gets a
 class spy, anything else a `createAutoMock()`; pass `{ double: () => … }` when a collaborator has to
 be a real object. Doubles are built eagerly, so stub before the entry point runs; a factory runs once
@@ -1025,7 +1027,7 @@ expect(products.reload).toHaveBeenCalled(); // reload is spied, answers true, an
 
 // signal assertions
 registerSignalMatchers(); // once, in the setup file — /angular/matchers
-expect(component.total).toHaveSignalValue(3);
+expect(component.total).toHaveSignalValue(3); // toEqual semantics; { strict: true } for toStrictEqual's
 
 // resource assertions — value AND status, which is the whole point
 registerResourceMatchers(); // once, in the setup file — /angular/matchers

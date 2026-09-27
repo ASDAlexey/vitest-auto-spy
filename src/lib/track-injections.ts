@@ -65,8 +65,12 @@ export interface InjectionLog {
   readonly providers: TrackedProvider[];
   /** The tokens DI asked for, in the order their factories ran. A copy — mutating it changes nothing. */
   injectedTokens(): unknown[];
-  /** The same list as names, which is what makes a failing `toEqual` readable. */
-  names(): string[];
+  /**
+   * The same list as names, which is what makes a failing `toEqual` readable. Each is the token's own
+   * `name`, so esbuild's `_Service` stays as it is; `{ clean: true }` takes a bundler's rename off,
+   * the way every failure message prints it.
+   */
+  names(options?: { readonly clean?: boolean }): string[];
   /** Whether DI ever constructed `token`. */
   wasInjected(token: unknown): boolean;
   /** The double registered for `token`, typed as a spy. Throws when the token was never tracked. */
@@ -99,7 +103,7 @@ function messageName(token: unknown): string {
  *
  * TestBed.inject(CheckoutFacade).start();
  *
- * expect(collaborators.names()).toEqual(['FeatureFlagService']); // analytics was never asked for
+ * expect(collaborators.names({ clean: true })).toEqual(['FeatureFlagService']); // analytics was never asked for
  * ```
  *
  * The doubles are built up front, so a spec can stub one before the entry point runs; the *record*
@@ -123,7 +127,7 @@ export function trackInjections(tokens: readonly unknown[], options: TrackInject
   return {
     providers,
     injectedTokens: () => [...injected],
-    names: () => injected.map(tokenName),
+    names: ({ clean = false } = {}) => injected.map(clean ? messageName : tokenName),
     wasInjected: (token) => injected.includes(token),
     get: <D>(token: unknown): Spy<D> => {
       if (!doubles.has(token)) {

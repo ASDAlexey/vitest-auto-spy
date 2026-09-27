@@ -71,6 +71,18 @@ describe('trackInjections', () => {
     expect(collaborators.names()).toEqual([String(CONFIG), String(anonymous)]);
   });
 
+  it('takes a bundler rename off the names on request, and only then', () => {
+    const renamed = Object.defineProperty(class {}, 'name', { value: '_MailerService' });
+    const suffixed = Object.defineProperty(class {}, 'name', { value: 'ConfigService$1' });
+    const collaborators = trackInjections([renamed, suffixed, CONFIG]);
+
+    collaborators.providers.forEach(({ useFactory }) => useFactory());
+
+    expect(collaborators.names()).toEqual(['_MailerService', 'ConfigService$1', String(CONFIG)]);
+    expect(collaborators.names({ clean: true })).toEqual(['MailerService', 'ConfigService', String(CONFIG)]);
+    expect(collaborators.names({ clean: false })).toEqual(collaborators.names());
+  });
+
   it('hands back an auto-mock for a token and a class spy for a class', () => {
     const collaborators = trackInjections([CONFIG, FeatureFlagService]);
 

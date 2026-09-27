@@ -16,7 +16,7 @@ collaborators.get(FeatureFlagService).isOn.mockReturnValue(true);
 
 TestBed.inject(CheckoutFacade).start();
 
-expect(collaborators.names()).toEqual(['FeatureFlagService']); // analytics was never asked for
+expect(collaborators.names({ clean: true })).toEqual(['FeatureFlagService']); // analytics was never asked for
 ```
 
 ## The question it answers
@@ -47,15 +47,18 @@ Returns an `InjectionLog`:
 | -------------------- | ------------------------------------------------------------------------ |
 | `providers`          | the `{ provide, useFactory }` list to spread into a testing module       |
 | `injectedTokens()`   | the tokens DI asked for, in the order their factories ran — a copy       |
-| `names()`            | the same list as names, which is what makes a failing `toEqual` readable |
+| `names(options?)`    | the same list as names, which is what makes a failing `toEqual` readable |
 | `wasInjected(token)` | whether DI ever constructed `token`                                      |
 | `get<D>(token)`      | the double registered for `token`, typed as `Spy<D>`                     |
 | `reset()`            | forget the record; the doubles are untouched                             |
 
 `injectedTokens()` hands back a copy, so mutating it changes nothing. `names()` reads the class name
-off the token rather than off a literal, because the Angular plugin's decorator downlevelling renames
-compiled classes; an `InjectionToken`, or a class a minifier stripped the name from, is named by its
-`String` form.
+off the token rather than off a literal, and hands it back as is: the Angular plugin's decorator
+downlevelling compiles `FeatureFlagService` to a class named `_FeatureFlagService`, and that is what
+`names()` returns. `names({ clean: true })` takes a bundler's rename off — esbuild's leading `_`,
+Rollup's `$1` suffix — so the list matches the names you wrote and the ones every failure message of
+this package prints. An `InjectionToken`, or a class a minifier stripped the name from, is named by
+its `String` form either way.
 
 `reset()` clears the record only. The doubles survive it — reset those with `resetAutoSpy` if the
 spec needs their call history cleared too.
