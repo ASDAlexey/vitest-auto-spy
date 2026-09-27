@@ -29,6 +29,7 @@
  * take the open requests with `match(() => true)`, which is one-shot, so whichever looks first
  * owns them and one unanswered request is never reported twice.
  */
+import { DOCUMENT } from '@angular/common';
 import {
   type HttpFeature,
   type HttpFeatureKind,
@@ -59,6 +60,11 @@ export type RequestMatcher = RegExp | string | ((request: HttpRequest<unknown>) 
 export interface ExpectRequestOptions {
   /** Narrow to one verb, for a URL that is both read and written in the same test. Case-insensitive. */
   method?: string;
+  /**
+   * `false` skips the `TestBed.tick()` before the lookup and after the answer, for a module whose
+   * doubled `DOCUMENT` the app's tick cannot run against. The request must already be out. Default `true`.
+   */
+  tick?: boolean;
 }
 
 /** Options for {@link provideHttpTesting}. */
@@ -94,8 +100,13 @@ export type ResponseBody = Parameters<TestRequest['flush']>[0];
 /** `headers` / `status` / `statusText`, exactly as `TestRequest#flush` takes them. */
 export type FlushOptions = NonNullable<Parameters<TestRequest['flush']>[1]>;
 
-/** `headers` / `statusText` for {@link RequestExpectation.error} — the status is its first argument. */
-export type RequestErrorOptions = Omit<NonNullable<Parameters<TestRequest['error']>[1]>, 'status'>;
+/**
+ * `headers` / `statusText` for {@link RequestExpectation.error} — the status is its first argument —
+ * and `error`, the payload `HttpErrorResponse.error` carries. Default `new ProgressEvent('error')`.
+ */
+export type RequestErrorOptions = Omit<NonNullable<Parameters<TestRequest['error']>[1]>, 'status'> & {
+  error?: Parameters<TestRequest['error']>[0];
+};
 
 /** The one request {@link expectRequest} found, and the two ways to answer it. */
 export interface RequestExpectation {
@@ -106,7 +117,10 @@ export interface RequestExpectation {
    * reads it has been ticked.
    */
   flush(body: ResponseBody, options?: FlushOptions): Promise<void>;
-  /** Fail the request with an HTTP status, then settle the same way {@link RequestExpectation.flush} does. */
+  /**
+   * Fail the request with an HTTP status, then settle the same way {@link RequestExpectation.flush} does.
+   * Status `0` is a network failure: no response reached the client.
+   */
   error(status: number, options?: RequestErrorOptions): Promise<void>;
 }
 
@@ -392,10 +406,35 @@ function tooMany(matched: TestRequest[], matcher: RequestMatcher, options: Expec
  * is what the view reading the resource needs. Both, in that order, are the two steps this helper
  * exists to stop people rediscovering.
  */
-async function settle(): Promise<void> {
+async function settle(tick: boolean): Promise<void> {
   for (let round = 0; round < SETTLE_ROUNDS; round += 1) {
     await Promise.resolve();
+
+    if (tick) {
+      tickApp('expectRequest');
+    }
+  }
+}
+
+/** The app's tick, with a doubled `DOCUMENT` named when it is what the tick fell over. */
+function tickApp(caller: string): void {
+  try {
     flushEffects();
+  } catch (error) {
+    if (TestBed.inject(DOCUMENT) === globalThis.document) {
+      throw error;
+    }
+
+    throw new Error(
+      withDocs(
+        `[vitest-auto-spy] ${caller}: TestBed.tick() failed, and this TestBed provides its own DOCUMENT — Angular reads ` +
+          "the real document's members while it ticks, which a partial double does not have.\n" +
+          `Pass { tick: false } to answer without ticking (the request must already be out), or provide a DOCUMENT ` +
+          'that is a real document.',
+        DOCS_LINKS.angularHttpExpectRequest,
+      ),
+      { cause: error },
+    );
   }
 }
 
@@ -418,8 +457,11 @@ async function settle(): Promise<void> {
  */
 export function expectRequest(matcher: RequestMatcher, options: ExpectRequestOptions = {}): RequestExpectation {
   const controller = readController('expectRequest');
+  const tick = options.tick ?? true;
 
-  flushEffects();
+  if (tick) {
+    tickApp('expectRequest');
+  }
 
   const [first, ...rest] = controller.match(toPredicate(matcher, options));
 
@@ -436,12 +478,12 @@ export function expectRequest(matcher: RequestMatcher, options: ExpectRequestOpt
     flush: async (body: ResponseBody, flushOptions?: FlushOptions): Promise<void> => {
       first.flush(body, flushOptions);
 
-      await settle();
+      await settle(tick);
     },
-    error: async (status: number, errorOptions?: RequestErrorOptions): Promise<void> => {
-      first.error(new ProgressEvent('error'), { ...errorOptions, status });
+    error: async (status: number, { error = new ProgressEvent('error'), ...errorOptions }: RequestErrorOptions = {}): Promise<void> => {
+      first.error(error, { ...errorOptions, status });
 
-      await settle();
+      await settle(tick);
     },
   };
 }
@@ -460,7 +502,9 @@ export function expectRequest(matcher: RequestMatcher, options: ExpectRequestOpt
 export function expectNoRequest(matcher: RequestMatcher = () => true, options: ExpectRequestOptions = {}): void {
   const controller = readController('expectNoRequest');
 
-  flushEffects();
+  if (options.tick ?? true) {
+    tickApp('expectNoRequest');
+  }
 
   const matched = controller.match(toPredicate(matcher, options));
 
@@ -495,6 +539,14 @@ export function expectNoRequest(matcher: RequestMatcher = () => true, options: E
  */
 export function verifyNoPendingRequests(options: { ignoreCancelled?: boolean } = {}): void {
   verifyPending(options.ignoreCancelled === true);
+}
+
+/**
+ * The `HttpTestingController` `provideHttpTesting()` installed, for a synchronous `expectOne` / `match` /
+ * `expectNone` on an Observable service. Throws with the missing providers named when there is none.
+ */
+export function injectHttpTesting(): HttpTestingController {
+  return readController('injectHttpTesting');
 }
 
 function pendingOf(request: TestRequest): PendingRequest {

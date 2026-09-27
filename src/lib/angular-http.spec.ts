@@ -8,12 +8,13 @@
  * `expectRequest`, and the list of requests that *were* made is the whole reason the message is
  * worth more than `expectOne`'s.
  */
+import { DOCUMENT } from '@angular/common';
 import { HttpClient, HttpErrorResponse, type HttpRequest, httpResource, provideHttpClient } from '@angular/common/http';
-import { Component } from '@angular/core';
+import { Component, effect, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { expectNoRequest, expectRequest, provideHttpTesting, verifyNoPendingRequests } from './angular-http';
+import { expectNoRequest, expectRequest, injectHttpTesting, provideHttpTesting, verifyNoPendingRequests } from './angular-http';
 
 interface Product {
   id: number;
@@ -122,6 +123,36 @@ describe('provideHttpTesting', () => {
     await expectRequest('/api/products').error(500);
 
     expect(failures[0]?.status).toBe(500);
+  });
+
+  it('fails a call with the payload the spec gives, and status 0 as a network failure', async () => {
+    const failures: HttpErrorResponse[] = [];
+    const offline = new ProgressEvent('error');
+
+    TestBed.inject(HttpClient)
+      .get('/api/products')
+      .subscribe({ error: (error: HttpErrorResponse) => failures.push(error) });
+
+    await expectRequest('/api/products').error(0, { error: offline });
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.status).toBe(0);
+    expect(failures[0]?.error).toBe(offline);
+  });
+
+  it('rethrows a tick failure as it is when the document is the real one', () => {
+    const failing = signal(false);
+
+    TestBed.runInInjectionContext(() =>
+      effect(() => {
+        if (failing()) {
+          throw new Error('effect failed');
+        }
+      }),
+    );
+    failing.set(true);
+
+    expect(() => expectNoRequest()).toThrow('effect failed');
   });
 
   it('lists the requests that were made when none of them matched', () => {
@@ -259,6 +290,19 @@ describe('provideHttpTesting', () => {
     TestBed.inject(HttpClient).get('/api/cancelled-at-teardown').subscribe().unsubscribe();
   });
 
+  it('hands out the controller for a synchronous expectOne on an Observable service', () => {
+    const http = TestBed.inject(HttpClient);
+    const received: Product[][] = [];
+
+    http.get<Product[]>('/api/sync').subscribe((products) => received.push(products));
+    injectHttpTesting()
+      .expectOne((request) => request.url === '/api/sync')
+      .flush([{ id: 1 }]);
+    injectHttpTesting().expectNone('/api/other');
+
+    expect(received).toStrictEqual([[{ id: 1 }]]);
+  });
+
   it('leaves the teardown check off when the suite turned it off', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({ providers: [...provideHttpTesting({ verifyOnTeardown: false })] });
@@ -269,6 +313,53 @@ describe('provideHttpTesting', () => {
   });
 });
 
+describe('a TestBed whose DOCUMENT is a double', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [...provideHttpTesting(), { provide: DOCUMENT, useValue: { body: { appendChild: (): undefined => undefined } } }],
+    });
+  });
+
+  it('names the doubled DOCUMENT when the tick falls over it, with the original as the cause', () => {
+    TestBed.inject(HttpClient).get('/api/token').subscribe();
+
+    const failure = captureThrow(() => expectRequest('/api/token'));
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(String(failure)).toMatch(/expectRequest: TestBed.tick\(\) failed, and this TestBed provides its own DOCUMENT/);
+    expect(String(failure)).toMatch(/\{ tick: false \}/);
+    expect(failure instanceof Error ? failure.cause : undefined).toBeInstanceOf(TypeError);
+
+    injectHttpTesting().expectOne('/api/token').flush('t');
+  });
+
+  it('answers without ticking on { tick: false }', async () => {
+    const received: string[] = [];
+    const failures: number[] = [];
+    const http = TestBed.inject(HttpClient);
+
+    http.get('/api/token', { responseType: 'text' }).subscribe((token) => received.push(token));
+    http.get('/api/other').subscribe({ error: (error: HttpErrorResponse) => failures.push(error.status) });
+
+    await expectRequest('/api/token', { tick: false }).flush('t');
+    await expectRequest('/api/other', { tick: false }).error(401);
+    expectNoRequest(undefined, { tick: false });
+
+    expect(received).toStrictEqual(['t']);
+    expect(failures).toStrictEqual([401]);
+  });
+});
+
+function captureThrow(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+
+  return undefined;
+}
+
 describe('a TestBed without provideHttpTesting', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({ providers: [provideHttpClient()] });
@@ -277,6 +368,7 @@ describe('a TestBed without provideHttpTesting', () => {
   it('names the missing providers instead of a token the spec never mentioned', () => {
     expect(() => expectRequest('/api/products')).toThrow(/expectRequest: this TestBed has no HttpTestingController/);
     expect(() => expectNoRequest()).toThrow(/expectNoRequest: this TestBed has no HttpTestingController/);
+    expect(injectHttpTesting).toThrow(/injectHttpTesting: this TestBed has no HttpTestingController/);
   });
 
   it('checks nothing on teardown, rather than failing a suite that never used HTTP testing', () => {

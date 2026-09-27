@@ -29,6 +29,7 @@
 export {
   expectNoRequest,
   expectRequest,
+  injectHttpTesting,
   provideHttpTesting,
   verifyNoPendingRequests,
   type ExpectRequestOptions,
