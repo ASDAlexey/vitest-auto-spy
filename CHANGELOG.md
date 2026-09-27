@@ -10,6 +10,24 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Changed
+
+- **`toHaveDirectiveApplied` prints class names as the source spells them.** Under
+  `@angular/build:unit-test` esbuild emits a decorated class as `_TestIdDirective`, and the failure told
+  the reader to edit `_ReportRenameComponent`, a name no file contains. The leading `_` (and a Rollup
+  `$1` suffix) now comes off, the way strict-mode messages already took it off a spied class.
+
+### Fixed
+
+- **`toHaveDirectiveApplied` finds a structural directive.** `*dir` and `<ng-template dir>` put the
+  directive on the comment Angular leaves in place of the template, and the search read elements only,
+  so a directive that rendered its view failed the matcher, whose hint then advised the
+  `createDirectiveHost({ template, scope })` the spec already used. The search now takes template
+  anchors in; `.not` reports them as `1 template anchor`, and a selector naming the rendered element
+  fails with a message that says to drop it. `/angular/matchers` is +226 B min+gzip (2015 → 2241 B,
+  +11.2 %) and +1.0 kB to import (18929 → 19972 B): the anchor search, its two messages and the
+  class-name cleanup.
+
 ## [5.40.0] - 2026-09-27
 
 ### Added
