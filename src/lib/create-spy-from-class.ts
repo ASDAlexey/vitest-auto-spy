@@ -642,10 +642,61 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   }
 
   if (Reflect.ownKeys(config.overrides).length > 0) {
-    applyOverrides(autoSpy, config.overrides);
+    applyOverrides(autoSpy, config.overrides, ObjectClass.name, (key) => answersWithMethodSpy(ObjectClass, config, key));
   }
 
   return autoSpy;
+}
+
+/**
+ * Whether the double answers `key` with a method spy, asked of the configuration rather than by
+ * reading the key: a read materialises the spy the override is about to replace.
+ */
+function answersWithMethodSpy(ObjectClass: ClassType<unknown>, config: ResolvedSpyConfiguration, key: PropertyKey): boolean {
+  const named = (names: readonly PropertyKey[]): boolean => names.includes(key);
+
+  if (
+    named(getAllMethodNames(ObjectClass.prototype)) ||
+    named(config.onlyMethodsToSpyOn) ||
+    named(config.methodsToSpyOn) ||
+    named(config.instanceMethodsToSpyOn)
+  ) {
+    return true;
+  }
+
+  const accessors = resolveAccessors(ObjectClass.prototype, config);
+
+  // The type-driven fallback and `fillMissing` answer every other key with a spy.
+  return (
+    (fillsMissing(ObjectClass, config) || hasNothingToRead(ObjectClass, accessors, config)) &&
+    !named(config.observablePropsToSpyOn) &&
+    !named(accessors.getters) &&
+    !named(accessors.setters)
+  );
+}
+
+// What a plain function carries of its own; anything more (a mock's API, a signal's `set`) is kept as seeded.
+const PLAIN_FUNCTION_KEYS: ReadonlySet<PropertyKey> = new Set(['length', 'name', 'prototype', 'arguments', 'caller']);
+
+/** A function written as the member's implementation: not a class, not a mock or a signal that must keep its identity. */
+function isPlainImplementation(value: unknown): value is Func {
+  return (
+    isCallable(value) &&
+    Object.getOwnPropertyDescriptor(value, 'prototype')?.writable !== false &&
+    Reflect.ownKeys(value).every((key) => PLAIN_FUNCTION_KEYS.has(key))
+  );
+}
+
+/**
+ * The spy a function seeded on a method becomes, so `Spy<T>` stays true of it: every call is recorded
+ * and runs the seed, with the double as `this`, until the test configures the spy.
+ */
+function seededMethodSpy(double: object, key: PropertyKey, implementation: Func, className: string): Func {
+  return createFunctionSpy(String(key), {
+    className,
+    implementation: true,
+    handle: (call) => Reflect.apply(implementation, double, call.args),
+  });
 }
 
 /**
@@ -656,9 +707,14 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
  * returns it lands in the same store the `get` trap reads. Both are what a seed has to do — shadow
  * whatever the factory produced for that key.
  */
-function applyOverrides(autoSpy: object, overrides: object): void {
+function applyOverrides(autoSpy: object, overrides: object, className: string, isMethodKey: (key: PropertyKey) => boolean): void {
   for (const key of Reflect.ownKeys(overrides)) {
-    const value: unknown = Reflect.get(overrides, key);
+    const seeded: unknown = Reflect.get(overrides, key);
+    // A getter seed is read once, as before, and kept as what it returned.
+    const value: unknown =
+      isPlainImplementation(seeded) && isMethodKey(key) && Object.getOwnPropertyDescriptor(overrides, key)?.value === seeded
+        ? seededMethodSpy(autoSpy, key, seeded, className)
+        : seeded;
     // The bag through its descriptor, never through a read: on the `createAutoMock` proxy the
     // abstract-class fallback returns, reading a key *mints* a spy for it — so asking for
     // `accessorSpies` there put a function spy nobody wanted into `ownKeys`, into every spread and

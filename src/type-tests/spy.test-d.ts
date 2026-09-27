@@ -94,6 +94,14 @@ describe('createSpyFromClass', () => {
     expectTypeOf(spy.read.mockReturnValue).toBeFunction();
     expectTypeOf(spy.read.mockReturnValue).toBeCallableWith(null);
   });
+
+  it('takes a function in overrides for a method, and keeps the method a spy', () => {
+    const spy = createSpyFromClass(Storage, { overrides: { read: (key: string) => key } });
+
+    expectTypeOf(spy.read.calledWith).toBeCallableWith('key');
+    expectTypeOf(spy.read.mock.calls).toEqualTypeOf<[key: string][]>();
+    expectTypeOf(spy.read('key')).toEqualTypeOf<string | null>();
+  });
 });
 
 describe('a spy checks the stub, not only the call', () => {

@@ -90,6 +90,8 @@ const NO_MATCH = Symbol('vitest-auto-spy.noMatch');
 export interface UnstubbedGuard {
   className: string | undefined;
   handle: UnstubbedCallHandler;
+  /** The handler is the member's own implementation (a seeded method), so it runs for framework hooks too. */
+  implementation?: boolean;
 }
 
 /** `UserService.load` — or just `load` on a type-driven double, which has no class to name. */
@@ -338,7 +340,7 @@ const FRAMEWORK_HOOKS: ReadonlySet<string> = new Set([
 ]);
 
 function returnTheCorrectFakeValue(state: SpyState, actualArgs: unknown[], functionName: string, unstubbed?: UnstubbedGuard): unknown {
-  if (unstubbed && isUnconfigured(state) && !FRAMEWORK_HOOKS.has(functionName)) {
+  if (unstubbed && isUnconfigured(state) && (unstubbed.implementation === true || !FRAMEWORK_HOOKS.has(functionName))) {
     return unstubbed.handle({ className: unstubbed.className, method: functionName, args: actualArgs });
   }
 

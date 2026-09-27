@@ -619,3 +619,215 @@ describe('createSpyFromClass — overrides on the abstract-class fallback', () =
     expect(Reflect.ownKeys(storage)).not.toContain('accessorSpies');
   });
 });
+
+class Sanitizer {
+  label = 'sanitizer';
+
+  onChange: (() => void) | undefined = undefined;
+
+  handler!: (value: string) => string;
+
+  sanitize(_context: number, value: unknown): string {
+    return String(value);
+  }
+
+  trim(value: string): string {
+    return value.trim();
+  }
+
+  ngOnDestroy(): void {
+    return undefined;
+  }
+}
+
+class WideSanitizer extends Sanitizer {
+  a(): void {}
+  b(): void {}
+  c(): void {}
+  d(): void {}
+  e(): void {}
+}
+
+describe('createSpyFromClass — a function in overrides on a method', () => {
+  const implementation = (_context: number, value: unknown): string => `<${String(value)}>`;
+
+  it('becomes a spy that runs the function, so what Spy<T> says is true', () => {
+    const sanitizer = createSpyFromClass(Sanitizer, { overrides: { sanitize: implementation } });
+
+    expect(sanitizer.sanitize(1, 'x')).toBe('<x>');
+    expect(sanitizer.sanitize).toHaveBeenCalledOnce();
+    expect(sanitizer.sanitize.mock.calls).toEqual([[1, 'x']]);
+    expect(sanitizer.sanitize).not.toBe(implementation);
+  });
+
+  it.each([true, false, 'proxy'] as const)('does so with lazySpies: %s', (lazySpies) => {
+    const sanitizer = createSpyFromClass(WideSanitizer, { lazySpies, overrides: { sanitize: implementation } });
+
+    expect(sanitizer.sanitize(1, 'y')).toBe('<y>');
+    expect(sanitizer.sanitize).toHaveBeenCalledWith(1, 'y');
+  });
+
+  it('calls the function with the double as `this`', () => {
+    const receivers: unknown[] = [];
+    const sanitizer = createSpyFromClass(WideSanitizer, {
+      overrides: {
+        trim(this: unknown, value: string): string {
+          receivers.push(this);
+
+          return value;
+        },
+      },
+    });
+
+    sanitizer.trim(' a ');
+
+    expect(receivers).toEqual([sanitizer]);
+  });
+
+  it('gives way to configuration: calledWith for its arguments, mockReturnValue for every call', () => {
+    const sanitizer = createSpyFromClass(Sanitizer, { overrides: { sanitize: implementation } });
+
+    sanitizer.sanitize.calledWith(1, 'configured').mockReturnValue('chain');
+
+    expect(sanitizer.sanitize(1, 'configured')).toBe('chain');
+
+    sanitizer.sanitize.mockReturnValue('host');
+
+    expect(sanitizer.sanitize(1, 'other')).toBe('host');
+  });
+
+  it('runs the function again after resetAutoSpy, which clears the calls', () => {
+    const sanitizer = createSpyFromClass(Sanitizer, { overrides: { sanitize: implementation } });
+
+    sanitizer.sanitize.calledWith(1, 'a').mockReturnValue('configured');
+    sanitizer.sanitize(1, 'a');
+    resetAutoSpy(sanitizer);
+
+    expect(sanitizer.sanitize).not.toHaveBeenCalled();
+    expect(sanitizer.sanitize(1, 'b')).toBe('<b>');
+  });
+
+  it('wins over returns and selfReturning named for the same method, as a seed always has', () => {
+    const sanitizer = createSpyFromClass(Sanitizer, {
+      returns: { sanitize: 'returned' },
+      selfReturning: ['trim'],
+      overrides: { sanitize: implementation, trim: (value: string) => value.toUpperCase() },
+    });
+
+    expect(sanitizer.sanitize(1, 'z')).toBe('<z>');
+    expect(sanitizer.trim('q')).toBe('Q');
+    expect(sanitizer.trim).toHaveBeenCalledOnce();
+  });
+
+  it('counts as configured on a strict double, framework hooks included', () => {
+    const destroyed = vi.fn();
+    const sanitizer = createSpyFromClass(Sanitizer, {
+      strict: true,
+      overrides: {
+        sanitize: implementation,
+        ngOnDestroy: () => {
+          destroyed();
+        },
+      },
+    });
+
+    expect(sanitizer.sanitize(1, 's')).toBe('<s>');
+    sanitizer.ngOnDestroy();
+    expect(destroyed).toHaveBeenCalledOnce();
+    expect(sanitizer.ngOnDestroy).toHaveBeenCalledOnce();
+    expect(() => sanitizer.trim('t')).toThrow('Sanitizer.trim(');
+    expect(takeStrictViolations()).toHaveLength(1);
+  });
+
+  it('keeps a vi.fn, a library spy, a class and a signal-like callable exactly as seeded', () => {
+    const mock = vi.fn(() => 'mock');
+    const librarySpy = createSpyFromClass(Sanitizer).trim;
+    class Replacement {}
+    const signalLike = Object.assign(() => 1, { set: (): void => undefined });
+    const sanitizer = createSpyFromClass(WideSanitizer, {
+      methodsToSpyOn: ['a', 'b'],
+      overrides: { sanitize: mock, trim: librarySpy, a: Replacement as never, b: signalLike as never },
+    });
+
+    expect(sanitizer.sanitize).toBe(mock);
+    expect(sanitizer.trim).toBe(librarySpy);
+    expect(Reflect.get(sanitizer, 'a')).toBe(Replacement);
+    expect(Reflect.get(sanitizer, 'b')).toBe(signalLike);
+  });
+
+  it('wraps a sloppy-mode function, whose own keys include arguments and caller', () => {
+    const sloppy: unknown = new Function('return function (context, value) { return "sloppy:" + value; }')();
+    const sanitizer = createSpyFromClass(Sanitizer, { overrides: { sanitize: sloppy as never } });
+
+    expect(sanitizer.sanitize(1, 'v')).toBe('sloppy:v');
+    expect(vi.isMockFunction(sanitizer.sanitize)).toBe(true);
+  });
+
+  it('leaves a value on a method, a function on a field and a getter seed as they are', () => {
+    const onChange = (): void => undefined;
+    const fromGetter = (): string => 'from getter';
+    const sanitizer = createSpyFromClass(Sanitizer, {
+      overrides: {
+        trim: 'not a function' as never,
+        onChange,
+        get label() {
+          return 'read';
+        },
+        get sanitize() {
+          return fromGetter;
+        },
+      },
+    });
+
+    expect(Reflect.get(sanitizer, 'trim')).toBe('not a function');
+    expect(sanitizer.onChange).toBe(onChange);
+    expect(sanitizer.label).toBe('read');
+    expect(sanitizer.sanitize).toBe(fromGetter);
+  });
+
+  it('spies a method named only by instanceMethodsToSpyOn, or left out of onlyMethodsToSpyOn', () => {
+    const sanitizer = createSpyFromClass(Sanitizer, {
+      onlyMethodsToSpyOn: ['sanitize'],
+      instanceMethodsToSpyOn: ['handler'],
+      overrides: { trim: (value: string) => value, handler: (value: string) => value },
+    });
+
+    sanitizer.trim('x');
+    sanitizer.handler('y');
+
+    expect(sanitizer.trim).toHaveBeenCalledOnce();
+    expect(sanitizer.handler).toHaveBeenCalledWith('y');
+  });
+
+  it('spies any key on the abstract-class fallback and under fillMissing, but not a spied accessor', () => {
+    const storage = createSpyFromClass(Storage, { overrides: { read: (key: string) => key } });
+    const filled = createSpyFromClass(Sanitizer, {
+      fillMissing: true,
+      gettersToSpyOn: ['label'],
+      overrides: { onChange: () => undefined, label: 'seeded' },
+    });
+
+    expect(storage.read('k')).toBe('k');
+    expect(storage.read).toHaveBeenCalledWith('k');
+    filled.onChange?.();
+    expect(filled.onChange).toHaveBeenCalledOnce();
+    expect(filled.label).toBe('seeded');
+  });
+
+  it('builds a spy per double from a registered function, so calls do not leak between doubles', () => {
+    registerAutoSpyDefaults(Sanitizer, { overrides: { sanitize: implementation } });
+
+    try {
+      const first = createSpyFromClass(Sanitizer);
+      const second = createSpyFromClass(Sanitizer);
+
+      first.sanitize(1, 'a');
+
+      expect(first.sanitize).toHaveBeenCalledOnce();
+      expect(second.sanitize).not.toHaveBeenCalled();
+      expect(second.sanitize(1, 'b')).toBe('<b>');
+    } finally {
+      clearAutoSpyDefaults();
+    }
+  });
+});

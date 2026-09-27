@@ -213,14 +213,16 @@ describe('lazySpies: "proxy"', () => {
   });
 
   it('carries `returns` and `overrides` through the traps', () => {
-    const seeded = (): void => undefined;
+    const seeded = (): number => 3;
     const spy = createSpyFromClass(Wide, { lazySpies: 'proxy', returns: { first: 9 }, overrides: { third: seeded } }) as unknown as Record<
       string,
       unknown
     >;
+    const third = spy['third'] as () => number;
 
     expect((spy['first'] as () => number)()).toBe(9);
-    expect(spy['third']).toBe(seeded);
+    expect(third()).toBe(3);
+    expect(third).toHaveBeenCalledOnce();
   });
 
   it('composes with `fillMissing`', () => {

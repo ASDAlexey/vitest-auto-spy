@@ -234,6 +234,17 @@ describe('provideAutoSpy / injectSpy', () => {
     expect(service.theme).toBe('dark');
   });
 
+  it('keeps a method seeded with a function a spy, so injectSpy can assert on its calls', () => {
+    TestBed.configureTestingModule({
+      providers: [provideAutoSpy(MyService, { overrides: { syncMethod: (a?: number) => `seeded ${String(a)}` } })],
+    });
+
+    const service = injectSpy(MyService);
+
+    expect(service.syncMethod(2)).toBe('seeded 2');
+    expect(service.syncMethod).toHaveBeenCalledOnce();
+  });
+
   it('seeds a readonly instance field, which no prototype walk can reach', () => {
     // The member `provideAutoSpy` is routinely assumed not to cover: a `readonly` field assigned in
     // the constructor is not on the prototype, so discovery cannot see it and the double answers

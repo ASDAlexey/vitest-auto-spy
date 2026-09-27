@@ -198,6 +198,34 @@ LAZY_CASES.forEach(({ label, WideClass, callCount }) => {
   });
 });
 
+const seededMethod = (): number => 7;
+
+/** Spy `WIDE` with `overrides`, then call `m0` — what a spec that seeds one member does per test. */
+function spyWithOverrides(overrides: object): void {
+  const spy: object = createSpyFromClass<object>(WIDE, { overrides });
+  const method: unknown = Reflect.get(spy, 'm0');
+
+  if (typeof method === 'function') {
+    Reflect.apply(method, spy, []);
+  }
+
+  dropCreatedMocks();
+}
+
+test('createSpyFromClass with overrides', async ({ bench }) => {
+  await bench.compare(
+    bench('no overrides', () => {
+      spyWithOverrides({});
+    }),
+    bench('a value seeded on a field', () => {
+      spyWithOverrides({ label: 'seeded' });
+    }),
+    bench('a function seeded on a method', () => {
+      spyWithOverrides({ m0: seededMethod });
+    }),
+  );
+});
+
 test('createAutoMock (type-only, lazy Proxy)', async ({ bench }) => {
   await bench('create + access 4 methods', () => {
     const mock = createAutoMock<NamedMethods>();
