@@ -16,7 +16,7 @@
     },
     "./angular-http": {
       "modules": 8,
-      "bytes": 31061
+      "bytes": 31370
     },
     "./angular-router": {
       "modules": 9,
@@ -24,7 +24,7 @@
     },
     "./angular/diagnostics": {
       "modules": 14,
-      "bytes": 143898
+      "bytes": 144585
     },
     "./angular/doubles": {
       "modules": 14,
@@ -56,7 +56,7 @@
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 249963
+      "bytes": 250774
     },
     "./jasmine": {
       "modules": 15,
@@ -96,7 +96,7 @@
     },
     "./setup": {
       "modules": 2,
-      "bytes": 165233
+      "bytes": 165261
     },
     "./signal-forms": {
       "modules": 3,
