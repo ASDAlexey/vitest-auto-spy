@@ -157,18 +157,41 @@ describe('a property that refuses to be replaced', () => {
  * writable-but-non-configurable data property outright.
  */
 describe('a property that is writable but not configurable', () => {
-  it('mocks Array.prototype.length in place, and restores the length afterwards', () => {
+  it('mocks Array.prototype.length in place, and restores the length and the elements it deleted', () => {
     const items = [1, 2, 3];
 
     const restore = mockValueProp(items, 'length', 0);
 
     expect(items).toEqual([]);
 
-    // Shrinking `length` deletes the elements past it, same as `items.length = 0` would; restoring
-    // the property only puts the number back, not the elements the assignment already dropped.
     restore();
+    expect(items).toEqual([1, 2, 3]);
+    expect(Object.keys(items)).toEqual(['0', '1', '2']);
+  });
+
+  it('puts back only the truncated slots, keeping holes and the sweep path', () => {
+    // eslint-disable-next-line no-sparse-arrays -- the hole is what the restore must not fill.
+    const items = ['a', , 'c', 'd'];
+
+    mockValueProp(items, 'length', 1);
+    items[0] = 'changed';
+    restoreMockedProps();
+
+    expect(items).toHaveLength(4);
+    expect(items[0]).toBe('changed');
+    expect(1 in items).toBe(false);
+    expect(items.slice(2)).toEqual(['c', 'd']);
+  });
+
+  it('snapshots nothing when the length grows', () => {
+    const items = [1];
+
+    const restore = mockValueProp(items, 'length', 3);
+
     expect(items).toHaveLength(3);
-    expect(items).toEqual([undefined, undefined, undefined]);
+
+    restore();
+    expect(items).toEqual([1]);
   });
 
   it('mocks any writable, non-configurable data property, not only length', () => {

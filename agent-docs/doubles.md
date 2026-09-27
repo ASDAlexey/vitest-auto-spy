@@ -153,7 +153,10 @@ it('scrolls after the next frame', () => {
 `stubAnimationFrame` stubs `cancelAnimationFrame` too, and hands both spies back as
 `frames.requestAnimationFrame` / `frames.cancelAnimationFrame`. A frame requested from inside a
 running frame is queued in either mode, so a loop that requests its own next frame advances one step
-per `flush()`. A callback that throws stops `flush()` (or propagates out of `requestAnimationFrame`
+per `flush()`; `frames.flushAll()` runs such a chain until nothing is pending (and throws after 1000
+rounds, on a loop that never stops). A `cancelAnimationFrame` for a handle the stub did not issue — a
+native frame requested before it was installed, such as zoneless Angular's scheduler frame — is
+passed on to the real `cancelAnimationFrame`, so installing the stub after the render leaks no timer. A callback that throws stops `flush()` (or propagates out of `requestAnimationFrame`
 in `'immediate'` mode); pass `onError: (error) => { … }` to intercept it instead — rethrow from
 inside to keep the default for an error you did not mean to swallow. `stubElementRect` returns a real
 `DOMRect` per call, edges derived, plus the installed spy as `.getBoundingClientRect` for

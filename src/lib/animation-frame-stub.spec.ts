@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import '../index';
 import { stubAnimationFrame } from './animation-frame-stub';
-import { restoreMockedProps } from './prop-mock';
+import { mockValueProp, restoreMockedProps } from './prop-mock';
 
 describe('stubAnimationFrame', () => {
   afterEach(() => {
@@ -85,6 +85,64 @@ describe('stubAnimationFrame', () => {
     expect(cancelled).not.toHaveBeenCalled();
     expect(skipped).not.toHaveBeenCalled();
     expect(frames.cancelAnimationFrame).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes a handle it did not issue on to the cancelAnimationFrame it replaced', () => {
+    const native = vi.fn();
+
+    mockValueProp(globalThis, 'cancelAnimationFrame', native);
+    const frames = stubAnimationFrame({ mode: 'queued', view: null });
+    const kept = vi.fn();
+    const handle = requestAnimationFrame(kept);
+
+    cancelAnimationFrame(7);
+    cancelAnimationFrame(handle + 1);
+
+    expect(native.mock.calls).toEqual([[7], [handle + 1]]);
+    expect(frames.pending).toBe(1);
+
+    frames.flush();
+
+    expect(kept).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a handle it did not issue when there is nothing to pass it on to', () => {
+    mockValueProp(globalThis, 'cancelAnimationFrame', undefined);
+    const frames = stubAnimationFrame({ mode: 'queued', view: null });
+
+    requestAnimationFrame(vi.fn());
+
+    expect(() => cancelAnimationFrame(3)).not.toThrow();
+    expect(frames.pending).toBe(1);
+  });
+
+  it('flushAll() runs frames requested from inside a frame until none is left', () => {
+    const frames = stubAnimationFrame({ mode: 'queued' });
+    const seen: number[] = [];
+
+    requestAnimationFrame((first) => {
+      seen.push(first);
+      requestAnimationFrame((second) => {
+        seen.push(second);
+        requestAnimationFrame((third) => seen.push(third));
+      });
+    });
+
+    frames.flushAll(8);
+
+    expect(seen).toEqual([8, 8, 8]);
+    expect(frames.pending).toBe(0);
+  });
+
+  it('flushAll() gives up on a loop that never stops requesting', () => {
+    const frames = stubAnimationFrame({ mode: 'queued' });
+    const step = vi.fn(() => requestAnimationFrame(step));
+
+    requestAnimationFrame(step);
+
+    expect(() => frames.flushAll()).toThrow('flushAll() ran 1000 rounds of frames and each one requested another');
+    expect(step).toHaveBeenCalledTimes(1000);
+    expect(frames.pending).toBe(1);
   });
 
   it('keeps the frames after a throwing one pending, and still accepts new frames', () => {

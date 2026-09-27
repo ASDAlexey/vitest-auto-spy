@@ -42,6 +42,9 @@ The handle:
 - `pending` — how many requested frames have not run.
 - `flush(timestamp?)` — run every frame requested so far, as one browser frame. The timestamp defaults
   to `performance.now()`. A frame cancelled by an earlier callback of the same flush does not run.
+- `flushAll(timestamp?)` — run frames until none is pending, including frames requested from inside
+  a frame, for code that chains through several. It throws after 1000 rounds: only a loop that never
+  stops requesting its next frame gets there, and that one wants `flush()`, one frame per call.
 - `requestAnimationFrame` / `cancelAnimationFrame` — the installed spies, for
   `expect(frames.cancelAnimationFrame).toHaveBeenCalledWith(handle)`.
 - `restore()` — put the previous globals back and drop what is pending, before the test ends.
@@ -50,6 +53,12 @@ The handle:
 waits for the next frame in a browser. An animation loop that requests its own next frame therefore
 advances one step per `flush()`; in `'immediate'` mode the first step runs on the spot and the loop
 does not recurse.
+
+**A handle the stub did not issue goes to the real `cancelAnimationFrame`.** Install the stub after
+a render and a native frame is already pending — zoneless Angular's scheduler races one against a
+timer, and cancels the loser. The stub's handles start far above the small integers jsdom and
+happy-dom hand out, so a cancel for any other handle is passed on to the `cancelAnimationFrame` the
+stub replaced, and that native frame is cancelled rather than left behind as a pending timer.
 
 A callback that throws stops the flush. The frames after it stay pending, and the next `flush()` runs
 them. Pass `onError` to intercept the throw instead — called with whatever the callback threw, in

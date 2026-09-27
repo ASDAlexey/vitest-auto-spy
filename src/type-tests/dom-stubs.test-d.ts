@@ -215,6 +215,8 @@ describe('stubAnimationFrame', () => {
     expectTypeOf(stubAnimationFrame({ mode: 'queued' }).pending).toEqualTypeOf<number>();
     expectTypeOf(stubAnimationFrame().flush).toBeCallableWith(16);
     expectTypeOf(stubAnimationFrame().flush).toBeCallableWith();
+    expectTypeOf(stubAnimationFrame().flushAll).toBeCallableWith(16);
+    expectTypeOf(stubAnimationFrame().flushAll).toBeCallableWith();
   });
 
   it('takes the two modes, and only those', () => {

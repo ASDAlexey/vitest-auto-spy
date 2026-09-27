@@ -50,9 +50,25 @@ export interface AnimationFrameStub {
    * @param timestamp What the callbacks receive. Defaults to `performance.now()`.
    */
   flush(timestamp?: number): void;
+  /**
+   * Run frames until none is pending, including those requested from inside a frame — for code whose
+   * callbacks chain through several frames. Throws after 1000 rounds, which only a
+   * loop that never stops requesting its next frame reaches.
+   *
+   * @param timestamp What every callback receives. Defaults to `performance.now()` per round.
+   */
+  flushAll(timestamp?: number): void;
   /** Put the previous globals back and drop every pending frame, before the end of the test. */
   restore(): void;
 }
+
+const MAX_FLUSH_ROUNDS = 1000;
+
+/**
+ * Handles start far above the small integers jsdom and happy-dom hand out, so a native frame
+ * requested before the stub was installed can still be told apart and cancelled for real.
+ */
+const FIRST_HANDLE = 2 ** 30;
 
 /**
  * Replace `requestAnimationFrame` and `cancelAnimationFrame` with ones the spec drives.
@@ -77,7 +93,11 @@ export interface AnimationFrameStub {
  *
  * In `'immediate'` mode a frame requested from inside a running frame is queued rather than run, so
  * an animation loop that requests its own next frame advances one step per `flush()` instead of
- * recursing forever.
+ * recursing forever; `flushAll()` runs such a chain until it stops requesting.
+ *
+ * `cancelAnimationFrame` with a handle the stub did not issue — a frame requested before it was
+ * installed, such as Angular's zoneless scheduler racing a frame against a timer — is passed on to
+ * the `cancelAnimationFrame` it replaced, so that native frame is cancelled for real.
  *
  * A callback that throws stops the rest of that `flush()` (or, in `'immediate'` mode, propagates out
  * of `requestAnimationFrame` itself) — pass `onError` to intercept it instead, e.g. to tolerate one
@@ -91,8 +111,9 @@ export function stubAnimationFrame(options: AnimationFrameStubOptions = {}): Ani
   const immediate = (options.mode ?? 'immediate') === 'immediate';
   const adapter = getMockAdapter();
   const queue = new Map<number, FrameRequestCallback>();
-  let lastId = 0;
+  let lastId = FIRST_HANDLE;
   let running = false;
+  const previousCancel: unknown = Reflect.get(globalThis, 'cancelAnimationFrame');
 
   const run = (callback: FrameRequestCallback, timestamp: number): void => {
     running = true;
@@ -117,8 +138,14 @@ export function stubAnimationFrame(options: AnimationFrameStubOptions = {}): Ani
   }, 'requestAnimationFrame');
 
   const cancel = adapter.createMockFn((handle: number): void => {
-    queue.delete(handle);
+    if (handle > FIRST_HANDLE && handle <= lastId) {
+      queue.delete(handle);
+    } else {
+      forwardCancel(previousCancel, handle);
+    }
   }, 'cancelAnimationFrame');
+
+  const flush = (timestamp = performance.now()): void => runQueued(queue, (callback) => run(callback, timestamp));
 
   const restores = install(options.view === undefined ? currentView() : options.view, request, cancel);
 
@@ -128,15 +155,9 @@ export function stubAnimationFrame(options: AnimationFrameStubOptions = {}): Ani
     },
     requestAnimationFrame: request,
     cancelAnimationFrame: cancel,
-    flush(timestamp = performance.now()): void {
-      for (const handle of [...queue.keys()]) {
-        const callback = queue.get(handle);
-
-        if (callback) {
-          queue.delete(handle);
-          run(callback, timestamp);
-        }
-      }
+    flush,
+    flushAll: (timestamp?: number): void => {
+      flushUntilIdle(queue, () => flush(timestamp));
     },
     restore(): void {
       // Newest first, as restoreMockedProps() does: happy-dom's window reads through to globalThis, so
@@ -145,6 +166,37 @@ export function stubAnimationFrame(options: AnimationFrameStubOptions = {}): Ani
       queue.clear();
     },
   };
+}
+
+/** One browser frame: what is queued now, skipping a frame an earlier callback cancelled. */
+function runQueued(queue: Map<number, FrameRequestCallback>, run: (callback: FrameRequestCallback) => void): void {
+  for (const handle of [...queue.keys()]) {
+    const callback = queue.get(handle);
+
+    if (callback) {
+      queue.delete(handle);
+      run(callback);
+    }
+  }
+}
+
+function forwardCancel(previousCancel: unknown, handle: number): void {
+  if (typeof previousCancel === 'function') {
+    Reflect.apply(previousCancel, globalThis, [handle]);
+  }
+}
+
+function flushUntilIdle(queue: ReadonlyMap<number, FrameRequestCallback>, flush: () => void): void {
+  for (let round = 0; queue.size > 0; round += 1) {
+    if (round === MAX_FLUSH_ROUNDS) {
+      throw new Error(
+        `[vitest-auto-spy] flushAll() ran ${MAX_FLUSH_ROUNDS} rounds of frames and each one requested another: ` +
+          'an animation loop never stops. Advance it with flush(), one frame per call.',
+      );
+    }
+
+    flush();
+  }
 }
 
 /** Run one frame callback, handing its throw to `onError` instead of letting it propagate, when given. */

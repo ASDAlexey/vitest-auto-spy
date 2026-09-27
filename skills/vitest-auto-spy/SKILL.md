@@ -291,7 +291,7 @@ it('loads', async () => {
 | a hand-written `class MockChartComponent` restating a child's selector                              | `createComponentStub(ChartComponent)` (`/angular`) — selector, inputs, outputs read from `ɵcmp`                                                                                                   |
 | a `TestingStorage` class for `localStorage` / `sessionStorage`                                      | `stubWebStorage('localStorage', { items })` from `/dom-stubs` — `snapshot()` to assert                                                                                                            |
 | a hand-written `MockWorker` whose `addEventListener` sets `onmessage`                               | `stubWorker({ respond })` from `/dom-stubs` — `last.emit(data)`, `last.messages`                                                                                                                  |
-| `window.requestAnimationFrame = (cb) => { cb(0); return 0; }`, or an array of callbacks looped over | `stubAnimationFrame()` / `stubAnimationFrame({ mode: 'queued' })` from `/dom-stubs` — `flush()`, `pending`; `cancelAnimationFrame` stubbed too                                                    |
+| `window.requestAnimationFrame = (cb) => { cb(0); return 0; }`, or an array of callbacks looped over | `stubAnimationFrame()` / `stubAnimationFrame({ mode: 'queued' })` from `/dom-stubs` — `flush()`, `flushAll()` for nested frames, `pending`; a foreign handle's cancel reaches the real one        |
 | `mockValueProp(el, 'getBoundingClientRect', () => new DOMRect(…))`, or a `({ height })` literal     | `stubElementRect(el, { width, height })` from `/dom-stubs` — missing fields are `0`, edges derived                                                                                                |
 | `'x' does not exist in type 'MethodReturns<{ y: any; }>'` on a generic class                        | spell out the type argument — `createSpyFromClass<Config>(Config, …)`; `provideAutoSpy` infers it                                                                                                 |
 | `injectSpy(ModalRef)` reads a generic class at its constraint, not its default                      | `injectSpy<ModalRef<Data>>(ModalRef)` — a constructor taking `T` hides the default                                                                                                                |
@@ -321,8 +321,9 @@ it('loads', async () => {
   members. Bridge with `asInstance()` / `asSpy()`, never with `as unknown as T`.
 - **`methodsToSpyOn` **adds** to the discovered prototype methods**, as in `jest-auto-spies`;
   `onlyMethodsToSpyOn` is the exhaustive whitelist. Omitting both is usually right. For a callable
-  that is an instance field (arrow property, `signal()`, ngrx `signalStore()`), use
-  `instanceMethodsToSpyOn` — prototype discovery cannot see it.
+  that is an instance field (arrow property, `signal()`), use `instanceMethodsToSpyOn` — prototype
+  discovery cannot see it. A class built on ngrx `signalStore()` needs neither: it gets
+  `fillMissing: true` by default.
 - **A method spy is this library's own mock, not a `vi.fn()`.** Every matcher, `vi.isMockFunction`,
   the `mockReturnValue` family, `spy.method.mock.*` and `vi.clearAllMocks()` behave identically —
   the one exception is `toHaveBeenCalledBefore` / `toHaveBeenCalledAfter` **between an auto-spy and a

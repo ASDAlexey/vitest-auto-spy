@@ -37,6 +37,8 @@ interface PatchedProp {
   file: unknown;
   /** The helper that made the patch, for the reports that name it. */
   helper: string;
+  /** What the define destroyed beyond the property itself, put back after it — see {@link truncatedElements}. */
+  reinstate: (() => void) | undefined;
 }
 
 /**
@@ -229,7 +231,12 @@ function reportHeldEntries(patches: readonly PatchedProp[], file: unknown): void
  * alone — for the common case of a stub that must come off inside one test rather than at the end
  * of the file. {@link restoreMockedProps} undoes whatever is left.
  */
-function rememberProp<T>(object: T, property: PropertyKey, descriptor: PropertyDescriptor | undefined, helper: string): RestoreProp {
+function rememberProp<T>(
+  object: T,
+  property: PropertyKey,
+  descriptor: PropertyDescriptor | undefined,
+  { helper, reinstate }: PatchOrigin,
+): RestoreProp {
   const file = currentSpecFile();
   const patches = getPatchedProps();
 
@@ -246,6 +253,7 @@ function rememberProp<T>(object: T, property: PropertyKey, descriptor: PropertyD
     epoch: propEpoch().current,
     file,
     helper,
+    reinstate,
   };
 
   patches.push(patch);
@@ -269,6 +277,11 @@ function rememberProp<T>(object: T, property: PropertyKey, descriptor: PropertyD
  */
 type PatchDescriptor = Omit<PropertyDescriptor, 'set'> & { set?: ((value: never) => void) | undefined };
 
+interface PatchOrigin {
+  readonly helper: string;
+  readonly reinstate?: (() => void) | undefined;
+}
+
 /**
  * Overwrite one property, record the undo, and say something useful when the property refuses.
  *
@@ -284,7 +297,7 @@ type PatchDescriptor = Omit<PropertyDescriptor, 'set'> & { set?: ((value: never)
  * happened would otherwise sit in the journal until the next `restoreMockedProps()` reported a
  * teardown failure for it, turning one confusing message into two.
  */
-function applyPatch<T>(object: T, property: PropertyKey, descriptor: PatchDescriptor, helper: string): RestoreProp {
+function applyPatch<T>(object: T, property: PropertyKey, descriptor: PatchDescriptor, origin: PatchOrigin): RestoreProp {
   const previous = Object.getOwnPropertyDescriptor(object, property);
 
   try {
@@ -303,13 +316,14 @@ function applyPatch<T>(object: T, property: PropertyKey, descriptor: PatchDescri
     throw error;
   }
 
-  return rememberProp(object, property, previous, helper);
+  return rememberProp(object, property, previous, origin);
 }
 
 /** Put one recorded descriptor back, or drop the property when the helper introduced it. */
-function restorePatch({ object, property, descriptor }: PatchedProp): void {
+function restorePatch({ object, property, descriptor, reinstate }: PatchedProp): void {
   if (descriptor) {
     Object.defineProperty(object, property, descriptor);
+    reinstate?.();
 
     return;
   }
@@ -520,7 +534,7 @@ export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unk
 export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp {
   // `set: undefined` is load-bearing: defineProperty over an existing get/set pair inherits the
   // missing attributes, so without it the real setter stays live and writes vanish into it silently.
-  return applyPatch(object, property, { get: () => value, set: undefined, configurable: true }, 'mockReadonlyProp');
+  return applyPatch(object, property, { get: () => value, set: undefined, configurable: true }, { helper: 'mockReadonlyProp' });
 }
 
 /**
@@ -539,7 +553,7 @@ export function mockReadonlyPropGetter<T, K extends keyof T>(object: T, property
 export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, getter: () => unknown): RestoreProp;
 export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, getter: () => unknown): RestoreProp {
   // See mockReadonlyProp for why `set` must be named explicitly.
-  return applyPatch(object, property, { get: getter, set: undefined, configurable: true }, 'mockReadonlyPropGetter');
+  return applyPatch(object, property, { get: getter, set: undefined, configurable: true }, { helper: 'mockReadonlyPropGetter' });
 }
 
 /**
@@ -552,8 +566,7 @@ export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, gett
  * {@link mockReadonlyProp}.)
  *
  * Also works on an array's own `length` (`{ writable: true, configurable: false }`), including the
- * undo — though restoring the number does not repopulate elements a shrink already deleted, which is
- * the array setter's own behaviour, not something any restore mechanism can undo.
+ * undo: the elements a shrink deletes are copied first and put back with the length.
  *
  * @example
  * ```ts
@@ -565,7 +578,36 @@ export function mockValueProp<T, K extends keyof T>(object: T, property: K, valu
 /** For members the public type does not describe — TS `private` members, ad-hoc keys. A JS `#private` field is out of reach of any property key. */
 export function mockValueProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp;
 export function mockValueProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp {
-  return applyPatch(object, property, valueDescriptorFor(object, property, value), 'mockValueProp');
+  return applyPatch(object, property, valueDescriptorFor(object, property, value), {
+    helper: 'mockValueProp',
+    reinstate: truncatedElements(object, property, value),
+  });
+}
+
+/**
+ * Shrinking an array's `length` deletes every element past it, and writing the number back leaves
+ * holes: a shared constant read by later tests came back sparse. The lost slots are copied first.
+ */
+function truncatedElements(object: unknown, property: PropertyKey, value: unknown): (() => void) | undefined {
+  if (!Array.isArray(object) || property !== 'length' || typeof value !== 'number' || !(value < object.length)) {
+    return undefined;
+  }
+
+  const lost: [number, PropertyDescriptor][] = [];
+
+  for (let index = Math.max(0, value); index < object.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(object, index);
+
+    if (descriptor) {
+      lost.push([index, descriptor]);
+    }
+  }
+
+  return () => {
+    for (const [index, descriptor] of lost) {
+      Object.defineProperty(object, index, descriptor);
+    }
+  };
 }
 
 /**
@@ -613,6 +655,6 @@ export function mockAccessorsProp<T>(object: T, property: PropertyKey, accessors
       set: adapter.createMockFn(accessors?.set),
       configurable: true,
     },
-    'mockAccessorsProp',
+    { helper: 'mockAccessorsProp' },
   );
 }
