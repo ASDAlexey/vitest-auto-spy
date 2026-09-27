@@ -55,7 +55,7 @@ export interface ActivatedRouteChange {
 
 /**
  * `ActivatedRoute.resources` where the installed `@angular/router` has it (22.2 on), `never` before —
- * so the init key stays harmless on 20 and 21.
+ * so on 20 through 22.1 the init key cannot be passed.
  */
 export type RouteResources = NonNullable<ActivatedRoute[Extract<'resources', keyof ActivatedRoute>]>;
 
