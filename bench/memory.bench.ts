@@ -44,18 +44,15 @@
  * integrity: that `--expose-gc` reached the process, and that the registry prune works.
  */
 import { createRequire } from 'node:module';
-
 import { describe, expect, it, vi } from 'vitest';
 
 // The renderer every other benchmark command prints through, typed by `scripts/bench-table.d.mts`.
 import { renderTable as renderBenchTable, styleFor } from '../scripts/bench-table.mjs';
-
-import { installRunnerGlobals } from './runner-globals';
-
 // The public entry, not `src/lib/*` — so the default Vitest mock adapter registers as a side
 // effect, exactly as it does for a consumer.
 import { createAutoMock, createSpyFromClass } from '../src/index';
 import { captureMockRegistry, pruneMockRegistry } from '../src/setup';
+import { installRunnerGlobals } from './runner-globals';
 
 // `jest-auto-spies` and `jasmine-auto-spies` are CommonJS and their declarations reference ambient
 // `jest` / `jasmine` type packages this repository does not install. `createRequire` loads them for
@@ -176,12 +173,12 @@ interface Arm<Subject> {
 
 const CLASS_ARMS: readonly Arm<ClassSubject>[] = [
   {
-    label: 'vitest-auto-spy: createSpyFromClass (default lazy)',
+    label: "vitest-auto-spy: createSpyFromClass (default; 'proxy' at these widths)",
     create: ({ WideClass }) => createSpyFromClass(WideClass) as unknown as AnyMethods,
   },
   {
-    label: "vitest-auto-spy: lazySpies: 'proxy'",
-    create: ({ WideClass }) => createSpyFromClass(WideClass, { lazySpies: 'proxy' }) as unknown as AnyMethods,
+    label: 'vitest-auto-spy: lazySpies: true',
+    create: ({ WideClass }) => createSpyFromClass(WideClass, { lazySpies: true }) as unknown as AnyMethods,
   },
   {
     label: 'vitest-auto-spy: lazySpies: false',
@@ -205,12 +202,11 @@ const TYPE_ARMS: readonly Arm<void>[] = [
 async function loadCompetitorArms(): Promise<{ classArms: Arm<ClassSubject>[]; typeArms: Arm<void>[] }> {
   installRunnerGlobals();
 
-  const [{ createSpyFromClass: hirezCreateSpyFromClass }, { createMock: golevelupCreateMock }, { mock: vmxMock }] =
-    await Promise.all([
-      import('@bugsplat/vitest-auto-spies'),
-      import('@golevelup/ts-vitest'),
-      import('vitest-mock-extended'),
-    ]);
+  const [{ createSpyFromClass: hirezCreateSpyFromClass }, { createMock: golevelupCreateMock }, { mock: vmxMock }] = await Promise.all([
+    import('@bugsplat/vitest-auto-spies'),
+    import('@golevelup/ts-vitest'),
+    import('vitest-mock-extended'),
+  ]);
 
   const jestAutoSpies = requireCjs('jest-auto-spies') as { createSpyFromClass: ClassSpyFactory };
   const jasmineAutoSpies = requireCjs('jasmine-auto-spies') as { createSpyFromClass: ClassSpyFactory };
@@ -349,11 +345,15 @@ function formatCell(cell: Cell, width: number): string {
 function renderTable(headers: readonly string[], rows: readonly (readonly string[])[], color?: 'green' | 'red' | undefined): string {
   const style = styleFor(process.stdout);
 
-  return renderBenchTable([...headers], rows.map((row) => [...row]), {
-    style,
-    align: headers.map((_, column) => (column === 0 ? 'left' : 'right')),
-    color: style === 'box' ? color : undefined,
-  }).join('\n');
+  return renderBenchTable(
+    [...headers],
+    rows.map((row) => [...row]),
+    {
+      style,
+      align: headers.map((_, column) => (column === 0 ? 'left' : 'right')),
+      color: style === 'box' ? color : undefined,
+    },
+  ).join('\n');
 }
 
 /**
@@ -361,8 +361,8 @@ function renderTable(headers: readonly string[], rows: readonly (readonly string
  * anywhere, and no colour at all when there is nobody to compare against (`BENCH_ARMS=self`).
  *
  * The comparison is against the *other libraries*, never against this package's own settings: the
- * `'proxy'` mode retaining less than the default is a documented trade-off, not a defeat. The type
- * table is the one this normally paints red, and that is the point — an untouched `createAutoMock`
+ * `lazySpies: true` mode retaining less untouched than the default is a documented trade-off, not a
+ * defeat. The type table is the one this normally paints red, and that is the point — an untouched `createAutoMock`
  * is heavier than a bare `vitest-mock-extended` Proxy, and a reader should not have to find that out
  * by comparing eight numbers.
  */
@@ -393,10 +393,7 @@ function columnHeaders(): string[] {
 }
 
 /** Run every (width × touch) cell for one arm and return its rendered row plus the raw cells. */
-async function measureArmRow<Subject>(
-  arm: Arm<Subject>,
-  subjectOf: (width: number) => Subject,
-): Promise<{ row: string[]; cells: Cell[] }> {
+async function measureArmRow<Subject>(arm: Arm<Subject>, subjectOf: (width: number) => Subject): Promise<{ row: string[]; cells: Cell[] }> {
   const row: string[] = [arm.label];
   const cells: Cell[] = [];
 

@@ -9,7 +9,7 @@
  * One rule for anything added here: **spell the option out**. An earlier revision
  * compared a "eager" case written as `createSpyFromClass(WideService)` against a
  * "lazy" one written as `createSpyFromClass(WideService, { lazySpies: true })`.
- * `lazySpies` defaults to `true`, so both branches were the lazy path and the
+ * `lazySpies` was lazy by default, so both branches were the lazy path and the
  * reported "1.79x faster" was measuring nothing but noise (±84% rme). A benchmark
  * that guards a default must never obtain that default implicitly.
  *
@@ -137,7 +137,7 @@ function fixedIterations(iterations: number): { iterations: number; time: number
 }
 
 /** Spy `WideClass` and call the first `callCount` of its methods — the shape a real `beforeEach` + test produces. */
-function spyAndCall(WideClass: ClassWithMethods, lazySpies: boolean, callCount: number): void {
+function spyAndCall(WideClass: ClassWithMethods, lazySpies: boolean | 'proxy', callCount: number): void {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `Spy<T>` is a mapped type over runtime-discovered names; indexing it by a computed key needs the dynamic shape.
   const spy = createSpyFromClass(WideClass, { lazySpies }) as unknown as Record<string, () => unknown>;
 
@@ -180,16 +180,19 @@ test('createSpyFromClass', async ({ bench }) => {
   }).run();
 });
 
-// `lazySpies` defaults to `true` and `provideAutoSpy` inherits that default; these rows are what
-// justifies it. Both options are passed explicitly — see the file header for why that matters.
+// An unset `lazySpies` is `true` below 8 methods and `'proxy'` from 8, and `provideAutoSpy` inherits
+// that default; these rows are what justifies it. Every option is passed explicitly — see the file header for why that matters.
 LAZY_CASES.forEach(({ label, WideClass, callCount }) => {
   test(`lazy vs eager — ${label}`, async ({ bench }) => {
     await bench.compare(
       bench('eager (lazySpies: false)', () => {
         spyAndCall(WideClass, false, callCount);
       }),
-      bench('lazy (lazySpies: true, the default)', () => {
+      bench('lazy (lazySpies: true, the default below 8 methods)', () => {
         spyAndCall(WideClass, true, callCount);
+      }),
+      bench("lazy (lazySpies: 'proxy', the default from 8 methods)", () => {
+        spyAndCall(WideClass, 'proxy', callCount);
       }),
     );
   });

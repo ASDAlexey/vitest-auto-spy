@@ -8,6 +8,55 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## `lazySpies: 'proxy'` by width, 2026-09-27
+
+- [~] **`lazySpies: 'proxy'` as the default for every class.** Supersedes the entry of the same name
+  under "Micro-optimising `createFunctionSpy`" ("loses 158 B at width 5 … 25 ns per read") and the TODO
+  item that proposed deprecating the mode: both compared **untouched** doubles only. The accessor path
+  pays at the first read — the probe that takes the double off the shared map leaves a property
+  dictionary sized by the width of the class, `pow2ceil(1.5·(W+3))` slots — and after the trap object
+  stopped being per double the proxy never pays it. Measured with one and two methods touched, bytes
+  per double, `true` → `'proxy'`: width 4–6 −18…−19 % / −11 %, 8–16 −33 % / −21 %, 20–30 −51 % / −36 %,
+  45 −68 % / −54 %; create + touch 40–85 % cheaper. The proxy still charges ~20 ns on every read of a
+  member and ~100 B on an untouched double, and a spec can see it (`util.types.isProxy`, `console.log`,
+  `vi.spyOn` on an unread method). Taken **by width**: an unset `lazySpies` is `'proxy'` from
+  `PROXY_MIN_METHODS = 8` methods, the smallest width where the proxy wins by ≥ 15 % on both touch
+  profiles, and `true` below it, where the ~300 B it would save is not worth a double that is no longer
+  a plain object. `lazySpies: true` opts a wide class out. `bench:vs` still leads every row by ≥ 2.0×.
+
+## Vitest CLI levers under the Angular unit-test builder, 2026-09-27
+
+- [~] **A runtime plugin export (`configureVitest`) for `--shard` / `--changed`.** Not needed:
+  `test.shard` and `test.repeats` reach Vitest from the runner config as plain keys, and for
+  `--changed` / `--related` a plugin cannot help — Vitest's module graph under the builder holds
+  `chunk-*.js` bundles, so `related: ['src/…/order.service.ts']` finds no test. `ng-test` in the CLI
+  computes the files and passes `--include`, which also compiles only them (7.58 s against 9.38 s
+  for a config shard, 700 specs, CI mode).
+- [~] **`ng-test --repeats`.** It would have to generate a wrapper runner config that imports the
+  user's; `repeats` from the runner config already works, documented instead.
+- [~] **`vitest doctor` under the builder.** Without the builder there are no globals, no TestBed
+  and no AOT bundle (150/150 files fail with `describe is not defined`); a separate plain config would
+  diagnose a different suite. `perf --command` measures the real run.
+- [~] **Nested `projects`.** The builder deletes `test.projects` and serves one project from its
+  in-memory bundle; not reachable from outside.
+- [~] **Nx `@nx/angular:unit-test` and Angular 20 in `ng-test`.** Nx not verified here; 20.x has no
+  `--list-tests`. Both exit 2 with the reason.
+
+## `vi.when` is a wrapper, not a replacement, 2026-09-27
+
+An implementation installed by `mockImplementation` right after `getMockImplementation()` handed out
+the spy's current one, on the same spy, before the next microtask and with nothing changed in
+between, is treated as delegating: the double is not told its dispatch was replaced. `vi.when` does
+exactly this. The price is a false negative for `vi.when(spy, { onUnmatched: 'throw' })`, which a
+wrapper cannot be told apart from — preferred over a false warning that throws under the `strict`
+preset.
+
+## Empty `accessorSpies` halves via a constructor, not a frozen shared bag, 2026-09-27
+
+A frozen shared bag saved 152 B per double but made a write into it throw. The halves are instead
+built by a function whose `prototype` is `Object.prototype`: spec-identical to `{}`, 24 B instead of
+56 B each on V8 after slack tracking. −64 B per double, no observable change.
+
 ## Two consumer asks after 5.37.0, answered in docs and `doctor`, 2026-09-26
 
 - [~] **`vitest-auto-spy/angular` re-exporting the core's runtime helpers.** A spec that needs
@@ -171,6 +220,11 @@ by OS + Node major + lockfile. The zone project compiles against `tsconfig.zone.
 `fastCompile` stays off everywhere: in JIT mode (the Vitest default) it emits no `ctorParameters`
 for `@Injectable`, so constructor injection fails with NG0202 in plain Angular, not only in
 `createWithAutoSpies`; with `jit: false` signal inputs are not seen by `setInputs`.
+
+27.09.2026: re-checked on 2.7.5, 2.8.0-beta.12 and `main` — `jitTransform` still skips
+`@Injectable`. Emitting `ctorParameters` for it (decorator kept) turns the whole default suite green
+under `fastCompile`; `@Inject(X)` parameters already work without it. The library cannot recover the
+erased types, so `doctor` reports the affected classes instead (`analog-fast-compile-ctor-injection`).
 
 ## AGENTS.md is a map, topics live in agent-docs/, 2026-09-26
 
@@ -1933,7 +1987,8 @@ import cost.
   first use was right.
 - [~] **`lazySpies: 'proxy'` as the _default_.** Loses 158 B at width 5 with methods touched and
   taxes every read of every consumer 25 ns, to buy nothing on the narrow classes that are the
-  majority.
+  majority. **Superseded on 2026-09-27** — see "`lazySpies: 'proxy'` by width" at the top of this
+  file: this compared untouched doubles only.
 - [~] **Splitting the API into `/dom-stubs` and `/diagnostics` subpaths** so the root entry stops
   evaluating the observer stubs and the run-diagnostics modules. ESM re-export is eager and
   Vitest does not tree-shake, so the only way to stop evaluating them is to stop exporting them

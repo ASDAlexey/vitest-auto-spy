@@ -5,13 +5,14 @@ description: npx vitest-auto-spy doctor finds suite-level defects that never fai
 
 # The CLI
 
-Four commands, no dependencies, nothing to configure:
+Five commands, no dependencies, nothing to configure:
 
 ```bash
 npx vitest-auto-spy doctor   # read-only. Exits 1 when it finds something
 npx vitest-auto-spy perf     # where the suite's CPU time goes. Always exits 0
 npx vitest-auto-spy init     # writes the agent instructions pointer
 npx vitest-auto-spy codemod  # dry run by default. Exits 1 when it left something alone
+npx vitest-auto-spy ng-test  # ng test with --shard / --changed the Angular builder does not pass through
 ```
 
 They are one binary because they answer one question from four directions — _is anything in this
@@ -21,14 +22,14 @@ and [`codemod`](/utilities/codemod) asks it of every span a migration off `jest-
 otherwise rename into the reverse meaning. This page covers the first three; the codemod
 [has its own](/utilities/codemod), because most of what it does is refuse.
 
-**The exit codes mean the same thing in all four**, which is what makes any of them a single CI
+**The exit codes mean the same thing in all five**, which is what makes any of them a single CI
 line:
 
-| Exit | Meaning                                                                                                                                                                                                                                                       |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | The command ran and has nothing to report                                                                                                                                                                                                                     |
-| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date or a stale copy of the skill, `perf --gate` a confirmed budget                                     |
-| `2`  | It could not do the job it was asked to do: an unknown command, an unknown flag for a known command, a flag value it cannot use, an unknown transform id on `--only` / `--skip`, a `codemod` path that matches no file, or a `perf` run with nothing to judge |
+| Exit | Meaning                                                                                                                                                                                                                                                                                                                                 |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | The command ran and has nothing to report                                                                                                                                                                                                                                                                                               |
+| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date or a stale copy of the skill, `perf --gate` a confirmed budget                                                                                                               |
+| `2`  | It could not do the job it was asked to do: an unknown command, an unknown flag for a known command, a flag value it cannot use, an unknown transform id on `--only` / `--skip`, a `codemod` path that matches no file, a `perf` run with nothing to judge, or an `ng-test` without a single unit-test target or without `--list-tests` |
 
 The unknown flag is the one worth stating on its own, because a parser that accepts everything makes
 a typo invisible: `init --dryrun` wrote the files a `--dry-run` would only have described, and
@@ -246,6 +247,60 @@ on it, so the run dies at startup with `TypeError: cache.has is not a function` 
 is collected. The error names neither package. The fix is to upgrade `@analogjs/vite-plugin-angular`
 and `@analogjs/vitest-angular` to 2.7.5 or newer. The check stays quiet when either package is not
 installed.
+
+#### `analog-fast-compile-ctor-injection`
+
+A Vite or Vitest config turns Analog's `fastCompile` on in JIT mode — `jit` not set to `false`,
+which is the default under Vitest — and an `@Injectable` class takes a constructor parameter known
+only by its type. That path keeps `@Injectable` on the class but emits no `ctorParameters` for it and
+strips types without `design:paramtypes`, so Angular has no token for the parameter:
+`TestBed.inject`, `Injector.create` and `createWithAutoSpies` throw NG0202 ("dependency at index N
+of the parameter list is invalid"). Components, directives and pipes get `ctorParameters` and are
+not affected; a parameter with `@Inject(X)` or a default value is not reported. Move the dependency
+to an `inject()` field initializer (`ng generate @angular/core:inject` migrates a project), name the
+token with `@Inject(TaxService)`, or leave `fastCompile` off until the plugin emits `ctorParameters`
+for `@Injectable`. Checked against `@analogjs/vite-plugin-angular` 2.7.5.
+
+#### `analog-module-cache-inline-styles`
+
+`fsModuleCache` on — top-level, under `experimental`, or `--fsModuleCache` in a script — on Vitest 4
+or newer, in a repository whose Vite or Vitest config imports `@analogjs/vite-plugin-angular` or
+`@analogjs/vitest-angular` without `jit: false`, and with a component that declares inline `styles`.
+In JIT mode, the plugin's default for tests, the warm run cannot load the virtual module the plugin
+compiles those styles into, and every spec that reaches such a component fails with
+`Cannot find module '/@id/__x00__virtual:angular:jit:style:inline;<hash>'`. The first, cold run
+passes, so the break shows up one run after the setting went in. Verified on Analog 2.7.5, Angular
+22.2 and Vitest 5.0.0; the check covers every Analog version until a release fixes it. The fix is to
+turn the cache off while the suite runs through Analog; `@angular/build:unit-test` does not have the
+break, since it bundles the code before Vitest sees it.
+
+#### `angular-build-istanbul-module-cache`
+
+An `@angular/build:unit-test` or `@nx/angular:unit-test` target on `@angular/build` 21 or newer and
+Vitest 5, whose coverage the builder runs with istanbul — its runner config says
+`coverage.provider: 'istanbul'`, or `@vitest/coverage-istanbul` is installed without
+`@vitest/coverage-v8` — and whose runner config does not turn on `fsModuleCache`. Under the builder
+esbuild has bundled the code already, so the one transform left worth caching is istanbul's
+instrumentation: on a 700-file Angular 22.2 suite the cache took a coverage run from 24.55 s to
+13.20 s (−46 %), and from 27.01 s to 15.85 s (−41 %) with the builder cache off, as it is on CI. With
+v8 it gained nothing, and the check stays quiet. The fix names the runner config to add
+`fsModuleCache: true` to or, for a target without one, says to add `"runnerConfig"` to the target: the
+builder has no option of its own for it. With a CI config that does not cache
+`node_modules/.vitest-cache`, the fix says to persist it too, as
+[`fs-module-cache-not-persisted`](#fs-module-cache-not-persisted) does. Quiet on `@angular/build` 20,
+which reads no runner config, on Vitest 4, where it was not measured, and for a target that runs in
+`browsers` unless its runner config names istanbul itself: the gain was measured on jsdom in Node,
+never in browser mode. Targets that share a runner
+config are reported once.
+
+#### `angular-build-happy-dom`
+
+A unit-test target on `@angular/build` 21 or newer, with `jsdom` installed and `happy-dom` not, that
+does not run in `browsers` and whose runner config does not set `environment`. From 21 the builder
+picks happy-dom by itself whenever it resolves, so the fix is `npm i -D happy-dom` and no config line.
+On the same 700-file Angular 22.2 suite it took 4.6 % off the wall time and 6 % off the resident
+memory. Info only: happy-dom implements less of the platform than jsdom, so a spec that leans on what
+it lacks fails after the switch — run the suite once, and uninstall happy-dom again if one does.
 
 #### `builder-setup-unreached`
 
@@ -574,6 +629,17 @@ On Vitest 5 the report also records the configuration Vitest actually resolved �
 `vite(st).config.*` text, so a setting made in a builder, a workspace project or on the command line
 counts. An option you set explicitly is never advised against: Vitest's own hints follow the same rule.
 
+**Under `@angular/build:unit-test` a setting goes in the runner config the target names.** The builder reads no
+`vitest.config.*` of its own, so `perf-transform`, `perf-workers`, `perf-isolation` and `perf-environment-engine` name
+the file from `--runner-config` in `--command`, then from the target's `runnerConfig` (`true` means
+`vitest-base.config.*`). A target that names none is told to add `"runnerConfig": "vitest-base.config.mts"` first;
+`@angular/build` 20.x reads no runner config at all, and the finding says the setting is not available there. `perf`
+counts a run as a builder run when `--command` (or the `npm` script it calls) runs `ng` or `nx`, or when the workspace
+has a unit-test target and no root Vitest config. `isolate` and `environment` the builder passes to Vitest are its
+decisions, not yours, so they do not silence a finding. `perf-import` is off there: esbuild resolves every barrel into
+the bundle before Vitest imports anything, and the modules Vitest reports are `spec-*.js` and `chunk-*.js` bundles
+that do not exist on disk — a confirmed finding's card names a spec's own bundle after the spec and leaves chunks out.
+
 #### `perf-environment`
 
 It fires when `environment` dominates. It ranks every spec file that is
@@ -612,6 +678,11 @@ choice does not get asked again. It names the config that sets `jsdom`. It is a 
 `happy-dom` implements less of the platform, so change one project at a time and keep the suite green
 after each.
 
+Under `@angular/build:unit-test` from 21 the builder chooses the engine itself: it runs the suite on `happy-dom`
+whenever the package resolves and the runner config names no `environment`. So there the finding says to install
+`happy-dom` rather than to edit a config, and names the runner config only when that config sets `jsdom` itself.
+On 20.x, which has no such choice and reads no runner config, it stays quiet.
+
 #### `perf-transform`
 
 Vitest 5 only. From Vitest 5 each file reports how long its collection and setup waited for the Vite
@@ -625,6 +696,13 @@ directory is kept between pipelines, in the job's cache — the finding says so.
 `fsModuleCache` is already on, or when you set it explicitly (to `false`, say). On a Vitest 4 report the
 option is spelled `experimental.fsModuleCache` and the directory is
 `node_modules/.experimental-vitest-cache`.
+
+Under `@analogjs/vite-plugin-angular`, with a component that declares inline `styles`, the finding
+is a warning instead: the plugin compiles those styles into virtual modules a warm module cache cannot find again,
+and the second run fails with `Cannot find module '/@id/__x00__virtual:angular:jit:style:inline;<hash>'` in every
+spec that renders one — measured three runs out of three on Analog 2.7.5, Angular 22.2 and Vitest 5.0. No release is measured to fix
+it yet, so the warning holds on every version, the same rule as `doctor`. Under `@angular/build:unit-test` there are no
+such virtual modules and the advice stands.
 
 #### `perf-import`
 
@@ -704,6 +782,12 @@ It re-runs the suite once per pool, isolation, DOM-engine and module-cache candi
 `perf` names the switch from one run; `vitest doctor` is the way to confirm it before keeping it.
 `perf-environment` does not trigger it: moving files to `node` with a docblock is not a candidate
 `vitest doctor` measures.
+
+Not under `@angular/build:unit-test`: without the builder the specs are not bundled and get no globals, so
+`vitest doctor`'s baseline run fails on `describe is not defined` in every file. In a workspace with a unit-test
+target, or when `--command` runs `ng` or `nx`, the finding gives an A/B of your own instead — the change in a copy of
+the runner config, timed as `ng run <project>:<target> --watch=false --runner-config=<variant>` against the original,
+a few rounds each. On `@angular/build` 20.x, which reads no runner config, it says nothing.
 
 ### When there is nothing to read
 
@@ -1217,6 +1301,73 @@ byte for byte turned every release of this package into a red step on a reposito
 had not moved a word. A plain `init` still refreshes the stamp, on the next run that has another
 reason to write. Such a file is `unchanged` under `--check` and `updated` under `--dry-run`, and both
 say why in its note: _only the version stamp differs_.
+
+## `ng-test` — sharding and changed-only runs under the Angular builder
+
+`ng test` passes none of Vitest's own flags through: the `@angular/build:unit-test` builder calls
+`startVitest()` with an object it built itself. Two of the levers still reach Vitest through the
+runner config, as plain `test` keys:
+
+```ts
+// vitest-base.config.mts — the target's runnerConfig
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    ...(process.env['VITEST_SHARD'] ? { shard: process.env['VITEST_SHARD'] } : {}),
+    repeats: Number(process.env['VITEST_REPEATS'] ?? 0),
+  } as never,
+});
+```
+
+`VITEST_REPEATS=20 ng test --include src/app/cart` hunts a flaky test, and `VITEST_SHARD=1/4 ng test`
+runs a quarter of the files. `shard` is not in the config's type, hence the cast; both need a
+`runnerConfig`, which the builder reads from Angular 21.
+
+A shard set that way still compiles every spec, and `--changed` / `--related` cannot work at all: the
+module graph Vitest walks for them holds the builder's bundles, not your sources, so it finds no test.
+`ng-test` does both outside Vitest:
+
+```bash
+npx vitest-auto-spy ng-test --shard 2/4 -- --coverage  # one CI job of four
+npx vitest-auto-spy ng-test --changed                  # what uncommitted and untracked work reaches
+npx vitest-auto-spy ng-test --changed origin/main      # what the branch reaches
+npx vitest-auto-spy ng-test --related src/app/cart/cart.service.ts --dry-run
+```
+
+It lists the target's specs with `ng test --list-tests` (`@angular/build` 21 or newer), picks the ones
+this run gets and hands them to the builder as `--include` paths — and since `@angular/build` 22.2 the
+builder compiles only the included specs. A shard is split the way Vitest's own `--shard` splits, by a
+hash of the path in near-equal parts, so every spec runs in exactly one shard. `--changed` reads
+`git diff` against the ref (`HEAD` by default) plus the untracked files, and runs every spec whose
+imports reach a changed file: relative imports, `compilerOptions.paths` aliases, and a template or a
+stylesheet through the component that names it. A config, a lockfile, `angular.json`, a `tsconfig`,
+or a change the target's `setupFiles` / `providersFile` reach runs every spec; nothing reached runs
+nothing and exits 0.
+
+Everything after `--` goes to `ng run <project>:<target>` as typed, behind `--watch=false`; an
+`--include` there narrows what is listed. `--target` picks the target when there is more than one,
+and `--dry-run` prints the `ng` command instead of running it. The exit code is `ng`'s. A list
+too long for the platform's command line (32 767 characters on Windows) folds every directory whose
+specs are all selected into one `dir/**/*.spec.ts` glob; if that is still too long, `ng-test` exits 2
+and asks for more shards or a `test.shard` in the runner config.
+
+On a 700-spec workspace with coverage and the builder cache off, as in CI, the slower of two
+`ng-test` shards took **7.58 s** against 11.21 s for the whole run; a `test.shard` from the runner
+config took 9.38 s, because every shard still compiled all 700 specs.
+
+Each shard writes its own `perf` report, and `perf --json` merges them:
+
+```bash
+npx vitest-auto-spy perf --out perf-2.json \
+  --command 'npx vitest-auto-spy ng-test --shard 2/4 -- --reporters=default --reporters="$VITEST_AUTO_SPY_PERF_REPORTER"'
+npx vitest-auto-spy perf --json 'perf-*.json' --gate
+```
+
+What does not reach a builder suite at all: `vitest doctor` runs Vitest without the builder — no
+globals, no `TestBed`, no bundle — and fails every file with `describe is not defined`; `perf --command`
+measures the real run instead. Nested `projects` cannot either: the builder deletes `test.projects` and
+serves one project from its own bundle; a second target is the equivalent.
 
 ## In CI
 

@@ -244,8 +244,9 @@ local one, or re-export this one under that name.
 
 Angular tests spy a wide service and call a couple of its methods, so a spy is built on first
 access rather than eagerly up-front. Everything else is unchanged: `Object.keys`,
-`vi.isMockFunction`, `calledWith`, `resetAutoSpy` / `clearAutoSpy` all behave identically, because
-the placeholder is an enumerable accessor.
+`vi.isMockFunction`, `calledWith`, `resetAutoSpy` / `clearAutoSpy` all behave identically, whether
+a method waits behind an accessor placeholder (below 8 methods) or behind the `Proxy` a class of 8 or
+more gets.
 
 ```ts
 provideAutoSpy(WideService); // lazy — the default
@@ -291,11 +292,11 @@ whole suite. If a spec feels slow, the time is in `TestBed` — which is what
 
 Three things do cost more, and all three are avoidable:
 
-- **`{ lazySpies: 'proxy' }`** keeps the laziness and drops the per-method placeholder, which is
-  nearly all of what an untouched wide double retains — 11.8 kB against 101.6 kB on a 400-method
-  generated client. Opt-in: it taxes every read by ~30 ns forever and loses below ~20 methods. See
+- **`{ lazySpies: true }` on a class of 8 methods or more** swaps the `Proxy` the width picked for
+  an accessor placeholder per method: plain property reads and a plain object, but a double a test
+  touches is 21–68 % heavier and slower to build. See
   [Performance](/core/performance#where-the-remaining-memory-is-and-lazyspies-proxy).
-- **`{ lazySpies: false }`** gives up the win above. Only worth it when a spec enumerates the spy
+- **`{ lazySpies: false }`** gives up the laziness altogether. Only worth it when a spec enumerates the spy
   object itself rather than calling methods on it.
 - **`autoSpyAccessors: true`** walks the prototype chain for getters and setters on every call, and
   that walk is not cached. Name the accessors you need instead when a class is spied per test.
@@ -1479,6 +1480,14 @@ pass over files no test imported is driven by the presence of `coverage.include`
 carried over from Vitest 3 with `all: true` and no `include` reports only the files the run touched,
 with no error and no warning — verified on 4.1.9 against a fixture whose second module nothing
 imports: absent with `all: true`, present once `include` is declared.
+
+## Shards and changed-only runs under the unit-test builder
+
+`ng test` passes no Vitest flag through. `test.repeats` and `test.shard` in the runner config still
+reach Vitest; `--changed` and `--related` do not, because Vitest's module graph holds the builder's
+bundles. [`npx vitest-auto-spy ng-test`](/utilities/cli#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder)
+does both through `--include`, so the builder compiles only the specs that run:
+`ng-test --shard 2/4`, `ng-test --changed origin/main`.
 
 ## Coverage matching costs more than coverage
 

@@ -27,7 +27,7 @@ createSpyFromClass(MyService, {
   gettersToSpyOn: ['userName'],
   settersToSpyOn: ['userName'],
   autoSpyAccessors: true, // auto-discover every getter/setter on the prototype chain
-  lazySpies: true, // build each method spy on first access; 'proxy' for very wide classes (see below)
+  lazySpies: true, // build each method spy on first read; unset: true below 8 methods, 'proxy' from 8
   strict: true, // a method nobody configured throws instead of returning undefined
 });
 ```
@@ -292,15 +292,18 @@ assignable to parameter of type 'ClassType<unknown>'`. The repair is the import.
 ## Lazy spies — `lazySpies`
 
 **What it is.** A method's spy is built on **first access** (`spy.method`) and then cached, so
-methods a test never touches never pay the spy-construction cost. That is the default,
-`lazySpies: true`; `lazySpies: false` builds every spy up front instead, and `'proxy'` replaces the
-per-method placeholders with one trap object — see [Performance](/core/performance).
+methods a test never touches never pay the spy-construction cost. How the name waits depends on the
+width of the class when `lazySpies` is not set: below 8 methods it is `true`, an accessor placeholder
+per method; from 8 methods it is `'proxy'`, one trap object for the whole class that defines nothing
+until a method is read. `lazySpies: false` builds every spy up front — see
+[Performance](/core/performance).
 
-The placeholder a method waits behind is one `get`/`set` pair per method **name**, shared by every
-double that has a method of that name, so an untouched double retains a couple of hundred bytes
-whatever the width of the class — [Performance](/core/performance) has the measurement. The sharing
-is visible in exactly one place: `Object.create(double).method` materialises on the heir rather than
-on the double, because the placeholder reads its double through `this`.
+With `lazySpies: true` the placeholder a method waits behind is one `get`/`set` pair per method
+**name**, shared by every double that has a method of that name, so an untouched double retains a
+couple of hundred bytes whatever the width of the class. The first method read drops the double into
+a property dictionary as wide as the class, which is why a class of 8 methods or more gets `'proxy'`
+instead. The sharing is visible in one place: `Object.create(double).method` materialises on the
+heir rather than on the double.
 
 **Why it matters.** Building a spy is not free: each method gets a host-runner mock plus the
 `calledWith` / `resolveWith` / `nextWith` helper surface. On a wide service where a test calls only
@@ -344,40 +347,51 @@ An assignment to a sealed double goes to the same place, so `cart.total = vi.fn(
 what it named. A double that only had `preventExtensions` called on it keeps its properties
 configurable, so there the spy lands on the double as usual.
 
-**`vi.spyOn` on a method nobody has read yet wraps it.** Vitest reads an accessor by calling its
-getter with no receiver, which the shared placeholder cannot place on a double, so it answers with a
-forwarder: a configured `mockReturnValue` answers, an unconfigured call reaches the double's own spy
-with its strict guard, and `mockRestore()` hands that spy back with the calls it recorded. The call
-is redundant all the same — the member already is a spy, so `cart.total.mockReturnValue(3)` says it
-in one step.
-A forwarder that is then called with no receiver at all — detached from its double — has no spy to
-reach, and throws `'total' was called off its double after vi.spyOn`; drop the `vi.spyOn` and
-configure the member itself.
+**`vi.spyOn` on a method nobody has read yet.** On an accessor double (fewer than 8 methods, or
+`lazySpies: true`) Vitest reads the accessor by calling its getter with no receiver, which the shared
+placeholder cannot place on a double, so it answers with a forwarder: a configured `mockReturnValue`
+answers, an unconfigured call reaches the double's own spy with its strict guard, and `mockRestore()`
+hands that spy back with the calls it recorded. Called with no receiver at all, the forwarder throws
+`'total' was called off its double after vi.spyOn`. On a proxy double (8 methods or more) it reads the
+method and gets the double's own spy back, as for a method already read: `mockRestore()` on it resets
+that spy, and a detached call works. Either way the call is redundant — the member already is a spy,
+so `cart.total.mockReturnValue(3)` says it in one step.
 
 ### `lazySpies: 'proxy'` — one trap object instead of a placeholder per method
 
-`lazySpies: true` still defines something on the double for every string-named method: the shared
-`get`/`set` pair above. `'proxy'` is the same laziness with one trap object in place of all of them,
-so the record carries no property for a method until something reads it.
+`'proxy'` is what a class of **8 methods or more** gets when `lazySpies` is not set; pass it to get it
+on a narrower one. The record carries no property for a method until something reads it, and the
+traps answer every method name from one set shared by every double of the class.
 
 ```ts
-// a generated API client: 400 operations, a test touches two
-const api = createSpyFromClass(GeneratedVenuesClient, { lazySpies: 'proxy' });
+// a generated API client: 400 operations, a test touches two — a proxy double without asking
+const api = createSpyFromClass(GeneratedVenuesClient);
 
 api.findById.resolveWith({ id: 1 }); // built here, like any lazy spy
 ```
 
-**It is not the memory option it reads as, and that is why it is opt-in.** Because the placeholders
-are shared per name, an untouched double on the default path retains less than the proxy's own trap
-object and the key set beside it — at a hundred methods, several times less. What the mode buys is
-build time on a class wide enough for the definitions to matter; what it costs is every read and
-every call for the life of the double, because a `Proxy` cannot remove itself: once a method has
-materialised, the accessor path leaves a plain data property behind and every later read is free,
-while the proxy still goes through a trap. [Performance](/core/performance) has both sides measured.
+**Why from 8 methods.** A double a test touches is 21–68 % lighter than with accessor placeholders
+from there on, and builds 2–6× faster: the accessor path's first read turns the double into a property
+dictionary as wide as the class, and the proxy never does. Below 8 the proxy still wins memory, by
+11–19 %, which is not worth a double that is no longer a plain object. [Performance](/core/performance)
+has the table.
 
-So reach for it when building the doubles is what shows up in a profile — generated API clients
-(orval, `ng-openapi-gen`), ngrx facades, a `Store` double, all of them built per test and barely
-touched — and leave it alone otherwise, including on a suite whose problem is memory.
+**What a proxy double does differently, and `lazySpies: true`.** A `Proxy` cannot remove itself, so
+every read of a member pays a trap, about 20 ns. A double nobody touches holds ~100 B more. And a spec
+can tell:
+
+- `util.types.isProxy(double)` is `true`, and a debugger shows `Proxy`;
+- `console.log(double)` / `util.inspect` lists only the methods read so far — Node prints the proxy's
+  target without going through the traps. Vitest snapshots, `toEqual`, `Object.keys` and a spread are
+  unchanged;
+- `Object.getOwnPropertyDescriptor(double, 'method')` on an unread method returns a fresh `get`/`set`
+  pair on every call rather than one shared pair;
+- `vi.spyOn(double, 'method')` returns the double's own spy (see above);
+- `Object.create(double).method` builds the spy on the double, not on the heir.
+
+Pass `lazySpies: true` — or register it once with `registerAutoSpyDefaults(Class, { lazySpies: true })`
+— when one of these matters to a spec, or when a hot loop reads one member of a double millions of
+times.
 
 **It is not a different double.** `Object.keys`, spread, `JSON.stringify`, `in`,
 `hasOwnProperty`, `Object.getOwnPropertyDescriptor`, `delete`, `Object.freeze`, key order, `returns`,

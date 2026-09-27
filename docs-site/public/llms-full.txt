@@ -637,7 +637,7 @@ createSpyFromClass(MyService, {
   gettersToSpyOn: ['userName'],
   settersToSpyOn: ['userName'],
   autoSpyAccessors: true, // auto-discover every getter/setter on the prototype chain
-  lazySpies: true, // build each method spy on first access; 'proxy' for very wide classes (see below)
+  lazySpies: true, // build each method spy on first read; unset: true below 8 methods, 'proxy' from 8
   strict: true, // a method nobody configured throws instead of returning undefined
 });
 ```
@@ -902,15 +902,18 @@ assignable to parameter of type 'ClassType<unknown>'`. The repair is the import.
 ## Lazy spies — `lazySpies`
 
 **What it is.** A method's spy is built on **first access** (`spy.method`) and then cached, so
-methods a test never touches never pay the spy-construction cost. That is the default,
-`lazySpies: true`; `lazySpies: false` builds every spy up front instead, and `'proxy'` replaces the
-per-method placeholders with one trap object — see [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance).
+methods a test never touches never pay the spy-construction cost. How the name waits depends on the
+width of the class when `lazySpies` is not set: below 8 methods it is `true`, an accessor placeholder
+per method; from 8 methods it is `'proxy'`, one trap object for the whole class that defines nothing
+until a method is read. `lazySpies: false` builds every spy up front — see
+[Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance).
 
-The placeholder a method waits behind is one `get`/`set` pair per method **name**, shared by every
-double that has a method of that name, so an untouched double retains a couple of hundred bytes
-whatever the width of the class — [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance) has the measurement. The sharing
-is visible in exactly one place: `Object.create(double).method` materialises on the heir rather than
-on the double, because the placeholder reads its double through `this`.
+With `lazySpies: true` the placeholder a method waits behind is one `get`/`set` pair per method
+**name**, shared by every double that has a method of that name, so an untouched double retains a
+couple of hundred bytes whatever the width of the class. The first method read drops the double into
+a property dictionary as wide as the class, which is why a class of 8 methods or more gets `'proxy'`
+instead. The sharing is visible in one place: `Object.create(double).method` materialises on the
+heir rather than on the double.
 
 **Why it matters.** Building a spy is not free: each method gets a host-runner mock plus the
 `calledWith` / `resolveWith` / `nextWith` helper surface. On a wide service where a test calls only
@@ -953,40 +956,51 @@ An assignment to a sealed double goes to the same place, so `cart.total = vi.fn(
 what it named. A double that only had `preventExtensions` called on it keeps its properties
 configurable, so there the spy lands on the double as usual.
 
-**`vi.spyOn` on a method nobody has read yet wraps it.** Vitest reads an accessor by calling its
-getter with no receiver, which the shared placeholder cannot place on a double, so it answers with a
-forwarder: a configured `mockReturnValue` answers, an unconfigured call reaches the double's own spy
-with its strict guard, and `mockRestore()` hands that spy back with the calls it recorded. The call
-is redundant all the same — the member already is a spy, so `cart.total.mockReturnValue(3)` says it
-in one step.
-A forwarder that is then called with no receiver at all — detached from its double — has no spy to
-reach, and throws `'total' was called off its double after vi.spyOn`; drop the `vi.spyOn` and
-configure the member itself.
+**`vi.spyOn` on a method nobody has read yet.** On an accessor double (fewer than 8 methods, or
+`lazySpies: true`) Vitest reads the accessor by calling its getter with no receiver, which the shared
+placeholder cannot place on a double, so it answers with a forwarder: a configured `mockReturnValue`
+answers, an unconfigured call reaches the double's own spy with its strict guard, and `mockRestore()`
+hands that spy back with the calls it recorded. Called with no receiver at all, the forwarder throws
+`'total' was called off its double after vi.spyOn`. On a proxy double (8 methods or more) it reads the
+method and gets the double's own spy back, as for a method already read: `mockRestore()` on it resets
+that spy, and a detached call works. Either way the call is redundant — the member already is a spy,
+so `cart.total.mockReturnValue(3)` says it in one step.
 
 ### `lazySpies: 'proxy'` — one trap object instead of a placeholder per method
 
-`lazySpies: true` still defines something on the double for every string-named method: the shared
-`get`/`set` pair above. `'proxy'` is the same laziness with one trap object in place of all of them,
-so the record carries no property for a method until something reads it.
+`'proxy'` is what a class of **8 methods or more** gets when `lazySpies` is not set; pass it to get it
+on a narrower one. The record carries no property for a method until something reads it, and the
+traps answer every method name from one set shared by every double of the class.
 
 ```ts
-// a generated API client: 400 operations, a test touches two
-const api = createSpyFromClass(GeneratedVenuesClient, { lazySpies: 'proxy' });
+// a generated API client: 400 operations, a test touches two — a proxy double without asking
+const api = createSpyFromClass(GeneratedVenuesClient);
 
 api.findById.resolveWith({ id: 1 }); // built here, like any lazy spy
 ```
 
-**It is not the memory option it reads as, and that is why it is opt-in.** Because the placeholders
-are shared per name, an untouched double on the default path retains less than the proxy's own trap
-object and the key set beside it — at a hundred methods, several times less. What the mode buys is
-build time on a class wide enough for the definitions to matter; what it costs is every read and
-every call for the life of the double, because a `Proxy` cannot remove itself: once a method has
-materialised, the accessor path leaves a plain data property behind and every later read is free,
-while the proxy still goes through a trap. [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance) has both sides measured.
+**Why from 8 methods.** A double a test touches is 21–68 % lighter than with accessor placeholders
+from there on, and builds 2–6× faster: the accessor path's first read turns the double into a property
+dictionary as wide as the class, and the proxy never does. Below 8 the proxy still wins memory, by
+11–19 %, which is not worth a double that is no longer a plain object. [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance)
+has the table.
 
-So reach for it when building the doubles is what shows up in a profile — generated API clients
-(orval, `ng-openapi-gen`), ngrx facades, a `Store` double, all of them built per test and barely
-touched — and leave it alone otherwise, including on a suite whose problem is memory.
+**What a proxy double does differently, and `lazySpies: true`.** A `Proxy` cannot remove itself, so
+every read of a member pays a trap, about 20 ns. A double nobody touches holds ~100 B more. And a spec
+can tell:
+
+- `util.types.isProxy(double)` is `true`, and a debugger shows `Proxy`;
+- `console.log(double)` / `util.inspect` lists only the methods read so far — Node prints the proxy's
+  target without going through the traps. Vitest snapshots, `toEqual`, `Object.keys` and a spread are
+  unchanged;
+- `Object.getOwnPropertyDescriptor(double, 'method')` on an unread method returns a fresh `get`/`set`
+  pair on every call rather than one shared pair;
+- `vi.spyOn(double, 'method')` returns the double's own spy (see above);
+- `Object.create(double).method` builds the spy on the double, not on the heir.
+
+Pass `lazySpies: true` — or register it once with `registerAutoSpyDefaults(Class, { lazySpies: true })`
+— when one of these matters to a spec, or when a hot loop reads one member of a double millions of
+times.
 
 **It is not a different double.** `Object.keys`, spread, `JSON.stringify`, `in`,
 `hasOwnProperty`, `Object.getOwnPropertyDescriptor`, `delete`, `Object.freeze`, key order, `returns`,
@@ -2366,6 +2380,12 @@ configured that way never runs the code the guard lives in, so it is not that st
 exception for them; there is nothing to make an exception in. It also means a `calledWith` added
 after them is never consulted.
 
+`vi.when` (Vitest 5) is the exception that is not one. It reads the spy's implementation and wraps
+it: the calls it has a row for get its answer, every other call reaches the library's dispatch, so a
+`calledWith` on the same method keeps deciding — in either order, with no warning. After
+`vi.when(spy)[Symbol.dispose]()` or `mockReset()` the dispatch answers alone again.
+`vi.when(spy, { onUnmatched: 'throw' })` is the per-method counterpart of `strict: true`.
+
 That has one visible edge. `mockReturnValueOnce` installs a one-shot implementation that is
 _shifted off a queue_, and Vitest falls back to the standing implementation — the library dispatch —
 once the queue is empty. So the call after the last `Once` reaches the guard and is reported as
@@ -3578,8 +3598,8 @@ Lazy's margin widens as the class does — 1.43× at ten methods, 1.90× at fort
 back only when a single test really calls every method: 10 methods with all 10 called is 5.83 µs
 lazy against 4.21 µs eager, and 40 methods with all 40 called is 23.08 µs against 16.00 µs, so
 roughly 1.4× the wrong way. What settles it is not the clock but the heap, where the same asymmetry
-is far larger and does not close: an untouched 100-method double retains **242 B** lazy against
-55 518 B eager, while at full materialisation the two arms are within 3% of each other — see
+is far larger and does not close: an untouched 100-method double retains **259 B** lazy against
+42 655 B eager, while at full materialisation the two arms are within 1% of each other — see
 [Retained memory per double](#retained-memory-per-double). That is why lazy is the default rather
 than an option.
 
@@ -3695,8 +3715,8 @@ Lazy does not build the spy, but it still has to define **something** for the na
 per method per double. The `get` / `set` pair is one pair per method _name_ for the whole run — the
 double it belongs to is reached through `this` — so the placeholder is a descriptor slot on a shape
 V8 already has, and the per-double cost of a name nobody touched is around two bytes. An untouched
-double therefore retains roughly the same **240 B** whether it stands in for 10 methods or 100, and
-the width of the class has stopped being a memory question at all.
+double therefore retains under **200 B** whether it stands in for 10 methods or 100, and
+the width of the class stops being a memory question until the first read.
 
 Materialising the first method has to undo one part of that sharing: a set of doubles whose
 accessors all came from the same descriptors sits on a shared fast-mode map, and turning an
@@ -3706,21 +3726,24 @@ V8 behaviour written up under [helpers shared across spies](#helpers-shared-acro
 reason the probe is paid at the first read rather than when the double is built. An untouched
 double, which is the case this is all for, never pays it.
 
-`'proxy'` answers every method from one trap object instead of defining anything. That used to be
-the lighter arm, and it no longer is: it retains **4 097 B against 242 B** at 100 methods untouched
-and 1 857 B against 224 B at 10 — the [retained-memory section below](#retained-memory-per-double)
-carries the whole table — and it taxes every read for the life of the double, because a `Proxy`
-cannot remove itself. Once a method has materialised, the accessor path leaves a plain data property
-behind and every later read of it is an ordinary property read, at about 7 ns; the trap answers in
-about 53 ns, every read, forever.
+That dictionary is why a class of 8 methods or more gets `'proxy'` when `lazySpies` is not set. The
+proxy answers every method from one trap handler and one name set per class and defines nothing, so
+there is no shared map to leave and no dictionary to grow. Bytes per double with one and two methods
+called (1 000 doubles held at once, 2026-09-27):
 
-**It stays a public option**, and it has exactly one advantage left: standing up a trap is cheaper
-than defining a placeholder per name, so building a 100-method double costs about 2.0 µs against
-12.6 µs. That is a build-time win of ten microseconds against a memory cost of four kilobytes per
-double and a tax on every read, which is a trade very few suites want. Unless a profile of your own
-suite says otherwise, leave `lazySpies` alone — including on the classes that are wide by
-construction, a generated API client (orval, `ng-openapi-gen`), an ngrx facade, a `Store` double,
-which are precisely where the default is now strongest.
+| Methods in the class | `true`, 1 / 2 touched | `'proxy'`, 1 / 2 touched |        Saving |
+| -------------------: | --------------------: | -----------------------: | ------------: |
+|                  4–6 |       1 743 / 2 887 B |          1 415 / 2 573 B | −19 % / −11 % |
+|                 8–16 |       2 110 / 3 269 B |          1 417 / 2 573 B | −33 % / −21 % |
+|                20–30 |       2 877 / 4 036 B |          1 416 / 2 573 B | −51 % / −36 % |
+|                   45 |       4 412 / 5 570 B |          1 417 / 2 577 B | −68 % / −54 % |
+
+The steps are V8's: the dictionary holds `pow2ceil(1.5·(width + 3))` slots. Building and touching the
+double is cheaper too — 2.2 → 1.1 µs at 8 methods, 6.5 → 1.0 µs at 45. The price is a trap on every
+read of a member for the life of the double, about 25 ns against 5 ns for a plain property, ~100 B more
+on a double nobody touches, and a double a spec can see is a `Proxy`. Eight methods is the smallest
+width where the proxy saves at least 15 % on both profiles; below it the default stays a plain object.
+`lazySpies: true` opts a wide class out.
 
 ### What a single spy costs
 
@@ -3758,8 +3781,8 @@ The first row is the number that moved most, and it is worth knowing why the ans
 rather than "a few hundred": what a placeholder now adds per double is a descriptor slot, not an
 object. The accessor pair itself is shared across every double of every class that has a method of
 that name, so it is paid once for the run. The per-double figure is small enough that the fixed cost
-of the double itself dominates a narrow class — an untouched 10-method double measures 224 B in
-total, an untouched 100-method one 242 B.
+of the double itself dominates a narrow class — with `lazySpies: true` an untouched 10-method double
+measures 156 B in total, an untouched 100-method one 178 B.
 
 Memory matters more than the time here. Under `isolate: false` a worker keeps everything its files
 allocated until the run ends, and it is the heap — not the clock — that ends up killing a CI job in
@@ -3990,75 +4013,89 @@ prevent.
 
 ### Retained memory per double
 
-`npm run bench:memory`, 2026-09-26, Node v24.19.0, **Vitest 5.0.0**. 500 doubles held alive at once,
-5 repeats per cell (median), 4 GC passes forced per settle. Each cell is heap delta divided by the
-500 doubles, i.e. **bytes per double** — the number in parentheses divides that further by the
-method count, i.e. bytes per method. The mock registry is pruned between arms; without that, every
-arm after the first would carry forward everything the earlier arms allocated, and the numbers would
-be a running total rather than each library's own footprint. Pruning was verified clean — worst
-residual 0.0% — and run-to-run spread was at worst ±40%, on the one cell small enough for the noise
-floor to matter: the default arm's untouched 10-method double, which is now a couple of hundred
-bytes against a 512 KiB floor. Every other cell reproduced within ±1%.
+`npm run bench:memory`, 2026-09-27, Node v24.19.0, **Vitest 5.0.0**. 500 doubles held alive at once,
+5 repeats per cell (median), 4 GC passes forced per settle; the whole bench was run three times and
+the table carries the median of the three. Each cell is heap delta divided by the 500 doubles, i.e.
+**bytes per double** — the number in parentheses divides that further by the method count, i.e.
+bytes per method. The mock registry is pruned between arms; without that, every arm after the first
+would carry forward everything the earlier arms allocated, and the numbers would be a running total
+rather than each library's own footprint. Pruning was verified clean — worst residual 0.2% — and
+run-to-run spread was at worst ±33%, on the one cell small enough for the noise floor to matter: the
+default arm's untouched 10-method double, a couple of hundred bytes against a 512 KiB floor. Across
+the three runs every cell came back within 0.2% of its median.
 
 **Built from a class:**
 
-| Arm                                  |     10 methods, untouched |            10, all called |     100 methods, untouched |            100, all called |
-| ------------------------------------ | ------------------------: | ------------------------: | -------------------------: | -------------------------: |
-| vitest-auto-spy default lazy         |     **221 B** (22/method) | 13 317 B (1 332 B/method) |     **243 B** (2 B/method) | 128 956 B (1 290 B/method) |
-| vitest-auto-spy `lazySpies: 'proxy'` |    1 860 B (186 B/method) | 14 264 B (1 426 B/method) |      4 097 B (41 B/method) | 127 496 B (1 275 B/method) |
-| vitest-auto-spy `lazySpies: false`   |    5 800 B (580 B/method) | 12 633 B (1 263 B/method) |    55 542 B (555 B/method) | 123 605 B (1 236 B/method) |
-| jest-auto-spies                      | 67 246 B (6 725 B/method) | 77 834 B (7 783 B/method) | 674 661 B (6 747 B/method) | 779 725 B (7 797 B/method) |
-| jasmine-auto-spies                   | 69 733 B (6 973 B/method) | 80 296 B (8 030 B/method) | 699 481 B (6 995 B/method) | 804 533 B (8 045 B/method) |
-| @bugsplat/vitest-auto-spies          | 67 257 B (6 726 B/method) | 77 829 B (7 783 B/method) | 674 678 B (6 747 B/method) | 779 731 B (7 797 B/method) |
-| hand-written `vi.fn()`               | 47 258 B (4 726 B/method) | 57 825 B (5 783 B/method) | 476 862 B (4 769 B/method) | 581 883 B (5 819 B/method) |
+| Arm                                                 |     10 methods, untouched |            10, all called |     100 methods, untouched |            100, all called |
+| --------------------------------------------------- | ------------------------: | ------------------------: | -------------------------: | -------------------------: |
+| vitest-auto-spy default (`'proxy'` at these widths) |       258 B (26 B/method) | 11 367 B (1 137 B/method) |         259 B (3 B/method) | 110 837 B (1 108 B/method) |
+| vitest-auto-spy `lazySpies: true`                   |   **156 B** (16 B/method) | 11 987 B (1 199 B/method) |     **178 B** (2 B/method) | 116 082 B (1 161 B/method) |
+| vitest-auto-spy `lazySpies: false`                  |    4 454 B (445 B/method) | 11 297 B (1 130 B/method) |    42 655 B (427 B/method) | 110 730 B (1 107 B/method) |
+| jest-auto-spies                                     | 67 246 B (6 725 B/method) | 77 802 B (7 780 B/method) | 674 658 B (6 747 B/method) | 779 711 B (7 797 B/method) |
+| jasmine-auto-spies                                  | 69 723 B (6 972 B/method) | 80 289 B (8 029 B/method) | 699 474 B (6 995 B/method) | 804 525 B (8 045 B/method) |
+| @bugsplat/vitest-auto-spies                         | 67 234 B (6 723 B/method) | 77 807 B (7 781 B/method) | 674 671 B (6 747 B/method) | 779 723 B (7 797 B/method) |
+| hand-written `vi.fn()`                              | 47 258 B (4 726 B/method) | 57 825 B (5 783 B/method) | 476 862 B (4 769 B/method) | 581 883 B (5 819 B/method) |
 
-**Every row moved against the edition this replaces, and only one of the two reasons is this
-package.** The other is the runner: on Vitest 5 a bare `vi.fn()` retains 4 726 B where it retained
-4 102 B, and the three jest-auto-spies-family libraries are built on it, so their rows moved with it.
-Read the columns against each other on this table, never against a number from the Vitest 4 edition.
+**Only this package's rows moved against the 2026-09-26 edition.** The runner and the three
+jest-auto-spies-family libraries are within a few bytes of what they retained a day earlier, so every
+difference in the first three rows is this package's own. Two changes are behind it. Both classes
+here are 8 methods or more, so the default row is now `'proxy'` (see
+[above](#where-the-remaining-memory-is-and-lazyspies-proxy)); the arm that was the default is the
+`lazySpies: true` row. And every double got lighter on its own terms:
 
-This package's own rows moved for reasons of their own. [The spy engine](#the-spy-engine) is the one
-behind the "all called" cells: a materialised method retains **1 290 B** against the runner's own
-5 819 B, and an eagerly built but never-called one (`lazySpies: false`, untouched) **555 B**, because
-a spy that is never called allocates none of the six arrays `vi.fn()` allocates up front. A smaller
-part of the same story is that the helper bundle now lives on the prototype every spy inherits
-rather than being copied onto each spy — worth 48 B per materialised method, visible in every "all
-called" cell.
+**2026-09-27: what a double retains.** A materialised method spy no longer carries an empty `Once`
+queue, a closure context for its callable, a state object of its own or a six-slot context for its
+dispatch — 128 B per method, which is most of why "all called" fell from 1 290 to 1 161 B per method
+on the `lazySpies: true` arm at 100 methods (−10 %). A class without spied accessors gets an
+`accessorSpies` bag built from objects sized to hold nothing: V8 reserves four property slots in
+every `{}`, and a constructor's instances are sized to what they hold, so the bag costs 88 B instead
+of 152 B while staying an ordinary `Object.prototype` object — the untouched `lazySpies: true` double
+went from 243 to 178 B at 100 methods. `createAutoMock` and `mockDeep` nodes create their accessor
+and tombstone collections on the first `defineProperty` or `delete`, which almost no spec does —
+705 → 369 B for an untouched auto-mock. The `'proxy'` arm lost the most: one trap handler per double
+and one method-name set per class took an untouched 100-method proxy double from 4 097 B to 259 B.
 
-The "all called" cells dropped by a further third on 2026-09-26, and that one is the spy's call state
+[The spy engine](#the-spy-engine) is what the "all called" cells measure: a materialised method
+retains about **1 110 B** against the runner's own 5 819 B, and an eagerly built but never-called
+one (`lazySpies: false`, untouched) **427 B**, because a spy that is never called allocates none of
+the six arrays `vi.fn()` allocates up front. A smaller part of the same story is that the helper
+bundle lives on the prototype every spy inherits rather than being copied onto each spy — worth 48 B
+per materialised method, visible in every "all called" cell.
+
+The "all called" cells dropped by a third on 2026-09-26, and that one was the spy's call state
 alone. Its six arrays used to start empty, and V8 reserves seventeen slots on the first `push` into an
 empty array — about 900 B of empty slots on a method called once. They are now seeded with room for
 four calls and regrown to the old seventeen on the fifth, so a method called one to four times holds
 30–38 % less and one called more often holds what it did (+8 B). 1 947 → 1 332 B per called method
-at 10 methods, 1 905 → 1 290 B at 100.
+at 10 methods, 1 905 → 1 290 B at 100, on that day's build.
 
-The **untouched** cells of the default arm moved for a different reason and by two orders of
-magnitude: the lazy placeholder is now one shared accessor pair per method name for the whole run
-rather than a closure pair per double, so what a name nobody touched adds to a double is a
-descriptor slot — 25 601 B became 242 B at 100 methods, and 2 940 B became 224 B at 10. That is the
-change that turned `lazySpies: 'proxy'` from the lighter arm into the heavier one; the mechanism is
-[above](#where-the-remaining-memory-is-and-lazyspies-proxy).
+The **untouched** cells of the `lazySpies: true` arm are small for a different reason: the lazy
+placeholder is one shared accessor pair per method name for the whole run rather than a closure pair
+per double, so what a name nobody touched adds to a double is a descriptor slot — 25 601 B became a
+couple of hundred bytes at 100 methods when that landed. The default on a wide class holds about
+100 B more than that untouched, for the trap handler, and wins as soon as a test reads a method; the
+[width table](#where-the-remaining-memory-is-and-lazyspies-proxy) has the touched case.
 
 **Built from a type.** Untouched is width-independent — it is the same Proxy object either way:
 
 | Arm                               | untouched | 10 members called | 100 members called |
 | --------------------------------- | --------: | ----------------: | -----------------: |
-| vitest-auto-spy `createAutoMock`  |     705 B |          13 353 B |          126 700 B |
+| vitest-auto-spy `createAutoMock`  |     369 B |          11 744 B |          113 566 B |
 | vitest-mock-extended `mock`       |     353 B |          60 138 B |          602 182 B |
 | @golevelup/ts-vitest `createMock` |     496 B |         116 462 B |        1 158 269 B |
 
-The untouched cell is 705 B where the previous edition measured 1 184 B, and that is this package
-too: an auto-mock's Proxy handler used to be an object and seven trap closures per double, and it is
-now one handler for the whole run, with everything that varies kept on the Proxy's own target.
+The untouched cell is 369 B, down from 705 B a day earlier and 1 184 B the edition before that, and
+all of it is this package: an auto-mock's Proxy handler used to be an object and seven trap closures
+per double and is now one handler for the whole run, with everything that varies kept on the Proxy's
+own target, and the target's accessor and tombstone collections are created only when something is
+written to them.
 
 **What this establishes:**
 
-1. **`lazySpies: 'proxy'` is no longer the memory answer.** It retains more than the default at every
-   width measured — 8.3× at 10 methods untouched, 16.9× at 100 — because the default's placeholder
-   now costs a descriptor slot and the trap object does not shrink. The only column where it is not
-   behind is "all called", where both arms are the materialised spies and the strategy that built
-   them has stopped mattering. What it still buys is creation time, and what it still charges is a
-   trap on every read; the trade is [above](#where-the-remaining-memory-is-and-lazyspies-proxy).
+1. **From 8 methods the default is the lighter double wherever a test touches it.** Untouched,
+   `lazySpies: true` keeps the smaller double because its placeholder is a descriptor slot; once
+   anything is read it pays a dictionary as wide as the class, and the proxy does not — see the
+   [width table](#where-the-remaining-memory-is-and-lazyspies-proxy).
 2. **`jest-auto-spies` and `@bugsplat` agree to within 0.01%** on retained bytes, confirming the
    shared-core claim ([above](#the-three-jest-auto-spies-family-libraries-all-measured)) on a metric
    that has nothing to do with timing noise.
@@ -4068,20 +4105,18 @@ now one handler for the whole run, with everything that varies kept on the Proxy
 4. **Full materialisation is no longer a measurement of `@vitest/spy` for every arm.** It still is
    for four of them: the hand-written control retains 5 783 B per mock after one call and the three
    jest-auto-spies-family libraries land 35–39% above it. This package's spy is not one of the
-   runner's, so it sits **4.4× below that floor** at about 1 310 B — the same shape the micro-benchmark
-   shows, measured in bytes instead of microseconds.
+   runner's, so it sits **5.1× below that floor** at about 1 120 B — the same shape the
+   micro-benchmark shows, measured in bytes instead of microseconds.
 
 **Where this package loses on memory, at full weight:**
 
-- Untouched `createAutoMock<T>()` retains **705 B** against `vitest-mock-extended`'s **353 B** and
-  `@golevelup`'s **496 B** — 2.0× and 1.4× worse, still last in its family. That is the bare Proxy
-  before anything is touched, and it is the one memory row this package still loses; from the first
-  member called onwards it is 4.5× lighter than `vitest-mock-extended` and 8.7× lighter than
-  `@golevelup`.
-- `lazySpies: false` is marginally cheaper than the default when every method is called anyway —
-  12 633 vs 13 317 B at 10 methods, 123 605 vs 128 956 B at 100. The placeholder accessors the
-  default installs are not free once they have been replaced, and a spec that touches the whole
-  surface gives them nothing to save.
+- Untouched `createAutoMock<T>()` retains **369 B** against `vitest-mock-extended`'s **353 B** — 4.5 %
+  more, and now below `@golevelup`'s **496 B**. That is the bare Proxy before anything is touched, and
+  it is the one memory row this package still loses; from the first member called onwards it is 5.1×
+  lighter than `vitest-mock-extended` and 9.9× lighter than `@golevelup`.
+- `lazySpies: false` retains a hair less than the default when every method is called anyway —
+  11 297 vs 11 367 B at 10 methods, 110 730 vs 110 837 B at 100, 0.1–0.6 %. A spec that touches the
+  whole surface gives laziness nothing to save.
 
 `heapUsed` only; off-heap was not measured. Retention inside the `@vitest/spy` registry `Set` is
 counted deliberately and charged identically to every arm. Single machine, Node v24.19.0 — the
@@ -4177,16 +4212,14 @@ page.
 1. **`isolate: false` first.** It is worth about 4× on its own, more than swapping any library or
    flag measured here. It also changes what limits you: memory becomes the binding constraint
    instead of wall-clock, because everything a file allocates now stays alive until the run ends.
-2. **On a wide class under `isolate: false`, add `lazySpies: 'proxy'`** for roughly another 12% off
-   peak RSS on top of the default (established, 7/7 rounds). It is the second-largest lever
-   measured and it only costs a flag.
-3. **Do not turn `'proxy'` on under normal isolation** (`isolate: true`, the default). It measurably
-   does nothing there — a median of exactly 1.00× across five rounds.
-4. **Do not expect a suite-scale speed win over hand-written `vi.fn()`.** Under `isolate: true` this
+2. **Leave `lazySpies` alone.** The width picks the lighter double: a plain object below 8 methods, a
+   proxy from 8. Pass `lazySpies: true` only for a spec that needs a plain object or reads one member in
+   a hot loop. (The suite-scale RSS tables above predate the 2026-09-27 proxy and measure the old one.)
+3. **Do not expect a suite-scale speed win over hand-written `vi.fn()`.** Under `isolate: true` this
    library is on par at 1 000 and 3 000 tests and behind by roughly 8% at 10 000. The case for
    this library over hand assembly is everything else on this page — the lazy default, the
    memoised prototype walk, `calledWith`, type-level and deep doubles — not suite wall-clock.
-5. **Against the jest-auto-spies family**, the win is real and holds everywhere tested: roughly
+4. **Against the jest-auto-spies family**, the win is real and holds everywhere tested: roughly
    1.5× faster in every round measured, at 1 000/3 000/10 000 tests and at 20 and 100 methods — measured through
    `@bugsplat`, the family's suite-scale representative (see the micro-benchmark above for why that
    stand-in is now justified by measurement rather than by shared source).
@@ -4494,17 +4527,17 @@ Three things decide whether it pays:
 
 ## The two settings that cost
 
-**`{ lazySpies: 'proxy' }`** is the other direction: same laziness, one trap object instead of a
-placeholder per method. It buys build time on a wide class — about 2.0 µs against 12.6 µs at 100
-methods — and charges for it in retained bytes and in a trap on every read. See
-[where the remaining memory is](#where-the-remaining-memory-is-and-lazyspies-proxy) before reaching
-for it.
+**`{ lazySpies: true }` on a class of 8 methods or more** trades the other way: an accessor placeholder
+per method instead of the trap object the width picked. Reads are plain property reads (about 5 ns
+against 25), an untouched double is ~100 B lighter, and the double is an ordinary object — but a
+touched double is 21–68 % heavier and slower to build. See the
+[width table](#where-the-remaining-memory-is-and-lazyspies-proxy).
 
-**`{ lazySpies: false }`** gives up the win above. On a 40-method class it costs 11.50 µs against
+**`{ lazySpies: false }`** gives up the laziness. On a 40-method class it costs 11.50 µs against
 6.04 µs to build a double a spec calls three methods of, and on a 100-method class an untouched
-double retains 55 518 B against 242 B. It is worth it only when a spec inspects the spy object
-itself through property descriptors; enumeration (`Object.keys`, spread, a snapshot) already works,
-because the placeholders are enumerable accessors.
+double retains 42 655 B against the default's 259 B. It is worth it only when a spec inspects the spy
+object itself through property descriptors; enumeration (`Object.keys`, spread, a snapshot) already
+works in every lazy mode.
 
 **`autoSpyAccessors: true`** walks the prototype chain for getters and setters. That walk is
 memoised per prototype in a `WeakMap`, exactly like the method walk, so a class spied in 300 tests
@@ -17116,13 +17149,14 @@ Source: https://asdalexey.github.io/vitest-auto-spy/utilities/cli
 
 # The CLI
 
-Four commands, no dependencies, nothing to configure:
+Five commands, no dependencies, nothing to configure:
 
 ```bash
 npx vitest-auto-spy doctor   # read-only. Exits 1 when it finds something
 npx vitest-auto-spy perf     # where the suite's CPU time goes. Always exits 0
 npx vitest-auto-spy init     # writes the agent instructions pointer
 npx vitest-auto-spy codemod  # dry run by default. Exits 1 when it left something alone
+npx vitest-auto-spy ng-test  # ng test with --shard / --changed the Angular builder does not pass through
 ```
 
 They are one binary because they answer one question from four directions — _is anything in this
@@ -17132,14 +17166,14 @@ and [`codemod`](https://asdalexey.github.io/vitest-auto-spy/utilities/codemod) a
 otherwise rename into the reverse meaning. This page covers the first three; the codemod
 [has its own](https://asdalexey.github.io/vitest-auto-spy/utilities/codemod), because most of what it does is refuse.
 
-**The exit codes mean the same thing in all four**, which is what makes any of them a single CI
+**The exit codes mean the same thing in all five**, which is what makes any of them a single CI
 line:
 
-| Exit | Meaning                                                                                                                                                                                                                                                       |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | The command ran and has nothing to report                                                                                                                                                                                                                     |
-| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date or a stale copy of the skill, `perf --gate` a confirmed budget                                     |
-| `2`  | It could not do the job it was asked to do: an unknown command, an unknown flag for a known command, a flag value it cannot use, an unknown transform id on `--only` / `--skip`, a `codemod` path that matches no file, or a `perf` run with nothing to judge |
+| Exit | Meaning                                                                                                                                                                                                                                                                                                                                 |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | The command ran and has nothing to report                                                                                                                                                                                                                                                                                               |
+| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date or a stale copy of the skill, `perf --gate` a confirmed budget                                                                                                               |
+| `2`  | It could not do the job it was asked to do: an unknown command, an unknown flag for a known command, a flag value it cannot use, an unknown transform id on `--only` / `--skip`, a `codemod` path that matches no file, a `perf` run with nothing to judge, or an `ng-test` without a single unit-test target or without `--list-tests` |
 
 The unknown flag is the one worth stating on its own, because a parser that accepts everything makes
 a typo invisible: `init --dryrun` wrote the files a `--dry-run` would only have described, and
@@ -17357,6 +17391,60 @@ on it, so the run dies at startup with `TypeError: cache.has is not a function` 
 is collected. The error names neither package. The fix is to upgrade `@analogjs/vite-plugin-angular`
 and `@analogjs/vitest-angular` to 2.7.5 or newer. The check stays quiet when either package is not
 installed.
+
+#### `analog-fast-compile-ctor-injection`
+
+A Vite or Vitest config turns Analog's `fastCompile` on in JIT mode — `jit` not set to `false`,
+which is the default under Vitest — and an `@Injectable` class takes a constructor parameter known
+only by its type. That path keeps `@Injectable` on the class but emits no `ctorParameters` for it and
+strips types without `design:paramtypes`, so Angular has no token for the parameter:
+`TestBed.inject`, `Injector.create` and `createWithAutoSpies` throw NG0202 ("dependency at index N
+of the parameter list is invalid"). Components, directives and pipes get `ctorParameters` and are
+not affected; a parameter with `@Inject(X)` or a default value is not reported. Move the dependency
+to an `inject()` field initializer (`ng generate @angular/core:inject` migrates a project), name the
+token with `@Inject(TaxService)`, or leave `fastCompile` off until the plugin emits `ctorParameters`
+for `@Injectable`. Checked against `@analogjs/vite-plugin-angular` 2.7.5.
+
+#### `analog-module-cache-inline-styles`
+
+`fsModuleCache` on — top-level, under `experimental`, or `--fsModuleCache` in a script — on Vitest 4
+or newer, in a repository whose Vite or Vitest config imports `@analogjs/vite-plugin-angular` or
+`@analogjs/vitest-angular` without `jit: false`, and with a component that declares inline `styles`.
+In JIT mode, the plugin's default for tests, the warm run cannot load the virtual module the plugin
+compiles those styles into, and every spec that reaches such a component fails with
+`Cannot find module '/@id/__x00__virtual:angular:jit:style:inline;<hash>'`. The first, cold run
+passes, so the break shows up one run after the setting went in. Verified on Analog 2.7.5, Angular
+22.2 and Vitest 5.0.0; the check covers every Analog version until a release fixes it. The fix is to
+turn the cache off while the suite runs through Analog; `@angular/build:unit-test` does not have the
+break, since it bundles the code before Vitest sees it.
+
+#### `angular-build-istanbul-module-cache`
+
+An `@angular/build:unit-test` or `@nx/angular:unit-test` target on `@angular/build` 21 or newer and
+Vitest 5, whose coverage the builder runs with istanbul — its runner config says
+`coverage.provider: 'istanbul'`, or `@vitest/coverage-istanbul` is installed without
+`@vitest/coverage-v8` — and whose runner config does not turn on `fsModuleCache`. Under the builder
+esbuild has bundled the code already, so the one transform left worth caching is istanbul's
+instrumentation: on a 700-file Angular 22.2 suite the cache took a coverage run from 24.55 s to
+13.20 s (−46 %), and from 27.01 s to 15.85 s (−41 %) with the builder cache off, as it is on CI. With
+v8 it gained nothing, and the check stays quiet. The fix names the runner config to add
+`fsModuleCache: true` to or, for a target without one, says to add `"runnerConfig"` to the target: the
+builder has no option of its own for it. With a CI config that does not cache
+`node_modules/.vitest-cache`, the fix says to persist it too, as
+[`fs-module-cache-not-persisted`](#fs-module-cache-not-persisted) does. Quiet on `@angular/build` 20,
+which reads no runner config, on Vitest 4, where it was not measured, and for a target that runs in
+`browsers` unless its runner config names istanbul itself: the gain was measured on jsdom in Node,
+never in browser mode. Targets that share a runner
+config are reported once.
+
+#### `angular-build-happy-dom`
+
+A unit-test target on `@angular/build` 21 or newer, with `jsdom` installed and `happy-dom` not, that
+does not run in `browsers` and whose runner config does not set `environment`. From 21 the builder
+picks happy-dom by itself whenever it resolves, so the fix is `npm i -D happy-dom` and no config line.
+On the same 700-file Angular 22.2 suite it took 4.6 % off the wall time and 6 % off the resident
+memory. Info only: happy-dom implements less of the platform than jsdom, so a spec that leans on what
+it lacks fails after the switch — run the suite once, and uninstall happy-dom again if one does.
 
 #### `builder-setup-unreached`
 
@@ -17685,6 +17773,17 @@ On Vitest 5 the report also records the configuration Vitest actually resolved �
 `vite(st).config.*` text, so a setting made in a builder, a workspace project or on the command line
 counts. An option you set explicitly is never advised against: Vitest's own hints follow the same rule.
 
+**Under `@angular/build:unit-test` a setting goes in the runner config the target names.** The builder reads no
+`vitest.config.*` of its own, so `perf-transform`, `perf-workers`, `perf-isolation` and `perf-environment-engine` name
+the file from `--runner-config` in `--command`, then from the target's `runnerConfig` (`true` means
+`vitest-base.config.*`). A target that names none is told to add `"runnerConfig": "vitest-base.config.mts"` first;
+`@angular/build` 20.x reads no runner config at all, and the finding says the setting is not available there. `perf`
+counts a run as a builder run when `--command` (or the `npm` script it calls) runs `ng` or `nx`, or when the workspace
+has a unit-test target and no root Vitest config. `isolate` and `environment` the builder passes to Vitest are its
+decisions, not yours, so they do not silence a finding. `perf-import` is off there: esbuild resolves every barrel into
+the bundle before Vitest imports anything, and the modules Vitest reports are `spec-*.js` and `chunk-*.js` bundles
+that do not exist on disk — a confirmed finding's card names a spec's own bundle after the spec and leaves chunks out.
+
 #### `perf-environment`
 
 It fires when `environment` dominates. It ranks every spec file that is
@@ -17723,6 +17822,11 @@ choice does not get asked again. It names the config that sets `jsdom`. It is a 
 `happy-dom` implements less of the platform, so change one project at a time and keep the suite green
 after each.
 
+Under `@angular/build:unit-test` from 21 the builder chooses the engine itself: it runs the suite on `happy-dom`
+whenever the package resolves and the runner config names no `environment`. So there the finding says to install
+`happy-dom` rather than to edit a config, and names the runner config only when that config sets `jsdom` itself.
+On 20.x, which has no such choice and reads no runner config, it stays quiet.
+
 #### `perf-transform`
 
 Vitest 5 only. From Vitest 5 each file reports how long its collection and setup waited for the Vite
@@ -17736,6 +17840,13 @@ directory is kept between pipelines, in the job's cache — the finding says so.
 `fsModuleCache` is already on, or when you set it explicitly (to `false`, say). On a Vitest 4 report the
 option is spelled `experimental.fsModuleCache` and the directory is
 `node_modules/.experimental-vitest-cache`.
+
+Under `@analogjs/vite-plugin-angular`, with a component that declares inline `styles`, the finding
+is a warning instead: the plugin compiles those styles into virtual modules a warm module cache cannot find again,
+and the second run fails with `Cannot find module '/@id/__x00__virtual:angular:jit:style:inline;<hash>'` in every
+spec that renders one — measured three runs out of three on Analog 2.7.5, Angular 22.2 and Vitest 5.0. No release is measured to fix
+it yet, so the warning holds on every version, the same rule as `doctor`. Under `@angular/build:unit-test` there are no
+such virtual modules and the advice stands.
 
 #### `perf-import`
 
@@ -17815,6 +17926,12 @@ It re-runs the suite once per pool, isolation, DOM-engine and module-cache candi
 `perf` names the switch from one run; `vitest doctor` is the way to confirm it before keeping it.
 `perf-environment` does not trigger it: moving files to `node` with a docblock is not a candidate
 `vitest doctor` measures.
+
+Not under `@angular/build:unit-test`: without the builder the specs are not bundled and get no globals, so
+`vitest doctor`'s baseline run fails on `describe is not defined` in every file. In a workspace with a unit-test
+target, or when `--command` runs `ng` or `nx`, the finding gives an A/B of your own instead — the change in a copy of
+the runner config, timed as `ng run <project>:<target> --watch=false --runner-config=<variant>` against the original,
+a few rounds each. On `@angular/build` 20.x, which reads no runner config, it says nothing.
 
 ### When there is nothing to read
 
@@ -18328,6 +18445,73 @@ byte for byte turned every release of this package into a red step on a reposito
 had not moved a word. A plain `init` still refreshes the stamp, on the next run that has another
 reason to write. Such a file is `unchanged` under `--check` and `updated` under `--dry-run`, and both
 say why in its note: _only the version stamp differs_.
+
+## `ng-test` — sharding and changed-only runs under the Angular builder
+
+`ng test` passes none of Vitest's own flags through: the `@angular/build:unit-test` builder calls
+`startVitest()` with an object it built itself. Two of the levers still reach Vitest through the
+runner config, as plain `test` keys:
+
+```ts
+// vitest-base.config.mts — the target's runnerConfig
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    ...(process.env['VITEST_SHARD'] ? { shard: process.env['VITEST_SHARD'] } : {}),
+    repeats: Number(process.env['VITEST_REPEATS'] ?? 0),
+  } as never,
+});
+```
+
+`VITEST_REPEATS=20 ng test --include src/app/cart` hunts a flaky test, and `VITEST_SHARD=1/4 ng test`
+runs a quarter of the files. `shard` is not in the config's type, hence the cast; both need a
+`runnerConfig`, which the builder reads from Angular 21.
+
+A shard set that way still compiles every spec, and `--changed` / `--related` cannot work at all: the
+module graph Vitest walks for them holds the builder's bundles, not your sources, so it finds no test.
+`ng-test` does both outside Vitest:
+
+```bash
+npx vitest-auto-spy ng-test --shard 2/4 -- --coverage  # one CI job of four
+npx vitest-auto-spy ng-test --changed                  # what uncommitted and untracked work reaches
+npx vitest-auto-spy ng-test --changed origin/main      # what the branch reaches
+npx vitest-auto-spy ng-test --related src/app/cart/cart.service.ts --dry-run
+```
+
+It lists the target's specs with `ng test --list-tests` (`@angular/build` 21 or newer), picks the ones
+this run gets and hands them to the builder as `--include` paths — and since `@angular/build` 22.2 the
+builder compiles only the included specs. A shard is split the way Vitest's own `--shard` splits, by a
+hash of the path in near-equal parts, so every spec runs in exactly one shard. `--changed` reads
+`git diff` against the ref (`HEAD` by default) plus the untracked files, and runs every spec whose
+imports reach a changed file: relative imports, `compilerOptions.paths` aliases, and a template or a
+stylesheet through the component that names it. A config, a lockfile, `angular.json`, a `tsconfig`,
+or a change the target's `setupFiles` / `providersFile` reach runs every spec; nothing reached runs
+nothing and exits 0.
+
+Everything after `--` goes to `ng run <project>:<target>` as typed, behind `--watch=false`; an
+`--include` there narrows what is listed. `--target` picks the target when there is more than one,
+and `--dry-run` prints the `ng` command instead of running it. The exit code is `ng`'s. A list
+too long for the platform's command line (32 767 characters on Windows) folds every directory whose
+specs are all selected into one `dir/**/*.spec.ts` glob; if that is still too long, `ng-test` exits 2
+and asks for more shards or a `test.shard` in the runner config.
+
+On a 700-spec workspace with coverage and the builder cache off, as in CI, the slower of two
+`ng-test` shards took **7.58 s** against 11.21 s for the whole run; a `test.shard` from the runner
+config took 9.38 s, because every shard still compiled all 700 specs.
+
+Each shard writes its own `perf` report, and `perf --json` merges them:
+
+```bash
+npx vitest-auto-spy perf --out perf-2.json \
+  --command 'npx vitest-auto-spy ng-test --shard 2/4 -- --reporters=default --reporters="$VITEST_AUTO_SPY_PERF_REPORTER"'
+npx vitest-auto-spy perf --json 'perf-*.json' --gate
+```
+
+What does not reach a builder suite at all: `vitest doctor` runs Vitest without the builder — no
+globals, no `TestBed`, no bundle — and fails every file with `describe is not defined`; `perf --command`
+measures the real run instead. Nested `projects` cannot either: the builder deletes `test.projects` and
+serves one project from its own bundle; a second target is the equivalent.
 
 ## In CI
 
@@ -19218,8 +19402,9 @@ local one, or re-export this one under that name.
 
 Angular tests spy a wide service and call a couple of its methods, so a spy is built on first
 access rather than eagerly up-front. Everything else is unchanged: `Object.keys`,
-`vi.isMockFunction`, `calledWith`, `resetAutoSpy` / `clearAutoSpy` all behave identically, because
-the placeholder is an enumerable accessor.
+`vi.isMockFunction`, `calledWith`, `resetAutoSpy` / `clearAutoSpy` all behave identically, whether
+a method waits behind an accessor placeholder (below 8 methods) or behind the `Proxy` a class of 8 or
+more gets.
 
 ```ts
 provideAutoSpy(WideService); // lazy — the default
@@ -19265,11 +19450,11 @@ whole suite. If a spec feels slow, the time is in `TestBed` — which is what
 
 Three things do cost more, and all three are avoidable:
 
-- **`{ lazySpies: 'proxy' }`** keeps the laziness and drops the per-method placeholder, which is
-  nearly all of what an untouched wide double retains — 11.8 kB against 101.6 kB on a 400-method
-  generated client. Opt-in: it taxes every read by ~30 ns forever and loses below ~20 methods. See
+- **`{ lazySpies: true }` on a class of 8 methods or more** swaps the `Proxy` the width picked for
+  an accessor placeholder per method: plain property reads and a plain object, but a double a test
+  touches is 21–68 % heavier and slower to build. See
   [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance#where-the-remaining-memory-is-and-lazyspies-proxy).
-- **`{ lazySpies: false }`** gives up the win above. Only worth it when a spec enumerates the spy
+- **`{ lazySpies: false }`** gives up the laziness altogether. Only worth it when a spec enumerates the spy
   object itself rather than calling methods on it.
 - **`autoSpyAccessors: true`** walks the prototype chain for getters and setters on every call, and
   that walk is not cached. Name the accessors you need instead when a class is spied per test.
@@ -20446,6 +20631,14 @@ carried over from Vitest 3 with `all: true` and no `include` reports only the fi
 with no error and no warning — verified on 4.1.9 against a fixture whose second module nothing
 imports: absent with `all: true`, present once `include` is declared.
 
+## Shards and changed-only runs under the unit-test builder
+
+`ng test` passes no Vitest flag through. `test.repeats` and `test.shard` in the runner config still
+reach Vitest; `--changed` and `--related` do not, because Vitest's module graph holds the builder's
+bundles. [`npx vitest-auto-spy ng-test`](https://asdalexey.github.io/vitest-auto-spy/utilities/cli#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder)
+does both through `--include`, so the builder compiles only the specs that run:
+`ng-test --shard 2/4`, `ng-test --changed origin/main`.
+
 ## Coverage matching costs more than coverage
 
 Narrowing the scope with `coverage.include` is supposed to make the report smaller and the run
@@ -21497,6 +21690,7 @@ TestBed.configureTestingModule({
 | `routeConfig` | `routeConfig`, `snapshot.routeConfig`                                                                                                                      | `null`      |
 | `resolve`     | `snapshot`'s resolved-data record, kept apart from `data` as Angular keeps it                                                                              | `{}`        |
 | `children`    | `children`, `firstChild`, and each child's `parent` and `root` — one double per entry, built from the same options; the handle's `children` navigates them | `[]`        |
+| `resources`   | `resources`, `snapshot.resources` — one record for the route's life, carried into every new snapshot; Angular 22.2+ (developer preview)                    | `undefined` |
 
 A directive that walks `activatedRoute.children` for a named outlet gets them from `children`, and
 the double keeps the snapshot tree in step when any of them navigates:
@@ -21507,6 +21701,22 @@ const { route, children } = createActivatedRoute({
 });
 
 children[0]?.setParams({ id: '8' }); // route.snapshot.firstChild.params follows
+```
+
+A component that reads `route.resources` (Angular 22.2, developer preview) gets the record passed
+as `resources`. Leave it empty and install each resource with
+[`mockResourceProp`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#skipping-the-request-entirely-—-mockresourceprop) — the record is one object on the route
+and every snapshot, so a double installed on it answers both, and `restoreMockedProps()` takes it
+back off:
+
+```ts
+const resources = {};
+
+TestBed.configureTestingModule({ providers: [provideActivatedRoute({ resources })] });
+
+const user = mockResourceProp(resources, 'user', undefined as User | undefined, { status: 'loading' });
+
+user.set({ name: 'Ada' });
 ```
 
 A string `url` gives segments without matrix parameters; pass `UrlSegment`s
@@ -21602,14 +21812,19 @@ supports.
 
 ## What it deliberately does not do
 
-- **No parent or child routes.** A component that reads `route.parent.params` or
-  `route.firstChild` needs a tree; patch the one member with
-  [`mockReadonlyProp`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#signal-readonly-property-mocking) or navigate a real router
-  with `RouterTestingHarness` when the tree is what is under test.
+- **No route above this one, and no tree read from a config.** The route you build is the root:
+  `route.parent` is `null`, so a component that reads `route.parent.params` needs that member patched
+  with [`mockReadonlyProp`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#signal-readonly-property-mocking), or a real router
+  under `RouterTestingHarness` when the tree is what is under test. Below it there are only the
+  routes passed as `children`; a `routeConfig.children` array is not matched into routes.
 - **`title` is the record's, not a resolver's.** `provideActivatedRoute({ title: 'Product 7' })`
   answers `route.snapshot.title` — the router reads a title out of `data` under a symbol it never
   exports, and the double puts yours there, learning the symbol from the installed router. What it
   does not do is _resolve_ a `title: () => …` on the `routeConfig`; give the finished string.
+- **`resources` is the record's, not a function's.** The double does not run a `resources: (ctx) => …`
+  on the `routeConfig`; pass the record the component reads, and drive each resource with
+  `mockResourceProp`. A setter moves nothing here either — the router keeps the record for the
+  route's life.
 - **No navigation.** `Router.navigate()` does not move this route; the setters do. When the
   navigation itself is under test, that is `RouterTestingHarness`'s job.
 - **No input binding.** `withComponentInputBinding()` is the outlet's work; set the input with
@@ -25966,8 +26181,8 @@ reachable through `accessorSpies` rather than being typed as callable and not ex
 `createMock` builds every method up front; there is no option, because there are no options. That is
 a real cost on a wide Angular service, and it is [measured](https://asdalexey.github.io/vitest-auto-spy/core/performance): on a 40-method class
 where the spec calls three methods, building the double lazily costs **6.04 µs** against **11.50 µs**
-eager. Lazy is the default here, `{ lazySpies: false }` opts out, and `'proxy'` is the third rung for
-very wide classes.
+eager. Lazy is the default here — accessor placeholders below 8 methods, a `Proxy` from 8 — and
+`{ lazySpies: false }` opts out.
 
 The other half of that is memory rather than time, and it is the half that decides a large suite —
 what an untouched double _retains_, not what it costs to build. See
@@ -26025,7 +26240,8 @@ Nothing in this package's spy path touches `NgZone` either, so the two coexist w
   than returning `undefined` into somebody else's assertion.
 - **Type-only mocking.** [`createAutoMock<T>()`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type) for an interface or an
   injection token, which a factory reading `type.prototype` structurally cannot do.
-- **Lazy by default**, with `lazySpies: false` and `'proxy'` as the two other rungs.
+- **Lazy by default** — a `Proxy` from 8 methods, accessor placeholders below — with `lazySpies: false`
+  to opt out.
 - **[`injectSpy` that reports a missing provider](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#injectspy-says-when-it-got-the-real-thing)**
   rather than typing the real service as a double.
 - **The same API off Angular** — [`bun:test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun), [`node:test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/node), NestJS,
@@ -26478,7 +26694,7 @@ values installed as the spy is built), `selfReturning` (methods that answer the 
 chained call), `autoSpyAccessors` (auto-discover getters/setters),
 `fillMissing` (answer a name the prototype never carried with a spy — for a **partially** abstract
 class, where the erased members leave the empty-prototype fallback unable to fire),
-`lazySpies` (build each method spy on first access — the `provideAutoSpy` default on Angular; `'proxy'` swaps the per-method placeholder for one trap object, which is faster to build on a very wide class and [costs more on every other axis](https://asdalexey.github.io/vitest-auto-spy/core/performance#where-the-remaining-memory-is-and-lazyspies-proxy)), plus
+`lazySpies` (build each method spy on first access; unset, it is `true` — an accessor placeholder per method — below 8 methods and `'proxy'` — one trap object, [lighter once touched](https://asdalexey.github.io/vitest-auto-spy/core/performance#where-the-remaining-memory-is-and-lazyspies-proxy) — from 8), plus
 the two strict-mode fields below. `createSpyFromInstance` takes the same configuration minus
 `lazySpies` and `fillMissing`, the two that describe a double being built rather than an object being
 patched: the members already exist, and an instance is not an erased `abstract` declaration. It
@@ -27038,8 +27254,8 @@ that:
   a 10× win on the double is worth a few per cent on the run.
 
 Where the library wins outright is memory, not wall-clock. On a 100-method class under
-`test.isolate: false`, hand-written doubles peak at 6366 MB against 2103 MB for the default lazy
-mode and 1851 MB with `lazySpies: 'proxy'` — the difference between a CI worker finishing and one
+`test.isolate: false`, hand-written doubles peak at 6366 MB against 2103 MB for the lazy accessor
+placeholders and 1851 MB with the proxy mode of the time (measured before 2026-09-27) — the difference between a CI worker finishing and one
 getting OOM-killed.
 
 A second, independent memory measurement — retained bytes per double, not peak RSS of a whole run —

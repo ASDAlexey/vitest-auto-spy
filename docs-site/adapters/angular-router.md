@@ -67,6 +67,7 @@ TestBed.configureTestingModule({
 | `routeConfig` | `routeConfig`, `snapshot.routeConfig`                                                                                                                      | `null`      |
 | `resolve`     | `snapshot`'s resolved-data record, kept apart from `data` as Angular keeps it                                                                              | `{}`        |
 | `children`    | `children`, `firstChild`, and each child's `parent` and `root` — one double per entry, built from the same options; the handle's `children` navigates them | `[]`        |
+| `resources`   | `resources`, `snapshot.resources` — one record for the route's life, carried into every new snapshot; Angular 22.2+ (developer preview)                    | `undefined` |
 
 A directive that walks `activatedRoute.children` for a named outlet gets them from `children`, and
 the double keeps the snapshot tree in step when any of them navigates:
@@ -77,6 +78,22 @@ const { route, children } = createActivatedRoute({
 });
 
 children[0]?.setParams({ id: '8' }); // route.snapshot.firstChild.params follows
+```
+
+A component that reads `route.resources` (Angular 22.2, developer preview) gets the record passed
+as `resources`. Leave it empty and install each resource with
+[`mockResourceProp`](/adapters/angular#skipping-the-request-entirely-—-mockresourceprop) — the record is one object on the route
+and every snapshot, so a double installed on it answers both, and `restoreMockedProps()` takes it
+back off:
+
+```ts
+const resources = {};
+
+TestBed.configureTestingModule({ providers: [provideActivatedRoute({ resources })] });
+
+const user = mockResourceProp(resources, 'user', undefined as User | undefined, { status: 'loading' });
+
+user.set({ name: 'Ada' });
 ```
 
 A string `url` gives segments without matrix parameters; pass `UrlSegment`s
@@ -173,14 +190,19 @@ supports.
 
 ## What it deliberately does not do
 
-- **No parent or child routes.** A component that reads `route.parent.params` or
-  `route.firstChild` needs a tree; patch the one member with
-  [`mockReadonlyProp`](/adapters/angular#signal-readonly-property-mocking) or navigate a real router
-  with `RouterTestingHarness` when the tree is what is under test.
+- **No route above this one, and no tree read from a config.** The route you build is the root:
+  `route.parent` is `null`, so a component that reads `route.parent.params` needs that member patched
+  with [`mockReadonlyProp`](/adapters/angular#signal-readonly-property-mocking), or a real router
+  under `RouterTestingHarness` when the tree is what is under test. Below it there are only the
+  routes passed as `children`; a `routeConfig.children` array is not matched into routes.
 - **`title` is the record's, not a resolver's.** `provideActivatedRoute({ title: 'Product 7' })`
   answers `route.snapshot.title` — the router reads a title out of `data` under a symbol it never
   exports, and the double puts yours there, learning the symbol from the installed router. What it
   does not do is _resolve_ a `title: () => …` on the `routeConfig`; give the finished string.
+- **`resources` is the record's, not a function's.** The double does not run a `resources: (ctx) => …`
+  on the `routeConfig`; pass the record the component reads, and drive each resource with
+  `mockResourceProp`. A setter moves nothing here either — the router keeps the record for the
+  route's life.
 - **No navigation.** `Router.navigate()` does not move this route; the setters do. When the
   navigation itself is under test, that is `RouterTestingHarness`'s job.
 - **No input binding.** `withComponentInputBinding()` is the outlet's work; set the input with

@@ -5,13 +5,14 @@ description: npx vitest-auto-spy doctor находит дефекты уровн
 
 # CLI
 
-Четыре команды, ни одной зависимости, ничего не нужно настраивать:
+Пять команд, ни одной зависимости, ничего не нужно настраивать:
 
 ```bash
 npx vitest-auto-spy doctor   # только чтение. Выходит с кодом 1, когда что-то нашёл
 npx vitest-auto-spy perf     # куда уходит CPU-время сюиты. Всегда выходит с кодом 0
 npx vitest-auto-spy init     # пишет указатель на инструкции для агентов
 npx vitest-auto-spy codemod  # по умолчанию сухой прогон. Выходит с кодом 1, когда что-то оставил как было
+npx vitest-auto-spy ng-test  # ng test с --shard / --changed, которые Angular-билдер не пропускает
 ```
 
 Это один бинарник, потому что все четыре отвечают на один вопрос с четырёх сторон — _не делает ли
@@ -208,6 +209,60 @@ splitting, поэтому `--coverage` растёт на сотни мегаба
 первая спека. Ни один из пакетов в ошибке не назван. Исправление — обновить
 `@analogjs/vite-plugin-angular` и `@analogjs/vitest-angular` до 2.7.5 или новее. Если какого-то из
 пакетов нет, проверка молчит.
+
+#### `analog-fast-compile-ctor-injection` {#analog-fast-compile-ctor-injection}
+
+Конфиг Vite или Vitest включает `fastCompile` у Analog в режиме JIT — `jit` не выставлен в `false`,
+а под Vitest это режим по умолчанию, — и у `@Injectable`-класса есть параметр конструктора, известный
+только по типу. Этот путь оставляет `@Injectable` на классе, но не эмитит для него `ctorParameters`
+и стирает типы без `design:paramtypes`, так что у Angular нет токена для параметра: `TestBed.inject`,
+`Injector.create` и `createWithAutoSpies` падают с NG0202 ("dependency at index N of the parameter
+list is invalid"). Компонентов, директив и пайпов это не касается — для них `ctorParameters`
+эмитится; параметр с `@Inject(X)` или значением по умолчанию не считается. Перенесите зависимость
+в инициализатор поля через `inject()` (`ng generate @angular/core:inject` переводит проект целиком),
+назовите токен через `@Inject(TaxService)` или не включайте `fastCompile`, пока плагин не начнёт
+эмитить `ctorParameters` для `@Injectable`. Проверено на `@analogjs/vite-plugin-angular` 2.7.5.
+
+#### `analog-module-cache-inline-styles` {#analog-module-cache-inline-styles}
+
+`fsModuleCache` включён — на верхнем уровне, под `experimental` или флагом `--fsModuleCache` в
+скрипте — на Vitest 4 и новее, в репозитории, чей конфиг Vite или Vitest импортирует
+`@analogjs/vite-plugin-angular` или `@analogjs/vitest-angular` без `jit: false`, и есть компонент с
+inline `styles`. В JIT-режиме, который плагин по умолчанию использует для тестов, тёплый прогон не
+может загрузить виртуальный модуль, в который плагин компилирует эти стили, и каждая спека, дошедшая до
+такого компонента, падает с
+`Cannot find module '/@id/__x00__virtual:angular:jit:style:inline;<hash>'`. Первый, холодный прогон
+проходит, поэтому поломка проявляется на следующем прогоне после включения настройки. Проверено на
+Analog 2.7.5, Angular 22.2 и Vitest 5.0.0; проверка действует на любой версии Analog, пока релиз это не
+исправит. Исправление — выключить кеш, пока сюита идёт через Analog; у `@angular/build:unit-test` этой
+поломки нет: он собирает код до того, как его увидит Vitest.
+
+#### `angular-build-istanbul-module-cache` {#angular-build-istanbul-module-cache}
+
+Таргет `@angular/build:unit-test` или `@nx/angular:unit-test` на `@angular/build` 21 или новее и
+Vitest 5, покрытие которого билдер снимает через istanbul — его runner config задаёт
+`coverage.provider: 'istanbul'` или `@vitest/coverage-istanbul` установлен без `@vitest/coverage-v8`,
+— и чей runner config не включает `fsModuleCache`. Под билдером esbuild уже
+собрал код, поэтому единственный transform, который стоит кешировать, — инструментация istanbul: на
+Angular 22.2 сюите из 700 файлов кеш сократил прогон с покрытием с 24.55 до 13.20 с (−46 %), а с
+выключенным кешем билдера, как в CI, — с 27.01 до 15.85 с (−41 %). С v8 выигрыша не было, и проверка
+молчит. Исправление называет runner config, куда добавить `fsModuleCache: true`, а для таргета без него
+говорит добавить в таргет `"runnerConfig"`: своей опции для этого у билдера нет. Если есть конфиг CI,
+который не кеширует `node_modules/.vitest-cache`, исправление велит сохранять и его, как
+[`fs-module-cache-not-persisted`](#fs-module-cache-not-persisted). Молчит на `@angular/build` 20,
+который не читает runner config, на Vitest 4, где замера не было, и для таргета, который запускается
+в `browsers`, если только его runner config сам не называет istanbul: выигрыш замерен на jsdom в Node,
+а в браузерном режиме — никогда. Таргеты с общим runner config
+попадают в одну находку.
+
+#### `angular-build-happy-dom` {#angular-build-happy-dom}
+
+Таргет unit-test на `@angular/build` 21 или новее, `jsdom` установлен, а `happy-dom` нет, таргет не
+запускается в `browsers`, и его runner config не задаёт `environment`. С 21 билдер сам берёт
+happy-dom, если тот резолвится, поэтому исправление — `npm i -D happy-dom` без единой строки конфига. На
+той же сюите из 700 файлов на Angular 22.2 это сняло 4.6 % времени прогона и 6 % резидентной памяти.
+Только info: happy-dom реализует меньше платформы, чем jsdom, и спека, опирающаяся на недостающее,
+после переключения упадёт — прогоните сюиту один раз и, если так случилось, удалите happy-dom обратно.
 
 #### `builder-setup-unreached` {#builder-setup-unreached}
 
@@ -538,6 +593,17 @@ info   perf-isolation
 командной строке. Против опции, которую вы задали явно, совета не бывает: собственные подсказки Vitest
 следуют тому же правилу.
 
+**Под `@angular/build:unit-test` настройка идёт в runner config, который называет цель.** Своего `vitest.config.*`
+билдер не читает, поэтому `perf-transform`, `perf-workers`, `perf-isolation` и `perf-environment-engine` называют файл
+из `--runner-config` в `--command`, затем из `runnerConfig` цели (`true` значит `vitest-base.config.*`). Цели, которая
+его не называет, находка предлагает сначала добавить `"runnerConfig": "vitest-base.config.mts"`; `@angular/build` 20.x
+runner config не читает вовсе, и находка говорит, что там настройка недоступна. Прогон считается прогоном через билдер,
+когда `--command` (или `npm`-скрипт, который она зовёт) запускает `ng` или `nx`, либо когда в воркспейсе есть цель
+unit-test, а корневого конфига Vitest нет. `isolate` и `environment`, которые билдер передаёт Vitest сам, — его
+решения, а не ваши, и находку они не глушат. `perf-import` там выключен: esbuild разворачивает каждую бочку в бандл ещё
+до того, как Vitest что-то импортирует, а модули, о которых сообщает Vitest, — бандлы `spec-*.js` и `chunk-*.js`,
+которых нет на диске; в карточке подтверждённой находки собственный бандл спеки назван по спеке, а чанки опущены.
+
 #### `perf-environment` {#perf-environment}
 
 Срабатывает, когда доминирует `environment`. Он ранжирует каждую спеку,
@@ -580,6 +646,11 @@ environment-времени на файл, — так что сколько из 
 который ставит `jsdom`. Это замена, а не флаг: `happy-dom` реализует меньше платформы, поэтому
 переключать стоит по одному проекту за раз, оставляя сюиту зелёной после каждого.
 
+Под `@angular/build:unit-test` с 21-й версии движок выбирает сам билдер: он гоняет сюиту на `happy-dom`, как только
+пакет резолвится, а runner config не называет `environment`. Поэтому там находка советует поставить `happy-dom`, а не
+править конфиг, и называет runner config, только если `jsdom` в нём прописан явно. На 20.x, где такого выбора нет и
+runner config не читается, она молчит.
+
 #### `perf-transform` {#perf-transform}
 
 Только Vitest 5. С Vitest 5 каждый файл сообщает, сколько его сбор и setup ждали, пока сервер Vite
@@ -593,6 +664,13 @@ Vitest. Находка срабатывает, когда это ожидани�
 пайплайнами, в кеше джобы, — находка об этом говорит. Она не срабатывает, когда `fsModuleCache` уже
 включён или когда вы задали его явно (например, `false`). В отчёте Vitest 4 опция пишется
 `experimental.fsModuleCache`, а каталог — `node_modules/.experimental-vitest-cache`.
+
+Под `@analogjs/vite-plugin-angular`, если есть компонент с inline `styles`, находка вместо совета
+становится предупреждением: плагин компилирует такие стили в виртуальные модули, которые тёплый кеш модулей потом не
+находит, и второй прогон падает с `Cannot find module '/@id/__x00__virtual:angular:jit:style:inline;<hash>'` в каждой
+спеке, которая такой компонент рендерит, — три прогона из трёх на Analog 2.7.5, Angular 22.2 и Vitest 5.0. Версии, где это исправлено, пока не
+измерено ни одной, поэтому предупреждение действует на любой версии — то же правило, что у `doctor`. Под `@angular/build:unit-test` таких
+виртуальных модулей нет, и совет остаётся в силе.
 
 #### `perf-import` {#perf-import}
 
@@ -679,6 +757,12 @@ CPU больше минуты, и только когда `maxWorkers` нигд�
 машине замерил как более быстрый. `perf` называет переключатель по одному прогону; `vitest doctor` —
 способ подтвердить его, прежде чем оставить. `perf-environment` его не вызывает: перенос файлов на
 `node` докблоком — не тот кандидат, который меряет `vitest doctor`.
+
+Но не под `@angular/build:unit-test`: без билдера спеки не собраны в бандл и не получают глобалов, так что базовый
+прогон `vitest doctor` падает на `describe is not defined` в каждом файле. В воркспейсе с целью unit-test или когда
+`--command` запускает `ng` или `nx`, находка вместо этого даёт рецепт собственного A/B — изменение в копии runner
+config, замер `ng run <project>:<target> --watch=false --runner-config=<variant>` против исходного, по несколько раундов
+каждый. На `@angular/build` 20.x, который runner config не читает, она молчит.
 
 ### Когда читать нечего {#when-there-is-nothing-to-read}
 
@@ -1159,6 +1243,72 @@ _файла_. Zed разрешает инструкции по принципу 
 репозитории, где инструкции не сдвинулись ни на слово. Обычный `init` штамп обновляет. Такой файл под
 `--check` — `unchanged`, под `--dry-run` — `updated`, и оба объясняют это в пояснении: _only the
 version stamp differs_.
+
+## `ng-test` — шарды и прогон только изменённого под Angular-билдером {#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder}
+
+`ng test` не пропускает ни одного собственного флага Vitest: билдер `@angular/build:unit-test`
+вызывает `startVitest()` с объектом, который собрал сам. Два рычага всё же доходят до Vitest через
+runner config — обычными ключами `test`:
+
+```ts
+// vitest-base.config.mts — runnerConfig цели
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    ...(process.env['VITEST_SHARD'] ? { shard: process.env['VITEST_SHARD'] } : {}),
+    repeats: Number(process.env['VITEST_REPEATS'] ?? 0),
+  } as never,
+});
+```
+
+`VITEST_REPEATS=20 ng test --include src/app/cart` ловит flaky-тест, а `VITEST_SHARD=1/4 ng test`
+прогоняет четверть файлов. Ключа `shard` нет в типе конфига, отсюда приведение; обоим нужен
+`runnerConfig`, который билдер читает начиная с Angular 21.
+
+Шард, заданный так, всё равно компилирует каждую спеку, а `--changed` / `--related` не работают вовсе:
+граф модулей, по которому их ищет Vitest, содержит бандлы билдера, а не ваши исходники, и тестов в нём
+не находится. `ng-test` делает и то и другое вне Vitest:
+
+```bash
+npx vitest-auto-spy ng-test --shard 2/4 -- --coverage  # одна CI-джоба из четырёх
+npx vitest-auto-spy ng-test --changed                  # что задевают незакоммиченные и неотслеживаемые файлы
+npx vitest-auto-spy ng-test --changed origin/main      # что задевает ветка
+npx vitest-auto-spy ng-test --related src/app/cart/cart.service.ts --dry-run
+```
+
+Он получает список спек цели через `ng test --list-tests` (`@angular/build` 21 или новее), выбирает
+те, что достаются этому прогону, и передаёт их билдеру путями `--include` — а начиная с
+`@angular/build` 22.2 билдер компилирует только включённые спеки. Шард режется так же, как собственный
+`--shard` Vitest: по хешу пути, на почти равные части, поэтому каждая спека попадает ровно в один шард.
+`--changed` читает `git diff` относительно ref (по умолчанию `HEAD`) плюс неотслеживаемые файлы и
+прогоняет каждую спеку, чьи импорты доходят до изменённого файла: относительные импорты, алиасы
+`compilerOptions.paths`, шаблон или стиль — через компонент, который его называет. Конфиг, лок-файл,
+`angular.json`, `tsconfig` или изменение, до которого доходят `setupFiles` / `providersFile` цели,
+запускают все спеки; если не задето ничего, не запускается ничего, код выхода 0.
+
+Всё после `--` уходит в `ng run <project>:<target>` как есть, после `--watch=false`; `--include` там
+сужает список. `--target` выбирает цель, если их несколько, а `--dry-run` печатает команду `ng` вместо
+запуска. Код выхода — код `ng`. Если список не влезает в командную строку платформы (32 767 символов
+на Windows), каждый каталог, где выбраны все спеки, сворачивается в один glob `dir/**/*.spec.ts`; если
+и этого мало, `ng-test` завершается с кодом 2 и предлагает больше шардов или `test.shard` в runner config.
+
+На воркспейсе из 700 спек с покрытием и выключенным кэшем билдера, как в CI, более медленный из двух
+шардов `ng-test` занял **7.58 с** против 11.21 с на весь прогон; `test.shard` из runner config —
+9.38 с, потому что каждый шард всё равно компилировал все 700 спек.
+
+Каждый шард пишет свой отчёт `perf`, а `perf --json` их сливает:
+
+```bash
+npx vitest-auto-spy perf --out perf-2.json \
+  --command 'npx vitest-auto-spy ng-test --shard 2/4 -- --reporters=default --reporters="$VITEST_AUTO_SPY_PERF_REPORTER"'
+npx vitest-auto-spy perf --json 'perf-*.json' --gate
+```
+
+Что до сюиты билдера не доходит вовсе: `vitest doctor` запускает Vitest без билдера — без globals,
+без `TestBed`, без бандла — и роняет каждый файл с `describe is not defined`; вместо него настоящий
+прогон меряет `perf --command`. Вложенные `projects` — тоже нет: билдер удаляет `test.projects` и
+обслуживает один проект из своего бандла; эквивалент — вторая цель.
 
 ## В CI {#in-ci}
 

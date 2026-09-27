@@ -330,8 +330,8 @@ that:
   a 10× win on the double is worth a few per cent on the run.
 
 Where the library wins outright is memory, not wall-clock. On a 100-method class under
-`test.isolate: false`, hand-written doubles peak at 6366 MB against 2103 MB for the default lazy
-mode and 1851 MB with `lazySpies: 'proxy'` — the difference between a CI worker finishing and one
+`test.isolate: false`, hand-written doubles peak at 6366 MB against 2103 MB for the lazy accessor
+placeholders and 1851 MB with the proxy mode of the time (measured before 2026-09-27) — the difference between a CI worker finishing and one
 getting OOM-killed.
 
 A second, independent memory measurement — retained bytes per double, not peak RSS of a whole run —

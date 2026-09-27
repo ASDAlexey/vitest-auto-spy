@@ -229,8 +229,8 @@ reachable through `accessorSpies` rather than being typed as callable and not ex
 `createMock` builds every method up front; there is no option, because there are no options. That is
 a real cost on a wide Angular service, and it is [measured](/core/performance): on a 40-method class
 where the spec calls three methods, building the double lazily costs **6.04 µs** against **11.50 µs**
-eager. Lazy is the default here, `{ lazySpies: false }` opts out, and `'proxy'` is the third rung for
-very wide classes.
+eager. Lazy is the default here — accessor placeholders below 8 methods, a `Proxy` from 8 — and
+`{ lazySpies: false }` opts out.
 
 The other half of that is memory rather than time, and it is the half that decides a large suite —
 what an untouched double _retains_, not what it costs to build. See
@@ -288,7 +288,8 @@ Nothing in this package's spy path touches `NgZone` either, so the two coexist w
   than returning `undefined` into somebody else's assertion.
 - **Type-only mocking.** [`createAutoMock<T>()`](/core/auto-mock-by-type) for an interface or an
   injection token, which a factory reading `type.prototype` structurally cannot do.
-- **Lazy by default**, with `lazySpies: false` and `'proxy'` as the two other rungs.
+- **Lazy by default** — a `Proxy` from 8 methods, accessor placeholders below — with `lazySpies: false`
+  to opt out.
 - **[`injectSpy` that reports a missing provider](/adapters/angular#injectspy-says-when-it-got-the-real-thing)**
   rather than typing the real service as a double.
 - **The same API off Angular** — [`bun:test`](/runtimes/bun), [`node:test`](/runtimes/node), NestJS,

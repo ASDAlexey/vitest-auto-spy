@@ -225,7 +225,7 @@ it('loads', async () => {
 | a stream that must emit exactly these values and complete                                           | `await expectAllEmissions(source$)`                                                                                                                                                               |
 | a fixture outside its type on purpose (the `null` a backend sends)                                  | `outOfType<T>(value)` — no cast                                                                                                                                                                   |
 | one setup file for the Angular unit-test builder and plain Vitest                                   | `if (!isAngularUnitTestBuilder()) TestBed.initTestEnvironment(…)`                                                                                                                                 |
-| `JavaScript heap out of memory` on a suite of wide generated clients                                | nothing to configure — the default shares one placeholder per method name (215 B per untouched 100-method double); `lazySpies: 'proxy'` retains 19× more now                                      |
+| `JavaScript heap out of memory` on a suite of wide generated clients                                | nothing to configure — a class of 8+ methods already gets a `Proxy` double: ~1.4 kB with one method called at any width, against 4.4 kB for 45 methods on accessor placeholders                   |
 | `Cannot read properties of undefined (reading 'now')`                                               | `restoreTimerGlobals` — on by default                                                                                                                                                             |
 | `localStorage.setItem is not a function`, or it is `undefined`                                      | `restoreWebStorage` — on by default; Vitest's global filter, Node 25+                                                                                                                             |
 | a spy handed to an API typed against the real class                                                 | `asInstance()` / `asSpy()`                                                                                                                                                                        |
@@ -464,6 +464,7 @@ Full mapping:
 
 ```bash
 npx vitest run path/to/file.spec.ts   # or the project's own command
+npx vitest-auto-spy ng-test --changed # under @angular/build:unit-test: the specs the change reaches
 npx tsc --noEmit
 npx vitest-auto-spy doctor            # after a large edit: defects a green run cannot show
 npx vitest-auto-spy codemod --verify  # after a migration: anything the transforms should have removed

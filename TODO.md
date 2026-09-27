@@ -6,17 +6,6 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
 
 ## Factories
 
-- [ ] **`lazySpies: 'proxy'` has nothing left to offer — deprecate it, or say what it is for.** The
-      mode existed for the memory of a wide, barely-touched double, and the shared-placeholder work
-      of 2026-09-17 took that argument away: measured after it, a 100-method proxy double retains
-      **4 090 B against the default's 215 B** (300 methods: 11 769 B against 284 B), a warm read
-      costs **53 ns against 7 ns**, and materialising every method is 54.5 µs against 48.7. The one
-      thing it still wins is building the double — 2.0 µs against 12.6 at 100 methods — which
-      matters only for a class nobody calls. It is a public option, so the choices are a
-      `@deprecated` tag with a message naming the numbers (a minor), removing it (a major), or
-      keeping it documented as the build-time-only mode. The measurement is done; what is left is
-      the decision and, if it is deprecation, the doc pass on every surface.
-
 - [ ] **The static side of `createSpyClass(Class, config, { statics: true })` is untyped.** The
       runtime carries the statics; `ConstructorSpy<T>` knows nothing about them, so a spec that
       reads one needs `as unknown as typeof Klass`. Typing it means taking the class itself as the
@@ -218,15 +207,26 @@ scheduling` — a frame requested from inside a running frame, except the outer 
 result**: the run is green, and the only reader of a `tsconfig.spec.json` after Jest is gone is
 somebody's editor. A full pass produced **52 checks** in five groups — 15 replaceable patterns, 10
 silent-pass bugs, 10 repository-level ones, 18 configuration/perf hints and 5 deprecation checks
-against this package's own history. `doctor` now reports 23 finding ids from the 15 check modules `doctor.ts` imports from
+against this package's own history. `doctor` now reports 27 finding ids from the 20 check modules `doctor.ts` imports from
 `src/cli/checks/` (plus the `scan-cap-reached` notice; the `perf-*` ids belong to `perf`) — counted
-2026-09-26 with `grep -ohE "check: '[a-z0-9-]+'"` over the non-spec files of `src/cli`. Not all of
+2026-09-27 with `grep -ohE "check: '[a-z0-9-]+'"` over the non-spec files of `src/cli`. Not all of
 them map one-to-one onto the catalogue: the Vitest 5, coverage and Angular-builder checks came later.
 
 - [ ] **The rest of the sharpened catalogue.** The two that are worth naming, because they
       are the ones a per-file linter can never do, are already shipped: `helper-from-wrong-entry` and
       `no-unawaited-helper`, both driven by `scripts/generate-export-map.mjs`. The rest is a long tail
       to take a few at a time, read-only like the rest of `doctor` — trust before edit rights.
+
+- [ ] **Move the Analog version bounds once Analog fixes its two breaks.** Two `doctor` checks
+      fire on every Analog release today, because neither break is fixed upstream (the `fastCompile`
+      one re-checked 2026-09-27 on 2.7.5, 2.8.0-beta.12 and `main`): `ANALOG_CACHE_FIXED_IN` in
+      `src/cli/checks/analog-module-cache.ts` (`fsModuleCache` and inline `styles`) and
+      `analog-fast-compile-ctor-injection` in `src/cli/checks/analog-fast-compile.ts` (no
+      `ctorParameters` for `@Injectable` under `fastCompile`). `perf-transform` follows the same
+      rule: under Analog with inline `styles` it warns instead of advising the cache, on every
+      version (`analogRisk` in `src/cli/perf-config.ts`). Re-measure on each Analog minor; once a
+      release keeps inline styles through a warm cache, put the bound in both places, with the docs
+      sentences that name 2.7.5.
 
 ## Release infrastructure — move npm publishing to OIDC (deadline ~Jan 2027)
 

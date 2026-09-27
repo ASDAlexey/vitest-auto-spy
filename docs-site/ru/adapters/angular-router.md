@@ -66,6 +66,34 @@ TestBed.configureTestingModule({
 | `component`   | `component`, `snapshot.component`                                                                                                                    | `null`       |
 | `routeConfig` | `routeConfig`, `snapshot.routeConfig`                                                                                                                | `null`       |
 | `resolve`     | запись вычисленных данных снимка, отдельно от `data` — как хранит её сам Angular                                                                     | `{}`         |
+| `children`    | `children`, `firstChild`, а у каждого потомка — `parent` и `root`; по дублю на запись, из тех же опций; `children` у хэндла ведёт их навигацию       | `[]`         |
+| `resources`   | `resources`, `snapshot.resources` — одна запись на всю жизнь маршрута, переносится в каждый новый снимок; Angular 22.2+ (developer preview)          | `undefined`  |
+
+Директива, которая обходит `activatedRoute.children` в поисках именованного аутлета, получает их из
+`children`, а дубль держит дерево снимков в согласии, когда любой из них навигирует:
+
+```ts
+const { route, children } = createActivatedRoute({
+  children: [{ outlet: 'aside', routeConfig: { path: 'map' } }],
+});
+
+children[0]?.setParams({ id: '8' }); // route.snapshot.firstChild.params идёт следом
+```
+
+Компонент, который читает `route.resources` (Angular 22.2, developer preview), получает запись,
+переданную как `resources`. Оставьте её пустой и ставьте каждый ресурс через
+[`mockResourceProp`](/ru/adapters/angular#skipping-the-request-entirely-—-mockresourceprop): запись — один объект и на маршруте,
+и в каждом снимке, поэтому поставленный на неё дубль виден обоим, а `restoreMockedProps()` его снимает:
+
+```ts
+const resources = {};
+
+TestBed.configureTestingModule({ providers: [provideActivatedRoute({ resources })] });
+
+const user = mockResourceProp(resources, 'user', undefined as User | undefined, { status: 'loading' });
+
+user.set({ name: 'Ada' });
+```
 
 Строковый `url` даёт сегменты без матричных параметров; передайте `UrlSegment`
 (`[new UrlSegment('products', { color: 'red' })]`), если код их читает.
@@ -163,14 +191,19 @@ expect(page.productId()).toBe('8');
 
 ## Чего он сознательно не делает {#what-it-deliberately-does-not-do}
 
-- **Нет родительских и дочерних маршрутов.** Компоненту, который читает `route.parent.params` или
-  `route.firstChild`, нужно дерево; подмените один член через
-  [`mockReadonlyProp`](/ru/adapters/angular#signal-readonly-property-mocking) или ведите настоящий
-  роутер через `RouterTestingHarness`, когда под тестом само дерево.
+- **Нет маршрута выше этого и нет дерева, прочитанного из конфига.** Построенный маршрут — корень:
+  `route.parent` равен `null`, поэтому компоненту, который читает `route.parent.params`, нужно
+  подменить этот член через
+  [`mockReadonlyProp`](/ru/adapters/angular#signal-readonly-property-mocking) или вести настоящий
+  роутер через `RouterTestingHarness`, когда под тестом само дерево. Ниже него есть только маршруты,
+  переданные как `children`; массив `routeConfig.children` в маршруты не превращается.
 - **`title` — из записи, а не из резолвера.** `provideActivatedRoute({ title: 'Product 7' })` отвечает
   на `route.snapshot.title`: роутер читает заголовок из `data` под символом, который не экспортирует,
   и дубль кладёт ваш туда, узнав символ у установленного роутера. Чего он не делает — так это
   _вычисляет_ `title: () => …` из `routeConfig`; передавайте готовую строку.
+- **`resources` — из записи, а не из функции.** Дубль не запускает `resources: (ctx) => …` из
+  `routeConfig`; передайте запись, которую читает компонент, и управляйте каждым ресурсом через
+  `mockResourceProp`. Сеттера здесь тоже нет — роутер держит запись всю жизнь маршрута.
 - **Нет навигации.** `Router.navigate()` этот маршрут не двигает — его двигают сеттеры. Когда под
   тестом сама навигация, это работа `RouterTestingHarness`.
 - **Нет привязки инпутов.** `withComponentInputBinding()` — работа аутлета; задайте инпут через

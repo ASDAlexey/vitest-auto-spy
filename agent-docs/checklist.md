@@ -50,9 +50,16 @@ a unit-test target, Analog below 2.7.5, `vite` below 6.4, or Node below 22.12 in
 `.node-version`, CI or a private package's `engines`. `fs-module-cache-not-persisted` warns when
 `fsModuleCache` is on and no CI config caches its directory. Renamed config keys Vitest 5 still
 honours (`experimental.fsModuleCache`, `browser.isolate`, `cache.dir`, …) are left to Vitest's own
-deprecation line. `mock-reset-config-unread` notes a `no-redundant-mock-reset` whose `configFile` names
-a config built by a factory or `mergeConfig`, with no flag beside it: the rule cannot see the flags
-that call sets.
+deprecation line. Four more cover the Angular unit-test builder and Analog:
+`angular-build-istanbul-module-cache` notes an istanbul run under `@angular/build:unit-test` 21+ on
+Vitest 5 without `fsModuleCache` in the target's runner config (−46 % measured), and
+`analog-module-cache-inline-styles` warns that `fsModuleCache` under the Analog plugin breaks the
+warm run of any spec reaching a component with inline `styles`. `angular-build-happy-dom` notes a
+builder target on jsdom only because `happy-dom` is not installed.
+`analog-fast-compile-ctor-injection` warns that Analog `fastCompile` in JIT mode leaves
+`@Injectable` constructor parameters without a token (NG0202). `mock-reset-config-unread` notes a
+`no-redundant-mock-reset` whose `configFile` names a config built by a factory or `mergeConfig`,
+with no flag beside it: the rule cannot see the flags that call sets.
 It is worth one run after any large edit to a test suite — especially after a codemod, which is where
 the eaten glob below came from.
 
@@ -133,6 +140,11 @@ per file on 5, where it is the wait for Vite's transforms and `import`/`setup` a
 totals are CPU time summed across every worker, not wall clock** — a report showing `20.29s of CPU
 time` under `986ms wall clock` is not a bug, it is the work spread over workers.
 
+Under `@angular/build:unit-test`, `ng test` takes no Vitest flag. Shard or run only what a change
+reaches with `npx vitest-auto-spy ng-test --shard 1/4` / `--changed [ref]` / `--related <files>`
+(`@angular/build` 21+; everything after `--` goes to `ng`); `test.repeats` in the runner config
+reaches Vitest as it is. `vitest doctor` does not work there — use `perf --command`.
+
 When `environment` dominates, the `perf-environment` finding names spec files that could run under
 the `node` environment instead — but only the ones it could _prove_ reach no DOM: the spec, its
 configured setup files, and every repository module any of them imports were all read, none
@@ -173,7 +185,9 @@ used rather than the machine's cores; under `isolate: false`, `perf-heap` lists 
 to its lane's heap. Environment time is counted once per lane (`concurrencyId`) and value — not per
 `workerId`, which Vitest 5 renews for every file even in a reused worker. A finding about a switch
 also prints `perf-vitest-doctor`: confirm it with `npx vitest doctor`, Vitest's own A/B runner, not
-this package's `doctor`. A bare run on Vitest 5 passes `--experimental.diagnostics=false` so Vitest's
+this package's `doctor`. Under `@angular/build:unit-test` it gives an A/B through `ng run <project>:<target> --runner-config=<variant>`
+instead, because `npx vitest doctor` cannot build that suite; every settings finding there names the runner config
+the target reads. A bare run on Vitest 5 passes `--experimental.diagnostics=false` so Vitest's
 own hints do not repeat these. The reporter rewrites a `partial: true` report every ~2 s while the run
 goes, so a killed or timed-out run still leaves one: `perf` prints it under a warning and the gate
 refuses it like a red run.

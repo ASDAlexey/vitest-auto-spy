@@ -349,12 +349,13 @@ retains: an untouched 100-method double holds **215 B** where it held 25 593, an
 construction on very wide classes — building a 300-method double costs about 28 % more — and
 materialising every method of one is about 26 % cheaper in exchange.
 
-That inverts the case for `lazySpies: 'proxy'`, which answers every method from a single trap
-object: it now retains **4 090 B** against the default's 215 B at 100 methods — 19× more — and still
-pays a trap on every read (53 ns against 7 ns) for the life of the double, because a `Proxy` cannot
-remove itself while the default leaves a plain data property behind once a method materialises. What
-is left of its advantage is build time on a wide class. The option is unchanged and still supported;
-there is no longer a memory reason to reach for it.
+The first materialisation is where the accessor path pays: it drops the double into a property
+dictionary as wide as the class. So since 2026-09-27 an unset `lazySpies` depends on width: a class of
+8 methods or more gets `'proxy'`, which defines nothing per method and never enters dictionary mode —
+21–68 % lighter once touched, 2–6× faster to build — for ~20 ns on every read and ~100 B more on an
+untouched double. A narrower class keeps the accessor placeholders. A spec on a wide class that needs a
+plain object (`util.types.isProxy`, `console.log` of an unread double, `vi.spyOn` wrapping an unread
+method) passes `lazySpies: true`.
 
 A frozen or sealed double is fine now. `Object.freeze(spy)` — a deep-freeze fixture helper, a
 dev-mode state guard — used to make the first read of any method throw `Cannot redefine property`

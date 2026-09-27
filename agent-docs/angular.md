@@ -14,8 +14,8 @@ TestBed.configureTestingModule({
 const myService = injectSpy(MyService); // Spy<MyService>
 ```
 
-`provideAutoSpy` defaults to `lazySpies: true` (the plain `createSpyFromClass` does not). Pass
-`{ lazySpies: false }` to opt out. The spies never touch `NgZone`, so they work zoneless and with
+`provideAutoSpy` is lazy by default, as `createSpyFromClass` is: an unset `lazySpies` is `true` below 8
+methods and `'proxy'` from 8. Pass `{ lazySpies: false }` to opt out. The spies never touch `NgZone`, so they work zoneless and with
 zone.js alike. The entry needs **Angular >= 20** (§1); on 16 or 17 it does not link at all, because
 `ɵSIGNAL` is not there to import.
 
@@ -524,7 +524,7 @@ built over one record, so every stream, both `ParamMap`s and `snapshot` read the
 
 | Call | Does |
 | --- | --- |
-| `provideActivatedRoute(init?)` | a `FactoryProvider` — a fresh route per injector; `init`: `params`, `queryParams`, `data`, `title`, `fragment`, `url`, `outlet`, `component`, `routeConfig`, `resolve` |
+| `provideActivatedRoute(init?)` | a `FactoryProvider` — a fresh route per injector; `init`: `params`, `queryParams`, `data`, `title`, `fragment`, `url`, `outlet`, `component`, `routeConfig`, `resolve`, `children`, `resources` (22.2+: one record on the route and every snapshot — fill it with `mockResourceProp(resources, 'user', …)`) |
 | `injectActivatedRoute(injector?)` | the handle: `.route`, `setParams`, `setQueryParams`, `setData`, `setFragment`, `setUrl`, `set({ … })` |
 | `createActivatedRoute(init?)` | the same handle without a `TestBed` — for `new Page(route)`, or a guard given `route.snapshot` |
 

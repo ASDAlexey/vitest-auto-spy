@@ -35,8 +35,8 @@ Lazy's margin widens as the class does — 1.43× at ten methods, 1.90× at fort
 back only when a single test really calls every method: 10 methods with all 10 called is 5.83 µs
 lazy against 4.21 µs eager, and 40 methods with all 40 called is 23.08 µs against 16.00 µs, so
 roughly 1.4× the wrong way. What settles it is not the clock but the heap, where the same asymmetry
-is far larger and does not close: an untouched 100-method double retains **242 B** lazy against
-55 518 B eager, while at full materialisation the two arms are within 3% of each other — see
+is far larger and does not close: an untouched 100-method double retains **259 B** lazy against
+42 655 B eager, while at full materialisation the two arms are within 1% of each other — see
 [Retained memory per double](#retained-memory-per-double). That is why lazy is the default rather
 than an option.
 
@@ -152,8 +152,8 @@ Lazy does not build the spy, but it still has to define **something** for the na
 per method per double. The `get` / `set` pair is one pair per method _name_ for the whole run — the
 double it belongs to is reached through `this` — so the placeholder is a descriptor slot on a shape
 V8 already has, and the per-double cost of a name nobody touched is around two bytes. An untouched
-double therefore retains roughly the same **240 B** whether it stands in for 10 methods or 100, and
-the width of the class has stopped being a memory question at all.
+double therefore retains under **200 B** whether it stands in for 10 methods or 100, and
+the width of the class stops being a memory question until the first read.
 
 Materialising the first method has to undo one part of that sharing: a set of doubles whose
 accessors all came from the same descriptors sits on a shared fast-mode map, and turning an
@@ -163,21 +163,24 @@ V8 behaviour written up under [helpers shared across spies](#helpers-shared-acro
 reason the probe is paid at the first read rather than when the double is built. An untouched
 double, which is the case this is all for, never pays it.
 
-`'proxy'` answers every method from one trap object instead of defining anything. That used to be
-the lighter arm, and it no longer is: it retains **4 097 B against 242 B** at 100 methods untouched
-and 1 857 B against 224 B at 10 — the [retained-memory section below](#retained-memory-per-double)
-carries the whole table — and it taxes every read for the life of the double, because a `Proxy`
-cannot remove itself. Once a method has materialised, the accessor path leaves a plain data property
-behind and every later read of it is an ordinary property read, at about 7 ns; the trap answers in
-about 53 ns, every read, forever.
+That dictionary is why a class of 8 methods or more gets `'proxy'` when `lazySpies` is not set. The
+proxy answers every method from one trap handler and one name set per class and defines nothing, so
+there is no shared map to leave and no dictionary to grow. Bytes per double with one and two methods
+called (1 000 doubles held at once, 2026-09-27):
 
-**It stays a public option**, and it has exactly one advantage left: standing up a trap is cheaper
-than defining a placeholder per name, so building a 100-method double costs about 2.0 µs against
-12.6 µs. That is a build-time win of ten microseconds against a memory cost of four kilobytes per
-double and a tax on every read, which is a trade very few suites want. Unless a profile of your own
-suite says otherwise, leave `lazySpies` alone — including on the classes that are wide by
-construction, a generated API client (orval, `ng-openapi-gen`), an ngrx facade, a `Store` double,
-which are precisely where the default is now strongest.
+| Methods in the class | `true`, 1 / 2 touched | `'proxy'`, 1 / 2 touched |        Saving |
+| -------------------: | --------------------: | -----------------------: | ------------: |
+|                  4–6 |       1 743 / 2 887 B |          1 415 / 2 573 B | −19 % / −11 % |
+|                 8–16 |       2 110 / 3 269 B |          1 417 / 2 573 B | −33 % / −21 % |
+|                20–30 |       2 877 / 4 036 B |          1 416 / 2 573 B | −51 % / −36 % |
+|                   45 |       4 412 / 5 570 B |          1 417 / 2 577 B | −68 % / −54 % |
+
+The steps are V8's: the dictionary holds `pow2ceil(1.5·(width + 3))` slots. Building and touching the
+double is cheaper too — 2.2 → 1.1 µs at 8 methods, 6.5 → 1.0 µs at 45. The price is a trap on every
+read of a member for the life of the double, about 25 ns against 5 ns for a plain property, ~100 B more
+on a double nobody touches, and a double a spec can see is a `Proxy`. Eight methods is the smallest
+width where the proxy saves at least 15 % on both profiles; below it the default stays a plain object.
+`lazySpies: true` opts a wide class out.
 
 ### What a single spy costs
 
@@ -215,8 +218,8 @@ The first row is the number that moved most, and it is worth knowing why the ans
 rather than "a few hundred": what a placeholder now adds per double is a descriptor slot, not an
 object. The accessor pair itself is shared across every double of every class that has a method of
 that name, so it is paid once for the run. The per-double figure is small enough that the fixed cost
-of the double itself dominates a narrow class — an untouched 10-method double measures 224 B in
-total, an untouched 100-method one 242 B.
+of the double itself dominates a narrow class — with `lazySpies: true` an untouched 10-method double
+measures 156 B in total, an untouched 100-method one 178 B.
 
 Memory matters more than the time here. Under `isolate: false` a worker keeps everything its files
 allocated until the run ends, and it is the heap — not the clock — that ends up killing a CI job in
@@ -447,75 +450,89 @@ prevent.
 
 ### Retained memory per double
 
-`npm run bench:memory`, 2026-09-26, Node v24.19.0, **Vitest 5.0.0**. 500 doubles held alive at once,
-5 repeats per cell (median), 4 GC passes forced per settle. Each cell is heap delta divided by the
-500 doubles, i.e. **bytes per double** — the number in parentheses divides that further by the
-method count, i.e. bytes per method. The mock registry is pruned between arms; without that, every
-arm after the first would carry forward everything the earlier arms allocated, and the numbers would
-be a running total rather than each library's own footprint. Pruning was verified clean — worst
-residual 0.0% — and run-to-run spread was at worst ±40%, on the one cell small enough for the noise
-floor to matter: the default arm's untouched 10-method double, which is now a couple of hundred
-bytes against a 512 KiB floor. Every other cell reproduced within ±1%.
+`npm run bench:memory`, 2026-09-27, Node v24.19.0, **Vitest 5.0.0**. 500 doubles held alive at once,
+5 repeats per cell (median), 4 GC passes forced per settle; the whole bench was run three times and
+the table carries the median of the three. Each cell is heap delta divided by the 500 doubles, i.e.
+**bytes per double** — the number in parentheses divides that further by the method count, i.e.
+bytes per method. The mock registry is pruned between arms; without that, every arm after the first
+would carry forward everything the earlier arms allocated, and the numbers would be a running total
+rather than each library's own footprint. Pruning was verified clean — worst residual 0.2% — and
+run-to-run spread was at worst ±33%, on the one cell small enough for the noise floor to matter: the
+default arm's untouched 10-method double, a couple of hundred bytes against a 512 KiB floor. Across
+the three runs every cell came back within 0.2% of its median.
 
 **Built from a class:**
 
-| Arm                                  |     10 methods, untouched |            10, all called |     100 methods, untouched |            100, all called |
-| ------------------------------------ | ------------------------: | ------------------------: | -------------------------: | -------------------------: |
-| vitest-auto-spy default lazy         |     **221 B** (22/method) | 13 317 B (1 332 B/method) |     **243 B** (2 B/method) | 128 956 B (1 290 B/method) |
-| vitest-auto-spy `lazySpies: 'proxy'` |    1 860 B (186 B/method) | 14 264 B (1 426 B/method) |      4 097 B (41 B/method) | 127 496 B (1 275 B/method) |
-| vitest-auto-spy `lazySpies: false`   |    5 800 B (580 B/method) | 12 633 B (1 263 B/method) |    55 542 B (555 B/method) | 123 605 B (1 236 B/method) |
-| jest-auto-spies                      | 67 246 B (6 725 B/method) | 77 834 B (7 783 B/method) | 674 661 B (6 747 B/method) | 779 725 B (7 797 B/method) |
-| jasmine-auto-spies                   | 69 733 B (6 973 B/method) | 80 296 B (8 030 B/method) | 699 481 B (6 995 B/method) | 804 533 B (8 045 B/method) |
-| @bugsplat/vitest-auto-spies          | 67 257 B (6 726 B/method) | 77 829 B (7 783 B/method) | 674 678 B (6 747 B/method) | 779 731 B (7 797 B/method) |
-| hand-written `vi.fn()`               | 47 258 B (4 726 B/method) | 57 825 B (5 783 B/method) | 476 862 B (4 769 B/method) | 581 883 B (5 819 B/method) |
+| Arm                                                 |     10 methods, untouched |            10, all called |     100 methods, untouched |            100, all called |
+| --------------------------------------------------- | ------------------------: | ------------------------: | -------------------------: | -------------------------: |
+| vitest-auto-spy default (`'proxy'` at these widths) |       258 B (26 B/method) | 11 367 B (1 137 B/method) |         259 B (3 B/method) | 110 837 B (1 108 B/method) |
+| vitest-auto-spy `lazySpies: true`                   |   **156 B** (16 B/method) | 11 987 B (1 199 B/method) |     **178 B** (2 B/method) | 116 082 B (1 161 B/method) |
+| vitest-auto-spy `lazySpies: false`                  |    4 454 B (445 B/method) | 11 297 B (1 130 B/method) |    42 655 B (427 B/method) | 110 730 B (1 107 B/method) |
+| jest-auto-spies                                     | 67 246 B (6 725 B/method) | 77 802 B (7 780 B/method) | 674 658 B (6 747 B/method) | 779 711 B (7 797 B/method) |
+| jasmine-auto-spies                                  | 69 723 B (6 972 B/method) | 80 289 B (8 029 B/method) | 699 474 B (6 995 B/method) | 804 525 B (8 045 B/method) |
+| @bugsplat/vitest-auto-spies                         | 67 234 B (6 723 B/method) | 77 807 B (7 781 B/method) | 674 671 B (6 747 B/method) | 779 723 B (7 797 B/method) |
+| hand-written `vi.fn()`                              | 47 258 B (4 726 B/method) | 57 825 B (5 783 B/method) | 476 862 B (4 769 B/method) | 581 883 B (5 819 B/method) |
 
-**Every row moved against the edition this replaces, and only one of the two reasons is this
-package.** The other is the runner: on Vitest 5 a bare `vi.fn()` retains 4 726 B where it retained
-4 102 B, and the three jest-auto-spies-family libraries are built on it, so their rows moved with it.
-Read the columns against each other on this table, never against a number from the Vitest 4 edition.
+**Only this package's rows moved against the 2026-09-26 edition.** The runner and the three
+jest-auto-spies-family libraries are within a few bytes of what they retained a day earlier, so every
+difference in the first three rows is this package's own. Two changes are behind it. Both classes
+here are 8 methods or more, so the default row is now `'proxy'` (see
+[above](#where-the-remaining-memory-is-and-lazyspies-proxy)); the arm that was the default is the
+`lazySpies: true` row. And every double got lighter on its own terms:
 
-This package's own rows moved for reasons of their own. [The spy engine](#the-spy-engine) is the one
-behind the "all called" cells: a materialised method retains **1 290 B** against the runner's own
-5 819 B, and an eagerly built but never-called one (`lazySpies: false`, untouched) **555 B**, because
-a spy that is never called allocates none of the six arrays `vi.fn()` allocates up front. A smaller
-part of the same story is that the helper bundle now lives on the prototype every spy inherits
-rather than being copied onto each spy — worth 48 B per materialised method, visible in every "all
-called" cell.
+**2026-09-27: what a double retains.** A materialised method spy no longer carries an empty `Once`
+queue, a closure context for its callable, a state object of its own or a six-slot context for its
+dispatch — 128 B per method, which is most of why "all called" fell from 1 290 to 1 161 B per method
+on the `lazySpies: true` arm at 100 methods (−10 %). A class without spied accessors gets an
+`accessorSpies` bag built from objects sized to hold nothing: V8 reserves four property slots in
+every `{}`, and a constructor's instances are sized to what they hold, so the bag costs 88 B instead
+of 152 B while staying an ordinary `Object.prototype` object — the untouched `lazySpies: true` double
+went from 243 to 178 B at 100 methods. `createAutoMock` and `mockDeep` nodes create their accessor
+and tombstone collections on the first `defineProperty` or `delete`, which almost no spec does —
+705 → 369 B for an untouched auto-mock. The `'proxy'` arm lost the most: one trap handler per double
+and one method-name set per class took an untouched 100-method proxy double from 4 097 B to 259 B.
 
-The "all called" cells dropped by a further third on 2026-09-26, and that one is the spy's call state
+[The spy engine](#the-spy-engine) is what the "all called" cells measure: a materialised method
+retains about **1 110 B** against the runner's own 5 819 B, and an eagerly built but never-called
+one (`lazySpies: false`, untouched) **427 B**, because a spy that is never called allocates none of
+the six arrays `vi.fn()` allocates up front. A smaller part of the same story is that the helper
+bundle lives on the prototype every spy inherits rather than being copied onto each spy — worth 48 B
+per materialised method, visible in every "all called" cell.
+
+The "all called" cells dropped by a third on 2026-09-26, and that one was the spy's call state
 alone. Its six arrays used to start empty, and V8 reserves seventeen slots on the first `push` into an
 empty array — about 900 B of empty slots on a method called once. They are now seeded with room for
 four calls and regrown to the old seventeen on the fifth, so a method called one to four times holds
 30–38 % less and one called more often holds what it did (+8 B). 1 947 → 1 332 B per called method
-at 10 methods, 1 905 → 1 290 B at 100.
+at 10 methods, 1 905 → 1 290 B at 100, on that day's build.
 
-The **untouched** cells of the default arm moved for a different reason and by two orders of
-magnitude: the lazy placeholder is now one shared accessor pair per method name for the whole run
-rather than a closure pair per double, so what a name nobody touched adds to a double is a
-descriptor slot — 25 601 B became 242 B at 100 methods, and 2 940 B became 224 B at 10. That is the
-change that turned `lazySpies: 'proxy'` from the lighter arm into the heavier one; the mechanism is
-[above](#where-the-remaining-memory-is-and-lazyspies-proxy).
+The **untouched** cells of the `lazySpies: true` arm are small for a different reason: the lazy
+placeholder is one shared accessor pair per method name for the whole run rather than a closure pair
+per double, so what a name nobody touched adds to a double is a descriptor slot — 25 601 B became a
+couple of hundred bytes at 100 methods when that landed. The default on a wide class holds about
+100 B more than that untouched, for the trap handler, and wins as soon as a test reads a method; the
+[width table](#where-the-remaining-memory-is-and-lazyspies-proxy) has the touched case.
 
 **Built from a type.** Untouched is width-independent — it is the same Proxy object either way:
 
 | Arm                               | untouched | 10 members called | 100 members called |
 | --------------------------------- | --------: | ----------------: | -----------------: |
-| vitest-auto-spy `createAutoMock`  |     705 B |          13 353 B |          126 700 B |
+| vitest-auto-spy `createAutoMock`  |     369 B |          11 744 B |          113 566 B |
 | vitest-mock-extended `mock`       |     353 B |          60 138 B |          602 182 B |
 | @golevelup/ts-vitest `createMock` |     496 B |         116 462 B |        1 158 269 B |
 
-The untouched cell is 705 B where the previous edition measured 1 184 B, and that is this package
-too: an auto-mock's Proxy handler used to be an object and seven trap closures per double, and it is
-now one handler for the whole run, with everything that varies kept on the Proxy's own target.
+The untouched cell is 369 B, down from 705 B a day earlier and 1 184 B the edition before that, and
+all of it is this package: an auto-mock's Proxy handler used to be an object and seven trap closures
+per double and is now one handler for the whole run, with everything that varies kept on the Proxy's
+own target, and the target's accessor and tombstone collections are created only when something is
+written to them.
 
 **What this establishes:**
 
-1. **`lazySpies: 'proxy'` is no longer the memory answer.** It retains more than the default at every
-   width measured — 8.3× at 10 methods untouched, 16.9× at 100 — because the default's placeholder
-   now costs a descriptor slot and the trap object does not shrink. The only column where it is not
-   behind is "all called", where both arms are the materialised spies and the strategy that built
-   them has stopped mattering. What it still buys is creation time, and what it still charges is a
-   trap on every read; the trade is [above](#where-the-remaining-memory-is-and-lazyspies-proxy).
+1. **From 8 methods the default is the lighter double wherever a test touches it.** Untouched,
+   `lazySpies: true` keeps the smaller double because its placeholder is a descriptor slot; once
+   anything is read it pays a dictionary as wide as the class, and the proxy does not — see the
+   [width table](#where-the-remaining-memory-is-and-lazyspies-proxy).
 2. **`jest-auto-spies` and `@bugsplat` agree to within 0.01%** on retained bytes, confirming the
    shared-core claim ([above](#the-three-jest-auto-spies-family-libraries-all-measured)) on a metric
    that has nothing to do with timing noise.
@@ -525,20 +542,18 @@ now one handler for the whole run, with everything that varies kept on the Proxy
 4. **Full materialisation is no longer a measurement of `@vitest/spy` for every arm.** It still is
    for four of them: the hand-written control retains 5 783 B per mock after one call and the three
    jest-auto-spies-family libraries land 35–39% above it. This package's spy is not one of the
-   runner's, so it sits **4.4× below that floor** at about 1 310 B — the same shape the micro-benchmark
-   shows, measured in bytes instead of microseconds.
+   runner's, so it sits **5.1× below that floor** at about 1 120 B — the same shape the
+   micro-benchmark shows, measured in bytes instead of microseconds.
 
 **Where this package loses on memory, at full weight:**
 
-- Untouched `createAutoMock<T>()` retains **705 B** against `vitest-mock-extended`'s **353 B** and
-  `@golevelup`'s **496 B** — 2.0× and 1.4× worse, still last in its family. That is the bare Proxy
-  before anything is touched, and it is the one memory row this package still loses; from the first
-  member called onwards it is 4.5× lighter than `vitest-mock-extended` and 8.7× lighter than
-  `@golevelup`.
-- `lazySpies: false` is marginally cheaper than the default when every method is called anyway —
-  12 633 vs 13 317 B at 10 methods, 123 605 vs 128 956 B at 100. The placeholder accessors the
-  default installs are not free once they have been replaced, and a spec that touches the whole
-  surface gives them nothing to save.
+- Untouched `createAutoMock<T>()` retains **369 B** against `vitest-mock-extended`'s **353 B** — 4.5 %
+  more, and now below `@golevelup`'s **496 B**. That is the bare Proxy before anything is touched, and
+  it is the one memory row this package still loses; from the first member called onwards it is 5.1×
+  lighter than `vitest-mock-extended` and 9.9× lighter than `@golevelup`.
+- `lazySpies: false` retains a hair less than the default when every method is called anyway —
+  11 297 vs 11 367 B at 10 methods, 110 730 vs 110 837 B at 100, 0.1–0.6 %. A spec that touches the
+  whole surface gives laziness nothing to save.
 
 `heapUsed` only; off-heap was not measured. Retention inside the `@vitest/spy` registry `Set` is
 counted deliberately and charged identically to every arm. Single machine, Node v24.19.0 — the
@@ -634,16 +649,14 @@ page.
 1. **`isolate: false` first.** It is worth about 4× on its own, more than swapping any library or
    flag measured here. It also changes what limits you: memory becomes the binding constraint
    instead of wall-clock, because everything a file allocates now stays alive until the run ends.
-2. **On a wide class under `isolate: false`, add `lazySpies: 'proxy'`** for roughly another 12% off
-   peak RSS on top of the default (established, 7/7 rounds). It is the second-largest lever
-   measured and it only costs a flag.
-3. **Do not turn `'proxy'` on under normal isolation** (`isolate: true`, the default). It measurably
-   does nothing there — a median of exactly 1.00× across five rounds.
-4. **Do not expect a suite-scale speed win over hand-written `vi.fn()`.** Under `isolate: true` this
+2. **Leave `lazySpies` alone.** The width picks the lighter double: a plain object below 8 methods, a
+   proxy from 8. Pass `lazySpies: true` only for a spec that needs a plain object or reads one member in
+   a hot loop. (The suite-scale RSS tables above predate the 2026-09-27 proxy and measure the old one.)
+3. **Do not expect a suite-scale speed win over hand-written `vi.fn()`.** Under `isolate: true` this
    library is on par at 1 000 and 3 000 tests and behind by roughly 8% at 10 000. The case for
    this library over hand assembly is everything else on this page — the lazy default, the
    memoised prototype walk, `calledWith`, type-level and deep doubles — not suite wall-clock.
-5. **Against the jest-auto-spies family**, the win is real and holds everywhere tested: roughly
+4. **Against the jest-auto-spies family**, the win is real and holds everywhere tested: roughly
    1.5× faster in every round measured, at 1 000/3 000/10 000 tests and at 20 and 100 methods — measured through
    `@bugsplat`, the family's suite-scale representative (see the micro-benchmark above for why that
    stand-in is now justified by measurement rather than by shared source).
@@ -952,17 +965,17 @@ Three things decide whether it pays:
 
 ## The two settings that cost
 
-**`{ lazySpies: 'proxy' }`** is the other direction: same laziness, one trap object instead of a
-placeholder per method. It buys build time on a wide class — about 2.0 µs against 12.6 µs at 100
-methods — and charges for it in retained bytes and in a trap on every read. See
-[where the remaining memory is](#where-the-remaining-memory-is-and-lazyspies-proxy) before reaching
-for it.
+**`{ lazySpies: true }` on a class of 8 methods or more** trades the other way: an accessor placeholder
+per method instead of the trap object the width picked. Reads are plain property reads (about 5 ns
+against 25), an untouched double is ~100 B lighter, and the double is an ordinary object — but a
+touched double is 21–68 % heavier and slower to build. See the
+[width table](#where-the-remaining-memory-is-and-lazyspies-proxy).
 
-**`{ lazySpies: false }`** gives up the win above. On a 40-method class it costs 11.50 µs against
+**`{ lazySpies: false }`** gives up the laziness. On a 40-method class it costs 11.50 µs against
 6.04 µs to build a double a spec calls three methods of, and on a 100-method class an untouched
-double retains 55 518 B against 242 B. It is worth it only when a spec inspects the spy object
-itself through property descriptors; enumeration (`Object.keys`, spread, a snapshot) already works,
-because the placeholders are enumerable accessors.
+double retains 42 655 B against the default's 259 B. It is worth it only when a spec inspects the spy
+object itself through property descriptors; enumeration (`Object.keys`, spread, a snapshot) already
+works in every lazy mode.
 
 **`autoSpyAccessors: true`** walks the prototype chain for getters and setters. That walk is
 memoised per prototype in a `WeakMap`, exactly like the method walk, so a class spied in 300 tests

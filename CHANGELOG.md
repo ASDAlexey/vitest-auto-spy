@@ -10,6 +10,106 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`npx vitest-auto-spy ng-test` — sharding and changed-only runs under the Angular unit-test
+  builder.** `ng test` has no pass-through for Vitest's flags: `startVitest()` receives an object the
+  builder built, and Vitest's own `--changed` / `--related` find nothing there because its module graph
+  holds the builder's bundles, not your sources. `ng-test --shard 2/4` lists the target's specs with
+  `ng test --list-tests` (`@angular/build` 21+), splits them the way Vitest does and hands the shard to
+  the builder as `--include` paths, so it compiles only that shard; `ng-test --changed [ref]` and
+  `--related <files>` run the specs whose imports reach a changed file (relative imports,
+  `compilerOptions.paths` aliases, a template or stylesheet through the component naming it; a config,
+  a lockfile or a change the setup files reach runs everything). Everything after `--` goes to
+  `ng run <project>:<target>`. On a 700-spec workspace with coverage and the builder cache off, as in
+  CI, the slower of two `ng-test` shards took 7.58 s against 11.21 s for the whole run, and 9.38 s for
+  a `test.shard` set in the runner config, which still compiles every spec.
+- **`provideActivatedRoute({ resources })` / `createActivatedRoute({ resources })`.** Angular 22.2
+  gave a route a `resources` record (developer preview), and a component reading
+  `route.resources['user']` got `undefined` from the double. The record now lands on
+  `route.resources` and on every snapshot's `resources` — the same object, carried into each new
+  snapshot as a navigation that keeps the route does. Arrange a value with
+  `mockResourceProp(resources, 'user', undefined)` on that record. On Angular 20 and 21 the key
+  exists in the type as `never`, so nothing can be passed where the router has no such field.
+- **`doctor` points at the module cache where the unit-test builder runs istanbul.**
+  `angular-build-istanbul-module-cache` (info) fires for an `@angular/build:unit-test` target on 21+
+  and Vitest 5 whose coverage provider resolves to istanbul and whose runner config lacks
+  `fsModuleCache`; on a 700-file Angular 22.2 suite the cache took the run from
+  24.55 s to 13.20 s (−46 %), −41 % with the builder cache off as on CI. The fix names the runner
+  config, or asks for `"runnerConfig"` on the target, and adds the CI cache step when no CI config
+  keeps `node_modules/.vitest-cache`. Quiet with v8, where the cache gained nothing, and for a
+  `browsers` target unless its runner config names istanbul itself: browser mode was not measured.
+- **`doctor` warns before `fsModuleCache` breaks an Analog suite.** `analog-module-cache-inline-styles`
+  (warning): with the Analog plugin in JIT mode and a component with inline `styles`, the warm run
+  fails with `Cannot find module '/@id/__x00__virtual:angular:jit:style:inline;<hash>'` (verified on
+  Analog 2.7.5, Angular 22.2, Vitest 5.0.0).
+- **`doctor` warns when Analog `fastCompile` drops constructor types.**
+  `analog-fast-compile-ctor-injection` (warning): with `fastCompile` in JIT mode, an `@Injectable`
+  class that takes a constructor parameter known only by its type gets no `ctorParameters`, so it
+  throws NG0202 in `TestBed.inject` and `createWithAutoSpies` alike. The finding lists each class and
+  the fixes: `inject()`, `@Inject(X)`, or `fastCompile` off.
+- **`doctor` notes happy-dom for builder users.** `angular-build-happy-dom` (info): on
+  `@angular/build` 21+ the builder picks happy-dom itself once installed; −4.6 % wall and −6 % RSS on
+  the 700-file suite.
+
+### Changed
+
+- **`createSpyFromClass` builds a double of a class with 8 or more methods as a `Proxy`.** When
+  `lazySpies` is not set, a class of 8+ methods gets `lazySpies: 'proxy'`; a narrower one keeps the
+  accessor placeholders it had. Why upgrade: a wide double a test touches holds 21–68 % less and is
+  built 2–6× faster — measured per double with one and two methods called: 2 110 → 1 417 B and
+  3 269 → 2 573 B at 8–16 methods, 4 412 → 1 417 B and 5 570 → 2 577 B at 45; create and call 2.2 →
+  1.1 µs at 8 methods, 6.5 → 1.0 µs at 45. The accessor placeholders put a touched double into a
+  property dictionary as wide as the class; the proxy defines nothing until a method is read. What a
+  wide class's double now does differently: every read of a member costs ~20 ns more;
+  `util.types.isProxy(double)` is `true`; `console.log` shows only the methods already read;
+  `vi.spyOn` on a method nobody has read returns the double's own spy, so `mockRestore()` resets it;
+  `Object.create(double).method` builds the spy on the double; an untouched double is ~100 B heavier.
+  Snapshots, `toEqual`, `Object.keys` and spread are unchanged. `lazySpies: true` brings the
+  placeholders back for one class, `registerAutoSpyDefaults(Class, { lazySpies: true })` for all its
+  doubles. `provideAutoSpy` and `injectSpy` follow the same rule.
+- **`lazySpies: 'proxy'` holds ~0.26 kB per untouched double at any width**, down from 1 860 B at 10
+  methods and 4 097 B at 100 (`bench:memory`, 258 and 259 B): one trap handler per double and one
+  method-name set per class.
+- **`createSpyFromClass` without `returns`, `selfReturning` or `overrides` no longer builds its message
+  label** — eight regex replacements per call, −0.2 µs per double in every mode.
+- **A double retains less.** A materialised method spy no longer allocates an empty `Once` queue, a
+  closure context for its callable, a separate state object, or a six-slot context for its dispatch
+  (−128 B per method); the empty `accessorSpies` bag of a class without spied accessors is built from
+  objects sized to hold nothing (−64 B per double, identical to `{}` to every reader); and
+  `createAutoMock` / `mockDeep` nodes create their accessor and tombstone collections on first write
+  (−336 B each). `bench:memory` on the `lazySpies: true` arm (the default before this release):
+  untouched 243 → 178 B at 100 methods, all called 128 956 → 116 082 B (−10 %); `createAutoMock`
+  untouched 705 → 369 B (−48 %). Construction and call timings are unchanged within noise.
+
+### Fixed
+
+- **`vi.when` on a method spy no longer reports the `calledWith()` as deciding nothing.** Vitest 5's
+  `vi.when(spy)` reads the spy's implementation and installs a wrapper that answers its own rows and
+  passes every other call through to it — to the library's dispatch, so the `calledWith` chain keeps
+  deciding. Both orders printed the "replaced the dispatch" warning, and under
+  `setupAutoSpy({ preset: 'strict' })` it threw. An implementation installed right after
+  `getMockImplementation()` handed out the current one is now treated as a wrapper; a `vi.when` over
+  a `mockReturnValue` is still reported.
+- **A `calledWith` after a `mockReturnValue` that was the spy's first touch since `vi.resetAllMocks()`
+  is reported again.** The pending reset was applied after the replacement was recorded and erased it.
+- **`perf` stops giving advice that fails under `@angular/build:unit-test` and Analog.** Under the
+  builder the settings findings (`perf-transform`, `perf-workers`, `perf-isolation`,
+  `perf-environment-engine`) name the runner config the run reads — `--runner-config` in `--command`,
+  then the target's `runnerConfig` — instead of the first `vite(st).config.*` in the tree, say to add
+  `"runnerConfig": "vitest-base.config.mts"` to the target when it names none, and say the setting is
+  not available on `@angular/build` 20.x, which reads no runner config. `perf-vitest-doctor` no longer
+  sends a builder workspace to `npx vitest doctor`, which fails there on every file with
+  `describe is not defined`; it gives an A/B recipe through
+  `ng run <project>:<target> --runner-config=<variant>` instead. `isolate` and `environment` the
+  builder passes to Vitest itself no longer count as the user's choice, and the DOM-engine advice
+  there becomes "install `happy-dom`": from 21 the builder picks it by itself. The barrel advice is
+  off under the builder, and the confirmed-finding card names a spec's `spec-*.js` bundle after the
+  spec and drops `chunk-*.js`, neither of which exists on disk. Under `@analogjs/vite-plugin-angular`
+  2.7.5 and older with an inline-styled component, `perf-transform` is a warning not to turn
+  `fsModuleCache` on: the warm run fails with
+  `Cannot find module '/@id/__x00__virtual:angular:jit:style:inline;<hash>'`.
+
 ## [5.41.0] - 2026-09-27
 
 ### Changed

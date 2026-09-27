@@ -86,6 +86,12 @@ configured that way never runs the code the guard lives in, so it is not that st
 exception for them; there is nothing to make an exception in. It also means a `calledWith` added
 after them is never consulted.
 
+`vi.when` (Vitest 5) is the exception that is not one. It reads the spy's implementation and wraps
+it: the calls it has a row for get its answer, every other call reaches the library's dispatch, so a
+`calledWith` on the same method keeps deciding — in either order, with no warning. After
+`vi.when(spy)[Symbol.dispose]()` or `mockReset()` the dispatch answers alone again.
+`vi.when(spy, { onUnmatched: 'throw' })` is the per-method counterpart of `strict: true`.
+
 That has one visible edge. `mockReturnValueOnce` installs a one-shot implementation that is
 _shifted off a queue_, and Vitest falls back to the standing implementation — the library dispatch —
 once the queue is empty. So the call after the last `Once` reaches the guard and is reported as

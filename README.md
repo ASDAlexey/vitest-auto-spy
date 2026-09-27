@@ -23,7 +23,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-27.3%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-27.6%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -998,7 +998,13 @@ npx vitest-auto-spy doctor   # read-only. Exits 1 when it finds something
 npx vitest-auto-spy perf     # where the suite's CPU time goes. --gate fails a budget and says why
 npx vitest-auto-spy codemod  # prints the migration diff. Writes nothing without --write
 npx vitest-auto-spy init     # writes the agent instructions pointer
+npx vitest-auto-spy ng-test  # ng test with --shard / --changed the Angular builder does not pass through
 ```
+
+[`ng-test`](https://asdalexey.github.io/vitest-auto-spy/utilities/cli#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder)
+shards a suite under `@angular/build:unit-test`, or runs only the specs a change reaches: `ng test`
+passes neither Vitest's `--shard` nor its `--changed` through, so it picks the specs itself and hands
+them to the builder as `--include` paths.
 
 **Exit `0` means "ran, nothing to report"; `1` means "ran, and here is the finding"; `2` means
 "there was nothing to judge".** The third one is the reason to read this line: an unknown flag for a
@@ -1035,31 +1041,35 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 3 errors, 4 warnings, 1 note
 ```
 
-| Check                                | What it finds                                                                                                                                                                        |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tsconfig-glob-matches-nothing`      | An `include` pattern that matches no file — so it type-checks nothing; `info` when nothing beside the config is there to miss yet                                                    |
-| `tsconfig-file-missing`              | A `files` entry naming a file that is gone                                                                                                                                           |
-| `spec-imported-by-non-spec`          | A production module importing a `*.spec.ts`                                                                                                                                          |
-| `spec-exports-fixture`               | A spec importing another spec, whose hooks then run in a foreign file                                                                                                                |
-| `foreign-runner-pragma`              | `@jest-environment` left in a spec, which Vitest never reads                                                                                                                         |
-| `dead-runner-config`                 | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                                                                                                  |
-| `orphan-runner-file`                 | A setup file only that dead config referenced                                                                                                                                        |
-| `angular-build-splitting-off`        | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                                                                                                  |
-| `angular-build-splitting-deprecated` | `"splitting"` on a unit-test target under `@angular/build` 22.2+, which deprecates it — `true` is a no-op, `false` still costs the memory                                            |
-| `analog-behind-angular-build`        | `@analogjs/vite-plugin-angular` below 2.7.5 next to `@angular/build` 22.2+ — `TypeError: cache.has is not a function` at startup                                                     |
-| `coverage-all-removed`               | `coverage.all` in a config, on a Vitest that stopped reading the key                                                                                                                 |
-| `coverage-include-misses-bundle`     | A `coverage.include` of sources only, in a runner config over a bundle                                                                                                               |
-| `coverage-include-recompiles-globs`  | A coverage scope large enough that `picomatch` recompiling it per file costs more than the coverage. Info                                                                            |
-| `vitest-5-removed`                   | What Vitest 5 removed — `vitest/reporters`-style imports, `.sequential`, `--outputJson`/`--compare`; error on 5, note on 4. Also `poolOptions` (warning, ignored since 4)            |
-| `vitest-5-deprecated`                | `experimental_clearCache` / `experimental_parseSpecifications` on Vitest 5, which nothing warns about at run time. Info                                                              |
-| `vitest-5-clear-mocks`               | `clearMocks: true` restating the Vitest 5 default, or a Vitest 4 suite that never decided and will have mocks cleared after the upgrade. Info                                        |
-| `mock-reset-config-unread`           | `no-redundant-mock-reset` given a `configFile` whose default export is a factory or `mergeConfig` call and no flag beside it — the rule reads none of the flags that call sets. Info |
-| `vitest-5-available`                 | Vitest 4 with nothing holding back 5 — what it buys (−46 % v8 / −35.5 % istanbul on a 700-file Angular suite with coverage) — or what holds it back. Info                            |
-| `fs-module-cache-not-persisted`      | `fsModuleCache` on, and no CI config caches its directory — every CI run starts cold                                                                                                 |
-| `jasmine-era-project`                | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error                                                                     |
-| `no-agent-instructions`              | No instruction file names the package. A note, not an error                                                                                                                          |
-| `helper-from-wrong-entry`            | A named import taken from an entry that does not export it — `provideAutoSpy` from the root                                                                                          |
-| `no-unawaited-helper`                | An `expectEmission` / `stable` / `flushEventLoop` call dropped as a bare statement, so nothing awaits it                                                                             |
+| Check                                 | What it finds                                                                                                                                                                        |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tsconfig-glob-matches-nothing`       | An `include` pattern that matches no file — so it type-checks nothing; `info` when nothing beside the config is there to miss yet                                                    |
+| `tsconfig-file-missing`               | A `files` entry naming a file that is gone                                                                                                                                           |
+| `spec-imported-by-non-spec`           | A production module importing a `*.spec.ts`                                                                                                                                          |
+| `spec-exports-fixture`                | A spec importing another spec, whose hooks then run in a foreign file                                                                                                                |
+| `foreign-runner-pragma`               | `@jest-environment` left in a spec, which Vitest never reads                                                                                                                         |
+| `dead-runner-config`                  | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                                                                                                  |
+| `orphan-runner-file`                  | A setup file only that dead config referenced                                                                                                                                        |
+| `angular-build-splitting-off`         | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                                                                                                  |
+| `angular-build-splitting-deprecated`  | `"splitting"` on a unit-test target under `@angular/build` 22.2+, which deprecates it — `true` is a no-op, `false` still costs the memory                                            |
+| `analog-behind-angular-build`         | `@analogjs/vite-plugin-angular` below 2.7.5 next to `@angular/build` 22.2+ — `TypeError: cache.has is not a function` at startup                                                     |
+| `analog-fast-compile-ctor-injection`  | Analog `fastCompile` in JIT mode with an `@Injectable` whose constructor parameter is known only by its type — NG0202 at injection                                                   |
+| `analog-module-cache-inline-styles`   | `fsModuleCache` on under the Analog plugin with a component that has inline `styles` — the warm run fails on `virtual:angular:jit:style:inline`                                      |
+| `angular-build-istanbul-module-cache` | istanbul coverage under the unit-test builder (not in `browsers`) without `fsModuleCache` — −46 % on a 700-file Angular 22.2 suite. Info                                             |
+| `angular-build-happy-dom`             | jsdom only because `happy-dom` is not installed; the builder picks it by itself from 21 — −4.6 % wall, −6 % RSS. Info                                                                |
+| `coverage-all-removed`                | `coverage.all` in a config, on a Vitest that stopped reading the key                                                                                                                 |
+| `coverage-include-misses-bundle`      | A `coverage.include` of sources only, in a runner config over a bundle                                                                                                               |
+| `coverage-include-recompiles-globs`   | A coverage scope large enough that `picomatch` recompiling it per file costs more than the coverage. Info                                                                            |
+| `vitest-5-removed`                    | What Vitest 5 removed — `vitest/reporters`-style imports, `.sequential`, `--outputJson`/`--compare`; error on 5, note on 4. Also `poolOptions` (warning, ignored since 4)            |
+| `vitest-5-deprecated`                 | `experimental_clearCache` / `experimental_parseSpecifications` on Vitest 5, which nothing warns about at run time. Info                                                              |
+| `vitest-5-clear-mocks`                | `clearMocks: true` restating the Vitest 5 default, or a Vitest 4 suite that never decided and will have mocks cleared after the upgrade. Info                                        |
+| `mock-reset-config-unread`            | `no-redundant-mock-reset` given a `configFile` whose default export is a factory or `mergeConfig` call and no flag beside it — the rule reads none of the flags that call sets. Info |
+| `vitest-5-available`                  | Vitest 4 with nothing holding back 5 — what it buys (−46 % v8 / −35.5 % istanbul on a 700-file Angular suite with coverage) — or what holds it back. Info                            |
+| `fs-module-cache-not-persisted`       | `fsModuleCache` on, and no CI config caches its directory — every CI run starts cold                                                                                                 |
+| `jasmine-era-project`                 | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error                                                                     |
+| `no-agent-instructions`               | No instruction file names the package. A note, not an error                                                                                                                          |
+| `helper-from-wrong-entry`             | A named import taken from an entry that does not export it — `provideAutoSpy` from the root                                                                                          |
+| `no-unawaited-helper`                 | An `expectEmission` / `stable` / `flushEventLoop` call dropped as a bare statement, so nothing awaits it                                                                             |
 
 The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
 `tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
@@ -1879,7 +1889,8 @@ multipliers do not transfer to suite scale: building a double is on the order of
 so a 10× win on the double shows up as a few per cent on the run, and nearly everything else in a
 suite swamps it.
 
-**Memory, `isolate: false`, 100-method class, 10 000 tests, peak RSS:**
+**Memory, `isolate: false`, 100-method class, 10 000 tests, peak RSS** — measured before 2026-09-27,
+on the accessor-placeholder default and the proxy mode of that time:
 
 | Arm                                   | Peak RSS |
 | ------------------------------------- | -------: |
@@ -1891,19 +1902,35 @@ Hand-written doubles use 3.0x the default's peak RSS here — the difference bet
 OOM'd worker on a large suite.
 
 That gap traces down to a single double: on the same 100-method class, untouched, a hand-written
-double retains **414 462 B**. The two arms above are what the library retained against it when they
-were captured; the per-double figure has since moved a long way, and in the direction that makes the
-table's third row unnecessary. Re-measured 2026-09-17 on Node 24, the **default** retains **215 B**
-per untouched 100-method double — the lazy placeholder's accessor pair is now shared by method name
-rather than minted per double — and `lazySpies: 'proxy'` retains **4 090 B**, nineteen times more.
-Full retained-memory tables:
+double retains **414 462 B**. Re-measured 2026-09-27 (`npm run bench:memory`, Node 24, Vitest 5), the
+default on that class retains **259 B** per untouched double and `lazySpies: true` **178 B** — the lazy
+placeholder's accessor pair is shared by method name rather than minted per double. Full
+retained-memory tables:
 [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance#retained-memory-per-double).
 
+The first read is where the accessor placeholders pay: it drops the double into a property
+dictionary as wide as the class. That dictionary is why a class of 8 methods or more gets `'proxy'`
+when `lazySpies` is not set. The proxy answers every method from one trap handler and one name set
+per class and defines nothing, so there is no shared map to leave and no dictionary to grow. Bytes
+per double with one and two methods called (1 000 doubles held at once, 2026-09-27):
+
+| Methods in the class | `true`, 1 / 2 touched | `'proxy'`, 1 / 2 touched |        Saving |
+| -------------------: | --------------------: | -----------------------: | ------------: |
+|                  4–6 |       1 743 / 2 887 B |          1 415 / 2 573 B | −19 % / −11 % |
+|                 8–16 |       2 110 / 3 269 B |          1 417 / 2 573 B | −33 % / −21 % |
+|                20–30 |       2 877 / 4 036 B |          1 416 / 2 573 B | −51 % / −36 % |
+|                   45 |       4 412 / 5 570 B |          1 417 / 2 577 B | −68 % / −54 % |
+
+The steps are V8's: the dictionary holds `pow2ceil(1.5·(width + 3))` slots. Building and touching the
+double is cheaper too — 2.2 → 1.1 µs at 8 methods, 6.5 → 1.0 µs at 45. The price is a trap on every
+read of a member for the life of the double, about 25 ns against 5 ns for a plain property, ~100 B more
+on a double nobody touches, and a double a spec can see is a `Proxy`. Eight methods is the smallest
+width where the proxy saves at least 15 % on both profiles; below it the default stays a plain object.
+`lazySpies: true` opts a wide class out.
+
 **Guidance keyed to suite size:** `isolate: false` is worth about 4x on its own — more than any
-library choice measured here — and it makes memory, not wall-clock, the binding constraint. The
-default is the memory answer at every width now; `lazySpies: 'proxy'` is left for the one thing it
-is still faster at, building a double of a very wide class, and it taxes every read for the life of
-that double (53 ns against 7 ns).
+library choice measured here — and it makes memory, not wall-clock, the binding constraint. Leave
+`lazySpies` alone: the width picks the lighter double.
 
 Full write-up, methodology and the complete suite-scale tables:
 [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance).
@@ -2630,7 +2657,7 @@ beforeEach(() => {
 > startup with `TypeError: cache.has is not a function`.
 
 > **Lazy by default, everywhere.** Every factory builds each method spy on first access
-> (`lazySpies: true`), since Angular tests typically spy a wide service but call
+> (accessor placeholders below 8 methods, a `Proxy` from 8), since Angular tests typically spy a wide service but call
 > only a few of its methods — and the margin widens as the class does: **1.4×** on a ten-method
 > class a test calls twice, **1.9×** on a forty-method one it calls three times. Behaviour is
 > unchanged; pass `{ lazySpies: false }` to build every spy eagerly.
@@ -4336,7 +4363,7 @@ as `methodsToSpyOn`, named for callables that live on the instance — `signal()
 `gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors` (discover every getter/setter),
 `fillMissing` (answer a name the prototype never carried with a spy — for a **partially** abstract
 class, where `abstract` members are erased and the empty-prototype fallback no longer fires),
-`lazySpies` (materialize method spies on first access — the `provideAutoSpy` default on Angular; the placeholder's accessor pair is shared by method name, so an untouched 100-method double retains 215 B. `'proxy'` answers every method from one trap object instead: it retains 4 090 B on the same class and pays a trap on every read (53 ns against 7 ns), so what is left of it is build time on a very wide class — see [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance#retained-memory-per-double))
+`lazySpies` (build each method spy on first read. Unset: accessor placeholders below 8 methods, `'proxy'` from 8 — a `Proxy` that defines nothing per method, 1.4 kB against 2.1 kB for a 8–16-method double with one method called and 1.4 against 4.4 kB at 45, at ~20 ns per read. `true` keeps a plain object at any width, `false` builds every spy up front — see [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance#retained-memory-per-double))
 
 `ValueConfig` (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` | `{ complete?, delay? }`.
 

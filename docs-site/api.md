@@ -148,7 +148,7 @@ values installed as the spy is built), `selfReturning` (methods that answer the 
 chained call), `autoSpyAccessors` (auto-discover getters/setters),
 `fillMissing` (answer a name the prototype never carried with a spy — for a **partially** abstract
 class, where the erased members leave the empty-prototype fallback unable to fire),
-`lazySpies` (build each method spy on first access — the `provideAutoSpy` default on Angular; `'proxy'` swaps the per-method placeholder for one trap object, which is faster to build on a very wide class and [costs more on every other axis](/core/performance#where-the-remaining-memory-is-and-lazyspies-proxy)), plus
+`lazySpies` (build each method spy on first access; unset, it is `true` — an accessor placeholder per method — below 8 methods and `'proxy'` — one trap object, [lighter once touched](/core/performance#where-the-remaining-memory-is-and-lazyspies-proxy) — from 8), plus
 the two strict-mode fields below. `createSpyFromInstance` takes the same configuration minus
 `lazySpies` and `fillMissing`, the two that describe a double being built rather than an object being
 patched: the members already exist, and an instance is not an erased `abstract` declaration. It
