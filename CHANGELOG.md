@@ -10,6 +10,47 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`trackInjections(...).names({ clean: true })`.** `names()` returns each token's `Function.name`
+  as is, so under esbuild a decorated `FeatureFlagService` came back as `_FeatureFlagService` while
+  `get()` and every message printed the clean name. The option takes the rename off (the leading `_`,
+  Rollup's `$1`); without it the result is unchanged.
+- **`toHaveSignalValue(expected, { strict: true })`.** The matcher compares the way `toEqual` does, so
+  `signal({ color: undefined })` passed against `{}` and a class instance against a plain object; a
+  spec on `expect(sig()).toStrictEqual(x)` lost precision by moving to it. `strict` counts
+  `undefined` properties, array holes and the object's class, as `toStrictEqual` does. The options
+  type is exported from `/angular/matchers` as `SignalValueOptions`. `/angular/matchers` is +137 B
+  min+gzip (2662 → 2799 B, +5.1 %) and +0.6 kB to import (22349 → 22906 B): the strict comparison,
+  its class tester, and the structural-directive message below.
+
+### Changed
+
+- **`angular-build-istanbul-module-cache` puts its −46 % in range.** A second suite, 862 spec files on
+  `@angular/build` 22.2 and Vitest 5.0.2, gained −19 % from the cache (48 → 39 s), while switching it
+  to v8 ran in 19–22 s, about twice as fast as istanbul with the cache, on 7.5–8 GB RSS against
+  10–11 GB. The finding now gives −46 % as "up to", adds that data point, says the cache pays off on
+  CI only when CI keeps `node_modules/.vitest-cache`, and its fix offers `coverage.provider: 'v8'` as
+  the alternative. Still an info.
+
+### Fixed
+
+- **`toHaveDirectiveApplied(Structural, selector)` no longer sends a structural directive to
+  `detectChanges()`.** When the directive rendered nothing the selector names, the failure said no
+  element matches and to run `fixture.detectChanges()`, which changes nothing. It now says the
+  directive is on a template anchor, that the element exists only in a view the directive chose to
+  render, and to assert without a selector.
+- **Docs that disagreed with 5.41–5.42.** The performance table and README called the
+  `lazySpies: true` path "the default" (a class of 8+ methods now gets `'proxy'`) and said lazy spies
+  change no behaviour; the width is now defined as the methods the double spies, after
+  `onlyMethodsToSpyOn` / `methodsToSpyOn`. The Russian Angular page carried the pre-4.1 speed table.
+  The strict-mode and control-helper pages now say a delegating `mockImplementation` and `vi.when` are
+  not reported, and a `vi.when` over a `mockReturnValue` is. The CLI page counts `ng-test` among the
+  commands, says it exits with `ng`'s code, lists its exit-2 cases, that `--related` takes a
+  comma-separated list and that the builder compiles only included specs from `@angular/build` 22.2
+  (also in `--help`); the Russian CLI page gains the exit-code table. `RouteResources` is `never` up
+  to router 22.1, not only on 20 and 21.
+
 ## [5.42.0] - 2026-09-27
 
 ### Added
