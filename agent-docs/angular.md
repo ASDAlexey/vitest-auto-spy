@@ -1207,7 +1207,9 @@ assertion on the attribute alone stays green when the entry is dropped and the a
 written statically, or set by something else; the fixture's root element is searched, so the entry
 itself can be asserted with no selector. On a fixture of the component under test the failure names
 that component's `hostDirectives` / `imports` as the fix; only a spec-built host (`createDirectiveHost`,
-`TestBed.createDirective`) is pointed at `createDirectiveHost`:
+`TestBed.createDirective`) is pointed at `createDirectiveHost`. A structural directive (`*dir`,
+`<ng-template dir>`) counts too: it sits on the template's comment anchor, which the search includes;
+assert it without a selector, since the element it renders does not carry it:
 
 ```ts
 import { registerDirectiveMatchers } from 'vitest-auto-spy/angular/matchers';

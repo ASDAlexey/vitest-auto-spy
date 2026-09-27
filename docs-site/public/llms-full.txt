@@ -20996,9 +20996,12 @@ entry that reads as if something were deliberately silenced.
 It takes a `ComponentFixture`, a `DirectiveFixture` or a `DebugElement`, and searches the element
 the fixture is rooted at as well as everything under it: a `TestBed.createDirective` fixture is
 rooted at the element that carries the directive, and on a `ComponentFixture` a `hostDirectives`
-entry of the component under test counts. Anything else is thrown rather than failed —
-a `nativeElement` or an `undefined` passed by mistake is a wrong argument, and under `.not` a
-failure would have read as a pass.
+entry of the component under test counts. A structural directive counts as well — `*dir` and
+`<ng-template dir>` put it on the comment Angular leaves in place of the template, and the search
+takes that anchor in; assert it without a selector, because the element it renders does not carry
+it, and a selector naming that element fails with a message that says so. Anything else is
+thrown rather than failed — a `nativeElement` or an `undefined` passed by mistake is a wrong
+argument, and under `.not` a failure would have read as a pass.
 
 The fix it names depends on what the fixture is rooted at. On a fixture of the component under test,
 the directive belongs in that component's `hostDirectives` or its `imports`, and the failure says so
