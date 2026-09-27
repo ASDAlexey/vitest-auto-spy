@@ -87,6 +87,8 @@ export interface PerfMeasured {
   readonly runFailed: boolean;
   /** CPU profiles by the absolute path of their spec file, when the run was asked for them. */
   readonly profiles?: ReadonlyMap<string, CpuProfile>;
+  /** `--command`, which says what ran the suite even when the report was read from `--json`. */
+  readonly command?: string;
 }
 
 export interface PerfUnavailable {
@@ -339,11 +341,15 @@ export function readPerfRun(
   spawn: Spawn = spawnProcess,
   packageRoot: string | undefined = ownPackageRoot(),
 ): PerfSource {
-  if (options.json !== undefined) {
-    return fromFile(options.json, options.cwd);
+  const command = options.command;
+
+  if (command === undefined) {
+    return options.json === undefined ? fromRun(options, spawn, packageRoot) : fromFile(options.json, options.cwd);
   }
 
-  return options.command === undefined ? fromRun(options, spawn, packageRoot) : fromCommand(options, options.command, spawn, packageRoot);
+  const source = options.json === undefined ? fromCommand(options, command, spawn, packageRoot) : fromFile(options.json, options.cwd);
+
+  return source.ok ? { ...source, command } : source;
 }
 
 /**

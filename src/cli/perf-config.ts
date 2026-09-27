@@ -7,6 +7,8 @@ import { availableParallelism } from 'node:os';
 
 import type { SourceGraph } from './checks/graph';
 import { isolationFromAngularBuilder } from './checks/runner-isolation';
+import type { BuilderRun, PerfContext } from './perf-builder';
+import { ANALOG_PLUGIN, PLAIN_CONTEXT, builderCommand, runnerConfigHome, targetLabel, unavailableUnder } from './perf-builder';
 import type { PerfFile, PerfRun, Phase } from './perf-data';
 import { formatMs, formatShare, shareOf } from './perf-data';
 import type { Profile } from './profile';
@@ -89,12 +91,23 @@ function configRank(file: string): number {
 }
 
 /** The runner config a new setting belongs in, named for the reader. */
-function configName(graph: SourceGraph): string {
+function configName(graph: SourceGraph, context: PerfContext): string {
+  if (context.builder !== undefined) {
+    return runnerConfigHome(context.builder);
+  }
+
   const [first] = configCode(graph)
     .map(([file]) => file)
     .sort((a, b) => configRank(a) - configRank(b) || a.localeCompare(b));
 
   return first ?? 'your Vitest config';
+}
+
+/** The fix that sets `setting` in the config the run reads, or why the builder leaves it nowhere to go. */
+function fixIn(graph: SourceGraph, context: PerfContext, setting: string, fix: (config: string) => string): string {
+  const builder = context.builder;
+
+  return builder === undefined || builder.configurable ? fix(configName(graph, context)) : unavailableUnder(builder, setting);
 }
 
 export function declaresNoIsolation(graph: SourceGraph): boolean {
@@ -118,9 +131,57 @@ function workerCount(run: PerfRun): number | undefined {
   return run.config?.maxWorkers ?? (lanes.length === 0 ? undefined : Math.max(...lanes));
 }
 
+/** What `@angular/build:unit-test` passes to Vitest itself, so Vitest 5 lists it as provided either way. */
+const BUILDER_PROVIDED: ReadonlySet<string> = new Set(['environment', 'isolate']);
+
 /** Vitest 5 records which options the user set; advice never second-guesses one of those. */
-function provided(run: PerfRun, option: string): boolean {
-  return run.config?.provided?.includes(option) === true;
+function provided(run: PerfRun, option: string, context: PerfContext): boolean {
+  return run.config?.provided?.includes(option) === true && !(context.builder !== undefined && BUILDER_PROVIDED.has(option));
+}
+
+/** The config that runs the suite on `jsdom`: the resolved one when the report has it, the config text otherwise. */
+function jsdomConfig(graph: SourceGraph, run: PerfRun): string | undefined {
+  const environment = run.config?.environment;
+
+  if (environment === undefined) {
+    return configDeclaring(graph, JSDOM);
+  }
+
+  return environment === 'jsdom' ? (configDeclaring(graph, JSDOM) ?? configName(graph, PLAIN_CONTEXT)) : undefined;
+}
+
+function engineSwap(phases: readonly Phase[], config: string): Finding {
+  return {
+    check: 'perf-environment-engine',
+    severity: 'info',
+    message: `${config} sets \`environment: 'jsdom'\`, and building the DOM is ${formatShare(shareOf(phases, 'environment'))} of the measured CPU time. Every spec that needs a DOM keeps paying that, whatever moves to \`node\`.`,
+    fix: `Try \`environment: 'happy-dom'\` in ${config}, one project at a time with the suite green after each: it builds the DOM for less, and implements less of the platform.`,
+  };
+}
+
+/**
+ * From 21 `@angular/build:unit-test` runs the suite on `happy-dom` whenever the package resolves and
+ * the runner config names no environment, so there the switch is an install rather than a config line.
+ */
+function builderEngineFindings(phases: readonly Phase[], graph: SourceGraph, run: PerfRun, builder: BuilderRun): Finding[] {
+  const config = builder.runnerConfig;
+
+  if (config !== undefined && JSDOM.test(graph.texts.get(config) ?? '')) {
+    return [engineSwap(phases, config)];
+  }
+
+  if (!builder.configurable || builder.happyDom || (run.config?.environment ?? 'jsdom') !== 'jsdom') {
+    return [];
+  }
+
+  return [
+    {
+      check: 'perf-environment-engine',
+      severity: 'info',
+      message: `@angular/build runs this suite on \`jsdom\` because \`happy-dom\` is not installed, and building the DOM is ${formatShare(shareOf(phases, 'environment'))} of the measured CPU time. Every spec that needs a DOM keeps paying that, whatever moves to \`node\`.`,
+      fix: 'Try `npm i -D happy-dom`: the builder picks it over `jsdom` by itself, with no config line. Keep it only if the suite stays green: it builds the DOM for less, and implements less of the platform.',
+    },
+  ];
 }
 
 /**
@@ -131,32 +192,23 @@ function provided(run: PerfRun, option: string): boolean {
  * names `jsdom` and does not already mention `happy-dom` anywhere — a suite that has made this
  * choice does not need to be asked again.
  */
-/** The config that runs the suite on `jsdom`: the resolved one when the report has it, the config text otherwise. */
-function jsdomConfig(graph: SourceGraph, run: PerfRun): string | undefined {
-  const environment = run.config?.environment;
-
-  if (environment === undefined) {
-    return configDeclaring(graph, JSDOM);
-  }
-
-  return environment === 'jsdom' ? (configDeclaring(graph, JSDOM) ?? configName(graph)) : undefined;
-}
-
-export function domEngineFindings(phases: readonly Phase[], graph: SourceGraph, run: PerfRun): Finding[] {
-  const config = jsdomConfig(graph, run);
-
-  if (shareOf(phases, 'environment') < DOMINATES || config === undefined || configDeclares(graph, HAPPY_DOM)) {
+export function domEngineFindings(
+  phases: readonly Phase[],
+  graph: SourceGraph,
+  run: PerfRun,
+  context: PerfContext = PLAIN_CONTEXT,
+): Finding[] {
+  if (shareOf(phases, 'environment') < DOMINATES || configDeclares(graph, HAPPY_DOM)) {
     return [];
   }
 
-  return [
-    {
-      check: 'perf-environment-engine',
-      severity: 'info',
-      message: `${config} sets \`environment: 'jsdom'\`, and building the DOM is ${formatShare(shareOf(phases, 'environment'))} of the measured CPU time. Every spec that needs a DOM keeps paying that, whatever moves to \`node\`.`,
-      fix: `Try \`environment: 'happy-dom'\` in ${config}, one project at a time with the suite green after each: it builds the DOM for less, and implements less of the platform.`,
-    },
-  ];
+  if (context.builder !== undefined) {
+    return builderEngineFindings(phases, graph, run, context.builder);
+  }
+
+  const config = jsdomConfig(graph, run);
+
+  return config === undefined ? [] : [engineSwap(phases, config)];
 }
 
 /**
@@ -168,7 +220,13 @@ export function domEngineFindings(phases: readonly Phase[], graph: SourceGraph, 
  * wall-clock it costs is small — which is exactly the trade nobody is told about, because the
  * default never announces itself.
  */
-export function workerFindings(total: number, graph: SourceGraph, run: PerfRun, cores: number = availableParallelism()): Finding[] {
+export function workerFindings(
+  total: number,
+  graph: SourceGraph,
+  run: PerfRun,
+  cores: number = availableParallelism(),
+  context: PerfContext = PLAIN_CONTEXT,
+): Finding[] {
   const cap = Math.max(1, Math.floor(cores / 2));
   const resolved = workerCount(run);
 
@@ -186,7 +244,12 @@ export function workerFindings(total: number, graph: SourceGraph, run: PerfRun, 
       check: 'perf-workers',
       severity: 'info',
       message: `No \`maxWorkers\` is declared, so Vitest starts ${started}, each a whole runtime with its own memory.`,
-      fix: `If the run shares this machine, set \`maxWorkers: ${cap}\` in ${configName(graph)} and compare the wall clock before and after.`,
+      fix: fixIn(
+        graph,
+        context,
+        '`maxWorkers`',
+        (config) => `If the run shares this machine, set \`maxWorkers: ${cap}\` in ${config} and compare the wall clock before and after.`,
+      ),
     },
   ];
 }
@@ -195,11 +258,11 @@ export function workerFindings(total: number, graph: SourceGraph, run: PerfRun, 
  * Whether the run has already settled isolation. The resolved config is the answer when the report
  * carries it: a `vm` pool, `isolate: false`, or an `isolate` the user set on purpose.
  */
-function isolationSettled(graph: SourceGraph, profile: Profile, run: PerfRun): boolean {
+function isolationSettled(graph: SourceGraph, profile: Profile, run: PerfRun, context: PerfContext): boolean {
   const config = run.config;
 
   if (config?.isolate !== undefined) {
-    return !config.isolate || provided(run, 'isolate') || (config.pool !== undefined && !ISOLATING_POOLS.has(config.pool));
+    return !config.isolate || provided(run, 'isolate', context) || (config.pool !== undefined && !ISOLATING_POOLS.has(config.pool));
   }
 
   /**
@@ -232,16 +295,31 @@ function startupCost(run: PerfRun, cores: number): string {
   return `${spawned} Reusing one worker per lane saves at least ~${formatMs(saving)} of wall clock, by the estimate Vitest 5's own isolate hint makes: that start-up spread over ${lanes} lanes, less the one start-up per lane that stays.`;
 }
 
+const ISOLATION_TRADE =
+  'keep it only if peak memory stays acceptable: without isolation, every double a file creates lives until its worker ends.';
+
+function isolationFix(graph: SourceGraph, context: PerfContext): string {
+  const builder = context.builder;
+
+  // From 22.1 the target's own option beats the runner config, so that is where the switch is.
+  if (builder?.isolateOption === true && builder.target !== undefined) {
+    return `Try \`"isolate": false\` on ${targetLabel(builder)} in ${builder.target.file} and ${ISOLATION_TRADE}`;
+  }
+
+  return fixIn(graph, context, '`isolate: false`', (config) => `Try \`isolate: false\` in ${config} and ${ISOLATION_TRADE}`);
+}
+
 export function isolationFindings(
   phases: readonly Phase[],
   graph: SourceGraph,
   profile: Profile,
   run: PerfRun,
   cores: number = availableParallelism(),
+  context: PerfContext = PLAIN_CONTEXT,
 ): Finding[] {
   const overhead = shareOf(phases, 'environment') + shareOf(phases, 'setup') + shareOf(phases, 'prepare');
 
-  if (overhead < DOMINATES || isolationSettled(graph, profile, run)) {
+  if (overhead < DOMINATES || isolationSettled(graph, profile, run, context)) {
     return [];
   }
 
@@ -250,16 +328,44 @@ export function isolationFindings(
       check: 'perf-isolation',
       severity: 'info',
       message: `Per-file environment, setup and prepare together are ${formatShare(overhead)} of the measured CPU time. \`test.isolate: false\` pays those once per worker instead of once per file.${startupCost(run, cores)}`,
-      fix: `Try \`isolate: false\` in ${configName(graph)} and keep it only if peak memory stays acceptable: without isolation, every double a file creates lives until its worker ends.`,
+      fix: isolationFix(graph, context),
     },
   ];
+}
+
+const ANALOG_CONFIG = /@analogjs\/vite-plugin-angular/;
+const INLINE_STYLES = /\bstyles\s*:\s*["'[`]/;
+
+function inlineStyledComponent(graph: SourceGraph): boolean {
+  return [...graph.texts.values()].some((text) => text.includes('@Component(') && INLINE_STYLES.test(text));
+}
+
+/** Analog compiles inline `styles` in JIT mode into virtual modules a warm module cache cannot find again. */
+function analogRisk(graph: SourceGraph, context: PerfContext): boolean {
+  return context.builder === undefined && configDeclares(graph, ANALOG_CONFIG) && inlineStyledComponent(graph);
+}
+
+function analogWarning(phases: readonly Phase[], context: PerfContext): Finding {
+  const plugin = context.analog === undefined ? ANALOG_PLUGIN : `${ANALOG_PLUGIN} ${context.analog}`;
+
+  return {
+    check: 'perf-transform',
+    severity: 'warning',
+    message: `Waiting for modules to be transformed is ${formatShare(shareOf(phases, 'transform'))} of the measured CPU time, but the module cache is not the fix here: under ${plugin} a component with inline \`styles\` breaks the second, warm run with \`Cannot find module '/@id/__x00__virtual:angular:jit:style:inline;<hash>'\` in every spec that renders one.`,
+    fix: `Leave \`fsModuleCache\` off while the suite runs through ${plugin}, and measure again after upgrading it.`,
+  };
 }
 
 /**
  * Transform wait, which Vitest 5 measures per file. Nothing keeps a transform between two runs
  * unless `fsModuleCache` is on, so every run pays the whole graph again.
  */
-export function transformFindings(phases: readonly Phase[], graph: SourceGraph, run: PerfRun): Finding[] {
+export function transformFindings(
+  phases: readonly Phase[],
+  graph: SourceGraph,
+  run: PerfRun,
+  context: PerfContext = PLAIN_CONTEXT,
+): Finding[] {
   const waiting = run.files.filter((file): file is PerfFile & { fetch: number } => file.fetch !== undefined);
   const cached = run.config?.fsModuleCache ?? configDeclares(graph, MODULE_CACHE);
 
@@ -269,9 +375,14 @@ export function transformFindings(phases: readonly Phase[], graph: SourceGraph, 
     waiting.length < run.files.length ||
     shareOf(phases, 'transform') < DOMINATES ||
     cached ||
-    provided(run, 'fsModuleCache')
+    provided(run, 'fsModuleCache', context)
   ) {
     return [];
+  }
+
+  // No Analog release is measured to keep inline styles through a warm cache yet (2.7.5 breaks); same rule as doctor.
+  if (analogRisk(graph, context)) {
+    return [analogWarning(phases, context)];
   }
 
   const wait = waiting.reduce((total, file) => total + file.fetch, 0);
@@ -284,7 +395,37 @@ export function transformFindings(phases: readonly Phase[], graph: SourceGraph, 
       check: 'perf-transform',
       severity: 'info',
       message: `Waiting for modules to be transformed is ${formatShare(shareOf(phases, 'transform'))} of the measured CPU time — ${formatMs(wait)} over ${waiting.length} files — and every run pays it again, because nothing keeps a transform between runs.`,
-      fix: `Set ${option} in ${configName(graph)}: the next run reads the transformed modules from ${directory} instead, which puts up to ${formatMs(wait)} of that wait at stake. On CI it only helps when ${directory} is kept between pipelines, in the job's cache.`,
+      fix: fixIn(
+        graph,
+        context,
+        option,
+        (config) =>
+          `Set ${option} in ${config}: the next run reads the transformed modules from ${directory} instead, which puts up to ${formatMs(wait)} of that wait at stake. On CI it only helps when ${directory} is kept between pipelines, in the job's cache.`,
+      ),
+    },
+  ];
+}
+
+/**
+ * Under the builder `npx vitest doctor` runs the specs without the bundle, the globals and the
+ * TestBed the builder sets up, and its baseline fails on `describe is not defined`.
+ */
+function builderAbFindings(builder: BuilderRun | undefined): Finding[] {
+  if (!builder?.configurable) {
+    return [];
+  }
+
+  const command = `${builderCommand(builder)} --watch=false`;
+  const base = builder.runnerConfig === undefined ? command : `${command} --runner-config=${builder.runnerConfig}`;
+  const variant = builder.runnerConfig === undefined ? 'a runner config of its own' : `a copy of ${builder.runnerConfig}`;
+
+  return [
+    {
+      check: 'perf-vitest-doctor',
+      severity: 'info',
+      message:
+        'This run went through @angular/build, where `npx vitest doctor` cannot measure anything: without the builder the specs are not bundled and get no globals, so its baseline run fails on `describe is not defined`. The builder takes a runner config per run, which is enough for an A/B of your own.',
+      fix: `Before keeping a change suggested above, put it in ${variant} and time \`${command} --runner-config=<variant>\` against \`${base}\`, a few rounds each, alternating.`,
     },
   ];
 }
@@ -293,9 +434,13 @@ export function transformFindings(phases: readonly Phase[], graph: SourceGraph, 
  * On Vitest 5 the switches above can be measured rather than trusted: `vitest doctor` re-runs the
  * suite once per candidate. One line, only when a finding it could confirm fired.
  */
-export function vitestDoctorFindings(run: PerfRun, findings: readonly Finding[]): Finding[] {
-  if ((vitestMajor(run) ?? 0) < 5 || !findings.some((finding) => CONFIRMABLE.has(finding.check))) {
+export function vitestDoctorFindings(run: PerfRun, findings: readonly Finding[], context: PerfContext = PLAIN_CONTEXT): Finding[] {
+  if ((vitestMajor(run) ?? 0) < 5 || !findings.some((finding) => CONFIRMABLE.has(finding.check) && finding.severity === 'info')) {
     return [];
+  }
+
+  if (context.builderWorkspace || context.builder !== undefined) {
+    return builderAbFindings(context.builder);
   }
 
   return [

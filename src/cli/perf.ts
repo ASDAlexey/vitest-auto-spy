@@ -21,6 +21,8 @@ import { toPosix } from './fs-scan';
 import type { CliIo } from './main';
 import { MONOCHROME, type Painter, outputWidth, painterFor, wrapText } from './paint';
 import type { BaselineOptions } from './perf-baseline';
+import type { PerfContext } from './perf-builder';
+import { builderImport, perfContext } from './perf-builder';
 import { DOMINATES, domEngineFindings, isolationFindings, transformFindings, vitestDoctorFindings, workerFindings } from './perf-config';
 import type { PerfFile, PerfRun, Phase } from './perf-data';
 import { formatMs, formatShare, measuredNothing, phasesOf, shareOf, testsRunOf, totalOf } from './perf-data';
@@ -173,8 +175,9 @@ function importPhase(run: PerfRun): string {
     : 'Importing modules';
 }
 
-function importFindings(phases: readonly Phase[], graph: SourceGraph, run: PerfRun): Finding[] {
-  if (shareOf(phases, 'import') < DOMINATES) {
+/** Under the builder esbuild has already resolved every barrel into a bundle before Vitest imports anything. */
+function importFindings(phases: readonly Phase[], graph: SourceGraph, run: PerfRun, context: PerfContext): Finding[] {
+  if (shareOf(phases, 'import') < DOMINATES || context.builder !== undefined) {
     return [];
   }
 
@@ -201,7 +204,12 @@ function importFindings(phases: readonly Phase[], graph: SourceGraph, run: PerfR
   ];
 }
 
-export function analysePerf(run: PerfRun, profile: Profile, failOnFlaky = false): PerfAnalysis {
+export function analysePerf(
+  run: PerfRun,
+  profile: Profile,
+  failOnFlaky = false,
+  context: PerfContext = perfContext(profile, undefined),
+): PerfAnalysis {
   const phases = phasesOf(run);
   const total = totalOf(phases);
   const measured = measuredFiles(run, profile.cwd);
@@ -216,16 +224,16 @@ export function analysePerf(run: PerfRun, profile: Profile, failOnFlaky = false)
   const graph = buildGraph(profile);
   const advice = [
     ...environmentFindings(phases, profile, graph, measured),
-    ...domEngineFindings(phases, graph, run),
-    ...transformFindings(phases, graph, run),
-    ...importFindings(phases, graph, run),
-    ...isolationFindings(phases, graph, profile, run),
-    ...workerFindings(total, graph, run),
+    ...domEngineFindings(phases, graph, run, context),
+    ...transformFindings(phases, graph, run, context),
+    ...importFindings(phases, graph, run, context),
+    ...isolationFindings(phases, graph, profile, run, undefined, context),
+    ...workerFindings(total, graph, run, undefined, context),
   ];
 
   return {
     ...base,
-    findings: [...always, ...advice, ...longPoleFindings(lanes), ...vitestDoctorFindings(run, advice)],
+    findings: [...always, ...advice, ...longPoleFindings(lanes), ...vitestDoctorFindings(run, advice, context)],
   };
 }
 
@@ -413,12 +421,14 @@ function withEvidence(
   second: PerfMeasured | undefined,
   cwd: string,
   options: GateOptions,
+  context: PerfContext,
 ): Finding {
+  const spec = finding.file;
   const firstFiles = measuredFiles(first, cwd);
-  const before = finding.file === undefined ? undefined : firstFiles.get(finding.file);
-  const after = finding.file === undefined || second === undefined ? undefined : measuredFiles(second.run, cwd).get(finding.file);
+  const before = spec === undefined ? undefined : firstFiles.get(spec);
+  const after = spec === undefined || second === undefined ? undefined : measuredFiles(second.run, cwd).get(spec);
 
-  if (finding.severity !== 'error' || before === undefined || after === undefined || row.again === undefined) {
+  if (spec === undefined || finding.severity !== 'error' || before === undefined || after === undefined || row.again === undefined) {
     return finding;
   }
 
@@ -427,11 +437,13 @@ function withEvidence(
     .sort((a, b) => b.ms - a.ms || a.name.localeCompare(b.name))
     .slice(0, 5)
     .map((entry) => ({ name: shortName(entry.name), ms: entry.ms }));
-  const profile = [...(second?.profiles ?? new Map<string, CpuProfile>())].find(([path]) => toPosix(relative(cwd, path)) === finding.file);
-  const imports = (after.slowImports ?? []).map((entry) => ({
-    name: packageOf(entry.module) ?? toPosix(relative(cwd, entry.module)),
-    ms: entry.ms,
-  }));
+  const profile = [...(second?.profiles ?? new Map<string, CpuProfile>())].find(([path]) => toPosix(relative(cwd, path)) === spec);
+  const imports = (after.slowImports ?? []).flatMap((entry) => {
+    const named = packageOf(entry.module) ?? toPosix(relative(cwd, entry.module));
+    const name = context.builder === undefined ? named : builderImport(toPosix(entry.module), spec, named);
+
+    return name === undefined ? [] : [{ name, ms: entry.ms }];
+  });
   const details = formatEvidence(
     {
       ms: row.ms,
@@ -464,6 +476,7 @@ function runGate(
   gate: GateRequest,
   extra: readonly GateCandidate[],
   collected: Collected,
+  context: PerfContext,
   minSeverity?: Severity,
 ): number {
   const unmatched = unmatchedScope(run, cwd, gate.options.only);
@@ -489,7 +502,7 @@ function runGate(
 
   const second = confirmRun(gate, suspectFiles(candidates), cwd, io);
   const verdict = gateVerdict(candidates, second?.run, cwd, gate.trustSingle);
-  const findings = verdict.entries.map(({ finding, row }) => withEvidence(finding, row, run, second, cwd, gate.options));
+  const findings = verdict.entries.map(({ finding, row }) => withEvidence(finding, row, run, second, cwd, gate.options, context));
 
   collected.findings.push(...findings);
   collected.rows.push(...verdict.rows);
@@ -588,7 +601,8 @@ function renderInto(source: PerfSource, profile: Profile, io: CliIo, options: Pe
 }
 
 function reportMeasured(source: PerfMeasured, profile: Profile, io: CliIo, options: PerfOptions, collected: Collected): number {
-  const analysis = analysePerf(source.run, profile, options.failOnFlaky === true);
+  const context = perfContext(profile, source.command);
+  const analysis = analysePerf(source.run, profile, options.failOnFlaky === true, context);
   const measured = [...measuredFiles(source.run, profile.cwd).values()];
 
   collected.analysis = analysis;
@@ -611,14 +625,21 @@ function reportMeasured(source: PerfMeasured, profile: Profile, io: CliIo, optio
   reportFindings(analysis, io, options.minSeverity);
   reportHotspots(source, profile.cwd, options, io);
 
-  const code = judgeMeasured(source, profile, io, options, collected);
+  const code = judgeMeasured(source, profile, io, options, collected, context);
 
   return code === 0 && analysis.findings.some((finding) => finding.check === 'perf-flaky' && finding.severity === 'error')
     ? PERF_GATE_FAILED
     : code;
 }
 
-function judgeMeasured(source: PerfMeasured, profile: Profile, io: CliIo, options: PerfOptions, collected: Collected): number {
+function judgeMeasured(
+  source: PerfMeasured,
+  profile: Profile,
+  io: CliIo,
+  options: PerfOptions,
+  collected: Collected,
+  context: PerfContext,
+): number {
   const gate = options.gate;
 
   if (options.baseline?.update === true) {
@@ -656,5 +677,5 @@ function judgeMeasured(source: PerfMeasured, profile: Profile, io: CliIo, option
     return PERF_NO_MEASUREMENT;
   }
 
-  return runGate(source.run, profile.cwd, io, gate, regressions, collected, options.minSeverity);
+  return runGate(source.run, profile.cwd, io, gate, regressions, collected, context, options.minSeverity);
 }

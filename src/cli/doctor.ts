@@ -7,8 +7,11 @@
  * spread across files.
  */
 import { checkAgentInstructions } from './checks/agent-instructions';
+import { checkAnalogFastCompile } from './checks/analog-fast-compile';
+import { checkAnalogModuleCache } from './checks/analog-module-cache';
 import { checkAngularBuild } from './checks/angular-build';
 import { checkBuilderSetup } from './checks/builder-setup';
+import { checkBuilderSpeed } from './checks/builder-speed';
 import { checkCoverageConfig } from './checks/coverage-config';
 import { checkForeignPragma } from './checks/foreign-pragma';
 import { buildGraph, isSpecFile } from './checks/graph';
@@ -38,6 +41,7 @@ export function runDoctor(profile: Profile): Finding[] {
     ...checkOrphanRunnerConfig(profile, graph),
     ...checkAngularBuild(profile),
     ...checkBuilderSetup(profile),
+    ...checkBuilderSpeed(profile),
     ...checkCoverageConfig(profile),
     ...checkAgentInstructions(profile),
     ...checkJasmineEra(profile),
@@ -49,6 +53,8 @@ export function runDoctor(profile: Profile): Finding[] {
     ...checkVitest5ClearMocks(profile, graph),
     ...checkVitest5Available(profile),
     ...checkModuleCachePersisted(profile, graph),
+    ...checkAnalogModuleCache(profile, graph),
+    ...checkAnalogFastCompile(graph),
   ];
 }
 
