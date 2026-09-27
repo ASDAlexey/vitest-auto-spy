@@ -360,6 +360,31 @@ const CROSS_ENTRY = [
     `,
   },
   {
+    // A DOM environment holds the worker's own console; `./setup` routes it into whatever `./console` put
+    // on the global one. A fresh global console stands in for Vitest's swap, since plain Node has none.
+    name: 'the environment console ./setup routes lands in a ./console spy and in consoleOutput()',
+    entries: ['./console', './setup'],
+    body: `
+      const { Console } = await import('node:console');
+      const own = globalThis.console;
+      globalThis.console = new Console(process.stdout, process.stderr);
+
+      const { guardStrayConsole } = await import(SETUP);
+      try {
+        guardStrayConsole('throw');
+      } catch (error) {
+        assert(/failed to find the runner/.test(error.message), 'arming the guard failed: ' + error.message);
+      }
+
+      const { consoleOutput, installConsoleSpies } = await import(CONSOLE);
+      installConsoleSpies();
+      own.error('Not implemented: navigation');
+
+      const output = consoleOutput();
+      assert(JSON.stringify(output) === JSON.stringify({ error: [['Not implemented: navigation']] }), 'the environment line did not reach the console spy: ' + JSON.stringify(output));
+    `,
+  },
+  {
     // `./setup` reports from the ledger the factory bundles note reads on; the window it opens from a
     // `beforeEach` is set by hand, since plain Node has no runner.
     name: 'a read nobody configured is noted on the one shared ledger by the root and angular bundles alike',

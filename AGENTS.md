@@ -81,7 +81,7 @@ Add-ons, orthogonal to the runner:
 | --- | --- | --- |
 | Observable spies | `import 'vitest-auto-spy/rxjs'` | `nextWith` & friends. **Side-effect import, once**, in a setup file, a spec, or a `.d.ts` the `tsconfig` includes (§4) |
 | observer-spy shim | `vitest-auto-spy/observer-spy` | `subscribeSpyTo` — the `@hirez_io/observer-spy` surface (§20). Its own entry so `/rxjs` does not carry it |
-| Console spies | `vitest-auto-spy/console` | silent typed spies over the global `console` — `installConsoleSpies()` per test, `restoreConsole()` after |
+| Console spies | `vitest-auto-spy/console` | silent typed spies over the global `console` — `installConsoleSpies()` per test, `restoreConsole()` after; `consoleOutput()` is everything logged, keyed by channel |
 | DOM stubs | `vitest-auto-spy/dom-stubs` | `stubIntersectionObserver` / `stubResizeObserver` / `stubMutationObserver` / `stubObserver`, `stubMediaElement`, `stubAbortController`, `stubWebStorage` (§12), `stubAnimationFrame`, `stubElementRect`, `intersectionEntry` / `resizeEntry` / `mutationRecord`. **Moved off the root in 4.0.0** |
 | Run diagnostics | `vitest-auto-spy/diagnostics` | `compareTestRuns`, `summarizeTestRun`, `formatTestRunComparison`, `diffByField`. **Moved off the root in 4.0.0** |
 | Angular HTTP | `vitest-auto-spy/angular-http` | `provideHttpTesting`, `expectRequest` — `httpResource()` / `HttpClient` (§13). Optional `@angular/common` peer, this entry only |

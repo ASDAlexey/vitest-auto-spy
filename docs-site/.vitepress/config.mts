@@ -323,6 +323,8 @@ export default defineConfig({
           'mock requestAnimationFrame vitest, jsdom getBoundingClientRect returns zeros, mock getBoundingClientRect, ' +
           'fixture.nativeElement is any, nativeElement without cast, typed querySelector angular test, ' +
           'console output fails test which file, NG0912 component id collision in tests, ' +
+          'assert all console output in one expect, rxjs unhandled error after test ended, ' +
+          'ignore third-party timers in leak check, test angular http interceptor with HttpTestingController, ' +
           'stray timer after test ended, strict mock error what to configure, ' +
           'why did my mock return undefined, calledWith not matching, which calledWith matched, ' +
           'spy called with wrong arguments, mock called but returned default, explainSpy, ' +
