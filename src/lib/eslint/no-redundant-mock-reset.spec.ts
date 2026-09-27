@@ -420,6 +420,46 @@ describe('no-redundant-mock-reset, specs the Angular unit-test builder also runs
     expect(lint(directory, restore, undefined, 'lib')).toBe(1);
   });
 
+  it('reads configFlags as set by the configFile, so they reach only the runs that load it', () => {
+    const factory = (name: string, vitest: string, options?: object): string => {
+      const directory = join(root, name);
+
+      write(join(directory, 'node_modules', 'vitest', 'package.json'), JSON.stringify({ version: vitest }));
+      write(join(directory, 'vitest.config.ts'), 'export default createProjectConfig({ alias: [] });\n');
+
+      if (options !== undefined) {
+        write(join(directory, 'nx.json'), '{}');
+        write(
+          join(directory, 'projects', 'app', 'project.json'),
+          JSON.stringify({ targets: { test: { executor: '@nx/angular:unit-test', options } } }),
+        );
+      }
+
+      return directory;
+    };
+    const flagged = { configFile: 'vitest.config.ts', configFlags: { clearMocks: true } };
+
+    expect(lint(factory('flags-runner-config', '4.1.11', { runnerConfig: 'vitest.config.ts' }), clear, flagged)).toBe(1);
+    expect(lint(factory('flags-no-runner-config', '4.1.11', {}), clear, flagged)).toBe(0);
+    expect(lint(factory('flags-no-builder', '4.1.11'), clear, flagged)).toBe(1);
+    expect(lint(factory('flags-no-builder', '4.1.11'), clear, { configFile: 'vitest.config.ts' })).toBe(0);
+    expect(lint(factory('flags-v5', '5.0.2', {}), clear, flagged)).toBe(1);
+    expect(lint(factory('flags-v5', '5.0.2', {}), clear, { configFile: 'vitest.config.ts' })).toBe(1);
+    // A flag written beside configFile still has the last word, un-narrowed.
+    expect(lint(factory('flags-no-runner-config', '4.1.11', {}), clear, { ...flagged, clearMocks: true })).toBe(1);
+    expect(lint(factory('flags-runner-config', '4.1.11', { runnerConfig: 'vitest.config.ts' }), restore, flagged)).toBe(0);
+    expect(
+      lint(factory('flags-restore', '4.1.11', { runnerConfig: 'vitest.config.ts' }), restore, {
+        configFile: 'vitest.config.ts',
+        configFlags: { restoreMocks: true, mockReset: false },
+      }),
+    ).toBe(1);
+  });
+
+  it('refuses configFlags without the configFile they describe', () => {
+    expect(() => lint(join(root, 'flags-alone'), clear, { configFlags: { clearMocks: true } })).toThrow(/configFile/);
+  });
+
   it('keeps the flags written as options as the whole answer', () => {
     expect(lint(workspace('inline', { builder: '@angular/build:unit-test' }), restore, { restoreMocks: true })).toBe(1);
   });

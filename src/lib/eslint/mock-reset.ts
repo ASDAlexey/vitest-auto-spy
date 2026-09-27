@@ -308,10 +308,20 @@ export const noRedundantMockReset: RuleModule = defineRule({
       properties: {
         clearMocks: { type: 'boolean' },
         configFile: { type: 'string' },
+        configFlags: {
+          type: 'object',
+          properties: {
+            clearMocks: { type: 'boolean' },
+            mockReset: { type: 'boolean' },
+            restoreMocks: { type: 'boolean' },
+          },
+          additionalProperties: false,
+        },
         mockReset: { type: 'boolean' },
         restoreMocks: { type: 'boolean' },
       },
       additionalProperties: false,
+      dependencies: { configFlags: ['configFile'] },
     },
   ],
   messages: {

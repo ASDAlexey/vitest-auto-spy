@@ -33,6 +33,8 @@
  * count only as far as each builder run applies them too: one without `runnerConfig` reads no config
  * and runs on Vitest's defaults, so a `restoreMocks: true` it never sees does not make a reset dead.
  * The rule's own flags are not narrowed: written by hand, they are the project's word for every run.
+ * `configFlags` is the one that is: the flags a factory-built `configFile` sets beyond its text, read
+ * as if written there, so they reach exactly the runs that load that file.
  *
  * **What the search misses**, said out loud because the workspace this was measured on is the case:
  * a runner config at a path nothing standard names — a `runnerConfig` string of
@@ -155,25 +157,39 @@ function meet(left: RunnerResets, right: RunnerResets): RunnerResets {
   };
 }
 
+/** A named config's path and its reading, which a builder run loading that same file shares. */
+interface NamedConfig {
+  path: string;
+  flags: ConfigFlags;
+}
+
 /** A config's flags narrowed to what every unit-test builder target serving the file also resets. */
-function underBuilders(context: RuleContext, found: RunnerResets): RunnerResets {
-  const read = (config: string | undefined): ConfigFlags =>
-    config !== undefined && existsSync(config) ? flagsIn(readFileSync(config, 'utf8')) : NO_CONFIG;
+function underBuilders(context: RuleContext, found: RunnerResets, named?: NamedConfig): RunnerResets {
+  const read = (config: string | undefined): ConfigFlags => {
+    if (config === undefined || !existsSync(config)) {
+      return NO_CONFIG;
+    }
+
+    return config === named?.path ? named.flags : flagsIn(readFileSync(config, 'utf8'));
+  };
 
   return builderConfigs(context.filename).reduce((flags, config) => meet(flags, settled(context, read(config))), found);
 }
 
-/** The rule's options: the three flags, and the runner config to read them from. */
-interface ResetOptions extends Partial<RunnerResets> {
+type ResetFlags = Partial<Pick<RunnerResets, 'clearMocks' | 'mockReset' | 'restoreMocks'>>;
+
+/** The rule's options: the three flags, the runner config to read them from, and what that config sets beyond its text. */
+interface ResetOptions extends ResetFlags {
   configFile?: string;
+  configFlags?: ResetFlags;
 }
 
 function isResetOptions(value: unknown): value is ResetOptions {
   return typeof value === 'object' && value !== null;
 }
 
-/** The runner config `configFile` names, read; loud when it is not there. */
-function namedConfig(context: RuleContext, configFile: string): ConfigFlags {
+/** The runner config `configFile` names, read with `configFlags` over its text; loud when it is not there. */
+function namedConfig(context: RuleContext, configFile: string, extra: ResetFlags = {}): NamedConfig {
   const path = resolve(context.cwd, configFile);
 
   if (!existsSync(path)) {
@@ -183,7 +199,23 @@ function namedConfig(context: RuleContext, configFile: string): ConfigFlags {
     );
   }
 
-  return flagsIn(readFileSync(path, 'utf8'));
+  const text = flagsIn(readFileSync(path, 'utf8'));
+
+  return {
+    path,
+    flags: {
+      clearMocks: extra.clearMocks ?? text.clearMocks,
+      mockReset: extra.mockReset ?? text.mockReset,
+      restoreMocks: extra.restoreMocks ?? text.restoreMocks,
+    },
+  };
+}
+
+/** The flags `configFile` gives every run that loads it, narrowed by the builder runs that do not. */
+function fromConfigFile(context: RuleContext, configFile: string, extra: ResetFlags | undefined): RunnerResets {
+  const named = namedConfig(context, configFile, extra);
+
+  return underBuilders(context, settled(context, named.flags), named);
 }
 
 /** What the runner resets between tests, or `undefined` when nothing said. */
@@ -199,7 +231,7 @@ export function runnerResets(context: RuleContext): RunnerResets | undefined {
   const base =
     options.configFile === undefined
       ? { clearMocks: false, mockReset: false, restoreMocks: false, clearByDefault: false }
-      : underBuilders(context, settled(context, namedConfig(context, options.configFile)));
+      : fromConfigFile(context, options.configFile, options.configFlags);
 
   return {
     clearMocks: options.clearMocks ?? base.clearMocks,
