@@ -8,7 +8,7 @@ import { count, displayFrame, displayPath, taskName } from './message-text';
 import { currentSpecFile } from './spec-file';
 import { ownFrames, stackFrames } from './stack-frames';
 import type { StrayListener } from './stray-listeners';
-import type { StrayTimer } from './stray-timers';
+import type { StrayTimer, UnhandledObservableError } from './stray-timers';
 
 /** Where a timer or listener was made: the running test, or the phase outside one. */
 export type MadeIn = object | 'hook' | 'import' | undefined;
@@ -193,5 +193,52 @@ export function strayListenersError(removed: number, listeners: readonly StrayLi
       ].join('\n'),
       DOCS_LINKS.setupListeners,
     ),
+  );
+}
+
+/** `HttpErrorResponse: Http failure response for /api: 502`, and the value itself for a non-error — rxjs lets anything through. */
+function describeThrown(error: unknown): string {
+  const message: unknown = Reflect.get(Object(error), 'message');
+
+  if (typeof message !== 'string') {
+    return String(error);
+  }
+
+  const name: unknown = Reflect.get(Object(error), 'name');
+
+  return `${typeof name === 'string' && name !== '' ? name : 'Error'}: ${String(message.split('\n')[0])}`;
+}
+
+function placeOf({ test, outsideTest }: UnhandledObservableError): string {
+  if (test !== undefined) {
+    return ` in "${test}"`;
+  }
+
+  return outsideTest === 'import' ? ' while the file was imported' : ' outside any test';
+}
+
+/**
+ * What an rxjs error nothing handled fails its test with; the first error rides along as `cause`, so
+ * the runner prints its stack. Without `test` names on the entries, the place is the running test's.
+ */
+export function unhandledObservableErrorsError(errors: readonly UnhandledObservableError[]): Error {
+  const places = new Set(errors.map(placeOf));
+  const [only] = places;
+  const shared = places.size === 1 && only !== undefined ? only : '';
+  const lines = errors.map((entry) => `  - ${describeThrown(entry.error)}${shared === '' ? placeOf(entry) : ''}`);
+  const one = errors.length === 1;
+
+  return new Error(
+    withDocs(
+      [
+        `[vitest-auto-spy] Unhandled Observable ${one ? 'error' : 'errors'}${shared}:`,
+        ...lines,
+        `rxjs rethrows an error no subscriber handles from a setTimeout, where it fails no test; ${one ? 'it was' : 'they were'} ` +
+          'rethrown now instead. Handle it where the stream is subscribed — an error callback, catchError — or assert it: ' +
+          '`await expect(firstValueFrom(stream$)).rejects.toThrow(…)`.',
+      ].join('\n'),
+      DOCS_LINKS.setupTimers,
+    ),
+    { cause: errors[0]?.error },
   );
 }

@@ -74,11 +74,14 @@ export {
   cancelStrayTimers,
   countStrayTimers,
   describeStrayTimers,
+  flushUnhandledObservableErrors,
   trackStrayTimers,
   withoutStrayTimerTracking,
   type SchedulerHost,
   type StrayTimer,
+  type StrayTimersOptions,
   type StopTrackingTimers,
+  type UnhandledObservableError,
 } from './lib/stray-timers';
 export { getWatchedTimerGlobals, restoreTimerGlobals } from './lib/timer-globals';
 export {

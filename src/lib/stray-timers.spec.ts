@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import * as nodeTimers from 'node:timers';
 import { promisify } from 'node:util';
+import { Subject, config } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { isOwnedPatch } from './owned-patch';
@@ -11,6 +12,7 @@ import {
   countStrayTimers,
   describeStrayTimers,
   detectsAsyncLeaks,
+  flushUnhandledObservableErrors,
   trackStrayTimers,
   withoutStrayTimerTracking,
 } from './stray-timers';
@@ -675,5 +677,211 @@ describe('an installation that cannot be completed', () => {
     expect(() => trackStrayTimers(host)).toThrow();
     expect(host.setTimeout).toBe(realSetTimeout);
     expect(() => countStrayTimers(host)).toThrow(/nothing called trackStrayTimers\(\) for this host/);
+  });
+});
+
+/** Calls `target` from a frame that reports `file` as its source, the way a dependency's own code would. */
+function relayFrom(file: string): (target: (...args: never[]) => unknown, ...args: unknown[]) => unknown {
+  return new Function('target', '...args', `return target(...args);\n//# sourceURL=${file}`) as (
+    target: (...args: never[]) => unknown,
+    ...args: unknown[]
+  ) => unknown;
+}
+
+function callFrom(file: string, work: () => unknown): unknown {
+  return relayFrom(file)(work);
+}
+
+const NODE_UNDICI = 'node:internal/deps/undici/undici';
+const PACKAGE_UNDICI = '/app/node_modules/undici/lib/dispatcher/client-h1.js';
+const ZONE = '/app/node_modules/zone.js/fesm2015/zone.js';
+
+describe('timers left alone', () => {
+  const stops: (() => void)[] = [];
+
+  afterEach(() => {
+    stops.splice(0).forEach((stop) => stop());
+  });
+
+  it.each([NODE_UNDICI, PACKAGE_UNDICI])('neither counts nor cancels a timer %s scheduled, and forgets it at the sweep', (file) => {
+    const host = createHost();
+
+    stops.push(trackStrayTimers(host));
+    relayFrom(file)(host.setTimeout, () => undefined, 3000);
+
+    expect(countStrayTimers(host)).toBe(0);
+    expect(describeStrayTimers(host)).toEqual([]);
+    expect(cancelStrayTimers(host)).toBe(0);
+    expect(host.cleared).toEqual([]);
+  });
+
+  it('looks past zone.js to the code that asked', () => {
+    const host = createHost();
+
+    stops.push(trackStrayTimers(host));
+    relayFrom(NODE_UNDICI)(relayFrom(ZONE), host.setTimeout, () => undefined, 499);
+
+    expect(countStrayTimers(host)).toBe(0);
+  });
+
+  it('still charges a timer to a spec callback undici happens to call', () => {
+    const host = createHost();
+
+    stops.push(trackStrayTimers(host));
+    callFrom(PACKAGE_UNDICI, function replyFromSpec() {
+      return host.setTimeout(() => undefined, 10);
+    });
+
+    expect(countStrayTimers(host)).toBe(1);
+    expect(cancelStrayTimers(host)).toBe(1);
+  });
+
+  it('leaves alone what an ignore pattern matches in the scheduling stack, a substring or a RegExp', () => {
+    const host = createHost();
+
+    stops.push(trackStrayTimers(host, { ignore: ['some-sdk/poll.js', /other-sdk[\\/]heartbeat/g] }));
+    callFrom('/app/node_modules/some-sdk/poll.js', () => host.setTimeout(() => undefined, 100));
+    callFrom('/app/node_modules/other-sdk/heartbeat.js', () => host.setInterval(() => undefined, 100));
+    callFrom('/app/node_modules/other-sdk/heartbeat.js', () => host.requestAnimationFrame?.(() => undefined));
+    host.setTimeout(() => undefined, 100);
+
+    expect(countStrayTimers(host)).toBe(1);
+    expect(describeStrayTimers(host)).toHaveLength(1);
+    expect(cancelStrayTimers(host)).toBe(1);
+    expect(host.cleared).toEqual([4, 4]);
+    expect(host.clearedFrames).toEqual([]);
+  });
+
+  it('takes the ignore list of the latest call', () => {
+    const host = createHost();
+
+    stops.push(trackStrayTimers(host, { ignore: ['some-sdk'] }));
+    trackStrayTimers(host);
+    callFrom('/app/node_modules/some-sdk/poll.js', () => host.setTimeout(() => undefined, 100));
+
+    expect(countStrayTimers(host)).toBe(1);
+  });
+});
+
+describe('flushUnhandledObservableErrors', () => {
+  const stops: (() => void)[] = [];
+
+  afterEach(() => {
+    stops.splice(0).forEach((stop) => stop());
+    config.onUnhandledError = null;
+    vi.useRealTimers();
+  });
+
+  const failUnhandled = (error: unknown): void => {
+    const subject = new Subject<never>();
+
+    subject.subscribe();
+    subject.error(error);
+  };
+
+  it('runs the pending rethrow of rxjs now and hands back what it threw, with the test that scheduled it', () => {
+    stops.push(trackStrayTimers());
+
+    const error = new Error('502 from /api');
+
+    failUnhandled(error);
+
+    expect(countStrayTimers()).toBe(1);
+    expect(flushUnhandledObservableErrors()).toEqual([
+      { error, test: 'flushUnhandledObservableErrors > runs the pending rethrow of rxjs now and hands back what it threw, with the test that scheduled it' },
+    ]);
+    expect(countStrayTimers()).toBe(0);
+    expect(flushUnhandledObservableErrors()).toEqual([]);
+  });
+
+  it('hands the error to config.onUnhandledError instead, and reports nothing', () => {
+    stops.push(trackStrayTimers());
+
+    const handler = vi.fn();
+
+    config.onUnhandledError = handler;
+    failUnhandled('plain value');
+
+    expect(flushUnhandledObservableErrors()).toEqual([]);
+    expect(handler).toHaveBeenCalledWith('plain value');
+    expect(countStrayTimers()).toBe(0);
+  });
+
+  it('leaves every other timer alone', () => {
+    const host = createHost();
+
+    stops.push(trackStrayTimers(host));
+    host.setTimeout(() => undefined);
+    callFrom('/app/node_modules/rxjs/dist/cjs/internal/util/reportUnhandledError.js', () => host.setTimeout(() => undefined, 10));
+    host.setInterval(() => undefined, 0);
+    host.requestAnimationFrame?.(() => undefined);
+
+    expect(flushUnhandledObservableErrors(host)).toEqual([]);
+    expect(countStrayTimers(host)).toBe(4);
+  });
+
+  it('skips a rethrow already cancelled through its own close()', () => {
+    const host = createNodeLikeHost();
+
+    stops.push(trackStrayTimers(host));
+
+    const handle = callFrom('/app/node_modules/rxjs/dist/cjs/internal/util/reportUnhandledError.js', () =>
+      host.setTimeout(() => {
+        throw new Error('never');
+      }),
+    );
+
+    Reflect.get(Object(handle), 'close')?.call(handle);
+
+    expect(flushUnhandledObservableErrors(host)).toEqual([]);
+  });
+
+  it('reads the fake clock when fake timers are installed', () => {
+    vi.useFakeTimers();
+
+    const error = new Error('under a fake clock');
+
+    failUnhandled(error);
+
+    expect(vi.getTimerCount()).toBe(1);
+    expect(flushUnhandledObservableErrors()).toEqual([{ error, test: 'flushUnhandledObservableErrors > reads the fake clock when fake timers are installed' }]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('reads the plain-object timer table of an older fake clock, and skips what is not a rethrow', () => {
+    const cleared: unknown[] = [];
+    const host = createHost();
+    const rethrow = (value: unknown): void => {
+      const onUnhandledError = null;
+
+      if (onUnhandledError) {
+        return;
+      }
+
+      throw value;
+    };
+
+    Reflect.set(host.setTimeout, 'clock', {
+      timers: { 1: { id: 1, func: rethrow, args: ['old clock'] }, 2: { id: 2, func: () => undefined }, 3: { id: 3, func: 'code' }, 4: { id: 4, func: rethrow } },
+      clearTimeout: (id: unknown) => cleared.push(id),
+    });
+
+    expect(flushUnhandledObservableErrors(host)).toEqual([
+      { error: 'old clock', test: expect.any(String) },
+      { error: undefined, test: expect.any(String) },
+    ]);
+    expect(cleared).toEqual([1, 4]);
+  });
+
+  it.each([
+    ['no clock', undefined],
+    ['a clock with no timer table', { clearTimeout: () => undefined }],
+    ['a clock that cannot clear', { timers: new Map() }],
+  ])('finds nothing on a scheduler with %s', (_name, clock) => {
+    const host = createHost();
+
+    Reflect.set(host.setTimeout, 'clock', clock);
+
+    expect(flushUnhandledObservableErrors(host)).toEqual([]);
   });
 });

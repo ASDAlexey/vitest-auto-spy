@@ -36,12 +36,15 @@ import { armDiagnostics } from './setup-guards';
 import { recordSetupRegistration } from './setup-per-file';
 import { installTeardown } from './setup-teardown';
 import { type StrayConsoleOptions, type StrayConsoleReaction, watchStrayConsole } from './stray-console';
-import { strayTimersError, strayTimersReport } from './stray-failure';
+import { strayTimersError, strayTimersReport, unhandledObservableErrorsError } from './stray-failure';
 import {
   type StrayTimer,
+  type StrayTimersOptions,
+  type UnhandledObservableError,
   cancelStrayTimers,
   describeStrayTimers,
   detectsAsyncLeaks,
+  flushUnhandledObservableErrors,
   trackStrayTimers,
   withoutStrayTimerTracking,
 } from './stray-timers';
@@ -106,8 +109,14 @@ export interface SetupAutoSpyOptions {
    * Default `false`, because it wraps the global schedulers and that should be a deliberate choice.
    * Turn it on with `isolate: false`, where a stray callback fires during a *later* file and is
    * reported against it — see {@link trackStrayTimers}.
+   *
+   * The object form turns it on and names timers to leave alone — `{ ignore: [/some-sdk[\\/]poll/] }`,
+   * matched against the scheduling stack. undici's timers behind Node's `fetch()` are left alone already.
+   *
+   * On, it also fails a test whose Observable errored with nothing to handle it: rxjs rethrows such an
+   * error from a `setTimeout`, which fails no test — see {@link flushUnhandledObservableErrors}.
    */
-  strayTimers?: boolean;
+  strayTimers?: StrayTimersOptions | boolean;
   /**
    * What to do with the count `strayTimers` cancelled at the end of a file. Default: nothing, unless
    * Vitest's `detectAsyncLeaks` is on, in which case one warning is printed — see
@@ -611,20 +620,33 @@ export function describeAbandonedWaits(abandoned: readonly string[], test: strin
  * per file, because "still wanted?" only becomes an unambiguous no once the file is over.
  */
 function strayTimerSweeps(options: SetupAutoSpyOptions): BoundaryRepair[] {
-  if (!(options.strayTimers ?? false)) {
+  const { strayTimers = false } = options;
+
+  if (strayTimers === false) {
     return [];
   }
 
-  trackStrayTimers();
+  trackStrayTimers(undefined, strayTimers === true ? {} : strayTimers);
 
   return [
     (): (() => void) => {
+      const observable = flushUnhandledObservableErrors();
       const timers = describeStrayTimers();
       const cancelled = cancelStrayTimers();
 
-      return (): void => reportStrayTimers(cancelled, options.onStrayTimers, timers);
+      return (): void => {
+        reportUnhandledObservableErrors(observable);
+        reportStrayTimers(cancelled, options.onStrayTimers, timers);
+      };
     },
   ];
+}
+
+/** Fails the test, or the file, an rxjs error nothing handled was rethrown from. Exported for its spec. */
+export function reportUnhandledObservableErrors(errors: readonly UnhandledObservableError[]): void {
+  if (errors.length > 0) {
+    throw unhandledObservableErrorsError(errors);
+  }
 }
 
 /** The teardown steps that put the environment back, in the order they have to run. */
@@ -765,6 +787,12 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
   }
 
   addRestore(registry, abandonPendingWaits);
+
+  // Ahead of the restores: `restoreTimerGlobals` and `globalFakeTimers` drop a fake clock's pending rethrow.
+  if (options.strayTimers !== undefined && options.strayTimers !== false) {
+    registry.teardown.push(() => reportUnhandledObservableErrors(flushUnhandledObservableErrors()));
+  }
+
   armDiagnostics(registry, options);
   armRestores(registry, options);
 

@@ -33,7 +33,8 @@ import { defineHelper } from './define-helper';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { markOwnedPatch } from './owned-patch';
-import { type MadeIn, describeOriginOf, originNow } from './stray-failure';
+import { isLibraryFrame, stackFrames } from './stack-frames';
+import { type MadeIn, describeMadeIn, describeOriginOf, madeIn, originNow } from './stray-failure';
 import type { Func } from './types';
 
 /**
@@ -80,6 +81,16 @@ export interface StrayTimer {
   readonly outsideTest?: 'hook' | 'import';
 }
 
+/** Options for {@link trackStrayTimers}, and the object form of `setupAutoSpy({ strayTimers })`. */
+export interface StrayTimersOptions {
+  /**
+   * Timers left alone: never counted, reported or cancelled. Each entry is a substring or a searched
+   * RegExp, matched against the stack of the call that scheduled the timer. For a dependency's own
+   * housekeeping no spec can reach; undici's timers behind Node's `fetch()` are left alone already.
+   */
+  readonly ignore?: readonly (RegExp | string)[];
+}
+
 /** The stack is taken now and formatted only if the callback turns out to be a stray. */
 interface Origin {
   readonly kind: StrayTimer['kind'];
@@ -87,10 +98,14 @@ interface Origin {
   readonly file: unknown;
   readonly where: MadeIn;
   readonly trace: { readonly stack?: string };
+  /** Kept so a pending rethrow of rxjs can be run early — see {@link flushUnhandledObservableErrors}. */
+  readonly callback: ScheduledCallback;
+  /** What the scheduler was called with after the callback: the delay, then the callback's own arguments. */
+  readonly rest: readonly unknown[] | undefined;
 }
 
-/** What a wrapper knows when it schedules: the kind, the delay, and itself — where the stack is cut. */
-type OriginRequest = Pick<Origin, 'delay' | 'kind'> & { readonly boundary: Func };
+/** What a wrapper knows when it schedules: the kind, the delay, the call's arguments, and itself — where the stack is cut. */
+type OriginRequest = Pick<Origin, 'delay' | 'kind' | 'rest'> & { readonly boundary: Func };
 
 /** Undo the wrapping installed by {@link trackStrayTimers}, cancelling anything still outstanding. */
 export type StopTrackingTimers = () => void;
@@ -121,6 +136,10 @@ interface Tracking {
   readonly frames: Map<number, Origin>;
   /** Set while the library schedules on its own behalf, so its timers are never charged to a file. */
   readonly pause: { paused: boolean };
+  /** {@link StrayTimersOptions.ignore}, replaced by every call to {@link trackStrayTimers}. */
+  readonly ignore: { patterns: readonly (RegExp | string)[] };
+  /** The real `clearTimeout`, which still reaches a tracked handle once fake timers took the global over. */
+  readonly clearTimeout: (handle: unknown) => void;
   readonly stop: StopTrackingTimers;
 }
 
@@ -192,7 +211,7 @@ function scheduleTracked<THandle>(
   };
 
   handle = schedule(oneShot && typeof callback === 'function' ? forgetting : callback);
-  handles.set(handle, captureOrigin(origin));
+  handles.set(handle, captureOrigin(origin, callback));
 
   const id = numeric && numericIdOf(handle);
 
@@ -215,7 +234,7 @@ const ORIGIN_DEPTH = 40;
  * turns out to be a stray. `boundary` is the installed wrapper, so V8 drops the tracking's own
  * frames before counting toward the depth; elsewhere they are filtered out when described.
  */
-function captureOrigin({ kind, delay, boundary }: OriginRequest): Origin {
+function captureOrigin({ kind, delay, rest, boundary }: OriginRequest, callback: ScheduledCallback): Origin {
   const limit = Error.stackTraceLimit;
 
   Error.stackTraceLimit = ORIGIN_DEPTH;
@@ -224,7 +243,7 @@ function captureOrigin({ kind, delay, boundary }: OriginRequest): Origin {
 
   Error.stackTraceLimit = limit;
 
-  return { kind, delay, ...originNow(), trace };
+  return { kind, delay, ...originNow(), trace, callback, rest };
 }
 
 /** Into a plain object where V8 allows, which skips building the string until a report reads it. */
@@ -311,7 +330,7 @@ function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeo
       return handle;
     }
 
-    const origin: OriginRequest = { kind, delay: delayOf(rest[0]), boundary: wrapper };
+    const origin: OriginRequest = { kind, delay: delayOf(rest[0]), rest, boundary: wrapper };
 
     return scheduleTracked((tracked) => original(tracked, ...rest), callback, sets.handles, origin, sets.numeric);
   });
@@ -376,7 +395,7 @@ function wrapFrameScheduler(host: SchedulerHost, frames: Map<number, Origin>, pa
   const request: Func = defineHelper((callback: ScheduledCallback): number =>
     pause.paused
       ? original(callback)
-      : scheduleTracked((tracked) => original(tracked), callback, frames, { kind: 'frame', delay: undefined, boundary: request }),
+      : scheduleTracked((tracked) => original(tracked), callback, frames, { kind: 'frame', delay: undefined, rest: undefined, boundary: request }),
   );
 
   markOwnedPatch(request);
@@ -408,6 +427,7 @@ function wrapFrameScheduler(host: SchedulerHost, frames: Map<number, Origin>, pa
  * a second layer of wrappers. Call it once, as early as your setup file runs.
  *
  * @param host Defaults to the real globals. Pass a stand-in to contain a specific object instead.
+ * @param options What to leave alone. A repeated call replaces the previous `ignore` list.
  *
  * @returns The undo — it cancels whatever is outstanding and puts the original schedulers back.
  *
@@ -418,10 +438,13 @@ function wrapFrameScheduler(host: SchedulerHost, frames: Map<number, Origin>, pa
  * afterAll(() => cancelStrayTimers());
  * ```
  */
-export function trackStrayTimers(host: SchedulerHost = defaultHost()): StopTrackingTimers {
+export function trackStrayTimers(host: SchedulerHost = defaultHost(), options: StrayTimersOptions = {}): StopTrackingTimers {
   const tracked = registry().get(host);
+  const patterns = options.ignore ?? [];
 
   if (tracked) {
+    tracked.ignore.patterns = patterns;
+
     return tracked.stop;
   }
 
@@ -431,6 +454,7 @@ export function trackStrayTimers(host: SchedulerHost = defaultHost()): StopTrack
   const frames = new Map<number, Origin>();
   const pause = { paused: false };
   const undo: (() => void)[] = [];
+  const clearTimeout = host.clearTimeout.bind(host);
 
   const stop: StopTrackingTimers = () => {
     cancelStrayTimers(host);
@@ -458,7 +482,7 @@ export function trackStrayTimers(host: SchedulerHost = defaultHost()): StopTrack
     throw error;
   }
 
-  registry().set(host, { handles, numeric, opaque, frames, pause, stop });
+  registry().set(host, { handles, numeric, opaque, frames, pause, ignore: { patterns }, clearTimeout, stop });
 
   return stop;
 }
@@ -489,13 +513,16 @@ export function cancelStrayTimers(host: SchedulerHost = defaultHost()): number {
     return 0;
   }
 
-  const cancelled = pendingHandles(tracked).length + tracked.frames.size;
+  const cancelled = pendingHandles(tracked).length + pendingFrames(tracked).length;
 
   // A handle is either a timeout or an interval, and both clears accept either — calling both is
-  // cheaper than recording which scheduler produced it.
-  tracked.handles.forEach((_origin, handle) => {
-    host.clearTimeout(handle);
-    host.clearInterval(handle);
+  // cheaper than recording which scheduler produced it. An ignored one is only forgotten: undici
+  // keeps its connection pool's timers for reuse, and one cancelled behind its back never fires again.
+  tracked.handles.forEach((origin, handle) => {
+    if (!isIgnored(origin, tracked.ignore.patterns)) {
+      host.clearTimeout(handle);
+      host.clearInterval(handle);
+    }
   });
   tracked.handles.clear();
   tracked.numeric.clear();
@@ -507,7 +534,11 @@ export function cancelStrayTimers(host: SchedulerHost = defaultHost()): number {
   const cancelFrame = host.cancelAnimationFrame;
 
   if (cancelFrame) {
-    tracked.frames.forEach((_origin, handle) => cancelFrame(handle));
+    tracked.frames.forEach((origin, handle) => {
+      if (!isIgnored(origin, tracked.ignore.patterns)) {
+        cancelFrame(handle);
+      }
+    });
   }
 
   tracked.frames.clear();
@@ -547,17 +578,54 @@ function isPending(handle: unknown): boolean {
   return Reflect.get(Object(handle), '_destroyed') !== true;
 }
 
-/** Outstanding timeouts and intervals, minus the ones cancelled behind the wrappers' back. */
+/** Outstanding timeouts and intervals, minus the ones cancelled behind the wrappers' back and the ignored. */
 function pendingHandles(tracked: Tracking): Origin[] {
   const pending: Origin[] = [];
 
   tracked.handles.forEach((origin, handle) => {
-    if (isPending(handle)) {
+    if (isPending(handle) && !isIgnored(origin, tracked.ignore.patterns)) {
       pending.push(origin);
     }
   });
 
   return pending;
+}
+
+function pendingFrames(tracked: Tracking): Origin[] {
+  return [...tracked.frames.values()].filter((origin) => !isIgnored(origin, tracked.ignore.patterns));
+}
+
+/** Node's bundled undici behind the global `fetch()`, or the `undici` package itself. */
+const UNDICI_FRAME = /node:internal\/deps\/undici\/|[/\\]node_modules[/\\]undici[/\\]/;
+
+/** zone.js's own scheduling chain, which sits between a caller and the tracked wrapper when zone patched later. */
+const ZONE_FRAME = /[/\\]zone\.js[/\\]|[/\\]zone(?:-node)?(?:\.umd)?(?:\.min)?\.[cm]?js\b/;
+
+/**
+ * The code that asked for the timer: the first frame that is neither this package nor zone.js.
+ * Only that one counts for undici, so a spec callback undici happens to call synchronously — a
+ * `MockAgent` reply — still has its own timers charged to it.
+ */
+function schedulingFrame(frames: readonly string[]): string | undefined {
+  return frames.find((frame) => !OWN_MODULE_FRAME.test(frame) && !isLibraryFrame(frame) && !ZONE_FRAME.test(frame));
+}
+
+function isIgnored(origin: Origin, patterns: readonly (RegExp | string)[]): boolean {
+  const stack = origin.trace.stack ?? '';
+  const caller = schedulingFrame(stackFrames(stack));
+
+  if (caller !== undefined && UNDICI_FRAME.test(caller)) {
+    return true;
+  }
+
+  return patterns.some((pattern) => (typeof pattern === 'string' ? stack.includes(pattern) : searches(pattern, stack)));
+}
+
+/** `test` without the `lastIndex` a global or sticky RegExp carries from one call to the next. */
+function searches(pattern: RegExp, text: string): boolean {
+  pattern.lastIndex = 0;
+
+  return pattern.test(text);
 }
 
 /** The stack frames of the wrappers in this file, which say nothing about where the call came from. */
@@ -576,7 +644,7 @@ function describeOrigin(origin: Origin): StrayTimer {
 export function describeStrayTimers(host: SchedulerHost = defaultHost()): StrayTimer[] {
   const tracked = registry().get(host);
 
-  return tracked ? [...pendingHandles(tracked), ...tracked.frames.values()].map(describeOrigin) : [];
+  return tracked ? [...pendingHandles(tracked), ...pendingFrames(tracked)].map(describeOrigin) : [];
 }
 
 /**
@@ -613,7 +681,7 @@ export function countStrayTimers(host: SchedulerHost = defaultHost()): number {
     );
   }
 
-  return pendingHandles(tracked).length + tracked.frames.size;
+  return pendingHandles(tracked).length + pendingFrames(tracked).length;
 }
 
 /**
@@ -635,4 +703,118 @@ export function countStrayTimers(host: SchedulerHost = defaultHost()): number {
  */
 export function detectsAsyncLeaks(host: object = globalThis): boolean {
   return Reflect.get(Object(Reflect.get(Object(Reflect.get(host, '__vitest_worker__')), 'config')), 'detectAsyncLeaks') === true;
+}
+
+/** An rxjs error nothing handled, which {@link flushUnhandledObservableErrors} took off its pending rethrow. */
+export interface UnhandledObservableError {
+  /** What the Observable errored with, as rxjs would have thrown it. */
+  readonly error: unknown;
+  /** The full name of the test that was running when rxjs scheduled the rethrow, `suite > test`. */
+  readonly test?: string;
+  /** Set instead of {@link test} when it was scheduled outside one. */
+  readonly outsideTest?: 'hook' | 'import';
+}
+
+/** rxjs's `reportUnhandledError`, which rethrows from a `setTimeout` so the error escapes the subscriber. */
+const RXJS_RETHROW_FRAME = /\breportUnhandledError\b/;
+
+/** The same rethrow recognised by its callback, for a fake clock that keeps no stack. */
+const RXJS_RETHROW_SOURCE = /\bonUnhandledError\b[\s\S]*\bthrow\b/;
+
+/** Run a rethrow now and hand back what it threw; nothing when `config.onUnhandledError` took the error instead. */
+function rethrown(callback: (...args: unknown[]) => unknown, args: readonly unknown[]): { error: unknown } | undefined {
+  try {
+    callback(...args);
+
+    return undefined;
+  } catch (error) {
+    return { error };
+  }
+}
+
+function flushTracked(tracked: Tracking): UnhandledObservableError[] {
+  const found: UnhandledObservableError[] = [];
+
+  tracked.handles.forEach((origin, handle) => {
+    if (origin.kind !== 'timeout' || origin.delay !== 0 || !isPending(handle) || !RXJS_RETHROW_FRAME.test(origin.trace.stack ?? '')) {
+      return;
+    }
+
+    tracked.clearTimeout(handle);
+    forgetHandle(tracked, handle);
+
+    const outcome = rethrown(origin.callback, origin.rest?.slice(1) ?? []);
+
+    if (outcome) {
+      found.push({ error: outcome.error, ...describeMadeIn(origin.where) });
+    }
+  });
+
+  return found;
+}
+
+/** The pending timers of `@sinonjs/fake-timers` — Vitest's fake clock — which parks itself on the fake `setTimeout`. */
+function fakeClockTimers(host: SchedulerHost): { clock: object; clear: unknown; timers: unknown[] } | undefined {
+  const clock: unknown = Reflect.get(host.setTimeout, 'clock');
+
+  if (typeof clock !== 'object' || clock === null) {
+    return undefined;
+  }
+
+  const timers: unknown = Reflect.get(clock, 'timers');
+
+  if (typeof timers !== 'object' || timers === null) {
+    return undefined;
+  }
+
+  // A `Map` from fake-timers 14, a plain object before it.
+  return { clock, clear: Reflect.get(clock, 'clearTimeout'), timers: timers instanceof Map ? [...timers.values()] : Object.values(timers) };
+}
+
+function flushFakeClock(host: SchedulerHost): UnhandledObservableError[] {
+  const fake = fakeClockTimers(host);
+  const found: UnhandledObservableError[] = [];
+
+  if (!fake || typeof fake.clear !== 'function') {
+    return found;
+  }
+
+  for (const timer of fake.timers) {
+    const func: unknown = Reflect.get(Object(timer), 'func');
+
+    if (typeof func !== 'function' || !RXJS_RETHROW_SOURCE.test(Function.prototype.toString.call(func))) {
+      continue;
+    }
+
+    Reflect.apply(fake.clear, fake.clock, [Reflect.get(Object(timer), 'id')]);
+
+    const args: unknown = Reflect.get(Object(timer), 'args');
+    const outcome = rethrown((...values: unknown[]): unknown => Reflect.apply(func, undefined, values), Array.isArray(args) ? args : []);
+
+    if (outcome) {
+      found.push({ error: outcome.error, ...describeMadeIn(madeIn()) });
+    }
+  }
+
+  return found;
+}
+
+/**
+ * Run rxjs's pending rethrows of Observable errors nothing handled, now, and hand back what they threw.
+ *
+ * rxjs reports such an error from a `setTimeout(() => { throw error })`, which fails no test: it fires
+ * after the test has ended, or is cancelled at the end of the file with only a stray timer to show for
+ * it. Running it early is what it would have done anyway, `config.onUnhandledError` included. Reads the
+ * tracked timers, and the fake clock's when fake timers are installed — no need for {@link trackStrayTimers}
+ * there.
+ *
+ * @example
+ * ```ts
+ * afterEach(() => expect(flushUnhandledObservableErrors()).toEqual([]));
+ * ```
+ */
+export function flushUnhandledObservableErrors(host: SchedulerHost = defaultHost()): UnhandledObservableError[] {
+  const tracked = registry().get(host);
+
+  return [...(tracked ? flushTracked(tracked) : []), ...flushFakeClock(host)];
 }

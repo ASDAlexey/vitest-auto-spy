@@ -8,6 +8,7 @@ import {
   strayListenersError,
   strayTimersError,
   strayTimersReport,
+  unhandledObservableErrorsError,
 } from './stray-failure';
 import type { StrayListener } from './stray-listeners';
 import type { StrayTimer } from './stray-timers';
@@ -123,5 +124,40 @@ describe('the file-end reports', () => {
     expect(one.message).toContain('It was removed so it cannot fire in the next file. Remove it in the test that added it —');
     expect(two.message).toContain('They were removed so none can fire in the next file. Remove each where it was added —');
     expect(two.message).toMatch(/\nDocs: \S+#_19-listeners-that-outlive-their-file$/);
+  });
+});
+
+describe('unhandledObservableErrorsError', () => {
+  it('quotes the error, names the test once and carries the error as its cause', () => {
+    const error = new Error('Http failure response for /api: 502\nsecond line');
+    const failure = unhandledObservableErrorsError([{ error, test: 'screen > saves' }]);
+
+    expect(failure.message).toMatch(
+      /^\[vitest-auto-spy\] Unhandled Observable error in "screen > saves":\n {2}- Error: Http failure response for \/api: 502\nrxjs rethrows an error no subscriber handles from a setTimeout, where it fails no test; it was rethrown now instead\./,
+    );
+    expect(failure.message).toMatch(/\nDocs: \S+$/);
+    expect(failure.cause).toBe(error);
+  });
+
+  it('names the place of each when they differ, and reads what is not an Error', () => {
+    const response = { name: 'HttpErrorResponse', message: 'Http failure response for /api: 502 Bad Gateway' };
+    const failure = unhandledObservableErrorsError([
+      { error: response, test: 'a' },
+      { error: 'plain value', outsideTest: 'import' },
+      { error: { message: 'no name', name: '' }, outsideTest: 'hook' },
+      { error: undefined },
+    ]);
+
+    expect(failure.message).toContain(
+      [
+        '[vitest-auto-spy] Unhandled Observable errors:',
+        '  - HttpErrorResponse: Http failure response for /api: 502 Bad Gateway in "a"',
+        '  - plain value while the file was imported',
+        '  - Error: no name outside any test',
+        '  - undefined outside any test',
+        'rxjs rethrows an error no subscriber handles from a setTimeout, where it fails no test; they were rethrown now instead.',
+      ].join('\n'),
+    );
+    expect(failure.cause).toBe(response);
   });
 });
