@@ -13,6 +13,7 @@
  */
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
+import { sourceClassName } from './message-text';
 
 /** A `ComponentFixture` or a `DebugElement` — the only member read is `nativeElement`. */
 export interface NativeElementHolder {
@@ -26,7 +27,7 @@ export type ElementConstructor<E extends Element> = abstract new (...args: never
 function describeElement(element: Element): string {
   const classes = [...element.classList].map((name) => `.${name}`).join('');
 
-  return `<${element.tagName.toLowerCase()}${classes}> (${element.constructor.name})`;
+  return `<${element.tagName.toLowerCase()}${classes}> (${sourceClassName(element.constructor.name)})`;
 }
 
 function fail(message: string): string {
@@ -59,7 +60,7 @@ function rootElement(helper: string, source: Element | NativeElementHolder | nul
 
 function checkType<E extends Element>(element: Element, type: ElementConstructor<E>, what: string, helper: string): E {
   if (!(element instanceof type)) {
-    throw new TypeError(fail(`${helper}: ${what} ${describeElement(element)}, not ${type.name}.`));
+    throw new TypeError(fail(`${helper}: ${what} ${describeElement(element)}, not ${sourceClassName(type.name)}.`));
   }
 
   return element;

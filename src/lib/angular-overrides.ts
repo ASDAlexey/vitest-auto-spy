@@ -38,6 +38,7 @@ import { TestBed, getTestBed } from '@angular/core/testing';
 import { createSpyFromClass } from './create-spy-from-class';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
+import { sourceClassName } from './message-text';
 import { isAutoSpyLike } from './spy-mark';
 import { instrumentTestBed, onComponentCreated, readTestBedMethod } from './testbed-diagnostics';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
@@ -116,7 +117,7 @@ function explainLateOverride(error: unknown, component: Type<unknown>, token: Cl
 
   return new Error(
     withDocs(
-      `[vitest-auto-spy] overrideComponentProvider(${component.name}, ${token.name}) ran after the testing module was ` +
+      `[vitest-auto-spy] overrideComponentProvider(${sourceClassName(component.name)}, ${sourceClassName(token.name)}) ran after the testing module was ` +
         'instantiated, and Angular accepts no override past that point. Something read the injector first — a ' +
         '`TestBed.inject`, an `injectSpy`, a `createComponent` — earlier in this test or in the same `beforeCreate`. ' +
         'Override first, then inject.',
@@ -237,7 +238,9 @@ export function componentInjector(fixture: unknown, component: unknown): DebugEl
 export function describeResolved(resolved: unknown): string {
   const constructorName: unknown = readProperty(readProperty(resolved, 'constructor'), 'name');
 
-  return typeof constructorName === 'string' && constructorName.length > 0 ? `a ${constructorName} instance` : String(resolved);
+  return typeof constructorName === 'string' && constructorName.length > 0
+    ? `a ${sourceClassName(constructorName)} instance`
+    : String(resolved);
 }
 
 function verify(fixture: unknown, { component, token, spy }: PendingVerification): void {
@@ -257,8 +260,8 @@ function verify(fixture: unknown, { component, token, spy }: PendingVerification
 
   throw new Error(
     withDocs(
-      `[vitest-auto-spy] overrideComponentProvider(${component.name}, ${token.name}): the override did not apply — ` +
-        `${component.name} resolved ${token.name} to ${describeResolved(resolved)}, not the spy this call returned.\n` +
+      `[vitest-auto-spy] overrideComponentProvider(${sourceClassName(component.name)}, ${sourceClassName(token.name)}): the override did not apply — ` +
+        `${sourceClassName(component.name)} resolved ${sourceClassName(token.name)} to ${describeResolved(resolved)}, not the spy this call returned.\n` +
         explainMissedOverride(token, resolved),
       DOCS_LINKS.angularOverrideApplied,
     ),
@@ -270,7 +273,7 @@ function explainMissedOverride(token: ClassType<unknown>, resolved: unknown): st
   const later = isAutoSpyLike(resolved) ? 'a different double' : 'the real service';
 
   return (
-    `It got ${later} because something configured ${token.name} again after this call — a later ` +
+    `It got ${later} because something configured ${sourceClassName(token.name)} again after this call — a later ` +
     'TestBed.overrideProvider or configureTestingModule. Keep overrideComponentProvider as the last word on it.'
   );
 }
@@ -395,7 +398,7 @@ export function isDeadNgModuleImport(module: unknown): boolean {
 function moduleName(module: unknown): string {
   const name = readProperty(module, 'name');
 
-  return typeof name === 'string' ? name : String(module);
+  return typeof name === 'string' ? sourceClassName(name) : String(module);
 }
 
 /**

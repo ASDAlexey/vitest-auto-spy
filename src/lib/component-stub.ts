@@ -18,6 +18,7 @@ import { Component, Directive, EventEmitter, Input, Output, Pipe, type Type, inp
 import { angularInternalsError } from './angular-internals-error';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
+import { sourceClassName } from './message-text';
 
 /** `SelectorFlags` from Angular's selector matcher: what the entries after a flag describe. */
 const NOT = 0b0001;
@@ -92,7 +93,7 @@ export interface ComponentStubOptions {
  * @param options {@link ComponentStubOptions}.
  */
 export function createComponentStub<T>(real: Type<T>, overrides: Partial<T> = {}, options: ComponentStubOptions = {}): Type<Partial<T>> {
-  const realName = typeof real === 'function' ? real.name : String(real);
+  const realName = typeof real === 'function' ? sourceClassName(real.name) : String(real);
   const name = `${realName}Stub`;
   const pipe = definition<CompiledPipe>(real, 'ɵpipe');
 

@@ -10,6 +10,7 @@ import { fillMissingMembers } from './fill-missing';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedReturnValue } from './function-spy';
 import { createLazySpyProxy } from './lazy-spy-proxy';
 import { withDocs } from './message-link';
+import { sourceClassName } from './message-text';
 import { reportMisconfiguration } from './misconfiguration';
 import { getMockAdapter } from './mock-adapter';
 import { attachDispose } from './reset-auto-spy';
@@ -628,7 +629,9 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   const config = resolveConfiguration(mergeAutoSpyDefaults(ObjectClass, methodsToSpyOnOrConfig));
   const autoSpy = assembleSpy<T, Options>(ObjectClass, config);
 
-  applyConfiguredReturns(autoSpy, `createSpyFromClass(${ObjectClass.name})`, config, () => getAllMethodNames(ObjectClass.prototype));
+  applyConfiguredReturns(autoSpy, `createSpyFromClass(${sourceClassName(ObjectClass.name)})`, config, () =>
+    getAllMethodNames(ObjectClass.prototype),
+  );
   applyOverrides(autoSpy, config.overrides);
 
   return autoSpy;
@@ -704,6 +707,7 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
 
   const methodNames = resolveMethodNames(ObjectClass, config);
   const unstubbed = resolveUnstubbedGuard(ObjectClass.name, config);
+  const label = `createSpyFromClass(${sourceClassName(ObjectClass.name)})`;
 
   // Only a restricting list can be silently wrong: a misspelled name there replaces the real method
   // with nothing, and the failure surfaces as `… is not a function` inside the code under test. In
@@ -715,11 +719,7 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   // the whitelist is the only way to describe such a class, and warning about the correct usage is
   // worse than saying nothing.
   if (config.onlyMethodsToSpyOn.length > 0 && getAllMethodNames(ObjectClass.prototype).length > 0) {
-    warnOnUnknownMethods(
-      `createSpyFromClass(${ObjectClass.name})`,
-      config.onlyMethodsToSpyOn,
-      new Set(getAllMethodNames(ObjectClass.prototype)),
-    );
+    warnOnUnknownMethods(label, config.onlyMethodsToSpyOn, new Set(getAllMethodNames(ObjectClass.prototype)));
   }
 
   const autoSpy: Record<string, unknown> = {};
@@ -735,7 +735,7 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   // Gated here rather than left to the function's own early return: the method set costs a
   // prototype-chain walk, and the overwhelmingly common call names no accessors at all.
   if (config.gettersToSpyOn.length > 0 || config.settersToSpyOn.length > 0) {
-    warnOnAccessorNamingAMethod(`createSpyFromClass(${ObjectClass.name})`, config, new Set(getAllMethodNames(ObjectClass.prototype)));
+    warnOnAccessorNamingAMethod(label, config, new Set(getAllMethodNames(ObjectClass.prototype)));
   }
   createAccessorsSpies(autoSpy, accessors.getters, accessors.setters, reads);
 
@@ -794,11 +794,11 @@ function fillsMissing(ObjectClass: ClassType<unknown>, config: ResolvedSpyConfig
  * A class built on ngrx `signalStore()` carries every `withMethods` / `withProps` member on the
  * instance, so prototype discovery sees only what the subclass body declares. The empty-prototype
  * fallback covered a store with no body and dropped every store member once one method was added.
- * Matched by the base class ngrx generates: named `SignalStore`, with its own Angular injectable def.
+ * Matched by the base class ngrx generates: named `SignalStore` (a bundler's `_` or `$1` aside), with its own Angular injectable def.
  */
 function isSignalStoreClass(ObjectClass: ClassType<unknown>): boolean {
   for (let current: unknown = ObjectClass; typeof current === 'function'; current = Object.getPrototypeOf(current)) {
-    if (current.name === 'SignalStore' && Object.hasOwn(current, 'ɵprov')) {
+    if (sourceClassName(current.name) === 'SignalStore' && Object.hasOwn(current, 'ɵprov')) {
       return true;
     }
   }

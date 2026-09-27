@@ -30,6 +30,7 @@ import { describeInstance } from './angular-instance-name';
 import * as DOCS_LINKS from './docs-links';
 import { createFunctionSpy } from './function-spy';
 import { withDocs } from './message-link';
+import { sourceClassName } from './message-text';
 import { getMockAdapter } from './mock-adapter';
 import type { AddSpyMethodsByReturnTypes } from './types';
 
@@ -103,12 +104,12 @@ function guardMissingMembers<Ref extends DialogRefLike>(RefClass: AbstractType<R
       if (typeof key === 'string' && !(key in target) && declared.has(key)) {
         const repair =
           key === 'componentInstance'
-            ? `Hand the double the component's stand-in: provideMatDialogRef(${RefClass.name}, { componentInstance: { … } }).`
+            ? `Hand the double the component's stand-in: provideMatDialogRef(${sourceClassName(RefClass.name)}, { componentInstance: { … } }).`
             : `${key} is the dialog doing its own work; open the real dialog through MatDialog for that.`;
 
         throw new Error(
           withDocs(
-            `[vitest-auto-spy] provideMatDialogRef: the code under test read ${RefClass.name}.${key}, which the double does not have.\n${repair}`,
+            `[vitest-auto-spy] provideMatDialogRef: the code under test read ${sourceClassName(RefClass.name)}.${key}, which the double does not have.\n${repair}`,
             DOCS_LINKS.angularDialog,
           ),
         );
@@ -150,7 +151,7 @@ export function createMatDialogRef<Ref extends DialogRefLike>(
     closed.next(result);
     closed.complete();
   };
-  const close = createFunctionSpy<(result?: DialogResult<Ref>) => void>(`${RefClass.name}.close`);
+  const close = createFunctionSpy<(result?: DialogResult<Ref>) => void>(`${sourceClassName(RefClass.name)}.close`);
 
   // Through the adapter, not `.mockImplementation` — the spy is built by whichever engine
   // registered the adapter, and a node:test / bun mock does not carry Vitest's member.
@@ -256,7 +257,7 @@ export function injectMatDialogRef<Ref extends DialogRefLike>(RefClass: Abstract
   if (ref === null) {
     throw new Error(
       withDocs(
-        `${caller}: nothing provides ${RefClass.name} in the injector given. Add provideMatDialogRef(${RefClass.name}) to its providers.`,
+        `${caller}: nothing provides ${sourceClassName(RefClass.name)} in the injector given. Add provideMatDialogRef(${sourceClassName(RefClass.name)}) to its providers.`,
         DOCS_LINKS.angularDialog,
       ),
     );
@@ -267,8 +268,8 @@ export function injectMatDialogRef<Ref extends DialogRefLike>(RefClass: Abstract
   if (double === undefined) {
     throw new Error(
       withDocs(
-        `${caller}: the ${RefClass.name} here is ${describeInstance(ref)}, not one provideMatDialogRef() built. A later ` +
-          `provider of ${RefClass.name} won over the double — list provideMatDialogRef() last, or drop the other one.`,
+        `${caller}: the ${sourceClassName(RefClass.name)} here is ${describeInstance(ref)}, not one provideMatDialogRef() built. A later ` +
+          `provider of ${sourceClassName(RefClass.name)} won over the double — list provideMatDialogRef() last, or drop the other one.`,
         DOCS_LINKS.angularDialog,
       ),
     );

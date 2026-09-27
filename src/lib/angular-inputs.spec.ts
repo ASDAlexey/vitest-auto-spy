@@ -135,4 +135,15 @@ describe('resolveInputs', () => {
       /is a @Pipe, and a pipe has no inputs\.\nCall its transform\(\) directly/,
     );
   });
+
+  it('names the class without the rename esbuild or Rollup gave it', () => {
+    const esbuilt = fake({ name: 'upper' }, 'ɵpipe');
+    const rolled = class {};
+
+    Object.defineProperty(esbuilt, 'name', { value: '_UpperPipe' });
+    Object.defineProperty(rolled, 'name', { value: 'PlainWidget$1' });
+
+    expect(() => inputNames('setInputs', esbuilt)).toThrow(/: UpperPipe is a @Pipe/);
+    expect(() => inputNames('setInputs', rolled)).toThrow(/: PlainWidget carries no ɵcmp/);
+  });
 });

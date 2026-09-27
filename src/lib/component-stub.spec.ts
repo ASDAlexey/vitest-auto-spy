@@ -255,6 +255,14 @@ describe('createComponentStub', () => {
       expect(() => createComponentStub(PlainClass)).toThrow(/PlainClass carries no ɵcmp, ɵdir or ɵpipe/);
     });
 
+    it('names the class as the source spells it, not as a bundler renamed it', () => {
+      const Renamed = class {};
+
+      Object.defineProperty(Renamed, 'name', { value: '_ReportCardComponent' });
+
+      expect(() => createComponentStub(Renamed)).toThrow(/createComponentStub\(\): ReportCardComponent carries no ɵcmp/);
+    });
+
     it('an import that resolved to nothing', () => {
       expect(() => createComponentStub(undefined as unknown as typeof PlainClass)).toThrow(/undefined carries no ɵcmp/);
     });

@@ -27,6 +27,7 @@ import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { resolveInputs } from './angular-inputs';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
+import { sourceClassName } from './message-text';
 
 /**
  * The value `componentRef.setInput` expects for a member — signal inputs are set with the value, not
@@ -166,7 +167,7 @@ function refusedInImports(dependency: Type<unknown>): string | undefined {
 
   const definition = DECLARATION_KEYS.map((key) => Reflect.get(dependency, key)).find((value) => value !== undefined);
 
-  return definition !== undefined && Reflect.get(definition, 'standalone') !== true ? dependency.name : undefined;
+  return definition !== undefined && Reflect.get(definition, 'standalone') !== true ? sourceClassName(dependency.name) : undefined;
 }
 
 /**
@@ -185,7 +186,7 @@ function assertScopeIsImportable(component: Type<unknown>, kept: Type<unknown>[]
     return;
   }
 
-  const names = refused.map((dependency) => dependency.name);
+  const names = refused.map((dependency) => sourceClassName(dependency.name));
   const owners = [...new Set(refused.map((dependency) => declaringModule(dependency, candidates)))];
   const [owner] = owners;
   const fix =
@@ -195,7 +196,7 @@ function assertScopeIsImportable(component: Type<unknown>, kept: Type<unknown>[]
 
   throw new Error(
     withDocs(
-      `[vitest-auto-spy] renderShallow(${component.name}, { keepTemplate: true }): ${names.join(', ')} ` +
+      `[vitest-auto-spy] renderShallow(${sourceClassName(component.name)}, { keepTemplate: true }): ${names.join(', ')} ` +
         `${names.length === 1 ? 'is' : 'are'} declared by ${owner === undefined || owners.length > 1 ? 'an NgModule' : owner}, ` +
         'not standalone, and Angular takes only standalone declarations and NgModules in `imports`.\n' +
         `An AOT build flattened that module away, so name it and it is put back whole: ${fix}.`,
@@ -206,7 +207,7 @@ function assertScopeIsImportable(component: Type<unknown>, kept: Type<unknown>[]
 
 /** The module among the spec's own `imports` whose exported scope carries `dependency`, by name. */
 function declaringModule(dependency: unknown, candidates: readonly unknown[]): string | undefined {
-  return candidates
+  const owner = candidates
     .filter((candidate): candidate is Type<unknown> => typeof candidate === 'function')
     .find((candidate) => {
       const scope = new Set<unknown>();
@@ -214,7 +215,9 @@ function declaringModule(dependency: unknown, candidates: readonly unknown[]): s
       exportedScope(candidate, scope, new Set());
 
       return scope.has(dependency);
-    })?.name;
+    });
+
+  return owner === undefined ? undefined : sourceClassName(owner.name);
 }
 
 /** A definition list the compiler stored either as the array or as a factory for it. */

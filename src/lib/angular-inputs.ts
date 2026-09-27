@@ -17,6 +17,7 @@ import { type Type } from '@angular/core';
 import { angularInternalsError } from './angular-internals-error';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
+import { sourceClassName } from './message-text';
 import { closestName } from './spy-config-warnings';
 
 /** The half of a compiled definition this reads: public input name → the field behind it. */
@@ -61,11 +62,11 @@ function whyNoInputs(component: unknown): string {
   }
 
   if (Reflect.get(component, 'ɵpipe') !== undefined) {
-    return `${component.name} is a @Pipe, and a pipe has no inputs.\nCall its transform() directly, or render it inside a host component.`;
+    return `${sourceClassName(component.name)} is a @Pipe, and a pipe has no inputs.\nCall its transform() directly, or render it inside a host component.`;
   }
 
   return (
-    `${component.name} carries no ɵcmp, so Angular never compiled it as a component and there are no inputs to set.\n` +
+    `${sourceClassName(component.name)} carries no ɵcmp, so Angular never compiled it as a component and there are no inputs to set.\n` +
     'Pass the @Component class the fixture was created from.'
   );
 }
@@ -87,7 +88,7 @@ function unknownInputsError(caller: string, component: Type<unknown>, unknown: s
 
   return new Error(
     withDocs(
-      `[vitest-auto-spy] ${caller}: ${component.name} declares no input named ${quote(unknown)}.${hint}\n` +
+      `[vitest-auto-spy] ${caller}: ${sourceClassName(component.name)} declares no input named ${quote(unknown)}.${hint}\n` +
         `${known} Angular would answer the name with an NG0303 and change nothing; a plain field is assigned on the ` +
         'instance instead, and a signal the component owns is set through the signal.',
       DOCS_LINKS.angularInputs,

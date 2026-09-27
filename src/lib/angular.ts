@@ -13,6 +13,7 @@ import { type AutoMockConfiguration, createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
+import { sourceClassName } from './message-text';
 import { misconfigurationThrows, reportMisconfiguration } from './misconfiguration';
 import { currentSpecFile } from './spec-file';
 import { isAutoSpyLike } from './spy-mark';
@@ -233,11 +234,11 @@ function describeUnspied(token: object, injected: unknown): string {
     );
   }
 
-  const name = token.name;
+  const name = sourceClassName(token.name);
   const provider: unknown = Reflect.get(token, 'ɵprov');
   const fromRoot = Reflect.get(Object(provider), 'providedIn') === 'root';
   const built = Reflect.get(Object(Reflect.get(Object(injected), 'constructor')), 'name');
-  const what = typeof built === 'string' && built.length > 0 ? `a real ${built}` : 'a real instance';
+  const what = typeof built === 'string' && built.length > 0 ? `a real ${sourceClassName(built)}` : 'a real instance';
   const why = fromRoot
     ? "nothing in the testing module provides a double, so Angular built it (providedIn: 'root')"
     : 'the testing module provides the real class, not a double';

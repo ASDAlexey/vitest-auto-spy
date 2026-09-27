@@ -31,7 +31,7 @@ import { componentInjector, describeResolved, failDeadNgModuleImports, isDeadNgM
 import { type PendingRequest, pendingRequestsReport } from './angular-pending-requests';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
-import { count, taskName } from './message-text';
+import { count, sourceClassName, taskName } from './message-text';
 import { isAutoSpyLike } from './spy-mark';
 import { instrumentTestBed, onComponentCreated, onTestingModuleConfigured, verifyOnTeardown } from './testbed-diagnostics';
 import { beforeTestBedReset } from './testbed-reset';
@@ -83,7 +83,7 @@ function isComponentClass(value: unknown): boolean {
 function className(value: unknown): string {
   const name = readProperty(value, 'name');
 
-  return typeof name === 'string' ? name : String(value);
+  return typeof name === 'string' ? sourceClassName(name) : String(value);
 }
 
 /** `ngModuleScopes`: hand the existing check the imports that cannot be anything but a mistake. */
@@ -189,7 +189,7 @@ function findControllerToken(providers: unknown): unknown {
 
   return flat
     .map((provider) => readProperty(provider, 'provide'))
-    .find((token) => typeof token === 'function' && token.name === HTTP_TESTING_CONTROLLER);
+    .find((token) => typeof token === 'function' && sourceClassName(token.name) === HTTP_TESTING_CONTROLLER);
 }
 
 /**
@@ -405,7 +405,7 @@ function collectModuleDoubles(config: unknown): void {
 function tokenName(token: unknown): string {
   const name = readProperty(token, 'name');
 
-  return typeof name === 'string' && name.length > 0 ? name : String(token);
+  return typeof name === 'string' && name.length > 0 ? sourceClassName(name) : String(token);
 }
 
 /** The name a spec writes for an `InjectionToken`: its description, which is usually the constant's name. */

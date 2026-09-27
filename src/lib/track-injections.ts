@@ -22,6 +22,7 @@ import { createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
+import { sourceClassName } from './message-text';
 import type { ClassType, Spy } from './types';
 
 /**
@@ -82,6 +83,11 @@ function tokenName(token: unknown): string {
   return typeof name === 'string' && name.length > 0 ? name : String(token);
 }
 
+/** {@link tokenName} as a failure prints it, with a bundler's rename taken off. */
+function messageName(token: unknown): string {
+  return sourceClassName(tokenName(token));
+}
+
 /**
  * Track which of `tokens` the code under test injects.
  *
@@ -123,8 +129,8 @@ export function trackInjections(tokens: readonly unknown[], options: TrackInject
       if (!doubles.has(token)) {
         throw new Error(
           withDocs(
-            `[vitest-auto-spy] trackInjections(...).get(${tokenName(token)}): that token is not tracked by this log.\n` +
-              `Tracked here: ${tokens.map(tokenName).join(', ') || '(none)'}. Add it to the trackInjections([...]) list, or read it ` +
+            `[vitest-auto-spy] trackInjections(...).get(${messageName(token)}): that token is not tracked by this log.\n` +
+              `Tracked here: ${tokens.map(messageName).join(', ') || '(none)'}. Add it to the trackInjections([...]) list, or read it ` +
               'from the injector directly — `get` only answers for the tokens whose providers this log created.',
             DOCS_LINKS.trackInjectionsUntracked,
           ),

@@ -93,7 +93,7 @@ describe('trackInjections', () => {
     const collaborators = trackInjections([FeatureFlagService]);
 
     expect(() => collaborators.get(AnalyticsService)).toThrow(
-      new RegExp(`${AnalyticsService.name}.*not tracked[\\s\\S]*Tracked here: ${FeatureFlagService.name}`),
+      /get\(AnalyticsService\): that token is not tracked[\s\S]*Tracked here: FeatureFlagService\./,
     );
     expect(() => trackInjections([]).get(AnalyticsService)).toThrow(/Tracked here: \(none\)/);
   });
