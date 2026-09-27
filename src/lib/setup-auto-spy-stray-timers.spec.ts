@@ -5,7 +5,6 @@
  */
 import { addAbortListener, once } from 'node:events';
 import { createServer } from 'node:http';
-import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { Subject } from 'rxjs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -45,8 +44,8 @@ if (!Reflect.has(Symbol, 'dispose')) {
   Object.defineProperty(Symbol, 'dispose', { value: dispose });
 }
 
-// The copy jsdom depends on: undici is no dependency of this package's own.
-const { fetch: undiciFetch } = createRequire(import.meta.resolve('jsdom'))('undici') as { fetch: typeof fetch };
+// Loaded after the symbol is in place, which a static import would not wait for.
+const { fetch: undiciFetch } = await import('undici');
 
 const server = createServer((_request, response) => response.end('{}'));
 
