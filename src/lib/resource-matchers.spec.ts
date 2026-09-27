@@ -45,6 +45,12 @@ describe('toHaveResourceValue', () => {
     expect(resourceOf('local', 'draft')).toHaveResourceValue('draft');
   });
 
+  it('compares the members of a Set and the entries of a Map', () => {
+    expect(resourceOf('resolved', new Set(['a']))).not.toHaveResourceValue(new Set(['b']));
+    expect(resourceOf('resolved', new Map([['a', 1]]))).not.toHaveResourceValue(new Map());
+    expect(resourceOf('resolved', { ids: new Set([1]) })).toHaveResourceValue({ ids: new Set([1]) });
+  });
+
   it('negates', () => {
     expect(resourceOf('resolved', [1])).not.toHaveResourceValue([2]);
   });

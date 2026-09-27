@@ -46,6 +46,47 @@ describe('toHaveSignalValue', () => {
     );
   });
 
+  it('compares the members of a Set and the entries of a Map, as toEqual and toStrictEqual do', () => {
+    expect(signal(new Set(['a']))).not.toHaveSignalValue(new Set(['b']));
+    expect(signal(new Set(['a']))).not.toHaveSignalValue(new Set(['b']), { strict: true });
+    expect(signal(new Set(['a']))).toHaveSignalValue(new Set(['a']), { strict: true });
+    expect(signal(new Map([['a', 1]]))).not.toHaveSignalValue(new Map());
+    expect(signal(new Map([['a', 1]]))).not.toHaveSignalValue(new Map([['a', 2]]), { strict: true });
+    expect(signal(new Map([['a', { id: 1 }]]))).toHaveSignalValue(new Map([['a', { id: 1 }]]), { strict: true });
+    expect(signal({ ids: new Set([1]) })).not.toHaveSignalValue({ ids: new Set([2]) });
+    expect(signal({ ids: new Set([1]) })).not.toHaveSignalValue({ ids: new Set([2]) }, { strict: true });
+    expect(signal({ ids: new Set([1]) })).toHaveSignalValue({ ids: new Set([1]) }, { strict: true });
+  });
+
+  it('keeps the strict checks inside a collection and on array buffers', () => {
+    const holey: number[] = [];
+
+    holey[1] = 1;
+
+    expect(signal(new Set([holey]))).toHaveSignalValue(new Set([[undefined, 1]]));
+    expect(signal(new Set([holey]))).not.toHaveSignalValue(new Set([[undefined, 1]]), { strict: true });
+    expect(signal(new Uint8Array([1]).buffer)).not.toHaveSignalValue(new Uint8Array([2]).buffer, { strict: true });
+    expect(signal(new Uint8Array([1]).buffer)).not.toHaveSignalValue(new Uint8Array([1, 2]).buffer, { strict: true });
+    expect(signal(new Uint8Array([1]).buffer)).toHaveSignalValue(new Uint8Array([1]).buffer, { strict: true });
+  });
+
+  it('applies the equality testers registered with expect.addEqualityTesters, in both modes', () => {
+    class Money {
+      constructor(
+        readonly cents: number,
+        readonly label: string,
+      ) {}
+    }
+
+    expect.addEqualityTesters([
+      (a: unknown, b: unknown): boolean | undefined => (a instanceof Money && b instanceof Money ? a.cents === b.cents : undefined),
+    ]);
+
+    expect(signal(new Money(100, 'one'))).toHaveSignalValue(new Money(100, 'a dollar'));
+    expect(signal(new Money(100, 'one'))).toHaveSignalValue(new Money(100, 'a dollar'), { strict: true });
+    expect(signal(new Money(100, 'one'))).not.toHaveSignalValue(new Money(200, 'one'), { strict: true });
+  });
+
   it('negates', () => {
     expect(signal('idle')).not.toHaveSignalValue('ready');
   });

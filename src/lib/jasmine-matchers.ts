@@ -16,6 +16,8 @@
  */
 import { expect } from 'vitest';
 
+import { looseEquals } from './matcher-equality';
+
 // Chai's `Assertion`, not Vitest's `Matchers`: `Matchers` is `<T>` on Vitest 4 and `<R, T>` on
 // Vitest 5, and declaration merging demands an exact type-parameter match — this one merges on both.
 declare global {
@@ -218,7 +220,7 @@ function registerValueMatchers(): void {
 function registerCollectionMatchers(): void {
   expect.extend({
     jasmineMapContaining(received: unknown, sample: Map<unknown, unknown>): MatcherResult {
-      const missing = received instanceof Map ? mapMissing(received, sample, this.equals.bind(this)) : [];
+      const missing = received instanceof Map ? mapMissing(received, sample, (a, b) => looseEquals(this, a, b)) : [];
       const pass = received instanceof Map && missing.length === 0;
 
       return {
@@ -231,7 +233,7 @@ function registerCollectionMatchers(): void {
     },
 
     jasmineSetContaining(received: unknown, sample: Set<unknown>): MatcherResult {
-      const missing = received instanceof Set ? setMissing(received, sample, this.equals.bind(this)) : [];
+      const missing = received instanceof Set ? setMissing(received, sample, (a, b) => looseEquals(this, a, b)) : [];
       const pass = received instanceof Set && missing.length === 0;
 
       return {
@@ -244,7 +246,9 @@ function registerCollectionMatchers(): void {
     },
 
     jasmineArrayWithExactContents(received: unknown, sample: unknown[]): MatcherResult {
-      const diff = Array.isArray(received) ? exactContentsDiff(received, sample, this.equals.bind(this)) : { missing: [], extra: [] };
+      const diff = Array.isArray(received)
+        ? exactContentsDiff(received, sample, (a, b) => looseEquals(this, a, b))
+        : { missing: [], extra: [] };
       const pass = Array.isArray(received) && diff.missing.length === 0 && diff.extra.length === 0;
 
       return {

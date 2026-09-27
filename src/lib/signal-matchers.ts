@@ -14,6 +14,8 @@
 import { ɵSIGNAL } from '@angular/core';
 import { expect } from 'vitest';
 
+import { looseEquals, strictEquals } from './matcher-equality';
+
 /** Anything readable like a signal: `signal()`, `computed()`, `input()`, or a plain getter. */
 export type SignalLike<T> = () => T;
 
@@ -56,14 +58,6 @@ function isSpy(received: object): boolean {
   return 'mock' in received || 'calls' in received;
 }
 
-function sameClass(a: unknown, b: unknown): false | undefined {
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null || (Array.isArray(a) && Array.isArray(b))) {
-    return undefined;
-  }
-
-  return Object.getPrototypeOf(a) === Object.getPrototypeOf(b) ? undefined : false;
-}
-
 /**
  * Register {@link toHaveSignalValue} with the runner. Call once, from your setup file.
  *
@@ -90,7 +84,7 @@ export function registerSignalMatchers(): void {
       }
 
       const actual: unknown = received();
-      const pass = strict ? this.equals(actual, expected, [...this.customTesters, sameClass], true) : this.equals(actual, expected);
+      const pass = strict ? strictEquals(this, actual, expected) : looseEquals(this, actual, expected);
 
       return {
         pass,

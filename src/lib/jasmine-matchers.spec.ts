@@ -85,6 +85,13 @@ describe('jasmine matchers', () => {
       expect(set).not.jasmineSetContaining(new Set([{ id: 3 }]));
     });
 
+    it('compares a Set or a Map nested in a value by its contents', () => {
+      expect(new Map([['a', new Set([1])]])).jasmineMapContaining(new Map([['a', new Set([1])]]));
+      expect(new Map([['a', new Set([1])]])).not.jasmineMapContaining(new Map([['a', new Set([2])]]));
+      expect(new Set([new Map([['k', 1]])])).not.jasmineSetContaining(new Set([new Map([['k', 2]])]));
+      expect([new Set([1])]).not.jasmineArrayWithExactContents([new Set([2])]);
+    });
+
     it('compares the keys of a map too, as jasmine does', () => {
       const byObject = new Map<unknown, unknown>([[{ id: 1 }, 'first']]);
       const byString = new Map<unknown, unknown>([['2026-09', 7]]);

@@ -15,6 +15,8 @@
  */
 import { expect } from 'vitest';
 
+import { type EqualityContext, looseEquals } from './matcher-equality';
+
 /** The slice of a resource these matchers read. `error` is absent on some hand-built doubles. */
 export interface ResourceLike<TValue = unknown> {
   status(): string;
@@ -90,14 +92,13 @@ function describeError(resource: ResourceLike): string {
  *
  * Declared locally rather than imported from `@vitest/expect` for the same reason the ESLint rules
  * declare their own ESTree slice: it keeps a published `.d.ts` from putting another package in
- * every consumer's way, and these are the only two members any matcher here touches.
+ * every consumer's way.
  */
-interface MatcherContext {
-  utils: {
+interface MatcherContext extends EqualityContext {
+  utils: EqualityContext['utils'] & {
     printExpected(value: unknown): string;
     printReceived(value: unknown): string;
   };
-  equals(actual: unknown, expected: unknown): boolean;
 }
 
 /** The resource is still in flight — `status()` is `'loading'` or `'reloading'`. */
@@ -132,7 +133,7 @@ function toHaveResourceValue(this: MatcherContext, received: unknown, expected: 
   }
 
   const actual: unknown = received.value();
-  const pass = this.equals(actual, expected);
+  const pass = looseEquals(this, actual, expected);
 
   return {
     pass,
