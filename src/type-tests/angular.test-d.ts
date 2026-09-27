@@ -10,8 +10,15 @@ import { InjectionToken, type InputSignal, type Type } from '@angular/core';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { Mock } from 'vitest';
 
-import { type Spy as AngularSpy, createComponentStub, injectSpy, overrideAutoSpy, provideAutoSpy } from '../angular';
-import type { Spy } from '../auto-spy';
+import {
+  type Spy as AngularSpy,
+  type SubjectOf as AngularSubjectOf,
+  createComponentStub,
+  injectSpy,
+  overrideAutoSpy,
+  provideAutoSpy,
+} from '../angular';
+import type { Spy, SubjectOf } from '../auto-spy';
 
 interface FlagDefaults {
   beta: boolean;
@@ -145,5 +152,11 @@ describe('Spy from the /angular entry', () => {
 
     const spy: AngularSpy<Plain> = injectSpy(Plain);
     spy.load.mockReturnValue(2);
+  });
+});
+
+describe('SubjectOf from the /angular entry', () => {
+  it('is the core SubjectOf, for a variable holding what returnSubject() gave back', () => {
+    expectTypeOf<AngularSubjectOf<boolean>>().toEqualTypeOf<SubjectOf<boolean>>();
   });
 });
