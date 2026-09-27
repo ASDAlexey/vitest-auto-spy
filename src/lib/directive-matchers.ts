@@ -187,18 +187,21 @@ function diagnose(directive: Type<unknown>, selector: string | undefined, root: 
   const where = selector === undefined ? '' : ` on '${selector}'`;
   const prefix = `[vitest-auto-spy] expected ${name} to be applied${where}`;
 
-  if (selector !== undefined && elements.length === 0) {
+  if (selector !== undefined && withDirective.some(isAnchor)) {
+    const unrendered =
+      elements.length === 0 ? ', and the element that selector names exists only in a view the directive chose to render' : '';
+
     return withDocs(
-      `${prefix}, but no element matches that selector.\n` +
-        'Run fixture.detectChanges() before asserting, and check the selector against the template.',
+      `${prefix}, but it is on a template anchor, not on an element — a structural directive sits on the comment Angular leaves in place of its template${unrendered}.\n` +
+        `Assert it without a selector: expect(fixture).toHaveDirectiveApplied(${name}).`,
       DOCS_LINKS.angularDirectiveApplied,
     );
   }
 
-  if (selector !== undefined && withDirective.some(isAnchor)) {
+  if (selector !== undefined && elements.length === 0) {
     return withDocs(
-      `${prefix}, but it is on a template anchor, not on an element — a structural directive sits on the comment Angular leaves in place of its template.\n` +
-        `Assert it without a selector: expect(fixture).toHaveDirectiveApplied(${name}).`,
+      `${prefix}, but no element matches that selector.\n` +
+        'Run fixture.detectChanges() before asserting, and check the selector against the template.',
       DOCS_LINKS.angularDirectiveApplied,
     );
   }

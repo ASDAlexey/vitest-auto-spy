@@ -14,6 +14,11 @@ class HighlightModule {}
 @Directive({ selector: '[appLoner]' })
 class LonerDirective {}
 
+@Directive({ selector: '[appSkip]' })
+class SkipDirective {
+  readonly template = inject(TemplateRef);
+}
+
 @Directive({ selector: '[appRender]' })
 class RenderDirective {
   constructor() {
@@ -213,6 +218,19 @@ describe('toHaveDirectiveApplied on a structural directive', () => {
 
     expect(() => expect(fixture).toHaveDirectiveApplied(RenderDirective, '.shown')).toThrow(
       /^\[vitest-auto-spy\] expected RenderDirective to be applied on '\.shown', but it is on a template anchor, not on an element — a structural directive sits on the comment Angular leaves in place of its template\.\nAssert it without a selector: expect\(fixture\)\.toHaveDirectiveApplied\(RenderDirective\)\.\nDocs: /,
+    );
+  });
+
+  it('blames the structure, not detectChanges, when the directive rendered nothing the selector names', () => {
+    const Host = createDirectiveHost({ template: '<div *appSkip class="off">x</div>', scope: [SkipDirective] });
+
+    TestBed.configureTestingModule({ imports: [Host] });
+
+    const fixture = TestBed.createComponent(Host);
+    fixture.detectChanges();
+
+    expect(() => expect(fixture).toHaveDirectiveApplied(SkipDirective, '.off')).toThrow(
+      /^\[vitest-auto-spy\] expected SkipDirective to be applied on '\.off', but it is on a template anchor, not on an element — a structural directive sits on the comment Angular leaves in place of its template, and the element that selector names exists only in a view the directive chose to render\.\nAssert it without a selector: expect\(fixture\)\.toHaveDirectiveApplied\(SkipDirective\)\.\nDocs: /,
     );
   });
 });
