@@ -411,7 +411,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   stubWebStorage: '7',
   stubWorker: '7',
   SubjectLike: '0 1 2 3 4 20 21 22',
-  SubjectOf: '0 1 2 3 4 20 21 22',
+  SubjectOf: '0 1 2 3 4 12 20 21 22',
   SubscribableLike: '0 1 2 3 4 12 20 21 22',
   SubscriberSpy: '11',
   subscribeSpyTo: '11',

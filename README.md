@@ -23,7 +23,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-27.1%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-27.3%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -1035,30 +1035,31 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 3 errors, 4 warnings, 1 note
 ```
 
-| Check                               | What it finds                                                                                                                                                                        |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tsconfig-glob-matches-nothing`     | An `include` pattern that matches no file — so it type-checks nothing; `info` when nothing beside the config is there to miss yet                                                    |
-| `tsconfig-file-missing`             | A `files` entry naming a file that is gone                                                                                                                                           |
-| `spec-imported-by-non-spec`         | A production module importing a `*.spec.ts`                                                                                                                                          |
-| `spec-exports-fixture`              | A spec importing another spec, whose hooks then run in a foreign file                                                                                                                |
-| `foreign-runner-pragma`             | `@jest-environment` left in a spec, which Vitest never reads                                                                                                                         |
-| `dead-runner-config`                | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                                                                                                  |
-| `orphan-runner-file`                | A setup file only that dead config referenced                                                                                                                                        |
-| `angular-build-splitting-off`       | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                                                                                                  |
-| `analog-behind-angular-build`       | `@analogjs/vite-plugin-angular` below 2.7.5 next to `@angular/build` 22.2+ — `TypeError: cache.has is not a function` at startup                                                     |
-| `coverage-all-removed`              | `coverage.all` in a config, on a Vitest that stopped reading the key                                                                                                                 |
-| `coverage-include-misses-bundle`    | A `coverage.include` of sources only, in a runner config over a bundle                                                                                                               |
-| `coverage-include-recompiles-globs` | A coverage scope large enough that `picomatch` recompiling it per file costs more than the coverage. Info                                                                            |
-| `vitest-5-removed`                  | What Vitest 5 removed — `vitest/reporters`-style imports, `.sequential`, `--outputJson`/`--compare`; error on 5, note on 4. Also `poolOptions` (warning, ignored since 4)            |
-| `vitest-5-deprecated`               | `experimental_clearCache` / `experimental_parseSpecifications` on Vitest 5, which nothing warns about at run time. Info                                                              |
-| `vitest-5-clear-mocks`              | `clearMocks: true` restating the Vitest 5 default, or a Vitest 4 suite that never decided and will have mocks cleared after the upgrade. Info                                        |
-| `mock-reset-config-unread`          | `no-redundant-mock-reset` given a `configFile` whose default export is a factory or `mergeConfig` call and no flag beside it — the rule reads none of the flags that call sets. Info |
-| `vitest-5-available`                | Vitest 4 with nothing holding back 5 — what it buys (−46 % v8 / −35.5 % istanbul on a 700-file Angular suite with coverage) — or what holds it back. Info                            |
-| `fs-module-cache-not-persisted`     | `fsModuleCache` on, and no CI config caches its directory — every CI run starts cold                                                                                                 |
-| `jasmine-era-project`               | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error                                                                     |
-| `no-agent-instructions`             | No instruction file names the package. A note, not an error                                                                                                                          |
-| `helper-from-wrong-entry`           | A named import taken from an entry that does not export it — `provideAutoSpy` from the root                                                                                          |
-| `no-unawaited-helper`               | An `expectEmission` / `stable` / `flushEventLoop` call dropped as a bare statement, so nothing awaits it                                                                             |
+| Check                                | What it finds                                                                                                                                                                        |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tsconfig-glob-matches-nothing`      | An `include` pattern that matches no file — so it type-checks nothing; `info` when nothing beside the config is there to miss yet                                                    |
+| `tsconfig-file-missing`              | A `files` entry naming a file that is gone                                                                                                                                           |
+| `spec-imported-by-non-spec`          | A production module importing a `*.spec.ts`                                                                                                                                          |
+| `spec-exports-fixture`               | A spec importing another spec, whose hooks then run in a foreign file                                                                                                                |
+| `foreign-runner-pragma`              | `@jest-environment` left in a spec, which Vitest never reads                                                                                                                         |
+| `dead-runner-config`                 | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                                                                                                  |
+| `orphan-runner-file`                 | A setup file only that dead config referenced                                                                                                                                        |
+| `angular-build-splitting-off`        | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                                                                                                  |
+| `angular-build-splitting-deprecated` | `"splitting"` on a unit-test target under `@angular/build` 22.2+, which deprecates it — `true` is a no-op, `false` still costs the memory                                            |
+| `analog-behind-angular-build`        | `@analogjs/vite-plugin-angular` below 2.7.5 next to `@angular/build` 22.2+ — `TypeError: cache.has is not a function` at startup                                                     |
+| `coverage-all-removed`               | `coverage.all` in a config, on a Vitest that stopped reading the key                                                                                                                 |
+| `coverage-include-misses-bundle`     | A `coverage.include` of sources only, in a runner config over a bundle                                                                                                               |
+| `coverage-include-recompiles-globs`  | A coverage scope large enough that `picomatch` recompiling it per file costs more than the coverage. Info                                                                            |
+| `vitest-5-removed`                   | What Vitest 5 removed — `vitest/reporters`-style imports, `.sequential`, `--outputJson`/`--compare`; error on 5, note on 4. Also `poolOptions` (warning, ignored since 4)            |
+| `vitest-5-deprecated`                | `experimental_clearCache` / `experimental_parseSpecifications` on Vitest 5, which nothing warns about at run time. Info                                                              |
+| `vitest-5-clear-mocks`               | `clearMocks: true` restating the Vitest 5 default, or a Vitest 4 suite that never decided and will have mocks cleared after the upgrade. Info                                        |
+| `mock-reset-config-unread`           | `no-redundant-mock-reset` given a `configFile` whose default export is a factory or `mergeConfig` call and no flag beside it — the rule reads none of the flags that call sets. Info |
+| `vitest-5-available`                 | Vitest 4 with nothing holding back 5 — what it buys (−46 % v8 / −35.5 % istanbul on a 700-file Angular suite with coverage) — or what holds it back. Info                            |
+| `fs-module-cache-not-persisted`      | `fsModuleCache` on, and no CI config caches its directory — every CI run starts cold                                                                                                 |
+| `jasmine-era-project`                | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error                                                                     |
+| `no-agent-instructions`              | No instruction file names the package. A note, not an error                                                                                                                          |
+| `helper-from-wrong-entry`            | A named import taken from an entry that does not export it — `provideAutoSpy` from the root                                                                                          |
+| `no-unawaited-helper`                | An `expectEmission` / `stable` / `flushEventLoop` call dropped as a bare statement, so nothing awaits it                                                                             |
 
 The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
 `tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
