@@ -24,6 +24,7 @@ describe('unflaggedConfigFiles', () => {
     expect(unflaggedConfigFiles(lintConfig("{ configFile: 'vitest.config.ts' }"))).toEqual(['vitest.config.ts']);
     expect(unflaggedConfigFiles(lintConfig("{ configFile: 'vitest.config.ts', clearMocks: true }"))).toEqual([]);
     expect(unflaggedConfigFiles(lintConfig("{ configFile: 'vitest.config.ts', restoreMocks: false }"))).toEqual([]);
+    expect(unflaggedConfigFiles(lintConfig("{ configFile: 'vitest.config.ts', configFlags: { clearMocks: true } }"))).toEqual([]);
     expect(unflaggedConfigFiles(lintConfig('{ clearMocks: true }'))).toEqual([]);
     expect(unflaggedConfigFiles(lintConfig('{ configFile: path }'))).toEqual([]);
   });
@@ -80,7 +81,7 @@ describe('checkMockResetConfig', () => {
       "`no-redundant-mock-reset` reads `vitest.config.ts`, whose default export is a `createProjectConfig(…)` call: the rule reads the file as text, finds no `clearMocks` / `mockReset` / `restoreMocks`, and decides on the runner's defaults instead of what `createProjectConfig` sets.",
     );
     expect(finding?.fix).toBe(
-      'Write the flags that config ends up with beside `configFile` in the rule options, e.g. `{ configFile, clearMocks: true }`; a flag written there wins over the file.',
+      'Write the flags that config ends up with as `configFlags` in the rule options, e.g. `{ configFile, configFlags: { clearMocks: true } }`; they are read as if the file wrote them, so a builder target that does not load it is still narrowed.',
     );
   });
 
