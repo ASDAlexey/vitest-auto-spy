@@ -58,7 +58,8 @@ export function resetAllFastSpies(): void {
 /** The mutable configuration behind one spy — what it returns and what it is called. */
 interface FastSpyConfig {
   implementation: Func | undefined;
-  onceImplementations: Func[];
+  /** Absent until the first `Once` member: most spies never queue one, and an empty array each was 32 B. */
+  onceImplementations: Func[] | undefined;
   name: string;
   /** What `mockReset` puts back — the implementation the spy was created with, as `vi.fn(impl)` restores its own. */
   readonly original: Func | undefined;
@@ -349,11 +350,44 @@ Object.defineProperty(FAST_SPY_PROTOTYPE, 'mock', {
   enumerable: true,
 });
 
-definePrototypeMember('getMockImplementation', function getMockImplementation(this: unknown): Func | undefined {
-  const config = configOf(self(this));
+/**
+ * The spy whose implementation `getMockImplementation()` last handed out, until the next microtask.
+ *
+ * Reading the implementation and installing a new one in the same synchronous step is how a wrapper
+ * delegates — `vi.when` in Vitest 5 does exactly that, answering its own rows and passing every
+ * other call to what it read. A wrapper like that does not take the decision away from the spy.
+ */
+let handedOutBy: FastSpy | undefined;
+let handedOutImplementation: Func | undefined;
 
-  return config.onceImplementations[0] ?? config.implementation;
+function forgetHandOut(): void {
+  handedOutBy = undefined;
+  handedOutImplementation = undefined;
+}
+
+definePrototypeMember('getMockImplementation', function getMockImplementation(this: unknown): Func | undefined {
+  const spy = self(this);
+  const config = configOf(spy);
+  const implementation = config.onceImplementations?.[0] ?? config.implementation;
+
+  if (handedOutBy === undefined) {
+    queueMicrotask(forgetHandOut);
+  }
+
+  handedOutBy = spy;
+  handedOutImplementation = implementation;
+
+  return implementation;
 });
+
+/** Whether `implementation` arrives right after the spy handed out the one it replaces — see {@link handedOutBy}. */
+function delegatesToCurrent(spy: FastSpy, config: FastSpyConfig): boolean {
+  const delegates = handedOutBy === spy && handedOutImplementation === config.implementation;
+
+  forgetHandOut();
+
+  return delegates;
+}
 
 /**
  * Every member that installs a whole implementation goes through here, so the double behind the spy
@@ -364,19 +398,26 @@ definePrototypeMember('getMockImplementation', function getMockImplementation(th
  * all. The `Once` members are deliberately not here — their queue drains back onto whatever was
  * installed, so they suspend the dispatch rather than take it away.
  */
-function replaceImplementation(spy: FastSpy, implementation: Func, via: string): void {
-  hooksOf(spy)?.implementationReplaced?.(implementation, via);
-  configOf(spy).implementation = implementation;
+function replaceImplementation(spy: FastSpy, implementation: Func, via: string, delegating = false): void {
+  const config = configOf(spy);
+
+  if (!delegating) {
+    hooksOf(spy)?.implementationReplaced?.(implementation, via);
+  }
+
+  config.implementation = implementation;
 }
 
 definePrototypeMember('mockImplementation', function mockImplementation(this: unknown, implementation: Func): unknown {
-  replaceImplementation(self(this), implementation, 'mockImplementation');
+  const spy = self(this);
+
+  replaceImplementation(spy, implementation, 'mockImplementation', delegatesToCurrent(spy, configOf(spy)));
 
   return this;
 });
 
 definePrototypeMember('mockImplementationOnce', function mockImplementationOnce(this: unknown, implementation: Func): unknown {
-  configOf(self(this)).onceImplementations.push(implementation);
+  (configOf(self(this)).onceImplementations ??= []).push(implementation);
 
   return this;
 });
@@ -395,7 +436,7 @@ definePrototypeMember(
     };
 
     config.implementation = implementation;
-    config.onceImplementations = [];
+    config.onceImplementations = undefined;
 
     const returned = callback();
 
@@ -446,7 +487,7 @@ definePrototypeMember('mockReturnValue', function mockReturnValue(this: unknown,
 definePrototypeMember('mockReturnValueOnce', function mockReturnValueOnce(this: unknown, value: unknown): unknown {
   const spy = self(this);
 
-  configOf(spy).onceImplementations.push(function returnValueOnce(this: unknown): unknown {
+  (configOf(spy).onceImplementations ??= []).push(function returnValueOnce(this: unknown): unknown {
     if (new.target) {
       throwConstructorError('mockReturnValueOnce', spy);
     }
@@ -470,7 +511,7 @@ definePrototypeMember('mockThrow', function mockThrow(this: unknown, value: unkn
 });
 
 definePrototypeMember('mockThrowOnce', function mockThrowOnce(this: unknown, value: unknown): unknown {
-  configOf(self(this)).onceImplementations.push(function throwValueOnce(): never {
+  (configOf(self(this)).onceImplementations ??= []).push(function throwValueOnce(): never {
     throw value;
   });
 
@@ -498,7 +539,7 @@ definePrototypeMember('mockResolvedValue', function mockResolvedValue(this: unkn
 definePrototypeMember('mockResolvedValueOnce', function mockResolvedValueOnce(this: unknown, value: unknown): unknown {
   const spy = self(this);
 
-  configOf(spy).onceImplementations.push(function resolvedValueOnce(this: unknown): unknown {
+  (configOf(spy).onceImplementations ??= []).push(function resolvedValueOnce(this: unknown): unknown {
     if (new.target) {
       throwConstructorError('mockResolvedValueOnce', spy);
     }
@@ -530,7 +571,7 @@ definePrototypeMember('mockRejectedValue', function mockRejectedValue(this: unkn
 definePrototypeMember('mockRejectedValueOnce', function mockRejectedValueOnce(this: unknown, value: unknown): unknown {
   const spy = self(this);
 
-  configOf(spy).onceImplementations.push(function rejectedValueOnce(this: unknown): unknown {
+  (configOf(spy).onceImplementations ??= []).push(function rejectedValueOnce(this: unknown): unknown {
     if (new.target) {
       throwConstructorError('mockRejectedValueOnce', spy);
     }
@@ -559,7 +600,7 @@ function resetSpy(spy: FastSpy): void {
  */
 function reinstateOriginal(spy: FastSpy, config: FastSpyConfig): void {
   config.implementation = config.original;
-  config.onceImplementations = [];
+  config.onceImplementations = undefined;
   hooksOf(spy)?.implementationReplaced?.(config.original, 'mockReset');
 }
 
@@ -648,7 +689,7 @@ function invoke(spy: FastSpy, thisArg: unknown, args: unknown[], newTarget: Func
   // Not the accessors: the sweep check above has already run, and they would repeat it six times.
   state.record(args, invocationCallCounter++, result, settled, context);
 
-  const implementation = config.onceImplementations.shift() ?? config.implementation;
+  const implementation = config.onceImplementations?.shift() ?? config.implementation;
   let returned: unknown;
 
   try {
@@ -685,15 +726,16 @@ function invoke(spy: FastSpy, thisArg: unknown, args: unknown[], newTarget: Func
 export function createFastSpy(implementation?: Func, name?: string): FastSpy {
   const config: FastSpyConfig = {
     implementation,
-    onceImplementations: [],
+    onceImplementations: undefined,
     name: name ?? '',
     original: implementation,
     clearSeen: clearEpoch,
     resetSeen: resetEpoch,
   };
 
+  // Reaches itself by its own name: closing over `spy` cost every spy a context object of its own.
   const callable = function Mock(this: unknown, ...args: unknown[]): unknown {
-    return invoke(spy, this, args, new.target);
+    return invoke(self(Mock), this, args, new.target);
   };
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the `Mock` surface arrives from the prototype installed on the next line, which no expression type can describe; this is the one place the two views of the same object are joined.

@@ -6,7 +6,9 @@
  */
 import { type MockInstance, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { FastSpy } from './fast-spy';
 import { createFunctionSpy } from './function-spy';
+import { setMisconfigurationReaction } from './misconfiguration';
 import { type MockAdapter, type MockFn, registerMockAdapter } from './mock-adapter';
 import { resetAutoSpy } from './reset-auto-spy';
 import { setSpyEngine } from './spy-engine';
@@ -302,6 +304,20 @@ describe('createFunctionSpy — a host implementation over a configured chain', 
     expect(load(1)).toBe('configured');
   });
 
+  it('reports a calledWith opened after a mockReturnValue that was the first touch since a reset sweep', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    vi.resetAllMocks();
+    warn.mockImplementation((message: unknown) => {
+      warnings.push(String(message));
+    });
+    load.mockReturnValue('flat');
+    load.calledWith(1).mockReturnValue('configured');
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("calledWith() was configured on 'load' after mockReturnValue() had replaced its dispatch");
+  });
+
   it('names mustBeCalledWith, which loses its throw as well as its value', () => {
     const load = createFunctionSpy<(id: number) => string>('load');
 
@@ -360,6 +376,144 @@ describe('createFunctionSpy — a host implementation over a configured chain', 
 
     expect(warnings).toEqual([]);
     expect(load(1)).toBe('configured');
+  });
+});
+
+/**
+ * An implementation installed right after `getMockImplementation()` handed out the dispatch wraps it,
+ * and every call the wrapper does not answer still reaches the `calledWith` chain. `vi.when` in
+ * Vitest 5 is that wrapper, so reporting it as a replacement was false — and a throw under `strict`.
+ */
+describe('createFunctionSpy — a wrapper that delegates to the dispatch', () => {
+  const warnings: string[] = [];
+  let warn: MockInstance<typeof console.warn>;
+
+  beforeEach(() => {
+    warnings.length = 0;
+    warn = vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
+      warnings.push(String(message));
+    });
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+    setMisconfigurationReaction(undefined);
+  });
+
+  function wrap(load: (id: number) => string, answered: number, answer: string): void {
+    const spy = load as unknown as FastSpy;
+    const original = spy.getMockImplementation();
+
+    spy.mockImplementation((id: number) => (id === answered ? answer : original?.(id)));
+  }
+
+  it('keeps the chain live when the wrapper goes in after it', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    load.calledWith(2).mockReturnValue('chain');
+    wrap(load, 3, 'wrapper');
+
+    expect(warnings).toEqual([]);
+    expect([load(2), load(3)]).toEqual(['chain', 'wrapper']);
+  });
+
+  it('keeps the chain live when it is configured after the wrapper', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    wrap(load, 3, 'wrapper');
+    wrap(load, 4, 'second wrapper');
+    load.calledWith(2).mockReturnValue('chain');
+
+    expect(warnings).toEqual([]);
+    expect([load(2), load(3), load(4)]).toEqual(['chain', 'wrapper', 'second wrapper']);
+  });
+
+  it('still reports a wrapper around an implementation that had already replaced the dispatch', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    load.mockReturnValue('flat');
+    wrap(load, 3, 'wrapper');
+    load.calledWith(2).mockReturnValue('chain');
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("calledWith() was configured on 'load' after mockReturnValue() had replaced its dispatch");
+  });
+
+  it('reports an implementation installed after something else changed the one that was read', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+    const mock = load as unknown as FastSpy;
+
+    load.calledWith(1).mockReturnValue('chain');
+    mock.getMockImplementation();
+    mock.mockReturnValue('flat');
+    warnings.length = 0;
+    mock.mockImplementation(() => 'replaced');
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("mockImplementation() replaced the dispatch of 'load'");
+  });
+
+  it('reports an implementation installed a microtask after the read', async () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+    const mock = load as unknown as FastSpy;
+
+    load.calledWith(1).mockReturnValue('chain');
+    mock.getMockImplementation();
+    await Promise.resolve();
+    mock.mockImplementation(() => 'replaced');
+
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('reports an implementation installed on a different spy than the one read', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+    const mock = load as unknown as FastSpy;
+    const save = createFunctionSpy<(id: number) => string>('save') as unknown as FastSpy;
+
+    load.calledWith(1).mockReturnValue('chain');
+    save.getMockImplementation();
+    mock.mockImplementation(() => 'replaced');
+
+    expect(warnings).toHaveLength(1);
+  });
+
+  it.runIf('when' in vi)('does not report vi.when, in either order, and neither does the strict preset', () => {
+    setMisconfigurationReaction('throw');
+
+    const chainFirst = createFunctionSpy<(id: number) => string>('chainFirst');
+
+    chainFirst.calledWith(2).mockReturnValue('chain');
+    vi.when(chainFirst).calledWith(3).thenReturn('when');
+
+    const whenFirst = createFunctionSpy<(id: number) => string>('whenFirst');
+
+    vi.when(whenFirst).calledWith(3).thenReturn('when');
+    whenFirst.calledWith(2).mockReturnValue('chain');
+
+    expect(warnings).toEqual([]);
+    expect([chainFirst(2), chainFirst(3), whenFirst(2), whenFirst(3)]).toEqual(['chain', 'when', 'chain', 'when']);
+  });
+
+  it.runIf('when' in vi)('hands the decision back when vi.when is disposed or the spy is reset', async () => {
+    const disposed = createFunctionSpy<(id: number) => string>('disposed');
+    const rows = vi.when(disposed).calledWith(3).thenReturn('when');
+
+    disposed.calledWith(2).mockReturnValue('chain');
+    await Promise.resolve();
+    rows[Symbol.dispose]();
+
+    const reset = createFunctionSpy<(id: number) => string>('reset');
+
+    reset.calledWith(2).mockReturnValue('chain');
+    vi.when(reset).calledWith(3).thenReturn('when');
+    reset.mockReset();
+
+    expect(warnings).toEqual([]);
+    expect([disposed(2), disposed(3), reset(2), reset(3)]).toEqual(['chain', undefined, 'chain', undefined]);
+
+    disposed.mockReturnValue('flat');
+
+    expect(warnings).toHaveLength(1);
   });
 });
 

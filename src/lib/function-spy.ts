@@ -53,9 +53,9 @@ function unwrapContainer(container: ReturnValueContainer): unknown {
 }
 
 /**
- * The mutable state behind one function spy, in a single object.
+ * The mutable state behind one function spy, held by its {@link FunctionSpyInternals}.
  *
- * The two `calledWith` chains are **absent until configured**. They used to be built eagerly with
+ * The two `calledWith` chains are **absent (`undefined`) until configured**. They used to be built eagerly with
  * the spy, and they are the most expensive thing a spy owns that most spies never use: an object
  * plus an {@link ArgsMap} (a null-prototype record and a matcher array) each, ~600 B of the ~2.7 kB
  * a materialised spy costs. A spec configures `calledWith` on a handful of methods and leaves the
@@ -67,8 +67,8 @@ function unwrapContainer(container: ReturnValueContainer): unknown {
  */
 interface SpyState {
   readonly valueContainer: ReturnValueContainer;
-  calledWith?: CalledWithObject;
-  mustBeCalledWith?: CalledWithObject;
+  calledWith: CalledWithObject | undefined;
+  mustBeCalledWith: CalledWithObject | undefined;
 }
 
 /**
@@ -475,33 +475,30 @@ function ensureCalledWithObject(state: SpyState, chain: 'calledWith' | 'mustBeCa
  * cost three. Measured on the `/node` entry, materialising a method cost ~2.3 µs of this library's
  * own time on top of the runner's; the closures and the extra symbol properties were most of it.
  */
-class FunctionSpyInternals implements MarkHooks {
+class FunctionSpyInternals implements MarkHooks, SpyState {
   /** Built on the first stream helper, not on every spy — see {@link ObservableSupport.streamForFunctionSpy}. */
   #observable: ObservableStream | undefined = undefined;
 
-  readonly state: SpyState;
-  readonly valueContainer: ReturnValueContainer;
-  readonly host: MockFn;
-  readonly dispatch: Func;
-  readonly recorder: SettledResultsRecorder;
+  calledWith: CalledWithObject | undefined = undefined;
+  mustBeCalledWith: CalledWithObject | undefined = undefined;
+  readonly valueContainer: ReturnValueContainer = { value: undefined };
+  // Set right after construction: the host mock is built from the dispatch, which reads these internals.
+  host!: MockFn;
+  dispatch!: Func;
+  recorder!: SettledResultsRecorder;
   readonly name: string;
+  readonly unstubbed: UnstubbedGuard | undefined;
   /** The member that last installed an implementation of the host's own over the dispatch, if any. */
   replacedBy: string | undefined = undefined;
 
-  constructor(
-    state: SpyState,
-    valueContainer: ReturnValueContainer,
-    host: MockFn,
-    dispatch: Func,
-    recorder: SettledResultsRecorder,
-    name: string,
-  ) {
-    this.state = state;
-    this.valueContainer = valueContainer;
-    this.host = host;
-    this.dispatch = dispatch;
-    this.recorder = recorder;
+  constructor(name: string, unstubbed: UnstubbedGuard | undefined) {
     this.name = name;
+    this.unstubbed = unstubbed;
+  }
+
+  /** The chains, for `explainSpy`, which reads them off the mark without importing this module. */
+  get state(): SpyState {
+    return this;
   }
 
   /**
@@ -521,7 +518,7 @@ class FunctionSpyInternals implements MarkHooks {
 
     this.replacedBy = via;
 
-    const chain = configuredChain(this.state);
+    const chain = configuredChain(this);
 
     if (chain !== undefined) {
       reportMisconfiguration(dispatchReplacedMessage(this.name, via, chain, 'erased'));
@@ -547,12 +544,12 @@ class FunctionSpyInternals implements MarkHooks {
    * implementation closed over.
    */
   reset(): void {
-    const { state, valueContainer } = this;
+    const { valueContainer } = this;
 
     // Dropping the chains reverts the configuration *and* releases the argument maps a configured
     // spy allocated, so a reset spy costs exactly what a fresh one costs.
-    delete state.calledWith;
-    delete state.mustBeCalledWith;
+    this.calledWith = undefined;
+    this.mustBeCalledWith = undefined;
     valueContainer.value = undefined;
     delete valueContainer._isRejectedPromise;
     delete valueContainer._isThrown;
@@ -663,14 +660,14 @@ const SPY_HELPERS = /* @__PURE__ */ Object.assign(
 
       reportLateChain(internals, 'calledWith');
 
-      return addMethodsToCalledWith(ensureCalledWithObject(internals.state, 'calledWith'), calledWithArgs);
+      return addMethodsToCalledWith(ensureCalledWithObject(internals, 'calledWith'), calledWithArgs);
     },
     mustBeCalledWith(this: unknown, ...calledWithArgs: unknown[]): CalledWithObject {
       const internals = internalsOf(this, 'mustBeCalledWith');
 
       reportLateChain(internals, 'mustBeCalledWith');
 
-      return addMethodsToCalledWith(ensureCalledWithObject(internals.state, 'mustBeCalledWith'), calledWithArgs);
+      return addMethodsToCalledWith(ensureCalledWithObject(internals, 'mustBeCalledWith'), calledWithArgs);
     },
   },
 );
@@ -714,15 +711,10 @@ function buildFunctionSpy<FunctionType extends Func>(
   unstubbed: UnstubbedGuard | undefined,
   host: MockFn | undefined,
 ): AddSpyMethodsByReturnTypes<FunctionType> {
-  const valueContainer: ReturnValueContainer = { value: undefined };
-  const state: SpyState = { valueContainer };
-
-  // Declared before `dispatch` closes over it, and mutable, because the two cannot both come
-  // first: the recorder needs the host mock, and the host mock is built *from* `dispatch`. As a
-  // `const` assigned afterwards this is a temporal dead zone that only stays quiet while no
-  // adapter calls the implementation at creation time — one that warms it would get a
-  // `ReferenceError` out of the spy factory rather than an unrecorded call.
-  let settledResultsRecorder: ((returned: unknown) => unknown) | undefined = undefined;
+  // Built before `dispatch`, which closes over nothing else: the recorder needs the host mock, and the
+  // host mock is built *from* `dispatch`, so an adapter that warms the implementation at creation time
+  // finds no recorder yet rather than a `ReferenceError` out of the spy factory.
+  const internals = new FunctionSpyInternals(name, unstubbed);
 
   // The library's dispatch: pick the configured value for the call, then record
   // its settled outcome. Kept in the internals so `resetAutoSpy` can re-install it,
@@ -735,9 +727,12 @@ function buildFunctionSpy<FunctionType extends Func>(
   // value is the instance when it is an object, and the fresh instance otherwise — the language's
   // own rule for what a constructor returns, so there is nothing to decide here.
   const dispatch = function dispatch(...actualArgs: unknown[]): unknown {
-    const returned = returnTheCorrectFakeValue(state, actualArgs, name, unstubbed);
+    const returned = returnTheCorrectFakeValue(internals, actualArgs, internals.name, internals.unstubbed);
+    // Still unset while an adapter warms the implementation during `createMockFn`.
+    const recorder: SettledResultsRecorder | undefined = internals.recorder;
+    const record = recorder?.record;
 
-    return settledResultsRecorder ? settledResultsRecorder(returned) : returned;
+    return record ? record(returned) : returned;
   };
 
   const functionSpy = host ?? getMockAdapter().createMockFn(dispatch, name);
@@ -749,10 +744,10 @@ function buildFunctionSpy<FunctionType extends Func>(
   // Bun / node:test don't track `mock.settledResults`; polyfill it so the typed
   // `spy.method.mock.settledResults` surface works on every runtime (Vitest keeps
   // its native array — the recorder is then a no-op).
-  const recorder = installSettledResultsPolyfill(functionSpy);
-  settledResultsRecorder = recorder.record;
+  internals.host = functionSpy;
+  internals.dispatch = dispatch;
+  internals.recorder = installSettledResultsPolyfill(functionSpy);
 
-  const internals = new FunctionSpyInternals(state, valueContainer, functionSpy, dispatch, recorder, name);
   const spy = attachHelpers(functionSpy, SPY_HELPERS);
 
   getObservableSupport()?.addToFunctionSpy(spy);
@@ -763,7 +758,7 @@ function buildFunctionSpy<FunctionType extends Func>(
   getJasmineSupport()?.addToFunctionSpy(spy, {
     name,
     restoreDispatch: (): void => {
-      getMockAdapter().restoreImplementation(functionSpy, dispatch);
+      getMockAdapter().restoreImplementation(internals.host, internals.dispatch);
     },
   });
 
