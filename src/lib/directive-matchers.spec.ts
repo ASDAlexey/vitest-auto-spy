@@ -1,4 +1,4 @@
-import { Component, Directive, NgModule } from '@angular/core';
+import { Component, Directive, NgModule, TemplateRef, ViewContainerRef, inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeAll, describe, expect, it } from 'vitest';
 
@@ -13,6 +13,13 @@ class HighlightModule {}
 
 @Directive({ selector: '[appLoner]' })
 class LonerDirective {}
+
+@Directive({ selector: '[appRender]' })
+class RenderDirective {
+  constructor() {
+    inject(ViewContainerRef).createEmbeddedView(inject(TemplateRef));
+  }
+}
 
 beforeAll(registerDirectiveMatchers);
 
@@ -149,5 +156,79 @@ describe('toHaveDirectiveApplied on a TestBed.createDirective fixture', () => {
     const fixture = TestBed.createComponent(HostedComponent);
 
     expect(fixture).toHaveDirectiveApplied(LonerDirective);
+  });
+});
+
+describe('toHaveDirectiveApplied on a structural directive', () => {
+  it('finds `*dir` on the template anchor of a createDirectiveHost fixture', () => {
+    const Host = createDirectiveHost({ template: '<div *appRender class="shown">shown</div>', scope: [RenderDirective] });
+
+    TestBed.configureTestingModule({ imports: [Host] });
+
+    const fixture = TestBed.createComponent(Host);
+    fixture.detectChanges();
+
+    expect(fixture).toHaveDirectiveApplied(RenderDirective);
+    expect(fixture.debugElement).toHaveDirectiveApplied(RenderDirective);
+    expect(fixture).not.toHaveDirectiveApplied(LonerDirective);
+    expect(() => expect(fixture).not.toHaveDirectiveApplied(RenderDirective)).toThrow(
+      /not to be applied, but it is on 1 template anchor\./,
+    );
+  });
+
+  it('finds `<ng-template dir>` on a createDirectiveHost fixture', () => {
+    const Host = createDirectiveHost({ template: '<ng-template appRender><span>shown</span></ng-template>', scope: [RenderDirective] });
+
+    TestBed.configureTestingModule({ imports: [Host] });
+
+    const fixture = TestBed.createComponent(Host);
+    fixture.detectChanges();
+
+    expect(fixture).toHaveDirectiveApplied(RenderDirective);
+  });
+
+  it('finds both forms in the template of a component under test', () => {
+    @Component({
+      selector: 'app-rendering',
+      imports: [RenderDirective, LonerDirective],
+      template: '<p appLoner></p><div *appRender>a</div><ng-template appRender><span>b</span></ng-template>',
+    })
+    class RenderingComponent {}
+
+    const fixture = TestBed.createComponent(RenderingComponent);
+    fixture.detectChanges();
+
+    expect(fixture).toHaveDirectiveApplied(RenderDirective);
+    expect(() => expect(fixture).not.toHaveDirectiveApplied(RenderDirective)).toThrow(/but it is on 2 template anchors\./);
+    expect(() => expect(fixture).not.toHaveDirectiveApplied(LonerDirective)).toThrow(/but it is on 1 element\./);
+  });
+
+  it('tells a selector that names the rendered element to drop it for a template anchor', () => {
+    const Host = createDirectiveHost({ template: '<div *appRender class="shown">shown</div>', scope: [RenderDirective] });
+
+    TestBed.configureTestingModule({ imports: [Host] });
+
+    const fixture = TestBed.createComponent(Host);
+    fixture.detectChanges();
+
+    expect(() => expect(fixture).toHaveDirectiveApplied(RenderDirective, '.shown')).toThrow(
+      /^\[vitest-auto-spy\] expected RenderDirective to be applied on '\.shown', but it is on a template anchor, not on an element — a structural directive sits on the comment Angular leaves in place of its template\.\nAssert it without a selector: expect\(fixture\)\.toHaveDirectiveApplied\(RenderDirective\)\.\nDocs: /,
+    );
+  });
+});
+
+describe('toHaveDirectiveApplied class names', () => {
+  it("takes the bundler's leading underscore off a decorated class", () => {
+    @Directive({ selector: '[appStray]' })
+    class _StrayDirective {}
+
+    @Component({ selector: 'app-renamed', template: '<span></span>' })
+    class _RenamedComponent {}
+
+    const fixture = TestBed.createComponent(_RenamedComponent);
+
+    expect(() => expect(fixture).toHaveDirectiveApplied(_StrayDirective)).toThrow(
+      /^\[vitest-auto-spy\] expected StrayDirective to be applied, but it is not on RenamedComponent's host element or in its template\.\nTo apply it, list StrayDirective in RenamedComponent's hostDirectives/,
+    );
   });
 });

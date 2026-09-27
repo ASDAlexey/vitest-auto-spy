@@ -8,6 +8,11 @@ export function count(value: number, noun: string, plural = `${noun}s`): string 
   return `${value} ${value === 1 ? noun : plural}`;
 }
 
+/** A bundler's rename taken back off: esbuild's `_Service` for a decorated class, Rollup's `Service$1`. */
+export function sourceClassName(name: string): string {
+  return name.replace(/^_(?=[A-Z])/, '').replace(/\$\d+$/, '');
+}
+
 function runnerRoot(): string | undefined {
   const config: unknown = Reflect.get(Object(Reflect.get(globalThis, '__vitest_worker__')), 'config');
   const root: unknown = Reflect.get(Object(config), 'root');

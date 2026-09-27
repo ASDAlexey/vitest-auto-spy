@@ -10,7 +10,7 @@ import { errorHandler } from './error-handler';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
 import { getJasmineSupport } from './jasmine-support';
 import { withDocs } from './message-link';
-import { displayPath } from './message-text';
+import { displayPath, sourceClassName } from './message-text';
 import { reportMisconfiguration } from './misconfiguration';
 import { type MockFn, getMockAdapter } from './mock-adapter';
 import { type ObservableStream, getObservableSupport, requireObservableSupport } from './observable-support';
@@ -93,11 +93,6 @@ export interface UnstubbedGuard {
 }
 
 /** `UserService.load` — or just `load` on a type-driven double, which has no class to name. */
-/** A bundler's rename taken back off: esbuild's `_Service` for a decorated class, Rollup's `Service$1`. */
-function sourceClassName(name: string): string {
-  return name.replace(/^_(?=[A-Z])/, '').replace(/\$\d+$/, '');
-}
-
 function describeTarget(call: UnstubbedCall): string {
   return call.className === undefined || call.className === '' ? call.method : `${sourceClassName(call.className)}.${call.method}`;
 }

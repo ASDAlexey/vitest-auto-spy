@@ -11,14 +11,14 @@
  * The matcher asserts the fact directly, and its failure names the two things that actually cause
  * it in a bundled test build.
  */
-import { type DebugElement, type Predicate, type Type, isStandalone, reflectComponentType } from '@angular/core';
+import { DebugElement, type DebugNode, type Predicate, type Type, isStandalone, reflectComponentType } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { expect } from 'vitest';
 
 import { DIRECTIVE_HOST } from './directive-host';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
-import { count } from './message-text';
+import { count, sourceClassName } from './message-text';
 
 // Chai's `Assertion`, not Vitest's `Matchers`: `Matchers` is `<T>` on Vitest 4 and `<R, T>` on
 // Vitest 5, and declaration merging demands an exact type-parameter match — this one merges on both.
@@ -60,6 +60,24 @@ function matching(root: DebugElement, predicate: Predicate<DebugElement>): Debug
   return predicate(root) ? [root, ...root.queryAll(predicate)] : root.queryAll(predicate);
 }
 
+/** `queryAllNodes`, not `queryAll`: a structural directive sits on its template's comment anchor, which is no element. */
+function matchingNodes(root: DebugElement, predicate: Predicate<DebugNode>): DebugNode[] {
+  return predicate(root) ? [root, ...root.queryAllNodes(predicate)] : root.queryAllNodes(predicate);
+}
+
+function isAnchor(node: DebugNode): boolean {
+  return !(node instanceof DebugElement);
+}
+
+function located(nodes: DebugNode[]): string {
+  const anchors = nodes.filter(isAnchor).length;
+  const elements = nodes.length - anchors;
+
+  return [elements > 0 ? count(elements, 'element') : '', anchors > 0 ? count(anchors, 'template anchor') : '']
+    .filter((part) => part !== '')
+    .join(' and ');
+}
+
 function isClass(value: unknown): value is Type<unknown> {
   return typeof value === 'function';
 }
@@ -77,13 +95,14 @@ function componentUnderTest(root: DebugElement): string | undefined {
 
   const mirror = reflectComponentType(type);
 
-  return mirror === null || mirror.selector.includes(TESTBED_DIRECTIVE_HOST) ? undefined : type.name;
+  return mirror === null || mirror.selector.includes(TESTBED_DIRECTIVE_HOST) ? undefined : sourceClassName(type.name);
 }
 
-function diagnose(directive: Type<unknown>, selector: string | undefined, root: DebugElement): string {
+function diagnose(directive: Type<unknown>, selector: string | undefined, root: DebugElement, withDirective: DebugNode[]): string {
+  const name = sourceClassName(directive.name);
   const elements = selector === undefined ? [] : matching(root, By.css(selector));
   const where = selector === undefined ? '' : ` on '${selector}'`;
-  const prefix = `[vitest-auto-spy] expected ${directive.name} to be applied${where}`;
+  const prefix = `[vitest-auto-spy] expected ${name} to be applied${where}`;
 
   if (selector !== undefined && elements.length === 0) {
     return withDocs(
@@ -93,12 +112,20 @@ function diagnose(directive: Type<unknown>, selector: string | undefined, root: 
     );
   }
 
+  if (selector !== undefined && withDirective.some(isAnchor)) {
+    return withDocs(
+      `${prefix}, but it is on a template anchor, not on an element — a structural directive sits on the comment Angular leaves in place of its template.\n` +
+        `Assert it without a selector: expect(fixture).toHaveDirectiveApplied(${name}).`,
+      DOCS_LINKS.angularDirectiveApplied,
+    );
+  }
+
   const component = componentUnderTest(root);
 
   if (component !== undefined) {
     const scope = isStandalone(directive)
-      ? `list ${directive.name} in ${component}'s hostDirectives if the component should carry it, or in its imports if its template uses it`
-      : `add the NgModule that declares ${directive.name} to ${component}'s imports if its template uses it`;
+      ? `list ${name} in ${component}'s hostDirectives if the component should carry it, or in its imports if its template uses it`
+      : `add the NgModule that declares ${name} to ${component}'s imports if its template uses it`;
 
     return withDocs(
       `${prefix}, but it is not on ${component}'s host element or in its template.\n` + `To apply it, ${scope}.`,
@@ -107,12 +134,12 @@ function diagnose(directive: Type<unknown>, selector: string | undefined, root: 
   }
 
   const cause = isStandalone(directive)
-    ? `${directive.name} is standalone, so only the host component's own imports put it in scope`
-    : `${directive.name} is declared by an NgModule, and a test bundle drops that module's scope, so importing it contributes nothing`;
+    ? `${name} is standalone, so only the host component's own imports put it in scope`
+    : `${name} is declared by an NgModule, and a test bundle drops that module's scope, so importing it contributes nothing`;
 
   return withDocs(
     `${prefix}, but it is not on any element of this fixture — ${cause}.\n` +
-      `Build the host with createDirectiveHost({ template, scope: [${isStandalone(directive) ? directive.name : 'ItsModule'}] }).`,
+      `Build the host with createDirectiveHost({ template, scope: [${isStandalone(directive) ? name : 'ItsModule'}] }).`,
     DOCS_LINKS.angularDirectiveApplied,
   );
 }
@@ -142,7 +169,7 @@ function directiveResult(received: unknown, directive: Type<unknown>, selector?:
     );
   }
 
-  const withDirective = matching(root, By.directive(directive));
+  const withDirective = matchingNodes(root, By.directive(directive));
   const applied =
     selector === undefined
       ? withDirective.length > 0
@@ -152,8 +179,8 @@ function directiveResult(received: unknown, directive: Type<unknown>, selector?:
     pass: applied,
     message: (): string =>
       applied
-        ? `[vitest-auto-spy] expected ${directive.name} not to be applied, but it is on ${count(withDirective.length, 'element')}.`
-        : diagnose(directive, selector, root),
+        ? `[vitest-auto-spy] expected ${sourceClassName(directive.name)} not to be applied, but it is on ${located(withDirective)}.`
+        : diagnose(directive, selector, root, withDirective),
   };
 }
 
