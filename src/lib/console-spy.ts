@@ -194,7 +194,7 @@ export function consoleSpiesForImport(): ConsoleSpies {
 /** A console method that writes, as `consoleOutput()` keys it. */
 export type ConsoleChannel = 'debug' | 'error' | 'info' | 'log' | 'trace' | 'warn';
 
-/** What a test wrote, per channel: the arguments of each call. A channel nothing wrote to is absent. */
+/** What a test wrote, per channel: the arguments of each call. A channel nothing wrote to is absent; keys come in alphabetical order. */
 export type ConsoleOutput = Partial<Record<ConsoleChannel, unknown[][]>>;
 
 const CHANNELS: ReadonlySet<string> = new Set<ConsoleChannel>(['debug', 'error', 'info', 'log', 'trace', 'warn']);
@@ -212,6 +212,7 @@ function isChannel(method: string): method is ConsoleChannel {
  * cli.run(['--dry-run']);
  * expect(consoleOutput()).toStrictEqual({ info: [['done']] });
  * expect(consoleOutput()).toStrictEqual({}); // wrote nothing at all
+ * expect(Object.keys(consoleOutput())).toStrictEqual(['info']); // only info, whatever it said
  * ```
  */
 export function consoleOutput(): ConsoleOutput {

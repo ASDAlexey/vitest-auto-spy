@@ -165,6 +165,17 @@ describe('vitest-auto-spy/console', () => {
       restoreConsole();
     });
 
+    it('lists the channels written to in alphabetical order, whichever was written first', () => {
+      installConsoleSpies();
+      console.warn('late');
+      console.error('failed');
+      console.info('done');
+
+      expect(Object.keys(consoleOutput())).toStrictEqual(['error', 'info', 'warn']);
+
+      restoreConsole();
+    });
+
     it('fails an exact comparison on a stray channel, which a per-spy assertion never looks at', () => {
       installConsoleSpies();
       console.info('done');
