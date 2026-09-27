@@ -16,7 +16,7 @@
     },
     "./angular-http": {
       "modules": 8,
-      "bytes": 31370
+      "bytes": 32313
     },
     "./angular-router": {
       "modules": 9,
@@ -31,8 +31,8 @@
       "bytes": 97408
     },
     "./angular/matchers": {
-      "modules": 4,
-      "bytes": 22906
+      "modules": 5,
+      "bytes": 23887
     },
     "./bun": {
       "modules": 15,
@@ -52,15 +52,15 @@
     },
     "./dom-stubs": {
       "modules": 2,
-      "bytes": 56183
+      "bytes": 56332
     },
     "./eslint-plugin": {
       "modules": 2,
       "bytes": 250774
     },
     "./jasmine": {
-      "modules": 15,
-      "bytes": 148816
+      "modules": 16,
+      "bytes": 150096
     },
     "./jasmine-compat": {
       "modules": 5,
