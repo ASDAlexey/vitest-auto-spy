@@ -14,7 +14,16 @@ import { autoMocked, createAutoMock } from './auto-mock';
 import { registerMockAdapter } from './mock-adapter';
 import { mockDeep } from './mock-deep';
 import { mockAccessorsProp, mockReadonlyProp, mockReadonlyPropGetter, mockValueProp, restoreMockedProps } from './prop-mock';
-import { NOT_STORED, createProxyPropStore, readStoredAccessor } from './proxy-props';
+import {
+  NOT_STORED,
+  createProxyPropStore,
+  dropStoredProp,
+  hasStoredProp,
+  isDeletedProp,
+  readStoredAccessor,
+  storeDefinedProp,
+  writeStoredValue,
+} from './proxy-props';
 import { asInstance } from './spy-typing';
 import { vitestMockAdapter } from './vitest-adapter';
 
@@ -183,9 +192,29 @@ describe('the store itself', () => {
   it('answers `undefined` for a write-only accessor pair', () => {
     const store = createProxyPropStore({});
 
-    store.accessors.set('writeOnly', { set: () => undefined, configurable: true });
+    storeDefinedProp(store, 'writeOnly', { set: () => undefined, configurable: true });
 
     expect(readStoredAccessor(store, 'writeOnly', undefined)).toBeUndefined();
+  });
+
+  it('keeps each store its own accessors and tombstones, though empty ones start out shared', () => {
+    const patched = createProxyPropStore({});
+    const deleted = createProxyPropStore({});
+    const untouched = createProxyPropStore({ seeded: 1 });
+
+    storeDefinedProp(patched, 'label', { get: () => 'patched', configurable: true });
+    dropStoredProp(deleted, 'seeded');
+    dropStoredProp(deleted, 'other');
+    storeDefinedProp(deleted, 'other', { get: () => 'again', configurable: true });
+    writeStoredValue(untouched, 'fresh', 2);
+
+    expect(readStoredAccessor(patched, 'label', undefined)).toBe('patched');
+    expect(isDeletedProp(deleted, 'seeded')).toBe(true);
+    expect(isDeletedProp(deleted, 'other')).toBe(false);
+    expect(hasStoredProp(untouched, 'label')).toBe(false);
+    expect(isDeletedProp(untouched, 'seeded')).toBe(false);
+    expect(isDeletedProp(patched, 'seeded')).toBe(false);
+    expect(createProxyPropStore({}).accessors.size + createProxyPropStore({}).deleted.size).toBe(0);
   });
 });
 

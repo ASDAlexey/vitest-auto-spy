@@ -46,8 +46,29 @@ export interface ProxyPropStore {
  * `readStoredAccessor` / `writeStoredAccessor` exactly like one installed by `mockAccessorsProp`:
  * on read, on write, once per access, with the double as `this`.
  */
+// Shared until the first write: an accessor patch and a `delete` are both rare, and the two empty
+// collections were ~336 B of every auto-mock and every `mockDeep` node. Every write goes through the two below.
+const NO_ACCESSORS = new Map<string | symbol, PropertyDescriptor>();
+const NO_DELETED = new Set<string | symbol>();
+
+function ownAccessors(store: ProxyPropStore): Map<string | symbol, PropertyDescriptor> {
+  if (store.accessors === NO_ACCESSORS) {
+    store.accessors = new Map();
+  }
+
+  return store.accessors;
+}
+
+function ownDeleted(store: ProxyPropStore): Set<string | symbol> {
+  if (store.deleted === NO_DELETED) {
+    store.deleted = new Set();
+  }
+
+  return store.deleted;
+}
+
 export function createProxyPropStore(seed: object): ProxyPropStore {
-  const store: ProxyPropStore = { values: new Map(), accessors: new Map(), deleted: new Set() };
+  const store: ProxyPropStore = { values: new Map(), accessors: NO_ACCESSORS, deleted: NO_DELETED };
 
   for (const key of Reflect.ownKeys(seed)) {
     // Copied rather than read through a nullable binding: an own key always has a descriptor, and
@@ -57,7 +78,7 @@ export function createProxyPropStore(seed: object): ProxyPropStore {
     // `??` and not `||`, for the reason `storeDefinedProp` states: a write-only `{ set }` seed is an
     // accessor too, and it has no `get` to test.
     if ((descriptor.get ?? descriptor.set) !== undefined) {
-      store.accessors.set(key, descriptor);
+      ownAccessors(store).set(key, descriptor);
 
       continue;
     }
@@ -99,7 +120,7 @@ export function storeDefinedProp(store: ProxyPropStore, key: string | symbol, de
   // `??` and not `||`: a descriptor is an accessor one when it carries *either* half, and a
   // write-only `{ set }` has no `get` to test.
   if ((descriptor.get ?? descriptor.set) !== undefined) {
-    store.accessors.set(key, descriptor);
+    ownAccessors(store).set(key, descriptor);
     store.values.delete(key);
 
     return true;
@@ -124,7 +145,7 @@ export function storeDefinedProp(store: ProxyPropStore, key: string | symbol, de
 export function dropStoredProp(store: ProxyPropStore, key: string | symbol): boolean {
   store.values.delete(key);
   store.accessors.delete(key);
-  store.deleted.add(key);
+  ownDeleted(store).add(key);
 
   return true;
 }
