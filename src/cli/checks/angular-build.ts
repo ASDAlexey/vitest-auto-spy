@@ -1,6 +1,7 @@
 /**
  * The installed `@angular/build` against what the unit-test run needs from it: the window where the
- * build has code splitting off, and an Analog plugin too old for the builder beside it.
+ * build has code splitting off, a `splitting` key the builder has deprecated, and an Analog plugin
+ * too old for the builder beside it.
  *
  * The splitting window and its wording live in `lib/angular-build-notice`, shared with the notice
  * `setupAutoSpy()` prints from inside the run; this is the half a person runs by hand, against the
@@ -53,6 +54,38 @@ const compared = (raw: string, floor: readonly number[]): number => {
   return version === undefined ? Number.NaN : compareVersions(version, floor);
 };
 
+/** 22.2.0 marks the option `x-deprecated: "No longer needed with Vitest 5."`, still honouring `false`. */
+const SPLITTING_DEPRECATED_FROM = [22, 2, 0];
+
+function splittingDeprecated(profile: Profile, version: string | undefined): Finding[] {
+  if (version === undefined || !(compared(version, SPLITTING_DEPRECATED_FROM) >= 0)) {
+    return [];
+  }
+
+  return unitTestTargets(profile).flatMap((target) => {
+    const values = target.optionBlocks.flatMap((block) => (typeof block['splitting'] === 'boolean' ? [block['splitting']] : []));
+
+    if (values.length === 0) {
+      return [];
+    }
+
+    const off = values.includes(false);
+    const where = `\`${target.project}:${target.name}\``;
+
+    return [
+      {
+        check: 'angular-build-splitting-deprecated',
+        severity: off ? 'warning' : 'info',
+        file: target.file,
+        message: off
+          ? `${where} sets \`"splitting": false\`, deprecated since @angular/build 22.2.0 ("No longer needed with Vitest 5") and still honoured: one self-contained bundle per spec, and \`--coverage\` grows by hundreds of megabytes.`
+          : `${where} sets \`"splitting"\`, deprecated since @angular/build 22.2.0 ("No longer needed with Vitest 5"); \`true\` is the default, so the key changes nothing.`,
+        fix: `Remove \`"splitting"\` from ${where}.`,
+      },
+    ];
+  });
+}
+
 function analogBehind(cwd: string, builderVersion: string | undefined): Finding[] {
   const analogVersion = installedVersionOf(cwd, ANALOG_PLUGIN);
 
@@ -79,5 +112,5 @@ function analogBehind(cwd: string, builderVersion: string | undefined): Finding[
 export function checkAngularBuild(profile: Profile): Finding[] {
   const version = installedVersionOf(profile.cwd, '@angular/build');
 
-  return [...splittingOff(profile, version), ...analogBehind(profile.cwd, version)];
+  return [...splittingOff(profile, version), ...splittingDeprecated(profile, version), ...analogBehind(profile.cwd, version)];
 }

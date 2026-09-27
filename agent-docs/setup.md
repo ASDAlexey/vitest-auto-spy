@@ -453,7 +453,10 @@ directory. That read is the one place the library touches the disk — one file,
 `process.getBuiltinModule` so `/setup` still loads with no `process` — and `scripts/check-dist.mjs`
 allows `node:fs` in `dist/setup.js` for exactly that. Silent outside the builder, outside the
 window, and on a Node before `getBuiltinModule`. `setupAutoSpy({ angularBuildHint: false })` turns
-it off.
+it off. Outside the window there is nothing to set: from 22.1.7 splitting is on by default, and
+22.2.0 deprecates the `splitting` option ("No longer needed with Vitest 5") — do not add
+`"splitting": true`, and remove one that is there (`doctor` reports it as
+`angular-build-splitting-deprecated`).
 
 **Strict for one run:** `VITEST_AUTO_SPY_STRICT=1 npx vitest run <slice>` makes `setupAutoSpy()` arm
 `strict` whatever the setup file passed (`0` turns it off, `survey` counts instead of throwing); a second `setupAutoSpy()` in an extra setup

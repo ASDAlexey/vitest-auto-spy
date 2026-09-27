@@ -229,6 +229,15 @@ deprecates the option, since Vitest 5 no longer needs it). See
 [what it trades, and the escape hatch](/adapters/angular#when-the-unit-test-build-has-code-splitting-off);
 `setupAutoSpy()` also says this once per worker from inside the affected run.
 
+#### `angular-build-splitting-deprecated`
+
+`@angular/build` 22.2.0 or newer, and a unit-test target — its `options`, a configuration, or an Nx
+target default — that sets `"splitting"`. 22.2.0 marks the option deprecated ("No longer needed with
+Vitest 5"). `true` is its default, so the key changes nothing and the finding is `info`; `false` is
+still honoured and builds every spec as a self-contained bundle, the memory cost
+[`angular-build-splitting-off`](#angular-build-splitting-off) describes, so it is a `warning`. The
+fix names the target to remove the key from.
+
 #### `analog-behind-angular-build`
 
 `@angular/build` 22.2.0 or newer beside `@analogjs/vite-plugin-angular` older than 2.7.5. From 22.2.0

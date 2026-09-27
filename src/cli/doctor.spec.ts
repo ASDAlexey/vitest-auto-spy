@@ -430,6 +430,48 @@ describe('checkAngularBuild', () => {
     ).toEqual([]);
   });
 
+  describe('a splitting key on 22.2.0 or newer', () => {
+    const repo = (version: string, options: Record<string, unknown>, configurations?: Record<string, unknown>): string =>
+      createTempRepo({
+        'package.json': '{}',
+        'node_modules/@angular/build/package.json': JSON.stringify({ version }),
+        'angular.json': JSON.stringify({
+          projects: {
+            app: {
+              architect: {
+                test: { builder: '@angular/build:unit-test', options, configurations },
+                build: { options: { splitting: true } },
+              },
+            },
+          },
+        }),
+      });
+
+    it('reports a redundant true as info and a false as a warning, per target', () => {
+      expect(checkAngularBuild(readProfile(repo('22.2.0', { splitting: true })))).toEqual([
+        {
+          check: 'angular-build-splitting-deprecated',
+          severity: 'info',
+          file: 'angular.json',
+          message:
+            '`app:test` sets `"splitting"`, deprecated since @angular/build 22.2.0 ("No longer needed with Vitest 5"); `true` is the default, so the key changes nothing.',
+          fix: 'Remove `"splitting"` from `app:test`.',
+        },
+      ]);
+
+      const [finding] = checkAngularBuild(readProfile(repo('23.0.0', {}, { ci: { splitting: false } })));
+
+      expect(finding?.severity).toBe('warning');
+      expect(finding?.message).toContain('sets `"splitting": false`, deprecated since @angular/build 22.2.0');
+    });
+
+    it('stays quiet before 22.2.0, without the key, and on a non-boolean value', () => {
+      expect(checkAngularBuild(readProfile(repo('22.1.9', { splitting: true })))).toEqual([]);
+      expect(checkAngularBuild(readProfile(repo('22.2.0', {})))).toEqual([]);
+      expect(checkAngularBuild(readProfile(repo('22.2.0', { splitting: 'yes' })))).toEqual([]);
+    });
+  });
+
   describe('with Analog beside it', () => {
     const manifests = (builder: string | undefined, analog: string | undefined): string =>
       createTempRepo({

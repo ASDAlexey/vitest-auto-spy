@@ -191,6 +191,15 @@ splitting, поэтому `--coverage` растёт на сотни мегаба
 [чем он платит и как выйти](/ru/adapters/angular#when-the-unit-test-build-has-code-splitting-off);
 `setupAutoSpy()` говорит об этом же раз на воркер изнутри задетого прогона.
 
+#### `angular-build-splitting-deprecated` {#angular-build-splitting-deprecated}
+
+`@angular/build` 22.2.0 или новее и таргет unit-test — его `options`, конфигурация или target default
+в Nx, — где задан `"splitting"`. 22.2.0 объявляет опцию устаревшей («No longer needed with Vitest 5»).
+`true` — значение по умолчанию, ключ ничего не меняет, находка — `info`; `false` по-прежнему
+действует и собирает каждую спеку отдельным бандлом, с той ценой по памяти, что описана в
+[`angular-build-splitting-off`](#angular-build-splitting-off), поэтому это `warning`. Исправление
+называет таргет, из которого убрать ключ.
+
 #### `analog-behind-angular-build` {#analog-behind-angular-build}
 
 `@angular/build` 22.2.0 или новее рядом с `@analogjs/vite-plugin-angular` старше 2.7.5. С 22.2.0

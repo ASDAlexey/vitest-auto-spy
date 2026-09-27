@@ -31,8 +31,10 @@ file an Angular or Nx unit-test target never runs because the target does not na
 its checks are about coverage, where the run is green and the report is simply not the one the
 config describes — `coverage.all` on a Vitest that stopped reading the key, a source-only
 `coverage.include` in a runner config over a bundle, and a scope so large that `picomatch`
-recompiling it per file costs more than collecting the coverage does. Two are about the Angular
-builder's version: `@angular/build` in `[22.1.5, 22.1.7)` (`angular-build-splitting-off`), and an
+recompiling it per file costs more than collecting the coverage does. Three are about the Angular
+builder's version: `@angular/build` in `[22.1.5, 22.1.7)` (`angular-build-splitting-off`), a
+`"splitting"` key on a unit-test target under 22.2 or newer, which deprecates it
+(`angular-build-splitting-deprecated`: `info` for `true`, the default, `warning` for `false`), and an
 `@analogjs/vite-plugin-angular` below 2.7.5 next to `@angular/build` 22.2 or newer
 (`analog-behind-angular-build`), which dies at startup with `TypeError: cache.has is not a function`.
 Five are about Vitest 5. On Vitest 5, `vitest-5-removed` reports what it took away and the run now
