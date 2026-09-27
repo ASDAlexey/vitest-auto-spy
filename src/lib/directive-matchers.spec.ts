@@ -1,5 +1,5 @@
-import { Component, Directive, NgModule, TemplateRef, ViewContainerRef, inject } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { Component, Directive, NgModule, TemplateRef, type Type, ViewContainerRef, inject } from '@angular/core';
+import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { createDirectiveHost } from './directive-host';
@@ -213,6 +213,73 @@ describe('toHaveDirectiveApplied on a structural directive', () => {
 
     expect(() => expect(fixture).toHaveDirectiveApplied(RenderDirective, '.shown')).toThrow(
       /^\[vitest-auto-spy\] expected RenderDirective to be applied on '\.shown', but it is on a template anchor, not on an element — a structural directive sits on the comment Angular leaves in place of its template\.\nAssert it without a selector: expect\(fixture\)\.toHaveDirectiveApplied\(RenderDirective\)\.\nDocs: /,
+    );
+  });
+});
+
+describe('toHaveDirectiveApplied on a directive the host has in scope', () => {
+  function render(template: string, scope: readonly Type<unknown>[]): ComponentFixture<unknown> {
+    const Host = createDirectiveHost({ template, scope });
+
+    TestBed.configureTestingModule({ imports: [Host] });
+
+    const fixture = TestBed.createComponent(Host);
+    fixture.detectChanges();
+
+    return fixture;
+  }
+
+  it('blames a selector that matches nothing, printing it, rather than the scope the spec already set', () => {
+    @Directive({ selector: '[appFlagX]' })
+    class FlagDirective {}
+
+    const fixture = render('<div *appFlag="true">shown</div>', [FlagDirective]);
+
+    expect(() => expect(fixture).toHaveDirectiveApplied(FlagDirective)).toThrow(
+      /^\[vitest-auto-spy\] expected FlagDirective to be applied, but it is not on any element of this fixture, though it is in the host's scope — so its selector '\[appFlagX\]' matches nothing the template renders\.\nCheck that selector against the template/,
+    );
+  });
+
+  it('prints element, attribute value and class parts, and every alternative', () => {
+    @Directive({ selector: 'input[type=text].wide, .alt' })
+    class WideDirective {}
+
+    const fixture = render('<span></span>', [WideDirective]);
+
+    expect(() => expect(fixture).toHaveDirectiveApplied(WideDirective)).toThrow(
+      /its selector 'input\[type="text"\]\.wide, \.alt' matches nothing/,
+    );
+  });
+
+  it('leaves out a :not() selector it would print wrong', () => {
+    @Directive({ selector: 'div:not(.skip)' })
+    class NotDirective {}
+
+    const fixture = render('<span></span>', [NotDirective]);
+
+    expect(() => expect(fixture).toHaveDirectiveApplied(NotDirective)).toThrow(/so its selector matches nothing the template renders/);
+  });
+
+  it('prints no selector for a definition it cannot read one from', () => {
+    class NoDefinition {}
+    class BadSelector {
+      static ɵdir = { selectors: ['[appBad]'] };
+    }
+    class FakeHost {
+      static ɵcmp = { directiveDefs: () => [{ type: NoDefinition }, { type: BadSelector }] };
+    }
+
+    const root = { componentInstance: new FakeHost(), providerTokens: [], queryAll: () => [], queryAllNodes: () => [] };
+
+    expect(() => expect(root).toHaveDirectiveApplied(NoDefinition)).toThrow(/so its selector matches nothing/);
+    expect(() => expect(root).toHaveDirectiveApplied(BadSelector)).toThrow(/so its selector matches nothing/);
+  });
+
+  it('says where the directive is when the selector names another element', () => {
+    const fixture = render('<div appLoner></div><span></span>', [LonerDirective]);
+
+    expect(() => expect(fixture).toHaveDirectiveApplied(LonerDirective, 'span')).toThrow(
+      /expected LonerDirective to be applied on 'span', but it is on 1 element that selector does not match\.\nCheck the selector against the template, or drop it: expect\(fixture\)\.toHaveDirectiveApplied\(LonerDirective\)\./,
     );
   });
 });

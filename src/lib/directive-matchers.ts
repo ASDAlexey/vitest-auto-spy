@@ -98,6 +98,89 @@ function componentUnderTest(root: DebugElement): string | undefined {
   return mirror === null || mirror.selector.includes(TESTBED_DIRECTIVE_HOST) ? undefined : sourceClassName(type.name);
 }
 
+/** `ɵcmp.directiveDefs`: the host's compiled scope, NgModules already flattened, as the array or a factory for it. */
+function inHostScope(root: DebugElement, directive: Type<unknown>): boolean {
+  const host: unknown = Reflect.get(Object(root.componentInstance), 'constructor');
+  const defs: unknown = Reflect.get(Object(Reflect.get(Object(host), 'ɵcmp')), 'directiveDefs');
+  const list: unknown = typeof defs === 'function' ? Reflect.apply(defs, undefined, []) : defs;
+
+  return Array.isArray(list) && list.some((def) => Reflect.get(Object(def), 'type') === directive);
+}
+
+const SELECTOR_NOT = 1;
+const SELECTOR_CLASS = 8;
+
+/** Angular's `CssSelectorList` back as CSS, for the plain attribute, element and class forms; `undefined` for a `:not()`. */
+function selectorText(directive: Type<unknown>): string | undefined {
+  const selectors: unknown = Reflect.get(Object(Reflect.get(directive, 'ɵdir') ?? Reflect.get(directive, 'ɵcmp')), 'selectors');
+
+  if (!Array.isArray(selectors) || selectors.length === 0) {
+    return undefined;
+  }
+
+  const parts: string[] = [];
+
+  for (const selector of selectors) {
+    if (!Array.isArray(selector)) {
+      return undefined;
+    }
+
+    let text = String(selector[0]);
+    let classes = false;
+
+    for (let index = 1; index < selector.length; index++) {
+      const entry: unknown = selector[index];
+
+      if (typeof entry === 'number') {
+        if ((entry & SELECTOR_NOT) !== 0) {
+          return undefined;
+        }
+
+        classes = (entry & SELECTOR_CLASS) !== 0;
+      } else if (classes) {
+        text += `.${String(entry)}`;
+      } else {
+        const value = String(selector[++index]);
+
+        text += value === '' ? `[${String(entry)}]` : `[${String(entry)}="${value}"]`;
+      }
+    }
+
+    parts.push(text);
+  }
+
+  return parts.join(', ');
+}
+
+/** The failure when scope is not the cause: the directive is elsewhere, or its own selector matches nothing. */
+function selectorMismatch(
+  directive: Type<unknown>,
+  selector: string | undefined,
+  root: DebugElement,
+  withDirective: DebugNode[],
+): string | undefined {
+  const name = sourceClassName(directive.name);
+
+  if (selector !== undefined && withDirective.length > 0) {
+    return (
+      `it is on ${located(withDirective)} that selector does not match.\n` +
+      `Check the selector against the template, or drop it: expect(fixture).toHaveDirectiveApplied(${name}).`
+    );
+  }
+
+  if (!inHostScope(root, directive)) {
+    return undefined;
+  }
+
+  const own = selectorText(directive);
+
+  return (
+    `it is not on any element of this fixture, though it is in the host's scope — so its selector` +
+    `${own === undefined ? '' : ` '${own}'`} matches nothing the template renders.\n` +
+    'Check that selector against the template, and run fixture.detectChanges() before asserting if the element renders later.'
+  );
+}
+
 function diagnose(directive: Type<unknown>, selector: string | undefined, root: DebugElement, withDirective: DebugNode[]): string {
   const name = sourceClassName(directive.name);
   const elements = selector === undefined ? [] : matching(root, By.css(selector));
@@ -118,6 +201,12 @@ function diagnose(directive: Type<unknown>, selector: string | undefined, root: 
         `Assert it without a selector: expect(fixture).toHaveDirectiveApplied(${name}).`,
       DOCS_LINKS.angularDirectiveApplied,
     );
+  }
+
+  const mismatch = selectorMismatch(directive, selector, root, withDirective);
+
+  if (mismatch !== undefined) {
+    return withDocs(`${prefix}, but ${mismatch}`, DOCS_LINKS.angularDirectiveApplied);
   }
 
   const component = componentUnderTest(root);
