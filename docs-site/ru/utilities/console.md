@@ -34,6 +34,42 @@ it('logs the finished job', () => {
 вывода ждут все тесты файла, `installConsoleSpies()` один раз в начале файла делает то же для всего
 файла.
 
+### Всё, что тест написал, одним значением {#everything-a-test-wrote-as-one-value}
+
+`toHaveBeenCalledWith` на одном спае ничего не говорит об остальных: тест, который закрепил
+`consoleInfoSpy`, проходит, пока мимо идёт никем не проверенный `console.warn`. `consoleOutput()`
+возвращает все вызовы, которые записали спаи, по каналам (`debug`, `error`, `info`, `log`, `trace`,
+`warn`), с аргументами каждого вызова — и только те каналы, в которые что-то писали. Точное сравнение
+закрепляет весь вывод целиком, а лишняя строка роняет его с полным диффом:
+
+```ts
+import { consoleOutput, installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
+
+beforeEach(() => installConsoleSpies());
+afterEach(() => restoreConsole());
+
+it('reports the dry run and nothing else', () => {
+  cli.run(['--dry-run']);
+
+  expect(consoleOutput()).toStrictEqual({ info: [['dry run: 3 files']] });
+});
+
+it('stays silent on a clean run', () => {
+  cli.run([]);
+
+  expect(consoleOutput()).toStrictEqual({});
+});
+```
+
+`time` и `timeEnd` не входят: `timeEnd` печатает длительность, которую тест не закрепит.
+`consoleOutput()` бросает, пока ни один спай не сидит на `console`, — после `restoreConsole()` или под
+охраной от посторонней консоли до `installConsoleSpies()`: снятые спаи ничего не записывают, и пустой
+результат читался бы как тишина.
+
+Это функция, а не матчер `toHaveLogged(…)`, намеренно: `toStrictEqual` уже даёт точное сравнение и
+дифф, функция добавляет входу 184 байта (min+gzip) против 340 у функции вместе с матчером, и ей не
+нужны ни `expect.extend` при импорте, ни типизация матчера.
+
 ### Почему не полагаться на импорт {#why-not-rely-on-the-import}
 
 Импорт входа тоже ставит спаи, при первом вычислении модуля, — а под `isolate: false` это один раз на
@@ -50,7 +86,8 @@ Angular-потребителе в 1759 файлов 32 из 39 файлов, и�
 
 По одному спаю на каждый пропатченный метод: `consoleDebugSpy`, `consoleErrorSpy`, `consoleInfoSpy`,
 `consoleLogSpy`, `consoleTimeSpy`, `consoleTimeEndSpy`, `consoleTraceSpy`, `consoleWarnSpy`
-(тип `ConsoleMethodSpy`).
+(тип `ConsoleMethodSpy`). `consoleOutput()` (тип `ConsoleOutput` с ключами `ConsoleChannel`) читает
+их все разом.
 
 ## Уборка {#housekeeping}
 
@@ -81,7 +118,7 @@ installConsoleSpies(); // поставить заново после сняти�
 
 [`setupAutoSpy({ strayConsole: 'throw' })`](/ru/utilities/setup#_16-console-output-nothing-absorbed)
 роняет тест на любом выводе в консоль, который никто не поглотил, и поглощают его как раз эти спаи. Пока
-охрана включена, меняются две вещи.
+охрана включена, меняются три вещи.
 
 **Импорт ничего не ставит.** Под `isolate: false` модуль вычисляется один раз на воркер, поэтому
 установка при импорте сажала спаи на консоль в том файле, который импортировал их первым, и оставляла
@@ -107,6 +144,13 @@ it('warns about the deprecated flag', () => {
 `vi.spyOn(console, 'error') calls through — add .mockImplementation(() => undefined).` Такую форму
 ещё до прогона ловит правило
 [`no-passthrough-console-spy`](/ru/utilities/eslint-rules#no-passthrough-console-spy).
+
+**То, что пишет DOM-окружение, тоже доходит до спаев.** Консоль страницы happy-dom и виртуальная
+консоль jsdom держат собственную консоль воркера, захваченную до того, как Vitest подменил
+`globalThis.console`, поэтому их строки уходили в stderr мимо всех спаев и мимо охраны. Охрана
+перенаправляет их в ту консоль, на которой сидят спаи: `consoleErrorSpy` поглощает
+`NotSupportedError … Iframe page loading is disabled` от happy-dom, как любой другой `console.error`, и
+тест может это проверить.
 
 Без охраны здесь ничего не меняется: импорт входа ставит спаи, как и раньше.
 

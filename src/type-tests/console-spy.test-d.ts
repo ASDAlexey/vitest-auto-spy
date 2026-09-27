@@ -9,12 +9,15 @@
 import { describe, expectTypeOf, it } from 'vitest';
 
 import {
+  type ConsoleChannel,
   type ConsoleMethodSpy,
+  type ConsoleOutput,
   type ConsoleSpies,
   consoleDebugSpy,
   consoleErrorSpy,
   consoleInfoSpy,
   consoleLogSpy,
+  consoleOutput,
   consoleTimeEndSpy,
   consoleTimeSpy,
   consoleTraceSpy,
@@ -77,5 +80,19 @@ describe('the lifecycle calls', () => {
     resetConsoleSpies('error');
     // @ts-expect-error -- the restore puts everything back
     restoreConsole({ keep: ['warn'] });
+  });
+});
+
+describe('consoleOutput', () => {
+  it('keys the calls by the channels that write, each optional since an unwritten one is absent', () => {
+    expectTypeOf(consoleOutput()).toEqualTypeOf<ConsoleOutput>();
+    expectTypeOf<ConsoleChannel>().toEqualTypeOf<'debug' | 'error' | 'info' | 'log' | 'trace' | 'warn'>();
+    expectTypeOf(consoleOutput().warn).toEqualTypeOf<unknown[][] | undefined>();
+    expectTypeOf(consoleOutput).parameters.toEqualTypeOf<[]>();
+  });
+
+  it('compares against a literal of the channels a test expects', () => {
+    expectTypeOf<{ info: string[][] }>().toExtend<ConsoleOutput>();
+    expectTypeOf<{ time: string[][] }>().not.toExtend<ConsoleOutput>();
   });
 });

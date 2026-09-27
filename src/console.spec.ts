@@ -10,6 +10,7 @@ import {
   consoleErrorSpy,
   consoleInfoSpy,
   consoleLogSpy,
+  consoleOutput,
   consoleTimeEndSpy,
   consoleTimeSpy,
   consoleTraceSpy,
@@ -145,5 +146,40 @@ describe('vitest-auto-spy/console', () => {
     expect(console.error).toBe(spies.consoleErrorSpy);
 
     restoreConsole();
+  });
+
+  describe('consoleOutput', () => {
+    it('gives everything the test wrote as one value, keyed by channel, with only the channels written to', () => {
+      installConsoleSpies();
+      resetConsoleSpies();
+
+      expect(consoleOutput()).toStrictEqual({});
+
+      console.info('done');
+      console.warn('deprecated', { id: 1 });
+      console.info('again');
+      console.time('label');
+
+      expect(consoleOutput()).toStrictEqual({ info: [['done'], ['again']], warn: [['deprecated', { id: 1 }]] });
+
+      restoreConsole();
+    });
+
+    it('fails an exact comparison on a stray channel, which a per-spy assertion never looks at', () => {
+      installConsoleSpies();
+      console.info('done');
+      console.debug('stray');
+
+      expect(consoleOutput()).not.toStrictEqual({ info: [['done']] });
+
+      restoreConsole();
+    });
+
+    it('refuses to answer while no spy is on console, since spies taken off record nothing', () => {
+      installConsoleSpies();
+      restoreConsole();
+
+      expect(() => consoleOutput()).toThrow('consoleOutput() reads the console spies, and none is on console now');
+    });
   });
 });

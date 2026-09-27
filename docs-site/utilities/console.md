@@ -34,6 +34,42 @@ The exported constants — `consoleInfoSpy`, `consoleErrorSpy`, … — are the 
 of the file expects output, `installConsoleSpies()` once at the top of the file does the same for the
 whole file.
 
+### Everything a test wrote, as one value {#everything-a-test-wrote-as-one-value}
+
+`toHaveBeenCalledWith` on one spy says nothing about the others: a test that pins `consoleInfoSpy`
+passes while an unasserted `console.warn` goes by. `consoleOutput()` returns every call the spies
+recorded, keyed by channel (`debug`, `error`, `info`, `log`, `trace`, `warn`), with the arguments of
+each call — and only the channels something wrote to. An exact comparison then pins the whole
+output, and a stray line fails it with the full diff:
+
+```ts
+import { consoleOutput, installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
+
+beforeEach(() => installConsoleSpies());
+afterEach(() => restoreConsole());
+
+it('reports the dry run and nothing else', () => {
+  cli.run(['--dry-run']);
+
+  expect(consoleOutput()).toStrictEqual({ info: [['dry run: 3 files']] });
+});
+
+it('stays silent on a clean run', () => {
+  cli.run([]);
+
+  expect(consoleOutput()).toStrictEqual({});
+});
+```
+
+`time` and `timeEnd` are left out: `timeEnd` prints a duration no test can pin. `consoleOutput()`
+throws while none of the spies is on `console` — after a `restoreConsole()`, or under the
+stray-console guard before `installConsoleSpies()` — because spies that are off record nothing, and
+an empty result would read as silence.
+
+It is a function rather than a `toHaveLogged(…)` matcher on purpose: `toStrictEqual` already gives
+the exact comparison and the diff, the function adds 184 bytes (min+gzip) to the entry against 340
+for a function plus a matcher, and it needs no `expect.extend` at import and no matcher typings.
+
 ### Why not rely on the import {#why-not-rely-on-the-import}
 
 Importing the entry also installs the spies, on the module's first evaluation — and under
@@ -50,7 +86,8 @@ for compatibility; under the guard the import installs nothing.
 
 One spy per patched method: `consoleDebugSpy`, `consoleErrorSpy`, `consoleInfoSpy`,
 `consoleLogSpy`, `consoleTimeSpy`, `consoleTimeEndSpy`, `consoleTraceSpy`, `consoleWarnSpy`
-(type `ConsoleMethodSpy`).
+(type `ConsoleMethodSpy`). `consoleOutput()` (type `ConsoleOutput`, keyed by `ConsoleChannel`) reads
+them all at once.
 
 ## Housekeeping
 
@@ -79,8 +116,8 @@ for the real method: the real ones are remembered once per worker, where every c
 ## Under the stray-console guard
 
 [`setupAutoSpy({ strayConsole: 'throw' })`](/utilities/setup#_16-console-output-nothing-absorbed)
-fails a test on any console output nothing absorbed, and these spies are what absorbs it. Two things
-change while the guard is on.
+fails a test on any console output nothing absorbed, and these spies are what absorbs it. Three
+things change while the guard is on.
 
 **The import installs nothing.** Under `isolate: false` a module is evaluated once per worker, so the
 import-time install put the spies on the console in whichever file imported them first and left them
@@ -106,6 +143,13 @@ it calls through, so the line still prints and the guard still fails the test, s
 `vi.spyOn(console, 'error') calls through — add .mockImplementation(() => undefined).` The
 [`no-passthrough-console-spy`](/utilities/eslint-rules#no-passthrough-console-spy) rule reports it
 before the run.
+
+**What the DOM environment writes reaches the spies too.** happy-dom's page console and jsdom's
+virtual console hold the worker's own console, captured before Vitest swapped `globalThis.console`, so
+their lines used to reach stderr past every spy and past the guard. The guard routes them into the
+console the spies sit on: `consoleErrorSpy` absorbs happy-dom's
+`NotSupportedError … Iframe page loading is disabled` like any other `console.error`, and the test
+can assert it.
 
 Without the guard nothing here changes: importing the entry installs the spies, as it always did.
 

@@ -36,5 +36,5 @@ export const {
   consoleWarnSpy,
 } = consoleSpiesForImport();
 
-export { installConsoleSpies, resetConsoleSpies, restoreConsole } from './lib/console-spy';
-export type { ConsoleMethodSpy, ConsoleSpies } from './lib/console-spy';
+export { consoleOutput, installConsoleSpies, resetConsoleSpies, restoreConsole } from './lib/console-spy';
+export type { ConsoleChannel, ConsoleMethodSpy, ConsoleOutput, ConsoleSpies } from './lib/console-spy';

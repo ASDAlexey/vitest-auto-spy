@@ -191,6 +191,55 @@ export function consoleSpiesForImport(): ConsoleSpies {
   return spies;
 }
 
+/** A console method that writes, as `consoleOutput()` keys it. */
+export type ConsoleChannel = 'debug' | 'error' | 'info' | 'log' | 'trace' | 'warn';
+
+/** What a test wrote, per channel: the arguments of each call. A channel nothing wrote to is absent. */
+export type ConsoleOutput = Partial<Record<ConsoleChannel, unknown[][]>>;
+
+const CHANNELS: ReadonlySet<string> = new Set<ConsoleChannel>(['debug', 'error', 'info', 'log', 'trace', 'warn']);
+
+function isChannel(method: string): method is ConsoleChannel {
+  return CHANNELS.has(method);
+}
+
+/**
+ * Everything the console spies recorded, as one value. Only the channels written to appear, so an
+ * exact comparison pins the whole output and a stray warning fails it with a diff.
+ *
+ * @example
+ * ```ts
+ * cli.run(['--dry-run']);
+ * expect(consoleOutput()).toStrictEqual({ info: [['done']] });
+ * expect(consoleOutput()).toStrictEqual({}); // wrote nothing at all
+ * ```
+ */
+export function consoleOutput(): ConsoleOutput {
+  const adapter = getMockAdapter();
+  const output: ConsoleOutput = {};
+  let installed = false;
+
+  for (const [method, spy] of activeSpies) {
+    installed ||= getConsoleMethod(method) === spy;
+
+    const calls = adapter.getCalls(spy);
+
+    if (isChannel(method) && calls.length > 0) {
+      output[method] = calls.map((args) => [...args]);
+    }
+  }
+
+  // Spies that are not on `console` recorded nothing, and an empty result would read as silence.
+  if (!installed) {
+    throw new Error(
+      '[vitest-auto-spy] consoleOutput() reads the console spies, and none is on console now. Call installConsoleSpies() ' +
+        'in a beforeEach first (under setupAutoSpy({ strayConsole }) importing the entry installs nothing).',
+    );
+  }
+
+  return output;
+}
+
 /**
  * Clear the recorded calls of every installed console spy (the spies stay installed).
  *
