@@ -215,7 +215,7 @@ export function analysePerf(
   const measured = measuredFiles(run, profile.cwd);
   const lanes = lanesOf(measured);
   const base = { phases, total, fileCount: run.files.length, ...(lanes === undefined ? {} : { lanes }) };
-  const always = [...flakyFindings(measured, failOnFlaky), ...heapFindings(measured, run.config?.isolate === false)];
+  const always = [...flakyFindings(measured, failOnFlaky), ...heapFindings(measured, run.config?.isolate === false, profile.cwd)];
 
   if (total < QUIET_MS) {
     return { ...base, findings: always };

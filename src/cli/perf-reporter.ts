@@ -28,6 +28,12 @@ const IMPORT_LIMIT = 200;
  */
 const MEASURED_IMPORT_LIMIT = 10;
 
+/**
+ * Under `isolate: false` the table is the worker's, so after a few files its top 10 is earlier specs
+ * and a new module has to outrank all of them to be seen as a first load.
+ */
+const REUSED_IMPORT_LIMIT = 30;
+
 /** How often a finished file rewrites the partial report: a killed run loses at most this much. */
 export const PARTIAL_WRITE_MS = 2_000;
 
@@ -217,6 +223,52 @@ function slowestImports(module: PerfTestModule, durations: Readonly<Record<strin
     .slice(0, CASES_PER_FILE);
 }
 
+interface Measured {
+  readonly module: PerfTestModule;
+  readonly file: PerfFile;
+}
+
+/**
+ * Vitest reads a reused worker's one module table after each file's collection, and a module evaluated
+ * once stays in it, so a key the lane's previous file did not have is one this file evaluated first.
+ */
+function withFirstLoads(measured: readonly Measured[]): PerfFile[] {
+  const lanes = new Map<number, (Measured & { readonly start: number })[]>();
+
+  for (const { module, file } of measured) {
+    const { lane, start } = file;
+
+    if (lane !== undefined && start !== undefined) {
+      lanes.set(lane, [...(lanes.get(lane) ?? []), { module, file, start }]);
+    }
+  }
+
+  const loaded = new Map<PerfFile, PerfImport[]>();
+
+  for (const lane of lanes.values()) {
+    lane
+      .sort((a, b) => a.start - b.start)
+      .reduce((before, after) => {
+        const seen = new Set(Object.keys(before.module.diagnostic().importDurations ?? {}));
+        const first = Object.entries(after.module.diagnostic().importDurations ?? {})
+          .filter(([path]) => !seen.has(path) && path !== after.module.moduleId)
+          .map(([path, duration]) => ({ module: path, ms: duration.totalTime }))
+          .sort((a, b) => b.ms - a.ms || a.module.localeCompare(b.module))
+          .slice(0, CASES_PER_FILE);
+
+        loaded.set(after.file, first);
+
+        return after;
+      });
+  }
+
+  return measured.map(({ file }) => {
+    const firstLoads = loaded.get(file) ?? [];
+
+    return firstLoads.length === 0 ? file : { ...file, firstLoads };
+  });
+}
+
 /** A worker or lane id of 0 means the file never reached a worker, which is no id at all. */
 function idOf(value: number | undefined): number | undefined {
   return value === undefined || value === 0 ? undefined : value;
@@ -313,9 +365,10 @@ export default class PerfReporter {
     }
 
     const profiler = profiling() ? join(dirname(fileURLToPath(import.meta.url)), 'perf-profiler.js') : undefined;
-    const limit = profiler === undefined ? MEASURED_IMPORT_LIMIT : IMPORT_LIMIT;
 
     for (const project of vitest.projects ?? []) {
+      const limit = profiler !== undefined ? IMPORT_LIMIT : project.config.isolate === false ? REUSED_IMPORT_LIMIT : MEASURED_IMPORT_LIMIT;
+
       if (profiler !== undefined) {
         project.config.setupFiles.push(profiler);
       }
@@ -386,6 +439,8 @@ export default class PerfReporter {
   report(modules: readonly PerfTestModule[], partial = false): PerfRun {
     const vitest = this.#vitest;
     const startup = vitest === undefined ? undefined : startupOf(vitest);
+    const config = vitest === undefined ? undefined : configOf(vitest);
+    const measured = modules.map((module) => ({ module, file: toPerfFile(module) }));
 
     return {
       version: PERF_FORMAT_VERSION,
@@ -393,9 +448,9 @@ export default class PerfReporter {
       transform: vitest?.state.transformTime ?? 0,
       failed: modules.filter((module) => module.ok?.() === false).length,
       wall: Date.now() - this.#start,
-      files: modules.map(toPerfFile),
+      files: config?.isolate === false ? withFirstLoads(measured) : measured.map(({ file }) => file),
       ...(vitest?.version === undefined ? {} : { vitest: vitest.version }),
-      ...(vitest === undefined ? {} : { config: configOf(vitest) }),
+      ...(config === undefined ? {} : { config }),
       ...(startup === undefined ? {} : { startup }),
       ...(partial ? { partial: true } : {}),
     };

@@ -78,6 +78,11 @@ export interface PerfFile {
   readonly heap?: number;
   /** The spec's heaviest direct imports. Only a run that collects import durations records them. */
   readonly slowImports?: readonly PerfImport[];
+  /**
+   * Under `isolate: false`: modules the worker evaluated for the first time during this file, heaviest
+   * first, the spec itself left out. Only a run that collects import durations records them.
+   */
+  readonly firstLoads?: readonly PerfImport[];
   /** Vitest 5+: the id of the file's run in a worker, new for every file even when the worker is reused — groups nothing. */
   readonly workerId?: number;
   /** Vitest 5+: the concurrency slot, 1 to `maxWorkers`. */
@@ -195,6 +200,7 @@ function parseFile(value: unknown): PerfFile | undefined {
   const flaky = parseNames(value['flaky']);
   const heap = numberAt(value, 'heap');
   const slowImports = parseImports(value['slowImports']);
+  const firstLoads = parseImports(value['firstLoads']);
   const optional = Object.fromEntries(
     OPTIONAL_FILE_NUMBERS.flatMap((key) => {
       const number = numberAt(value, key);
@@ -215,6 +221,7 @@ function parseFile(value: unknown): PerfFile | undefined {
     ...(flaky.length === 0 ? {} : { flaky }),
     ...(heap === undefined ? {} : { heap }),
     ...(slowImports.length === 0 ? {} : { slowImports }),
+    ...(firstLoads.length === 0 ? {} : { firstLoads }),
     ...optional,
   };
 }

@@ -330,6 +330,109 @@ describe('heapFindings per worker', () => {
   });
 });
 
+describe('heapFindings and the first load of a module', () => {
+  const mb = 1_048_576;
+  const sentry = { module: '/repo/node_modules/@sentry/angular/fesm2022/sentry-angular.mjs', ms: 400 };
+  const flags = { module: '/repo/libs/runtime-config/feature-flag/index.ts', ms: 120 };
+
+  it('puts growth that comes with a first load down to the module, and keeps a file that loaded nothing as retained', () => {
+    const findings = heapFindings(
+      map([
+        ['a.spec.ts', { lane: 1, start: 0, heap: 100 * mb }],
+        [
+          'capture.spec.ts',
+          {
+            lane: 1,
+            start: 10,
+            heap: 108 * mb,
+            firstLoads: [
+              { module: '/repo/node_modules/@sentry/core/index.mjs', ms: 90 },
+              sentry,
+              { module: '/repo/node_modules/@sentry/browser/index.mjs', ms: 90 },
+            ],
+          },
+        ],
+        ['leak.spec.ts', { lane: 1, start: 20, heap: 112 * mb }],
+      ]),
+      true,
+      '/repo',
+    );
+
+    expect(findings.map((finding) => finding.message)).toEqual([
+      'Heap each file added to its worker, over the file that ran before it there, largest first: leak.spec.ts +4 MB.',
+      'Heap growth that comes with modules a worker evaluated for the first time, largest first: capture.spec.ts: first load of `@sentry/angular`, `@sentry/browser`, `@sentry/core` in this worker (+8 MB), not retained by the spec.',
+    ]);
+    expect(findings[1]?.fix).toContain('module cache rather than a leak');
+  });
+
+  it('names a repository module by its path, and ignores a first load too quick to matter', () => {
+    const findings = heapFindings(
+      map([
+        ['a.spec.ts', { lane: 1, start: 0, heap: 0 }],
+        ['flag.spec.ts', { lane: 1, start: 1, heap: 10 * mb, firstLoads: [flags, { module: '/repo/libs/tiny.ts', ms: 3 }] }],
+        ['b.spec.ts', { lane: 2, start: 0, heap: 0 }],
+        ['small.spec.ts', { lane: 2, start: 1, heap: 3 * mb, firstLoads: [{ module: '/repo/libs/tiny.ts', ms: 3 }] }],
+      ]),
+      true,
+      '/repo',
+    );
+
+    expect(findings.map((finding) => finding.message)).toEqual([
+      'Heap each file added to its worker, over the file that ran before it there, largest first: small.spec.ts +3 MB.',
+      'Heap growth that comes with modules a worker evaluated for the first time, largest first: flag.spec.ts: first load of `libs/runtime-config/feature-flag/index.ts` in this worker (+10 MB), not retained by the spec.',
+    ]);
+  });
+
+  it('prices a module by what the files that first loaded it in other lanes grew, and reports the rest of an outlier as retained', () => {
+    const lanes = [8, 9, 30].flatMap((grew, index): (readonly [string, Partial<PerfFile>])[] => [
+      [`first-${index}.spec.ts`, { lane: index + 1, start: 0, heap: 0 }],
+      [`capture-${index}.spec.ts`, { lane: index + 1, start: 1, heap: grew * mb, firstLoads: [sentry] }],
+    ]);
+    const findings = heapFindings(map(lanes), true, '/repo');
+
+    expect(findings.map((finding) => finding.message)).toEqual([
+      'Heap each file added to its worker, over the file that ran before it there, largest first: capture-2.spec.ts +21 MB beyond the first load of `@sentry/angular`.',
+      'Heap growth that comes with modules a worker evaluated for the first time, largest first: capture-1.spec.ts: first load of `@sentry/angular` in this worker (+9 MB), not retained by the spec; capture-2.spec.ts: first load of `@sentry/angular` in this worker (+9 MB), not retained by the spec; capture-0.spec.ts: first load of `@sentry/angular` in this worker (+8 MB), not retained by the spec.',
+    ]);
+  });
+
+  it('takes the higher of two readings, so a collection that ran during one file does not make the other a leak', () => {
+    const findings = heapFindings(
+      map([
+        ['a.spec.ts', { lane: 1, start: 0, heap: 0 }],
+        ['capture-a.spec.ts', { lane: 1, start: 1, heap: 2 * mb, firstLoads: [sentry] }],
+        ['b.spec.ts', { lane: 2, start: 0, heap: 0 }],
+        ['capture-b.spec.ts', { lane: 2, start: 1, heap: 8 * mb, firstLoads: [sentry] }],
+      ]),
+      true,
+      '/repo',
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.message).toMatch(/^Heap growth that comes with modules/);
+  });
+
+  it('is read against the working directory from a report', () => {
+    const root = repo();
+    const files = [
+      file(join(root, 'src/a.spec.ts'), { lane: 1, start: 0, heap: 0 }),
+      file(join(root, 'src/b.spec.ts'), {
+        lane: 1,
+        start: 1,
+        heap: 5 * mb,
+        firstLoads: [{ module: join(root, 'src/lib/index.ts'), ms: 80 }],
+      }),
+    ];
+    const heap = analysePerf(onFive({ root, files, config: { isolate: false } }), readProfile(root)).findings.filter(
+      (finding) => finding.check === 'perf-heap',
+    );
+
+    expect(heap.map((finding) => finding.message)).toEqual([
+      'Heap growth that comes with modules a worker evaluated for the first time, largest first: src/b.spec.ts: first load of `src/lib/index.ts` in this worker (+5 MB), not retained by the spec.',
+    ]);
+  });
+});
+
 describe('flakyFindings with retries', () => {
   it('counts the failed attempts, and prices the one retried test when its body was recorded', () => {
     const [one] = flakyFindings(map([['a.spec.ts', { flaky: ['a > x'], retries: 2, cases: [{ name: 'a > x', ms: 2_100 }] }]]), false);

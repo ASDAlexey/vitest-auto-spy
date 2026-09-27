@@ -404,3 +404,104 @@ describe('PerfReporter, a measured run', () => {
     expect(() => new PerfReporter().onTestModuleEnd(module('/repo/a.spec.ts'))).not.toThrow();
   });
 });
+
+describe('PerfReporter, first loads in a reused worker', () => {
+  const laned = (moduleId: string, lane: number, start: number, durations: Readonly<Record<string, number>>): PerfTestModule => ({
+    moduleId,
+    diagnostic: () => ({
+      environmentSetupDuration: 0,
+      prepareDuration: 0,
+      collectDuration: 0,
+      setupDuration: 0,
+      duration: 1,
+      concurrencyId: lane,
+      importDurations: Object.fromEntries(Object.entries(durations).map(([path, totalTime]) => [path, { totalTime }])),
+    }),
+    task: { result: { startTime: start } },
+  });
+
+  const reused = (isolate: boolean): PerfVitest => ({
+    config: { root: '/repo' },
+    state: { transformTime: 0 },
+    projects: [{ config: { setupFiles: [], isolate } }],
+  });
+
+  const lane = [
+    laned('/repo/b.spec.ts', 1, 20, {
+      '/repo/a.spec.ts': 300,
+      '/repo/b.spec.ts': 900,
+      '/repo/node_modules/@sentry/angular/index.js': 700,
+      '/repo/src/util.ts': 5,
+      '/repo/src/tie.ts': 5,
+    }),
+    laned('/repo/a.spec.ts', 1, 10, { '/repo/a.spec.ts': 300 }),
+    laned('/repo/c.spec.ts', 1, 30, {
+      '/repo/a.spec.ts': 300,
+      '/repo/b.spec.ts': 900,
+      '/repo/node_modules/@sentry/angular/index.js': 700,
+      '/repo/c.spec.ts': 20,
+    }),
+    laned('/repo/d.spec.ts', 2, 0, { '/repo/d.spec.ts': 50 }),
+    ...['/repo/e.spec.ts', '/repo/f.spec.ts'].map((moduleId, start): PerfTestModule => ({
+      moduleId,
+      diagnostic: () => ({ ...module(moduleId).diagnostic(), concurrencyId: 3 }),
+      task: { result: { startTime: start } },
+    })),
+    { moduleId: '/repo/g.spec.ts', diagnostic: () => ({ ...module('/repo/g.spec.ts').diagnostic(), concurrencyId: 3 }) },
+  ];
+
+  it('records what each file evaluated that the file before it in the lane had not, heaviest first and without the spec itself', () => {
+    const reporter = new PerfReporter();
+
+    reporter.onInit(reused(false));
+
+    const files = new Map(reporter.report(lane).files.map((entry) => [entry.file, entry]));
+
+    expect(files.get('/repo/b.spec.ts')?.firstLoads).toEqual([
+      { module: '/repo/node_modules/@sentry/angular/index.js', ms: 700 },
+      { module: '/repo/src/tie.ts', ms: 5 },
+      { module: '/repo/src/util.ts', ms: 5 },
+    ]);
+    expect(files.get('/repo/a.spec.ts')).not.toHaveProperty('firstLoads');
+    expect(files.get('/repo/c.spec.ts')).not.toHaveProperty('firstLoads');
+    expect(files.get('/repo/d.spec.ts')).not.toHaveProperty('firstLoads');
+    expect(files.get('/repo/f.spec.ts')).not.toHaveProperty('firstLoads');
+    expect(files.get('/repo/g.spec.ts')).not.toHaveProperty('firstLoads');
+  });
+
+  it('records none when every file gets a fresh module table', () => {
+    const reporter = new PerfReporter();
+
+    reporter.onInit(reused(true));
+
+    expect(reporter.report(lane).files.some((entry) => entry.firstLoads !== undefined)).toBe(false);
+    expect(new PerfReporter().report(lane).files.some((entry) => entry.firstLoads !== undefined)).toBe(false);
+  });
+
+  it('collects thirty imports for a measured run of a reused worker, whose table keeps every earlier spec', () => {
+    vi.stubEnv(PERF_OUTPUT_ENV, '/tmp/perf.json');
+    vi.stubEnv(PERF_PROFILE_ENV, undefined);
+
+    const shared: PerfProject = { config: { setupFiles: [], isolate: false, experimental: { importDurations: {} } } };
+    const configured: PerfProject = { config: { setupFiles: [], isolate: false, experimental: { importDurations: { limit: 5 } } } };
+
+    new PerfReporter().onInit({ config: { root: '/repo' }, state: { transformTime: 0 }, projects: [shared, configured] });
+
+    expect([shared, configured].map((each) => each.config.experimental?.importDurations?.limit)).toEqual([30, 5]);
+  });
+
+  it('reads the first loads back, and drops an entry that names no module', () => {
+    const parsed = parsePerfRun(
+      JSON.stringify({
+        version: 4,
+        files: [
+          { file: '/a.spec.ts', firstLoads: [{ module: '/b.ts', ms: 70 }, { ms: 3 }] },
+          { file: '/c.spec.ts', firstLoads: 'x' },
+        ],
+      }),
+    );
+
+    expect(parsed?.files[0]?.firstLoads).toEqual([{ module: '/b.ts', ms: 70 }]);
+    expect(parsed?.files[1]).not.toHaveProperty('firstLoads');
+  });
+});
