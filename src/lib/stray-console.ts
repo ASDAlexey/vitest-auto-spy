@@ -83,10 +83,18 @@ export interface CallBucket {
   total: number;
 }
 
+/** A console the DOM environment captured before the runner swapped `globalThis.console`. */
+interface EnvironmentConsole {
+  readonly host: object;
+  readonly originals: Map<string, unknown>;
+}
+
 interface ConsoleGuard {
   readonly host: object;
   readonly originals: Map<string, unknown>;
   readonly sentinels: Map<string, unknown>;
+  /** Routed into `host` while the guard lives, so its output is absorbed and reported like any other. */
+  readonly environment: EnvironmentConsole | undefined;
   reaction: StrayConsoleReaction;
   allow: readonly (RegExp | string)[];
   recording: boolean;
@@ -280,15 +288,64 @@ function installSentinel(guard: ConsoleGuard, method: string): void {
 }
 
 /**
+ * The console happy-dom's page and jsdom's virtual console were handed when the environment was built:
+ * the worker's own, which Vitest replaces afterwards, so their output used to reach stderr unseen.
+ */
+export function environmentConsole(): object | undefined {
+  const own = globalThis.process?.getBuiltinModule?.('node:console');
+
+  return typeof own === 'object' && own !== globalThis.console ? own : undefined;
+}
+
+/**
+ * Send what the environment writes to `guard.host` instead: a silent spy there absorbs it, the sentinel
+ * records it with the spec's frame, and the runner attributes the line to the running test.
+ */
+function routeEnvironmentConsole(guard: ConsoleGuard, environment: EnvironmentConsole): void {
+  PRINTING_METHODS.forEach((method) => {
+    const original: unknown = Reflect.get(environment.host, method);
+
+    if (typeof original !== 'function') {
+      return;
+    }
+
+    environment.originals.set(method, original);
+
+    const route = (...args: unknown[]): unknown => {
+      const current: unknown = Reflect.get(guard.host, method);
+      const hostOriginal = guard.originals.get(method);
+
+      if (current === guard.sentinels.get(method) && typeof hostOriginal === 'function') {
+        record(guard, method, args, route);
+
+        return Reflect.apply(hostOriginal, guard.host, args);
+      }
+
+      return typeof current === 'function' ? Reflect.apply(current, guard.host, args) : Reflect.apply(original, environment.host, args);
+    };
+
+    Reflect.set(environment.host, method, route);
+  });
+}
+
+function releaseEnvironmentConsole(environment: EnvironmentConsole | undefined): void {
+  environment?.originals.forEach((original, method) => Reflect.set(environment.host, method, original));
+}
+
+/**
  * Wrap `host` once per worker. Spies an import already installed come off first: left on, they would
  * absorb everything for the rest of the worker, which is what the guard exists to stop.
  *
  * Armed again by every file's setup, which starts the file at its import: a previous file whose
  * file-end report never ran keeps its calls, and each still names the file it came from.
  */
-export function armConsoleGuard(options: Required<StrayConsoleOptions>, host: object = globalThis.console): ConsoleGuard {
+export function armConsoleGuard(
+  options: Required<StrayConsoleOptions>,
+  host: object = globalThis.console,
+  environment: object | undefined = host === globalThis.console ? environmentConsole() : undefined,
+): ConsoleGuard {
   const current = globalThis.__vitestAutoSpyStrayConsole__;
-  const guard = current?.host === host ? current : createGuard(host);
+  const guard = current?.host === host ? current : createGuard(host, environment, current);
 
   guard.reaction = options.reaction;
   guard.allow = options.allow;
@@ -300,13 +357,19 @@ export function armConsoleGuard(options: Required<StrayConsoleOptions>, host: ob
   return guard;
 }
 
-function createGuard(host: object): ConsoleGuard {
+function createGuard(host: object, environment: object | undefined, previous: ConsoleGuard | undefined): ConsoleGuard {
   globalThis.__vitestAutoSpyDetachConsoleSpies__?.();
+
+  // A guard left by an earlier file routes the same console into a host that is gone.
+  if (environment !== undefined && previous?.environment?.host === environment) {
+    releaseEnvironmentConsole(previous.environment);
+  }
 
   const guard: ConsoleGuard = {
     host,
     originals: new Map(),
     sentinels: new Map(),
+    environment: environment === undefined ? undefined : { host: environment, originals: new Map() },
     reaction: 'throw',
     allow: [],
     recording: true,
@@ -325,6 +388,11 @@ function createGuard(host: object): ConsoleGuard {
     }
   });
   PRINTING_METHODS.forEach((method) => installSentinel(guard, method));
+
+  if (guard.environment) {
+    routeEnvironmentConsole(guard, guard.environment);
+  }
+
   globalThis.__vitestAutoSpyStrayConsole__ = guard;
 
   return guard;
@@ -339,6 +407,7 @@ export function stopGuardingConsole(): void {
   }
 
   guard.originals.forEach((original, method) => Reflect.set(guard.host, method, original));
+  releaseEnvironmentConsole(guard.environment);
   globalThis.__vitestAutoSpyStrayConsole__ = undefined;
 }
 

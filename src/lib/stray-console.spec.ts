@@ -14,6 +14,7 @@ import {
   closeConsoleFile,
   describeOutput,
   describeStrayConsole,
+  environmentConsole,
   finishConsoleFile,
   guardStrayConsole,
   openConsoleWindow,
@@ -421,6 +422,72 @@ describe('the guard on a stand-in console', () => {
     expect(detach).toHaveBeenCalledTimes(1);
   });
 
+  it("routes the DOM environment's own console into the guarded one, with the spec's frame", () => {
+    const environment = standInConsole();
+    const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host, environment.host);
+
+    openConsoleWindow(guard);
+    call(environment.host, 'error', 'Iframe page loading is disabled');
+
+    expect(console$.written).toEqual(['error: Iframe page loading is disabled']);
+    expect(environment.written).toEqual([]);
+    expect(guard.inTest.calls[0]?.frame).toContain('stray-console.spec.ts');
+    expect(thrownBy(() => reportTestConsole(guard))).toContain('happy-dom');
+  });
+
+  it('lets a silent spy on the guarded console absorb what the environment writes, and an allow pattern pass it', () => {
+    const environment = standInConsole();
+    const guard = armConsoleGuard({ reaction: 'throw', allow: ['allowed'] }, console$.host, environment.host);
+    const silent = vi.fn();
+
+    openConsoleWindow(guard);
+    call(environment.host, 'warn', 'allowed noise');
+    console$.host['error'] = silent;
+    call(environment.host, 'error', 'absorbed');
+    restoreConsoleMethods(guard);
+
+    expect(silent).toHaveBeenCalledWith('absorbed');
+    expect(() => reportTestConsole(guard)).not.toThrow();
+  });
+
+  it('writes to the environment console itself where the guarded one has no such method', () => {
+    const environment = standInConsole();
+
+    delete console$.host['table'];
+
+    const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host, environment.host);
+
+    openConsoleWindow(guard);
+    call(environment.host, 'table', 'rows');
+
+    expect(environment.written).toEqual(['table: rows']);
+    expect(() => reportTestConsole(guard)).not.toThrow();
+  });
+
+  it('gives the environment console back when the guard stops, and when a guard for another console replaces it', () => {
+    const environment = standInConsole();
+    const error = environment.host['error'];
+
+    armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host, environment.host);
+
+    expect(environment.host['error']).not.toBe(error);
+
+    const next = standInConsole();
+    const replacing = armConsoleGuard({ reaction: 'throw', allow: [] }, next.host, environment.host);
+
+    openConsoleWindow(replacing);
+    call(environment.host, 'error', 'once');
+
+    expect(thrownBy(() => reportTestConsole(replacing))).toContain('once');
+
+    expect(console$.written).toEqual([]);
+    expect(next.written).toEqual(['error: once']);
+
+    stopGuardingConsole();
+
+    expect(environment.host['error']).toBe(error);
+  });
+
   it('adds the console-entry advice once that entry is loaded in the worker', () => {
     const reset = vi.fn();
 
@@ -567,6 +634,25 @@ describe('the guard on a stand-in console', () => {
   });
 });
 
+describe('environmentConsole', () => {
+  it("is the worker's own console, which the runner swapped for the one on globalThis", async () => {
+    const { default: own } = await import('node:console');
+
+    expect(environmentConsole()).toBe(own);
+  });
+
+  it('is nothing where the runner left the console alone, or the runtime cannot hand the builtin over', () => {
+    const lookup = vi.spyOn(process, 'getBuiltinModule').mockReturnValue(console);
+
+    expect(environmentConsole()).toBeUndefined();
+
+    lookup.mockReturnValue(undefined);
+
+    expect(environmentConsole()).toBeUndefined();
+    lookup.mockRestore();
+  });
+});
+
 describe('watchStrayConsole', () => {
   it('registers nothing when the reaction is off', () => {
     expect(watchStrayConsole('off')).toBeUndefined();
@@ -667,4 +753,38 @@ describe('setupAutoSpy({ strayConsole: "throw" })', () => {
   it.fails('fails on a library warning, which is console output like any other', () => {
     console.warn('[vitest-auto-spy] a misconfiguration report');
   });
+
+  it.fails("fails on what the DOM environment wrote through the console it captured at start-up, not the runner's", () => {
+    appendRefusedFrameOrNavigate();
+  });
+
+  it("absorbs that output in the test's console spies, which can assert on it", async () => {
+    const { consoleErrorSpy, installConsoleSpies } = await import('../console');
+
+    installConsoleSpies();
+    appendRefusedFrameOrNavigate();
+
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+  });
 });
+
+/** The line each DOM environment writes for itself: happy-dom refusing an iframe, jsdom refusing to navigate. */
+function appendRefusedFrameOrNavigate(): void {
+  const happyDOM: unknown = Reflect.get(window, 'happyDOM');
+
+  if (typeof happyDOM !== 'object' || happyDOM === null) {
+    window.location.assign('https://example.com/elsewhere');
+
+    return;
+  }
+
+  const settings: unknown = Reflect.get(happyDOM, 'settings');
+
+  mockValueProp(Object(settings), 'disableIframePageLoading', true);
+
+  const frame = document.createElement('iframe');
+
+  frame.src = 'https://example.com/frame';
+  document.body.append(frame);
+  frame.remove();
+}
