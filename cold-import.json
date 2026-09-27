@@ -116,7 +116,7 @@
     }
   },
   "released": {
-    "version": "5.42.0",
+    "version": "5.43.0",
     "entries": {
       ".": {
         "modules": 2,
@@ -124,7 +124,7 @@
       },
       "./angular": {
         "modules": 3,
-        "bytes": 243343
+        "bytes": 243387
       },
       "./angular-http": {
         "modules": 8,
@@ -144,7 +144,7 @@
       },
       "./angular/matchers": {
         "modules": 4,
-        "bytes": 22349
+        "bytes": 22906
       },
       "./bun": {
         "modules": 15,
@@ -152,7 +152,7 @@
       },
       "./bun-angular": {
         "modules": 19,
-        "bytes": 213765
+        "bytes": 213809
       },
       "./console": {
         "modules": 13,
@@ -180,7 +180,7 @@
       },
       "./nestjs": {
         "modules": 15,
-        "bytes": 138486
+        "bytes": 138530
       },
       "./node": {
         "modules": 2,
