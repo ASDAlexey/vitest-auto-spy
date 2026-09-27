@@ -788,7 +788,10 @@ describe('flushUnhandledObservableErrors', () => {
 
     expect(countStrayTimers()).toBe(1);
     expect(flushUnhandledObservableErrors()).toEqual([
-      { error, test: 'flushUnhandledObservableErrors > runs the pending rethrow of rxjs now and hands back what it threw, with the test that scheduled it' },
+      {
+        error,
+        test: 'flushUnhandledObservableErrors > runs the pending rethrow of rxjs now and hands back what it threw, with the test that scheduled it',
+      },
     ]);
     expect(countStrayTimers()).toBe(0);
     expect(flushUnhandledObservableErrors()).toEqual([]);
@@ -844,8 +847,22 @@ describe('flushUnhandledObservableErrors', () => {
     failUnhandled(error);
 
     expect(vi.getTimerCount()).toBe(1);
-    expect(flushUnhandledObservableErrors()).toEqual([{ error, test: 'flushUnhandledObservableErrors > reads the fake clock when fake timers are installed' }]);
+    expect(flushUnhandledObservableErrors()).toEqual([
+      { error, test: 'flushUnhandledObservableErrors > reads the fake clock when fake timers are installed' },
+    ]);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('leaves a fake-clock rethrow that config.onUnhandledError took to it', () => {
+    vi.useFakeTimers();
+
+    const handler = vi.fn();
+
+    config.onUnhandledError = handler;
+    failUnhandled('handled');
+
+    expect(flushUnhandledObservableErrors()).toEqual([]);
+    expect(handler).toHaveBeenCalledWith('handled');
   });
 
   it('reads the plain-object timer table of an older fake clock, and skips what is not a rethrow', () => {
@@ -862,7 +879,12 @@ describe('flushUnhandledObservableErrors', () => {
     };
 
     Reflect.set(host.setTimeout, 'clock', {
-      timers: { 1: { id: 1, func: rethrow, args: ['old clock'] }, 2: { id: 2, func: () => undefined }, 3: { id: 3, func: 'code' }, 4: { id: 4, func: rethrow } },
+      timers: {
+        1: { id: 1, func: rethrow, args: ['old clock'] },
+        2: { id: 2, func: () => undefined },
+        3: { id: 3, func: 'code' },
+        4: { id: 4, func: rethrow },
+      },
       clearTimeout: (id: unknown) => cleared.push(id),
     });
 

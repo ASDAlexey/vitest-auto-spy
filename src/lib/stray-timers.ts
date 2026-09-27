@@ -101,7 +101,7 @@ interface Origin {
   /** Kept so a pending rethrow of rxjs can be run early — see {@link flushUnhandledObservableErrors}. */
   readonly callback: ScheduledCallback;
   /** What the scheduler was called with after the callback: the delay, then the callback's own arguments. */
-  readonly rest: readonly unknown[] | undefined;
+  readonly rest: readonly unknown[];
 }
 
 /** What a wrapper knows when it schedules: the kind, the delay, the call's arguments, and itself — where the stack is cut. */
@@ -375,6 +375,8 @@ function wrapTimerCanceller(
   return () => defineScheduler(host, name, original);
 }
 
+const NO_ARGUMENTS: readonly unknown[] = [];
+
 /**
  * Replace `requestAnimationFrame` / `cancelAnimationFrame` with recording wrappers.
  *
@@ -395,7 +397,12 @@ function wrapFrameScheduler(host: SchedulerHost, frames: Map<number, Origin>, pa
   const request: Func = defineHelper((callback: ScheduledCallback): number =>
     pause.paused
       ? original(callback)
-      : scheduleTracked((tracked) => original(tracked), callback, frames, { kind: 'frame', delay: undefined, rest: undefined, boundary: request }),
+      : scheduleTracked((tracked) => original(tracked), callback, frames, {
+          kind: 'frame',
+          delay: undefined,
+          rest: NO_ARGUMENTS,
+          boundary: request,
+        }),
   );
 
   markOwnedPatch(request);
@@ -611,7 +618,7 @@ function schedulingFrame(frames: readonly string[]): string | undefined {
 }
 
 function isIgnored(origin: Origin, patterns: readonly (RegExp | string)[]): boolean {
-  const stack = origin.trace.stack ?? '';
+  const stack = String(origin.trace.stack);
   const caller = schedulingFrame(stackFrames(stack));
 
   if (caller !== undefined && UNDICI_FRAME.test(caller)) {
@@ -719,7 +726,7 @@ export interface UnhandledObservableError {
 const RXJS_RETHROW_FRAME = /\breportUnhandledError\b/;
 
 /** The same rethrow recognised by its callback, for a fake clock that keeps no stack. */
-const RXJS_RETHROW_SOURCE = /\bonUnhandledError\b[\s\S]*\bthrow\b/;
+const RXJS_RETHROW_SOURCE = /\bonUnhandledError\b[\S\s]*\bthrow\b/;
 
 /** Run a rethrow now and hand back what it threw; nothing when `config.onUnhandledError` took the error instead. */
 function rethrown(callback: (...args: unknown[]) => unknown, args: readonly unknown[]): { error: unknown } | undefined {
@@ -736,14 +743,14 @@ function flushTracked(tracked: Tracking): UnhandledObservableError[] {
   const found: UnhandledObservableError[] = [];
 
   tracked.handles.forEach((origin, handle) => {
-    if (origin.kind !== 'timeout' || origin.delay !== 0 || !isPending(handle) || !RXJS_RETHROW_FRAME.test(origin.trace.stack ?? '')) {
+    if (origin.kind !== 'timeout' || origin.delay !== 0 || !isPending(handle) || !RXJS_RETHROW_FRAME.test(String(origin.trace.stack))) {
       return;
     }
 
     tracked.clearTimeout(handle);
     forgetHandle(tracked, handle);
 
-    const outcome = rethrown(origin.callback, origin.rest?.slice(1) ?? []);
+    const outcome = rethrown(origin.callback, origin.rest.slice(1));
 
     if (outcome) {
       found.push({ error: outcome.error, ...describeMadeIn(origin.where) });

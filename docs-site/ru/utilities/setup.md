@@ -221,6 +221,54 @@ Apple M4 Max). На неглубоком стеке ограничение ни�
 имя собирается только для забытого колбэка — и на фоне снимка стека не видно: отслеживаемая пара
 заняла 4.0 µs и до, и после, оба замера с coverage.
 
+### Таймеры, которыми владеет зависимость {#timers-a-dependency-owns}
+
+Глобальный `fetch()` в Node работает на undici, а у undici свои таймеры: тик раз в 499 ms, на котором
+держатся его таймауты соединения и keep-alive, и keep-alive-таймаут на каждое соединение в пуле. Они
+переживают тест по замыслу, и файл, который ходит на сервер, закрыть который он не может — локальную
+заглушку авторизации, dev-прокси, — падал с `setTimeout 499 ms … at new Promise (<anonymous>)`, и
+чинить там было нечего. Таймеры, чей вызов планирования пришёл из undici — встроенной в Node копии или
+пакета `undici`, — теперь не считаются, не попадают в отчёт и не отменяются. Решает только ближайший
+фрейм вне этого пакета и zone.js, поэтому колбэк спеки, который undici вызывает сам (ответ
+`MockAgent`), по-прежнему отвечает за свои таймеры.
+
+Служебные таймеры другой зависимости можно назвать самому:
+
+```ts
+setupAutoSpy({ strayTimers: { ignore: [/some-sdk[/\\]poll/, 'heartbeat.js'] }, onStrayTimers: 'throw' });
+
+trackStrayTimers(undefined, { ignore: [/some-sdk[/\\]poll/] }); // то же без setupAutoSpy
+```
+
+Каждый элемент — подстрока или RegExp, которые ищутся в стеке вызова, запланировавшего таймер.
+Проигнорированный таймер и не отменяется: его хэндл всё ещё у владельца, а пул, чей таймер отменили
+у него за спиной, больше ничего не отсчитывает. Каждый вызов `trackStrayTimers` заменяет список,
+так что решает последний выполненный сетап — в прогоне с общим окружением это каждый раз один и тот
+же setup-файл.
+
+### Ошибка Observable, которую никто не обработал {#an-observable-error-nothing-handled}
+
+Ошибку, которую не обработал ни один подписчик, rxjs перебрасывает из `setTimeout(() => { throw error })`,
+чтобы она вырвалась из подписчика. Такой таймер не валит ни один тест: он срабатывает, когда тест уже
+закончился, или его отменяет подметание в конце файла, и единственным следом был забытый
+`setTimeout 0 ms, scheduled in "<test>" at TestRequest.error (…)`. С включённым `strayTimers`
+`afterEach` запускает такой ожидающий переброс заранее — ровно то, что сделал бы таймер, — и валит
+тест, который его запланировал:
+
+```text
+[vitest-auto-spy] Unhandled Observable error in "TokenSetupScreen > saves the token":
+  - HttpErrorResponse: Http failure response for /api/token: 502 Bad Gateway
+rxjs rethrows an error no subscriber handles from a setTimeout, where it fails no test; it was rethrown now instead. …
+```
+
+Исходная ошибка лежит в `cause` падения, так что раннер печатает и её стек. Переброс, запланированный
+вне теста, валит файл на его подметании. Проверка читает и фейковые часы, если они установлены в
+момент её запуска — `globalFakeTimers` подходит; спека, чей собственный `afterEach` вызывает
+`vi.useRealTimers()`, к этому моменту таймер уже выбросила. Переброс, который забрал
+`config.onUnhandledError`, ничего не сообщает — как и в самом rxjs. `flushUnhandledObservableErrors()`
+— та же проверка вручную: запускает ожидающие перебросы и возвращает `{ error, test }` для каждого,
+который бросил.
+
 ### Вместе с `--detect-async-leaks` из Vitest 4.1 {#with-vitest-4-1-s-detect-async-leaks}
 
 ::: warning Они гасят друг друга, и побеждает тихий
@@ -1129,9 +1177,38 @@ setupAutoSpy({ strayConsole: { allow: ['Download the React DevTools', /^Lit is i
 теста, в stderr для файла — не роняя его: так большую сюиту сначала меряют, а потом включают.
 `guardStrayConsole(reaction)` — та же охрана, зарегистрированная сама по себе.
 
-Чего она не видит: вывода напрямую в `process.stdout` / `process.stderr` и собственной виртуальной
-консоли jsdom, которая захватила настоящую консоль раньше, чем её перехватил Vitest, — перенаправьте
-события `jsdomError` в `console.error`, если они должны считаться. Реджект, проглоченный zone.js,
+**То, что пишет DOM-окружение, тоже считается.** Консоль страницы happy-dom и виртуальная консоль
+jsdom получили собственную консоль воркера, когда окружение строилось, — раньше, чем Vitest подменил
+`globalThis.console`, — поэтому их строки попадали в stderr зелёного прогона. Охрана перенаправляет
+эту консоль в ту, за которой следит: `NotSupportedError: Failed to load iframe page … Iframe page
+loading is disabled` от happy-dom или `Not implemented: navigation` от jsdom попадает в отчёт теста,
+который их вызвал, с фреймом спеки и строкой `Likely cause:` — а спай над консолью или шаблон `allow`
+забирает её, как любую другую строку.
+
+**Iframe, который под happy-dom должен остаться незагруженным.** В happy-dom 20 нет настройки, при
+которой iframe с удалённым `src` и не грузится, и молчит: `disableIframePageLoading` пишет
+`NotSupportedError` выше на каждый iframe (и шлёт `error`), а `navigation.disableChildFrameNavigation`
+молчит, но сам шлёт `load`, так что ветку «страница так и не загрузилась» не достать. Выхода два, оба
+на файл:
+
+```ts
+// @vitest-environment-options {"settings":{"disableIframePageLoading":true}}
+import { consoleErrorSpy, installConsoleSpies } from 'vitest-auto-spy/console';
+
+beforeEach(() => installConsoleSpies());
+
+it('gives up when the logout page never loads', async () => {
+  await service.logout(); // no `load` ever comes
+
+  expect(consoleErrorSpy).toHaveBeenCalledWith(expect.objectContaining({ name: 'NotSupportedError' }));
+});
+```
+
+или `// @vitest-environment jsdom` в начале файла: jsdom оставляет удалённый `src` незагруженным,
+молчит и не шлёт `load`. Хелпера в `dom-stubs` для этого нет: придержать `load` у happy-dom без его
+лога можно только патчем его внутренностей, которые любой минор happy-dom вправе передвинуть.
+
+Чего она не видит: вывода напрямую в `process.stdout` / `process.stderr`. Реджект, проглоченный zone.js,
 печатается через `console.error`, так что при включённом `strayRejections` о нём сообщают дважды;
 побеждает первый провал, и это отчёт о реджекте.
 

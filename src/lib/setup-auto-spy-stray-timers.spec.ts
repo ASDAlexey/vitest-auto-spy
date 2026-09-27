@@ -5,6 +5,7 @@
  */
 import { once } from 'node:events';
 import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { Subject } from 'rxjs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -36,6 +37,9 @@ vi.mock('vitest', async (importOriginal) => {
   };
 });
 
+// The copy jsdom depends on: undici is no dependency of this package's own.
+const { fetch: undiciFetch } = createRequire(import.meta.resolve('jsdom'))('undici') as { fetch: typeof fetch };
+
 const server = createServer((_request, response) => response.end('{}'));
 
 const failUnhandled = (message: string): void => {
@@ -45,22 +49,33 @@ const failUnhandled = (message: string): void => {
   subject.error(new Error(message));
 };
 
-describe('a file that fetches from a local server it cannot close', () => {
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers: true, onStrayTimers: 'throw' });
+// Every block passes the same list, as every file of a run passes the one its setup file names: the latest call's list is the one in force.
+const strayTimers = { ignore: [/\bkeepAlivePoller\b/] };
+
+function keepAlivePoller(): void {
+  setTimeout(() => undefined, 30);
+}
+
+describe('a file that fetches from a local server it cannot close, and polls through a timer it ignores', () => {
+  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers, onStrayTimers: 'throw' });
 
   beforeAll(async () => {
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
   });
 
-  it('fetches twice over a kept-alive connection', async () => {
+  // Node's own `fetch()` shares one undici with the runner, whose timers may be armed already; the
+  // package is a fresh copy per file, so its first request schedules them for sure.
+  it('fetches over kept-alive connections, through Node and through the undici package', async () => {
     const { port } = server.address() as AddressInfo;
 
-    for (const path of ['/a', '/b']) {
-      const response = await fetch(`http://127.0.0.1:${port}${path}`);
+    for (const request of [fetch, undiciFetch, fetch, undiciFetch]) {
+      const response = await request(`http://127.0.0.1:${port}/`);
 
       await response.text();
     }
+
+    keepAlivePoller();
 
     expect(countStrayTimers()).toBe(0);
   });
@@ -74,17 +89,17 @@ describe('the file after the one that fetched', () => {
     await once(server, 'close');
   });
 
-  it('was not charged with the timers of fetch()', () => {
+  it('was not charged with the timers of fetch(), nor with the ignored one', () => {
     expect(hookErrors).toEqual([]);
   });
 });
 
 describe('a file whose Observables error with nothing to handle them', () => {
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers: true, onStrayTimers: 'throw' });
+  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers, onStrayTimers: 'throw' });
 
   beforeAll(() => {
     // The block before took the tracking off after this one was collected.
-    trackStrayTimers();
+    trackStrayTimers(undefined, strayTimers);
   });
 
   afterAll(() => failUnhandled('after the last test'));
@@ -117,7 +132,7 @@ describe('the file after the one whose Observable errored after its last test', 
 });
 
 describe('a file on the global fake clock whose Observable errors with nothing to handle it', () => {
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers: true, globalFakeTimers: true });
+  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers, globalFakeTimers: true });
 
   it('errors a subject nobody handles', () => {
     failUnhandled('under a fake clock');
@@ -125,7 +140,9 @@ describe('a file on the global fake clock whose Observable errors with nothing t
 
   it('had the test before it fail with that error', () => {
     expect(hookErrors.map((error) => error.message.split('\n').slice(0, 2).join('\n'))).toEqual([
-      expect.stringMatching(/^\[vitest-auto-spy\] Unhandled Observable error in ".* > errors a subject nobody handles":\n {2}- Error: under a fake clock$/),
+      expect.stringMatching(
+        /^\[vitest-auto-spy\] Unhandled Observable error in ".* > errors a subject nobody handles":\n {2}- Error: under a fake clock$/,
+      ),
     ]);
     hookErrors.length = 0;
   });

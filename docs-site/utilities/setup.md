@@ -217,6 +217,51 @@ timers pays about 16 ms for knowing where each came from. Naming the test adds o
 when the callback is scheduled — the name itself is built only for a stray — and does not show
 against the stack capture: a tracked pair measured 4.0 µs before and after, both with coverage on.
 
+### Timers a dependency owns
+
+Node's global `fetch()` runs on undici, and undici keeps timers of its own: a 499 ms tick that drives
+its connect and keep-alive timeouts, and a keep-alive timeout per pooled connection. They outlive the
+test by design, and a file that talks to a server it cannot close — a local auth stub, a dev proxy —
+used to fail with `setTimeout 499 ms … at new Promise (<anonymous>)` and nothing to fix. Timers whose
+scheduling call comes from undici — Node's bundled copy or the `undici` package — are now neither
+counted, reported nor cancelled. Only the nearest frame outside this package and zone.js decides, so
+a spec callback that undici calls, a `MockAgent` reply, still has its own timers charged to it.
+
+For another dependency's housekeeping, name it:
+
+```ts
+setupAutoSpy({ strayTimers: { ignore: [/some-sdk[/\\]poll/, 'heartbeat.js'] }, onStrayTimers: 'throw' });
+
+trackStrayTimers(undefined, { ignore: [/some-sdk[/\\]poll/] }); // the same without setupAutoSpy
+```
+
+Each entry is a substring or a RegExp searched in the stack of the call that scheduled the timer.
+An ignored timer is not cancelled either: its owner still holds the handle, and a pool whose timer was
+cancelled behind its back never times anything out again. Every call to `trackStrayTimers` replaces
+the list, so the last setup to run decides — in a shared-environment run that is the same setup file
+every time.
+
+### An Observable error nothing handled
+
+rxjs rethrows an error no subscriber handles from `setTimeout(() => { throw error })`, so it escapes
+the subscriber. That timer fails no test: it fires once the test is over, or the sweep cancels it at
+the end of the file, and the only trace was a stray `setTimeout 0 ms, scheduled in "<test>" at
+TestRequest.error (…)`. With `strayTimers` on, the `afterEach` runs such a pending rethrow early —
+what the timer would have done — and fails the test that scheduled it:
+
+```text
+[vitest-auto-spy] Unhandled Observable error in "TokenSetupScreen > saves the token":
+  - HttpErrorResponse: Http failure response for /api/token: 502 Bad Gateway
+rxjs rethrows an error no subscriber handles from a setTimeout, where it fails no test; it was rethrown now instead. …
+```
+
+The original error is the failure's `cause`, so the runner prints its stack too. A rethrow scheduled
+outside a test fails the file at its sweep instead. The check reads the fake clock as well, while one
+is installed when it runs — `globalFakeTimers` qualifies; a spec whose own `afterEach` calls
+`vi.useRealTimers()` has discarded the timer by then. A rethrow that `config.onUnhandledError` takes
+reports nothing, as rxjs would. `flushUnhandledObservableErrors()` is the same check by hand: it runs
+the pending rethrows and returns `{ error, test }` for each that threw.
+
 ### With Vitest 4.1's `--detect-async-leaks`
 
 ::: warning The two cancel each other out, and the quiet one wins
@@ -1201,9 +1246,38 @@ object form's `reaction` defaults to `'throw'`; `'warn'` prints the same report 
 for a test, to stderr for a file — without failing, which is how to measure a large suite before
 turning it on. `guardStrayConsole(reaction)` is the same guard registered on its own.
 
-What it does not see: output written to `process.stdout` / `process.stderr` directly, and jsdom's
-own virtual console, which captured the real console before Vitest intercepted it — route jsdom's
-`jsdomError` events to `console.error` if they should count. A rejection zone.js swallowed is printed
+**What the DOM environment writes counts too.** happy-dom's page console and jsdom's virtual console
+were handed the worker's own console when the environment was built, before Vitest swapped
+`globalThis.console`, so their lines reached stderr of a green run. The guard routes that console into
+the one it watches: happy-dom's `NotSupportedError: Failed to load iframe page … Iframe page loading is
+disabled` or jsdom's `Not implemented: navigation` is reported against the test that caused it, at the
+spec's frame, with a `Likely cause:` line — and a console spy or an `allow` pattern takes it like any
+other line.
+
+**An iframe that must stay unloaded under happy-dom.** happy-dom 20 has no setting that keeps a
+remote-`src` iframe both unloaded and silent: `disableIframePageLoading` logs the `NotSupportedError`
+above for every iframe (and dispatches `error`), and `navigation.disableChildFrameNavigation` is silent
+but dispatches `load` itself, so a "the page never loads" branch cannot be reached. Two ways out, both
+per file:
+
+```ts
+// @vitest-environment-options {"settings":{"disableIframePageLoading":true}}
+import { consoleErrorSpy, installConsoleSpies } from 'vitest-auto-spy/console';
+
+beforeEach(() => installConsoleSpies());
+
+it('gives up when the logout page never loads', async () => {
+  await service.logout(); // no `load` ever comes
+
+  expect(consoleErrorSpy).toHaveBeenCalledWith(expect.objectContaining({ name: 'NotSupportedError' }));
+});
+```
+
+or `// @vitest-environment jsdom` at the top of the file: jsdom leaves a remote `src` unloaded, silent
+and without `load`. There is no `dom-stubs` helper for it: holding happy-dom's `load` back without its
+log means patching its internals, which a happy-dom minor is free to move.
+
+What it does not see: output written to `process.stdout` / `process.stderr` directly. A rejection zone.js swallowed is printed
 through `console.error`, so with `strayRejections` on it is reported twice over; the first failure
 wins, and it is the rejection report.
 

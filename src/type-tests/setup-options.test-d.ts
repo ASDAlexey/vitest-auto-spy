@@ -21,11 +21,14 @@ import {
   type StrayListener,
   type StrayListenerReport,
   type StrayTimerReport,
+  type StrayTimersOptions,
+  type UnhandledObservableError,
   advanceTimers,
   blockNetwork,
   countStrayListeners,
   countStrayRejections,
   countStrayTimers,
+  flushUnhandledObservableErrors,
   mockNow,
   removeStrayListeners,
   restoreGlobals,
@@ -181,6 +184,10 @@ describe('the file-boundary repairs', () => {
       },
     });
 
+    setupAutoSpy({ strayTimers: { ignore: [/some-sdk[/\\]poll/, 'heartbeat.js'] }, onStrayTimers: 'throw' });
+    setupAutoSpy({ strayTimers: {} });
+    expectTypeOf<StrayTimersOptions['ignore']>().toEqualTypeOf<readonly (RegExp | string)[] | undefined>();
+
     // @ts-expect-error -- with no handler the sweep is already quiet, so there is no 'warn' to ask for
     setupAutoSpy({ onStrayTimers: 'warn' });
     // @ts-expect-error -- the same for listeners
@@ -191,6 +198,8 @@ describe('the file-boundary repairs', () => {
 describe('the runtime-thin counters', () => {
   it('answer the shapes a setup file reads once', () => {
     expectTypeOf(countStrayTimers()).toEqualTypeOf<number>();
+    expectTypeOf(flushUnhandledObservableErrors()).toEqualTypeOf<UnhandledObservableError[]>();
+    expectTypeOf<UnhandledObservableError['error']>().toEqualTypeOf<unknown>();
     expectTypeOf(countStrayRejections()).toEqualTypeOf<number>();
     expectTypeOf(countStrayListeners()).toEqualTypeOf<number>();
     expectTypeOf(removeStrayListeners()).toEqualTypeOf<number>();
