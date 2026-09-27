@@ -2421,6 +2421,30 @@ been instantiated_, а `--fix` идёт по репозиторию без пр�
 с одним аргументом: форма с двумя несёт опции, которые `renderShallow` пишет иначе, и их потеря была
 бы молчаливой поломкой.
 
+**Компонент, который создаётся в каждом тесте после настройки спаев.** Когда конструктор читает
+состояние спая, а каждый тест сначала настраивает спаи, `renderShallow` не может стоять в `beforeEach`
+с настройкой после него. Рендерите в самом тесте, а чтения `injectSpy` — вместе с умолчаниями и
+настройкой этого теста — перенесите в `beforeCreate`, который выполняется после конфигурации модуля и
+до конструктора:
+
+```ts
+const render = (tune: () => void = () => undefined) =>
+  renderShallow(SlidesComponent, {
+    providers: [provideAutoSpy(StateService)],
+    detectChanges: false,
+    beforeCreate: () => {
+      state = injectSpy(StateService);
+      state.savedUi.mockReturnValue(DEFAULT_UI);
+      tune();
+    },
+  });
+
+it('restores the collapsed layout', () => {
+  const { component } = render(() => state.savedUi.mockReturnValue(COLLAPSED_UI));
+  // …
+});
+```
+
 **Severity.** `warn` — одна из трёх градуированных severity, и единственная, градуированная по _виду_
 находки, а не по доказательству за ней. Остальные
 правила называют что-то неверное или мёртвое; это называет файл, который можно рендерить дешевле, а

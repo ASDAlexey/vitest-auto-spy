@@ -239,6 +239,8 @@ _обращения_ к свойству: цепочка, идущая чере�
 `SubjectOf<T>`, который равен собственному `Subject<T>` из rxjs, когда `vitest-auto-spy/rxjs` есть в
 вашей TypeScript-программе (он расширяет `AutoSpyRxjsTypes`), и структурному `SubjectLike<T>`, когда
 его нет. См. [rxjs в типах](/ru/runtimes/rxjs#rxjs-in-the-types).
+`SubjectOf` экспортирует и `vitest-auto-spy/angular` — для переменной, которая хранит то, что вернул
+`returnSubject()`.
 
 **`AddSpyMethodsByReturnTypes<Method>`** — поверхность одного метода: сам мок, пересечённый с
 `calledWith` / `mustBeCalledWith`, плюс набор хелперов для `Promise` или `Observable`, когда тип

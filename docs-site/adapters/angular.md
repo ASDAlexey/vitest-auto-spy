@@ -2048,7 +2048,10 @@ argument, and under `.not` a failure would have read as a pass.
 The fix it names depends on what the fixture is rooted at. On a fixture of the component under test,
 the directive belongs in that component's `hostDirectives` or its `imports`, and the failure says so
 by name; a host built by `createDirectiveHost` or `TestBed.createDirective` exists only in the spec,
-so there the failure still points at `createDirectiveHost({ template, scope })`.
+so there the failure still points at `createDirectiveHost({ template, scope })`. Neither hint is given
+when the host already has the directive in its compiled scope: then the directive's own selector is
+what matches nothing, and the failure prints it. A directive found on elements the given selector does
+not match is reported as such.
 
 That makes it the guard for an attribute a `hostDirectives` entry provides. An assertion on the
 attribute alone stays green when the entry is dropped and the attribute is also written statically,

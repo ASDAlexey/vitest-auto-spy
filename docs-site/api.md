@@ -263,6 +263,8 @@ plus a promise-returning `forEach(next)`, which rxjs's `Observable`, every `Subj
 `returnSubject()` and `nextWithPerCall()` are typed `SubjectOf<T>`, which is rxjs's own `Subject<T>`
 once `vitest-auto-spy/rxjs` is in your TypeScript program (it augments `AutoSpyRxjsTypes`) and the
 structural `SubjectLike<T>` when it is not. See [rxjs in the types](/runtimes/rxjs#rxjs-in-the-types).
+`SubjectOf` is exported by `vitest-auto-spy/angular` as well, for the variable that keeps what
+`returnSubject()` returned.
 
 **`AddSpyMethodsByReturnTypes<Method>`** — the per-method surface: the mock itself intersected with
 `calledWith` / `mustBeCalledWith`, plus the `Promise` or `Observable` helper bundle when the return

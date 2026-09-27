@@ -10,6 +10,33 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Changed
+
+- **Every Angular-adapter message prints class names as the source spells them.** 5.40.1 took the
+  esbuild `_` prefix and the Rollup `$1` suffix off in `toHaveDirectiveApplied` only; the rest still
+  told the reader to edit `_ReportCardComponent`. The same cleanup now applies to `injectSpy`,
+  `overrideComponentProvider`, `assertComponentDefIntact`, `enableAngularDiagnostics`' shadowed-provider
+  report, `setInputs` / `renderShallow` input errors, `renderShallow({ keepTemplate: true })`,
+  `createComponentStub` (and the stub's own class name), `provideMatDialogRef` / `injectMatDialogRef`,
+  `hostElement` / `queryElement`, `trackInjections(...).get()` and the `createSpyFromClass(X)` label.
+  `trackInjections(...).names()` still returns `Function.name` unchanged.
+- **`toHaveDirectiveApplied` blames the selector when the host already has the directive in scope.**
+  A `createDirectiveHost({ template, scope: [FlagDirective] })` whose template no longer matched the
+  directive's selector failed with "Build the host with createDirectiveHost({ template, scope:
+  [FlagDirective] })", the call the spec already made. When the host's compiled scope carries the
+  directive, the failure now says its selector matches nothing the template renders and prints it
+  (`'[appFlagX]'`; a `:not()` selector is left out). With a selector argument, a directive found only
+  on other elements is reported as `it is on 1 element that selector does not match`.
+  `/angular/matchers` is +421 B min+gzip (2241 → 2662 B, +18.8 %) and +2.4 kB to import
+  (19972 → 22349 B): the scope lookup, the selector printer and the two messages.
+
+### Fixed
+
+- **The `signalStore()` `fillMissing` default recognises the ngrx base under a bundler's rename.** The
+  base was matched by `name === 'SignalStore'`, which a `_SignalStore` or `SignalStore$1` missed; the
+  name is now compared with the rename taken off. The `HttpTestingController` lookup behind
+  `enableAngularDiagnostics({ pendingRequests })` compares the same way.
+
 ## [5.40.1] - 2026-09-27
 
 ### Changed

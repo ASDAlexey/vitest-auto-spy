@@ -39,7 +39,8 @@ the reference suite). Method discovery walks the _prototype chain_; a callable a
 
 - an Angular `signal()` / `computed()` field — the dominant case in a signals codebase
 - an arrow-function property — `readonly reload = (): void => {}`
-- anything on an ngrx `signalStore()`, which puts **everything** on the instance
+- anything on an ngrx `signalStore()`, which puts **everything** on the instance — covered by the
+  `fillMissing` default below, not by a list
 - **members Angular's own classes moved onto the instance** — `Router.currentNavigation` in
   Angular 20 is `currentNavigation = this.navigationTransitions.currentNavigation.asReadonly()`
 

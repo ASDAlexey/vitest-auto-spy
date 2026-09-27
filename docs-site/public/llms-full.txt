@@ -674,7 +674,8 @@ double as the way out. What counts as configured, and where the guard does not r
 
 Method discovery walks the **prototype chain**, which is where `class` methods live. A callable
 assigned to an _instance field_ is invisible to it — an arrow-function property, an Angular
-`signal()` / `computed()` field, a method of an ngrx `signalStore()`. Name those explicitly:
+`signal()` / `computed()` field, a method of an ngrx `signalStore()` (which
+[`fillMissing`](#fill-missing) covers by default). Name the others explicitly:
 
 ```ts
 class TaskStore {
@@ -749,6 +750,11 @@ abstract class and a concrete one are the same object — filling every unknown 
 silence a genuine typo on every class in the suite, which is the property that separates this
 library from the mock-everything proxies. Naming the members in `instanceMethodsToSpyOn` stays the
 alternative when the list is short and worth stating.
+
+The one default is a class built on an ngrx `signalStore()`. Its `withMethods` / `withProps` members
+live on the instance, so a store class gets `fillMissing: true` unless the call sets it; the base
+ngrx generates is recognised by its name, `SignalStore`, and its own `ɵprov`. `fillMissing: false`
+turns it off.
 
 Two things it does not change. A member the record already has is still read from the record, so a
 lazy placeholder materialises exactly as it would without the wrapper. And the protocol keys the
@@ -21006,7 +21012,10 @@ argument, and under `.not` a failure would have read as a pass.
 The fix it names depends on what the fixture is rooted at. On a fixture of the component under test,
 the directive belongs in that component's `hostDirectives` or its `imports`, and the failure says so
 by name; a host built by `createDirectiveHost` or `TestBed.createDirective` exists only in the spec,
-so there the failure still points at `createDirectiveHost({ template, scope })`.
+so there the failure still points at `createDirectiveHost({ template, scope })`. Neither hint is given
+when the host already has the directive in its compiled scope: then the directive's own selector is
+what matches nothing, and the failure prints it. A directive found on elements the given selector does
+not match is reported as such.
 
 That makes it the guard for an attribute a `hostDirectives` entry provides. An assertion on the
 attribute alone stays green when the entry is dropped and the attribute is also written statically,
@@ -26584,6 +26593,8 @@ plus a promise-returning `forEach(next)`, which rxjs's `Observable`, every `Subj
 `returnSubject()` and `nextWithPerCall()` are typed `SubjectOf<T>`, which is rxjs's own `Subject<T>`
 once `vitest-auto-spy/rxjs` is in your TypeScript program (it augments `AutoSpyRxjsTypes`) and the
 structural `SubjectLike<T>` when it is not. See [rxjs in the types](https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#rxjs-in-the-types).
+`SubjectOf` is exported by `vitest-auto-spy/angular` as well, for the variable that keeps what
+`returnSubject()` returned.
 
 **`AddSpyMethodsByReturnTypes<Method>`** — the per-method surface: the mock itself intersected with
 `calledWith` / `mustBeCalledWith`, plus the `Promise` or `Observable` helper bundle when the return

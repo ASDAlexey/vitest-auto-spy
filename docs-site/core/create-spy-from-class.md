@@ -64,7 +64,8 @@ double as the way out. What counts as configured, and where the guard does not r
 
 Method discovery walks the **prototype chain**, which is where `class` methods live. A callable
 assigned to an _instance field_ is invisible to it — an arrow-function property, an Angular
-`signal()` / `computed()` field, a method of an ngrx `signalStore()`. Name those explicitly:
+`signal()` / `computed()` field, a method of an ngrx `signalStore()` (which
+[`fillMissing`](#fill-missing) covers by default). Name the others explicitly:
 
 ```ts
 class TaskStore {
@@ -139,6 +140,11 @@ abstract class and a concrete one are the same object — filling every unknown 
 silence a genuine typo on every class in the suite, which is the property that separates this
 library from the mock-everything proxies. Naming the members in `instanceMethodsToSpyOn` stays the
 alternative when the list is short and worth stating.
+
+The one default is a class built on an ngrx `signalStore()`. Its `withMethods` / `withProps` members
+live on the instance, so a store class gets `fillMissing: true` unless the call sets it; the base
+ngrx generates is recognised by its name, `SignalStore`, and its own `ɵprov`. `fillMissing: false`
+turns it off.
 
 Two things it does not change. A member the record already has is still read from the record, so a
 lazy placeholder materialises exactly as it would without the wrapper. And the protocol keys the
