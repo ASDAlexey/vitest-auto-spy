@@ -40,7 +40,7 @@ describe('runCli', () => {
     expect(runCli([], io)).toBe(2);
     expect(io.stdout).toEqual([]);
     expect(io.stderr).toEqual([
-      'Missing command. Usage: npx vitest-auto-spy <doctor|perf|init|codemod> [options]. Run `npx vitest-auto-spy --help` for the options.',
+      'Missing command. Usage: npx vitest-auto-spy <doctor|perf|init|codemod|ng-test> [options]. Run `npx vitest-auto-spy --help` for the options.',
     ]);
   });
 
@@ -67,7 +67,7 @@ describe('runCli', () => {
 
     expect(runCli(['deploy'], far)).toBe(2);
     expect(far.stderr).toEqual([
-      'Unknown command: deploy. Usage: npx vitest-auto-spy <doctor|perf|init|codemod> [options]. Run `npx vitest-auto-spy --help` for the options.',
+      'Unknown command: deploy. Usage: npx vitest-auto-spy <doctor|perf|init|codemod|ng-test> [options]. Run `npx vitest-auto-spy --help` for the options.',
     ]);
   });
 
@@ -197,7 +197,7 @@ describe('doctor', () => {
     expect(near.stderr).toEqual(['Unknown check id for --ignore: no-agent-instruction. Did you mean no-agent-instructions? Nothing ran.']);
     expect(runCli(['doctor', '--cwd', root, '--ignore', 'everything'], far)).toBe(2);
     expect(far.stderr[0]).toContain(
-      'Unknown check id for --ignore: everything. Known ids: analog-behind-angular-build, angular-build-splitting-deprecated,',
+      'Unknown check id for --ignore: everything. Known ids: analog-behind-angular-build, analog-fast-compile-ctor-injection,',
     );
     expect(runCli(['doctor', '--cwd', root, '--ignore', 'no-agent-instructions,'], recorder())).toBe(0);
     expect(far.stderr[0]).toContain('vitest-5-available, vitest-5-clear-mocks, vitest-5-deprecated, vitest-5-removed.');
@@ -224,6 +224,34 @@ describe('flag values', () => {
     expect(negative.stderr).toEqual(['--top takes a number of zero or more, and got -3. Nothing ran.']);
     expect(runCli(['perf', '--cwd', root, '--factor=Infinity'], recorder())).toBe(2);
     expect(runCli(['perf', '--cwd', root, '--factor', ' '], recorder())).toBe(2);
+  });
+});
+
+describe('ng-test', () => {
+  it('refuses a shard it cannot split by, and a --target with no value', () => {
+    const shard = recorder();
+    const target = recorder();
+
+    expect(runCli(['ng-test', '--shard', '0/4'], shard)).toBe(2);
+    expect(shard.stderr).toEqual(['--shard takes <index>/<count>, as in `--shard 1/4`, and got 0/4. Nothing ran.']);
+    expect(runCli(['ng-test', '--target'], target)).toBe(2);
+    expect(target.stderr).toEqual(['--target needs a value, as in `--target <value>`. Nothing ran.']);
+  });
+
+  it('takes a bare --changed, and says when the workspace has no unit-test target', () => {
+    const root = createTempRepo(HEALTHY);
+    const io = recorder();
+
+    expect(runCli(['ng-test', '--cwd', root, '--changed', '--shard', '1/2', '--related', 'src/app.ts', '--', '--coverage'], io)).toBe(2);
+    expect(io.stderr[0]).toContain('No @angular/build:unit-test target in this workspace.');
+    expect(runCli(['ng-test', '--cwd', root], recorder())).toBe(2);
+  });
+
+  it('refuses arguments after -- for every other command', () => {
+    const io = recorder();
+
+    expect(runCli(['perf', '--', '--coverage'], io)).toBe(2);
+    expect(io.stderr).toEqual(['Only `ng-test` takes arguments after `--`. Nothing ran.']);
   });
 });
 

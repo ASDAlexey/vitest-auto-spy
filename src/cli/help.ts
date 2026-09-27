@@ -30,6 +30,12 @@ Commands
             reproduced instead. Exit 1 is "over budget", exit 2 is "there was
             nothing to judge".
 
+  ng-test   \`ng test\` with the Vitest levers the Angular unit-test builder
+            does not pass through: a shard, or the specs a change reaches.
+            Lists the target's specs with --list-tests (@angular/build 21+),
+            picks the ones this run gets and hands them to the builder as
+            --include paths, so it compiles only those. Exits with ng's code.
+
   init      Write a pointer to node_modules/vitest-auto-spy/AGENTS.md into the
             instruction files the agents in this repository actually read, and
             specialise it for this repository's runner, framework and setup file.
@@ -81,6 +87,20 @@ Usage of perf
 
   Add {paths} to the command — \`npm test -- {paths:--include=}\` — and the gate
   can re-measure its suspects through the same harness.
+
+Usage of ng-test
+  npx vitest-auto-spy ng-test [--shard i/n] [--changed [ref]] [--related a,b]
+                              [--target project:target] [-- <ng test options>]
+
+  Everything after -- goes to \`ng run <project>:<target>\` as typed, with
+  --watch=false in front of it. An --include there narrows what is listed;
+  the computed list then replaces it. A config, a lockfile or a change the
+  setup files reach runs every spec. No spec reached is exit 0, nothing run.
+  --repeats has no flag here: \`test.repeats\` in the runner config reaches
+  Vitest as it is.
+
+    npx vitest-auto-spy ng-test --shard 2/4 -- --coverage
+    npx vitest-auto-spy ng-test --changed origin/main
 
 Options
   --cwd <dir>    Run against another directory instead of the current one.
@@ -153,6 +173,20 @@ Options
                  rows. markdown: the same document as tables, for an MR note or
                  a job summary. The suite's own output goes to stderr. Works for
                  doctor and perf.
+  --shard <i/n>  ng-test only. Run shard i of n, split the way Vitest's own
+                 --shard splits: by a hash of the path, in near-equal parts.
+  --changed [ref]
+                 ng-test only. Run the specs that import, directly or not, a
+                 file git reports changed against ref — HEAD by default, so
+                 uncommitted and untracked work. Follows relative imports,
+                 tsconfig paths aliases, and a template or stylesheet to the
+                 component that names it.
+  --related <files>
+                 ng-test only. The same, for the comma-separated files given.
+  --target <p[:t]>
+                 ng-test only. Which @angular/build:unit-test target to run
+                 when the workspace has more than one.
+  --dry-run      ng-test only. Print the ng command instead of running it.
   --check        init only. Write nothing; exit 1 if the block is out of date.
   --dry-run      init only. Print what would change and write nothing.
   --uninstall    init only. Remove the managed blocks and the files it created.

@@ -13,6 +13,10 @@ export const VITEST_5_PERF_DOCS = `${DOCS}/core/performance#vitest-5-under-the-a
 /** Every check `doctor` can report. Each one has a heading of the same name on the CLI page. */
 export const DOCTOR_CHECKS: readonly string[] = [
   'analog-behind-angular-build',
+  'analog-fast-compile-ctor-injection',
+  'analog-module-cache-inline-styles',
+  'angular-build-happy-dom',
+  'angular-build-istanbul-module-cache',
   'angular-build-splitting-deprecated',
   'angular-build-splitting-off',
   'builder-setup-unreached',

@@ -5,7 +5,7 @@
 import { resolve } from 'node:path';
 
 import type { ParsedArgs } from './args';
-import { VALUE_FLAGS, flagEnabled, flagList, flagNumber, flagValue, parseArgs } from './args';
+import { OPTIONAL_VALUE_FLAGS, VALUE_FLAGS, flagEnabled, flagList, flagNumber, flagValue, parseArgs } from './args';
 import { isSpecFile } from './checks/graph';
 import { writeCodeQuality } from './code-quality';
 import { runCodemod } from './codemod/run';
@@ -15,6 +15,8 @@ import { isDirectory } from './fs-scan';
 import { HELP } from './help';
 import { runInit } from './init';
 import type { InitAction, InitResult } from './init';
+import { captureProcess, changedRef, resolveNg, runNgTest } from './ng-test';
+import { parseShard } from './ng-test-select';
 import type { BaselineRequest, GateRequest, OutputFormat } from './perf';
 import { renderPerf } from './perf';
 import { BASELINE_DEFAULTS, DEFAULT_BASELINE_FILE } from './perf-baseline';
@@ -250,6 +252,26 @@ function codemodCommand(cwd: string, argv: readonly string[], io: CliIo): number
   );
 }
 
+function ngTestCommand(cwd: string, argv: readonly string[], io: CliIo): number {
+  const args = parseArgs(argv);
+  const shard = flagValue(args, 'shard');
+
+  return runNgTest(
+    {
+      cwd,
+      profile: readProfile(cwd),
+      target: flagValue(args, 'target'),
+      shard: shard === undefined ? undefined : parseShard(shard),
+      changed: changedRef(args.flags['changed']),
+      related: flagList(args, 'related'),
+      dryRun: flagEnabled(args, 'dry-run'),
+      passthrough: args.passthrough,
+    },
+    { capture: captureProcess, spawn: spawnProcess, resolveNg },
+    io,
+  );
+}
+
 /** Flags every command takes. `--help` and `--version` are handled before dispatch. */
 const COMMON_FLAGS: readonly string[] = ['cwd', 'help', 'version'];
 
@@ -263,6 +285,7 @@ const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
   codemod: ['from', 'list', 'only', 'skip', 'verify', 'write'],
   doctor: ['code-quality', 'format', 'ignore', 'min-severity'],
   init: ['check', 'dry-run', 'only', 'uninstall'],
+  'ng-test': ['changed', 'dry-run', 'related', 'shard', 'target'],
   perf: [
     'baseline',
     'baseline-factor',
@@ -336,7 +359,7 @@ function isCount(value: string): boolean {
 function valueProblem(args: ParsedArgs, name: string, command: string): string | undefined {
   const value = args.flags[name];
 
-  if (value === true && VALUE_FLAGS.has(name)) {
+  if (value === true && VALUE_FLAGS.has(name) && !OPTIONAL_VALUE_FLAGS.has(name)) {
     return `--${name} needs a value, as in \`--${name} <value>\`.`;
   }
 
@@ -346,6 +369,10 @@ function valueProblem(args: ParsedArgs, name: string, command: string): string |
 
   if (NUMBER_FLAGS.includes(name) && !isCount(value)) {
     return `--${name} takes a number of zero or more, and got ${value}.`;
+  }
+
+  if (name === 'shard' && parseShard(value) === undefined) {
+    return `--shard takes <index>/<count>, as in \`--shard 1/4\`, and got ${value}.`;
   }
 
   if (name === 'min-severity' && minSeverityOf(args) === undefined) {
@@ -367,7 +394,8 @@ function valueProblem(args: ParsedArgs, name: string, command: string): string |
 }
 
 function rejectValues(args: ParsedArgs, command: string, io: CliIo): boolean {
-  const problems = Object.keys(args.flags).flatMap((name) => valueProblem(args, name, command) ?? []);
+  const passthrough = args.passthrough.length > 0 && command !== 'ng-test' ? ['Only `ng-test` takes arguments after `--`.'] : [];
+  const problems = [...passthrough, ...Object.keys(args.flags).flatMap((name) => valueProblem(args, name, command) ?? [])];
 
   for (const problem of problems) {
     io.err(`${problem} Nothing ran.`);
@@ -376,7 +404,7 @@ function rejectValues(args: ParsedArgs, command: string, io: CliIo): boolean {
   return problems.length > 0;
 }
 
-const USAGE = 'Usage: npx vitest-auto-spy <doctor|perf|init|codemod> [options]. Run `npx vitest-auto-spy --help` for the options.';
+const USAGE = 'Usage: npx vitest-auto-spy <doctor|perf|init|codemod|ng-test> [options]. Run `npx vitest-auto-spy --help` for the options.';
 
 /** The flags a command takes, or `undefined` after saying the command is missing or unknown. */
 function acceptedFlags(command: string | undefined, io: CliIo): readonly string[] | undefined {
@@ -458,6 +486,10 @@ export function runCli(argv: readonly string[], io: CliIo): number {
 
   if (command === 'init') {
     return initCommand(cwd, argv, io);
+  }
+
+  if (command === 'ng-test') {
+    return ngTestCommand(cwd, argv, io);
   }
 
   return command === 'perf' ? perfCommand(cwd, argv, io) : codemodCommand(cwd, argv, io);
