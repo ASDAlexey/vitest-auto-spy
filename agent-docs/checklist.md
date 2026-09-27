@@ -190,7 +190,7 @@ helps locally. `perf-long-pole` names the file still running alone after every o
 when that tail is at least 2 s and 30 % of the span. `perf-isolation` adds the workers spawned and
 their summed start-up, with an "at least" wall-clock saving; `perf-workers` counts the lanes the run
 used rather than the machine's cores; under `isolate: false`, `perf-heap` lists what each file added
-to its lane's heap. Environment time is counted once per lane (`concurrencyId`) and value — not per
+to its lane's heap, and lists growth that comes with a module's first load in that worker (`first load of X in this worker (+N MB), not retained by the spec`) separately — that is the module cache, not a leak. Environment time is counted once per lane (`concurrencyId`) and value — not per
 `workerId`, which Vitest 5 renews for every file even in a reused worker. A finding about a switch
 also prints `perf-vitest-doctor`: confirm it with `npx vitest doctor`, Vitest's own A/B runner, not
 this package's `doctor`. Under `@angular/build:unit-test` it gives an A/B through `ng run <project>:<target> --runner-config=<variant>`

@@ -10,6 +10,133 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`doctor` warns when `vitest run` and the Angular builder test on different DOMs.**
+  `runner-dom-differs-from-builder` (warning): a `vitest.config.*` / `vite.config.*` that sets
+  `environment: 'jsdom'` beside an `@angular/build:unit-test` / `@nx/angular:unit-test` target that
+  runs happy-dom (both installed; the builder picks happy-dom whenever it resolves). `nx test` and the
+  IDE then run the same specs on two DOMs, and doctor said nothing — `angular-build-happy-dom` stays
+  quiet once happy-dom is installed. The fix aligns on happy-dom; a jsdom-only spec keeps
+  `// @vitest-environment jsdom`. On a 48-file Angular suite the switch took Duration from 1.37 s to
+  1.10 s (−20 %).
+- **`doctor` warns when Analog's `setupTestBed()` is laxer than the builder's TestBed.**
+  `analog-testbed-laxer-than-builder` (warning): `setupTestBed()` from
+  `@analogjs/vitest-angular/setup-testbed` leaves `errorOnUnknownElements` /
+  `errorOnUnknownProperties` off, while `@angular/build:unit-test` (20.x and 22.x checked) turns both
+  on, so a template typo only logs under `vitest run` and fails under `nx test`. The fix gives the
+  call: `setupTestBed({ errorOnUnknownElements: true, errorOnUnknownProperties: true })`. A flag
+  written with any value, and options passed as a variable, are left alone.
+- **`consoleOutput()` from `vitest-auto-spy/console`: everything a test logged, as one value.**
+  Pinning a CLI's exact output meant asserting every spy at once, so each suite wrote its own
+  `logged()` over `consoleErrorSpy` / `consoleWarnSpy` / `consoleInfoSpy`; in one consumer that exact
+  form found a `console.warn` a test had passed over with `toHaveBeenCalledWith` for months.
+  `consoleOutput()` returns the argument lists of every recorded call keyed by channel (`debug`,
+  `error`, `info`, `log`, `trace`, `warn`), only the channels written to, so
+  `expect(consoleOutput()).toStrictEqual({ info: [['done']] })` pins the whole output with a full diff
+  and `{}` means silence. It throws while no spy is on `console`, rather than report silence it did
+  not hear. A function, not a `toHaveLogged` matcher: `toStrictEqual` already gives the diff, and the
+  matcher would have doubled the growth and registered `expect.extend` on every import. `/console` is
+  +208 B min+gzip (9973 → 10181 B, +2.1 %).
+- **`strayTimers: { ignore: [...] }`.** The object form turns the sweep on and leaves alone every
+  timer whose scheduling stack contains one of the substrings or matches one of the RegExps — never
+  counted, reported or cancelled, since its owner still holds the handle. `trackStrayTimers(host,
+  { ignore })` takes the same list; the latest call's list is in force. The type is exported from
+  `/setup` as `StrayTimersOptions`. For a dependency's housekeeping no spec can reach, which until now
+  could only be silenced by turning `strayTimers` off for the whole project.
+- **An Observable error nothing handled fails the test that raised it.** rxjs rethrows such an error
+  from `setTimeout(() => { throw error })`, which fails no test: it fired after the test, or the sweep
+  cancelled it at the end of the file and all that was left was a stray `setTimeout 0 ms, scheduled
+  in "<test>" at TestRequest.error` — the real error gone. With `strayTimers` on, the `afterEach` now
+  runs that pending rethrow early and fails the test with `Unhandled Observable error in "<test>"`,
+  quoting the error and carrying it as `cause`; a rethrow scheduled outside a test fails the file at
+  its sweep. It reads the fake clock as well while one is installed (`globalFakeTimers`), and a
+  rethrow `config.onUnhandledError` takes reports nothing, as in rxjs. `flushUnhandledObservableErrors()`
+  in `/setup` is the same check by hand. On by default with `strayTimers`, because without the sweep
+  the rethrow is an uncaught exception that fails the run anyway: the sweep was what hid it. The
+  scheduler wrappers' hot path is unchanged: a tracked `setTimeout` + `clearTimeout` pair measured
+  2.13–2.20 µs before and 2.13–2.17 µs after on a stand-in host, 2.50–2.55 µs both ways on Node's real
+  timers, interleaved runs.
+- **`provideHttpTesting({ interceptors, features })`.** A suite whose interceptor was under test had
+  to write `provideHttpClient(withInterceptors([...]))` + `provideHttpClientTesting()` itself, which
+  lost the end-of-test check and meant an `afterEach(() => verifyNoPendingRequests())` by hand.
+  `interceptors` takes functional interceptors and `features` any other `provideHttpClient()`
+  feature (`withInterceptorsFromDi()`, `withXsrfConfiguration()`); both go into one
+  `provideHttpClient()` call, before `provideHttpClientTesting()`, and the teardown check stays armed.
+  `interceptors` run in array order, before those `features` brings. `/angular-http` is +52 B
+  min+gzip (3652 → 3704 B, +1.4 %).
+
+### Fixed
+
+- **`strayConsole` sees what the DOM environment writes — a suite under `'throw'` can newly fail.**
+  happy-dom's page console and jsdom's virtual console hold the worker's own console, captured when
+  the environment was built, before Vitest swapped `globalThis.console`; so happy-dom's
+  `NotSupportedError: Failed to load iframe page … Iframe page loading is disabled` and jsdom's
+  `Not implemented: navigation`
+  reached stderr of a green run, past the guard and past every console spy. The guard now routes that
+  console into the one it watches: the line fails the test that caused it at the spec's frame, a
+  `/console` spy or `vi.spyOn(…).mockImplementation` absorbs it (and can assert it), and both lines
+  get a `Likely cause:`. A suite under `strayConsole: 'throw'` (the `setupAutoSpy` default) that had
+  such lines on stderr now fails on them — that output is what the guard promises to catch. Fix the
+  cause (stub the API, mock the navigation, absorb it with a console spy), or let a line through with
+  `strayConsole: { allow: ['Not implemented: navigation'] }`. Routing is off when Vitest does not
+  intercept the console (`disableConsoleIntercept`).
+- **`no-redundant-mock-reset` no longer calls a reset dead on a flag the Angular unit-test builder
+  never reads.** `@angular/build:unit-test` and `@nx/angular:unit-test` hand Vitest `config: false`
+  unless the target names a `runnerConfig`, so a `restoreMocks: true` / `mockReset: true` in the
+  `vitest.config.ts` the rule read (found or `configFile`) did not apply under `ng test` / `nx test`,
+  and deleting the reported line broke that run. The rule now finds the unit-test targets whose
+  project root holds the spec (`angular.json` / `workspace.json` / `project.json`, executors from
+  `nx.json` `targetDefaults`), resolves each target's and configuration's `runnerConfig` as the
+  builder does, and reports a reset only where every run performs it. A clear stays reported on
+  Vitest 5, whose default clears under the builder too. Workspaces without such a target, and flags
+  passed inline as options, are read as before. `/eslint-plugin` is +825 B min+gzip (42269 →
+  43094 B, +2.0 %): the workspace reader.
+- **A function in `overrides` for a method is a spy now, as `Spy<T>` says.** `provideAutoSpy(DomSanitizer,
+  { overrides: { sanitize: (_c, v) => String(v) } })` stored the function as written, so
+  `expect(injectSpy(DomSanitizer).sanitize).toHaveBeenCalledOnce()` compiled and threw
+  `[Function sanitize] is not a spy`. On `createSpyFromClass` / `provideAutoSpy` a plain function seeded
+  on a method (a prototype method, a name in `methodsToSpyOn` / `instanceMethodsToSpyOn` /
+  `onlyMethodsToSpyOn`, any member of the abstract-class fallback or a `fillMissing` double) becomes that
+  method's spy with the function as its implementation: calls, `mock.calls` and `calledWith` work, the
+  function runs with the double as `this` until the test configures the spy, it counts as configured
+  under `strict` (framework hooks such as `ngOnDestroy` included), and `resetAutoSpy` brings it back.
+  Kept exactly as seeded: values, getter seeds, a function on a non-method field, a class, and any
+  callable with its own API — a `vi.fn()`, a library spy, a signal — so a held `vi.fn()` keeps its
+  identity. The seed still wins over `returns` / `selfReturning` for the same key. `createAutoMock`,
+  `provideAutoSpyForToken` and `createSpyFromInstance` are unchanged. Cost: one spy per seeded method,
+  created at build instead of on first read (+0.5 µs per seeded method, `bench` case "createSpyFromClass
+  with overrides"); the root entry is +191 B min+gzip (27636 → 27827 B, +0.7 %), and the entries
+  built on it +182–216 B each.
+- **`perf-heap` no longer calls the first load of a module a leak.** Under `isolate: false` a worker
+  evaluates a module once and keeps it, so the first file in a lane to import `@sentry/angular` or a
+  zod-heavy barrel showed its +8–10 MB as heap the spec left behind, and two runs over the same files
+  named different files. The reporter now records, per file, the modules the worker evaluated for the
+  first time (keys of Vitest's import durations the lane's previous file did not have), and `perf`
+  lists growth that comes with a first load of 50 ms or more in a second note, "first load of
+  `@sentry/angular` in this worker (+8 MB), not retained by the spec". When several lanes first-loaded
+  the same module, a file at more than twice the middle reading keeps the rest in the leak list
+  ("+21 MB beyond the first load of …"); a file that loaded nothing new is reported as before. A
+  measured run under `isolate: false` asks Vitest for 30 import durations instead of 10, because the
+  worker's table keeps every earlier spec. The report gains an optional `firstLoads` per file (format
+  version unchanged; an older report reads as before). `/perf-reporter` is +242 B min+gzip (1736 →
+  1978 B, +13.9 %) and +1.4 kB to import (8599 → 9967 B): the lane walk that finds the first loads.
+- **`strayTimers` no longer charges undici's timers to the spec.** Node's global `fetch()` runs on
+  undici, which keeps a 499 ms tick and a keep-alive timeout per pooled connection. A file that
+  fetched from a server it could not close failed `onStrayTimers: 'throw'` with `setTimeout 499 ms …
+  at new Promise (<anonymous>)` and `setTimeout 3000 ms … at Parser.setTimeout (…/undici/lib/…)`,
+  nothing a spec could fix. A timer whose scheduling call's nearest frame outside this package and
+  zone.js is undici (`node:internal/deps/undici`, or the `undici` package) is now neither counted,
+  reported nor cancelled — cancelling it would stall undici's timeouts for the rest of the worker. A
+  spec callback undici calls synchronously (a `MockAgent` reply) still has its own timers charged.
+
+### Size
+
+`/setup` **27760 → 29187 B** min+gzip (+1427 B, +5.1 %) and +7.7 kB to import (157520 → 165233 B):
+about 1.0 kB of it is the unhandled-Observable check and `strayTimers: { ignore }` with the undici
+filter, about 0.4 kB the environment-console routing and its two `Likely cause:` lines (an esbuild
+bundle of the sources before and after each, 31133 → 31544 → 32607 B).
+
 ## [5.43.0] - 2026-09-27
 
 ### Added

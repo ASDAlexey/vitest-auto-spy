@@ -8,6 +8,48 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## Consumer asks after 5.43.0, 2026-09-27
+
+- **A function in `overrides` on a method becomes a spy; the type was not narrowed instead.** Two ways
+  to end the lie: make the runtime match `Spy<T>`, or type an overridden key as the plain member.
+  Typing it would need the override keys threaded through `Spy<T, Options>` from the config (an
+  inferred generic on every `provideAutoSpy` call, a type-budget cost) and would still leave a method
+  a spec cannot assert on. The function goes in as the spy's strict-guard handler
+  (`UnstubbedGuard.implementation`) rather than a host `mockImplementation`, so `calledWith` /
+  `resolveWith` configured afterwards still decide and `resetAutoSpy` restores the function.
+- [~] **The same on `createAutoMock`, `provideAutoSpyForToken` and `createSpyFromInstance`.** Callables
+  with their own API (mock, spy, signal) and classes keep identity, a getter seed is not unwrapped, and
+  the token path keeps its documented "a seed is verbatim" contract; changing it there would change a
+  public result.
+- [~] **A `dom-stubs` helper for iframes that must not load under happy-dom.** happy-dom 20 has two
+  settings and neither is enough alone: `disableIframePageLoading` logs a `NotSupportedError` per
+  iframe and dispatches `error`; `navigation.disableChildFrameNavigation` is silent but resolves
+  `goto()` and dispatches `load` itself. Holding `load` back without the log needs happy-dom's internal
+  `PropertySymbol` hooks or a patched `HTMLIFrameElement.prototype.dispatchEvent` — happy-dom-only
+  (jsdom dispatches through its impl layer) and free to break in any minor. With the guard routing the
+  page console, the documented recipe is the per-file
+  `@vitest-environment-options {"settings":{"disableIframePageLoading":true}}` docblock plus a console
+  spy, or `// @vitest-environment jsdom`.
+- **The environment-console routing is not limited to happy-dom.** jsdom's `VirtualConsole.sendTo(console)`
+  in Vitest's jsdom environment holds the same pre-swap console, and its `Not implemented:` lines were
+  missed the same way. Routing is keyed on "the worker's own console is not `globalThis.console`"
+  (`process.getBuiltinModule('node:console')`), so it covers both; it is off when Vitest does not
+  intercept (`disableConsoleIntercept`) and on runtimes without `getBuiltinModule`.
+- [~] **`toHaveLogged()` instead of `consoleOutput()`.** Measured on the same method: the function is
+  +184 B, function plus matcher +340 B (+3.4 %), both ~4.5 µs per assertion, and the matcher adds an
+  `expect.extend` (~4 µs) to every import of `/console`. Its one advantage, a custom message, is
+  covered by `toStrictEqual`'s diff; it has no natural receiver (`expect(console)`), needs a
+  `Matchers` augmentation and its own registration on `bun test` / `node --test`.
+- **`no-redundant-mock-reset`: builder targets narrow the config, they never add a report.** A
+  workspace whose only runner is a unit-test target without `runnerConfig` (no config found at all)
+  still gets no report, although Vitest 5's defaults would make a clear dead there: a new report
+  source would be a new lint error on upgrade. Inline flags are not narrowed — written by hand they are
+  the project's statement about every run.
+- **Workspace files are read with `JSON.parse`, not a JSONC parser,** to keep `src/cli/fs-scan` (and
+  its gitignore reader) out of `/eslint-plugin`; a file with comments contributes no target, i.e. the
+  pre-change behaviour. `UNIT_TEST_BUILDERS` is duplicated from `src/cli/checks/unit-test-targets.ts`
+  for the same reason.
+
 ## `lazySpies: 'proxy'` by width, 2026-09-27
 
 - [~] **`lazySpies: 'proxy'` as the default for every class.** Supersedes the entry of the same name
