@@ -10,18 +10,23 @@
 import { compareVersions, describeSplittingOff, isAffectedRelease, parseVersion } from '../../lib/angular-build-notice';
 import type { Profile } from '../profile';
 import type { Finding } from '../report';
-import { unitTestTargets } from './unit-test-targets';
+import { type UnitTestTarget, unitTestTargets } from './unit-test-targets';
 import { installedVersionOf } from './vitest-5-facts';
 
 export { compareVersions, isAffectedVersion, parseVersion } from '../../lib/angular-build-notice';
 
 const NAMED_TARGETS = 3;
 
-function fixFor(profile: Profile): string {
-  const targets = unitTestTargets(profile);
+/** The first few targets by name and file, and a count of the rest. */
+export function namedTargets(targets: readonly UnitTestTarget[]): string {
   const named = targets.slice(0, NAMED_TARGETS).map((target) => `\`${target.project}:${target.name}\` in ${target.file}`);
   const rest = targets.length - named.length;
-  const where = named.length === 0 ? 'the unit-test target' : `${named.join(', ')}${rest === 0 ? '' : ` and ${rest} more targets`}`;
+
+  return named.length === 0 ? 'the unit-test target' : `${named.join(', ')}${rest === 0 ? '' : ` and ${rest} more targets`}`;
+}
+
+function fixFor(profile: Profile): string {
+  const where = namedTargets(unitTestTargets(profile));
 
   return `Upgrade @angular/build to 22.1.7 or newer, where splitting is on by default, and remove any \`"splitting": false\` from ${where}.`;
 }

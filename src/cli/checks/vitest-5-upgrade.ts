@@ -153,7 +153,7 @@ export function checkVitest5Available(profile: Profile): Finding[] {
 
 /** Vitest 4 calls it experimental and keeps it elsewhere; Vitest 5 promoted it and renamed the directory. */
 const EXPERIMENTAL_CACHE_PATH = 'node_modules/.experimental-vitest-cache';
-const CACHE_PATH = 'node_modules/.vitest-cache';
+export const CACHE_PATH = 'node_modules/.vitest-cache';
 
 const escapeRegExp = (text: string): string => text.replace(/[$()*+.?[\\\]^{|}]/g, '\\$&');
 
@@ -167,12 +167,20 @@ export function cachesPath(text: string, path: string): boolean {
   );
 }
 
-interface CacheSetting {
+export interface CacheSetting {
   readonly file: string;
   readonly path: string;
 }
 
-function moduleCacheSetting(profile: Profile, graph: SourceGraph, major: number): CacheSetting | undefined {
+export function persistedInCi(ci: readonly TextFile[], path: string): boolean {
+  return ci.some(({ text }) => cachesPath(text, path));
+}
+
+export function persistFix(path: string): string {
+  return `Persist \`${path}\` between CI runs — for GitHub Actions an \`actions/cache\` step with that path and a key on the lockfile hash (\`cache: npm\` in \`setup-node\` stores only the npm download cache). \`npm ci\` deletes \`node_modules\` before it installs, so with it set \`fsModuleCachePath\` to a directory outside \`node_modules\` and cache that one.`;
+}
+
+export function moduleCacheSetting(profile: Profile, graph: SourceGraph, major: number): CacheSetting | undefined {
   const keys = runnerConfigKeys(graph);
   const enabled = keys.find((key) => isKey(key, 'fsModuleCache') && isTrue(key));
   const byScript = vitestScripts(profile).some(
@@ -197,7 +205,7 @@ export function checkModuleCachePersisted(profile: Profile, graph: SourceGraph):
 
   const setting = moduleCacheSetting(profile, graph, major);
 
-  if (setting === undefined || ci.some(({ text }) => cachesPath(text, setting.path))) {
+  if (setting === undefined || persistedInCi(ci, setting.path)) {
     return [];
   }
 
@@ -209,7 +217,7 @@ export function checkModuleCachePersisted(profile: Profile, graph: SourceGraph):
       severity: 'warning',
       file: setting.file,
       message: `\`fsModuleCache\` is on, and no CI config caches \`${setting.path}\`: every CI run (${files}) starts with an empty module cache and pays the full transform, so the cache only ever helps locally.`,
-      fix: `Persist \`${setting.path}\` between CI runs — for GitHub Actions an \`actions/cache\` step with that path and a key on the lockfile hash (\`cache: npm\` in \`setup-node\` stores only the npm download cache). \`npm ci\` deletes \`node_modules\` before it installs, so with it set \`fsModuleCachePath\` to a directory outside \`node_modules\` and cache that one.`,
+      fix: persistFix(setting.path),
     },
   ];
 }
