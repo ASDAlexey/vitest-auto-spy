@@ -1072,21 +1072,23 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
   /**
    * Materialize each method spy on first access instead of building all of them up front.
    *
-   * **On by default.** On a forty-method class where a test touches two, holding two thousand spies
-   * costs 27 ms and 35 MB lazily against 257 ms and 425 MB eagerly. The reverse case — a test that
-   * calls every method — pays 5% in time and 1% in memory for the accessor indirection, which is why
-   * this is a default rather than a choice.
+   * **Unset, the width of the class decides.** Below 8 methods it means `true`: an
+   * `Object.defineProperty` accessor per method, replaced by a plain spy on first read. From 8 methods
+   * it means `'proxy'`: the double is a `Proxy` that answers every method name from one set per class
+   * and defines nothing until a method is read. The accessor path's first read drops the double into a
+   * property dictionary as wide as the class; the proxy never does, so at 8–16 methods it is ~1.4 kB
+   * against ~2.1 kB with one method called, and at 45 methods ~1.4 kB against ~4.4 kB, built 2–6×
+   * faster.
    *
-   * Set `false` only when a spec inspects the spy through property descriptors; enumeration
-   * (`Object.keys`, spread, snapshots) already works, since the placeholders are enumerable.
+   * What a wide class's proxy double changes, and the reason to pass `lazySpies: true`: every read of
+   * a member pays a trap (~20 ns); `util.types.isProxy` is `true`; `console.log` shows only the
+   * methods already read; `vi.spyOn` on an unread method returns the double's own spy, so
+   * `mockRestore()` resets it; `Object.create(double).method` builds on the double; an untouched
+   * double is ~100 B heavier. Snapshots, `toEqual`, `Object.keys` and spread are unchanged.
    *
-   * `'proxy'` is the same laziness with a different placeholder: one trap object for the whole
-   * class instead of one `Object.defineProperty` accessor per method. What an untouched double
-   * retains then stops scaling with the width of the class, which is the figure that ends a CI job
-   * under `isolate: false` — and it is the only reason to reach for it, since a `Proxy` cannot
-   * remove itself and taxes every read and every call for the life of the double. Worth it on the
-   * wide generated clients (orval, ng-openapi-gen, ngrx facades) and a loss on an ordinary
-   * five-method service; `docs-site/core/performance.md` has the break-even.
+   * `false` builds every spy up front; use it when a spec inspects the methods through property
+   * descriptors. Explicit `true`, `false` and `'proxy'` apply at any width.
+   * `docs-site/core/performance.md` has the measurements.
    */
   lazySpies?: boolean | 'proxy';
 }

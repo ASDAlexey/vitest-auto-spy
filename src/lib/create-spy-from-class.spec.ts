@@ -394,8 +394,8 @@ describe('createSpyFromClass — selfReturning', () => {
 
 describe('createSpyFromClass — lazy placeholders', () => {
   it('shares one accessor pair between every double of the class, and still mints a spy per double', () => {
-    const first = createSpyFromClass(Cart);
-    const second = createSpyFromClass(Cart);
+    const first = createSpyFromClass(Cart, { lazySpies: true });
+    const second = createSpyFromClass(Cart, { lazySpies: true });
 
     const firstPlaceholder = Object.getOwnPropertyDescriptor(first, 'total');
     const secondPlaceholder = Object.getOwnPropertyDescriptor(second, 'total');
@@ -408,11 +408,13 @@ describe('createSpyFromClass — lazy placeholders', () => {
     expect(second.total()).toBeUndefined();
     expect(first.total()).toBe(1);
   });
+});
 
+describe.each([true, 'proxy'] as const)('createSpyFromClass — lazy methods (lazySpies: %s)', (lazySpies) => {
   it('gives each double its own strict guard, materialised or not', () => {
     takeStrictViolations();
-    const strict = createSpyFromClass(Cart, { strict: true });
-    const lenient = createSpyFromClass(Cart);
+    const strict = createSpyFromClass(Cart, { strict: true, lazySpies });
+    const lenient = createSpyFromClass(Cart, { lazySpies });
 
     expect(lenient.total()).toBeUndefined();
     expect(() => strict.total()).toThrow('Cart.total(');
@@ -420,7 +422,7 @@ describe('createSpyFromClass — lazy placeholders', () => {
   });
 
   it('materialises a method of a frozen double instead of throwing "Cannot redefine property"', () => {
-    const cart = createSpyFromClass(Cart);
+    const cart = createSpyFromClass(Cart, { lazySpies });
     Object.freeze(cart);
 
     const total = cart.total;
@@ -435,7 +437,7 @@ describe('createSpyFromClass — lazy placeholders', () => {
   });
 
   it('still writes the spy onto a double that is only non-extensible', () => {
-    const cart = createSpyFromClass(Cart);
+    const cart = createSpyFromClass(Cart, { lazySpies });
     Object.preventExtensions(cart);
 
     const total = cart.total;
@@ -445,7 +447,7 @@ describe('createSpyFromClass — lazy placeholders', () => {
   });
 
   it('keeps an assignment to a sealed double reaching the member it names', () => {
-    const cart = createSpyFromClass(Cart);
+    const cart = createSpyFromClass(Cart, { lazySpies });
     Object.seal(cart);
     const replacement = vi.fn(() => 5);
 
@@ -455,9 +457,9 @@ describe('createSpyFromClass — lazy placeholders', () => {
   });
 });
 
-describe('createSpyFromClass — vi.spyOn on a method nobody has read yet', () => {
+describe.each([true, 'proxy'] as const)('createSpyFromClass — vi.spyOn on a method nobody has read yet (lazySpies: %s)', (lazySpies) => {
   it('wraps it instead of throwing "Invalid value used as weak map key"', () => {
-    const cart = createSpyFromClass(Cart);
+    const cart = createSpyFromClass(Cart, { lazySpies });
 
     const total = vi.spyOn(cart, 'total').mockReturnValue(3);
 
@@ -465,24 +467,9 @@ describe('createSpyFromClass — vi.spyOn on a method nobody has read yet', () =
     expect(total).toHaveBeenCalledTimes(1);
   });
 
-  it("forwards an unconfigured call to the double's own spy, strict guard included", () => {
-    takeStrictViolations();
-    const cart = createSpyFromClass(Cart, { strict: true });
-    const checkout = vi.spyOn(cart, 'checkout');
-
-    expect(() => cart.checkout(1, 'now')).toThrow('Cart.checkout(');
-    expect(takeStrictViolations()).toHaveLength(1);
-
-    checkout.mockRestore();
-
-    expect(cart.checkout).toHaveBeenCalledWith(1, 'now');
-    cart.checkout.calledWith(2, 'later').mockReturnValue('queued');
-    expect(cart.checkout(2, 'later')).toBe('queued');
-  });
-
   it('keeps one spy per double and per method behind the wrappers', () => {
-    const first = createSpyFromClass(Cart);
-    const second = createSpyFromClass(Cart);
+    const first = createSpyFromClass(Cart, { lazySpies });
+    const second = createSpyFromClass(Cart, { lazySpies });
 
     vi.spyOn(first, 'total');
     vi.spyOn(first, 'load');
@@ -497,9 +484,37 @@ describe('createSpyFromClass — vi.spyOn on a method nobody has read yet', () =
     expect(second.total).toHaveBeenCalledTimes(1);
     expect(first.load).not.toHaveBeenCalled();
   });
+});
 
-  it('names the problem when the wrapped method is called without its double', () => {
-    const cart = createSpyFromClass(Cart);
+describe("createSpyFromClass — vi.spyOn and the double's own spy", () => {
+  it("forwards an unconfigured call to the double's own spy, strict guard included (lazySpies: true)", () => {
+    takeStrictViolations();
+    const cart = createSpyFromClass(Cart, { strict: true, lazySpies: true });
+    const checkout = vi.spyOn(cart, 'checkout');
+
+    expect(() => cart.checkout(1, 'now')).toThrow('Cart.checkout(');
+    expect(takeStrictViolations()).toHaveLength(1);
+
+    checkout.mockRestore();
+
+    expect(cart.checkout).toHaveBeenCalledWith(1, 'now');
+    cart.checkout.calledWith(2, 'later').mockReturnValue('queued');
+    expect(cart.checkout(2, 'later')).toBe('queued');
+  });
+
+  it("hands back the double's own spy, as for a method already read (lazySpies: 'proxy')", () => {
+    takeStrictViolations();
+    const cart = createSpyFromClass(Cart, { strict: true, lazySpies: 'proxy' });
+    const checkout = vi.spyOn(cart, 'checkout');
+
+    expect(checkout).toBe(cart.checkout);
+    expect(() => cart.checkout(1, 'now')).toThrow('Cart.checkout(');
+    expect(takeStrictViolations()).toHaveLength(1);
+    expect(cart.checkout).toHaveBeenCalledWith(1, 'now');
+  });
+
+  it('names the problem when the wrapped method is called without its double (lazySpies: true)', () => {
+    const cart = createSpyFromClass(Cart, { lazySpies: true });
     vi.spyOn(cart, 'total');
     const detached = cart.total;
 
@@ -508,6 +523,17 @@ describe('createSpyFromClass — vi.spyOn on a method nobody has read yet', () =
         'Drop the vi.spyOn and configure the member itself: double.total.mockReturnValue(…).\n' +
         'Docs: https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#lazy-spies-—-lazyspies',
     );
+  });
+
+  it("answers the double's own spy when the wrapped method is called without its double (lazySpies: 'proxy')", () => {
+    const cart = createSpyFromClass(Cart, { lazySpies: 'proxy' });
+    vi.spyOn(cart, 'total');
+    const detached = cart.total;
+
+    Reflect.apply(detached, undefined, []);
+    vi.restoreAllMocks();
+
+    expect(cart.total).toHaveBeenCalledTimes(1);
   });
 });
 

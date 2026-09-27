@@ -8,6 +8,7 @@
 import { getJasmineSupport } from './jasmine-support';
 import { type MockFn, getMockAdapter } from './mock-adapter';
 import { markAsMock } from './spy-mark';
+import type { Func } from './types';
 import { type ReadGuard, unconfiguredGetter } from './unconfigured-reads';
 
 type AccessorType = 'getter' | 'setter';
@@ -45,6 +46,29 @@ function spyOnAccessor(autoSpy: Record<string, unknown>, accessorName: string, a
   return mock;
 }
 
+/**
+ * An ordinary object, exactly what `{}` is, minus the four property slots V8 reserves in every `{}`.
+ *
+ * A constructor's instances are sized to what its instances actually hold, and this one's hold nothing,
+ * so both halves of an empty bag cost 24 B instead of 56 — on every double, since almost no class has
+ * a spied accessor. The prototype is `Object.prototype`, so nothing can tell the two apart.
+ */
+const EmptyRecord = /* @__PURE__ */ ((): Func => {
+  function EmptyRecord(): void {
+    /* an ordinary object, sized by its constructor */
+  }
+
+  EmptyRecord.prototype = Object.prototype;
+
+  return EmptyRecord;
+})();
+
+function emptyRecord(): Record<string, MockFn> {
+  return Reflect.construct(EmptyRecord, NO_ARGUMENTS);
+}
+
+const NO_ARGUMENTS: readonly unknown[] = [];
+
 /** `reads` makes each getter's scaffold note a read nothing configured — see `unconfigured-reads.ts`. */
 export function createAccessorsSpies(
   autoSpy: Record<string, unknown>,
@@ -52,7 +76,10 @@ export function createAccessorsSpies(
   settersToSpyOn: string[],
   reads?: ReadGuard,
 ): void {
-  const accessorSpies: AccessorSpies = { getters: {}, setters: {} };
+  const accessorSpies: AccessorSpies =
+    gettersToSpyOn.length === 0 && settersToSpyOn.length === 0
+      ? { getters: emptyRecord(), setters: emptyRecord() }
+      : { getters: {}, setters: {} };
   autoSpy['accessorSpies'] = accessorSpies;
 
   gettersToSpyOn.forEach((getterName) => {

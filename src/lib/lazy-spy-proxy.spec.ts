@@ -7,11 +7,13 @@
  * cannot have: nothing is defined for an untouched method, and reading a descriptor does not build
  * a spy.
  */
+import { types } from 'node:util';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { createSpyFromClass } from './create-spy-from-class';
+import { PROXY_MIN_METHODS, createSpyFromClass } from './create-spy-from-class';
 import { registerMockAdapter } from './mock-adapter';
 import { resetAutoSpy } from './reset-auto-spy';
+import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
 import { vitestMockAdapter } from './vitest-adapter';
 
 beforeAll(() => {
@@ -34,6 +36,16 @@ class Wide {
   third(): void {
     /* noop */
   }
+}
+
+function classOfWidth(width: number): new () => object {
+  const Generated = class {};
+
+  for (let index = 0; index < width; index += 1) {
+    Object.defineProperty(Generated.prototype, `m${index}`, { value: (): number => index, writable: true, configurable: true });
+  }
+
+  return Generated;
 }
 
 const proxySpy = (): Record<string, unknown> =>
@@ -216,5 +228,69 @@ describe('lazySpies: "proxy"', () => {
 
     expect(vi.isMockFunction(spy['second'])).toBe(true);
     expect(vi.isMockFunction(spy['neverDeclared'])).toBe(true);
+  });
+  it.each([
+    [PROXY_MIN_METHODS - 1, false],
+    [PROXY_MIN_METHODS, true],
+  ])('picks the mode by width when lazySpies is unset (%i methods: proxy %s)', (width, proxied) => {
+    const spy = createSpyFromClass(classOfWidth(width)) as unknown as Record<string, unknown>;
+
+    expect(types.isProxy(spy)).toBe(proxied);
+    expect(Object.keys(spy)).toHaveLength(width + 1);
+    expect(vi.isMockFunction(spy['m0'])).toBe(true);
+  });
+
+  it.each([true, false] as const)('keeps an explicit lazySpies: %s plain on a wide class', (lazySpies) => {
+    expect(types.isProxy(createSpyFromClass(classOfWidth(PROXY_MIN_METHODS), { lazySpies }))).toBe(false);
+  });
+
+  it('keeps an explicit lazySpies: "proxy" on a narrow class', () => {
+    expect(types.isProxy(createSpyFromClass(classOfWidth(1), { lazySpies: 'proxy' }))).toBe(true);
+  });
+
+  it('counts the names an additive list brings in towards the width', () => {
+    const narrow = classOfWidth(PROXY_MIN_METHODS - 1);
+
+    expect(types.isProxy(createSpyFromClass(narrow, { methodsToSpyOn: ['extra'] as never }))).toBe(true);
+  });
+
+  it('lets a registered default choose the mode', () => {
+    const Registered = classOfWidth(PROXY_MIN_METHODS);
+    registerAutoSpyDefaults(Registered, { lazySpies: true });
+
+    expect(types.isProxy(createSpyFromClass(Registered))).toBe(false);
+    clearAutoSpyDefaults(Registered);
+  });
+
+  it('keeps two doubles of a class apart although they share one name set', () => {
+    const first = proxySpy();
+    const second = proxySpy();
+
+    delete first['second'];
+
+    expect('second' in first).toBe(false);
+    expect('second' in second).toBe(true);
+  });
+
+  it('remembers every deleted method, not only the last one', () => {
+    const spy = proxySpy();
+
+    delete spy['first'];
+    delete spy['third'];
+
+    expect(Object.keys(spy)).toEqual(['accessorSpies', 'second']);
+  });
+
+  it('answers the names an additive list brings in', () => {
+    const spy = createSpyFromClass(Wide, { lazySpies: 'proxy', methodsToSpyOn: ['fourth'] as never }) as unknown as Record<string, unknown>;
+
+    expect(Object.keys(spy)).toEqual(['accessorSpies', 'first', 'second', 'third', 'fourth']);
+    expect(vi.isMockFunction(spy['fourth'])).toBe(true);
+  });
+
+  it('reports a seeded key after the methods', () => {
+    const spy = createSpyFromClass(Wide, { lazySpies: 'proxy', gettersToSpyOn: ['label'], overrides: { extra: 1 } as never });
+
+    expect(Object.keys(spy)).toEqual(['accessorSpies', 'first', 'second', 'third', 'extra']);
   });
 });

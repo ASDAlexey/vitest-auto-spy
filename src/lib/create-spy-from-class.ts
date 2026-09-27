@@ -39,7 +39,8 @@ export interface ResolvedSpyConfiguration {
   autoSpyAccessors: boolean;
   /** `undefined` when nothing set it, so an ngrx `signalStore()` class can default it on — see {@link isSignalStoreClass}. */
   fillMissing: boolean | undefined;
-  lazySpies: boolean | 'proxy';
+  /** `undefined` when nothing set it, so the width of the class can pick the mode — see {@link PROXY_MIN_METHODS}. */
+  lazySpies: boolean | 'proxy' | undefined;
   returns: Record<string, unknown>;
   selfReturning: string[];
   overrides: object;
@@ -54,6 +55,10 @@ interface AccessorNames {
   setters: string[];
 }
 
+// An unset `lazySpies` picks `'proxy'` from this width: there the proxy double is ≥ 21 % lighter with one
+// or two methods touched, below it 11 % (DECISIONS.md, "`lazySpies: 'proxy'` by width", 2026-09-27).
+export const PROXY_MIN_METHODS = 8;
+
 const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
   methodsToSpyOn: [],
   onlyMethodsToSpyOn: [],
@@ -63,7 +68,7 @@ const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
   gettersToSpyOn: [],
   autoSpyAccessors: false,
   fillMissing: undefined,
-  lazySpies: true,
+  lazySpies: undefined,
   returns: {},
   selfReturning: [],
   overrides: {},
@@ -587,7 +592,7 @@ export function resolveConfiguration<T>(
     gettersToSpyOn: methodsToSpyOnOrConfig.gettersToSpyOn ?? [],
     autoSpyAccessors: methodsToSpyOnOrConfig.autoSpyAccessors ?? false,
     fillMissing: methodsToSpyOnOrConfig.fillMissing,
-    lazySpies: methodsToSpyOnOrConfig.lazySpies ?? true,
+    lazySpies: methodsToSpyOnOrConfig.lazySpies,
     returns: methodsToSpyOnOrConfig.returns ?? {},
     selfReturning: methodsToSpyOnOrConfig.selfReturning ?? [],
     overrides: methodsToSpyOnOrConfig.overrides ?? {},
@@ -629,10 +634,16 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   const config = resolveConfiguration(mergeAutoSpyDefaults(ObjectClass, methodsToSpyOnOrConfig));
   const autoSpy = assembleSpy<T, Options>(ObjectClass, config);
 
-  applyConfiguredReturns(autoSpy, `createSpyFromClass(${sourceClassName(ObjectClass.name)})`, config, () =>
-    getAllMethodNames(ObjectClass.prototype),
-  );
-  applyOverrides(autoSpy, config.overrides);
+  // Both guards keep the unconfigured call, the one every `beforeEach` makes, off the label's regexes.
+  if (config.selfReturning.length > 0 || Object.keys(config.returns).length > 0) {
+    applyConfiguredReturns(autoSpy, `createSpyFromClass(${sourceClassName(ObjectClass.name)})`, config, () =>
+      getAllMethodNames(ObjectClass.prototype),
+    );
+  }
+
+  if (Reflect.ownKeys(config.overrides).length > 0) {
+    applyOverrides(autoSpy, config.overrides);
+  }
 
   return autoSpy;
 }
@@ -707,7 +718,7 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
 
   const methodNames = resolveMethodNames(ObjectClass, config);
   const unstubbed = resolveUnstubbedGuard(ObjectClass.name, config);
-  const label = `createSpyFromClass(${sourceClassName(ObjectClass.name)})`;
+  const label = (): string => `createSpyFromClass(${sourceClassName(ObjectClass.name)})`;
 
   // Only a restricting list can be silently wrong: a misspelled name there replaces the real method
   // with nothing, and the failure surfaces as `… is not a function` inside the code under test. In
@@ -719,7 +730,7 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   // the whitelist is the only way to describe such a class, and warning about the correct usage is
   // worse than saying nothing.
   if (config.onlyMethodsToSpyOn.length > 0 && getAllMethodNames(ObjectClass.prototype).length > 0) {
-    warnOnUnknownMethods(label, config.onlyMethodsToSpyOn, new Set(getAllMethodNames(ObjectClass.prototype)));
+    warnOnUnknownMethods(label(), config.onlyMethodsToSpyOn, new Set(getAllMethodNames(ObjectClass.prototype)));
   }
 
   const autoSpy: Record<string, unknown> = {};
@@ -735,27 +746,27 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   // Gated here rather than left to the function's own early return: the method set costs a
   // prototype-chain walk, and the overwhelmingly common call names no accessors at all.
   if (config.gettersToSpyOn.length > 0 || config.settersToSpyOn.length > 0) {
-    warnOnAccessorNamingAMethod(label, config, new Set(getAllMethodNames(ObjectClass.prototype)));
+    warnOnAccessorNamingAMethod(label(), config, new Set(getAllMethodNames(ObjectClass.prototype)));
   }
   createAccessorsSpies(autoSpy, accessors.getters, accessors.setters, reads);
 
-  // Lazy path materializes each method spy on first access (cheaper for large
-  // classes where a test touches few methods); enumeration stays intact because
-  // the placeholder is an enumerable accessor. Eager path is the default.
-  //
-  // `'proxy'` defines nothing at all for the methods — one trap object answers all of them, so what
-  // an untouched double retains stops scaling with the width of the class. The names are handed to
-  // the wrapper below instead of being defined here.
+  // `'proxy'` (the default from `PROXY_MIN_METHODS` up) defines nothing at all for the methods — one
+  // trap object answers all of them, so what a double retains stops scaling with the width of the
+  // class. The names are handed to the wrapper below instead of being defined here. `true` (the
+  // default below it) installs an enumerable accessor placeholder per method; `false` builds every
+  // spy up front.
   //
   // A **symbol-keyed** method is defined on the record in every mode, `'proxy'` included: the trap
   // object answers string names, and reporting a symbol from `ownKeys` that the target does not have
   // is what a Proxy may not do. There are never many of them, so nothing scales with this.
+  const lazySpies = config.lazySpies ?? (methodNames.length >= PROXY_MIN_METHODS ? 'proxy' : true);
+
   methodNames.forEach((methodName) => {
-    if (config.lazySpies === 'proxy' && typeof methodName === 'string') {
+    if (lazySpies === 'proxy' && typeof methodName === 'string') {
       return;
     }
 
-    if (config.lazySpies) {
+    if (lazySpies) {
       defineLazyMethodSpy(autoSpy, methodName, unstubbed);
     } else {
       Object.defineProperty(autoSpy, methodName, {
@@ -772,12 +783,8 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   // Wrapped after `attachDispose`, so the dispose symbol is on the record the traps forward to
   // rather than on a key the proxy has to special-case.
   const assembled =
-    config.lazySpies === 'proxy'
-      ? createLazySpyProxy(
-          autoSpy,
-          methodNames.filter((name): name is string => typeof name === 'string'),
-          unstubbed,
-        )
+    lazySpies === 'proxy'
+      ? createLazySpyProxy(autoSpy, methodNames, unstubbed, methodNames === getAllMethodNames(ObjectClass.prototype))
       : autoSpy;
 
   // `autoSpy` is assembled key-by-key from the runtime method/accessor names;
@@ -798,7 +805,7 @@ function fillsMissing(ObjectClass: ClassType<unknown>, config: ResolvedSpyConfig
  */
 function isSignalStoreClass(ObjectClass: ClassType<unknown>): boolean {
   for (let current: unknown = ObjectClass; typeof current === 'function'; current = Object.getPrototypeOf(current)) {
-    if (sourceClassName(current.name) === 'SignalStore' && Object.hasOwn(current, 'ɵprov')) {
+    if (Object.hasOwn(current, 'ɵprov') && sourceClassName(current.name) === 'SignalStore') {
       return true;
     }
   }
