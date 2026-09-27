@@ -20,6 +20,7 @@ import {
   disableAngularDiagnostics,
   enableAngularDiagnostics,
 } from './angular-diagnostics';
+import { provideHttpTesting } from './angular-http';
 import { overrideComponentProvider } from './angular-overrides';
 import { createAutoMock } from './auto-mock';
 
@@ -186,6 +187,36 @@ describe('enableAngularDiagnostics', () => {
     expect(assertNoPendingRequests).toThrow(
       /Answer each in the spec: controller\.expectOne\(\{ method: 'POST', url: '\/api\/users' \}\)\.flush\(body\)\./,
     );
+  });
+
+  it('answers with expectRequest when the module came from provideHttpTesting', () => {
+    TestBed.configureTestingModule({ providers: [...provideHttpTesting({ verifyOnTeardown: false })] });
+
+    const http = TestBed.inject(HttpClient);
+
+    http.get('/api/unflushed').subscribe();
+
+    expect(assertNoPendingRequests).toThrow(/Answer it in the spec: await expectRequest\('\/api\/unflushed'\)\.flush\(body\)\./);
+  });
+
+  it('names the verb in the expectRequest answer when two open requests share a URL', () => {
+    TestBed.configureTestingModule({ providers: [...provideHttpTesting({ verifyOnTeardown: false })] });
+
+    const http = TestBed.inject(HttpClient);
+
+    http.post('/api/users', {}).subscribe();
+    http.get('/api/users').subscribe();
+
+    expect(assertNoPendingRequests).toThrow(
+      /Answer each in the spec: await expectRequest\('\/api\/users', \{ method: 'POST' \}\)\.flush\(body\)\./,
+    );
+  });
+
+  it('forgets provideHttpTesting when the next test configures the controller by hand', () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    TestBed.inject(HttpClient).get('/api/by-hand').subscribe();
+
+    expect(assertNoPendingRequests).toThrow(/Answer it in the spec: controller\.expectOne\('\/api\/by-hand'\)\.flush\(body\)\./);
   });
 
   it('holds a cancelled request against the test unless asked not to', () => {

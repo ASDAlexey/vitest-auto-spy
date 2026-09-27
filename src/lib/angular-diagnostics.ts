@@ -28,7 +28,7 @@ import { afterEach, beforeEach } from 'vitest';
 import { failOnUnspiedProvider } from './angular';
 import { assertAngularInternals } from './angular-internals';
 import { componentInjector, describeResolved, failDeadNgModuleImports, isDeadNgModuleImport, readProperty } from './angular-overrides';
-import { type PendingRequest, pendingRequestsReport } from './angular-pending-requests';
+import { HTTP_TESTING_BRAND, type PendingRequest, pendingRequestsReport } from './angular-pending-requests';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { count, sourceClassName, taskName } from './message-text';
@@ -234,6 +234,14 @@ function findControllerTokenInImports(imports: unknown, seen: Set<unknown>): unk
   return findControllerToken(readProperty(imports, 'providers')) ?? findControllerTokenInModule(wrapped ?? imports, seen);
 }
 
+function configuredByProvideHttpTesting(config: unknown): boolean {
+  const flat: unknown[] = [];
+
+  flattenProviders(readProperty(config, 'providers'), flat);
+
+  return flat.some((provider) => readProperty(provider, 'useValue') === HTTP_TESTING_BRAND);
+}
+
 /** The token, from `providers: [provideHttpClientTesting()]` or from `imports: [HttpClientTestingModule]`. */
 function readControllerToken(config: unknown): unknown {
   const fromProviders = findControllerToken(readProperty(config, 'providers'));
@@ -279,6 +287,9 @@ function takeOpenRequests(controller: unknown): PendingRequest[] {
 }
 
 let controllerToken: unknown;
+
+/** Such a spec never injects the controller, so the answer it is shown is `expectRequest`. */
+let httpTestingInUse = false;
 
 /**
  * Requests a reset took off a module this test had built — read by the check that runs after it.
@@ -339,9 +350,11 @@ function checkPendingRequests(options: PendingRequestsOptions, test?: object): v
   const report = pendingRequestsReport(open, {
     when: test === undefined ? 'when assertNoPendingRequests() ran' : `end of "${taskName(test)}"`,
     answer: ({ method, urlWithParams }, withMethod) =>
-      withMethod
-        ? `controller.expectOne({ method: '${method}', url: '${urlWithParams}' }).flush(body)`
-        : `controller.expectOne('${urlWithParams}').flush(body)`,
+      httpTestingInUse
+        ? `await expectRequest('${urlWithParams}'${withMethod ? `, { method: '${method}' }` : ''}).flush(body)`
+        : withMethod
+          ? `controller.expectOne({ method: '${method}', url: '${urlWithParams}' }).flush(body)`
+          : `controller.expectOne('${urlWithParams}').flush(body)`,
     ignoreCancelled:
       test === undefined
         ? 'assertNoPendingRequests({ ignoreCancelled: true })'
@@ -514,6 +527,7 @@ function registerPerTestHooks(): void {
     if (preparedTest !== task) {
       preparedTest = task;
       controllerToken = undefined;
+      httpTestingInUse = false;
       openAtReset.length = 0;
       moduleDoubles.clear();
       resetTally();
@@ -577,6 +591,10 @@ export function enableAngularDiagnostics(options: AngularDiagnosticsOptions = {}
       controllerToken = readControllerToken(config);
     }
 
+    if (selection.pendingRequests && configuredByProvideHttpTesting(config)) {
+      httpTestingInUse = true;
+    }
+
     if (selection.shadowedProviders) {
       collectModuleDoubles(config);
     }
@@ -609,6 +627,7 @@ export function disableAngularDiagnostics(): void {
   removeComponentInspector = undefined;
   moduleDoubles.clear();
   controllerToken = undefined;
+  httpTestingInUse = false;
   openAtReset.length = 0;
   resetTally();
   failOnUnspiedProvider(false);

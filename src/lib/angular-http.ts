@@ -38,12 +38,12 @@ import {
   withInterceptors,
 } from '@angular/common/http';
 import { HttpTestingController, type TestRequest, provideHttpClientTesting } from '@angular/common/http/testing';
-import { type EnvironmentProviders, type Provider, provideEnvironmentInitializer } from '@angular/core';
+import { type EnvironmentProviders, InjectionToken, type Provider, provideEnvironmentInitializer } from '@angular/core';
 import { TestBed, getTestBed } from '@angular/core/testing';
 import { onTestFinished } from 'vitest';
 
 import { assertAngularInternals } from './angular-internals';
-import { type PendingRequest, pendingRequestsReport } from './angular-pending-requests';
+import { HTTP_TESTING_BRAND, type PendingRequest, pendingRequestsReport } from './angular-pending-requests';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { count, taskName } from './message-text';
@@ -198,6 +198,8 @@ function armVerification(ignoreCancelled: boolean): void {
   });
 }
 
+const HTTP_TESTING_MARK = new InjectionToken<symbol>('vitest-auto-spy provideHttpTesting');
+
 /**
  * Everything `TestBed.configureTestingModule` needs for HTTP testing, in one spread.
  *
@@ -215,7 +217,11 @@ export function provideHttpTesting(options: HttpTestingOptions = {}): (Environme
   assertAngularInternals();
 
   const features = options.interceptors === undefined ? [] : [withInterceptors([...options.interceptors])];
-  const providers = [provideHttpClient(...features, ...(options.features ?? [])), provideHttpClientTesting()];
+  const providers = [
+    provideHttpClient(...features, ...(options.features ?? [])),
+    provideHttpClientTesting(),
+    { provide: HTTP_TESTING_MARK, useValue: HTTP_TESTING_BRAND },
+  ];
   const verify = options.verifyOnTeardown;
 
   if (verify === false) {

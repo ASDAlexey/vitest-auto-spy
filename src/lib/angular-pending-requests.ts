@@ -4,6 +4,12 @@
  */
 import { count } from './message-text';
 
+/**
+ * The value `provideHttpTesting()` registers, so the diagnostics entry can tell such a module apart
+ * without importing `@angular/common`. Registry-wide because each entry bundles its own copy of this file.
+ */
+export const HTTP_TESTING_BRAND = Symbol.for('vitest-auto-spy.provide-http-testing');
+
 /** One request the controller was still holding. */
 export interface PendingRequest {
   method: string;
