@@ -301,3 +301,159 @@ describe('no-redundant-mock-reset, the clearMocks default of the installed Vites
     expect(lint(v5, code, { restoreMocks: true })).toHaveLength(0);
   });
 });
+
+describe('no-redundant-mock-reset, specs the Angular unit-test builder also runs', () => {
+  const root = mkdtempSync(join(tmpdir(), 'auto-spy-mock-reset-builder-'));
+  const clear = `beforeEach(() => { vi.clearAllMocks(); });`;
+  const restore = `beforeEach(() => { vi.restoreAllMocks(); });`;
+  const CONFIG = `export default { test: { clearMocks: true, restoreMocks: true } };\n`;
+
+  function write(path: string, text: string): void {
+    mkdirSync(join(path, '..'), { recursive: true });
+    writeFileSync(path, text);
+  }
+
+  function workspace(name: string, test: object, vitest = '5.0.2'): string {
+    const directory = join(root, name);
+
+    write(join(directory, 'node_modules', 'vitest', 'package.json'), JSON.stringify({ version: vitest }));
+    write(join(directory, 'vitest.config.ts'), CONFIG);
+    write(
+      join(directory, 'angular.json'),
+      JSON.stringify({
+        projects: {
+          app: { root: 'projects/app', architect: { test } },
+          docs: { root: 'projects/docs', architect: { test: { builder: '@angular/build:karma' } } },
+        },
+      }),
+    );
+
+    return directory;
+  }
+
+  function lint(directory: string, source: string, options?: object, project = 'app'): number {
+    return runRule(RULE, source, {
+      filename: join(directory, 'projects', project, 'src', 'thing.spec.ts'),
+      linter: new Linter({ configType: 'flat', cwd: directory }),
+      ...(options ? { options } : {}),
+    }).length;
+  }
+
+  afterAll(() => rmSync(root, { force: true, recursive: true }));
+
+  it('does not call a reset dead on a flag the builder target never reads', () => {
+    const directory = workspace('no-runner-config', { builder: '@angular/build:unit-test' });
+
+    expect(lint(directory, restore)).toBe(0);
+    expect(lint(directory, restore, { configFile: 'vitest.config.ts' })).toBe(0);
+    // The builder runs Vitest 5's defaults, which clear on their own.
+    expect(lint(directory, clear)).toBe(1);
+    expect(lint(directory, clear, { configFile: 'vitest.config.ts' })).toBe(1);
+  });
+
+  it('narrows mockReset the same way, and names the clear default only where every run relies on it', () => {
+    const directory = workspace('defaults', { builder: '@angular/build:unit-test' });
+    const named = workspace('defaults-named', { builder: '@angular/build:unit-test', options: { runnerConfig: 'tools/runner.config.ts' } });
+    const message = (at: string): string =>
+      runRule(RULE, clear, {
+        filename: join(at, 'projects', 'app', 'src', 'thing.spec.ts'),
+        linter: new Linter({ configType: 'flat', cwd: at }),
+      })[0]?.message ?? '';
+
+    writeFileSync(join(directory, 'vitest.config.ts'), `export default { test: { mockReset: true } };\n`);
+    writeFileSync(join(named, 'vitest.config.ts'), `export default { test: { mockReset: true } };\n`);
+    write(join(named, 'tools', 'runner.config.ts'), `export default { test: { clearMocks: true } };\n`);
+
+    expect(lint(directory, `beforeEach(() => { vi.resetAllMocks(); });`)).toBe(0);
+    expect(message(directory)).toMatch(/`clearMocks` \(on by default from Vitest 5\)/);
+    expect(message(named)).toMatch(/`clearMocks: true`/);
+  });
+
+  it('keeps a clear under the builder where the installed Vitest does not clear by default', () => {
+    expect(lint(workspace('vitest-4', { builder: '@angular/build:unit-test' }, '4.1.11'), clear)).toBe(0);
+  });
+
+  it('reads the runner config the target names, as the builder resolves it', () => {
+    const named = workspace('named', { builder: '@angular/build:unit-test', options: { runnerConfig: 'vitest.config.ts' } });
+    const base = workspace('base', { builder: '@angular/build:unit-test', options: { runnerConfig: true } });
+    const baseMissing = workspace('base-missing', { builder: '@angular/build:unit-test', options: { runnerConfig: '' } });
+
+    write(join(base, 'projects', 'app', 'vitest-base.config.ts'), CONFIG);
+
+    expect(lint(named, restore)).toBe(1);
+    expect(lint(base, restore)).toBe(1);
+    expect(lint(baseMissing, restore)).toBe(0);
+    expect(
+      lint(workspace('named-missing', { builder: '@angular/build:unit-test', options: { runnerConfig: 'missing.config.ts' } }), restore),
+    ).toBe(0);
+  });
+
+  it('needs every configuration of the target to apply the flag', () => {
+    const directory = workspace('configurations', {
+      builder: '@angular/build:unit-test',
+      options: { runnerConfig: 'vitest.config.ts' },
+      configurations: { ci: { runnerConfig: false }, watch: { watch: true } },
+    });
+
+    expect(lint(directory, restore)).toBe(0);
+  });
+
+  it('leaves a project no unit-test target serves to the config alone', () => {
+    expect(lint(workspace('other-project', { builder: '@angular/build:unit-test' }), restore, undefined, 'docs')).toBe(1);
+  });
+
+  it('finds an Nx target by its project.json and the executor nx.json gives it', () => {
+    const directory = join(root, 'nx');
+
+    write(join(directory, 'vitest.config.ts'), CONFIG);
+    write(join(directory, 'nx.json'), JSON.stringify({ targetDefaults: { test: { executor: '@nx/angular:unit-test' } } }));
+    write(join(directory, 'projects', 'app', 'project.json'), JSON.stringify({ name: 'app', targets: { test: {} } }));
+
+    expect(lint(directory, restore)).toBe(0);
+
+    write(
+      join(directory, 'nx.json'),
+      JSON.stringify({ targetDefaults: { '@nx/angular:unit-test': { options: { runnerConfig: 'vitest.config.ts' } } } }),
+    );
+    write(join(directory, 'projects', 'lib', 'project.json'), JSON.stringify({ targets: { test: { executor: '@nx/angular:unit-test' } } }));
+
+    expect(lint(directory, restore, undefined, 'lib')).toBe(1);
+  });
+
+  it('keeps the flags written as options as the whole answer', () => {
+    expect(lint(workspace('inline', { builder: '@angular/build:unit-test' }), restore, { restoreMocks: true })).toBe(1);
+  });
+
+  it('reads a workspace file that does not parse as holding no target', () => {
+    const directory = workspace('broken', { builder: '@angular/build:unit-test' });
+    const listed = workspace('array', { builder: '@angular/build:unit-test' });
+    const project = join(root, 'broken-project');
+
+    writeFileSync(join(directory, 'angular.json'), '{ "projects": ');
+    writeFileSync(join(listed, 'angular.json'), '[]');
+    write(join(project, 'nx.json'), '{}');
+    write(join(project, 'vitest.config.ts'), CONFIG);
+    write(join(project, 'projects', 'app', 'project.json'), '{');
+
+    expect(lint(directory, restore)).toBe(1);
+    expect(lint(listed, restore)).toBe(1);
+    expect(lint(project, restore)).toBe(1);
+  });
+
+  it('reads the targets of a workspace.json project, and of a project.json with no workspace above it', () => {
+    const nx = join(root, 'workspace-json');
+    const lone = join(root, 'lone-project');
+    const target = { executor: '@nx/angular:unit-test' };
+
+    write(join(nx, 'vitest.config.ts'), CONFIG);
+    write(
+      join(nx, 'workspace.json'),
+      JSON.stringify({ projects: { app: { root: 'projects/app', targets: { test: target, lint: 'noop' } }, bare: {} } }),
+    );
+    write(join(lone, 'projects', 'app', 'vitest.config.ts'), CONFIG);
+    write(join(lone, 'projects', 'app', 'project.json'), JSON.stringify({ targets: { test: target } }));
+
+    expect(lint(nx, restore)).toBe(0);
+    expect(lint(lone, restore)).toBe(0);
+  });
+});

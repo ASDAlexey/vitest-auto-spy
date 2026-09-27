@@ -1696,6 +1696,31 @@ rule here.
   'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', clearMocks: true }],
   ```
 
+  **A spec the Angular unit-test builder also runs counts only the flags that builder applies.**
+  `@angular/build:unit-test` — and `@nx/angular:unit-test`, which delegates to it — hands Vitest
+  `config: false` unless its target names a `runnerConfig`, so the `vitest.config.ts` that `npx vitest`
+  reads is never opened under `ng test` / `nx test`, and that run gets Vitest's defaults. The rule
+  finds the targets itself: it walks up from the linted file to the workspace root (`angular.json`,
+  `workspace.json` or `nx.json`), takes every target of either builder whose project root holds the
+  file — its executor may come from `targetDefaults` in `nx.json` — and resolves its `runnerConfig`
+  the way the builder does: a path against the workspace root; `true` or `""` to the first
+  `vitest-base.config.*` in the project root, then the workspace root; absent or `false` to no config
+  at all. Each configuration of the target that sets `runnerConfig` counts as one more run. A reset is
+  reported only where the config the rule found (or `configFile`) **and** every one of those runs
+  perform it:
+
+  | the config says      | a builder target without `runnerConfig` | reported                              |
+  | -------------------- | --------------------------------------- | ------------------------------------- |
+  | `restoreMocks: true` | Vitest's default: off                   | `vi.restoreAllMocks()` — **no**       |
+  | `mockReset: true`    | Vitest's default: off                   | `vi.resetAllMocks()` — **no**         |
+  | `clearMocks: true`   | on by default from Vitest 5             | `vi.clearAllMocks()` — yes, Vitest 5+ |
+
+  So a clear stays reported wherever the installed Vitest is 5 or later, because the builder run
+  clears by default too; under Vitest 4 it is not. A workspace with no such target — any plain Vitest
+  project — is read exactly as before. The flags written as the rule's options are not narrowed:
+  written by hand, they are the project's word for every run, so name only what each runner applies.
+  A workspace file that is not plain JSON contributes no target.
+
 **The flag has to match the call, not the family.** The three options are not three grades of one
 thing, and reading them that way is how a rule like this turns into a rule that deletes lines a
 suite needs.

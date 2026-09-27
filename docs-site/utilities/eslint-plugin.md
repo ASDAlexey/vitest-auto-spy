@@ -612,6 +612,12 @@ the answer. With no options the rule searches upwards from the linted file for `
 cannot find, and it is read the same way. With neither an option nor a config found it reports nothing, which is the point: on the call alone it would be
 wrong in every project that leaves those options off, where the hook is the only reset there is.
 
+A flag a config gives counts only where every `@angular/build:unit-test` / `@nx/angular:unit-test`
+target serving the spec applies it too: without `runnerConfig` the builder reads no config and runs
+on Vitest's defaults, so a `restoreMocks: true` it never sees does not make a reset dead there. The
+rule finds those targets in `angular.json` / `project.json` itself —
+[the rule reference](./eslint-rules.md#no-redundant-mock-reset) has the resolution.
+
 Name the flags the runner actually sets and no others. `restoreMocks` is not a stronger
 `clearMocks`: `vi.restoreAllMocks()` walks the spies `vi.spyOn` installed and never reaches a plain
 `vi.fn()`, so under `restoreMocks: true` alone a `vi.clearAllMocks()` in a hook is still doing
