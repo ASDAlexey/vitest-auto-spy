@@ -24,6 +24,28 @@ describe('toHaveSignalValue', () => {
     expect(computed(() => items().length)).toHaveSignalValue(1);
   });
 
+  it('compares like toStrictEqual on request, and like toEqual by default', () => {
+    class Point {
+      constructor(readonly x: number) {}
+    }
+
+    expect(signal({ color: undefined })).toHaveSignalValue({});
+    expect(signal({ color: undefined })).not.toHaveSignalValue({}, { strict: true });
+    const holey: number[] = [];
+
+    holey[1] = 1;
+
+    expect(signal(holey)).not.toHaveSignalValue([undefined, 1], { strict: true });
+    expect(signal(new Point(1))).toHaveSignalValue({ x: 1 });
+    expect(signal(new Point(1))).not.toHaveSignalValue({ x: 1 }, { strict: true });
+    expect(signal(new Point(1))).toHaveSignalValue(new Point(1), { strict: true });
+    expect(signal([{ color: 'red' }])).toHaveSignalValue([{ color: 'red' }], { strict: true });
+    expect(signal(null)).toHaveSignalValue(null, { strict: true });
+    expect(() => expect(signal({ color: undefined })).toHaveSignalValue({}, { strict: true })).toThrow(
+      /expected signal to have strictly equal value/,
+    );
+  });
+
   it('negates', () => {
     expect(signal('idle')).not.toHaveSignalValue('ready');
   });

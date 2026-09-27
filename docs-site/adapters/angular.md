@@ -1486,7 +1486,7 @@ imports: absent with `all: true`, present once `include` is declared.
 `ng test` passes no Vitest flag through. `test.repeats` and `test.shard` in the runner config still
 reach Vitest; `--changed` and `--related` do not, because Vitest's module graph holds the builder's
 bundles. [`npx vitest-auto-spy ng-test`](/utilities/cli#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder)
-does both through `--include`, so the builder compiles only the specs that run:
+does both through `--include`, so from `@angular/build` 22.2 the builder compiles only the specs that run:
 `ng-test --shard 2/4`, `ng-test --changed origin/main`.
 
 ## Coverage matching costs more than coverage
@@ -1621,12 +1621,15 @@ registerSignalMatchers(); // once, in your setup file
 
 expect(component.total).toHaveSignalValue(3);
 expect(component.items).toHaveSignalValue([{ id: 1 }]);
+expect(component.buttonConfig).toHaveSignalValue({ label: 'Save', color: undefined }, { strict: true });
 ```
 
 `expect(component.total).toBeTruthy()` passes for every signal ever created — a signal is a
 function. The matcher reads it, deep-compares with the runner's own equality, and rejects anything
 that is not a zero-argument getter, so the missing-parentheses mistake fails instead of quietly
-passing.
+passing. The comparison is `toEqual`'s: an `undefined` property, an array hole and the object's class
+do not count. `{ strict: true }` compares the way `toStrictEqual` does, so a spec already on
+`expect(sig()).toStrictEqual(x)` keeps its precision when it moves to the matcher.
 
 A spy is a zero-argument callable too, so the matcher recognises one and refuses it **without
 reading it** — `expect(service.load).toHaveSignalValue(undefined)` would otherwise pass on the
@@ -2050,7 +2053,8 @@ rooted at the element that carries the directive, and on a `ComponentFixture` a 
 entry of the component under test counts. A structural directive counts as well — `*dir` and
 `<ng-template dir>` put it on the comment Angular leaves in place of the template, and the search
 takes that anchor in; assert it without a selector, because the element it renders does not carry
-it, and a selector naming that element fails with a message that says so. Anything else is
+it, and a selector naming that element fails with a message that says so — whether the directive
+rendered the element or not. Anything else is
 thrown rather than failed — a `nativeElement` or an `undefined` passed by mistake is a wrong
 argument, and under `.not` a failure would have read as a pass.
 

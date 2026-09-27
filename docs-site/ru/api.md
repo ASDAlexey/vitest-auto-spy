@@ -278,7 +278,7 @@ _обращения_ к свойству: цепочка, идущая чере�
 добавляет `AngularDiagnosticsOptions`, `SpecTiming` и `TestBedDiagnosticsOptions`;
 `/angular/doubles` добавляет `MatDialogRefInit<Ref>`, `MatDialogRefDouble<Ref>`, `DialogRefLike`,
 `DialogResult<Ref>`, `DialogComponent<Ref>` и `DialogDataOf<T, Token>` — для дублей диалога; `/angular/matchers` добавляет
-`ResourceLike` и `SignalLike`; `/dom-stubs` добавляет
+`ResourceLike`, `SignalLike` и `SignalValueOptions`; `/dom-stubs` добавляет
 `WebStorageKey`, `WebStorageStub` и `WebStorageStubOptions` для `stubWebStorage`, а
 `AnimationFrameStub`, `AnimationFrameStubOptions` и `AnimationFrameMode` — для `stubAnimationFrame`; `/angular-http` добавляет `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` и `HttpTestingOptions` для

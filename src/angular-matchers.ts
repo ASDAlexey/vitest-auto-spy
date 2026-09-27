@@ -21,4 +21,4 @@ import '@angular/compiler';
 
 export { registerDirectiveMatchers } from './lib/directive-matchers';
 export { registerResourceMatchers, type ResourceLike } from './lib/resource-matchers';
-export { registerSignalMatchers, type SignalLike } from './lib/signal-matchers';
+export { registerSignalMatchers, type SignalLike, type SignalValueOptions } from './lib/signal-matchers';

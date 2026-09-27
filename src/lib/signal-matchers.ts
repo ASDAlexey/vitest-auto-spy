@@ -23,10 +23,19 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace -- Chai publishes `Assertion` inside a namespace; merging into it is the only way in.
   namespace Chai {
     interface Assertion {
-      /** Read the signal under test and deep-compare its current value. */
-      toHaveSignalValue(expected: unknown): void;
+      /**
+       * Read the signal under test and deep-compare its current value, with `toEqual` semantics;
+       * `{ strict: true }` compares the way `toStrictEqual` does.
+       */
+      toHaveSignalValue(expected: unknown, options?: SignalValueOptions): void;
     }
   }
+}
+
+/** How {@link registerSignalMatchers}' `toHaveSignalValue` compares. */
+export interface SignalValueOptions {
+  /** Count `undefined` properties, array holes and the object's class, as `toStrictEqual` does. */
+  readonly strict?: boolean;
 }
 
 /** What a matcher hands back to the runner. */
@@ -47,6 +56,14 @@ function isSpy(received: object): boolean {
   return 'mock' in received || 'calls' in received;
 }
 
+function sameClass(a: unknown, b: unknown): false | undefined {
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null || (Array.isArray(a) && Array.isArray(b))) {
+    return undefined;
+  }
+
+  return Object.getPrototypeOf(a) === Object.getPrototypeOf(b) ? undefined : false;
+}
+
 /**
  * Register {@link toHaveSignalValue} with the runner. Call once, from your setup file.
  *
@@ -59,7 +76,7 @@ function isSpy(received: object): boolean {
  */
 export function registerSignalMatchers(): void {
   expect.extend({
-    toHaveSignalValue(received: unknown, expected: unknown): MatcherResult {
+    toHaveSignalValue(received: unknown, expected: unknown, { strict = false }: SignalValueOptions = {}): MatcherResult {
       if (typeof received !== 'function') {
         throw new Error(`expected a signal (a zero-argument getter), received ${this.utils.printReceived(received)}`);
       }
@@ -73,14 +90,14 @@ export function registerSignalMatchers(): void {
       }
 
       const actual: unknown = received();
-      const pass = this.equals(actual, expected);
+      const pass = strict ? this.equals(actual, expected, [...this.customTesters, sameClass], true) : this.equals(actual, expected);
 
       return {
         pass,
         actual,
         expected,
         message: (): string =>
-          `expected signal ${pass ? 'not ' : ''}to have value ${this.utils.printExpected(expected)}, got ${this.utils.printReceived(actual)}`,
+          `expected signal ${pass ? 'not ' : ''}to have ${strict ? 'strictly equal ' : ''}value ${this.utils.printExpected(expected)}, got ${this.utils.printReceived(actual)}`,
       };
     },
   });

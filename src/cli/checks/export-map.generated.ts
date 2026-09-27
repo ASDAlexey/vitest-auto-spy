@@ -371,6 +371,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   setupFakeTimers: '23',
   ShallowRender: '2 12',
   SignalLike: '15',
+  SignalValueOptions: '15',
   SpecTiming: '13',
   SpiedFixtures: '12',
   Spy: '0 1 2 3 4 9 12 20 21 22',
