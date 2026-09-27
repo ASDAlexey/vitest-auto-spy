@@ -1064,9 +1064,13 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
    * });
    * ```
    *
-   * A seeded key is stored exactly as written and is **not** a spy — that is the difference from
+   * A seeded value is stored exactly as written and is **not** a spy — that is the difference from
    * `returns`, which configures the spy the factory built. Seed a real `Subject` here when the spec
    * drives the stream itself; name the method in `returns` when it should stay assertable.
+   *
+   * A plain function seeded on a method is the exception: it becomes that method's spy, running the
+   * function until the test configures the spy, so the calls stay assertable as `Spy<T>` promises.
+   * A `vi.fn()`, a spy, a signal or a class is kept as seeded.
    */
   overrides?: DeepPartial<T>;
   /**

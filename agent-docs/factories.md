@@ -248,6 +248,17 @@ seeded getter was flattened on any class or token the registry knows — whether
 registration names that key — while the same seed stayed live on one it does not. The merge copies
 descriptors now, and the seed behaves the same either way.
 
+**On `createSpyFromClass` / `provideAutoSpy`, a function in `overrides` for a method stays a spy.**
+`provideAutoSpy(DomSanitizer, { overrides: { sanitize: (_c, v) => String(v) } })` makes `sanitize` a
+spy whose implementation is the function: `expect(spy.sanitize).toHaveBeenCalledOnce()`, `mock.calls`
+and `calledWith` all work, and the function runs (with the double as `this`) until the test configures
+the spy. It counts as configured under `strict`, `resetAutoSpy` brings the function back, and it wins
+over `returns` / `selfReturning` for the same method. Kept exactly as seeded: a value, a getter, a
+function on a non-method field, a class, and a callable with its own API — a `vi.fn()` keeps its
+identity. Before this, the function was stored as written, so the assertion compiled and threw
+`[Function sanitize] is not a spy`. `createAutoMock` / `provideAutoSpyForToken` still store a seed
+verbatim: there, name the method in `returns` to keep it assertable.
+
 ### What a Proxy-backed double cannot do
 
 `createAutoMock` and `mockDeep` build a Proxy, not an object, and there is one place where the

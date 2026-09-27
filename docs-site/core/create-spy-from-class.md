@@ -772,10 +772,47 @@ registerAutoSpyDefaults(LOGGER, { returns: { info: undefined, err: undefined }, 
 provideAutoSpyForToken(LOGGER, { channel: () => asInstance(channelLogger) });
 ```
 
-`overrides` is stored verbatim and is no longer a spy, so `returns` and `selfReturning` skip a member
-named there rather than configuring it — a value, a plain function and a `vi.fn()` are all left exactly
-as seeded. That shape used to throw `TypeError: asVitestMock(...).mockImplementation is not a function`
-out of the provider for a plain function, and to overwrite a seeded `vi.fn()` without a word.
+On `createAutoMock` and `provideAutoSpyForToken`, `overrides` is stored verbatim and is no longer a
+spy, so `returns` and `selfReturning` skip a member named there rather than configuring it — a value, a
+plain function and a `vi.fn()` are all left exactly as seeded. That shape used to throw
+`TypeError: asVitestMock(...).mockImplementation is not a function` out of the provider for a plain
+function, and to overwrite a seeded `vi.fn()` without a word. On `createSpyFromClass` and
+`provideAutoSpy` the seed still wins, and a plain function seeded on a method becomes that method's
+spy — see the next section.
+
+## A function in `overrides` stays a spy {#overrides-function}
+
+```ts
+providers: [provideAutoSpy(DomSanitizer, { overrides: { sanitize: (_context, value) => String(value) } })];
+
+const sanitizer = injectSpy(DomSanitizer);
+
+sanitizer.sanitize(SecurityContext.URL, 'a'); // 'a' — the function ran
+expect(sanitizer.sanitize).toHaveBeenCalledOnce(); // and the call was recorded
+```
+
+A plain function seeded on a method becomes the method's spy, with the function as its
+implementation. A method here is a prototype method, a name in `methodsToSpyOn`,
+`instanceMethodsToSpyOn` or `onlyMethodsToSpyOn`, or any member of the abstract-class fallback and of
+a `fillMissing` double. Every call is recorded and runs the function with the double as `this`, until
+the test configures the spy: a `calledWith(…)` chain decides for its own arguments, `resolveWith` or
+`mockReturnValue` replaces the function for every call, and `resetAutoSpy` brings the function back.
+Under `strict` the method counts as configured, and the function runs for a framework hook such as
+`ngOnDestroy` as well.
+
+Before this release the function was stored as written. `Spy<T>` typed the member as a spy, so
+`expect(sanitizer.sanitize).toHaveBeenCalledOnce()` compiled and then threw
+`[Function sanitize] is not a spy`.
+
+What is still stored exactly as seeded:
+
+- a value, a getter seed, and a function on a member that is not a method (a callback field);
+- a class, and any callable with an API of its own: a `vi.fn()`, a spy from this library, a signal.
+  A `vi.fn()` you hold keeps its identity, so `toBe` on it still passes.
+
+The seed still wins over `returns` and `selfReturning` named for the same method. Each double gets a
+spy of its own, so a function registered through `registerAutoSpyDefaults` does not carry calls from
+one test into the next.
 
 ## `gettersToSpyOn` accepts a signal-valued getter
 

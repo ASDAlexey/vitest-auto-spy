@@ -70,15 +70,16 @@ wide-collaborator shape this exists for.
 Anything that configures the method **at all**. The guard is a question about the _method_, asked
 once per call before any argument matching happens:
 
-| Configured by                                                          | Reaches the guard |
-| ---------------------------------------------------------------------- | ----------------- |
-| `calledWith(…)` / `mustBeCalledWith(…)` — **any** chain, any arguments | no                |
-| `resolveWith` / `rejectWith` / `resolveWithPerCall`                    | no                |
-| `nextWith` / `throwWith` / `complete` / `returnSubject`                | no                |
-| the `returns:` option — a default in the spy's own container           | no                |
-| `mockReturnValue` / `mockImplementation` — the host runner's own       | never — see below |
-| `overrides` on `createAutoMock` — a seed, no longer a spy              | never — see below |
-| nothing                                                                | **yes**           |
+| Configured by                                                                 | Reaches the guard |
+| ----------------------------------------------------------------------------- | ----------------- |
+| `calledWith(…)` / `mustBeCalledWith(…)` — **any** chain, any arguments        | no                |
+| `resolveWith` / `rejectWith` / `resolveWithPerCall`                           | no                |
+| `nextWith` / `throwWith` / `complete` / `returnSubject`                       | no                |
+| the `returns:` option — a default in the spy's own container                  | no                |
+| `mockReturnValue` / `mockImplementation` — the host runner's own              | never — see below |
+| `overrides` on `createAutoMock` — a seed, no longer a spy                     | never — see below |
+| a function in `overrides` for a `createSpyFromClass` method — the spy runs it | no                |
+| nothing                                                                       | **yes**           |
 
 The non-obvious half is the fifth and sixth rows. `mockReturnValue` and `mockImplementation` do
 not _register_ configuration — they **replace the library's dispatch** on the host mock. A spy

@@ -91,8 +91,11 @@ provideAutoSpy(FavoritesService, {
 provideAutoSpyForToken(PRODUCTS, undefined, { returns: { getProducts: of([]), getById: of(null) } });
 ```
 
-A seeded `overrides` member is stored verbatim and is **no longer a spy**, so seed data there and
-name methods in `returns` when they must stay assertable. The reason to prefer this over a second
+A seeded `overrides` value is stored verbatim and is **no longer a spy**, so seed data there and
+name methods in `returns` when they must stay assertable. On `provideAutoSpy` a plain function
+seeded on a method is the exception: it becomes that method's spy, running the function until the
+test configures it, so `toHaveBeenCalled` works on it; a `vi.fn()` is kept as it is
+(`provideAutoSpyForToken` still stores every seed verbatim). The reason to prefer this over a second
 statement is not brevity: the shortcut people take instead is an exported `const` provider carrying
 the values, and under `isolate: false` that is one set of spies shared by every file that imports
 it.

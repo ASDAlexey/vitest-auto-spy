@@ -1380,10 +1380,47 @@ registerAutoSpyDefaults(LOGGER, { returns: { info: undefined, err: undefined }, 
 provideAutoSpyForToken(LOGGER, { channel: () => asInstance(channelLogger) });
 ```
 
-`overrides` is stored verbatim and is no longer a spy, so `returns` and `selfReturning` skip a member
-named there rather than configuring it — a value, a plain function and a `vi.fn()` are all left exactly
-as seeded. That shape used to throw `TypeError: asVitestMock(...).mockImplementation is not a function`
-out of the provider for a plain function, and to overwrite a seeded `vi.fn()` without a word.
+On `createAutoMock` and `provideAutoSpyForToken`, `overrides` is stored verbatim and is no longer a
+spy, so `returns` and `selfReturning` skip a member named there rather than configuring it — a value, a
+plain function and a `vi.fn()` are all left exactly as seeded. That shape used to throw
+`TypeError: asVitestMock(...).mockImplementation is not a function` out of the provider for a plain
+function, and to overwrite a seeded `vi.fn()` without a word. On `createSpyFromClass` and
+`provideAutoSpy` the seed still wins, and a plain function seeded on a method becomes that method's
+spy — see the next section.
+
+## A function in `overrides` stays a spy
+
+```ts
+providers: [provideAutoSpy(DomSanitizer, { overrides: { sanitize: (_context, value) => String(value) } })];
+
+const sanitizer = injectSpy(DomSanitizer);
+
+sanitizer.sanitize(SecurityContext.URL, 'a'); // 'a' — the function ran
+expect(sanitizer.sanitize).toHaveBeenCalledOnce(); // and the call was recorded
+```
+
+A plain function seeded on a method becomes the method's spy, with the function as its
+implementation. A method here is a prototype method, a name in `methodsToSpyOn`,
+`instanceMethodsToSpyOn` or `onlyMethodsToSpyOn`, or any member of the abstract-class fallback and of
+a `fillMissing` double. Every call is recorded and runs the function with the double as `this`, until
+the test configures the spy: a `calledWith(…)` chain decides for its own arguments, `resolveWith` or
+`mockReturnValue` replaces the function for every call, and `resetAutoSpy` brings the function back.
+Under `strict` the method counts as configured, and the function runs for a framework hook such as
+`ngOnDestroy` as well.
+
+Before this release the function was stored as written. `Spy<T>` typed the member as a spy, so
+`expect(sanitizer.sanitize).toHaveBeenCalledOnce()` compiled and then threw
+`[Function sanitize] is not a spy`.
+
+What is still stored exactly as seeded:
+
+- a value, a getter seed, and a function on a member that is not a method (a callback field);
+- a class, and any callable with an API of its own: a `vi.fn()`, a spy from this library, a signal.
+  A `vi.fn()` you hold keeps its identity, so `toBe` on it still passes.
+
+The seed still wins over `returns` and `selfReturning` named for the same method. Each double gets a
+spy of its own, so a function registered through `registerAutoSpyDefaults` does not carry calls from
+one test into the next.
 
 ## `gettersToSpyOn` accepts a signal-valued getter
 
@@ -2368,15 +2405,16 @@ wide-collaborator shape this exists for.
 Anything that configures the method **at all**. The guard is a question about the _method_, asked
 once per call before any argument matching happens:
 
-| Configured by                                                          | Reaches the guard |
-| ---------------------------------------------------------------------- | ----------------- |
-| `calledWith(…)` / `mustBeCalledWith(…)` — **any** chain, any arguments | no                |
-| `resolveWith` / `rejectWith` / `resolveWithPerCall`                    | no                |
-| `nextWith` / `throwWith` / `complete` / `returnSubject`                | no                |
-| the `returns:` option — a default in the spy's own container           | no                |
-| `mockReturnValue` / `mockImplementation` — the host runner's own       | never — see below |
-| `overrides` on `createAutoMock` — a seed, no longer a spy              | never — see below |
-| nothing                                                                | **yes**           |
+| Configured by                                                                 | Reaches the guard |
+| ----------------------------------------------------------------------------- | ----------------- |
+| `calledWith(…)` / `mustBeCalledWith(…)` — **any** chain, any arguments        | no                |
+| `resolveWith` / `rejectWith` / `resolveWithPerCall`                           | no                |
+| `nextWith` / `throwWith` / `complete` / `returnSubject`                       | no                |
+| the `returns:` option — a default in the spy's own container                  | no                |
+| `mockReturnValue` / `mockImplementation` — the host runner's own              | never — see below |
+| `overrides` on `createAutoMock` — a seed, no longer a spy                     | never — see below |
+| a function in `overrides` for a `createSpyFromClass` method — the spy runs it | no                |
+| nothing                                                                       | **yes**           |
 
 The non-obvious half is the fifth and sixth rows. `mockReturnValue` and `mockImplementation` do
 not _register_ configuration — they **replace the library's dispatch** on the host mock. A spy
@@ -7566,6 +7604,42 @@ The exported constants — `consoleInfoSpy`, `consoleErrorSpy`, … — are the 
 of the file expects output, `installConsoleSpies()` once at the top of the file does the same for the
 whole file.
 
+### Everything a test wrote, as one value
+
+`toHaveBeenCalledWith` on one spy says nothing about the others: a test that pins `consoleInfoSpy`
+passes while an unasserted `console.warn` goes by. `consoleOutput()` returns every call the spies
+recorded, keyed by channel (`debug`, `error`, `info`, `log`, `trace`, `warn`), with the arguments of
+each call — and only the channels something wrote to. An exact comparison then pins the whole
+output, and a stray line fails it with the full diff:
+
+```ts
+import { consoleOutput, installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
+
+beforeEach(() => installConsoleSpies());
+afterEach(() => restoreConsole());
+
+it('reports the dry run and nothing else', () => {
+  cli.run(['--dry-run']);
+
+  expect(consoleOutput()).toStrictEqual({ info: [['dry run: 3 files']] });
+});
+
+it('stays silent on a clean run', () => {
+  cli.run([]);
+
+  expect(consoleOutput()).toStrictEqual({});
+});
+```
+
+`time` and `timeEnd` are left out: `timeEnd` prints a duration no test can pin. `consoleOutput()`
+throws while none of the spies is on `console` — after a `restoreConsole()`, or under the
+stray-console guard before `installConsoleSpies()` — because spies that are off record nothing, and
+an empty result would read as silence.
+
+It is a function rather than a `toHaveLogged(…)` matcher on purpose: `toStrictEqual` already gives
+the exact comparison and the diff, the function adds 184 bytes (min+gzip) to the entry against 340
+for a function plus a matcher, and it needs no `expect.extend` at import and no matcher typings.
+
 ### Why not rely on the import
 
 Importing the entry also installs the spies, on the module's first evaluation — and under
@@ -7582,7 +7656,8 @@ for compatibility; under the guard the import installs nothing.
 
 One spy per patched method: `consoleDebugSpy`, `consoleErrorSpy`, `consoleInfoSpy`,
 `consoleLogSpy`, `consoleTimeSpy`, `consoleTimeEndSpy`, `consoleTraceSpy`, `consoleWarnSpy`
-(type `ConsoleMethodSpy`).
+(type `ConsoleMethodSpy`). `consoleOutput()` (type `ConsoleOutput`, keyed by `ConsoleChannel`) reads
+them all at once.
 
 ## Housekeeping
 
@@ -7611,8 +7686,8 @@ for the real method: the real ones are remembered once per worker, where every c
 ## Under the stray-console guard
 
 [`setupAutoSpy({ strayConsole: 'throw' })`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_16-console-output-nothing-absorbed)
-fails a test on any console output nothing absorbed, and these spies are what absorbs it. Two things
-change while the guard is on.
+fails a test on any console output nothing absorbed, and these spies are what absorbs it. Three
+things change while the guard is on.
 
 **The import installs nothing.** Under `isolate: false` a module is evaluated once per worker, so the
 import-time install put the spies on the console in whichever file imported them first and left them
@@ -7638,6 +7713,13 @@ it calls through, so the line still prints and the guard still fails the test, s
 `vi.spyOn(console, 'error') calls through — add .mockImplementation(() => undefined).` The
 [`no-passthrough-console-spy`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-passthrough-console-spy) rule reports it
 before the run.
+
+**What the DOM environment writes reaches the spies too.** happy-dom's page console and jsdom's
+virtual console hold the worker's own console, captured before Vitest swapped `globalThis.console`, so
+their lines used to reach stderr past every spy and past the guard. The guard routes them into the
+console the spies sit on: `consoleErrorSpy` absorbs happy-dom's
+`NotSupportedError … Iframe page loading is disabled` like any other `console.error`, and the test
+can assert it.
 
 Without the guard nothing here changes: importing the entry installs the spies, as it always did.
 
@@ -7970,6 +8052,51 @@ frame taken costs about 60 ns, so a timer scheduled there costs about 3 µs wher
 timers pays about 16 ms for knowing where each came from. Naming the test adds one property read
 when the callback is scheduled — the name itself is built only for a stray — and does not show
 against the stack capture: a tracked pair measured 4.0 µs before and after, both with coverage on.
+
+### Timers a dependency owns
+
+Node's global `fetch()` runs on undici, and undici keeps timers of its own: a 499 ms tick that drives
+its connect and keep-alive timeouts, and a keep-alive timeout per pooled connection. They outlive the
+test by design, and a file that talks to a server it cannot close — a local auth stub, a dev proxy —
+used to fail with `setTimeout 499 ms … at new Promise (<anonymous>)` and nothing to fix. Timers whose
+scheduling call comes from undici — Node's bundled copy or the `undici` package — are now neither
+counted, reported nor cancelled. Only the nearest frame outside this package and zone.js decides, so
+a spec callback that undici calls, a `MockAgent` reply, still has its own timers charged to it.
+
+For another dependency's housekeeping, name it:
+
+```ts
+setupAutoSpy({ strayTimers: { ignore: [/some-sdk[/\\]poll/, 'heartbeat.js'] }, onStrayTimers: 'throw' });
+
+trackStrayTimers(undefined, { ignore: [/some-sdk[/\\]poll/] }); // the same without setupAutoSpy
+```
+
+Each entry is a substring or a RegExp searched in the stack of the call that scheduled the timer.
+An ignored timer is not cancelled either: its owner still holds the handle, and a pool whose timer was
+cancelled behind its back never times anything out again. Every call to `trackStrayTimers` replaces
+the list, so the last setup to run decides — in a shared-environment run that is the same setup file
+every time.
+
+### An Observable error nothing handled
+
+rxjs rethrows an error no subscriber handles from `setTimeout(() => { throw error })`, so it escapes
+the subscriber. That timer fails no test: it fires once the test is over, or the sweep cancels it at
+the end of the file, and the only trace was a stray `setTimeout 0 ms, scheduled in "<test>" at
+TestRequest.error (…)`. With `strayTimers` on, the `afterEach` runs such a pending rethrow early —
+what the timer would have done — and fails the test that scheduled it:
+
+```text
+[vitest-auto-spy] Unhandled Observable error in "TokenSetupScreen > saves the token":
+  - HttpErrorResponse: Http failure response for /api/token: 502 Bad Gateway
+rxjs rethrows an error no subscriber handles from a setTimeout, where it fails no test; it was rethrown now instead. …
+```
+
+The original error is the failure's `cause`, so the runner prints its stack too. A rethrow scheduled
+outside a test fails the file at its sweep instead. The check reads the fake clock as well, while one
+is installed when it runs — `globalFakeTimers` qualifies; a spec whose own `afterEach` calls
+`vi.useRealTimers()` has discarded the timer by then. A rethrow that `config.onUnhandledError` takes
+reports nothing, as rxjs would. `flushUnhandledObservableErrors()` is the same check by hand: it runs
+the pending rethrows and returns `{ error, test }` for each that threw.
 
 ### With Vitest 4.1's `--detect-async-leaks`
 
@@ -8954,9 +9081,38 @@ object form's `reaction` defaults to `'throw'`; `'warn'` prints the same report 
 for a test, to stderr for a file — without failing, which is how to measure a large suite before
 turning it on. `guardStrayConsole(reaction)` is the same guard registered on its own.
 
-What it does not see: output written to `process.stdout` / `process.stderr` directly, and jsdom's
-own virtual console, which captured the real console before Vitest intercepted it — route jsdom's
-`jsdomError` events to `console.error` if they should count. A rejection zone.js swallowed is printed
+**What the DOM environment writes counts too.** happy-dom's page console and jsdom's virtual console
+were handed the worker's own console when the environment was built, before Vitest swapped
+`globalThis.console`, so their lines reached stderr of a green run. The guard routes that console into
+the one it watches: happy-dom's `NotSupportedError: Failed to load iframe page … Iframe page loading is
+disabled` or jsdom's `Not implemented: navigation` is reported against the test that caused it, at the
+spec's frame, with a `Likely cause:` line — and a console spy or an `allow` pattern takes it like any
+other line.
+
+**An iframe that must stay unloaded under happy-dom.** happy-dom 20 has no setting that keeps a
+remote-`src` iframe both unloaded and silent: `disableIframePageLoading` logs the `NotSupportedError`
+above for every iframe (and dispatches `error`), and `navigation.disableChildFrameNavigation` is silent
+but dispatches `load` itself, so a "the page never loads" branch cannot be reached. Two ways out, both
+per file:
+
+```ts
+// @vitest-environment-options {"settings":{"disableIframePageLoading":true}}
+import { consoleErrorSpy, installConsoleSpies } from 'vitest-auto-spy/console';
+
+beforeEach(() => installConsoleSpies());
+
+it('gives up when the logout page never loads', async () => {
+  await service.logout(); // no `load` ever comes
+
+  expect(consoleErrorSpy).toHaveBeenCalledWith(expect.objectContaining({ name: 'NotSupportedError' }));
+});
+```
+
+or `// @vitest-environment jsdom` at the top of the file: jsdom leaves a remote `src` unloaded, silent
+and without `load`. There is no `dom-stubs` helper for it: holding happy-dom's `load` back without its
+log means patching its internals, which a happy-dom minor is free to move.
+
+What it does not see: output written to `process.stdout` / `process.stderr` directly. A rejection zone.js swallowed is printed
 through `console.error`, so with `strayRejections` on it is reported twice over; the first failure
 wins, and it is the rejection report.
 
@@ -12092,6 +12248,12 @@ the answer. With no options the rule searches upwards from the linted file for `
 cannot find, and it is read the same way. With neither an option nor a config found it reports nothing, which is the point: on the call alone it would be
 wrong in every project that leaves those options off, where the hook is the only reset there is.
 
+A flag a config gives counts only where every `@angular/build:unit-test` / `@nx/angular:unit-test`
+target serving the spec applies it too: without `runnerConfig` the builder reads no config and runs
+on Vitest's defaults, so a `restoreMocks: true` it never sees does not make a reset dead there. The
+rule finds those targets in `angular.json` / `project.json` itself —
+[the rule reference](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-redundant-mock-reset) has the resolution.
+
 Name the flags the runner actually sets and no others. `restoreMocks` is not a stronger
 `clearMocks`: `vi.restoreAllMocks()` walks the spies `vi.spyOn` installed and never reaches a plain
 `vi.fn()`, so under `restoreMocks: true` alone a `vi.clearAllMocks()` in a hook is still doing
@@ -15105,6 +15267,31 @@ rule here.
   'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', clearMocks: true }],
   ```
 
+  **A spec the Angular unit-test builder also runs counts only the flags that builder applies.**
+  `@angular/build:unit-test` — and `@nx/angular:unit-test`, which delegates to it — hands Vitest
+  `config: false` unless its target names a `runnerConfig`, so the `vitest.config.ts` that `npx vitest`
+  reads is never opened under `ng test` / `nx test`, and that run gets Vitest's defaults. The rule
+  finds the targets itself: it walks up from the linted file to the workspace root (`angular.json`,
+  `workspace.json` or `nx.json`), takes every target of either builder whose project root holds the
+  file — its executor may come from `targetDefaults` in `nx.json` — and resolves its `runnerConfig`
+  the way the builder does: a path against the workspace root; `true` or `""` to the first
+  `vitest-base.config.*` in the project root, then the workspace root; absent or `false` to no config
+  at all. Each configuration of the target that sets `runnerConfig` counts as one more run. A reset is
+  reported only where the config the rule found (or `configFile`) **and** every one of those runs
+  perform it:
+
+  | the config says      | a builder target without `runnerConfig` | reported                              |
+  | -------------------- | --------------------------------------- | ------------------------------------- |
+  | `restoreMocks: true` | Vitest's default: off                   | `vi.restoreAllMocks()` — **no**       |
+  | `mockReset: true`    | Vitest's default: off                   | `vi.resetAllMocks()` — **no**         |
+  | `clearMocks: true`   | on by default from Vitest 5             | `vi.clearAllMocks()` — yes, Vitest 5+ |
+
+  So a clear stays reported wherever the installed Vitest is 5 or later, because the builder run
+  clears by default too; under Vitest 4 it is not. A workspace with no such target — any plain Vitest
+  project — is read exactly as before. The flags written as the rule's options are not narrowed:
+  written by hand, they are the project's word for every run, so name only what each runner applies.
+  A workspace file that is not plain JSON contributes no target.
+
 **The flag has to match the call, not the family.** The three options are not three grades of one
 thing, and reading them that way is how a rule like this turns into a rule that deletes lines a
 suite needs.
@@ -17479,6 +17666,32 @@ An `@angular/build:unit-test` or `@nx/angular:unit-test` target whose options (w
 `setupFiles` option for that target; `nx.json` `targetDefaults` carries it for every project that
 shares the layout, and `runnerConfig` pointed at the Vitest config works too.
 
+#### `runner-dom-differs-from-builder`
+
+A `vitest.config.*` or `vite.config.*` — the config `vitest run` and the IDE pick up, which the
+builder never reads — that sets `environment: 'jsdom'`, in a workspace with `jsdom` and `happy-dom`
+both installed and an `@angular/build:unit-test` / `@nx/angular:unit-test` target that runs on
+happy-dom: the builder picks it whenever it resolves, unless the target's own runner config sets
+`environment`. The same specs then run on two DOMs, and a spec can pass under `vitest run` and fail
+under `ng test` / `nx test`, or the other way round. A config at the repository root covers every
+target; one in a project directory covers the targets under it. A warning. The fix aligns on
+happy-dom — `environment: 'happy-dom'` in the runner config — which on a 48-file Angular suite also
+took Duration from 1.37 s to 1.10 s (−20 %); a spec that needs jsdom keeps it with a
+`// @vitest-environment jsdom` comment at its top. Quiet for a target that runs in `browsers`, and
+for the config a target names as its `runnerConfig`, which the builder reads itself.
+
+#### `analog-testbed-laxer-than-builder`
+
+A file that calls `setupTestBed()` from `@analogjs/vitest-angular/setup-testbed` without
+`errorOnUnknownElements` or `errorOnUnknownProperties`, in a workspace that also has an
+`@angular/build:unit-test` / `@nx/angular:unit-test` target. Analog leaves both off unless asked; the
+builder initialises its TestBed with both `true`. A misspelt element or input binding in a template
+then only logs under `vitest run` and fails the test under `ng test` / `nx test`. A warning; the fix
+is the call the builder makes, `setupTestBed({ errorOnUnknownElements: true, errorOnUnknownProperties: true })`.
+A flag written with any value counts as a decision and is not reported, and neither is a call whose
+options are not an object literal, which this cannot read. A renamed import (`setupTestBed as setup`)
+is followed.
+
 #### `module-mock-leak`
 
 The same module mocked with a factory in one spec and as an automock or `{ spy: true }` in another,
@@ -18007,9 +18220,29 @@ recorded heap. A bare run passes `--logHeapUsage` itself; a `--command` run need
 in the configuration it reaches. It is a note. Under `isolate: false` the number after a file also
 carries every file that ran before it in the same worker. On Vitest 5 `perf` takes that apart: with the
 resolved `isolate: false`, each lane keeps one worker, so it orders the lane's files by start and lists
-what each file **added** to the heap over the file before it — the five that grew it most. That is the
-file that leaves memory behind, without guessing. With isolation on, or on an older report, it lists
-the heap after each file as before.
+what each file **added** to the heap over the file before it — the five that grew it most. With
+isolation on, or on an older report, it lists the heap after each file as before.
+
+Growth is not always something the spec kept. A reused worker evaluates a module once and keeps it for
+every file after it, so the first file in a lane to import a heavy graph — `@sentry/angular` is about
+7.5 MB of heap on its own — pays for it, and another lane order names another file. The reporter tells
+the two apart from Vitest's import durations: after each file it records the modules the worker
+evaluated for the first time, the ones the lane's previous file had not. A file whose growth comes
+with a first load taking 50 ms or more is listed in a second note, worded as such:
+
+```text
+info  perf-heap  Heap growth that comes with modules a worker evaluated for the first time, largest first:
+                 libs/utils/capture-exception.util.spec.ts: first load of `@sentry/angular` in this worker (+8 MB),
+                 not retained by the spec.
+```
+
+When the same module was first loaded in several lanes, each of those files is one reading of what the
+load costs. A file that grew more than twice the middle reading keeps the rest in the first note, as
+`+21 MB beyond the first load of @sentry/angular`, and a file that loaded nothing new stays there with
+its whole growth. With a single reading the whole growth is put down to the load. Vitest reports the
+heaviest entries of the worker's whole module table, so a measured run asks for thirty of them under
+`isolate: false`, where it would ask for ten; a first load too light to make that list is not
+recognised, and its growth is reported as kept.
 
 ### When a bare run is not your suite
 
@@ -18174,7 +18407,7 @@ styles at 15 %.
 ```
 
 **The slowest imports come from Vitest.** On Vitest 4.1 and newer a measured run asks for the ten
-slowest imports of each file when the config sets no `experimental.importDurations.limit`, and the
+slowest imports of each file (thirty under `isolate: false`, for [`perf-heap`](#perf-heap)) when the config sets no `experimental.importDurations.limit`, and the
 confirmation pass raises a lower limit for its own run only, so no config is needed. The card lists the spec's heaviest
 direct imports with everything they pulled in: a package by its name, a module by its path. A module
 another file imported first was paid for there and is not listed. An older Vitest, or a harness whose
@@ -21446,11 +21679,50 @@ TestBed.configureTestingModule({
 });
 ```
 
-It is `provideHttpClient()` + `provideHttpClientTesting()` in one spread, plus — unless
-`verifyOnTeardown` is `false` — the environment initializer that arms the end-of-test check. A suite
-whose interceptors are the thing under test keeps its own `provideHttpClient(withInterceptors([...]))`
-and adds `provideHttpClientTesting()` after it — this helper is for the case that is every other
-spec, and a module built without it is not checked on teardown.
+It is `provideHttpClient(...features)` + `provideHttpClientTesting()` in one spread, in the order
+Angular requires, plus — unless `verifyOnTeardown` is `false` — the environment initializer that arms
+the end-of-test check. A module built without it is not checked on teardown.
+
+### `interceptors` and `features`
+
+A suite whose interceptor is the thing under test passes it here instead of writing its own
+`provideHttpClient(withInterceptors([...]))` + `provideHttpClientTesting()` — which used to cost it
+the teardown check and an `afterEach(() => verifyNoPendingRequests())` written by hand:
+
+```ts
+import { HttpClient, type HttpInterceptorFn } from '@angular/common/http';
+
+const authInterceptor: HttpInterceptorFn = (request, next) => next(request.clone({ setHeaders: { Authorization: 'Bearer token' } }));
+
+TestBed.configureTestingModule({ providers: [...provideHttpTesting({ interceptors: [authInterceptor] })] });
+
+TestBed.inject(HttpClient).get('/api/me').subscribe();
+
+const pending = expectRequest('/api/me');
+
+expect(pending.request.headers.get('Authorization')).toBe('Bearer token'); // as the interceptor sent it
+await pending.flush({ id: 1 });
+```
+
+`expectRequest` sees the request after every interceptor has run: a header one added is on
+`request.headers`, and a URL one rewrote is the URL to match. `error(status)` goes back through them
+too, so the subscriber receives whatever error an interceptor mapped the status to.
+
+`features` takes any other `provideHttpClient()` feature — `withInterceptorsFromDi()` for a class
+interceptor, `withXsrfConfiguration()`, `withJsonpSupport()`:
+
+```ts
+providers: [
+  ...provideHttpTesting({ interceptors: [authInterceptor], features: [withInterceptorsFromDi()] }),
+  { provide: HTTP_INTERCEPTORS, useClass: LegacyInterceptor, multi: true },
+],
+```
+
+| Rule                               | Why                                                                                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| One `provideHttpClient()` call     | `interceptors` becomes `withInterceptors(interceptors)` in the same call as `features`, so Angular's conflict checks see all of them |
+| `interceptors` before `features`   | they run in array order, then the interceptors `features` brings, in theirs                                                          |
+| `provideHttpClientTesting()` after | the testing backend replaces the real one, so a `withXhr()` in `features` still never reaches the network                            |
 
 ### `verifyOnTeardown`
 
@@ -26632,6 +26904,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `guardStrayConsole(reaction \| { reaction, allow })`                                                         | Fail a test that wrote to the console without absorbing it, and a file that wrote outside any test (`/setup`)                                                                                                                                                                             |
 | `withoutStrayTimerTracking(work, host?)`                                                                     | Run setup work whose timers the stray-timer tracker must neither count nor cancel (`/setup`)                                                                                                                                                                                              |
 | `describeStrayTimers(host?)`                                                                                 | Each timer still pending, with its kind and delay, the spec file that scheduled it and up to five frames — the list `onStrayTimers` gets (`/setup`)                                                                                                                                       |
+| `flushUnhandledObservableErrors()`                                                                           | Run rxjs's pending rethrows of Observable errors nothing handled, now, and return `{ error, test }` for each — the check `strayTimers` runs after every test (`/setup`)                                                                                                                   |
 | `trackStrayListeners()` / `baselineStrayListeners()`                                                         | Take off `window` / `document` listeners a file leaves registered; the baseline keeps what the module graph added (`/setup`)                                                                                                                                                              |
 | `removeStrayListeners()` / `countStrayListeners()` / `describeStrayListeners()`                              | Count, describe and take off the listeners added since the baseline — what `strayListeners` runs at the file boundary (`/setup`)                                                                                                                                                          |
 | `captureGlobalBaseline()` / `restoreGlobals()`                                                               | One snapshot of `globalThis` per worker; every changed global put back at the file boundary, the accessor-forwarding trap included (`/setup`)                                                                                                                                             |
@@ -26671,7 +26944,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `settleResource(resource, opts?)`                                                                            | Tick until an `httpResource()` / `resource()` / `rxResource()` leaves `loading`; fails on a resource left `idle`, unless `{ allowIdle: true }` (`/angular`)                                                                                                                               |
 | `runEffect(effectRef)`                                                                                       | Run one `effect()` body now, its previous cleanup first; refuses a destroyed effect (`/angular`)                                                                                                                                                                                          |
 | `trackRecomputations(signal)` / `trackEffectRuns(effectRef)`                                                 | Count how often a `computed()` recomputes / an `effect()` runs; `{ count, stop() }`, undone by `restoreMockedProps()` (`/angular`)                                                                                                                                                        |
-| `provideHttpTesting(options?)`                                                                               | `provideHttpClient()` and `provideHttpClientTesting()` in one spread, plus a teardown check for unanswered requests (`/angular-http`)                                                                                                                                                     |
+| `provideHttpTesting(options?)`                                                                               | `provideHttpClient(...features)` and `provideHttpClientTesting()` in one spread, plus a teardown check for unanswered requests; `{ interceptors, features }` for the interceptors under test (`/angular-http`)                                                                            |
 | `expectRequest(matcher, opts?)`                                                                              | Tick, find the one matching request, then `flush` / `error` it **with the settling included** — `httpResource()` and `HttpClient` (`/angular-http`)                                                                                                                                       |
 | `expectNoRequest(matcher?, opts?)` / `verifyNoPendingRequests(opts?)`                                        | Assert that nothing was requested / that nothing was left unanswered; `{ ignoreCancelled: true }` forgives a request the code under test unsubscribed from, as `provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })` does at teardown (`/angular-http`)                   |
 | `provideActivatedRoute(init?)`                                                                               | An `ActivatedRoute` whose streams, `paramMap`s and snapshot are built from one record, as Angular's own class (`/angular-router`)                                                                                                                                                         |
@@ -26691,6 +26964,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `inlineAngularResources(source, path, opts?)`                                                                | Rewrite `templateUrl` / `styleUrl` / `styleUrls` into inline `template` / `styles`                                                                                                                                                                                                        |
 | `consoleDebugSpy` … `consoleWarnSpy`                                                                         | Silent typed spies replacing the global `console` methods on import (`/console`)                                                                                                                                                                                                          |
 | `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()`                                         | Install / clear / undo the console spies (`/console`)                                                                                                                                                                                                                                     |
+| `consoleOutput()`                                                                                            | Everything the console spies recorded, keyed by channel, only the channels written to (`/console`)                                                                                                                                                                                        |
 | `errorHandler`                                                                                               | The `mustBeCalledWith` argument-mismatch error helper                                                                                                                                                                                                                                     |
 | `vitest-auto-spy/eslint-plugin`                                                                              | Forty-nine flat-config lint rules that steer a suite onto these helpers                                                                                                                                                                                                                   |
 
@@ -26928,9 +27202,9 @@ report does not evaluate them — see [Upgrading to 4.0](https://asdalexey.githu
 | `/nestjs`              | `provideAutoSpy`, `injectSpy(moduleRef, token)`, `createNestUnit`, `trackInjections`, `NestModuleRef`, `NestValueProvider`, `NestUnit`, `NestUnitSpies`, `CreateNestUnitOptions`, `NestUnitProvider`, `NestUnitClass`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `/vue`                 | `provideAutoSpy`, `VueInjectionToken`, `VueProvideSpy`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `/react`, `/svelte`    | — (the core, under a name that reads right in those suites)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `/console`             | `consoleDebugSpy` … `consoleWarnSpy`, `installConsoleSpies`, `resetConsoleSpies`, `restoreConsole`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `/console`             | `consoleDebugSpy` … `consoleWarnSpy`, `installConsoleSpies`, `resetConsoleSpies`, `restoreConsole`, `consoleOutput`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `/zone`                | `installProxyZonePatch` — and installs it on import. The only entry that touches zones; zone.js is a **devDependency of this package and nothing else**, and no other entry reaches this module                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `/setup`               | `setupAutoSpy`, `setupFakeTimers`, `advanceTimers`, `mockSystemTime`, `withSystemTime`, `mockNow`, `useCountingClock`, `registerFocusMatchers`, `blockNetwork`, `stubResponse`, `guardGlobalPatches`, `guardPrototypePollution`, `guardDocumentPollution`, `guardStrayConsole`, `installPerTest`, `restoreTimerGlobals`, `restoreWebStorage`, `setSpyEngine` / `getSpyEngine` / `SpyEngine`, the stray-timer (with `withoutStrayTimerTracking` and `describeStrayTimers`) and stray-rejection trackers, the mock-registry trackers, `describeDuplicateCopies`, `getPackageCopies`                                                                                                                                                                               |
+| `/setup`               | `setupAutoSpy`, `setupFakeTimers`, `advanceTimers`, `mockSystemTime`, `withSystemTime`, `mockNow`, `useCountingClock`, `registerFocusMatchers`, `blockNetwork`, `stubResponse`, `guardGlobalPatches`, `guardPrototypePollution`, `guardDocumentPollution`, `guardStrayConsole`, `installPerTest`, `restoreTimerGlobals`, `restoreWebStorage`, `setSpyEngine` / `getSpyEngine` / `SpyEngine`, the stray-timer (with `withoutStrayTimerTracking`, `describeStrayTimers` and `StrayTimersOptions`), `flushUnhandledObservableErrors` and stray-rejection trackers, the mock-registry trackers, `describeDuplicateCopies`, `getPackageCopies`                                                                                                                       |
 | `/eslint-plugin`       | the flat-config plugin object                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `/package.json`        | the manifest itself, exported so that a tool which resolves `vitest-auto-spy/package.json` — Storybook, Nx, a dependency-update helper — reads it instead of failing with `ERR_PACKAGE_PATH_NOT_EXPORTED`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 

@@ -731,10 +731,46 @@ registerAutoSpyDefaults(LOGGER, { returns: { info: undefined, err: undefined }, 
 provideAutoSpyForToken(LOGGER, { channel: () => asInstance(channelLogger) });
 ```
 
-`overrides` хранится как есть и шпионом уже не является, поэтому `returns` и `selfReturning` такой
-член пропускают, а не настраивают: значение, обычная функция и `vi.fn()` остаются ровно тем, чем их
-засеяли. Раньше на такой форме провайдер падал с `TypeError: asVitestMock(...).mockImplementation is
-not a function` для обычной функции, а засеянный `vi.fn()` молча перезаписывался.
+В `createAutoMock` и `provideAutoSpyForToken` `overrides` хранится как есть и шпионом уже не
+является, поэтому `returns` и `selfReturning` такой член пропускают, а не настраивают: значение,
+обычная функция и `vi.fn()` остаются ровно тем, чем их засеяли. Раньше на такой форме провайдер падал
+с `TypeError: asVitestMock(...).mockImplementation is not a function` для обычной функции, а
+засеянный `vi.fn()` молча перезаписывался. В `createSpyFromClass` и `provideAutoSpy` засеянное тоже
+побеждает, но обычная функция, засеянная на метод, становится спаем этого метода — см. следующий
+раздел.
+
+## Функция в `overrides` остаётся спаем {#overrides-function}
+
+```ts
+providers: [provideAutoSpy(DomSanitizer, { overrides: { sanitize: (_context, value) => String(value) } })];
+
+const sanitizer = injectSpy(DomSanitizer);
+
+sanitizer.sanitize(SecurityContext.URL, 'a'); // 'a' — функция отработала
+expect(sanitizer.sanitize).toHaveBeenCalledOnce(); // и вызов записан
+```
+
+Обычная функция, засеянная на метод, становится спаем этого метода, а сама функция — его
+реализацией. Метод здесь — это метод прототипа, имя из `methodsToSpyOn`, `instanceMethodsToSpyOn` или
+`onlyMethodsToSpyOn`, а также любой член двойника абстрактного класса и двойника с `fillMissing`.
+Каждый вызов записывается и выполняет функцию с двойником в роли `this` — пока тест не настроит спай:
+цепочка `calledWith(…)` решает за свои аргументы, `resolveWith` или `mockReturnValue` заменяют
+функцию для всех вызовов, а `resetAutoSpy` возвращает функцию на место. Под `strict` такой метод
+считается настроенным, и функция выполняется даже для хука фреймворка вроде `ngOnDestroy`.
+
+До этого релиза функция хранилась как есть. `Spy<T>` типизировал член как спай, поэтому
+`expect(sanitizer.sanitize).toHaveBeenCalledOnce()` компилировался, а потом падал с
+`[Function sanitize] is not a spy`.
+
+Что по-прежнему хранится ровно так, как засеяно:
+
+- значение, геттер и функция на члене, который не метод (поле-колбэк);
+- класс и любое вызываемое со своим API: `vi.fn()`, спай этой библиотеки, сигнал. `vi.fn()`, который
+  у вас в руках, сохраняет идентичность, так что `toBe` на нём по-прежнему проходит.
+
+Засеянное по-прежнему побеждает `returns` и `selfReturning`, названные для того же метода. Каждый
+двойник получает свой спай, поэтому функция, зарегистрированная через `registerAutoSpyDefaults`, не
+переносит вызовы из одного теста в другой.
 
 ## `gettersToSpyOn` принимает геттер, возвращающий сигнал {#getterstospyon-accepts-a-signal-valued-getter}
 

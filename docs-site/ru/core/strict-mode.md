@@ -75,6 +75,7 @@ was called` — и строгий режим: DI-токен, у которого
 | опция `returns:` — значение по умолчанию в контейнере самого спая            | нет                  |
 | `mockReturnValue` / `mockImplementation` — собственные средства раннера      | никогда — см. ниже   |
 | `overrides` у `createAutoMock` — затравка, уже не спай                       | никогда — см. ниже   |
+| функция в `overrides` для метода `createSpyFromClass` — спай её выполняет    | нет                  |
 | ничем                                                                        | **да**               |
 
 Неочевидная половина — пятая и шестая строки. `mockReturnValue` и `mockImplementation` не
