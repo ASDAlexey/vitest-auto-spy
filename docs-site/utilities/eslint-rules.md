@@ -2492,6 +2492,29 @@ without an edit: a chained `compileComponents()`, a key `renderShallow` spells d
 configured spy between the calls, a comment the edit would delete, the two-argument
 `createComponent`.
 
+**A component created per test, after the spies are tuned.** When the constructor reads spy state and
+each test tunes the spies first, `renderShallow` cannot sit in `beforeEach` with the tuning after it.
+Render per test instead, and move the `injectSpy` reads — with the defaults and the one test's
+tuning — into `beforeCreate`, which runs after the module is configured and before the constructor:
+
+```ts
+const render = (tune: () => void = () => undefined) =>
+  renderShallow(SlidesComponent, {
+    providers: [provideAutoSpy(StateService)],
+    detectChanges: false,
+    beforeCreate: () => {
+      state = injectSpy(StateService);
+      state.savedUi.mockReturnValue(DEFAULT_UI);
+      tune();
+    },
+  });
+
+it('restores the collapsed layout', () => {
+  const { component } = render(() => state.savedUi.mockReturnValue(COLLAPSED_UI));
+  // …
+});
+```
+
 **Severity.** `warn`, and the only one of the three graded severities that is graded on the _kind_
 of finding rather than on the evidence behind it. Every other rule names something wrong or dead;
 this one names a file that could render more cheaply, which is an architectural choice a suite makes
