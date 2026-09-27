@@ -42,6 +42,23 @@ describe('parseArgs', () => {
   });
 });
 
+describe('the pass-through after --', () => {
+  it('keeps every token after the first bare -- as typed, flags included', () => {
+    const args = parseArgs(['ng-test', '--shard', '1/2', '--', '--include', 'src/app', '--', '--coverage']);
+
+    expect(flagValue(args, 'shard')).toBe('1/2');
+    expect(args.passthrough).toEqual(['--include', 'src/app', '--', '--coverage']);
+    expect(args.flags).not.toHaveProperty('include');
+    expect(parseArgs(['doctor']).passthrough).toEqual([]);
+  });
+
+  it('reads --changed with or without a ref', () => {
+    expect(parseArgs(['ng-test', '--changed']).flags['changed']).toBe(true);
+    expect(parseArgs(['ng-test', '--changed', '--', '--coverage']).flags['changed']).toBe(true);
+    expect(flagValue(parseArgs(['ng-test', '--changed', 'origin/main']), 'changed')).toBe('origin/main');
+  });
+});
+
 describe('flagNumber', () => {
   it('reads a budget, and refuses anything that is not one', () => {
     expect(flagNumber(parseArgs(['perf', '--max-test-ms', '1500']), 'max-test-ms')).toBe(1_500);

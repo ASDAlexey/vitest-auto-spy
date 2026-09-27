@@ -10,6 +10,8 @@ export interface ParsedArgs {
   readonly command: string | undefined;
   readonly positionals: readonly string[];
   readonly flags: Readonly<Record<string, string | true>>;
+  /** Everything after a bare `--`, untouched: `ng-test` hands it to `ng`. */
+  readonly passthrough: readonly string[];
 }
 
 /** Flags that take a value; everything else is boolean. */
@@ -18,6 +20,7 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   'baseline',
   'baseline-factor',
   'baseline-floor-ms',
+  'changed',
   'code-quality',
   'cwd',
   'factor',
@@ -33,9 +36,15 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   'min-severity',
   'only',
   'out',
+  'related',
+  'shard',
   'skip',
+  'target',
   'top',
 ]);
+
+/** Value flags that also stand alone: a bare `--changed` diffs against `HEAD`. */
+export const OPTIONAL_VALUE_FLAGS: ReadonlySet<string> = new Set(['changed']);
 
 const ALIASES: Record<string, string> = { h: 'help', v: 'version' };
 
@@ -51,7 +60,11 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let command: string | undefined;
   let consumed = false;
 
-  for (const [index, token] of argv.entries()) {
+  const separator = argv.indexOf('--');
+  const own = separator === -1 ? argv : argv.slice(0, separator);
+  const passthrough = separator === -1 ? [] : argv.slice(separator + 1);
+
+  for (const [index, token] of own.entries()) {
     if (consumed) {
       consumed = false;
 
@@ -77,7 +90,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       continue;
     }
 
-    const next = argv[index + 1];
+    const next = own[index + 1];
 
     if (VALUE_FLAGS.has(name) && next !== undefined && (!next.startsWith('-') || /^-\d/.test(next))) {
       flags[name] = next;
@@ -89,7 +102,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     flags[name] = true;
   }
 
-  return { command, positionals, flags };
+  return { command, positionals, flags, passthrough };
 }
 
 /**
