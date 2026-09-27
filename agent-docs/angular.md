@@ -489,11 +489,15 @@ TestBed.configureTestingModule({
   providers: [...provideHttpTesting({ interceptors: [authInterceptor], features: [withInterceptorsFromDi()] })],
 });
 
-TestBed.inject(HttpClient).get('/api/me').subscribe();
+let failure: unknown;
+TestBed.inject(HttpClient)
+  .get('/api/me')
+  .subscribe({ error: (error: unknown) => (failure = error) });
 const pending = expectRequest('/api/me'); // the request as the interceptors sent it
 
 expect(pending.request.headers.get('Authorization')).toBe('Bearer token');
-await pending.error(401); // the subscriber sees the error the interceptor mapped
+await pending.error(401);
+expect(failure).toBeInstanceOf(HttpErrorResponse); // or whatever the interceptor mapped it to
 ```
 
 `interceptors` run in array order, before any from `features`. Every feature goes into one

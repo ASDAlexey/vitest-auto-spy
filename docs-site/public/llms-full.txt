@@ -8096,7 +8096,8 @@ outside a test fails the file at its sweep instead. The check reads the fake clo
 is installed when it runs — `globalFakeTimers` qualifies; a spec whose own `afterEach` calls
 `vi.useRealTimers()` has discarded the timer by then. A rethrow that `config.onUnhandledError` takes
 reports nothing, as rxjs would. `flushUnhandledObservableErrors()` is the same check by hand: it runs
-the pending rethrows and returns `{ error, test }` for each that threw.
+the pending rethrows and returns `{ error, test }` for each that threw — `{ error, outsideTest }` for
+one scheduled outside a test.
 
 ### With Vitest 4.1's `--detect-async-leaks`
 
@@ -12245,7 +12246,8 @@ the answer. With no options the rule searches upwards from the linted file for `
 `vite.config.*` and reads the first one it finds as text, looking for a literal
 `clearMocks: true` and its two siblings — nothing is evaluated and no module is loaded;
 `{ configFile: 'tools/unit-test-bench/vitest-runner.config.ts' }` names a runner config the search
-cannot find, and it is read the same way. With neither an option nor a config found it reports nothing, which is the point: on the call alone it would be
+cannot find, and it is read the same way; `configFlags: { clearMocks: true }` beside it adds what a
+factory-built config sets beyond its text. With neither an option nor a config found it reports nothing, which is the point: on the call alone it would be
 wrong in every project that leaves those options off, where the hook is the only reset there is.
 
 A flag a config gives counts only where every `@angular/build:unit-test` / `@nx/angular:unit-test`
@@ -15261,11 +15263,17 @@ rule here.
   the default — on — even where the factory turns it off. `npx vitest-auto-spy doctor` notes a
   `configFile` like that as
   [`mock-reset-config-unread`](https://asdalexey.github.io/vitest-auto-spy/utilities/cli#mock-reset-config-unread). Write what the factory sets
-  beside the path:
+  as `configFlags`:
 
   ```js
-  'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', clearMocks: true }],
+  'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', configFlags: { clearMocks: true } }],
   ```
+
+  `configFlags` takes `clearMocks`, `mockReset` and `restoreMocks`, and reads them as if the file
+  wrote them: they win over its text, and they reach only the runs that load that file — plain
+  `vitest run`, and a builder target whose `runnerConfig` resolves to it (below). `configFlags`
+  without `configFile` is a configuration error. A flag written beside `configFile` instead is the
+  project's word for every run, and is not narrowed.
 
   **A spec the Angular unit-test builder also runs counts only the flags that builder applies.**
   `@angular/build:unit-test` — and `@nx/angular:unit-test`, which delegates to it — hands Vitest
@@ -15290,6 +15298,7 @@ rule here.
   clears by default too; under Vitest 4 it is not. A workspace with no such target — any plain Vitest
   project — is read exactly as before. The flags written as the rule's options are not narrowed:
   written by hand, they are the project's word for every run, so name only what each runner applies.
+  `configFlags` is narrowed with the file it describes.
   A workspace file that is not plain JSON contributes no target.
 
 **The flag has to match the call, not the family.** The three options are not three grades of one
@@ -17709,8 +17718,9 @@ A `no-redundant-mock-reset` entry whose options name a `configFile` and no flag 
 file's default export is a call to something other than `defineConfig` / `defineProject` — a factory
 of the project's own, or `mergeConfig`. The rule reads the file as text, so the flags the factory sets
 are out of its sight: it finds no `clearMocks`, stays silent up to Vitest 4 and assumes the default on
-from Vitest 5, whatever the factory does. A note, not a failure. The fix is to write the flags beside
-`configFile`, which win over the file. Only a literal `configFile` is read, resolved against the
+from Vitest 5, whatever the factory does. A note, not a failure. The fix is to write the flags as
+`configFlags: { clearMocks: true }` beside `configFile`, read as if the file set them; an entry with
+`configFlags` is not reported. Only a literal `configFile` is read, resolved against the
 repository root.
 
 #### `coverage-all-removed`
@@ -22743,6 +22753,10 @@ The code under test is still waiting on them, so nothing after that call ran; le
 Answer each in the spec: controller.expectOne('/api/users').flush(body).
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#pendingrequests
 ```
+
+That is the line for a module built on `provideHttpClientTesting()` or `HttpClientTestingModule`. In
+one built on `provideHttpTesting()`, which never injects the controller, the answer reads
+`await expectRequest('/api/users').flush(body)` — the line its own teardown check prints.
 
 ### `ignoreCancelled`
 

@@ -260,7 +260,8 @@ outside a test fails the file at its sweep instead. The check reads the fake clo
 is installed when it runs — `globalFakeTimers` qualifies; a spec whose own `afterEach` calls
 `vi.useRealTimers()` has discarded the timer by then. A rethrow that `config.onUnhandledError` takes
 reports nothing, as rxjs would. `flushUnhandledObservableErrors()` is the same check by hand: it runs
-the pending rethrows and returns `{ error, test }` for each that threw.
+the pending rethrows and returns `{ error, test }` for each that threw — `{ error, outsideTest }` for
+one scheduled outside a test.
 
 ### With Vitest 4.1's `--detect-async-leaks`
 

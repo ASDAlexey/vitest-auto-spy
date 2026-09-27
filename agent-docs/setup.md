@@ -80,8 +80,9 @@ the previous file is the one to fix.
 outside this package and zone.js is undici is never counted, reported or cancelled. So a file that
 fetches from a server it cannot close passes `onStrayTimers: 'throw'` with the check on — do not turn
 `strayTimers` off for it. For another dependency's housekeeping, `strayTimers: { ignore: [/some-sdk[/\\]poll/, 'heartbeat.js'] }`
-(or `trackStrayTimers(undefined, { ignore })`) searches each substring or RegExp in the scheduling
-stack; an ignored timer is not cancelled either, and the last call's list is the one in force.
+(or `trackStrayTimers(undefined, { ignore })`; the type is `StrayTimersOptions` from `/setup`) searches
+each substring or RegExp in the scheduling stack; an ignored timer is not cancelled either, and the
+last call's list is the one in force.
 
 **An Observable error nothing handled fails its test, not the file.** rxjs rethrows it from
 `setTimeout(() => { throw error })`, which used to surface only as a stray `setTimeout 0 ms, scheduled
@@ -90,7 +91,8 @@ and fails the test with `Unhandled Observable error in "<test>"`, quoting `<name
 error as `cause`; one scheduled outside a test fails the file at the sweep. The fake clock is read too while
 it is still installed (`globalFakeTimers` is); a rethrow `config.onUnhandledError` takes reports
 nothing. Fix it where the stream is subscribed — an error callback or `catchError` — or assert the
-error. `flushUnhandledObservableErrors()` is the same check by hand.
+error. `flushUnhandledObservableErrors()` is the same check by hand: it returns `{ error, test }` (or
+`{ error, outsideTest }`) for each rethrow that threw.
 
 **`countStrayTimers()` cannot see a timer scheduled under fake timers, and that does not compose
 away.** `vi.useFakeTimers()` assigns its own `setTimeout` over the tracking wrapper, so everything
@@ -755,6 +757,8 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_16-console-ou
   console, captured before Vitest swapped `globalThis.console`; the guard routes it into the watched
   one, so `NotSupportedError … Iframe page loading is disabled` or `Not implemented: navigation`
   fails the test that caused it, and a `/console` spy absorbs it (`consoleErrorSpy` can assert it).
+  Both lines get a `Likely cause:`; `allow: ['Not implemented: navigation']` lets one through. Routing
+  is off when Vitest does not intercept the console (`disableConsoleIntercept`).
 - **An iframe that must never load under happy-dom:** no happy-dom 20 setting is both silent and
   unloaded (`navigation.disableChildFrameNavigation` dispatches `load` itself). Either
   `// @vitest-environment-options {"settings":{"disableIframePageLoading":true}}` plus

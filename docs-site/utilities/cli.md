@@ -369,8 +369,9 @@ A `no-redundant-mock-reset` entry whose options name a `configFile` and no flag 
 file's default export is a call to something other than `defineConfig` / `defineProject` — a factory
 of the project's own, or `mergeConfig`. The rule reads the file as text, so the flags the factory sets
 are out of its sight: it finds no `clearMocks`, stays silent up to Vitest 4 and assumes the default on
-from Vitest 5, whatever the factory does. A note, not a failure. The fix is to write the flags beside
-`configFile`, which win over the file. Only a literal `configFile` is read, resolved against the
+from Vitest 5, whatever the factory does. A note, not a failure. The fix is to write the flags as
+`configFlags: { clearMocks: true }` beside `configFile`, read as if the file set them; an entry with
+`configFlags` is not reported. Only a literal `configFile` is read, resolved against the
 repository root.
 
 #### `coverage-all-removed`

@@ -169,6 +169,11 @@ Answer each in the spec: controller.expectOne('/api/users').flush(body).
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#pendingrequests
 ```
 
+Такая строка — для модуля на `provideHttpClientTesting()` или `HttpClientTestingModule`. В модуле
+на `provideHttpTesting()`, где контроллер не инжектят, ответ выглядит как
+`await expectRequest('/api/users').flush(body)` — та же строка, что печатает его собственная
+проверка при teardown.
+
 ### `ignoreCancelled` {#ignorecancelled}
 
 Запрос, от которого код под тестом отписался, — `httpResource()` уничтоженного компонента,

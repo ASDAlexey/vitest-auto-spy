@@ -267,7 +267,7 @@ rxjs rethrows an error no subscriber handles from a setTimeout, where it fails n
 `vi.useRealTimers()`, к этому моменту таймер уже выбросила. Переброс, который забрал
 `config.onUnhandledError`, ничего не сообщает — как и в самом rxjs. `flushUnhandledObservableErrors()`
 — та же проверка вручную: запускает ожидающие перебросы и возвращает `{ error, test }` для каждого,
-который бросил.
+который бросил, — `{ error, outsideTest }` для запланированного вне теста.
 
 ### Вместе с `--detect-async-leaks` из Vitest 4.1 {#with-vitest-4-1-s-detect-async-leaks}
 

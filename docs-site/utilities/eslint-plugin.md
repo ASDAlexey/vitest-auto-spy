@@ -609,7 +609,8 @@ the answer. With no options the rule searches upwards from the linted file for `
 `vite.config.*` and reads the first one it finds as text, looking for a literal
 `clearMocks: true` and its two siblings — nothing is evaluated and no module is loaded;
 `{ configFile: 'tools/unit-test-bench/vitest-runner.config.ts' }` names a runner config the search
-cannot find, and it is read the same way. With neither an option nor a config found it reports nothing, which is the point: on the call alone it would be
+cannot find, and it is read the same way; `configFlags: { clearMocks: true }` beside it adds what a
+factory-built config sets beyond its text. With neither an option nor a config found it reports nothing, which is the point: on the call alone it would be
 wrong in every project that leaves those options off, where the hook is the only reset there is.
 
 A flag a config gives counts only where every `@angular/build:unit-test` / `@nx/angular:unit-test`

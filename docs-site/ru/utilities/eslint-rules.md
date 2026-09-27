@@ -1667,12 +1667,18 @@ expect(injectSpy(AppMetricsService).sendEvent).toHaveBeenCalledWith(payload);
   `clearMocks`, поэтому до Vitest 4 флаг читается выключенным и правило молчит, а с Vitest 5 — как
   значение по умолчанию, включённым, даже там, где фабрика его выключает. `npx vitest-auto-spy doctor`
   отмечает такой `configFile` как
-  [`mock-reset-config-unread`](/ru/utilities/cli#mock-reset-config-unread). Запишите рядом с путём
-  то, что ставит фабрика:
+  [`mock-reset-config-unread`](/ru/utilities/cli#mock-reset-config-unread). Запишите то, что ставит
+  фабрика, в `configFlags`:
 
   ```js
-  'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', clearMocks: true }],
+  'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', configFlags: { clearMocks: true } }],
   ```
+
+  `configFlags` принимает `clearMocks`, `mockReset` и `restoreMocks` и читает их так, будто их
+  записал сам файл: они главнее его текста и доходят только до прогонов, которые этот файл
+  загружают, — обычного `vitest run` и таргета билдера, чей `runnerConfig` указывает на него (см.
+  ниже). `configFlags` без `configFile` — ошибка конфигурации. Флаг, записанный рядом с
+  `configFile`, — слово проекта про каждый прогон, и он не сужается.
 
   **Спека, которую гоняет ещё и Angular unit-test builder, считает только флаги, которые применяет
   этот билдер.** `@angular/build:unit-test` — и `@nx/angular:unit-test`, который ему делегирует, —
@@ -1697,7 +1703,7 @@ expect(injectSpy(AppMetricsService).sendEvent).toHaveBeenCalledWith(payload);
   очищает по умолчанию; на Vitest 4 — нет. Воркспейс без таких таргетов — любой проект на чистом
   Vitest — читается ровно как раньше. Флаги, переданные опциями правила, не сужаются: записанные
   руками, они — слово проекта про каждый прогон, поэтому называйте только то, что применяет каждый
-  раннер. Файл воркспейса, который не является чистым JSON, таргетов не даёт.
+  раннер. `configFlags` сужается вместе с файлом, который описывает. Файл воркспейса, который не является чистым JSON, таргетов не даёт.
 
 **Флаг должен совпадать с вызовом, а не с семейством.** Три опции — это не три степени одного и того
 же, и чтение их как степеней превращает такое правило в правило, удаляющее нужные сюите строки.

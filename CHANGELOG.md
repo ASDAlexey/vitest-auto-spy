@@ -10,6 +10,62 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`no-redundant-mock-reset` takes `configFlags`: the flags a factory-built `configFile` sets
+  beyond its text.** The rule reads `configFile` as text, so a config such as
+  `export default createProjectConfig(…)` that sets `clearMocks: true` inside the factory showed no
+  flag. The only way to state it was the inline `clearMocks: true`, which the Angular unit-test
+  builder check does not narrow. On Vitest 4, with an `@angular/build:unit-test` /
+  `@nx/angular:unit-test` target that names no `runnerConfig`, that reported a clear the builder
+  run still needs. `{ configFile, configFlags: { clearMocks?, mockReset?, restoreMocks? } }` reads
+  those flags as if the file wrote them: they override its text and apply only to the runs that
+  load that file (plain `vitest run`, and a target whose `runnerConfig` resolves to it). A target
+  without `runnerConfig` still runs on Vitest's defaults. `configFlags` without `configFile` is a
+  configuration error. Inline flags still win and are still not narrowed. The fix line of `doctor`'s
+  `mock-reset-config-unread` now suggests `{ configFile, configFlags: { clearMocks: true } }`.
+
+### Fixed
+
+- **`pendingRequests` answers with `expectRequest` in a suite built on `provideHttpTesting()`.**
+  An unanswered request in such a suite is usually reported by `enableAngularDiagnostics({
+  pendingRequests })` / `assertNoPendingRequests()`, whose fix line read "Answer it in the spec:
+  `controller.expectOne('/api/unflushed').flush(body)`" — a controller these specs never inject. The
+  line is now `await expectRequest('/api/unflushed').flush(body)` (with `, { method: 'POST' }` when
+  two open requests share a URL), the same one `provideHttpTesting()`'s own teardown check gives.
+  `provideHttpTesting()` registers a marker provider the diagnostics entry reads from the
+  configuration, so `vitest-auto-spy/angular/diagnostics` still does not import `@angular/common`;
+  a module configured with `provideHttpClientTesting()` or `HttpClientTestingModule` keeps the
+  `controller.expectOne(...)` line.
+
+### Documentation
+
+- **The `provideHttpTesting({ interceptors })` example in `agent-docs/angular.md` no longer fails
+  under `strayTimers`.** It answered `error(401)` to a bare `.subscribe()`, which rxjs rethrows as
+  an unhandled Observable error, and 5.44.0 fails the test on that. The example now subscribes with
+  an error callback and asserts what it received.
+- **`flushUnhandledObservableErrors()` returns `{ error, outsideTest }` for a rethrow scheduled
+  outside a test**, beside `{ error, test }`; the README, the setup page and `agent-docs/setup.md`
+  named only the second. `agent-docs/errors.md` also lists the file-level forms of the message
+  (`Unhandled Observable errors`, `outside any test`, `while the file was imported`).
+- **The 5.44.0 entry on `strayConsole` routing called `'throw'` the `setupAutoSpy` default.** The
+  default is `'off'`; `preset: 'strict'` sets `'throw'`. `agent-docs/setup.md` now also says both
+  environment lines get a `Likely cause:`, how `allow` lets one through, and that routing is off
+  under `disableConsoleIntercept`.
+- `StrayTimersOptions` is named in `agent-docs/setup.md`; `consoleOutput()` is listed with the
+  `/console` entry in the README; `runner-dom-differs-from-builder` names `vite.config.*` too.
+- The skill gains a row for an interceptor under test (`provideHttpTesting({ interceptors, features })`
+  instead of `provideHttpClient(withInterceptors([...]))` + `provideHttpClientTesting()`) and names
+  the two runner-parity checks in its `doctor` paragraph.
+
+### Internal
+
+- **`undici` is a devDependency.** The `strayTimers` spec that fetches through the `undici` package
+  loaded jsdom's copy with `createRequire(import.meta.resolve('jsdom'))`, so a jsdom release that
+  dropped or moved the dependency would have broken the suite with nothing in `package.json` saying
+  why. It is now declared at the version the lockfile already held (8.10.2), and imported after the
+  `Symbol.dispose` shim it needs on Node 22.
+
 ## [5.44.0] - 2026-09-27
 
 ### Added
@@ -78,7 +134,7 @@ The latest released version here must always match the one published on
   reached stderr of a green run, past the guard and past every console spy. The guard now routes that
   console into the one it watches: the line fails the test that caused it at the spec's frame, a
   `/console` spy or `vi.spyOn(…).mockImplementation` absorbs it (and can assert it), and both lines
-  get a `Likely cause:`. A suite under `strayConsole: 'throw'` (the `setupAutoSpy` default) that had
+  get a `Likely cause:`. A suite under `strayConsole: 'throw'` (set by `preset: 'strict'`) that had
   such lines on stderr now fails on them — that output is what the guard promises to catch. Fix the
   cause (stub the API, mock the navigation, absorb it with a console spy), or let a line through with
   `strayConsole: { allow: ['Not implemented: navigation'] }`. Routing is off when Vitest does not

@@ -179,6 +179,10 @@ Answer each in the spec: controller.expectOne('/api/users').flush(body).
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#pendingrequests
 ```
 
+That is the line for a module built on `provideHttpClientTesting()` or `HttpClientTestingModule`. In
+one built on `provideHttpTesting()`, which never injects the controller, the answer reads
+`await expectRequest('/api/users').flush(body)` — the line its own teardown check prints.
+
 ### `ignoreCancelled`
 
 A request the code under test unsubscribed from — an `httpResource()` whose component was

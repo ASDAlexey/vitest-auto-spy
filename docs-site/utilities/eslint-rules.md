@@ -1690,11 +1690,17 @@ rule here.
   the default — on — even where the factory turns it off. `npx vitest-auto-spy doctor` notes a
   `configFile` like that as
   [`mock-reset-config-unread`](/utilities/cli#mock-reset-config-unread). Write what the factory sets
-  beside the path:
+  as `configFlags`:
 
   ```js
-  'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', clearMocks: true }],
+  'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', configFlags: { clearMocks: true } }],
   ```
+
+  `configFlags` takes `clearMocks`, `mockReset` and `restoreMocks`, and reads them as if the file
+  wrote them: they win over its text, and they reach only the runs that load that file — plain
+  `vitest run`, and a builder target whose `runnerConfig` resolves to it (below). `configFlags`
+  without `configFile` is a configuration error. A flag written beside `configFile` instead is the
+  project's word for every run, and is not narrowed.
 
   **A spec the Angular unit-test builder also runs counts only the flags that builder applies.**
   `@angular/build:unit-test` — and `@nx/angular:unit-test`, which delegates to it — hands Vitest
@@ -1719,6 +1725,7 @@ rule here.
   clears by default too; under Vitest 4 it is not. A workspace with no such target — any plain Vitest
   project — is read exactly as before. The flags written as the rule's options are not narrowed:
   written by hand, they are the project's word for every run, so name only what each runner applies.
+  `configFlags` is narrowed with the file it describes.
   A workspace file that is not plain JSON contributes no target.
 
 **The flag has to match the call, not the family.** The three options are not three grades of one
