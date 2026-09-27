@@ -558,6 +558,18 @@ describe('fillMissing', () => {
       expect(store.reset).toBeTypeOf('function');
     });
 
+    it('recognises the base under the name a bundler gave it', () => {
+      for (const renamed of ['_SignalStore', 'SignalStore$1']) {
+        const Base = signalStore();
+
+        Object.defineProperty(Base, 'name', { value: renamed });
+
+        const Store = class extends Base {};
+
+        expect(createSpyFromClass(Store).toggle).toBeTypeOf('function');
+      }
+    });
+
     it('keeps an explicit fillMissing: false', () => {
       const store = createSpyFromClass(LayersStore, { fillMissing: false });
 
