@@ -34,7 +34,8 @@ Commands
             does not pass through: a shard, or the specs a change reaches.
             Lists the target's specs with --list-tests (@angular/build 21+),
             picks the ones this run gets and hands them to the builder as
-            --include paths, so it compiles only those. Exits with ng's code.
+            --include paths, so from @angular/build 22.2 it compiles only
+            those. Exits with ng's code.
 
   init      Write a pointer to node_modules/vitest-auto-spy/AGENTS.md into the
             instruction files the agents in this repository actually read, and

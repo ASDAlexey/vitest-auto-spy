@@ -52,7 +52,9 @@ a unit-test target, Analog below 2.7.5, `vite` below 6.4, or Node below 22.12 in
 honours (`experimental.fsModuleCache`, `browser.isolate`, `cache.dir`, …) are left to Vitest's own
 deprecation line. Four more cover the Angular unit-test builder and Analog:
 `angular-build-istanbul-module-cache` notes an istanbul run under `@angular/build:unit-test` 21+ on
-Vitest 5 without `fsModuleCache` in the target's runner config (−46 % measured), and
+Vitest 5 without `fsModuleCache` in the target's runner config (up to −46 %, −19 % on another suite;
+v8 was about 2x faster than istanbul with the cache there, and the cache pays off on CI only when
+`node_modules/.vitest-cache` is kept), and
 `analog-module-cache-inline-styles` warns that `fsModuleCache` under the Analog plugin breaks the
 warm run of any spec reaching a component with inline `styles`. `angular-build-happy-dom` notes a
 builder target on jsdom only because `happy-dom` is not installed.
@@ -141,7 +143,7 @@ totals are CPU time summed across every worker, not wall clock** — a report sh
 time` under `986ms wall clock` is not a bug, it is the work spread over workers.
 
 Under `@angular/build:unit-test`, `ng test` takes no Vitest flag. Shard or run only what a change
-reaches with `npx vitest-auto-spy ng-test --shard 1/4` / `--changed [ref]` / `--related <files>`
+reaches with `npx vitest-auto-spy ng-test --shard 1/4` / `--changed [ref]` / `--related a.ts,b.ts`
 (`@angular/build` 21+; everything after `--` goes to `ng`); `test.repeats` in the runner config
 reaches Vitest as it is. `vitest doctor` does not work there — use `perf --command`.
 

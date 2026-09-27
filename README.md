@@ -83,7 +83,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 - 🚚 A migration you can verify — `vitest-auto-spy/diagnostics`: `compareTestRuns` on the two JSON reports, `summarizeTestRun` / `formatTestRunComparison` to read the answer, `diffByField` for the assertion the reporter collapses, `explainSpy` for a double that answered something you did not configure
 - 📏 Lint rules and one-line test-run hygiene — forty-nine rules in `vitest-auto-spy/eslint-plugin` (six `--fix`, nineteen suggestions, four of them for a suite mid-migration off jasmine), `setupAutoSpy()` — with `preset: 'strict'` for every guard at its strictest grade, and under `isolate: false` `strayListeners` / `restoreGlobals` for the listeners and raw global assignments a file leaves the next one, `restoreStorageSpies` (on by default) for the storage spy happy-dom will not let `mockRestore()` remove
 - 🩺 [Editor diagnostics](#editor-diagnostics--webstorm--vs-code) — the same anti-patterns underlined while you type: native ESLint inspections in **WebStorm** and the other JetBrains IDEs, the ESLint extension in **VS Code**, no extra plugin either way
-- 🔎 [`npx vitest-auto-spy doctor`](#the-cli--doctor-perf-codemod-and-init) — suite-level defects **that never fail a run**: a `tsconfig` `include` matching no file, a production module importing a spec, a `@jest-environment` pragma the runner never reads, config left behind for a runner that is gone. Read-only, no config, exits 1 in CI
+- 🔎 [`npx vitest-auto-spy doctor`](#the-cli--doctor-perf-codemod-init-and-ng-test) — suite-level defects **that never fail a run**: a `tsconfig` `include` matching no file, a production module importing a spec, a `@jest-environment` pragma the runner never reads, config left behind for a runner that is gone. Read-only, no config, exits 1 in CI
 - ⏱️ [`npx vitest-auto-spy perf`](#perf--where-the-cpu-time-actually-goes) — where a suite's CPU time actually goes, phase by phase, and which spec files to act on: the ones that reach no DOM and could run under `node`, the ones that import a barrel. Runs Vitest once with a reporter this package ships, reads `TestModule.diagnostic()`, names files, states the rule behind each finding
 - 🚚 [`npx vitest-auto-spy codemod`](#codemod--migrating-a-suite-off-jest-auto-spies) — thirteen transforms that move a suite off `jest-auto-spies` and Jest, or off `jasmine-auto-spies` and jasmine (`--from jasmine`), dry-run by default, with a `--verify` pass that also checks a file somebody edited by hand
 - 🔇 Console spies — `import { consoleInfoSpy } from 'vitest-auto-spy/console'` silences `console` and asserts its calls; [`setupAutoSpy({ strayConsole: 'throw' })`](#how-to-mock-the-console) fails any test whose console output nothing absorbed
@@ -126,7 +126,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
   - [A jasmine suite mid-migration](#how-to-mock-a-jasmine-suite-mid-migration)
 - [New in 5](#new-in-5)
 - [New in 4](#new-in-4)
-- [The CLI — `doctor`, `perf`, `codemod` and `init`](#the-cli--doctor-perf-codemod-and-init)
+- [The CLI — `doctor`, `perf`, `codemod`, `init` and `ng-test`](#the-cli--doctor-perf-codemod-init-and-ng-test)
   - [`doctor` — defects that never fail](#doctor--defects-that-never-fail)
   - [`perf` — where the CPU time actually goes](#perf--where-the-cpu-time-actually-goes)
   - [`codemod` — migrating a suite off `jest-auto-spies`](#codemod--migrating-a-suite-off-jest-auto-spies)
@@ -989,7 +989,7 @@ a `.d.ts` your `tsconfig` includes — that one import is what keeps `returnSubj
 own `Subject<T>`. From `@angular/build:unit-test` 22.2.0 the test program is the specs, the setup
 files and the `.d.ts` files, so a plain `.ts` listed only in the spec `tsconfig`'s `include` is out.
 
-## The CLI — `doctor`, `perf`, `codemod` and `init`
+## The CLI — `doctor`, `perf`, `codemod`, `init` and `ng-test`
 
 The package ships one executable, with no dependencies and nothing to configure:
 
@@ -1007,7 +1007,7 @@ passes neither Vitest's `--shard` nor its `--changed` through, so it picks the s
 them to the builder as `--include` paths.
 
 **Exit `0` means "ran, nothing to report"; `1` means "ran, and here is the finding"; `2` means
-"there was nothing to judge".** The third one is the reason to read this line: an unknown flag for a
+"there was nothing to judge".** (`ng-test` passes `ng`'s own exit code through once it runs.) The third one is the reason to read this line: an unknown flag for a
 known command is an error and **nothing runs** — `init --dryrun` used to write the files and
 `perf --gat` used to pass with no gate at all, which is a typo that reads as a clean CI step. A path
 that matches no file is the same kind of error, because _Nothing left to migrate_ off a tree nobody
@@ -1055,7 +1055,7 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 | `analog-behind-angular-build`         | `@analogjs/vite-plugin-angular` below 2.7.5 next to `@angular/build` 22.2+ — `TypeError: cache.has is not a function` at startup                                                     |
 | `analog-fast-compile-ctor-injection`  | Analog `fastCompile` in JIT mode with an `@Injectable` whose constructor parameter is known only by its type — NG0202 at injection                                                   |
 | `analog-module-cache-inline-styles`   | `fsModuleCache` on under the Analog plugin with a component that has inline `styles` — the warm run fails on `virtual:angular:jit:style:inline`                                      |
-| `angular-build-istanbul-module-cache` | istanbul coverage under the unit-test builder (not in `browsers`) without `fsModuleCache` — −46 % on a 700-file Angular 22.2 suite. Info                                             |
+| `angular-build-istanbul-module-cache` | istanbul coverage under the unit-test builder (not in `browsers`) without `fsModuleCache` — up to −46 %; v8 beat istanbul with the cache ~2x. Info                                   |
 | `angular-build-happy-dom`             | jsdom only because `happy-dom` is not installed; the builder picks it by itself from 21 — −4.6 % wall, −6 % RSS. Info                                                                |
 | `coverage-all-removed`                | `coverage.all` in a config, on a Vitest that stopped reading the key                                                                                                                 |
 | `coverage-include-misses-bundle`      | A `coverage.include` of sources only, in a runner config over a bundle                                                                                                               |
@@ -2422,7 +2422,9 @@ expect(() => myService.getName(2)).toThrow();
 install an implementation on the host mock, and the dispatch that reads a `calledWith` chain **is**
 the implementation they replace — so the one written later wins outright and the other decides
 nothing, in either order, without failing. Both orders are now reported as a misconfiguration (a
-warning, a throw under the `strict` preset). Where both are wanted, the fallback goes in the spy's
+warning, a throw under the `strict` preset) — except a wrapper that delegates, `vi.when(spy)` on
+Vitest 5 or a `mockImplementation` built from `spy.getMockImplementation()`, which the chain still
+answers through. Where both are wanted, the fallback goes in the spy's
 own container, which a chain still wins over: the `returns` option where the double is built, or
 `resolveWith` / `nextWith` / `failWith`. The report comes from this library's own spy engine — so
 Vitest and Rstest, not Bun or `node:test`, and not under `setSpyEngine('runner')` — and the `Once`
@@ -2656,11 +2658,12 @@ beforeEach(() => {
 > `@angular/build` 22.2 or newer, both `@analogjs` packages need 2.7.5 or newer — older ones crash at
 > startup with `TypeError: cache.has is not a function`.
 
-> **Lazy by default, everywhere.** Every factory builds each method spy on first access
+> **Lazy by default.** `createSpyFromClass` and `provideAutoSpy` build each method spy on first access
 > (accessor placeholders below 8 methods, a `Proxy` from 8), since Angular tests typically spy a wide service but call
 > only a few of its methods — and the margin widens as the class does: **1.4×** on a ten-method
-> class a test calls twice, **1.9×** on a forty-method one it calls three times. Behaviour is
-> unchanged; pass `{ lazySpies: false }` to build every spy eagerly.
+> class a test calls twice, **1.9×** on a forty-method one it calls three times. Calls, `Object.keys`,
+> spread and snapshots behave the same; a wide class's double is a `Proxy`, so pass
+> `{ lazySpies: true }` for a plain object, or `{ lazySpies: false }` to build every spy eagerly.
 
 #### Signal / readonly property mocking (bonus)
 
@@ -2930,8 +2933,9 @@ expect(component.items).toHaveSignalValue([{ id: 1 }]);
 ```
 
 `expect(component.total).toBeTruthy()` passes for every signal ever created — a signal is a
-function. The matcher reads it, deep-compares, and rejects anything that is not a zero-argument
-getter, so the missing-parentheses mistake fails instead of quietly passing.
+function. The matcher reads it, deep-compares (as `toEqual` does; `{ strict: true }` as
+`toStrictEqual` does), and rejects anything that is not a zero-argument getter, so the
+missing-parentheses mistake fails instead of quietly passing.
 
 #### Where a spec spends its time
 
@@ -3032,7 +3036,7 @@ collaborators.get(FeatureFlagService).isOn.mockReturnValue(true);
 
 TestBed.inject(CheckoutFacade).start();
 
-expect(collaborators.names()).toEqual(['FeatureFlagService']); // analytics was never asked for
+expect(collaborators.names({ clean: true })).toEqual(['FeatureFlagService']); // analytics was never asked for
 ```
 
 The assertion behind most `vi.mock('@app/services')` calls is not "this module was replaced" — it is
@@ -3061,7 +3065,8 @@ injectActivatedRoute().setParams({ id: '8' }); // params and paramMap emit; snap
 has neither, and a hand-written `useValue` usually has one half — the component that reads the other
 gets `undefined`, or a spec tests a route no navigation can produce. The double here is Angular's own
 `ActivatedRoute` over one record: `params`, `queryParams`, `data`, `fragment`, `url`, both
-`ParamMap`s and `snapshot` come from the same values, and each setter (`setParams`,
+`ParamMap`s and `snapshot` come from the same values (plus `title`, `children` and, on Angular 22.2+,
+the `resources` record), and each setter (`setParams`,
 `setQueryParams`, `setData`, `setFragment`, `setUrl`, or `set({ … })` for several at once) rebuilds
 the snapshot first and then emits what changed, in the router's order and with its equality. It is a
 real route to the real `Router` too: `relativeTo` resolves against its `url`. `createActivatedRoute()`

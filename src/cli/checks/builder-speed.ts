@@ -106,7 +106,10 @@ function istanbulBecause(profile: Profile, { config, keys, browsers }: TargetCon
 const hasModuleCache = ({ keys }: TargetConfig): boolean => keys.some((key) => isKey(key, 'fsModuleCache') && isTrue(key));
 
 const ISTANBUL_MEASURED =
-  'On an Angular 22.2 suite of 700 spec files on Vitest 5, the module cache took an istanbul coverage run under the builder from 24.55 s to 13.20 s (−46 %), and from 27.01 s to 15.85 s (−41 %) with the builder cache off, as it is on CI; with v8 it gained nothing, since the builder has already bundled the code.';
+  'The module cache took an istanbul coverage run under the builder from 24.55 s to 13.20 s (up to −46 %) on an Angular 22.2 suite of 700 spec files on Vitest 5, and from 27.01 s to 15.85 s (−41 %) with the builder cache off, as it is on CI; on an 862-spec suite it took 48 s to 39 s (−19 %). Switching that suite to v8 beat istanbul with the cache about 2x: 19–22 s, where the cache gained nothing, since the builder has already bundled the code. The cache pays off on CI only when CI keeps `node_modules/.vitest-cache` between runs.';
+
+const V8_INSTEAD =
+  " Or switch the target to `coverage.provider: 'v8'`, with `@vitest/coverage-v8` installed: it needs no cache, and the coverage thresholds are worth one run to confirm after the switch.";
 
 interface Group {
   readonly first: TargetConfig;
@@ -128,7 +131,7 @@ function moduleCacheFinding(profile: Profile, { first, why, targets: group }: Gr
     severity: 'info',
     file: first.config ?? first.target.file,
     message: `${where} collects coverage with istanbul through \`${first.target.builder}\` (${why}), and no runner config of it turns on \`fsModuleCache\`: every run instruments every file again. ${ISTANBUL_MEASURED}`,
-    fix: `${turnOn}${persist}`,
+    fix: `${turnOn}${persist}${V8_INSTEAD}`,
   };
 }
 

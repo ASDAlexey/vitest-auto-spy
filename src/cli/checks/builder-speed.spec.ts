@@ -45,6 +45,9 @@ const checksOf = (findings: readonly Finding[]): string[] => findings.map((findi
 
 const without = (name: string): Record<string, string> => Object.fromEntries(Object.entries(BASE_VERSIONS).filter(([key]) => key !== name));
 
+const V8_INSTEAD =
+  " Or switch the target to `coverage.provider: 'v8'`, with `@vitest/coverage-v8` installed: it needs no cache, and the coverage thresholds are worth one run to confirm after the switch.";
+
 const istanbulConfig = "export default defineConfig({ test: { coverage: { provider: 'istanbul' } } });";
 
 describe('angular-build-istanbul-module-cache', () => {
@@ -64,9 +67,9 @@ describe('angular-build-istanbul-module-cache', () => {
         severity: 'info',
         file: 'vitest-base.config.mts',
         message:
-          "`app:test` in angular.json collects coverage with istanbul through `@angular/build:unit-test` (vitest-base.config.mts sets `coverage.provider: 'istanbul'`), and no runner config of it turns on `fsModuleCache`: every run instruments every file again. On an Angular 22.2 suite of 700 spec files on Vitest 5, the module cache took an istanbul coverage run under the builder from 24.55 s to 13.20 s (−46 %), and from 27.01 s to 15.85 s (−41 %) with the builder cache off, as it is on CI; with v8 it gained nothing, since the builder has already bundled the code.",
+          "`app:test` in angular.json collects coverage with istanbul through `@angular/build:unit-test` (vitest-base.config.mts sets `coverage.provider: 'istanbul'`), and no runner config of it turns on `fsModuleCache`: every run instruments every file again. The module cache took an istanbul coverage run under the builder from 24.55 s to 13.20 s (up to −46 %) on an Angular 22.2 suite of 700 spec files on Vitest 5, and from 27.01 s to 15.85 s (−41 %) with the builder cache off, as it is on CI; on an 862-spec suite it took 48 s to 39 s (−19 %). Switching that suite to v8 beat istanbul with the cache about 2x: 19–22 s, where the cache gained nothing, since the builder has already bundled the code. The cache pays off on CI only when CI keeps `node_modules/.vitest-cache` between runs.",
         fix: expect.stringMatching(
-          /^Add `fsModuleCache: true` to the `test` block of vitest-base\.config\.mts\. Persist `node_modules\/\.vitest-cache` between CI runs/,
+          /^Add `fsModuleCache: true` to the `test` block of vitest-base\.config\.mts\. Persist `node_modules\/\.vitest-cache` between CI runs.* Or switch the target to `coverage\.provider: 'v8'`, with `@vitest\/coverage-v8` installed/,
         ),
       },
     ]);
@@ -80,7 +83,7 @@ describe('angular-build-istanbul-module-cache', () => {
     expect(finding?.message).toContain('`app:test` in angular.json, `admin:test` in angular.json collects coverage');
     expect(finding?.message).toContain('(only `@vitest/coverage-istanbul` is installed, so the builder picks istanbul)');
     expect(finding?.fix).toBe(
-      'Add `"runnerConfig": "vitest-base.config.mts"` to the options of `app:test` in angular.json, `admin:test` in angular.json, and export `defineConfig({ test: { fsModuleCache: true } })` from that file.',
+      `Add \`"runnerConfig": "vitest-base.config.mts"\` to the options of \`app:test\` in angular.json, \`admin:test\` in angular.json, and export \`defineConfig({ test: { fsModuleCache: true } })\` from that file.${V8_INSTEAD}`,
     );
   });
 
@@ -130,7 +133,7 @@ describe('angular-build-istanbul-module-cache', () => {
     });
 
     expect(finding?.file).toBe('missing.config.mts');
-    expect(finding?.fix).toBe('Add `fsModuleCache: true` to the `test` block of missing.config.mts.');
+    expect(finding?.fix).toBe(`Add \`fsModuleCache: true\` to the \`test\` block of missing.config.mts.${V8_INSTEAD}`);
   });
 });
 

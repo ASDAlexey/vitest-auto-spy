@@ -15,21 +15,23 @@ npx vitest-auto-spy codemod  # dry run by default. Exits 1 when it left somethin
 npx vitest-auto-spy ng-test  # ng test with --shard / --changed the Angular builder does not pass through
 ```
 
-They are one binary because they answer one question from four directions — _is anything in this
-test suite quietly not doing what it looks like it is doing?_ `doctor` asks it of the repository,
-`perf` asks it of the suite's own clock, `init` asks it of the agent about to write the next spec,
-and [`codemod`](/utilities/codemod) asks it of every span a migration off `jest-auto-spies` would
-otherwise rename into the reverse meaning. This page covers the first three; the codemod
-[has its own](/utilities/codemod), because most of what it does is refuse.
+The first four are one binary because they answer one question from four directions — _is anything
+in this test suite quietly not doing what it looks like it is doing?_ `doctor` asks it of the
+repository, `perf` asks it of the suite's own clock, `init` asks it of the agent about to write the
+next spec, and [`codemod`](/utilities/codemod) asks it of every span a migration off
+`jest-auto-spies` would otherwise rename into the reverse meaning.
+[`ng-test`](#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder) runs the Angular
+builder's suite with the Vitest levers the builder does not pass through. This page covers everything
+but the codemod, which [has its own](/utilities/codemod), because most of what it does is refuse.
 
 **The exit codes mean the same thing in all five**, which is what makes any of them a single CI
-line:
+line — except that a run `ng-test` hands to `ng` exits with `ng`'s own code:
 
-| Exit | Meaning                                                                                                                                                                                                                                                                                                                                 |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | The command ran and has nothing to report                                                                                                                                                                                                                                                                                               |
-| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date or a stale copy of the skill, `perf --gate` a confirmed budget                                                                                                               |
-| `2`  | It could not do the job it was asked to do: an unknown command, an unknown flag for a known command, a flag value it cannot use, an unknown transform id on `--only` / `--skip`, a `codemod` path that matches no file, a `perf` run with nothing to judge, or an `ng-test` without a single unit-test target or without `--list-tests` |
+| Exit | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | The command ran and has nothing to report                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date or a stale copy of the skill, `perf --gate` a confirmed budget                                                                                                                                                                                                                                                                |
+| `2`  | It could not do the job it was asked to do: an unknown command, an unknown flag for a known command, a flag value it cannot use, an unknown transform id on `--only` / `--skip`, a `codemod` path that matches no file, a `perf` run with nothing to judge, or an `ng-test` without a single unit-test target or without `--list-tests`, without `@angular/cli`, with a failed `git diff`, with several targets and no `--target`, or with an `--include` list too long for the platform |
 
 The unknown flag is the one worth stating on its own, because a parser that accepts everything makes
 a typo invisible: `init --dryrun` wrote the files a `--dry-run` would only have described, and
@@ -281,13 +283,26 @@ Vitest 5, whose coverage the builder runs with istanbul — its runner config sa
 `coverage.provider: 'istanbul'`, or `@vitest/coverage-istanbul` is installed without
 `@vitest/coverage-v8` — and whose runner config does not turn on `fsModuleCache`. Under the builder
 esbuild has bundled the code already, so the one transform left worth caching is istanbul's
-instrumentation: on a 700-file Angular 22.2 suite the cache took a coverage run from 24.55 s to
-13.20 s (−46 %), and from 27.01 s to 15.85 s (−41 %) with the builder cache off, as it is on CI. With
-v8 it gained nothing, and the check stays quiet. The fix names the runner config to add
-`fsModuleCache: true` to or, for a target without one, says to add `"runnerConfig"` to the target: the
-builder has no option of its own for it. With a CI config that does not cache
-`node_modules/.vitest-cache`, the fix says to persist it too, as
-[`fs-module-cache-not-persisted`](#fs-module-cache-not-persisted) does. Quiet on `@angular/build` 20,
+instrumentation. The gain depends on the suite, so read −46 % as the top of the range:
+
+| Suite (Angular 22.2, Vitest 5)               | istanbul, cold | istanbul, warm cache | v8, cold | v8, warm cache |
+| -------------------------------------------- | -------------- | -------------------- | -------- | -------------- |
+| 700 spec files                               | 24.55 s        | 13.20 s (−46 %)      | —        | no gain        |
+| 700 spec files, builder cache off (as on CI) | 27.01 s        | 15.85 s (−41 %)      | —        | —              |
+| 862 spec files                               | 48 s           | 39 s (−19 %)         | 19–22 s  | 18.7–22.5 s    |
+| 862 spec files, CI profile (`CI=1`, 3 forks) | 51–53 s        | 41–44 s              | 31–32 s  | 30 s           |
+
+On the 862-file suite v8 beat istanbul with a warm cache about 2x, and peaked at 7.5–8 GB RSS
+against istanbul's 10–11 GB, with 100 % coverage on both. With v8 the cache gains nothing, and the
+check stays quiet. On that suite a warm cache did not go stale either: an edited `.ts` import or
+component `.html` was picked up with both providers.
+
+The cache pays off on CI only when CI keeps `node_modules/.vitest-cache` between runs; every fresh
+checkout starts cold. The fix names the runner config to add `fsModuleCache: true` to or, for a
+target without one, says to add `"runnerConfig"` to the target: the builder has no option of its own
+for it. With a CI config that does not cache `node_modules/.vitest-cache`, the fix says to persist it
+too, as [`fs-module-cache-not-persisted`](#fs-module-cache-not-persisted) does. It also offers the
+switch to `coverage.provider: 'v8'` as the alternative that needs no cache. Quiet on `@angular/build` 20,
 which reads no runner config, on Vitest 4, where it was not measured, and for a target that runs in
 `browsers` unless its runner config names istanbul itself: the gain was measured on jsdom in Node,
 never in browser mode. Targets that share a runner
@@ -1335,7 +1350,7 @@ npx vitest-auto-spy ng-test --changed origin/main      # what the branch reaches
 npx vitest-auto-spy ng-test --related src/app/cart/cart.service.ts --dry-run
 ```
 
-It lists the target's specs with `ng test --list-tests` (`@angular/build` 21 or newer), picks the ones
+It lists the target's specs with `ng run <project>:<target> --list-tests` (`@angular/build` 21 or newer), picks the ones
 this run gets and hands them to the builder as `--include` paths — and since `@angular/build` 22.2 the
 builder compiles only the included specs. A shard is split the way Vitest's own `--shard` splits, by a
 hash of the path in near-equal parts, so every spec runs in exactly one shard. `--changed` reads
@@ -1343,10 +1358,12 @@ hash of the path in near-equal parts, so every spec runs in exactly one shard. `
 imports reach a changed file: relative imports, `compilerOptions.paths` aliases, and a template or a
 stylesheet through the component that names it. A config, a lockfile, `angular.json`, a `tsconfig`,
 or a change the target's `setupFiles` / `providersFile` reach runs every spec; nothing reached runs
-nothing and exits 0.
+nothing and exits 0. `--related` takes a comma-separated list: `--related a.ts,b.ts` runs the specs
+those files reach.
 
 Everything after `--` goes to `ng run <project>:<target>` as typed, behind `--watch=false`; an
-`--include` there narrows what is listed. `--target` picks the target when there is more than one,
+`--include` there narrows what is listed. `--target project[:target]` picks the target when there is more than one (a lone unit-test target is
+used without it, and an ambiguous choice exits 2 listing the targets),
 and `--dry-run` prints the `ng` command instead of running it. The exit code is `ng`'s. A list
 too long for the platform's command line (32 767 characters on Windows) folds every directory whose
 specs are all selected into one `dir/**/*.spec.ts` glob; if that is still too long, `ng-test` exits 2
