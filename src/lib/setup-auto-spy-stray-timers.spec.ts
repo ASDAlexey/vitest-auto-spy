@@ -3,7 +3,7 @@
  * `strayTimers` against Node's own `fetch()` and against rxjs. Each block stands in for a spec file;
  * its `afterAll` is the boundary, and the block after it reads what the library's hooks threw.
  */
-import { once } from 'node:events';
+import { addAbortListener, once } from 'node:events';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
@@ -36,6 +36,14 @@ vi.mock('vitest', async (importOriginal) => {
     afterEach: (hook: Hook) => actual.afterEach(({ task }) => caught(hook, { task })),
   };
 });
+
+// Node 22 adds `Symbol.dispose` to the main realm only, so undici evaluated in a `vmThreads` context
+// reads `undefined` and throws on every response; give it the symbol Node's own disposables carry.
+if (!Reflect.has(Symbol, 'dispose')) {
+  const [dispose] = Object.getOwnPropertySymbols(addAbortListener(new AbortController().signal, () => undefined));
+
+  Object.defineProperty(Symbol, 'dispose', { value: dispose });
+}
 
 // The copy jsdom depends on: undici is no dependency of this package's own.
 const { fetch: undiciFetch } = createRequire(import.meta.resolve('jsdom'))('undici') as { fetch: typeof fetch };
