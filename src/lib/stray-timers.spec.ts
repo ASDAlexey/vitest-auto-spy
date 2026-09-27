@@ -797,6 +797,17 @@ describe('flushUnhandledObservableErrors', () => {
     expect(flushUnhandledObservableErrors()).toEqual([]);
   });
 
+  it('asserts the errors alone with toMatchObject, which checks the count and ignores the test name', () => {
+    stops.push(trackStrayTimers());
+    failUnhandled(new Error('502 from /api'));
+    failUnhandled(new Error('404 from /api'));
+
+    const flushed = flushUnhandledObservableErrors();
+
+    expect(flushed).toMatchObject([{ error: new Error('502 from /api') }, { error: new Error('404 from /api') }]);
+    expect(flushed).not.toMatchObject([{ error: new Error('502 from /api') }]);
+  });
+
   it('hands the error to config.onUnhandledError instead, and reports nothing', () => {
     stops.push(trackStrayTimers());
 
