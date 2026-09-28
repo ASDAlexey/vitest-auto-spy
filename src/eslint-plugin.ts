@@ -20,6 +20,7 @@
  * Flat config only. The legacy `.eslintrc` `plugins: ['…']` form resolves plugin names to
  * `eslint-plugin-*` packages, which a subpath export of this package can never be.
  */
+import { hookRegisteringHelpers } from './lib/eslint/hook-registering-helpers';
 import type { RuleModule } from './lib/eslint/rule-types';
 import { rules } from './lib/eslint/rules';
 
@@ -48,6 +49,11 @@ export interface PluginRule {
 export interface AutoSpyEslintPlugin {
   rules: Record<string, PluginRule>;
   configs: { recommended: FlatConfig; strict: FlatConfig; typeErrors: FlatConfig };
+  /**
+   * The library's helpers that register `beforeEach` / `afterEach` / `beforeAll` / `afterAll` when
+   * called, for `vitest/require-hook`'s `allowedFunctionCalls`.
+   */
+  hookRegisteringHelpers: readonly string[];
 }
 
 const PLUGIN_NAME = 'vitest-auto-spy';
@@ -260,6 +266,7 @@ const plugin: AutoSpyEslintPlugin = {
     strict: { plugins: {}, rules: strictRules },
     typeErrors: { plugins: {}, rules: typeErrorRules },
   },
+  hookRegisteringHelpers,
 };
 
 // Flat config names the plugin object itself, so the config can only be completed once the plugin
