@@ -359,11 +359,11 @@ a double, and a directive over a stub.
 Output a spec leaves behind that no absorbing spy will see — the pair [`setupAutoSpy({ strayConsole })`](/utilities/setup)
 fails at run time, reported where it is written.
 
-| Rule                                                                                   | Flags                                                                                                                           | Fix     |        Without it         |
-| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------- | :-----------------------: |
-| [`no-passthrough-console-spy`](/utilities/eslint-rules#no-passthrough-console-spy)     | `vi.spyOn(console, 'error')` nothing gives an implementation — it calls through and prints → `installConsoleSpies()`            | suggest | green _(by construction)_ |
-| [`no-console-in-spec`](/utilities/eslint-rules#no-console-in-spec)                     | a spec that calls `console.x(…)`, or replaces a method with `console.x = …`, which nothing puts back                            | —       | green _(by construction)_ |
-| [`no-import-time-console-spies`](/utilities/eslint-rules#no-import-time-console-spies) | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()` — the import installs once per worker | —       | green _(by construction)_ |
+| Rule                                                                                   | Flags                                                                                                                                                  | Fix     |        Without it         |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- | :-----------------------: |
+| [`no-passthrough-console-spy`](/utilities/eslint-rules#no-passthrough-console-spy)     | `vi.spyOn(console, 'error')` nothing gives an implementation — it calls through and prints → `installConsoleSpies()`                                   | suggest | green _(by construction)_ |
+| [`no-console-in-spec`](/utilities/eslint-rules#no-console-in-spec)                     | a spec that calls `console.x(…)`, or replaces a method with `console.x = …`, which nothing puts back                                                   | —       | green _(by construction)_ |
+| [`no-import-time-console-spies`](/utilities/eslint-rules#no-import-time-console-spies) | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()` or `useConsoleSpies()` — the import installs once per worker | —       | green _(by construction)_ |
 
 ### Coming off jasmine
 

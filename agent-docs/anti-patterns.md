@@ -61,8 +61,9 @@ Part of the agent reference [`AGENTS.md`](../AGENTS.md), which maps every sectio
 | an assertion containing a date, with no clock set | `mockSystemTime(iso)` first |
 | `configureTestingModule` inside every `it()` | one per `describe` |
 | `vi.mock('@angular/core')` to neutralise `effect()` | set the signals, `await stable(fixture)`, assert the result |
-| a second `vi.spyOn(console, 'error')` | `consoleErrorSpy` from `vitest-auto-spy/console`, installed with `installConsoleSpies()` |
-| `import { consoleErrorSpy } from 'vitest-auto-spy/console'` as the install | `installConsoleSpies()` in `beforeEach`, `restoreConsole()` in `afterEach` — the import installs once per worker |
+| a second `vi.spyOn(console, 'error')` | `consoleErrorSpy` from `vitest-auto-spy/console`, installed with `useConsoleSpies()` |
+| `import { consoleErrorSpy } from 'vitest-auto-spy/console'` as the install | `useConsoleSpies()` in the `describe` (the `installConsoleSpies()` / `restoreConsole()` hook pair) — the import installs once per worker |
+| `beforeEach(installConsoleSpies)` with `afterEach(restoreConsole)` repeated per spec | `useConsoleSpies()` — registers both hooks and returns the spies |
 | a bare `vi.spyOn(console, 'error')` to keep a spec quiet | `.mockImplementation(() => undefined)` — without it the line still prints |
 | `mockReadonlyProp(c, 'items', vi.fn(() => []))` | `mockReadonlyProp(c, 'items', signal([]))` — a real signal |
 | `spy.m.mockReturnValue(subject$)` for a `vi.fn(() => subject$)` | `spy.m.mockImplementation(() => subject$)` — the variable is re-read |

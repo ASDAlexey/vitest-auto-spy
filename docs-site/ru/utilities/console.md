@@ -1,6 +1,6 @@
 ---
 title: Спаи над console
-description: Тихие типизированные спаи над глобальным console — ставятся на тест через installConsoleSpies(), снимаются в afterEach и поглощают вывод под охраной от посторонней консоли.
+description: Тихие типизированные спаи над глобальным console — ставятся на тест через useConsoleSpies() или installConsoleSpies(), снимаются в afterEach и поглощают вывод под охраной от посторонней консоли.
 ---
 
 # Спаи над console
@@ -11,26 +11,31 @@ description: Тихие типизированные спаи над глоба�
 никакого лога, который засоряет прогон. Ставьте их тестам, которые ждут вывода, и снимайте обратно:
 
 ```ts
-import { type ConsoleSpies, installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
+import { useConsoleSpies } from 'vitest-auto-spy/console';
 
-let consoleSpies: ConsoleSpies;
-
-beforeEach(() => {
-  consoleSpies = installConsoleSpies();
-});
-
-afterEach(() => restoreConsole());
+const { consoleInfoSpy, consoleWarnSpy } = useConsoleSpies();
 
 it('logs the finished job', () => {
   service.doWork();
 
-  expect(consoleSpies.consoleInfoSpy).toHaveBeenCalledWith('done');
-  expect(consoleSpies.consoleWarnSpy).not.toHaveBeenCalled();
+  expect(consoleInfoSpy).toHaveBeenCalledWith('done');
+  expect(consoleWarnSpy).not.toHaveBeenCalled();
 });
 ```
 
+`useConsoleSpies()` регистрирует `beforeEach(installConsoleSpies)` и `afterEach(restoreConsole)` в
+объемлющем `describe` (или в файле) и возвращает спаи. Хуки он берёт из Vitest, и Bun подставляет
+вместо них свои; на `node:test` и Rstest эту пару пишут в хуках раннера сами:
+
+```ts
+import { installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
+
+beforeEach(() => installConsoleSpies());
+afterEach(() => restoreConsole());
+```
+
 Экспортированные константы — `consoleInfoSpy`, `consoleErrorSpy`, … — те же объекты, что и мешок,
-который возвращает `installConsoleSpies()`, так что `expect(consoleErrorSpy)` — та же проверка. Когда
+который возвращают `useConsoleSpies()` и `installConsoleSpies()`, так что `expect(consoleErrorSpy)` — та же проверка. Когда
 вывода ждут все тесты файла, `installConsoleSpies()` один раз в начале файла делает то же для всего
 файла.
 
@@ -105,6 +110,7 @@ installConsoleSpies(); // поставить заново после сняти�
   так что `consoleErrorSpy` и остальные экспорты остаются живыми до следующей установки — под
   `isolate: false` снятие, которое их забывало, оставляло каждый следующий файл воркера проверять спаи,
   до которых уже ничто не дотягивалось.
+- `useConsoleSpies()` регистрирует пару «поставить / снять» хуками объемлющего блока.
 - `installConsoleSpies()` возвращает полный мешок `ConsoleSpies` — всегда один и тот же — и снова
   сажает его спаи на консоль, если что-то их сняло.
 
@@ -126,9 +132,9 @@ installConsoleSpies(); // поставить заново после сняти�
 Поэтому импорт только строит спаи, а `installConsoleSpies()` ставит те же объекты на консоль:
 
 ```ts
-import { consoleWarnSpy, installConsoleSpies } from 'vitest-auto-spy/console';
+import { consoleWarnSpy, useConsoleSpies } from 'vitest-auto-spy/console';
 
-beforeEach(() => installConsoleSpies()); // для тестов этого файла — или вызовите в начале файла
+useConsoleSpies(); // для тестов этого файла — или installConsoleSpies() в начале файла
 
 it('warns about the deprecated flag', () => {
   service.configure({ legacy: true });

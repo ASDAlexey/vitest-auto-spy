@@ -1071,7 +1071,7 @@ setupAutoSpy({ strayConsole: 'throw' });
 [vitest-auto-spy] "CartService > reports a failed load" wrote to console.error 1 time and nothing absorbed it:
   - console.error: Error: load failed {"id":7}
       at CartService.load (src/app/cart.service.ts:41:15)
-Absorb what the test expects — installConsoleSpies() in a beforeEach, then assert consoleErrorSpy — or fix the code if the output is a defect.
+Absorb what the test expects — useConsoleSpies() in the describe, then assert consoleErrorSpy — or fix the code if the output is a defect.
 ```
 
 Отчёт цитирует метод, первые три строки написанного (по 200 символов, пять вызовов, дальше

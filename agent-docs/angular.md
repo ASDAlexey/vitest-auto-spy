@@ -203,7 +203,10 @@ replaced where nothing would notice it — the refusal now names `computed()` sp
 that driving the signal the computation reads is the way through. An `input()` is refused outright:
 Angular sets an input through the input node rather than the property, so a replaced one breaks the
 host's next write. Drive an input with `await setInputs(fixture, { … })`, or with
-`renderShallow(Component, { inputs: { … } })` for the value it starts at.
+`renderShallow(Component, { inputs: { … } })` for the value it starts at. When every test of a
+describe renders the same component with the same providers, `prepareShallow(Component, opts)` binds
+them once and each test calls `.create({ inputs: { … } })` — the overrides replace a key outright,
+one instance per test.
 
 ### Observers the component constructs itself
 
@@ -511,6 +514,8 @@ provided after it, so it wins over `withXhr()`.
 carries (default `new ProgressEvent('error')`). A module that provides a partial `DOCUMENT` double
 fails Angular's tick (`inject(...).body?.querySelector is not a function`, reported as a doubled
 `DOCUMENT`): pass `{ tick: false }` to `expectRequest` / `expectNoRequest` when the request is already out.
+`provideDocumentDouble()` is not partial and needs no option. A JSON error body is a response:
+`flush(body, { status: 409 })`; `{ error }` on `.error()` is a `ProgressEvent`.
 `flush()` and `error()` are `async` because settling requires letting a microtask run — `await` them,
 and the next line reads the settled value.
 

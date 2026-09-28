@@ -28,20 +28,18 @@ import { createSpyFromClass } from 'vitest-auto-spy/react';
 
 Console spies — `installConsoleSpies()` replaces `console.debug` / `error` / `info` / `log` / `time` /
 `timeEnd` / `trace` / `warn` with silent typed spies, named `console<Method>Spy`. Install them per test
-and take them off after it:
+and take them off after it — `useConsoleSpies()` registers exactly that pair in the enclosing `describe`:
 
 ```ts
-import { type ConsoleSpies, installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
+import { useConsoleSpies } from 'vitest-auto-spy/console';
 
-let consoleSpies: ConsoleSpies;
+const { consoleInfoSpy } = useConsoleSpies();
 
-beforeEach(() => {
-  consoleSpies = installConsoleSpies();
-});
-afterEach(() => restoreConsole());
-
-expect(consoleSpies.consoleInfoSpy).toHaveBeenCalledWith('done'); // the output is silenced, not printed
+expect(consoleInfoSpy).toHaveBeenCalledWith('done'); // the output is silenced, not printed
 ```
+
+It registers Vitest hooks (Bun resolves them to its own); on `node:test` and Rstest write
+`installConsoleSpies()` in a `beforeEach` and `restoreConsole()` in an `afterEach` yourself.
 
 The exported `consoleInfoSpy` & co. are the same objects; `restoreConsole()` keeps them and clears
 their calls. **Do not rely on the import to install them**: it does so once per worker, so under

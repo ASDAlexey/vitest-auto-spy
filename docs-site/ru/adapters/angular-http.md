@@ -204,11 +204,17 @@ await expectRequest('/api/products').error(0, { error: offline });
 expect(failure?.error).toBe(offline);
 ```
 
+`{ error }` — это `ProgressEvent`, как его принимает `TestRequest.error()` из Angular. JSON-тело ошибки,
+которое присылает сервер, — это ответ: `flush({ code: 'taken' }, { status: 409 })` завершает вызов
+ошибкой с этим телом в `HttpErrorResponse.error`.
+
 `{ tick: false }` пропускает tick перед поиском и после ответа. Это для модуля со своим частичным
 `DOCUMENT`: во время tick Angular читает члены настоящего документа, и tick падает с
 `inject(...).body?.querySelector is not a function` — `expectRequest` сообщает об этом как о
 подменённом `DOCUMENT`. Без tick `httpResource()` ничего не отправляет, так что опция подходит для
 вызова `HttpClient`, чей запрос уже ушёл; `expectNoRequest` принимает ту же опцию.
+`provideDocumentDouble()` не нужно ни то, ни другое: его двойник сохраняет все члены настоящего
+документа, tick проходит, а ошибка самого приложения под ним пробрасывается как есть.
 
 ```ts
 const created = expectRequest('/api/products', { method: 'POST' });

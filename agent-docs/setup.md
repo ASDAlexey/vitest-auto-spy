@@ -94,7 +94,11 @@ nothing. Fix it where the stream is subscribed — an error callback or `catchEr
 error. `flushUnhandledObservableErrors()` is the same check by hand: it returns `{ error, test }` (or
 `{ error, outsideTest }`) for each rethrow that threw; assert the errors alone with
 `expect(flushUnhandledObservableErrors()).toMatchObject([{ error: new Error('502') }])` — it checks the
-count and ignores `test`, with no `.map(({ error }) => error)`.
+count and ignores `test`, with no `.map(({ error }) => error)`. A test that deliberately leaves the
+error unhandled asserts it in place instead: `expectUnhandledObservableErrors([{ message: /502/ }])`
+flushes and compares — each entry the error itself, its class, or a message (a string or a pattern),
+in order — and fails with a diff listing what was expected and what was found; no argument asserts
+nothing was left.
 
 **`countStrayTimers()` cannot see a timer scheduled under fake timers, and that does not compose
 away.** `vi.useFakeTimers()` assigns its own `setTimeout` over the tracking wrapper, so everything
@@ -722,7 +726,7 @@ frame outside `node_modules`, and naming the spy that absorbs it:
 [vitest-auto-spy] "CartService > reports a failed load" wrote to console.error 1 time and nothing absorbed it:
   - console.error: Error: load failed
       at CartService.load (src/app/cart.service.ts:41:15)
-Absorb what the test expects — installConsoleSpies() in a beforeEach, then assert consoleErrorSpy — or fix the code if the output is a defect.
+Absorb what the test expects — useConsoleSpies() in the describe, then assert consoleErrorSpy — or fix the code if the output is a defect.
 Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_16-console-output-nothing-absorbed
 ```
 
@@ -748,7 +752,7 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_16-console-ou
   `It is reported at the end of b.spec.ts: the file-end check of a.spec.ts did not run.`
 - Every console method a test replaced is put back after it; one a file replaced, after the file.
 - Under the guard, **importing `vitest-auto-spy/console` installs nothing** — call
-  `installConsoleSpies()` in a `beforeEach` (or at the top of the file). Spies an import installed
+  `useConsoleSpies()` in the `describe` (or `installConsoleSpies()` at the top of the file). Spies an import installed
   before the guard armed are taken off.
 - `strayConsole: { allow: ['…', /…/] }` is the last resort, for a line from a dependency no spec can
   reach — the import-time report offers it, with the pattern, only when the quoted frame is inside

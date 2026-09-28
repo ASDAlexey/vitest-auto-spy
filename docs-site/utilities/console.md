@@ -1,6 +1,6 @@
 ---
 title: Console spies
-description: Silent, typed spies over the global console — installed per test with installConsoleSpies(), restored in afterEach, and what absorbs output under the stray-console guard.
+description: Silent, typed spies over the global console — installed per test with useConsoleSpies() or installConsoleSpies(), restored in afterEach, and what absorbs output under the stray-console guard.
 ---
 
 # Console spies
@@ -11,26 +11,32 @@ ready to assert — no `vi.spyOn(console, 'info')` boilerplate in every suite, n
 the test run. Install them for the tests that expect output, and take them off again:
 
 ```ts
-import { type ConsoleSpies, installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
+import { useConsoleSpies } from 'vitest-auto-spy/console';
 
-let consoleSpies: ConsoleSpies;
-
-beforeEach(() => {
-  consoleSpies = installConsoleSpies();
-});
-
-afterEach(() => restoreConsole());
+const { consoleInfoSpy, consoleWarnSpy } = useConsoleSpies();
 
 it('logs the finished job', () => {
   service.doWork();
 
-  expect(consoleSpies.consoleInfoSpy).toHaveBeenCalledWith('done');
-  expect(consoleSpies.consoleWarnSpy).not.toHaveBeenCalled();
+  expect(consoleInfoSpy).toHaveBeenCalledWith('done');
+  expect(consoleWarnSpy).not.toHaveBeenCalled();
 });
 ```
 
+`useConsoleSpies()` registers `beforeEach(installConsoleSpies)` and `afterEach(restoreConsole)` in the
+enclosing `describe` (or the file) and returns the spies. It registers Vitest hooks, which Bun
+resolves to its own; on `node:test` and Rstest write that pair in the runner's hooks yourself:
+
+```ts
+import { installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
+
+beforeEach(() => installConsoleSpies());
+afterEach(() => restoreConsole());
+```
+
 The exported constants — `consoleInfoSpy`, `consoleErrorSpy`, … — are the same objects as the bag
-`installConsoleSpies()` returns, so `expect(consoleErrorSpy)` is the same assertion. When every test
+`useConsoleSpies()` and `installConsoleSpies()` return, so `expect(consoleErrorSpy)` is the same
+assertion. When every test
 of the file expects output, `installConsoleSpies()` once at the top of the file does the same for the
 whole file.
 
@@ -105,6 +111,7 @@ installConsoleSpies(); // re-install after a restore (idempotent otherwise)
   themselves are kept, so `consoleErrorSpy` and the other exports stay live for the next install —
   under `isolate: false` a restore that forgot them left every later file of the worker asserting on
   spies nothing could reach.
+- `useConsoleSpies()` registers the install / restore pair as hooks of the enclosing block.
 - `installConsoleSpies()` returns the full `ConsoleSpies` bag — always the same one — and puts its
   spies back on the console if something took them off.
 
@@ -125,9 +132,9 @@ there for every later file of the worker — silencing exactly the output the gu
 the import only builds the spies, and `installConsoleSpies()` puts the same objects on the console:
 
 ```ts
-import { consoleWarnSpy, installConsoleSpies } from 'vitest-auto-spy/console';
+import { consoleWarnSpy, useConsoleSpies } from 'vitest-auto-spy/console';
 
-beforeEach(() => installConsoleSpies()); // this file's tests — or call it at the top of the file
+useConsoleSpies(); // this file's tests — or installConsoleSpies() at the top of the file
 
 it('warns about the deprecated flag', () => {
   service.configure({ legacy: true });
