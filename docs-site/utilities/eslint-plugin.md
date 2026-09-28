@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Forty-nine flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the eight that report a cost or a heuristic, with the dial documented and the false-positive cases named.
+description: Fifty flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the nine that report a cost or a heuristic, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin
@@ -22,7 +22,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the forty-nine are about a dialect you may not speak.
+Vitest-only project asks — four of the fifty are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -58,7 +58,7 @@ There is a second config, `configs.typeErrors` — the subset whose findings are
 red CI. Both of its rules are already `error` in `recommended`, so a project adopting the plugin
 outright needs only the one above.
 
-`configs.strict` is `recommended` with its eight `warn` rules raised to `error` — the config for a
+`configs.strict` is `recommended` with its nine `warn` rules raised to `error` — the config for a
 suite that has adopted the plugin and wants every finding to stop the build. `no-compile-components`
 and `no-redundant-mock-reset` still report nothing until their options describe the builder and the
 runner.
@@ -83,9 +83,9 @@ In a monorepo, one block at the root covers every package as long as the glob is
 `'**/*.spec.ts'` matches `packages/*/src/**` fine. Add a second block only where one package's specs
 need different severities.
 
-### 3. Type information is optional, and three rules want it {#_3-type-information-is-optional-and-one-rule-wants-it}
+### 3. Type information is optional, and four rules want it {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Forty-six of the forty-nine are syntactic: they read the file's own AST and never ask the type checker.
+Forty-six of the fifty are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -95,13 +95,14 @@ code](#the-three-rules-that-can-report-on-correct-code): what a rule cannot see 
 cannot know.
 
 [`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types),
-[`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value) and
-[`no-unknown-use-value-key`](/utilities/eslint-rules#no-unknown-use-value-key) are the exceptions, and
-all three **need** a program: without one they report nothing at all rather than falling back to the
+[`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value),
+[`no-unknown-use-value-key`](/utilities/eslint-rules#no-unknown-use-value-key) and
+[`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value) are the exceptions, and
+all four **need** a program: without one they report nothing at all rather than falling back to the
 syntax. Half of the first — the `Object.getPrototypeOf` escape — keeps working either way.
 [`no-compile-components`](/utilities/eslint-rules#no-compile-components) is syntactic, and waits the
 same way for a fact no file holds — which builder the project has — until `{ builder:
-'inline-resources' }` states it. Turn the type-aware three on where your specs are already in a project:
+'inline-resources' }` states it. Turn the type-aware four on where your specs are already in a project:
 
 ```js
 languageOptions: {
@@ -111,7 +112,7 @@ languageOptions: {
 
 ### 4. What the first run looks like
 
-Every rule but eight is an `error`, so on an existing suite the first run is likely to be red — that
+Every rule but nine is an `error`, so on an existing suite the first run is likely to be red — that
 is the point of the default, not a misconfiguration. The exceptions are
 [`prefer-render-shallow`](#the-render-nobody-reads), which reports a cost rather than a defect, and
 [`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double),
@@ -120,7 +121,7 @@ is the point of the default, not a misconfiguration. The exceptions are
 defect on heuristic evidence, and [`prefer-create-mock`](/utilities/eslint-rules#prefer-create-mock),
 [`prefer-set-inputs`](/utilities/eslint-rules#prefer-set-inputs) and
 [`no-unasserted-argument`](/utilities/eslint-rules#no-unasserted-argument), whose
-repair is a migration rather than a line to swap, and [`prefer-spy-on-own-method`](/utilities/eslint-rules#prefer-spy-on-own-method), which names a shorter spelling of a correct call; all eight show up in the output without holding the build. Two things make the
+repair is a migration rather than a line to swap, and [`prefer-spy-on-own-method`](/utilities/eslint-rules#prefer-spy-on-own-method), which names a shorter spelling of a correct call, and [`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value), which names a matcher that fails more legibly; all nine show up in the output without holding the build. Two things make the
 first pass short:
 
 ```bash
@@ -131,7 +132,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the forty-nine apply to you {#which-of-the-twenty-apply-to-you}
+## Which of the fifty apply to you {#which-of-the-twenty-apply-to-you}
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -141,7 +142,7 @@ principle — it is that they cannot fire on your code.
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the forty-five core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                           |
-| migrating off `jasmine-auto-spies`         | all forty-nine, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                    |
+| migrating off `jasmine-auto-spies`         | all fifty, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                         |
 
 ### If you never used Jasmine
 
@@ -211,7 +212,7 @@ that file needs). See [Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All forty-nine apply, and the four in the last group are the ones written for you. Two are pure
+All fifty apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -226,12 +227,12 @@ autofix. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Rules
 
-Every rule is an `error` bar eight. Until 4.0.0 this table was a graded mix of `error` / `warn` / `off`,
+Every rule is an `error` bar nine. Until 4.0.0 this table was a graded mix of `error` / `warn` / `off`,
 which meant the plugin decided how much each project cared; a `warn` that nothing reads is `off` with
 extra output, and which findings block a merge is a project's call, not a library's. Turning one down
 is [one line](#turn-one-rule-down).
 
-One of the eight exceptions is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a
+One of the nine exceptions is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a
 **`warn`**, and its reason is the kind of thing it says rather than how much it matters. Every other rule in these
 tables names something wrong or dead — a double that drifts from its class, an assertion that never
 runs, a provider the container already dropped, a schema guarding nothing. That one names a file that
@@ -321,6 +322,7 @@ The ways a provider — or a spy on the component itself — ends up not being w
 | [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                                                                                                                                                                                                            | —       |  red _(by construction)_  |
 | [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                                                                                                                                                                                                                              | suggest |           green           |
 | [`prefer-set-inputs`](/utilities/eslint-rules#prefer-set-inputs)                                   | `fixture.componentRef.setInput('title', v)` → `await setInputs(fixture, { title: v })`, which resolves the name before it writes and types the value                                                                                                                                                                                | suggest |           green           |
+| [`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value)               | `expect(component.total()).toBe(3)` → `expect(component.total).toHaveSignalValue(3)`, which names the signal in the failure and refuses a non-signal; **type-aware**                                                                                                                                                                | `--fix` |            red            |
 | [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array, or one a `TestBed.overrideProvider` replaces → the earlier one never runs; the exact duplicate can be deleted                                                                                                                                                                             | suggest |           green           |
 | [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                                                                                                                                                                                                                           | —       |            red            |
 | [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                     | `schemas` on a testing module that declares nothing → the schema applies to nothing                                                                                                                                                                                                                                                 | —       | green _(by construction)_ |
@@ -1341,7 +1343,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Which rules fix, and why so few
 
-Six of the forty-nine rewrite the source on their own, nineteen offer the rewrite as a suggestion, and
+Eight of the fifty rewrite the source on their own, nineteen offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops

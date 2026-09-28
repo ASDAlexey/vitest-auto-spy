@@ -441,6 +441,29 @@ await setInputs(fixture, { step: 3 });
 await expect(emitted).resolves.toBe(30); // the effect the new step started has already run
 ```
 
+### The same options in every test — `prepareShallow`
+
+A describe that renders one component usually repeats one options object in every test: the same
+providers, the same `keepTemplate`, and only the inputs changing. `prepareShallow` binds the component
+and those options once, and `create()` runs the `renderShallow` sequence for the test it is called in:
+
+```ts
+import { prepareShallow, provideAutoSpy } from 'vitest-auto-spy/angular';
+
+const prepare = prepareShallow(TaskListComponent, { providers: [provideAutoSpy(TaskService)] });
+
+it.each([{ filter: 'open' }, { filter: 'done' }])('renders the $filter tasks', ({ filter }) => {
+  const { fixture } = prepare.create({ inputs: { filter } });
+  // …
+});
+```
+
+An override replaces its key outright rather than merging into it: `create({ providers: [...] })`
+drops the prepared providers, so a one-off provider list repeats the ones it still needs. One
+`create()` per test — the runner resets the `TestBed` between tests, and Angular refuses a second
+`configureTestingModule` on a module that is already instantiated, so a second instance inside one
+test needs a `TestBed.resetTestingModule()` first.
+
 ### What it saves, measured
 
 On a private Angular 22 zoneless suite (784 specs, the AOT `@angular/build:unit-test` builder), three
@@ -1630,6 +1653,12 @@ that is not a zero-argument getter, so the missing-parentheses mistake fails ins
 passing. The comparison is `toEqual`'s: an `undefined` property, an array hole and the object's class
 do not count. `{ strict: true }` compares the way `toStrictEqual` does, so a spec already on
 `expect(sig()).toStrictEqual(x)` keeps its precision when it moves to the matcher.
+
+A suite that wants that precision everywhere says so once: `registerSignalMatchers({ strict: true })`
+makes every `toHaveSignalValue` of the run compare like `toStrictEqual`, and a single assertion opts
+back out with `{ strict: false }`. The ESLint rule
+[`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value) rewrites the
+`expect(component.total()).toBe(3)` a suite already has into the matcher.
 
 A spy is a zero-argument callable too, so the matcher recognises one and refuses it **without
 reading it** — `expect(service.load).toHaveSignalValue(undefined)` would otherwise pass on the

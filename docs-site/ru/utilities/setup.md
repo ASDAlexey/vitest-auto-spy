@@ -271,6 +271,24 @@ rxjs rethrows an error no subscriber handles from a setTimeout, where it fails n
 через `toMatchObject`: он проверяет количество и не смотрит на `test` —
 `expect(flushUnhandledObservableErrors()).toMatchObject([{ error: new Error('502') }])`.
 
+Тест, который оставляет ошибку необработанной намеренно — путь с исчерпанными ретраями, поток, на
+который компонент не вешает обработчик ошибок, — проверяет её прямо на месте через
+`expectUnhandledObservableErrors`:
+
+```ts
+import { expectUnhandledObservableErrors } from 'vitest-auto-spy/setup';
+
+service.refresh(); // поток падает с 502, и никто его не обрабатывает
+
+expectUnhandledObservableErrors([{ message: /502/ }]);
+```
+
+Он выполняет тот же сброс и сравнивает результат по порядку со списком: каждый элемент — сама ошибка
+(то же имя и сообщение), её класс (`TypeError`, ваш собственный `ApiError`) или `{ message }` со строкой или шаблоном.
+Недостающая, лишняя или не на своём месте ошибка валит тест, и оба списка печатаются рядом, а
+сброшенные элементы возвращаются, чтобы их можно было рассмотреть подробнее. Без аргумента он
+проверяет, что ничего не осталось, — строка в конце теста, когда смысл именно в отсутствии ошибок.
+
 ### Вместе с `--detect-async-leaks` из Vitest 4.1 {#with-vitest-4-1-s-detect-async-leaks}
 
 ::: warning Они гасят друг друга, и побеждает тихий

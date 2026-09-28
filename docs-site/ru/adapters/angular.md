@@ -408,6 +408,30 @@ await setInputs(fixture, { step: 3 });
 await expect(emitted).resolves.toBe(30); // эффект, который запустил новый step, уже отработал
 ```
 
+### Одни и те же опции в каждом тесте — `prepareShallow` {#the-same-options-in-every-test-—-prepareshallow}
+
+`describe`, который рендерит один компонент, обычно повторяет в каждом тесте один и тот же объект
+опций: те же провайдеры, тот же `keepTemplate`, и меняются только входы. `prepareShallow` связывает
+компонент и эти опции один раз, а `create()` прогоняет последовательность `renderShallow` для того
+теста, в котором вызван:
+
+```ts
+import { prepareShallow, provideAutoSpy } from 'vitest-auto-spy/angular';
+
+const prepare = prepareShallow(TaskListComponent, { providers: [provideAutoSpy(TaskService)] });
+
+it.each([{ filter: 'open' }, { filter: 'done' }])('renders the $filter tasks', ({ filter }) => {
+  const { fixture } = prepare.create({ inputs: { filter } });
+  // …
+});
+```
+
+Переопределение заменяет свой ключ целиком, а не сливается с ним: `create({ providers: [...] })`
+отбрасывает подготовленные провайдеры, так что разовый список провайдеров повторяет те, что ему ещё
+нужны. Один `create()` на тест — раннер сбрасывает `TestBed` между тестами, а Angular отказывает во
+втором `configureTestingModule` уже созданному модулю, поэтому второму экземпляру внутри одного теста
+сначала нужен `TestBed.resetTestingModule()`.
+
 ### Сколько это экономит — по замерам {#what-it-saves-measured}
 
 На приватной zoneless-сюите на Angular 22 (784 спеки, AOT-билдер `@angular/build:unit-test`) три
@@ -1555,6 +1579,12 @@ expect(component.buttonConfig).toHaveSignalValue({ label: 'Save', color: undefin
 втихую. Сравнение — как у `toEqual`: свойство со значением `undefined`, дырка в массиве и класс объекта
 не учитываются. `{ strict: true }` сравнивает так, как `toStrictEqual`, поэтому спека, которая уже
 стоит на `expect(sig()).toStrictEqual(x)`, не теряет точности, переходя на матчер.
+
+Сюита, которой эта точность нужна везде, говорит об этом один раз: `registerSignalMatchers({ strict: true })`
+заставляет каждый `toHaveSignalValue` прогона сравнивать как `toStrictEqual`, а отдельная проверка
+возвращается к прежнему сравнению через `{ strict: false }`. ESLint-правило
+[`prefer-to-have-signal-value`](/ru/utilities/eslint-rules#prefer-to-have-signal-value) переписывает
+уже написанные в сюите `expect(component.total()).toBe(3)` на матчер.
 
 Спай — тоже вызываемое значение без аргументов, поэтому матчер распознаёт его и отвергает **не
 читая**: иначе `expect(service.load).toHaveSignalValue(undefined)` прошёл бы по `undefined`, который

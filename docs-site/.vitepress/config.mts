@@ -320,6 +320,8 @@ export default defineConfig({
           'window listener leaks into next test file, global assignment leaks between tests, ' +
           'mock web worker vitest, jsdom Worker is not defined, expect observable emits exactly these values, ' +
           'test fixture outside its type without cast, ' +
+          'vitest console spy beforeEach afterEach restore, expect unhandled rxjs error in test, ' +
+          'angular signal toBe eslint toHaveSignalValue, reuse renderShallow options it.each, ' +
           'mock requestAnimationFrame vitest, jsdom getBoundingClientRect returns zeros, mock getBoundingClientRect, ' +
           'fixture.nativeElement is any, nativeElement without cast, typed querySelector angular test, ' +
           'console output fails test which file, NG0912 component id collision in tests, ' +

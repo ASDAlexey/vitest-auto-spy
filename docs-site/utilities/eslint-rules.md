@@ -1,6 +1,6 @@
 ---
 title: ESLint rules
-description: A reference section for each of the forty-nine rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
+description: A reference section for each of the fifty rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
 ---
 
 # ESLint rules

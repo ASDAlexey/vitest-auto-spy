@@ -264,6 +264,24 @@ the pending rethrows and returns `{ error, test }` for each that threw — `{ er
 one scheduled outside a test. To assert the errors alone, compare with `toMatchObject`, which checks
 the count and ignores `test`: `expect(flushUnhandledObservableErrors()).toMatchObject([{ error: new Error('502') }])`.
 
+A test that leaves an error unhandled on purpose — the retry-exhausted path, a stream the component
+never subscribes an error handler to — asserts it where it happens with
+`expectUnhandledObservableErrors`:
+
+```ts
+import { expectUnhandledObservableErrors } from 'vitest-auto-spy/setup';
+
+service.refresh(); // the stream errors with a 502 and nothing handles it
+
+expectUnhandledObservableErrors([{ message: /502/ }]);
+```
+
+It runs the same flush and compares what came out, in order, against the list: each entry is the
+error itself (same name and message), its class (`TypeError`, your own `ApiError`), or `{ message }` with a string
+or a pattern. Anything missing, extra or out of order fails the test with both lists side by side,
+and the flushed entries come back for a closer look. Called with no argument, it asserts that
+nothing was left — the line to end a test with when the absence is the point.
+
 ### With Vitest 4.1's `--detect-async-leaks`
 
 ::: warning The two cancel each other out, and the quiet one wins

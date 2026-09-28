@@ -56,6 +56,7 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | `no-unregistered-inject-spy` | `error` | — | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler |
 | `prefer-render-shallow` | `warn` | suggest | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children |
 | `prefer-set-inputs` | `warn` | suggest | a run of `fixture.componentRef.setInput('title', v)` on one fixture → `await setInputs(fixture, { title: v })` — the name is resolved against the compiled definition before the first write (an undeclared one is an `NG0303` and no change) and the value is typed. The run collapses into one call and a `detectChanges()` under it goes; offered, not applied, because `stable()` ticks and a zone.js suite answers that with `NG0101` |
+| `prefer-to-have-signal-value` | `warn` | `--fix` | `expect(component.total()).toBe(3)` / `toEqual(…)` → `expect(component.total).toHaveSignalValue(3)`, `toStrictEqual` → `{ strict: true }`; the matcher names the signal in the failure and refuses a value that is not one. **Type-aware**: the signal is recognised by Angular's brand on its type, so methods, functions and getters are never reported, and without `parserOptions.project` it reports nothing |
 | `prefer-spy-on-own-method` | `warn` | `--fix` / suggest | `createSpyFromInstance(x, { onlyMethodsToSpyOn: ['m'], passthrough: true })` read for `m` alone — `.m` on the call, `const { m } = …`, a bare statement, or a name read only as `v.m` → `spyOnOwnMethod(x, 'm')`; the same whitelist with `returns: { m: undefined }` → `spyOnVoidMethod(x, 'm')`. Both fix, import and all; a `Spy<X>` annotation becomes `Spy<X>['m']` in a suggestion. A bare `returns: { m: undefined }` seed is a suggestion, offered only on a real event or element — `new MouseEvent(…)`, `document.createElement(…)`, `fixture.nativeElement` — never on a double |
 | `prefer-observer-stub` | `error` | — | a hand-rolled observer global → `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()`; the manual save-and-restore goes too, `restoreMockedProps()` runs the undo |
 | `no-hand-assigned-global` | `error` | `--fix` | a double assigned to a global (`global.fetch = vi.fn()`, `window.matchMedia = vi.fn()`, `window.localStorage = { getItem: vi.fn() }`) with no restore in `afterEach` / `afterAll` / `onTestFinished` → `mockValueProp(globalThis, name, value)` or `vi.stubGlobal` + `unstubGlobals`; `blockNetwork()` for network globals, `stubWebStorage()` for the storages, `stubWorker({ respond })` for `Worker`; the three observers stay with `prefer-observer-stub`; any value written into an imported object (`environment.production = true`) → `mockValueProp(environment, 'production', true)`, fixed in a test or `beforeEach` |
@@ -84,14 +85,14 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | `no-save-arguments-by-value` | `error` | — | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state |
 | `prefer-native-spy-api` | `error` | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — turn it on for the last mile off the jasmine shim |
 
-Forty-nine rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`,
+Fifty rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`,
 `no-stub-class-double`, `no-structural-double`, `prefer-create-mock`, `no-instance-lifecycle-spy`,
-`prefer-set-inputs`, `no-unasserted-argument` and `prefer-spy-on-own-method`**; six fix on their own, nineteen offer suggestions. Forty-six are syntactic; `no-private-member-access`, `no-mistyped-use-value` and
-`no-unknown-use-value-key` read types, and all three report nothing at all without `parserOptions.project` / `projectService`
+`prefer-set-inputs`, `no-unasserted-argument`, `prefer-spy-on-own-method` and `prefer-to-have-signal-value`**; eight fix on their own, nineteen offer suggestions. Forty-six are syntactic; `no-private-member-access`, `no-mistyped-use-value`,
+`no-unknown-use-value-key` and `prefer-to-have-signal-value` read types, and all four report nothing at all without `parserOptions.project` / `projectService`
 rather than guessing. `no-compile-components` waits the same way for a fact no file holds — which
 builder the project has — and reports nothing until `{ builder: 'inline-resources' }` states it. The config used to be a graded mix of `error` / `warn` / `off`, which decided for the
 consumer how much each finding mattered — a `warn` nothing reads is `off` with extra output. The
-eight `warn`s left are not judgements about how much a finding matters. `prefer-render-shallow` is
+nine `warn`s left are not judgements about how much a finding matters. `prefer-render-shallow` is
 about the _kind_ of finding: every other rule names something wrong or dead, while this one names a
 file that could render more cheaply, and `renderShallow` is a migration a suite either takes or does
 not. At `error` the plugin would gate that migration — 491 findings across 398 of one consumer's
