@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.47.0] - 2026-09-28
+
 ### Added
 
 - **`prefer-to-have-signal-value`** (ESLint plugin, `warn`, type-aware, autofix) rewrites
@@ -9276,7 +9278,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.46.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.47.0...HEAD
+[5.47.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.46.0...v5.47.0
 [5.46.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.45.0...v5.46.0
 [5.45.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.44.0...v5.45.0
 [5.44.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.43.0...v5.44.0
