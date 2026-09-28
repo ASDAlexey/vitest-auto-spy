@@ -26,7 +26,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { injectSpy, provideAutoSpy } from '../angular';
 import { disableAngularDiagnostics, enableAngularDiagnostics } from '../angular-diagnostics';
-import { renderShallow } from './render-shallow';
+import { prepareShallow, renderShallow } from './render-shallow';
 
 @Injectable({ providedIn: 'root' })
 class LabelService {
@@ -519,6 +519,37 @@ describe('the schema it configures', () => {
     } finally {
       disableAngularDiagnostics();
     }
+  });
+});
+
+describe('prepareShallow', () => {
+  it('creates one instance per test from the prepared options, shallow as renderShallow', () => {
+    const prepare = prepareShallow(HostComponent, { inputs: { id: 42 } });
+
+    const { fixture, component } = prepare.create();
+
+    expect(fixture.componentInstance).toBe(component);
+    expect(component.initialized).toBe(true);
+    expect(component.label()).toBe('real-42');
+    expect(childInstances).toBe(0);
+  });
+
+  it('applies per-create overrides by key', () => {
+    const prepare = prepareShallow(HostComponent, { inputs: { id: 1 } });
+
+    expect(prepare.create({ inputs: { id: 42 } }).component.label()).toBe('real-42');
+  });
+
+  it('lets a create skip the first change detection', () => {
+    const prepare = prepareShallow(HostComponent, { inputs: { id: 42 } });
+
+    expect(prepare.create({ detectChanges: false }).component.initialized).toBe(false);
+  });
+
+  it('prepares with no options at all', () => {
+    const { component } = prepareShallow(BareComponent).create();
+
+    expect(component).toBeInstanceOf(BareComponent);
   });
 });
 

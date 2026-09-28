@@ -12,7 +12,14 @@
  */
 export { createWithAutoSpies, type AutoSpiedInstance, type CreateWithAutoSpiesOptions, type SpyRegistry } from './create-with-auto-spies';
 export { hostElement, queryElement, type ElementConstructor, type NativeElementHolder } from './host-element';
-export { renderShallow, type ComponentInputs, type RenderShallowOptions, type ShallowRender } from './render-shallow';
+export {
+  prepareShallow,
+  renderShallow,
+  type ComponentInputs,
+  type PreparedShallow,
+  type RenderShallowOptions,
+  type ShallowRender,
+} from './render-shallow';
 export { runEffect } from './run-effect';
 export { setInputs } from './set-inputs';
 export { settleResource, type ResourceStatusLike, type SettleResourceOptions } from './settle-resource';

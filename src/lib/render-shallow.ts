@@ -362,3 +362,34 @@ export function renderShallow<T>(component: Type<T>, options: RenderShallowOptio
 
   return { fixture, component: fixture.componentInstance };
 }
+
+/** What {@link prepareShallow} hands back: a bound component plus its shared options. */
+export interface PreparedShallow<T> {
+  /** Create one instance from the prepared options, with `overrides` applied per key. */
+  create(overrides?: RenderShallowOptions<T>): ShallowRender<T>;
+}
+
+/**
+ * Bind a component and the options every test of a suite repeats, and create one instance per test.
+ *
+ * `create()` runs the same sequence `renderShallow` does, with the per-call `overrides` replacing a
+ * key outright — `inputs` for an `it.each`, `providers` for a one-off case. The runner resets the
+ * TestBed between tests on its own; two `create()` calls inside a single test need a manual
+ * `TestBed.resetTestingModule()`, because Angular refuses a second `configureTestingModule` on an
+ * already-instantiated module.
+ *
+ * ```ts
+ * const prepare = prepareShallow(TaskListComponent, { providers: [provideAutoSpy(TaskService)] });
+ *
+ * it.each([{ id: 1 }, { id: 2 }])('loads task $id', ({ id }) => {
+ *   const { component } = prepare.create({ inputs: { taskId: id } });
+ * });
+ * ```
+ */
+export function prepareShallow<T>(component: Type<T>, options: RenderShallowOptions<T> = {}): PreparedShallow<T> {
+  return {
+    create(overrides: RenderShallowOptions<T> = {}): ShallowRender<T> {
+      return renderShallow(component, { ...options, ...overrides });
+    },
+  };
+}
