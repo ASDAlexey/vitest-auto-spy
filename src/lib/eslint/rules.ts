@@ -73,6 +73,7 @@ import { preferRenderShallow } from './prefer-render-shallow';
 import { preferToHaveSignalValue } from './prefer-to-have-signal-value';
 import { noPrivateMemberAccess } from './private-access';
 import { preferProvideAutoSpy } from './provide-auto-spy';
+import { noRealComponentProvider } from './real-component-provider';
 import { noReflectMemberAccess } from './reflect-access';
 import { preferProvideActivatedRoute } from './route-double';
 import type { RuleModule } from './rule-types';
@@ -114,6 +115,7 @@ export const rules: Record<string, RuleModule> = {
   'no-dead-schemas': noDeadSchemas,
   'no-import-time-spread': noImportTimeSpread,
   'no-unregistered-inject-spy': noUnregisteredInjectSpy,
+  'no-real-component-provider': noRealComponentProvider,
   'prefer-render-shallow': preferRenderShallow,
   'prefer-to-have-signal-value': preferToHaveSignalValue,
   'prefer-observer-stub': preferObserverStub,
