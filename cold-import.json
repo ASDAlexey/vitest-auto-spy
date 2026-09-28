@@ -1,5 +1,5 @@
 {
-  "measuredOn": "2026-09-27",
+  "measuredOn": "2026-09-28",
   "node": "v24.19.0",
   "tolerance": {
     "ratio": 0.02,
@@ -12,11 +12,11 @@
     },
     "./angular": {
       "modules": 3,
-      "bytes": 244842
+      "bytes": 245031
     },
     "./angular-http": {
       "modules": 8,
-      "bytes": 32313
+      "bytes": 32656
     },
     "./angular-router": {
       "modules": 9,
@@ -32,7 +32,7 @@
     },
     "./angular/matchers": {
       "modules": 5,
-      "bytes": 23887
+      "bytes": 23960
     },
     "./bun": {
       "modules": 15,
@@ -40,11 +40,11 @@
     },
     "./bun-angular": {
       "modules": 19,
-      "bytes": 215259
+      "bytes": 215448
     },
     "./console": {
       "modules": 13,
-      "bytes": 93702
+      "bytes": 93970
     },
     "./diagnostics": {
       "modules": 2,
@@ -56,7 +56,7 @@
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 250774
+      "bytes": 260521
     },
     "./jasmine": {
       "modules": 16,
@@ -96,7 +96,7 @@
     },
     "./setup": {
       "modules": 2,
-      "bytes": 165261
+      "bytes": 167218
     },
     "./signal-forms": {
       "modules": 3,
