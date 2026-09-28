@@ -2,22 +2,18 @@
  * `vitest-auto-spy/console` — silent, fully-typed spies over the global `console`.
  *
  * ```ts
- * import { type ConsoleSpies, installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
+ * import { useConsoleSpies } from 'vitest-auto-spy/console';
  *
- * let consoleSpies: ConsoleSpies;
- *
- * beforeEach(() => {
- *   consoleSpies = installConsoleSpies();
- * });
- * afterEach(() => restoreConsole());
+ * const { consoleErrorSpy } = useConsoleSpies();
  *
  * it('reports the failure', () => {
  *   service.doWork();
- *   expect(consoleSpies.consoleErrorSpy).toHaveBeenCalledWith('boom');
+ *   expect(consoleErrorSpy).toHaveBeenCalledWith('boom');
  * });
  * ```
  *
- * The exported `consoleErrorSpy` & co. are the same objects. Importing the entry also installs them,
+ * `useConsoleSpies()` registers the `installConsoleSpies()` / `restoreConsole()` hook pair; on `node:test`
+ * and Rstest register that pair yourself. The exported `consoleErrorSpy` & co. are the same objects. Importing the entry also installs them,
  * once per worker — unless `setupAutoSpy({ strayConsole })` owns the console, where it installs nothing.
  */
 import { consoleSpiesForImport } from './lib/console-spy';
@@ -36,5 +32,5 @@ export const {
   consoleWarnSpy,
 } = consoleSpiesForImport();
 
-export { consoleOutput, installConsoleSpies, resetConsoleSpies, restoreConsole } from './lib/console-spy';
+export { consoleOutput, installConsoleSpies, resetConsoleSpies, restoreConsole, useConsoleSpies } from './lib/console-spy';
 export type { ConsoleChannel, ConsoleMethodSpy, ConsoleOutput, ConsoleSpies } from './lib/console-spy';

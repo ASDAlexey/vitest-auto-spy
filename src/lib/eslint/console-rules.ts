@@ -241,6 +241,7 @@ export const noConsoleInSpec = defineRule({
 
 const CONSOLE_ENTRIES = new Set(['vitest-auto-spy/console', 'vitest-auto-spies/console']);
 const CONSOLE_SPY_EXPORT = /^console\w+Spy$/;
+const INSTALLERS: ReadonlySet<string> = new Set(['installConsoleSpies', 'useConsoleSpies']);
 
 /** Whether an import takes the entry for its install: bare, a namespace, or one of the spy constants. */
 function leansOnImportInstall(node: EsNode): boolean {
@@ -276,8 +277,8 @@ export const noImportTimeConsoleSpies = defineRule({
   messages: {
     noImportTimeConsoleSpies:
       '`{{source}}` is imported for its install side effect, which runs once per worker, so under `isolate: false` it ' +
-      'silences every later file too. Install the spies here: `beforeEach(() => installConsoleSpies())` with ' +
-      '`afterEach(() => restoreConsole())`.',
+      'silences every later file too. Install the spies here: `useConsoleSpies()` in the describe, or ' +
+      '`beforeEach(() => installConsoleSpies())` with `afterEach(() => restoreConsole())`.',
   },
   create: (context) => {
     const imports: EsNode[] = [];
@@ -290,7 +291,7 @@ export const noImportTimeConsoleSpies = defineRule({
         }
       },
       CallExpression: (node: EsCallExpression): void => {
-        installs ||= [node.callee, ...node.arguments].some((part) => nameOf(part) === 'installConsoleSpies');
+        installs ||= [node.callee, ...node.arguments].some((part) => INSTALLERS.has(nameOf(part) ?? ''));
       },
       'Program:exit': (): void => {
         if (!installs) {

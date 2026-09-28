@@ -25,6 +25,7 @@ import {
   installConsoleSpies,
   resetConsoleSpies,
   restoreConsole,
+  useConsoleSpies,
 } from '../console';
 
 describe('the exported spies', () => {
@@ -66,6 +67,13 @@ describe('installConsoleSpies', () => {
   it('takes nothing — silence is the one behaviour there is', () => {
     // @ts-expect-error -- there is nothing to configure
     installConsoleSpies({ silent: false });
+  });
+});
+
+describe('useConsoleSpies', () => {
+  it('takes nothing and hands back the same bag installConsoleSpies() does', () => {
+    expectTypeOf(useConsoleSpies).parameters.toEqualTypeOf<[]>();
+    expectTypeOf(useConsoleSpies()).toEqualTypeOf<ConsoleSpies>();
   });
 });
 

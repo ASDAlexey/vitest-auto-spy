@@ -285,7 +285,7 @@ describe('the guard on a stand-in console', () => {
     expect(message).toContain('console.log (while importing): while importing');
     expect(message).toMatch(/console\.warn \(during ".*"\): inside a test whose afterEach never ran/);
     expect(message).toContain('before any hook — no spy can absorb it');
-    expect(message).toContain('Absorb what the test expects — installConsoleSpies() in a beforeEach, then assert consoleWarnSpy');
+    expect(message).toContain('Absorb what the test expects — useConsoleSpies() in the describe, then assert consoleWarnSpy');
     expect(message).toMatch(/\nDocs: \S+#_16-console-output-nothing-absorbed$/);
   });
 
@@ -498,7 +498,7 @@ describe('the guard on a stand-in console', () => {
     globalThis.__vitestAutoSpyResetConsoleSpies__ = undefined;
 
     expect(message).toMatch(/Importing vitest-auto-spy\/console installs nothing under strayConsole/);
-    expect(message).toContain('installConsoleSpies() in a beforeEach, then assert its spies');
+    expect(message).toContain('useConsoleSpies() in the describe, then assert its spies');
     expect(describeStrayConsole({ calls: [], total: 1 }, undefined)).not.toMatch(/installs nothing/);
   });
 
@@ -523,7 +523,7 @@ describe('the guard on a stand-in console', () => {
     const message = thrownBy(() => reportTestConsole(guard));
 
     expect(message).toContain(
-      'Absorb what the test expects — installConsoleSpies() in a beforeEach, then assert consoleErrorSpy and consoleWarnSpy; ' +
+      'Absorb what the test expects — useConsoleSpies() in the describe, then assert consoleErrorSpy and consoleWarnSpy; ' +
         "vi.spyOn(console, 'table').mockImplementation(() => undefined) — or fix the code if the output is a defect.",
     );
     expect(message).not.toContain('allow');

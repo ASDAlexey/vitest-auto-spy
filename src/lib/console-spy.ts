@@ -13,9 +13,12 @@
  * expect(consoleInfoSpy).toHaveBeenCalledWith('done');
  * ```
  *
- * Call `installConsoleSpies()` in a `beforeEach` and `restoreConsole()` in an `afterEach`; the entry
- * also installs them on import, unless the stray-console guard owns the console.
+ * Call `useConsoleSpies()` in the `describe` (or at the top of the file) that asserts on the console, or
+ * `installConsoleSpies()` in a `beforeEach` and `restoreConsole()` in an `afterEach` yourself; the
+ * entry also installs them on import, unless the stray-console guard owns the console.
  */
+import { afterEach, beforeEach } from 'vitest';
+
 import { createFunctionSpy } from './function-spy';
 import { getMockAdapter } from './mock-adapter';
 import type { AddSpyMethodsByReturnTypes, Func } from './types';
@@ -178,6 +181,36 @@ export function installConsoleSpies(): ConsoleSpies {
 }
 
 /**
+ * Install the console spies before every test of the enclosing block and restore the console after
+ * each. The bag is the same object in every test, so it is returned directly.
+ *
+ * Registers Vitest hooks (Bun resolves them to its own); on `node:test` and Rstest pair
+ * `installConsoleSpies()` with `restoreConsole()` in that runner's hooks instead.
+ *
+ * @example
+ * ```ts
+ * describe('cli', () => {
+ *   const { consoleInfoSpy } = useConsoleSpies();
+ *
+ *   it('reports the result', () => {
+ *     run(['--dry-run']);
+ *     expect(consoleInfoSpy).toHaveBeenCalledWith('done');
+ *   });
+ * });
+ * ```
+ */
+export function useConsoleSpies(): ConsoleSpies {
+  beforeEach(() => {
+    installConsoleSpies();
+  });
+  afterEach(() => {
+    restoreConsole();
+  });
+
+  return createConsoleSpies();
+}
+
+/**
  * The `/console` entry's import: installed unless the stray-console guard owns the console, since under
  * `isolate: false` an import runs once per worker and cannot scope itself to a file.
  */
@@ -233,8 +266,8 @@ export function consoleOutput(): ConsoleOutput {
   // Spies that are not on `console` recorded nothing, and an empty result would read as silence.
   if (!installed) {
     throw new Error(
-      '[vitest-auto-spy] consoleOutput() reads the console spies, and none is on console now. Call installConsoleSpies() ' +
-        'in a beforeEach first (under setupAutoSpy({ strayConsole }) importing the entry installs nothing).',
+      '[vitest-auto-spy] consoleOutput() reads the console spies, and none is on console now. Call useConsoleSpies() in ' +
+        'the describe, or installConsoleSpies() in a beforeEach, first (under setupAutoSpy({ strayConsole }) importing the entry installs nothing).',
     );
   }
 

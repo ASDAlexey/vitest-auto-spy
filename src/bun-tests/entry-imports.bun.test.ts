@@ -70,3 +70,26 @@ describe(`public entries on Bun (${fromDist ? 'dist' : 'source'})`, () => {
     }
   });
 });
+
+const consoleEntry: typeof import('../console') = await import(entryPath('./console'));
+
+describe('/console useConsoleSpies on Bun', () => {
+  const spies = consoleEntry.useConsoleSpies();
+
+  it('has the spies on console inside the block', () => {
+    console.warn('late');
+
+    expect(console.warn).toBe(spies.consoleWarnSpy);
+    expect(spies.consoleWarnSpy).toHaveBeenCalledTimes(1);
+    expect(spies.consoleWarnSpy).toHaveBeenCalledWith('late');
+  });
+
+  it('starts every test with the calls of the previous one cleared', () => {
+    expect(console.warn).toBe(spies.consoleWarnSpy);
+    expect(spies.consoleWarnSpy).not.toHaveBeenCalled();
+  });
+});
+
+it('/console useConsoleSpies restores the console after the block', () => {
+  expect(console.warn).not.toBe(consoleEntry.consoleWarnSpy);
+});

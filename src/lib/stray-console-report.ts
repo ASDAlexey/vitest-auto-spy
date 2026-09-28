@@ -111,7 +111,7 @@ function absorbAdvice(calls: readonly StrayConsoleCall[]): string[] {
     const unspied = printed.filter((method) => ENTRY_SPIES[method] === undefined);
     const entry = spies.length > 0 || calls.length === 0;
     const absorb = [
-      ...(entry ? [`installConsoleSpies() in a beforeEach, then assert ${joined(spies) || 'its spies'}`] : []),
+      ...(entry ? [`useConsoleSpies() in the describe, then assert ${joined(spies) || 'its spies'}`] : []),
       ...unspied.map((method) => `vi.spyOn(console, '${method}').mockImplementation(() => undefined)`),
     ];
 
