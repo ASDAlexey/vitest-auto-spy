@@ -10,6 +10,21 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`no-real-component-provider`** in `vitest-auto-spy/eslint-plugin`, `error` in `recommended`:
+  `fixture.debugElement.injector.get(X)` / `fixture.componentRef.injector.get(X)` for a token nothing
+  in the file replaced with a double. That read is how a spec reaches a component-level provider, and
+  when nothing swapped it the fixture hands back the production class — the component spec then
+  drives the real store through HTTP and repeats the store's own spec. The message names the repair,
+  `overrideComponentProvider(Component, X)`. Tokens from `@angular/*`, classes the file renders
+  (`createComponent`, `imports`, `declarations`, `hostDirectives`), reads wrapped in `asSpy(…)` and
+  files that call `createWithAutoSpies` are left alone; `{ ignoreTokens }` keeps an intended
+  integration test real. Only the fixture's own injector is read, never a child's. Measured on three
+  consumers, 1078 spec files: 5 reports, all of them real. The plugin now ships fifty-one rules.
+  `vitest-auto-spy/eslint-plugin` grows by about 10 kB (+3.9 %) for it, the rule module and its
+  messages; no module is added to the entry's graph.
+
 ## [5.48.0] - 2026-09-28
 
 ### Added

@@ -1,6 +1,6 @@
 ---
 title: ESLint-плагин
-description: Пятьдесят правил для flat config, которые уводят сюиту на хелперы auto-spy, сгруппированы по темам, каждое по умолчанию error кроме девяти, которые сообщают про цену или решают по эвристике, с описанными ручками и названными случаями ложных срабатываний.
+description: Пятьдесят одно правило для flat config, которые уводят сюиту на хелперы auto-spy, сгруппированы по темам, каждое по умолчанию error кроме девяти, которые сообщают про цену или решают по эвристике, с описанными ручками и названными случаями ложных срабатываний.
 ---
 
 # ESLint-плагин
@@ -80,7 +80,7 @@ files: ['**/*.{spec,test}.{ts,tsx}', '**/test/**/*.ts'],  // и то и друг
 
 ### 3. Информация о типах не обязательна, и четыре правила её хотят {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Из пятидесяти правил синтаксических сорок шесть: они читают собственный AST файла и никогда не
+Из пятидесяти одного правила синтаксических сорок семь: они читают собственный AST файла и никогда не
 спрашивают тайпчекер. Так что плагин работает при незаданном `parserOptions.project`, ничего заметного
 ко времени линта не добавляет и не требует, чтобы ваши спеки были в `tsconfig`, — а это важно в
 репозиториях, где их там нет.
@@ -137,7 +137,7 @@ npx eslint . --format stylish | tail -30   # в сводке видно, как�
 | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | пишете на Vitest, никогда не трогали Jasmine или Jest | сорок пять основных правил работают; **четыре jasmine-правила бездействуют** — оставьте их и никогда не увидите |
 | переезжаете с `jest-auto-spies` / Jest                | работу делают основные правила, больше всего — `no-done-callback` и `prefer-as-spy`                             |
-| переезжаете с `jasmine-auto-spies`                    | все пятьдесят, с `prefer-native-spy-api` в `'off'`, пока мост не убран                                          |
+| переезжаете с `jasmine-auto-spies`                    | все пятьдесят одно, с `prefer-native-spy-api` в `'off'`, пока мост не убран                                     |
 
 ### Если вы никогда не пользовались Jasmine {#if-you-never-used-jasmine}
 
@@ -208,7 +208,7 @@ Jest работал на **jest-jasmine2** вплоть до Jest 27, а тот 
 
 ### Если вы приходите из Jasmine {#if-you-are-coming-from-jasmine}
 
-Касаются все пятьдесят, а четыре из последней группы написаны прямо для вас. Два — чистая диагностика:
+Касаются все пятьдесят одно, а четыре из последней группы написаны прямо для вас. Два — чистая диагностика:
 `no-jasmine-globals` и `no-save-arguments-by-value` называют молчаливые изменения поведения, которые
 переживают переименование, — а `jasmine-namespace-without-entry` ловит спай, построенный до того, как
 поставили слой совместимости. Четвёртое, `prefer-native-spy-api`, рапортует про сам мост, так что это
@@ -316,6 +316,7 @@ _доказательству_, а не по виду находки. Оба с�
 | [`prefer-provide-activated-route`](/ru/utilities/eslint-rules#prefer-provide-activated-route)      | собранный руками `ActivatedRoute` — любой слот, включая `provideAutoSpy(ActivatedRoute)` → `provideActivatedRoute({ … })`; дубль знает либо стримы, либо snapshot, но не оба сразу                                                                                    | —         |          красно          |
 | [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, инлайном или через `const` → `injectSpy(X).m`                                                                                                                                                                                     | подсказка |          красно          |
 | [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` для токена, который этот файл не регистрировал → настоящий инстанс, чьи спай-хелперы есть только у компилятора                                                                                                                                         | —         | красно _(по построению)_ |
+| [`no-real-component-provider`](/ru/utilities/eslint-rules#no-real-component-provider)              | `fixture.debugElement.injector.get(X)` для провайдера компонента, которого никто не подменил → настоящий стор в спеке компонента; `overrideComponentProvider(Component, X)`                                                                                           |
 | [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` в файле, который ни разу не читает шаблон → `renderShallow(X)`                                                                                                                                                                              | подсказка |          зелено          |
 | [`prefer-set-inputs`](/ru/utilities/eslint-rules#prefer-set-inputs)                                | `fixture.componentRef.setInput('title', v)` → `await setInputs(fixture, { title: v })`: имя проверяется до первой записи, значение типизировано                                                                                                                       | подсказка |          зелено          |
 | [`prefer-to-have-signal-value`](/ru/utilities/eslint-rules#prefer-to-have-signal-value)            | `expect(component.total()).toBe(3)` → `expect(component.total).toHaveSignalValue(3)`: матчер называет сигнал в падении и отказывает не-сигналу; **читает типы**                                                                                                       | `--fix`   |          красно          |

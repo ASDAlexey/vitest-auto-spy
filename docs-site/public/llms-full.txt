@@ -11698,7 +11698,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the fifty are about a dialect you may not speak.
+Vitest-only project asks — four of the fifty-one are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -11761,7 +11761,7 @@ need different severities.
 
 ### 3. Type information is optional, and four rules want it
 
-Forty-six of the fifty are syntactic: they read the file's own AST and never ask the type checker.
+Forty-seven of the fifty-one are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -11808,7 +11808,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the fifty apply to you
+## Which of the fifty-one apply to you
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -11818,7 +11818,7 @@ principle — it is that they cannot fire on your code.
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the forty-five core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                           |
-| migrating off `jasmine-auto-spies`         | all fifty, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                         |
+| migrating off `jasmine-auto-spies`         | all fifty-one, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                     |
 
 ### If you never used Jasmine
 
@@ -11887,7 +11887,7 @@ that file needs). See [Migrating from jest-auto-spies](https://asdalexey.github.
 
 ### If you are coming from Jasmine
 
-All fifty apply, and the four in the last group are the ones written for you. Two are pure
+All fifty-one apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -11995,6 +11995,7 @@ The ways a provider — or a spy on the component itself — ends up not being w
 | [`prefer-provide-activated-route`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-provide-activated-route)         | a hand-built `ActivatedRoute` — any slot, and `provideAutoSpy(ActivatedRoute)` too → `provideActivatedRoute({ … })`; the double knows either the streams or the snapshot, never both                                                                                                                                                | —       |            red            |
 | [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                                                                                                                                                                                                                                      | suggest |            red            |
 | [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                                                                                                                                                                                                            | —       |  red _(by construction)_  |
+| [`no-real-component-provider`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-real-component-provider)                 | `fixture.debugElement.injector.get(X)` for a component-level provider nothing replaced → the real store under a component spec; `overrideComponentProvider(Component, X)`                                                                                                                                                           |
 | [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                                                                                                                                                                                                                              | suggest |           green           |
 | [`prefer-set-inputs`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-set-inputs)                                   | `fixture.componentRef.setInput('title', v)` → `await setInputs(fixture, { title: v })`, which resolves the name before it writes and types the value                                                                                                                                                                                | suggest |           green           |
 | [`prefer-to-have-signal-value`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-to-have-signal-value)               | `expect(component.total()).toBe(3)` → `expect(component.total).toHaveSignalValue(3)`, which names the signal in the failure and refuses a non-signal; **type-aware**                                                                                                                                                                | `--fix` |            red            |
@@ -13034,7 +13035,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](https://asdalexey.gi
 
 ## Which rules fix, and why so few
 
-Eight of the fifty rewrite the source on their own, nineteen offer the rewrite as a suggestion, and
+Eight of the fifty-one rewrite the source on their own, nineteen offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -13670,7 +13671,7 @@ Every section answers the same six questions:
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## The fifty rules
+## The fifty-one rules
 
 Grouped by subject, the same grouping the [setup page](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) uses. Every rule is
 an `error` except nine.
@@ -13708,6 +13709,7 @@ an `error` except nine.
 | [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`          | a provider that hand-rolls a service double, or spells `provideAutoSpy` out                                      |
 | [`prefer-inject-spy`](#prefer-inject-spy)                             | `error`          | `vi.spyOn` over the instance `TestBed.inject` handed back                                                        |
 | [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)           | `error`          | `injectSpy(X)` for a token this file never registered as an auto-spy                                             |
+| [`no-real-component-provider`](#no-real-component-provider)           | `error`          | a component's own provider read from the fixture while nothing in the file replaced it                           |
 | [`prefer-render-shallow`](#prefer-render-shallow)                     | `warn`           | `TestBed.createComponent` in a file that never reads the rendered template                                       |
 | [`prefer-set-inputs`](#prefer-set-inputs)                             | `warn`           | a run of `fixture.componentRef.setInput(…)` — a name Angular checks against nothing                              |
 | [`no-overridden-provider`](#no-overridden-provider)                   | `error`          | a provider a later one, or a `TestBed.overrideProvider`, replaces                                                |
@@ -16032,6 +16034,54 @@ the filter is usually a real finding.
 
 **Severity.** `error`. Red by construction when the line executes, and the type checker is on the
 wrong side of it.
+
+## no-real-component-provider
+
+**`error`** · no fix · syntax only · option `ignoreTokens`
+
+**Reports.** `fixture.debugElement.injector.get(X)` or `fixture.componentRef.injector.get(X)` for a
+token nothing in the file replaced with a double.
+
+**Decides on.** The whole file, compared as source text. A token counts as replaced when it is named
+in the arguments of `provideAutoSpy`, `overrideAutoSpy`, `overrideComponentProvider`,
+`overrideProvider`, `overrideComponent` or `createSpyFromClass`, or in the `provide` key of a
+provider object. A read wrapped in `asSpy(…)` is taken as the author's word that the double exists.
+Never reported: tokens imported from `@angular/*`, classes the file renders (passed to
+`createComponent` or listed in `imports` / `declarations` / `hostDirectives`), and every read in a
+file that calls `createWithAutoSpies`. Only the fixture's **own** injector is read —
+`debugElement.query(…).injector` is a child, where asking for a directive class is how a spec reaches
+that directive.
+
+**Finding, and the repair.**
+
+```ts
+@Component({ providers: [CartStore] })
+class CartComponent {}
+
+const fixture = TestBed.createComponent(CartComponent);
+const store = fixture.debugElement.injector.get(CartStore); // ❌ the real store, HTTP and all
+```
+
+```ts
+const store = overrideComponentProvider(CartComponent, CartStore); // before createComponent
+const fixture = TestBed.createComponent(CartComponent);
+
+store.load.mockReturnValue(of(items));
+```
+
+**Why it is recommended.** `injectSpy` cannot reach a provider declared on the component, so a spec
+that needs the dependency goes through the fixture — and when nothing swapped it, the fixture hands
+back the production class. The component spec then drives the store through its real HTTP calls,
+flushes requests the component never makes itself, and repeats the store's own spec under the
+component's name: one change in the store turns three spec files red. Measured on three consumers,
+1078 spec files: 5 reports, every one a store or service out of the component's own `providers`.
+
+**Limits.** A spec that means to render a component with its real provider — an integration test by
+design — lists the token in `{ ignoreTokens: [...] }`. A double installed by a helper in another
+file is invisible here; wrapping the read in `asSpy(…)` both documents that and silences the rule.
+
+**Severity.** `error`. The evidence is exact: the read and every place a replacement could have been
+written are in the file.
 
 ## prefer-to-have-signal-value
 
@@ -19416,7 +19466,7 @@ cheap to fix while the cursor is still on the line and expensive to find afterwa
 one of them **passes**.
 
 There is one channel, and it is already in the package:
-[`vitest-auto-spy/eslint-plugin`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin). Fifty rules over a real syntax tree,
+[`vitest-auto-spy/eslint-plugin`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin). Fifty-one rules over a real syntax tree,
 with a fix or a suggestion where the rewrite is decidable — the same rules in the editor and in CI,
 so nothing passes locally and fails on the build. No editor needs a plugin of this package's own;
 it needs its ESLint integration switched on, which every IDE below has.
@@ -19424,7 +19474,7 @@ it needs its ESLint integration switched on, which every IDE below has.
 ## WebStorm and the other JetBrains IDEs
 
 WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine all run ESLint
-natively, so the rules light up **inline, with no plugin to install** — the same fifty checks, in
+natively, so the rules light up **inline, with no plugin to install** — the same fifty-one checks, in
 the editor, in the Problems tool window, and under **Code → Inspect Code** for the whole project.
 
 Install and configure once:
@@ -19468,14 +19518,14 @@ still hand-rolls its doubles" question actually needs.
 
 **A native JetBrains plugin is not planned**
 A plugin in the JetBrains Marketplace would duplicate an integration the IDE already has, and would
-then have to keep a second copy of fifty rules — in Kotlin — in step with the TypeScript ones.
+then have to keep a second copy of fifty-one rules — in Kotlin — in step with the TypeScript ones.
 Where the ESLint route genuinely cannot reach (a repository with no ESLint at all), the honest fix
 is four lines of `eslint.config.js`, not a second implementation.
 
 ## VS Code, Cursor, Windsurf, VSCodium
 
 Install the [ESLint extension](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint)
-and the flat config above is enough: the same fifty rules, inline and in the Problems panel.
+and the flat config above is enough: the same fifty-one rules, inline and in the Problems panel.
 
 ```jsonc
 // .vscode/settings.json
@@ -24839,7 +24889,7 @@ Beyond the runner swap, everything the old API did not have:
 [`renderShallow` and `createWithAutoSpies`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular),
 [observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions),
 [fake timers that settle](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers),
-[console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console), [fifty ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin),
+[console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console), [fifty-one ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin),
 Bun and `node:test` support — and [Angular's `TestBed` under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
 
 ## Did the migration lose a test?
@@ -26066,7 +26116,7 @@ Short and factual.
   ways an AOT test bundle fails half an hour later in someone else's spec.
 - **Beyond Vitest**, the same API runs on `bun:test` and `node:test`, and Angular's `TestBed` runs
   [under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
-- **[Fifty lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Fifty-one lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Did the migration lose a test?
 
@@ -26732,7 +26782,7 @@ Nothing in this package's spy path touches `NgZone` either, so the two coexist w
   rather than typing the real service as a double.
 - **The same API off Angular** — [`bun:test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun), [`node:test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/node), NestJS,
   React, Vue, Svelte, and Angular's `TestBed` [under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
-- **[Fifty lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Fifty-one lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Versions this was written against
 
@@ -27153,7 +27203,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `useConsoleSpies()`                                                                                          | Install the console spies before each test of the block, restore after; returns the spies (`/console`)                                                                                                                                                                                    |
 | `consoleOutput()`                                                                                            | Everything the console spies recorded, keyed by channel, only the channels written to (`/console`)                                                                                                                                                                                        |
 | `errorHandler`                                                                                               | The `mustBeCalledWith` argument-mismatch error helper                                                                                                                                                                                                                                     |
-| `vitest-auto-spy/eslint-plugin`                                                                              | Fifty flat-config lint rules that steer a suite onto these helpers                                                                                                                                                                                                                        |
+| `vitest-auto-spy/eslint-plugin`                                                                              | Fifty-one flat-config lint rules that steer a suite onto these helpers                                                                                                                                                                                                                    |
 
 ## Helper surface by return type
 
@@ -27923,7 +27973,7 @@ alongside it:
   of, kept to the mocks that outlive a file. On `isolate: false` it is what makes `clearMocks` cost
   more with every test already run, and what keeps a whole run's recorded arguments — and the
   component trees behind them — alive in one worker.
-- [Fifty ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
+- [Fifty-one ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#where-a-spec-spends-its-time) — which specs
   actually pay for `TestBed`, and by how much.

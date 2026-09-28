@@ -81,7 +81,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 - 🧩 Module mocks that prove they applied — `assertMocked`, `moduleNamespace`, for a `vi.mock()` a bundler quietly ignored; `moduleNamespace(await importOriginal(), { passthrough: true })` is Vitest's `{ spy: true }` with `calledWith` on top, on any runner
 - 🧾 Fixtures without casts — deep-partial `createMock`, `createFixture` / `createFixtureFactory`, `narrow()`, `withOverrides()`, `asInstances()`, `captureArg()`, and `outOfType()` for the fixture that is outside its type on purpose
 - 🚚 A migration you can verify — `vitest-auto-spy/diagnostics`: `compareTestRuns` on the two JSON reports, `summarizeTestRun` / `formatTestRunComparison` to read the answer, `diffByField` for the assertion the reporter collapses, `explainSpy` for a double that answered something you did not configure
-- 📏 Lint rules and one-line test-run hygiene — fifty rules in `vitest-auto-spy/eslint-plugin` (eight `--fix`, nineteen suggestions, four of them for a suite mid-migration off jasmine), `setupAutoSpy()` — with `preset: 'strict'` for every guard at its strictest grade, and under `isolate: false` `strayListeners` / `restoreGlobals` for the listeners and raw global assignments a file leaves the next one, `restoreStorageSpies` (on by default) for the storage spy happy-dom will not let `mockRestore()` remove
+- 📏 Lint rules and one-line test-run hygiene — fifty-one rules in `vitest-auto-spy/eslint-plugin` (eight `--fix`, nineteen suggestions, four of them for a suite mid-migration off jasmine), `setupAutoSpy()` — with `preset: 'strict'` for every guard at its strictest grade, and under `isolate: false` `strayListeners` / `restoreGlobals` for the listeners and raw global assignments a file leaves the next one, `restoreStorageSpies` (on by default) for the storage spy happy-dom will not let `mockRestore()` remove
 - 🩺 [Editor diagnostics](#editor-diagnostics--webstorm--vs-code) — the same anti-patterns underlined while you type: native ESLint inspections in **WebStorm** and the other JetBrains IDEs, the ESLint extension in **VS Code**, no extra plugin either way
 - 🔎 [`npx vitest-auto-spy doctor`](#the-cli--doctor-perf-codemod-init-and-ng-test) — suite-level defects **that never fail a run**: a `tsconfig` `include` matching no file, a production module importing a spec, a `@jest-environment` pragma the runner never reads, config left behind for a runner that is gone. Read-only, no config, exits 1 in CI
 - ⏱️ [`npx vitest-auto-spy perf`](#perf--where-the-cpu-time-actually-goes) — where a suite's CPU time actually goes, phase by phase, and which spec files to act on: the ones that reach no DOM and could run under `node`, the ones that import a barrel. Runs Vitest once with a reporter this package ships, reads `TestModule.diagnostic()`, names files, states the rule behind each finding
@@ -4054,7 +4054,7 @@ Every message ends with a link to the matching [recipe](#how-to-mock): a rule th
 "don't" moves the problem rather than solving it. Rules travel with the API they recommend, so they
 are versioned together and stop being re-written in every project that installs the package.
 
-**Eight of the fifty fix on their own, nineteen offer suggestions**, and the split is not about how hard
+**Eight of the fifty-one fix on their own, nineteen offer suggestions**, and the split is not about how hard
 the rewrite is. `no-mocked-for-spy` touches a _declaration_: get it wrong and the file stops
 compiling, which is the loudest, cheapest failure there is — so `--fix` rewrites the type, adds
 `import type { Spy } from 'vitest-auto-spy'` and drops the `Mocked` import once nothing else uses
@@ -4225,7 +4225,7 @@ package's own — it needs its ESLint integration switched on.
 ### WebStorm and the other JetBrains IDEs
 
 No plugin to install: WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine
-all run ESLint natively, so the fifty rules appear inline, in the **Problems** tool window, and
+all run ESLint natively, so the fifty-one rules appear inline, in the **Problems** tool window, and
 under **Code → Inspect Code** for the whole project.
 
 ```js
@@ -4242,7 +4242,7 @@ has supported flat config since 2023.3); scope the block to spec files yourself;
 the fixes and suggestions live.
 
 A native JetBrains plugin is **not** planned — it would duplicate an integration the IDE already has
-and then keep a second copy of fifty rules, in Kotlin, in step with the TypeScript ones.
+and then keep a second copy of fifty-one rules, in Kotlin, in step with the TypeScript ones.
 
 ### VS Code, Cursor, Windsurf, VSCodium
 

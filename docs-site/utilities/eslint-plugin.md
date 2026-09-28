@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Fifty flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the nine that report a cost or a heuristic, with the dial documented and the false-positive cases named.
+description: Fifty-one flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the nine that report a cost or a heuristic, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin
@@ -22,7 +22,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the fifty are about a dialect you may not speak.
+Vitest-only project asks — four of the fifty-one are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -85,7 +85,7 @@ need different severities.
 
 ### 3. Type information is optional, and four rules want it {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Forty-six of the fifty are syntactic: they read the file's own AST and never ask the type checker.
+Forty-seven of the fifty-one are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -132,7 +132,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the fifty apply to you {#which-of-the-twenty-apply-to-you}
+## Which of the fifty-one apply to you {#which-of-the-twenty-apply-to-you}
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -142,7 +142,7 @@ principle — it is that they cannot fire on your code.
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the forty-five core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                           |
-| migrating off `jasmine-auto-spies`         | all fifty, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                         |
+| migrating off `jasmine-auto-spies`         | all fifty-one, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                     |
 
 ### If you never used Jasmine
 
@@ -212,7 +212,7 @@ that file needs). See [Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All fifty apply, and the four in the last group are the ones written for you. Two are pure
+All fifty-one apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -320,6 +320,7 @@ The ways a provider — or a spy on the component itself — ends up not being w
 | [`prefer-provide-activated-route`](/utilities/eslint-rules#prefer-provide-activated-route)         | a hand-built `ActivatedRoute` — any slot, and `provideAutoSpy(ActivatedRoute)` too → `provideActivatedRoute({ … })`; the double knows either the streams or the snapshot, never both                                                                                                                                                | —       |            red            |
 | [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                                                                                                                                                                                                                                      | suggest |            red            |
 | [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                                                                                                                                                                                                            | —       |  red _(by construction)_  |
+| [`no-real-component-provider`](/utilities/eslint-rules#no-real-component-provider)                 | `fixture.debugElement.injector.get(X)` for a component-level provider nothing replaced → the real store under a component spec; `overrideComponentProvider(Component, X)`                                                                                                                                                           |
 | [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                                                                                                                                                                                                                              | suggest |           green           |
 | [`prefer-set-inputs`](/utilities/eslint-rules#prefer-set-inputs)                                   | `fixture.componentRef.setInput('title', v)` → `await setInputs(fixture, { title: v })`, which resolves the name before it writes and types the value                                                                                                                                                                                | suggest |           green           |
 | [`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value)               | `expect(component.total()).toBe(3)` → `expect(component.total).toHaveSignalValue(3)`, which names the signal in the failure and refuses a non-signal; **type-aware**                                                                                                                                                                | `--fix` |            red            |
@@ -1360,7 +1361,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Which rules fix, and why so few
 
-Eight of the fifty rewrite the source on their own, nineteen offer the rewrite as a suggestion, and
+Eight of the fifty-one rewrite the source on their own, nineteen offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops

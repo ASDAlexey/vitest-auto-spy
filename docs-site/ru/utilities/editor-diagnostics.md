@@ -1,6 +1,6 @@
 ---
 title: Диагностика в редакторе — WebStorm и VS Code
-description: Подчёркивать антипаттерны vitest-auto-spy прямо во время написания спеки — пятьдесят поставляемых ESLint-правил, которые WebStorm и другие IDE от JetBrains показывают нативно, а VS Code, Cursor и Windsurf — через расширение ESLint.
+description: Подчёркивать антипаттерны vitest-auto-spy прямо во время написания спеки — пятьдесят одно поставляемое ESLint-правило, которые WebStorm и другие IDE от JetBrains показывают нативно, а VS Code, Cursor и Windsurf — через расширение ESLint.
 ---
 
 # Диагностика в редакторе
@@ -11,7 +11,7 @@ Vitest никогда не вызовет, — все дёшевы в почин
 потом, потому что каждая из них **проходит**.
 
 Канал ровно один, и он уже лежит в пакете:
-[`vitest-auto-spy/eslint-plugin`](/ru/utilities/eslint-plugin). Пятьдесят правил по настоящему
+[`vitest-auto-spy/eslint-plugin`](/ru/utilities/eslint-plugin). Пятьдесят одно правило по настоящему
 синтаксическому дереву, с фиксом или подсказкой там, где переписывание однозначно, — те же правила в
 редакторе и в CI, так что ничто не проходит локально и не падает на сборке. Никакому редактору не нужен
 собственный плагин этого пакета; ему нужна включённая интеграция с ESLint, а она есть у каждой IDE ниже.
@@ -19,7 +19,7 @@ Vitest никогда не вызовет, — все дёшевы в почин
 ## WebStorm и другие IDE от JetBrains {#webstorm-and-the-other-jetbrains-ides}
 
 WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional и RubyMine запускают ESLint нативно,
-поэтому правила загораются **прямо в коде, без установки плагина** — те же пятьдесят проверок, в
+поэтому правила загораются **прямо в коде, без установки плагина** — те же пятьдесят одна проверка, в
 редакторе, в окне Problems и в **Code → Inspect Code** для всего проекта.
 
 Установить и настроить один раз:
@@ -72,7 +72,7 @@ ESLint действительно не работает (репозиторий 
 ## VS Code, Cursor, Windsurf, VSCodium {#vs-code-cursor-windsurf-vscodium}
 
 Поставьте [расширение ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint),
-и flat config выше уже достаточно: те же пятьдесят правил, в коде и в панели Problems.
+и flat config выше уже достаточно: те же пятьдесят одно правило, в коде и в панели Problems.
 
 ```jsonc
 // .vscode/settings.json

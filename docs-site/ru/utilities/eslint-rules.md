@@ -41,7 +41,7 @@ description: По разделу на каждое из пятидесяти п�
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## Пятьдесят правил {#the-twenty-five-rules}
+## Пятьдесят одно правило {#the-twenty-five-rules}
 
 Сгруппированы по темам — так же, как на [странице настройки](/ru/utilities/eslint-plugin). Все
 правила — `error`, кроме девяти.
@@ -79,6 +79,7 @@ description: По разделу на каждое из пятидесяти п�
 | [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`         | провайдер, который собирает дубль сервиса руками или расписывает `provideAutoSpy`                          |
 | [`prefer-inject-spy`](#prefer-inject-spy)                             | `error`         | `vi.spyOn` поверх инстанса, который выдал `TestBed.inject`                                                 |
 | [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)           | `error`         | `injectSpy(X)` для токена, который этот файл не регистрировал как автоспай                                 |
+| [`no-real-component-provider`](#no-real-component-provider)           | `error`         | собственный провайдер компонента, прочитанный из фикстуры, когда файл его ничем не подменил                |
 | [`prefer-render-shallow`](#prefer-render-shallow)                     | `warn`          | `TestBed.createComponent` в файле, который ни разу не читает отрендеренный шаблон                          |
 | [`prefer-set-inputs`](#prefer-set-inputs)                             | `warn`          | серию `fixture.componentRef.setInput(…)` — имя, которое Angular ничем не проверяет                         |
 | [`no-overridden-provider`](#no-overridden-provider)                   | `error`         | провайдер, которого заменяет более поздний или `TestBed.overrideProvider`                                  |
@@ -2353,6 +2354,53 @@ const route = TestBed.inject(ActivatedRoute);
 
 **Severity.** `error`. Красно по построению, когда строка выполняется, а тайпчекер стоит не на той
 стороне.
+
+## no-real-component-provider {#no-real-component-provider}
+
+**`error`** · без правки · только синтаксис · опция `ignoreTokens`
+
+**Что сообщает.** `fixture.debugElement.injector.get(X)` или `fixture.componentRef.injector.get(X)`
+для токена, который в этом файле ничем не подменён.
+
+**На чём решает.** Весь файл, токены сравниваются как исходный текст. Токен считается подменённым,
+если он назван в аргументах `provideAutoSpy`, `overrideAutoSpy`, `overrideComponentProvider`,
+`overrideProvider`, `overrideComponent` или `createSpyFromClass` либо в ключе `provide` объекта
+провайдера. Чтение, обёрнутое в `asSpy(…)`, принимается как слово автора, что дубль есть. Никогда не
+сообщаются: токены из `@angular/*`, классы, которые файл рендерит (переданы в `createComponent` или
+перечислены в `imports` / `declarations` / `hostDirectives`), и любые чтения в файле, который зовёт
+`createWithAutoSpies`. Читается только **собственный** инжектор фикстуры — `debugElement.query(…).injector`
+принадлежит дочернему элементу, и запрос класса директивы там — законный способ добраться до неё.
+
+**Находка и исправление.**
+
+```ts
+@Component({ providers: [CartStore] })
+class CartComponent {}
+
+const fixture = TestBed.createComponent(CartComponent);
+const store = fixture.debugElement.injector.get(CartStore); // ❌ настоящий стор, вместе с HTTP
+```
+
+```ts
+const store = overrideComponentProvider(CartComponent, CartStore); // до createComponent
+const fixture = TestBed.createComponent(CartComponent);
+
+store.load.mockReturnValue(of(items));
+```
+
+**Почему в recommended.** `injectSpy` не достаёт провайдер, объявленный на компоненте, поэтому спека
+идёт за ним через фикстуру — и если его никто не подменил, фикстура отдаёт продовый класс. Спека
+компонента гоняет стор через настоящие HTTP-вызовы, флашит запросы, которых компонент сам не делает,
+и повторяет спеку стора под именем компонента: одна правка в сторе красит три файла спек. Замер на трёх
+потребителях, 1078 файлов спек: 5 сообщений, и каждое — стор или сервис из собственных `providers`
+компонента.
+
+**Границы.** Спека, которая намеренно рендерит компонент с настоящим провайдером — интеграционный тест
+по замыслу, — перечисляет токен в `{ ignoreTokens: [...] }`. Дубль, поставленный хелпером из другого
+файла, отсюда не виден; обёртка чтения в `asSpy(…)` и документирует это, и успокаивает правило.
+
+**Серьёзность.** `error`. Улики точные: и чтение, и каждое место, где могла стоять подмена, — в этом
+файле.
 
 ## prefer-to-have-signal-value {#prefer-to-have-signal-value}
 

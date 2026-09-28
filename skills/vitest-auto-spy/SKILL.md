@@ -410,7 +410,9 @@ it('loads', async () => {
   To control an `effect()`, set the signals it reads and assert what it produced.
 - **`injectSpy(X)` only reaches the global TestBed.** For a component-level provider use
   `asSpy(fixture.debugElement.injector.get(X))` to read it, or `overrideComponentProvider(Cmp, X)` to
-  replace it — `provideAutoSpy` loses to a provider the component declares, silently.
+  replace it — `provideAutoSpy` loses to a provider the component declares, silently. Reading it
+  bare, with nothing in the file replacing it, hands back the real store and makes the component spec
+  re-test it; `no-real-component-provider` reports that.
 - **Declare `Spy<T>`, never Vitest's `Mocked<T>`** — `Mocked<T>` keeps the private members, so the
   assignment fails with a list of private field names that says nothing about the declaration being
   the problem.
@@ -487,7 +489,7 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The fifty rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The fifty-one rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —

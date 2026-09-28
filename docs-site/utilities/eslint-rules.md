@@ -1,6 +1,6 @@
 ---
 title: ESLint rules
-description: A reference section for each of the fifty rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
+description: A reference section for each of the fifty-one rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
 ---
 
 # ESLint rules
@@ -40,7 +40,7 @@ Every section answers the same six questions:
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## The fifty rules {#the-twenty-five-rules}
+## The fifty-one rules {#the-twenty-five-rules}
 
 Grouped by subject, the same grouping the [setup page](/utilities/eslint-plugin) uses. Every rule is
 an `error` except nine.
@@ -78,6 +78,7 @@ an `error` except nine.
 | [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`          | a provider that hand-rolls a service double, or spells `provideAutoSpy` out                                      |
 | [`prefer-inject-spy`](#prefer-inject-spy)                             | `error`          | `vi.spyOn` over the instance `TestBed.inject` handed back                                                        |
 | [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)           | `error`          | `injectSpy(X)` for a token this file never registered as an auto-spy                                             |
+| [`no-real-component-provider`](#no-real-component-provider)           | `error`          | a component's own provider read from the fixture while nothing in the file replaced it                           |
 | [`prefer-render-shallow`](#prefer-render-shallow)                     | `warn`           | `TestBed.createComponent` in a file that never reads the rendered template                                       |
 | [`prefer-set-inputs`](#prefer-set-inputs)                             | `warn`           | a run of `fixture.componentRef.setInput(…)` — a name Angular checks against nothing                              |
 | [`no-overridden-provider`](#no-overridden-provider)                   | `error`          | a provider a later one, or a `TestBed.overrideProvider`, replaces                                                |
@@ -2402,6 +2403,54 @@ the filter is usually a real finding.
 
 **Severity.** `error`. Red by construction when the line executes, and the type checker is on the
 wrong side of it.
+
+## no-real-component-provider
+
+**`error`** · no fix · syntax only · option `ignoreTokens`
+
+**Reports.** `fixture.debugElement.injector.get(X)` or `fixture.componentRef.injector.get(X)` for a
+token nothing in the file replaced with a double.
+
+**Decides on.** The whole file, compared as source text. A token counts as replaced when it is named
+in the arguments of `provideAutoSpy`, `overrideAutoSpy`, `overrideComponentProvider`,
+`overrideProvider`, `overrideComponent` or `createSpyFromClass`, or in the `provide` key of a
+provider object. A read wrapped in `asSpy(…)` is taken as the author's word that the double exists.
+Never reported: tokens imported from `@angular/*`, classes the file renders (passed to
+`createComponent` or listed in `imports` / `declarations` / `hostDirectives`), and every read in a
+file that calls `createWithAutoSpies`. Only the fixture's **own** injector is read —
+`debugElement.query(…).injector` is a child, where asking for a directive class is how a spec reaches
+that directive.
+
+**Finding, and the repair.**
+
+```ts
+@Component({ providers: [CartStore] })
+class CartComponent {}
+
+const fixture = TestBed.createComponent(CartComponent);
+const store = fixture.debugElement.injector.get(CartStore); // ❌ the real store, HTTP and all
+```
+
+```ts
+const store = overrideComponentProvider(CartComponent, CartStore); // before createComponent
+const fixture = TestBed.createComponent(CartComponent);
+
+store.load.mockReturnValue(of(items));
+```
+
+**Why it is recommended.** `injectSpy` cannot reach a provider declared on the component, so a spec
+that needs the dependency goes through the fixture — and when nothing swapped it, the fixture hands
+back the production class. The component spec then drives the store through its real HTTP calls,
+flushes requests the component never makes itself, and repeats the store's own spec under the
+component's name: one change in the store turns three spec files red. Measured on three consumers,
+1078 spec files: 5 reports, every one a store or service out of the component's own `providers`.
+
+**Limits.** A spec that means to render a component with its real provider — an integration test by
+design — lists the token in `{ ignoreTokens: [...] }`. A double installed by a helper in another
+file is invisible here; wrapping the read in `asSpy(…)` both documents that and silences the rule.
+
+**Severity.** `error`. The evidence is exact: the read and every place a replacement could have been
+written are in the file.
 
 ## prefer-to-have-signal-value
 

@@ -73,6 +73,7 @@ export default [
 | `no-dead-schemas` | `error` | — | `schemas` on a testing module with no `declarations` — the schema applies to nothing; the file decides, so a `declarations` in another `configureTestingModule` call silences it |
 | `no-import-time-spread` | `error` | suggest | `export const x = [...Imported]` at module scope → a `TypeError`, or a silently empty object, while the bundle loads |
 | `no-unregistered-inject-spy` | `error` | — | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler |
+| `no-real-component-provider` | `error` | — | `fixture.debugElement.injector.get(X)` for a component-level provider nothing in the file replaced → the real store under a component spec; `overrideComponentProvider(Cmp, X)`; `{ ignoreTokens }` for an intended integration test |
 | `prefer-render-shallow` | `warn` | suggest | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children |
 | `prefer-set-inputs` | `warn` | suggest | a run of `fixture.componentRef.setInput('title', v)` on one fixture → `await setInputs(fixture, { title: v })` — the name is resolved against the compiled definition before the first write (an undeclared one is an `NG0303` and no change) and the value is typed. The run collapses into one call and a `detectChanges()` under it goes; offered, not applied, because `stable()` ticks and a zone.js suite answers that with `NG0101` |
 | `prefer-to-have-signal-value` | `warn` | `--fix` | `expect(component.total()).toBe(3)` / `toEqual(…)` → `expect(component.total).toHaveSignalValue(3)`, `toStrictEqual` → `{ strict: true }`, `toBeNull()` / `toBeUndefined()` → `toHaveSignalValue(null)` / `(undefined)`; the matcher names the signal in the failure and refuses a value that is not one. **Type-aware**: the signal is recognised by Angular's brand on its type, so methods, functions and getters are never reported, and without `parserOptions.project` it reports nothing. A `toBe` against an object-typed signal (`expect(list.items()).toBe(items)`) is an identity check the deep matcher would lose, so it is reported only when the expected value is a primitive literal or the signal's type is primitive |
@@ -104,9 +105,9 @@ export default [
 | `no-save-arguments-by-value` | `error` | — | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state |
 | `prefer-native-spy-api` | `error` | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — turn it on for the last mile off the jasmine shim |
 
-Fifty rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`,
+Fifty-one rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`,
 `no-stub-class-double`, `no-structural-double`, `prefer-create-mock`, `no-instance-lifecycle-spy`,
-`prefer-set-inputs`, `no-unasserted-argument`, `prefer-spy-on-own-method` and `prefer-to-have-signal-value`**; eight fix on their own, nineteen offer suggestions. Forty-six are syntactic; `no-private-member-access`, `no-mistyped-use-value`,
+`prefer-set-inputs`, `no-unasserted-argument`, `prefer-spy-on-own-method` and `prefer-to-have-signal-value`**; eight fix on their own, nineteen offer suggestions. Forty-seven are syntactic; `no-private-member-access`, `no-mistyped-use-value`,
 `no-unknown-use-value-key` and `prefer-to-have-signal-value` read types, and all four report nothing at all without `parserOptions.project` / `projectService`
 rather than guessing. `no-compile-components` waits the same way for a fact no file holds — which
 builder the project has — and reports nothing until `{ builder: 'inline-resources' }` states it. The config used to be a graded mix of `error` / `warn` / `off`, which decided for the
