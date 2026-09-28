@@ -7604,6 +7604,13 @@ beforeEach(() => installConsoleSpies());
 afterEach(() => restoreConsole());
 ```
 
+The entry imports `vitest` itself — for these hooks and for the adapter it registers when no runtime
+entry did — so on `node:test` and Rstest it loads only where the `vitest` package resolves.
+
+A bare `useConsoleSpies();` in a `describe` body trips `vitest/require-hook`; spread
+`autoSpy.hookRegisteringHelpers` from `vitest-auto-spy/eslint-plugin` into its `allowedFunctionCalls`
+([Alongside `vitest/require-hook`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin#alongside-vitest-require-hook)).
+
 The exported constants — `consoleInfoSpy`, `consoleErrorSpy`, … — are the same objects as the bag
 `useConsoleSpies()` and `installConsoleSpies()` return, so `expect(consoleErrorSpy)` is the same
 assertion. When every test
@@ -12190,6 +12197,23 @@ works instead:
 `assertNoPendingRequests`, `assertNoShadowedProviders` and `assertMocked`; `**.expect*` covers a
 helper reached through an object. Measured over 1759 spec files: **zero** false positives.
 
+### Alongside `vitest/require-hook`
+
+`require-hook` reports any call in a `describe` body or at the top of a spec that is not a hook, and
+it cannot know that `useConsoleSpies()` or `setupFakeTimers()` registers hooks of its own. The plugin
+exports the list of such helpers — every public function of this package that calls `beforeEach`,
+`afterEach`, `beforeAll` or `afterAll` when it runs, checked against the source by a spec, so a new
+helper cannot be left out:
+
+```js
+import autoSpy from 'vitest-auto-spy/eslint-plugin';
+
+'vitest/require-hook': ['error', { allowedFunctionCalls: [...autoSpy.hookRegisteringHelpers] }],
+```
+
+Calls that register no hook — `registerSignalMatchers()`, `trackStrayTimers()` — are not in it; a
+project that calls them at the top of a linted file appends them to the spread.
+
 ### Rule options
 
 `prefer-render-shallow` takes one, and it turns a cost finding into a policy:
@@ -16020,14 +16044,22 @@ keystroke away from `expect(component.total).toBe(3)`, which passes for every si
 reports which signal was wrong, and refuses anything that is not a zero-argument getter, so the
 "forgot the parentheses" mistake fails instead of silently passing.
 
-**Reports.** A `toBe`, `toEqual` or `toStrictEqual` over a call the checker resolves to a signal —
-`.not` included. The signal is recognised by its type, not its name: callable, and branded with
+**Reports.** A `toBe`, `toEqual`, `toStrictEqual`, `toBeNull` or `toBeUndefined` over a call the
+checker resolves to a signal — `.not` included. The signal is recognised by its type, not its name: callable, and branded with
 Angular's signal brand, which the checker spells `__@SIGNAL@53` (the trailing number per program) —
 `getProperty('ɵSIGNAL')` by plain name finds none of them. Methods, plain functions and getters stay
 unreported, and without parser services the rule says nothing rather than guessing from the name.
 
+**Skips an identity check.** `toBe` compares with `Object.is`, `toHaveSignalValue` deeply, so
+`expect(list.items()).toBe(items)` — asserting the signal holds that very array — would pass for any
+equal copy after the rewrite. A `toBe` is reported only when the expected value is a primitive literal
+(`3`, `'on'`, `null`, `undefined`, a template without expressions) or the signal's type is primitive
+(string, number, boolean, bigint, enum, their literals, `null`, `undefined` — `any` does not count);
+any other `toBe` is left alone, since no matcher over the signal keeps the identity.
+
 **Fix.** Two edits — drop the parentheses, rename the matcher — leaving `.not` where it is.
-`toStrictEqual` passes `{ strict: true }` and keeps the comparison it had. A received call carrying
+`toStrictEqual` passes `{ strict: true }` and keeps the comparison it had. `toBeNull()` and
+`toBeUndefined()` become `toHaveSignalValue(null)` and `toHaveSignalValue(undefined)`. A received call carrying
 type arguments of its own is reported without a fix, because a text move would drop them.
 
 ```ts
@@ -27314,7 +27346,7 @@ for `hostElement` / `queryElement`; `/angular/diagnostics` adds
 `AngularDiagnosticsOptions`, `SpecTiming` and `TestBedDiagnosticsOptions`; `/angular/doubles` adds
 `MatDialogRefInit<Ref>`, `MatDialogRefDouble<Ref>`, `DialogRefLike`, `DialogResult<Ref>`,
 `DialogComponent<Ref>` and `DialogDataOf<T, Token>` for the dialog doubles, `PlatformOverrides<T>` for the window and document
-ones; `/angular/matchers` adds `ResourceLike`, `SignalLike` and `SignalValueOptions`; `/dom-stubs` adds
+ones; `/angular/matchers` adds `RegisterSignalMatchersOptions`, `ResourceLike`, `SignalLike` and `SignalValueOptions`; `/dom-stubs` adds
 `WebStorageKey`, `WebStorageStub` and `WebStorageStubOptions` for `stubWebStorage`, and
 `AnimationFrameStub`, `AnimationFrameStubOptions`, `AnimationFrameMode`, `RequestAnimationFrameFn` and `CancelAnimationFrameFn` for `stubAnimationFrame`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` and `HttpTestingOptions` for

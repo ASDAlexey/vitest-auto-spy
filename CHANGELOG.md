@@ -10,6 +10,34 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`hookRegisteringHelpers` on `vitest-auto-spy/eslint-plugin`** — the frozen list of the
+  library's public helpers that register `beforeEach` / `afterEach` / `beforeAll` / `afterAll` when
+  called (`useConsoleSpies`, `setupAutoSpy`, `setupFakeTimers`, `useCountingClock`, `mockNow`, the
+  `guard*` family, …), for `vitest/require-hook`'s `allowedFunctionCalls`:
+  `allowedFunctionCalls: [...autoSpy.hookRegisteringHelpers]`. A bare `useConsoleSpies();` in a
+  `describe` body no longer needs a hand-kept list; a spec walks the call graph of every public entry
+  and fails when a hook-registering export is missing from it. It is a property of the plugin
+  object, so `require()` and `import` both reach it. `vitest-auto-spy/eslint-plugin` is +1.0 kB
+  min+gzip (+2.3 %) for the list and the two rule changes.
+- **`prefer-to-have-signal-value`** also reports `expect(sig()).toBeNull()` and `.toBeUndefined()`
+  on a signal read, `.not` included, and fixes them to `toHaveSignalValue(null)` /
+  `toHaveSignalValue(undefined)`.
+
+### Fixed
+
+- **`prefer-to-have-signal-value`** no longer rewrites an identity check. `expect(list.items()).toBe(items)`
+  asserts the signal holds that very array, and the fix turned it into `toHaveSignalValue(items)`,
+  which compares deeply and passes for any equal copy. A `toBe` is now reported only when the
+  expected value is a primitive literal or the signal's type is primitive (`any` does not count);
+  `toEqual` and `toStrictEqual` are unchanged.
+- **Docs**: `vitest-auto-spy/console` imports `vitest` itself (the fallback adapter and the
+  `useConsoleSpies()` hooks), so on `node:test` and Rstest it loads only where the `vitest` package
+  resolves; the console page, the README and `agent-docs/adapters.md` now say so. The README API
+  table and `agent-docs/angular.md` list `registerSignalMatchers({ strict })`, and the types list of
+  `/angular/matchers` names `RegisterSignalMatchersOptions`.
+
 ## [5.47.0] - 2026-09-28
 
 ### Added

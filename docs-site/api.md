@@ -314,7 +314,7 @@ for `hostElement` / `queryElement`; `/angular/diagnostics` adds
 `AngularDiagnosticsOptions`, `SpecTiming` and `TestBedDiagnosticsOptions`; `/angular/doubles` adds
 `MatDialogRefInit<Ref>`, `MatDialogRefDouble<Ref>`, `DialogRefLike`, `DialogResult<Ref>`,
 `DialogComponent<Ref>` and `DialogDataOf<T, Token>` for the dialog doubles, `PlatformOverrides<T>` for the window and document
-ones; `/angular/matchers` adds `ResourceLike`, `SignalLike` and `SignalValueOptions`; `/dom-stubs` adds
+ones; `/angular/matchers` adds `RegisterSignalMatchersOptions`, `ResourceLike`, `SignalLike` and `SignalValueOptions`; `/dom-stubs` adds
 `WebStorageKey`, `WebStorageStub` and `WebStorageStubOptions` for `stubWebStorage`, and
 `AnimationFrameStub`, `AnimationFrameStubOptions`, `AnimationFrameMode`, `RequestAnimationFrameFn` and `CancelAnimationFrameFn` for `stubAnimationFrame`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` and `HttpTestingOptions` for

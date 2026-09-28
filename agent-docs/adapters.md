@@ -39,7 +39,9 @@ expect(consoleInfoSpy).toHaveBeenCalledWith('done'); // the output is silenced, 
 ```
 
 It registers Vitest hooks (Bun resolves them to its own); on `node:test` and Rstest write
-`installConsoleSpies()` in a `beforeEach` and `restoreConsole()` in an `afterEach` yourself.
+`installConsoleSpies()` in a `beforeEach` and `restoreConsole()` in an `afterEach` yourself. The entry
+imports `vitest` itself, so there it loads only where the `vitest` package resolves. Under
+`vitest/require-hook`, spread `autoSpy.hookRegisteringHelpers` into `allowedFunctionCalls` (§16).
 
 The exported `consoleInfoSpy` & co. are the same objects; `restoreConsole()` keeps them and clears
 their calls. **Do not rely on the import to install them**: it does so once per worker, so under

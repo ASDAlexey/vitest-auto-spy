@@ -34,6 +34,13 @@ beforeEach(() => installConsoleSpies());
 afterEach(() => restoreConsole());
 ```
 
+Сам entry импортирует `vitest` — ради этих хуков и адаптера, который он регистрирует, если runtime-entry
+этого не сделал, — так что на `node:test` и Rstest он загружается только там, где резолвится пакет `vitest`.
+
+Голый `useConsoleSpies();` в теле `describe` задевает `vitest/require-hook`; разверните
+`autoSpy.hookRegisteringHelpers` из `vitest-auto-spy/eslint-plugin` в его `allowedFunctionCalls`
+([Рядом с `vitest/require-hook`](/ru/utilities/eslint-plugin#alongside-vitest-require-hook)).
+
 Экспортированные константы — `consoleInfoSpy`, `consoleErrorSpy`, … — те же объекты, что и мешок,
 который возвращают `useConsoleSpies()` и `installConsoleSpies()`, так что `expect(consoleErrorSpy)` — та же проверка. Когда
 вывода ждут все тесты файла, `installConsoleSpies()` один раз в начале файла делает то же для всего

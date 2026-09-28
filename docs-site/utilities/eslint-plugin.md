@@ -522,6 +522,23 @@ works instead:
 `assertNoPendingRequests`, `assertNoShadowedProviders` and `assertMocked`; `**.expect*` covers a
 helper reached through an object. Measured over 1759 spec files: **zero** false positives.
 
+### Alongside `vitest/require-hook`
+
+`require-hook` reports any call in a `describe` body or at the top of a spec that is not a hook, and
+it cannot know that `useConsoleSpies()` or `setupFakeTimers()` registers hooks of its own. The plugin
+exports the list of such helpers — every public function of this package that calls `beforeEach`,
+`afterEach`, `beforeAll` or `afterAll` when it runs, checked against the source by a spec, so a new
+helper cannot be left out:
+
+```js
+import autoSpy from 'vitest-auto-spy/eslint-plugin';
+
+'vitest/require-hook': ['error', { allowedFunctionCalls: [...autoSpy.hookRegisteringHelpers] }],
+```
+
+Calls that register no hook — `registerSignalMatchers()`, `trackStrayTimers()` — are not in it; a
+project that calls them at the top of a linted file appends them to the spread.
+
 ### Rule options
 
 `prefer-render-shallow` takes one, and it turns a cost finding into a policy:

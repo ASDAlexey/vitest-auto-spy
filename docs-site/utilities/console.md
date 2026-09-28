@@ -34,6 +34,13 @@ beforeEach(() => installConsoleSpies());
 afterEach(() => restoreConsole());
 ```
 
+The entry imports `vitest` itself — for these hooks and for the adapter it registers when no runtime
+entry did — so on `node:test` and Rstest it loads only where the `vitest` package resolves.
+
+A bare `useConsoleSpies();` in a `describe` body trips `vitest/require-hook`; spread
+`autoSpy.hookRegisteringHelpers` from `vitest-auto-spy/eslint-plugin` into its `allowedFunctionCalls`
+([Alongside `vitest/require-hook`](/utilities/eslint-plugin#alongside-vitest-require-hook)).
+
 The exported constants — `consoleInfoSpy`, `consoleErrorSpy`, … — are the same objects as the bag
 `useConsoleSpies()` and `installConsoleSpies()` return, so `expect(consoleErrorSpy)` is the same
 assertion. When every test

@@ -32,6 +32,25 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 `autoSpy.configs.strict` is `recommended` with every rule at `error`, instead of mapping
 `Object.keys(autoSpy.rules)` by hand.
 
+`@vitest/eslint-plugin`'s `vitest/require-hook` reports a bare `useConsoleSpies();` or
+`setupFakeTimers();` in a `describe` body, since it cannot know the call registers hooks.
+`autoSpy.hookRegisteringHelpers` is the library's list of such helpers — every public function that
+calls `beforeEach` / `afterEach` / `beforeAll` / `afterAll` when it runs, kept in step with the
+source by a spec — so spread it instead of maintaining the names by hand. Calls that register no
+hook (`registerSignalMatchers()`, `trackStrayTimers()`) are not in it; add them yourself where a
+linted file calls them at the top level.
+
+```js
+export default [
+  {
+    files: ['**/*.spec.ts'],
+    rules: {
+      'vitest/require-hook': ['error', { allowedFunctionCalls: [...autoSpy.hookRegisteringHelpers] }],
+    },
+  },
+];
+```
+
 | Rule | Level | Fix | Flags |
 | --- | --- | --- | --- |
 | `no-expect-in-subscribe` | `error` | suggest | `expect()` inside `subscribe()` → `expectEmission` / `firstValueFrom` |
@@ -56,7 +75,7 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | `no-unregistered-inject-spy` | `error` | — | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler |
 | `prefer-render-shallow` | `warn` | suggest | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children |
 | `prefer-set-inputs` | `warn` | suggest | a run of `fixture.componentRef.setInput('title', v)` on one fixture → `await setInputs(fixture, { title: v })` — the name is resolved against the compiled definition before the first write (an undeclared one is an `NG0303` and no change) and the value is typed. The run collapses into one call and a `detectChanges()` under it goes; offered, not applied, because `stable()` ticks and a zone.js suite answers that with `NG0101` |
-| `prefer-to-have-signal-value` | `warn` | `--fix` | `expect(component.total()).toBe(3)` / `toEqual(…)` → `expect(component.total).toHaveSignalValue(3)`, `toStrictEqual` → `{ strict: true }`; the matcher names the signal in the failure and refuses a value that is not one. **Type-aware**: the signal is recognised by Angular's brand on its type, so methods, functions and getters are never reported, and without `parserOptions.project` it reports nothing |
+| `prefer-to-have-signal-value` | `warn` | `--fix` | `expect(component.total()).toBe(3)` / `toEqual(…)` → `expect(component.total).toHaveSignalValue(3)`, `toStrictEqual` → `{ strict: true }`, `toBeNull()` / `toBeUndefined()` → `toHaveSignalValue(null)` / `(undefined)`; the matcher names the signal in the failure and refuses a value that is not one. **Type-aware**: the signal is recognised by Angular's brand on its type, so methods, functions and getters are never reported, and without `parserOptions.project` it reports nothing. A `toBe` against an object-typed signal (`expect(list.items()).toBe(items)`) is an identity check the deep matcher would lose, so it is reported only when the expected value is a primitive literal or the signal's type is primitive |
 | `prefer-spy-on-own-method` | `warn` | `--fix` / suggest | `createSpyFromInstance(x, { onlyMethodsToSpyOn: ['m'], passthrough: true })` read for `m` alone — `.m` on the call, `const { m } = …`, a bare statement, or a name read only as `v.m` → `spyOnOwnMethod(x, 'm')`; the same whitelist with `returns: { m: undefined }` → `spyOnVoidMethod(x, 'm')`. Both fix, import and all; a `Spy<X>` annotation becomes `Spy<X>['m']` in a suggestion. A bare `returns: { m: undefined }` seed is a suggestion, offered only on a real event or element — `new MouseEvent(…)`, `document.createElement(…)`, `fixture.nativeElement` — never on a double |
 | `prefer-observer-stub` | `error` | — | a hand-rolled observer global → `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()`; the manual save-and-restore goes too, `restoreMockedProps()` runs the undo |
 | `no-hand-assigned-global` | `error` | `--fix` | a double assigned to a global (`global.fetch = vi.fn()`, `window.matchMedia = vi.fn()`, `window.localStorage = { getItem: vi.fn() }`) with no restore in `afterEach` / `afterAll` / `onTestFinished` → `mockValueProp(globalThis, name, value)` or `vi.stubGlobal` + `unstubGlobals`; `blockNetwork()` for network globals, `stubWebStorage()` for the storages, `stubWorker({ respond })` for `Worker`; the three observers stay with `prefer-observer-stub`; any value written into an imported object (`environment.production = true`) → `mockValueProp(environment, 'production', true)`, fixed in a test or `beforeEach` |

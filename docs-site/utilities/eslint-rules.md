@@ -2414,14 +2414,22 @@ keystroke away from `expect(component.total).toBe(3)`, which passes for every si
 reports which signal was wrong, and refuses anything that is not a zero-argument getter, so the
 "forgot the parentheses" mistake fails instead of silently passing.
 
-**Reports.** A `toBe`, `toEqual` or `toStrictEqual` over a call the checker resolves to a signal —
-`.not` included. The signal is recognised by its type, not its name: callable, and branded with
+**Reports.** A `toBe`, `toEqual`, `toStrictEqual`, `toBeNull` or `toBeUndefined` over a call the
+checker resolves to a signal — `.not` included. The signal is recognised by its type, not its name: callable, and branded with
 Angular's signal brand, which the checker spells `__@SIGNAL@53` (the trailing number per program) —
 `getProperty('ɵSIGNAL')` by plain name finds none of them. Methods, plain functions and getters stay
 unreported, and without parser services the rule says nothing rather than guessing from the name.
 
+**Skips an identity check.** `toBe` compares with `Object.is`, `toHaveSignalValue` deeply, so
+`expect(list.items()).toBe(items)` — asserting the signal holds that very array — would pass for any
+equal copy after the rewrite. A `toBe` is reported only when the expected value is a primitive literal
+(`3`, `'on'`, `null`, `undefined`, a template without expressions) or the signal's type is primitive
+(string, number, boolean, bigint, enum, their literals, `null`, `undefined` — `any` does not count);
+any other `toBe` is left alone, since no matcher over the signal keeps the identity.
+
 **Fix.** Two edits — drop the parentheses, rename the matcher — leaving `.not` where it is.
-`toStrictEqual` passes `{ strict: true }` and keeps the comparison it had. A received call carrying
+`toStrictEqual` passes `{ strict: true }` and keeps the comparison it had. `toBeNull()` and
+`toBeUndefined()` become `toHaveSignalValue(null)` and `toHaveSignalValue(undefined)`. A received call carrying
 type arguments of its own is reported without a fix, because a text move would drop them.
 
 ```ts

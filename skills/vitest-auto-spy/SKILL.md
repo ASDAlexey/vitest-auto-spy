@@ -384,7 +384,9 @@ it('loads', async () => {
   `toHaveSignalValue(v)` after `registerSignalMatchers()` from `vitest-auto-spy/angular/matchers`
   (`toEqual` semantics; `toHaveSignalValue(v, { strict: true })` for `toStrictEqual`'s, or
   `registerSignalMatchers({ strict: true })` for the whole suite). The type-aware
-  `prefer-to-have-signal-value` lint rule rewrites `expect(sig()).toBe(v)` into the matcher.
+  `prefer-to-have-signal-value` lint rule rewrites `expect(sig()).toBe(v)`, `.toBeNull()` and
+  `.toBeUndefined()` into the matcher, except a `toBe` that checks an object's identity, which the
+  deep matcher cannot keep.
 - **Never assert a resource with `expect(r.value()).toEqual(...)` alone** — an unresolved resource
   still holds its _default_, so that passes while proving nothing. `toHaveResourceValue(v)` after
   `registerResourceMatchers()`, from the same `/angular/matchers` entry, fails unless the resource
@@ -491,6 +493,11 @@ to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —
 accept those together with the repair at the creation site, usually `createAutoMock<T>()` in place of
 an object literal.
+
+**`vitest/require-hook` reports a bare `useConsoleSpies();` or `setupFakeTimers();`** in a
+`describe` body. Do not wrap it in a hook or disable the line: spread
+`autoSpy.hookRegisteringHelpers` from `vitest-auto-spy/eslint-plugin` into the rule's
+`allowedFunctionCalls`.
 
 **`no-private-member-access`, `no-mistyped-use-value` and `no-unknown-use-value-key` are the three
 rules here that need type information.** The first reports

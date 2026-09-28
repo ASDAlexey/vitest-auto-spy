@@ -1063,8 +1063,8 @@ service.products.set([edited]); // the component's own optimistic write — stat
 expect(products.reload).toHaveBeenCalled(); // reload is spied, answers true, and re-issues nothing
 
 // signal assertions
-registerSignalMatchers(); // once, in the setup file — /angular/matchers
-expect(component.total).toHaveSignalValue(3); // toEqual semantics; { strict: true } for toStrictEqual's
+registerSignalMatchers(); // once, in the setup file — /angular/matchers; ({ strict: true }) makes the whole suite strict
+expect(component.total).toHaveSignalValue(3); // toEqual semantics; { strict: true } for toStrictEqual's, { strict: false } opts out
 
 // resource assertions — value AND status, which is the whole point
 registerResourceMatchers(); // once, in the setup file — /angular/matchers

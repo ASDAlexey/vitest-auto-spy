@@ -518,6 +518,23 @@ npx eslint --print-config src/app/cart.spec.ts | grep vitest-auto-spy
 `assertNoPendingRequests`, `assertNoShadowedProviders` и `assertMocked`; `**.expect*` — хелпер, до
 которого добираются через объект. Замерено на 1759 спек-файлах: **ноль** ложных срабатываний.
 
+### Рядом с `vitest/require-hook` {#alongside-vitest-require-hook}
+
+`require-hook` сообщает о любом вызове в теле `describe` или в начале спеки, который не хук, и не
+может знать, что `useConsoleSpies()` или `setupFakeTimers()` регистрируют собственные хуки. Плагин
+экспортирует список таких хелперов — каждую публичную функцию пакета, которая при вызове вызывает
+`beforeEach`, `afterEach`, `beforeAll` или `afterAll`; спека сверяет его с исходниками, так что
+новый хелпер из него не выпадет:
+
+```js
+import autoSpy from 'vitest-auto-spy/eslint-plugin';
+
+'vitest/require-hook': ['error', { allowedFunctionCalls: [...autoSpy.hookRegisteringHelpers] }],
+```
+
+Вызовов, которые хуков не регистрируют, — `registerSignalMatchers()`, `trackStrayTimers()` — в нём
+нет; проект, вызывающий их в начале линтуемого файла, дописывает их к спреду.
+
 ### Опции правил {#rule-options}
 
 Есть одна у `prefer-render-shallow`, и она превращает находку про цену в политику:
