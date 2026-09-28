@@ -19,8 +19,8 @@ The latest released version here must always match the one published on
   `allowedFunctionCalls: [...autoSpy.hookRegisteringHelpers]`. A bare `useConsoleSpies();` in a
   `describe` body no longer needs a hand-kept list; a spec walks the call graph of every public entry
   and fails when a hook-registering export is missing from it. It is a property of the plugin
-  object, so `require()` and `import` both reach it. `vitest-auto-spy/eslint-plugin` is +1.0 kB
-  min+gzip (+2.3 %) for the list and the two rule changes.
+  object, so `require()` and `import` both reach it. `vitest-auto-spy/eslint-plugin` is +0.42 kB
+  min+gzip (+1.0 %) for the list and the two rule changes.
 - **`prefer-to-have-signal-value`** also reports `expect(sig()).toBeNull()` and `.toBeUndefined()`
   on a signal read, `.not` included, and fixes them to `toHaveSignalValue(null)` /
   `toHaveSignalValue(undefined)`.
