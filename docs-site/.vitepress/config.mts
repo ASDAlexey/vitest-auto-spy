@@ -344,6 +344,7 @@ export default defineConfig({
           'eslint plugin for vitest spies, done callback is deprecated use promise instead, ' +
           'what does this eslint rule mean, turn off one eslint rule, link to a lint rule doc, ' +
           'prefer-render-shallow, why is this rule a warning, eslint rule severity vitest spies, ' +
+          'vitest require-hook allowedFunctionCalls, useConsoleSpies in describe body lint, allow function call outside test vitest, ' +
           'should create test is useless, ng generate spec only tests toBeTruthy, delete the default angular spec, ' +
           'no-redundant-smoke-test, test that cannot fail, smoke test asserts nothing, ' +
           'prefer-set-inputs, componentRef.setInput, setInputs, NG0303, input name not declared, setInput does nothing, ' +
