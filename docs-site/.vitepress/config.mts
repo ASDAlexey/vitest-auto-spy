@@ -347,6 +347,8 @@ export default defineConfig({
           'vitest require-hook allowedFunctionCalls, useConsoleSpies in describe body lint, allow function call outside test vitest, ' +
           'should create test is useless, ng generate spec only tests toBeTruthy, delete the default angular spec, ' +
           'no-redundant-smoke-test, test that cannot fail, smoke test asserts nothing, ' +
+          'no-real-component-provider, debugElement.injector.get returns real service, component providers not mocked, ' +
+          'component spec calls real store http, override component-level provider testbed, ' +
           'prefer-set-inputs, componentRef.setInput, setInputs, NG0303, input name not declared, setInput does nothing, ' +
           'toBeDefined does not narrow type, object is possibly undefined in test, TS18048 in spec, non-null assertion in test, narrow.defined, ' +
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, createFixture, createFixtureFactory, ' +
