@@ -15,6 +15,7 @@ import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { expectNoRequest, expectRequest, injectHttpTesting, provideHttpTesting, verifyNoPendingRequests } from './angular-http';
+import { provideDocumentDouble } from './platform-doubles';
 
 interface Product {
   id: number;
@@ -349,6 +350,52 @@ describe('a TestBed whose DOCUMENT is a double', () => {
     expect(failures).toStrictEqual([401]);
   });
 });
+
+describe('a TestBed whose DOCUMENT is provideDocumentDouble()', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [...provideHttpTesting(), provideDocumentDouble({ visibilityState: 'hidden' })] });
+  });
+
+  it('ticks through it, since the double keeps every member of the real document', async () => {
+    const received: string[] = [];
+
+    TestBed.inject(HttpClient)
+      .get('/api/token', { responseType: 'text' })
+      .subscribe((token) => received.push(token));
+
+    await expectRequest('/api/token').flush('t');
+
+    expect(received).toStrictEqual(['t']);
+  });
+
+  it('rethrows an app error as it is rather than blaming the double', () => {
+    const failing = signal(false);
+
+    TestBed.runInInjectionContext(() =>
+      effect(() => {
+        if (failing()) {
+          throw new Error('effect failed');
+        }
+      }),
+    );
+    failing.set(true);
+
+    expect(() => expectNoRequest()).toThrow(/^effect failed$/);
+  });
+
+  it('still names the double once its body is replaced by one without querySelector', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [...provideHttpTesting(), provideDocumentDouble({ body: Object.assign(new BodyWithoutQueries(), document.body) })],
+    });
+
+    expect(() => expectNoRequest()).toThrow(/expectNoRequest: TestBed.tick\(\) failed, and this TestBed provides its own DOCUMENT/);
+  });
+});
+
+class BodyWithoutQueries {
+  readonly children: never[] = [];
+}
 
 function captureThrow(run: () => unknown): unknown {
   try {

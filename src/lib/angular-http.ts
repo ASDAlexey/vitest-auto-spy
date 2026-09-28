@@ -416,12 +416,32 @@ async function settle(tick: boolean): Promise<void> {
   }
 }
 
+/**
+ * A `DOCUMENT` the tick can fall over: not a document at all, or one without the `body.querySelector`
+ * Angular reads. A `provideDocumentDouble()` view is neither, so an app error under it stays the app's.
+ */
+function isPartialDocument(doc: unknown): boolean {
+  const real: unknown = globalThis.document;
+
+  if (doc === real) {
+    return false;
+  }
+
+  if (Reflect.getPrototypeOf(Object(doc)) !== Reflect.getPrototypeOf(Object(real))) {
+    return true;
+  }
+
+  const body: unknown = Reflect.get(Object(doc), 'body');
+
+  return typeof Reflect.get(Object(body), 'querySelector') !== 'function';
+}
+
 /** The app's tick, with a doubled `DOCUMENT` named when it is what the tick fell over. */
 function tickApp(caller: string): void {
   try {
     flushEffects();
   } catch (error) {
-    if (TestBed.inject(DOCUMENT) === globalThis.document) {
+    if (!isPartialDocument(TestBed.inject(DOCUMENT))) {
       throw error;
     }
 
@@ -453,7 +473,7 @@ function tickApp(caller: string): void {
  * that was never sent rather than one that was sent wrongly.
  *
  * @param matcher The URL, a pattern for it, or a predicate over the request.
- * @param options `{ method }`, for a URL that is both read and written in the same test.
+ * @param options `{ method }`, for a URL that is both read and written in the same test; `{ tick: false }` for a doubled `DOCUMENT`.
  */
 export function expectRequest(matcher: RequestMatcher, options: ExpectRequestOptions = {}): RequestExpectation {
   const controller = readController('expectRequest');
