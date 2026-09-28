@@ -197,7 +197,7 @@ export function strayListenersError(removed: number, listeners: readonly StrayLi
 }
 
 /** `HttpErrorResponse: Http failure response for /api: 502`, and the value itself for a non-error — rxjs lets anything through. */
-function describeThrown(error: unknown): string {
+export function describeThrown(error: unknown): string {
   const message: unknown = Reflect.get(Object(error), 'message');
 
   if (typeof message !== 'string') {

@@ -12,6 +12,7 @@ import {
   countStrayTimers,
   describeStrayTimers,
   detectsAsyncLeaks,
+  expectUnhandledObservableErrors,
   flushUnhandledObservableErrors,
   trackStrayTimers,
   withoutStrayTimerTracking,
@@ -916,5 +917,95 @@ describe('flushUnhandledObservableErrors', () => {
     Reflect.set(host.setTimeout, 'clock', clock);
 
     expect(flushUnhandledObservableErrors(host)).toEqual([]);
+  });
+});
+
+describe('expectUnhandledObservableErrors', () => {
+  const stops: (() => void)[] = [];
+
+  afterEach(() => {
+    stops.splice(0).forEach((stop) => stop());
+    config.onUnhandledError = null;
+    vi.useRealTimers();
+  });
+
+  const failUnhandled = (error: unknown): void => {
+    const subject = new Subject<never>();
+
+    subject.subscribe();
+    subject.error(error);
+  };
+
+  it('passes when nothing was left and nothing was expected', () => {
+    expect(expectUnhandledObservableErrors()).toStrictEqual([]);
+  });
+
+  it('asserts the errors a test deliberately leaves, by instance, class and message', () => {
+    stops.push(trackStrayTimers());
+    failUnhandled(new TypeError('id is not a number'));
+    failUnhandled(new RangeError('offset out of bounds'));
+    failUnhandled(new Error('502 from /api'));
+
+    const flushed = expectUnhandledObservableErrors([new TypeError('id is not a number'), RangeError, { message: /502/ }]);
+
+    expect(flushed).toHaveLength(3);
+    expect(countStrayTimers()).toBe(0);
+  });
+
+  it('matches a plain message string', () => {
+    stops.push(trackStrayTimers());
+    failUnhandled(new Error('502 from /api'));
+
+    expect(expectUnhandledObservableErrors([{ message: '502 from /api' }])).toHaveLength(1);
+  });
+
+  it('fails when an error was left and none was expected', () => {
+    stops.push(trackStrayTimers());
+    failUnhandled(new Error('502 from /api'));
+
+    expect(() => expectUnhandledObservableErrors()).toThrow(/do not match what the test expected/);
+  });
+
+  it('fails on a message mismatch, listing what was expected and what was found', () => {
+    stops.push(trackStrayTimers());
+    failUnhandled(new Error('404 from /api'));
+
+    expect(() => expectUnhandledObservableErrors([{ message: '502 from /api' }])).toThrow(
+      /expected \[0\] "502 from \/api"[\s\S]*found {4}\[0\] Error: 404 from \/api/,
+    );
+  });
+
+  it('lists a pattern expectation as the pattern it is', () => {
+    stops.push(trackStrayTimers());
+    failUnhandled(new Error('404 from /api'));
+
+    expect(() => expectUnhandledObservableErrors([{ message: /502/ }])).toThrow(
+      /expected \[0\] \/502\/[\s\S]*found {4}\[0\] Error: 404 from \/api/,
+    );
+  });
+
+  it('fails when the same count does not match the expected error instance', () => {
+    stops.push(trackStrayTimers());
+    failUnhandled(new TypeError('id is not a number'));
+
+    expect(() => expectUnhandledObservableErrors([new Error('id is not a number')])).toThrow(
+      /found {4}\[0\] TypeError: id is not a number/,
+    );
+  });
+
+  it('fails on a wrong class', () => {
+    stops.push(trackStrayTimers());
+    failUnhandled(new TypeError('id is not a number'));
+
+    expect(() => expectUnhandledObservableErrors([RangeError])).toThrow(
+      /expected \[0\] RangeError[\s\S]*found {4}\[0\] TypeError: id is not a number/,
+    );
+  });
+
+  it('fails on a count mismatch', () => {
+    stops.push(trackStrayTimers());
+    failUnhandled(new Error('boom'));
+
+    expect(() => expectUnhandledObservableErrors([new Error('boom'), new Error('later')])).toThrow(/do not match what the test expected/);
   });
 });

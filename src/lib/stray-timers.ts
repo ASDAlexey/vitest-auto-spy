@@ -34,7 +34,7 @@ import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { markOwnedPatch } from './owned-patch';
 import { isLibraryFrame, stackFrames } from './stack-frames';
-import { type MadeIn, describeMadeIn, describeOriginOf, madeIn, originNow } from './stray-failure';
+import { type MadeIn, describeMadeIn, describeOriginOf, describeThrown, madeIn, originNow } from './stray-failure';
 import type { Func } from './types';
 
 /**
@@ -824,4 +824,88 @@ export function flushUnhandledObservableErrors(host: SchedulerHost = defaultHost
   const tracked = registry().get(host);
 
   return [...(tracked ? flushTracked(tracked) : []), ...flushFakeClock(host)];
+}
+
+/** What one entry of {@link expectUnhandledObservableErrors} expects: the error itself, its class, or its message. */
+export type ExpectedUnhandledError = Error | (abstract new () => Error) | { readonly message: RegExp | string };
+
+function matchesExpectedUnhandled(error: unknown, expected: ExpectedUnhandledError): boolean {
+  if (typeof expected === 'function') {
+    return error instanceof expected;
+  }
+
+  if (expected instanceof Error) {
+    return error instanceof Error && error.name === expected.name && error.message === expected.message;
+  }
+
+  return (
+    error instanceof Error &&
+    (typeof expected.message === 'string' ? error.message === expected.message : expected.message.test(error.message))
+  );
+}
+
+function describeExpectedUnhandled(expected: ExpectedUnhandledError): string {
+  if (typeof expected === 'function') {
+    return expected.name;
+  }
+
+  if (expected instanceof Error) {
+    return describeThrown(expected);
+  }
+
+  return typeof expected.message === 'string' ? `"${expected.message}"` : `/${expected.message.source}/${expected.message.flags}`;
+}
+
+function expectedUnhandledErrorsError(expected: readonly ExpectedUnhandledError[], flushed: readonly UnhandledObservableError[]): Error {
+  return new Error(
+    withDocs(
+      [
+        '[vitest-auto-spy] Unhandled Observable errors do not match what the test expected:',
+        ...expected.map((entry, index) => `  expected [${index}] ${describeExpectedUnhandled(entry)}`),
+        ...flushed.map((entry, index) => `  found    [${index}] ${describeThrown(entry.error)}`),
+        '',
+        'rxjs rethrows an error no subscriber handles from a setTimeout, where it fails no test; this assertion rethrew it early instead. Handle the error where the stream is subscribed, or expect it here.',
+      ].join('\n'),
+      DOCS_LINKS.setupTimers,
+    ),
+    { cause: flushed[0]?.error },
+  );
+}
+
+/**
+ * Assert the rxjs errors nothing handled are exactly the ones a test deliberately left, and hand them back.
+ *
+ * `afterEach(() => expect(flushUnhandledObservableErrors()).toEqual([]))` asserts none were left; a
+ * test whose stream is *meant* to die unhandled cannot use it, because the expectation has to follow
+ * the act. This helper flushes at the assertion itself and compares in order: each expected entry is
+ * the error itself, its class, or a message — a string or a pattern. Nothing expected and nothing
+ * found passes, which is the zero-argument form of the same assertion.
+ *
+ * @example
+ * ```ts
+ * store.load(); // the request fails and nothing subscribes to the error
+ * expectUnhandledObservableErrors([{ message: /502/ }]);
+ * ```
+ */
+export function expectUnhandledObservableErrors(
+  expected: readonly ExpectedUnhandledError[] = [],
+  host: SchedulerHost = defaultHost(),
+): UnhandledObservableError[] {
+  const flushed = flushUnhandledObservableErrors(host);
+  // the iterator, not `expected[index]`: this package compiles with noUncheckedIndexedAccess, and
+  // the length check above is what keeps the iterator and the flushed list aligned
+  const wanted = expected.values();
+  const matches =
+    flushed.length === expected.length &&
+    flushed.every(({ error }) => {
+      const next = wanted.next();
+
+      return !next.done && matchesExpectedUnhandled(error, next.value);
+    });
+
+  if (!matches) {
+    throw expectedUnhandledErrorsError(expected, flushed);
+  }
+
+  return flushed;
 }
