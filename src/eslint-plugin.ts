@@ -192,6 +192,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-import-time-spread`]: 'error',
   [`${PLUGIN_NAME}/no-unregistered-inject-spy`]: 'error',
   [`${PLUGIN_NAME}/prefer-render-shallow`]: 'warn',
+  [`${PLUGIN_NAME}/prefer-to-have-signal-value`]: 'warn',
   [`${PLUGIN_NAME}/no-stub-class-double`]: 'warn',
   [`${PLUGIN_NAME}/no-structural-double`]: 'warn',
   [`${PLUGIN_NAME}/prefer-observer-stub`]: 'error',

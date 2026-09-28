@@ -70,6 +70,7 @@ import { preferObserverStub } from './observer-stub';
 import { noOverriddenProvider } from './overridden-provider';
 import { preferInjectSpy } from './prefer-inject-spy';
 import { preferRenderShallow } from './prefer-render-shallow';
+import { preferToHaveSignalValue } from './prefer-to-have-signal-value';
 import { noPrivateMemberAccess } from './private-access';
 import { preferProvideAutoSpy } from './provide-auto-spy';
 import { noReflectMemberAccess } from './reflect-access';
@@ -114,6 +115,7 @@ export const rules: Record<string, RuleModule> = {
   'no-import-time-spread': noImportTimeSpread,
   'no-unregistered-inject-spy': noUnregisteredInjectSpy,
   'prefer-render-shallow': preferRenderShallow,
+  'prefer-to-have-signal-value': preferToHaveSignalValue,
   'prefer-observer-stub': preferObserverStub,
   'no-hand-assigned-global': noHandAssignedGlobal,
   'prefer-stub-response': preferStubResponse,

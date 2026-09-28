@@ -245,7 +245,16 @@ describe('hiddenMemberOf without a full set of services', () => {
   it.each([
     ['nothing published at all', {}],
     ['maps but no program', { esTreeNodeToTSNodeMap: { get: () => ({}) }, tsNodeToESTreeNodeMap: { get: () => undefined } }],
-    ['a program but no maps', { program: { getTypeChecker: () => ({ getTypeAtLocation: () => ({ getProperty: () => undefined }) }) } }],
+    [
+      'a program but no maps',
+      {
+        program: {
+          getTypeChecker: () => ({
+            getTypeAtLocation: () => ({ getProperty: () => undefined, getProperties: () => [], getCallSignatures: () => [] }),
+          }),
+        },
+      },
+    ],
   ])('answers nothing given %s', (_case, services: ParserServices) => {
     expect(hiddenMemberOf(contextWith(services), node)).toBeUndefined();
   });

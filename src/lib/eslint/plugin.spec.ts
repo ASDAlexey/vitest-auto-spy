@@ -32,6 +32,7 @@ describe('the plugin', () => {
       'prefer-native-spy-api',
       'prefer-provide-auto-spy',
       'prefer-spy-on-own-method',
+      'prefer-to-have-signal-value',
     ]);
     // `no-mocked-for-spy`, `no-redundant-mock-reset`, `prefer-native-spy-api` and `prefer-spy-on-own-method` declare both: the
     // same edit is applied where the file settles it and offered where something outside the file —
@@ -128,7 +129,8 @@ describe('the plugin', () => {
     expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-create-mock']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-unasserted-argument']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-spy-on-own-method']).toBe('warn');
-    expect(levels.filter((level) => level !== 'error')).toHaveLength(8);
+    expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-to-have-signal-value']).toBe('warn');
+    expect(levels.filter((level) => level !== 'error')).toHaveLength(9);
     expect(levels).toHaveLength(Object.keys(rules).length);
   });
 

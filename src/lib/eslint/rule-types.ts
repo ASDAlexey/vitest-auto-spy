@@ -308,6 +308,10 @@ export interface TsNode {
 /** The one thing this plugin asks a TypeScript type: what it holds, and — for a literal — what it is. */
 export interface TsType {
   getProperty(name: string): { readonly declarations?: readonly TsNode[] } | undefined;
+  /** Every property by name; a symbol-keyed one is spelled `__@name@id`, which is what a brand reads as. */
+  getProperties(): readonly { getName(): string }[];
+  /** TypeScript 5.0 split the old `getSignatures(0)` into this and `getConstructSignatures`. */
+  getCallSignatures(): readonly unknown[];
   /** Present on a literal type only; a string here is what makes `obj['x']` a named member read. */
   readonly value?: unknown;
 }
