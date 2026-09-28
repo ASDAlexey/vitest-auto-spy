@@ -10,6 +10,50 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`prefer-to-have-signal-value`** (ESLint plugin, `warn`, type-aware, autofix) rewrites
+  `expect(component.total()).toBe(3)` into `expect(component.total).toHaveSignalValue(3)`:
+  the matcher keeps the signal's name in the failure output and refuses a value that is not a
+  signal. `toEqual` maps the same way, `toStrictEqual` keeps its comparison through
+  `{ strict: true }`. The signal is recognised by its type — callable and branded with Angular's
+  signal brand, spelled `__@SIGNAL@…` by the checker — so methods, plain functions and getters stay
+  unreported, and without parser services the rule says nothing. Safe to autofix since 5.46.0, which
+  made `toHaveSignalValue` compare nested `Set` and `Map` values.
+- **`registerSignalMatchers({ strict: true })`** flips the default of one registration: every
+  `toHaveSignalValue` of the suite compares like `toStrictEqual` without repeating the option per
+  assertion, and a single assertion can still pass `{ strict: false }`.
+- **`expectUnhandledObservableErrors([...])` from `vitest-auto-spy/setup`** asserts the rxjs errors
+  nothing handled are exactly the ones a test deliberately left — each expected entry the error
+  itself, its class, or a message (a string or a pattern), compared in order — and hands the
+  flushed entries back. Zero-argument form asserts none were left.
+- **`prepareShallow(Component, options).create(overrides)` from `vitest-auto-spy/angular`** binds a
+  component and the options every test of a suite repeats; `create()` runs the `renderShallow`
+  sequence with the overrides applied per key — `inputs` for an `it.each`, `providers` for a
+  one-off. One instance per test: the runner resets the TestBed between tests, and two `create()`
+  calls inside a single test need a manual `TestBed.resetTestingModule()`.
+- **`useConsoleSpies()` from `vitest-auto-spy/console`** registers `beforeEach(installConsoleSpies)`
+  and `afterEach(restoreConsole)` in the enclosing `describe` and returns the spies, replacing the
+  hook pair every console-asserting spec wrote by hand. It registers Vitest hooks (Bun resolves them
+  to its own); on `node:test` and Rstest the pair stays manual. `no-import-time-console-spies`
+  accepts it as the file's install, and the stray-console report and docs recommend it.
+
+### Fixed
+
+- **An app error in `expectRequest` / `expectNoRequest`'s tick under `provideDocumentDouble()` is no
+  longer blamed on the double.** 5.46.0 rewrapped every tick failure whenever `DOCUMENT` was not the
+  real document, so an effect that threw under the library's own double read as "a partial double
+  does not have" the members Angular reads, and pointed at `{ tick: false }`, which hides the error.
+  The message is now kept for a `DOCUMENT` that is not a document, or whose `body` has no
+  `querySelector`; any other failure is rethrown as it is.
+
+### Documentation
+
+- **`provideDocumentDouble()` needs no `{ tick: false }`**, and a JSON error body is
+  `flush(body, { status })` — `.error(status, { error })` takes a `ProgressEvent`, as Angular's
+  `TestRequest.error()` does. The HTTP page, `agent-docs/angular.md` and `agent-docs/errors.md` say so.
+- **The README's `SubjectLike` member list gains `unsubscribe`**, as `agent-docs` did in 5.46.0.
+
 ## [5.46.0] - 2026-09-27
 
 ### Added
