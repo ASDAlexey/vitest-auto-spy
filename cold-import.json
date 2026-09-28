@@ -116,7 +116,7 @@
     }
   },
   "released": {
-    "version": "5.48.0",
+    "version": "5.49.0",
     "entries": {
       ".": {
         "modules": 2,
@@ -124,11 +124,11 @@
       },
       "./angular": {
         "modules": 3,
-        "bytes": 244842
+        "bytes": 245031
       },
       "./angular-http": {
         "modules": 8,
-        "bytes": 32313
+        "bytes": 32656
       },
       "./angular-router": {
         "modules": 9,
@@ -144,7 +144,7 @@
       },
       "./angular/matchers": {
         "modules": 5,
-        "bytes": 23887
+        "bytes": 23960
       },
       "./bun": {
         "modules": 15,
@@ -152,11 +152,11 @@
       },
       "./bun-angular": {
         "modules": 19,
-        "bytes": 215259
+        "bytes": 215448
       },
       "./console": {
         "modules": 13,
-        "bytes": 93702
+        "bytes": 93970
       },
       "./diagnostics": {
         "modules": 2,
@@ -168,7 +168,7 @@
       },
       "./eslint-plugin": {
         "modules": 2,
-        "bytes": 250774
+        "bytes": 260521
       },
       "./jasmine": {
         "modules": 16,
@@ -208,7 +208,7 @@
       },
       "./setup": {
         "modules": 2,
-        "bytes": 165261
+        "bytes": 167218
       },
       "./signal-forms": {
         "modules": 3,

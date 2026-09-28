@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.49.0] - 2026-09-28
+
 ### Added
 
 - **`no-real-component-provider`** in `vitest-auto-spy/eslint-plugin`, `error` in `recommended`:
@@ -9323,7 +9325,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.48.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.49.0...HEAD
+[5.49.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.48.0...v5.49.0
 [5.48.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.47.0...v5.48.0
 [5.47.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.46.0...v5.47.0
 [5.46.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.45.0...v5.46.0

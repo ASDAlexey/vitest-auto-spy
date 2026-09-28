@@ -30,7 +30,7 @@
   },
   "note": "Baseline for scripts/size-entries.mjs: min+gzip bytes per entry point, peers external. Regenerate with `npm run size:entries:update` and explain the diff in the commit. `released` moves only in the `version` script; growth over it past 3 % needs a CHANGELOG note.",
   "released": {
-    "version": "5.48.0",
+    "version": "5.49.0",
     "entries": {
       ".": 27827,
       "./bun": 25881,
@@ -57,7 +57,7 @@
       "./svelte": 27828,
       "./setup": 29518,
       "./zone": 1173,
-      "./eslint-plugin": 44194,
+      "./eslint-plugin": 44970,
       "./perf-reporter": 1978
     }
   }
