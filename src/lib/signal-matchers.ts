@@ -40,6 +40,12 @@ export interface SignalValueOptions {
   readonly strict?: boolean;
 }
 
+/** Suite-wide defaults for the matchers {@link registerSignalMatchers} registers. */
+export interface RegisterSignalMatchersOptions {
+  /** Compare every `toHaveSignalValue` like `toStrictEqual` does, unless an assertion opts out with `{ strict: false }`. */
+  readonly strict?: boolean;
+}
+
 /** What a matcher hands back to the runner. */
 interface MatcherResult {
   pass: boolean;
@@ -67,10 +73,23 @@ function isSpy(received: object): boolean {
  *
  * expect(component.total).toHaveSignalValue(3);
  * ```
+ *
+ * A suite that wants the `toStrictEqual` semantics everywhere passes it once instead of on every
+ * assertion; a single assertion can still opt back out.
+ *
+ * @example
+ * ```ts
+ * registerSignalMatchers({ strict: true });
+ *
+ * expect(component.items).toHaveSignalValue(items); // compares strictly
+ * expect(component.draft).toHaveSignalValue({}, { strict: false });
+ * ```
  */
-export function registerSignalMatchers(): void {
+export function registerSignalMatchers(options: RegisterSignalMatchersOptions = {}): void {
+  const strictByDefault = options.strict === true;
+
   expect.extend({
-    toHaveSignalValue(received: unknown, expected: unknown, { strict = false }: SignalValueOptions = {}): MatcherResult {
+    toHaveSignalValue(received: unknown, expected: unknown, { strict = strictByDefault }: SignalValueOptions = {}): MatcherResult {
       if (typeof received !== 'function') {
         throw new Error(`expected a signal (a zero-argument getter), received ${this.utils.printReceived(received)}`);
       }
