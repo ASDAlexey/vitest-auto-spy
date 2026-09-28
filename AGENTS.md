@@ -534,7 +534,7 @@ In [`agent-docs/adapters.md`](./agent-docs/adapters.md). Read it for NestJS, Vue
 
 ## 16. ESLint plugin (flat config only)
 
-In [`agent-docs/eslint.md`](./agent-docs/eslint.md). Read it when configuring `vitest-auto-spy/eslint-plugin` or fixing one of its reports.
+In [`agent-docs/eslint.md`](./agent-docs/eslint.md). Read it when configuring `vitest-auto-spy/eslint-plugin` or fixing one of its reports. For `vitest/require-hook`, spread `autoSpy.hookRegisteringHelpers` into `allowedFunctionCalls` rather than keeping the names by hand.
 
 <!-- agents-outline: agent-docs/eslint.md -->
 <!-- /agents-outline -->
