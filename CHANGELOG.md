@@ -22,7 +22,7 @@ The latest released version here must always match the one published on
   files that call `createWithAutoSpies` are left alone; `{ ignoreTokens }` keeps an intended
   integration test real. Only the fixture's own injector is read, never a child's. Measured on three
   consumers, 1078 spec files: 5 reports, all of them real. The plugin now ships fifty-one rules.
-  `vitest-auto-spy/eslint-plugin` grows by about 10 kB (+3.9 %) for it, the rule module and its
+  `vitest-auto-spy/eslint-plugin` is +0.78 kB min+gzip (+1.8 %) for the rule module and its
   messages; no module is added to the entry's graph.
 
 ## [5.48.0] - 2026-09-28
