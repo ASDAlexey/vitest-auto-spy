@@ -30,6 +30,8 @@ import { computed, signal } from '@angular/core';
 export class Counter {
   readonly total = signal(3);
   readonly doubled = computed(() => this.total() * 2);
+  readonly items = signal<readonly string[]>([]);
+  readonly loose = signal<any>(undefined);
 
   label(): string {
     return 'three';
@@ -63,6 +65,14 @@ const FIXTURES: Record<string, string> = {
     'library.expect(counter.total()).toBe(3);\n',
   'non-matcher.spec.ts':
     "import { Counter } from './counter';\ndeclare const counter: Counter;\nexpect(counter.total()).toBeTruthy();\nexpect(counter.total()).toHaveBeenCalled();\n",
+  'signal-to-be-null.spec.ts':
+    "import { Counter } from './counter';\ndeclare const counter: Counter;\nexpect(counter.items()).toBeNull();\nexpect(counter.items()).not.toBeUndefined();\n",
+  'object-to-be.spec.ts':
+    "import { Counter } from './counter';\ndeclare const counter: Counter;\ndeclare const list: readonly string[];\nexpect(counter.items()).toBe(list);\nexpect(counter.items()).not.toBe(list);\nexpect(counter.loose()).toBe(list);\nexpect(counter.items()).toBe();\nexpect(counter.items()).toBe([...list]);\nexpect(counter.items()).toBe(/a/);\n",
+  'object-to-equal.spec.ts':
+    "import { Counter } from './counter';\ndeclare const counter: Counter;\ndeclare const list: readonly string[];\nexpect(counter.items()).toEqual(list);\n",
+  'primitive-to-be.spec.ts':
+    "import { Counter } from './counter';\ndeclare const counter: Counter;\ndeclare const three: number;\nexpect(counter.total()).toBe(three);\nexpect(counter.loose()).toBe(-1);\nexpect(counter.loose()).toBe(undefined);\nexpect(counter.loose()).toBe(`a`);\n",
   'plain-value.spec.ts': 'declare const box: { value: number };\nexpect(box.value).toBe(1);\n',
 };
 
@@ -107,6 +117,7 @@ describe('prefer-to-have-signal-value — the shapes it must report', () => {
     ['negated.spec.ts', 'counter.total'],
     ['generic-type-arguments.spec.ts', 'counter.total'],
     ['strict-equal-no-arguments.spec.ts', 'counter.total'],
+    ['signal-to-be-null.spec.ts', 'counter.items'],
   ])('reports the signal read inline in %s', (fixture, signal) => {
     const [message] = lintTyped(fixture);
 
@@ -120,6 +131,11 @@ describe('prefer-to-have-signal-value — the shapes it must report', () => {
     expect(lintTyped('not-expect.spec.ts')).toStrictEqual([]);
     expect(lintTyped('non-matcher.spec.ts')).toStrictEqual([]);
     expect(lintTyped('plain-value.spec.ts')).toStrictEqual([]);
+  });
+
+  it('stays silent on a toBe that checks the identity of an object, which toHaveSignalValue compares deeply', () => {
+    expect(lintTyped('object-to-be.spec.ts')).toStrictEqual([]);
+    expect(lintTyped('object-to-equal.spec.ts')).toHaveLength(1);
   });
 
   it('reports nothing without parser services, rather than guessing from the name', () => {
@@ -145,6 +161,30 @@ describe('prefer-to-have-signal-value — the fix', () => {
     );
     expect(autofix('negated.spec.ts').output).toBe(
       "import { Counter } from './counter';\ndeclare const counter: Counter;\nexpect(counter.total).not.toHaveSignalValue(3);\n",
+    );
+  });
+
+  it('rewrites a toBe whose signal holds a primitive or whose expected value is a primitive literal', () => {
+    expect(autofix('primitive-to-be.spec.ts').output).toBe(
+      "import { Counter } from './counter';\n" +
+        'declare const counter: Counter;\n' +
+        'declare const three: number;\n' +
+        'expect(counter.total).toHaveSignalValue(three);\n' +
+        'expect(counter.loose).toHaveSignalValue(-1);\n' +
+        'expect(counter.loose).toHaveSignalValue(undefined);\n' +
+        'expect(counter.loose).toHaveSignalValue(`a`);\n',
+    );
+  });
+
+  it('rewrites toBeNull and toBeUndefined into toHaveSignalValue with the value they assert, .not included', () => {
+    const fixed = autofix('signal-to-be-null.spec.ts');
+
+    expect(fixed.messages).toStrictEqual([]);
+    expect(fixed.output).toBe(
+      "import { Counter } from './counter';\n" +
+        'declare const counter: Counter;\n' +
+        'expect(counter.items).toHaveSignalValue(null);\n' +
+        'expect(counter.items).not.toHaveSignalValue(undefined);\n',
     );
   });
 

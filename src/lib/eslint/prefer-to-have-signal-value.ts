@@ -5,8 +5,9 @@
  * `toHaveSignalValue` — the matcher `registerSignalMatchers()` registers — asserts the same value
  * and reports which signal was wrong, while refusing anything that is not a zero-argument getter,
  * so the "forgot the parentheses" mistake fails instead of silently passing. The rule rewrites the
- * three assertions a signal value is usually spelled with: `toBe` and `toEqual` become
- * `toHaveSignalValue`, `toStrictEqual` passes `{ strict: true }` and keeps the comparison it had.
+ * assertions a signal value is usually spelled with: `toBe` and `toEqual` become
+ * `toHaveSignalValue`, `toStrictEqual` passes `{ strict: true }` and keeps the comparison it had;
+ * `toBeNull()` and `toBeUndefined()` become `toHaveSignalValue(null)` / `toHaveSignalValue(undefined)`.
  *
  * **The signal is recognised by its type, not by its name.** A getter, a plain function or a
  * no-argument method call must stay unreported, and only the checker tells them apart: Angular
@@ -18,6 +19,9 @@
  *
  * The fix is two text edits — drop the parentheses, rename the matcher — and is issued only for a
  * received call without type arguments of its own, which a text move would silently drop.
+ *
+ * `toBe` is an identity check and `toHaveSignalValue` compares deeply, so a `toBe` is left alone unless
+ * the expected value is a primitive literal or the signal holds a primitive type.
  */
 import { defineRule } from './define-rule';
 import { excerpt } from './message-data';
@@ -32,9 +36,23 @@ import {
   isIdentifier,
   isMemberExpression,
 } from './rule-types';
+import {
+  type CheckerServices,
+  PRIMITIVE_CHECKER_METHODS,
+  type PrimitiveChecker,
+  askChecker,
+  checkerServices,
+  isPrimitiveLike,
+} from './use-value-types';
 
 /** The assertions a signal value is usually spelled with. */
 const MATCHERS = new Set(['toBe', 'toEqual', 'toStrictEqual']);
+
+/** The argument-free matchers that assert one value, and that value spelled as an argument. */
+const VALUE_MATCHERS = new Map([
+  ['toBeNull', 'null'],
+  ['toBeUndefined', 'undefined'],
+]);
 
 /** Angular's brand on every signal it makes. */
 const SIGNAL_BRAND = 'ɵSIGNAL';
@@ -56,7 +74,12 @@ interface SignalAssertion {
 function signalAssertionOf(node: EsCallExpression): SignalAssertion | undefined {
   const callee = node.callee;
 
-  if (!isMemberExpression(callee) || callee.computed || !isIdentifier(callee.property) || !MATCHERS.has(callee.property.name)) {
+  if (
+    !isMemberExpression(callee) ||
+    callee.computed ||
+    !isIdentifier(callee.property) ||
+    !(MATCHERS.has(callee.property.name) || VALUE_MATCHERS.has(callee.property.name))
+  ) {
     return undefined;
   }
 
@@ -100,10 +123,46 @@ function readsSignal(context: RuleContext, node: EsNode): boolean {
   );
 }
 
+function isPrimitiveLiteral(node: EsNode | undefined): boolean {
+  if (node === undefined) {
+    return false;
+  }
+
+  switch (node.type) {
+    case 'Literal':
+      return Reflect.get(node, 'regex') === undefined;
+    case 'Identifier':
+      return isIdentifier(node) && node.name === 'undefined';
+    case 'UnaryExpression':
+      return isPrimitiveLiteral(Reflect.get(node, 'argument'));
+    case 'TemplateLiteral':
+      return Reflect.get(node, 'expressions')?.length === 0;
+    default:
+      return false;
+  }
+}
+
+function primitiveValue({ checker, toTs }: CheckerServices<PrimitiveChecker>, received: EsCallExpression): boolean {
+  const value = checker.getTypeAtLocation(toTs.get(received));
+
+  return checker.typeToString(value) !== 'any' && isPrimitiveLike(checker, value);
+}
+
+/** Whether rewriting `toBe` into the deep `toHaveSignalValue` keeps what the assertion meant. */
+function identityIsMoot(context: RuleContext, node: EsCallExpression, shape: SignalAssertion): boolean {
+  if (shape.matcher.name !== 'toBe' || isPrimitiveLiteral(node.arguments.at(0))) {
+    return true;
+  }
+
+  const services = checkerServices<PrimitiveChecker>(context, PRIMITIVE_CHECKER_METHODS);
+
+  return services !== undefined && askChecker(() => primitiveValue(services, shape.received)) === true;
+}
+
 /** Assert the signal itself, and let `toHaveSignalValue` read it. */
 export const preferToHaveSignalValue: RuleModule = defineRule({
   name: 'prefer-to-have-signal-value',
-  description: 'Assert a signal with toHaveSignalValue instead of reading it inline into toBe/toEqual',
+  description: 'Assert a signal with toHaveSignalValue instead of reading it inline into toBe/toEqual/toBeNull',
   messages: {
     preferToHaveSignalValue:
       "Assert the signal, not the value it happens to hold: `expect({{signal}}).toHaveSignalValue(…)` keeps the signal's name in the failure output and refuses a value that is not a signal.",
@@ -113,7 +172,7 @@ export const preferToHaveSignalValue: RuleModule = defineRule({
     CallExpression: (node: EsCallExpression): void => {
       const shape = signalAssertionOf(node);
 
-      if (!shape || !readsSignal(context, shape.received.callee)) {
+      if (!shape || !readsSignal(context, shape.received.callee) || !identityIsMoot(context, node, shape)) {
         return;
       }
 
@@ -123,9 +182,12 @@ export const preferToHaveSignalValue: RuleModule = defineRule({
         data: { signal: excerpt(context, shape.received.callee, 40) },
         ...(shape.received.typeArguments === undefined && {
           fix: (fixer): EsFix[] => {
+            const value = VALUE_MATCHERS.get(shape.matcher.name);
             const fixes = [
               fixer.replaceText(shape.received, context.sourceCode.getText(shape.received.callee)),
-              fixer.replaceText(shape.matcher, 'toHaveSignalValue'),
+              value === undefined
+                ? fixer.replaceText(shape.matcher, 'toHaveSignalValue')
+                : fixer.replaceTextRange([shape.matcher.range[0], node.range[1]], `toHaveSignalValue(${value})`),
             ];
             const last = node.arguments.at(-1);
 
