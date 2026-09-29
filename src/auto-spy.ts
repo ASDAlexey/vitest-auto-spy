@@ -187,6 +187,7 @@ export {
   type EmissionSource,
   type SubscribableLike,
 } from './lib/expect-emission';
+export { expectNoEmissionSync } from './lib/emission-sync';
 
 // Type bridges between `Spy<T>` and `T`, plus a construction-compatible spy
 export {

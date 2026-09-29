@@ -2,6 +2,7 @@ import { Observable, ReplaySubject, of } from 'rxjs';
 import { take } from 'rxjs/operators';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useConsoleSpies } from './console';
 // Public entries: core (`./index`) and the rxjs layer (`./rxjs`) — importing the latter registers
 // observable support (IoC). The TestBed-driven Angular helpers (`provideAutoSpy` / `injectSpy`) are
 // covered by `provide-auto-spy.spec.ts`, so this file deliberately loads no Angular module graph.
@@ -76,6 +77,8 @@ function collect<T>(obs: Observable<T>): Promise<{ values: T[]; error?: unknown;
 // ---------------------------------------------------------------------------
 
 describe('createSpyFromClass', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   it('spies on all prototype methods, including inherited ones', () => {
     const spy = createSpyFromClass(MyService);
 
@@ -119,6 +122,7 @@ describe('createSpyFromClass', () => {
     expect(spy.accessorSpies.setters.userName).toHaveBeenCalledWith('assigned');
     expect(spy.userName).toBeUndefined();
 
+    // eslint-disable-next-line vitest-auto-spy/no-reflect-member-access -- the test proves Reflect.set does not work here
     expect(Reflect.set(spy, 'userName', 'reflected')).toBe(true);
     expect(spy.userName).toBeUndefined();
 
@@ -169,21 +173,17 @@ describe('createSpyFromClass', () => {
   });
 
   it('warns about a name missing from the prototype only when the list restricts', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     createSpyFromClass(MyService, { onlyMethodsToSpyOn: ['syncMethod', 'nope'] as unknown as ['syncMethod'] });
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('nope'));
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('nope'));
 
-    warn.mockClear();
+    consoleWarnSpy.mockClear();
     createSpyFromClass(MyService, { onlyMethodsToSpyOn: ['syncMethod'] });
-    expect(warn).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
 
     // An additive list naming something off the prototype is the documented way to reach an
     // instance-assigned callable, so it must stay silent.
     createSpyFromClass(MyService, ['syncMethod', 'nope'] as unknown as ['syncMethod']);
-    expect(warn).not.toHaveBeenCalled();
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('installs configured return values as the spy is built', () => {
@@ -193,32 +193,26 @@ describe('createSpyFromClass', () => {
   });
 
   it('warns when returns names something the spy does not have', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     createSpyFromClass(MyService, {
       onlyMethodsToSpyOn: ['syncMethod'],
       returns: { getPromise: Promise.resolve('x') },
     });
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("returns names 'getPromise'"));
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining("returns names 'getPromise'"));
   });
 
   it('warns when a named getter/setter would shadow a method of the class', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     // The type no longer rejects a name by the type of its value — it cannot, without also
     // rejecting every signal-valued getter — so what is left is checked here.
     createSpyFromClass(MyService, { gettersToSpyOn: ['syncMethod'] });
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("names 'syncMethod', a method of MyService"));
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining("names 'syncMethod', a method of MyService"));
 
     // A real accessor and a plain field are both legitimate, and neither is reported.
-    warn.mockClear();
+    consoleWarnSpy.mockClear();
     createSpyFromClass(MyService, { gettersToSpyOn: ['userName'], settersToSpyOn: ['theme'] });
 
-    expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('instanceMethodsToSpyOn spies callables that live on the instance, on top of the prototype ones', () => {
@@ -234,15 +228,11 @@ describe('createSpyFromClass', () => {
   });
 
   it('treats methodsToSpyOn and instanceMethodsToSpyOn as the same additive list', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     const spy = createSpyFromClass(MyService, { methodsToSpyOn: ['counter'], instanceMethodsToSpyOn: ['counter'] });
 
     expect(vi.isMockFunction(spy.counter)).toBe(true);
     expect(vi.isMockFunction(spy.syncMethod)).toBe(true);
-    expect(warn).not.toHaveBeenCalled();
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('builds method spies lazily by default, and eagerly when asked', () => {
@@ -411,7 +401,7 @@ describe('createSpyFromClass', () => {
     store.accessorSpies.getters.items.mockReturnValue(['a']);
 
     expect(store.items).toEqual(['a']);
-    expect(Object.keys(store)).toContain('accessorSpies');
+    expect(Object.getOwnPropertyNames(store)).toContain('accessorSpies');
   });
 
   it('keeps the assembled record when a restricting list is configured', () => {
@@ -436,25 +426,17 @@ describe('createSpyFromClass', () => {
       abstract read(key: string): string | null;
     }
 
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     createSpyFromClass(Storage, { onlyMethodsToSpyOn: ['read'] });
 
     // Every name would be "not on the prototype" here, and none of it is evidence of a typo: the
     // whitelist is the only way to describe an abstract class.
-    expect(warn).not.toHaveBeenCalled();
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('still reports a typo in a whitelist when the prototype does name something', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     createSpyFromClass(MyService, { onlyMethodsToSpyOn: ['getName', 'noSuchMethod'] as never });
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('noSuchMethod'));
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('noSuchMethod'));
   });
 });
 
@@ -524,7 +506,7 @@ describe('fillMissing', () => {
     expect(probed['nodeType']).toBeUndefined();
     expect(Reflect.get(probed, Symbol.iterator)).toBeUndefined();
     expect(probed['constructor']).toBe(Object);
-    expect(Object.keys(storage)).toEqual(['accessorSpies', 'clear']);
+    expect(Object.keys(storage)).toEqual(['clear']);
   });
 
   it('reads an inherited member from the prototype rather than shadowing it', () => {
@@ -562,12 +544,14 @@ describe('fillMissing', () => {
       for (const renamed of ['_SignalStore', 'SignalStore$1']) {
         const Base = signalStore();
 
-        Object.defineProperty(Base, 'name', { value: renamed });
+        mockValueProp(Base, 'name', renamed);
 
         const Store = class extends Base {};
 
         expect(createSpyFromClass(Store).toggle).toBeTypeOf('function');
       }
+
+      restoreMockedProps();
     });
 
     it('keeps an explicit fillMissing: false', () => {
