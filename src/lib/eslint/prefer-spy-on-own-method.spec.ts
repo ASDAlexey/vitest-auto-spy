@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ENTRY_SPECIFIERS, EXPORTED_BY } from '../../cli/checks/export-map.generated';
 import { CORE_ENTRIES } from './bindings';
+import { OPTION_SETS_NOT_RECOGNISED, multiMemberUsages } from './prefer-spy-on-own-method.mock';
 import { fixRule, runRule } from './run-rule';
 
 const RULE = 'prefer-spy-on-own-method';
@@ -176,28 +177,7 @@ describe(RULE, () => {
   });
 
   it('stays silent on every option set the helpers do not spell', () => {
-    for (const options of [
-      "{ onlyMethodsToSpyOn: ['seek', 'play'], passthrough: true }",
-      "{ onlyMethodsToSpyOn: ['seek'] }",
-      "{ methodsToSpyOn: ['seek'], passthrough: true }",
-      "{ onlyMethodsToSpyOn: ['seek'], passthrough: false }",
-      "{ onlyMethodsToSpyOn: ['seek'], passthrough: flag }",
-      "{ onlyMethodsToSpyOn: ['seek'], passthrough: true, strict: true }",
-      '{ onlyMethodsToSpyOn: methods, passthrough: true }',
-      '{ onlyMethodsToSpyOn: [name], passthrough: true }',
-      "{ onlyMethodsToSpyOn: ['a-b'], passthrough: true }",
-      '{ onlyMethodsToSpyOn: [,], passthrough: true }',
-      "{ ...base, onlyMethodsToSpyOn: ['seek'] }",
-      "{ onlyMethodsToSpyOn: ['close'], returns: { play: undefined } }",
-      "{ onlyMethodsToSpyOn: ['close'], returns: { close: null } }",
-      "{ onlyMethodsToSpyOn: ['close'], returns: { close: nothing } }",
-      "{ onlyMethodsToSpyOn: ['close'], returns: { close: undefined, play: undefined } }",
-      "{ onlyMethodsToSpyOn: ['close'], returns: { ...seeds } }",
-      "{ onlyMethodsToSpyOn: ['close'], returns: seeds }",
-      "{ returns: { 'a-b': undefined } }",
-      '{ passthrough: true }',
-      'options',
-    ]) {
+    for (const options of OPTION_SETS_NOT_RECOGNISED) {
       expect(verify(`createSpyFromInstance(document, ${options}).seek;`)).toEqual([]);
     }
 
@@ -210,30 +190,7 @@ describe(RULE, () => {
   });
 
   it('stays silent where the result is used for more than the one member', () => {
-    for (const code of [
-      `const spy = createSpyFromInstance(player, ${OWN});\nspy.seek();\nspy.play();`,
-      `const spy = createSpyFromInstance(player, ${OWN});\nspy.seek = vi.fn();`,
-      `const spy = createSpyFromInstance(player, ${OWN});\nhandOver(spy);`,
-      `const spy = createSpyFromInstance(player, ${OWN});\nspy[key]();`,
-      `let spy = createSpyFromInstance(player, ${OWN});\nspy = other;`,
-      `export const spy = createSpyFromInstance(player, ${OWN});`,
-      `using spy = createSpyFromInstance(player, ${OWN});`,
-      `const { seek, play } = createSpyFromInstance(player, ${OWN});`,
-      `const {} = createSpyFromInstance(player, ${OWN});`,
-      `const { play } = createSpyFromInstance(player, ${OWN});`,
-      `const { seek: { calls } } = createSpyFromInstance(player, ${OWN});`,
-      `const { seek = fallback } = createSpyFromInstance(player, ${OWN});`,
-      `const { ...rest } = createSpyFromInstance(player, ${OWN});`,
-      `const [first] = createSpyFromInstance(player, ${OWN});`,
-      `createSpyFromInstance(player, ${OWN}).play;`,
-      `createSpyFromInstance(player, ${OWN}).seek = vi.fn();`,
-      `return createSpyFromInstance(player, ${OWN});`,
-      `this.spy = createSpyFromInstance(player, ${OWN});`,
-      `const held = (spy = createSpyFromInstance(player, ${OWN}));`,
-      `spy = createSpyFromInstance(player, ${OWN});`,
-      `function setUp(spy) {\n  spy = createSpyFromInstance(player, ${OWN});\n}`,
-      `let { spy } = {};\nspy = createSpyFromInstance(player, ${OWN});`,
-    ]) {
+    for (const code of multiMemberUsages(OWN)) {
       expect(verify(code)).toEqual([]);
     }
   });
