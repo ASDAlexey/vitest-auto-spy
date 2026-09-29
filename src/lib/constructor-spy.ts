@@ -17,12 +17,11 @@
  * `mockClear` and the rest keep working; {@link stubConstructor} additionally puts it on a global
  * (or any object) through {@link mockValueProp}, so `restoreMockedProps()` takes it off again.
  */
-import type { Mock } from 'vitest';
-
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { displayPath } from './message-text';
 import { getMockAdapter } from './mock-adapter';
+import type { Mock } from './mock-types';
 import { mockValueProp } from './prop-mock';
 
 /**
