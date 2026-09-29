@@ -1131,9 +1131,13 @@ The numbers come first, right-aligned, and the path last and whole, so an 80-col
 shows a path that can be copied — the tables used to cut it in the middle to keep a 140-column
 layout. A body is named by two things — the file it lives in and its own name — so the bodies table
 prints the file once and its bodies under it. The time of every row is red and the headers are dim.
-Color is on for a terminal and off for a pipe or a file unless `FORCE_COLOR` asks for it; `NO_COLOR`,
-`FORCE_COLOR=0` and `TERM=dumb` turn it off everywhere. A harness that captures this output and
-repaints it line by line therefore gets plain text to paint.
+Color is on for a terminal and off for a pipe or a file unless `FORCE_COLOR` asks for it, or the run
+is a GitLab CI (`GITLAB_CI`) or GitHub Actions (`GITHUB_ACTIONS`) job, whose log renders color although
+stdout is a pipe there; `NO_COLOR`, `FORCE_COLOR=0` and `TERM=dumb` turn it off everywhere. A harness
+that captures this output and repaints it line by line therefore gets plain text to paint. The same
+switch colors the findings of `doctor` and `perf`: the `error` label red, `warn` yellow, `info` plain,
+and the gate's verdict line red when something fails the run. `--format json`, `--format markdown`
+and `--code-quality` never carry an escape.
 
 ```
 files over budget — 2 of 2015; the gate re-measures these and fails on them

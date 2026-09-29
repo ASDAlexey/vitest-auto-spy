@@ -10,6 +10,16 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Changed
+
+- **`doctor` and `perf` color their findings by severity** — the `error` label red, `warn` yellow,
+  `info` plain — and the `perf --gate` verdict line turns red when something fails the run. The
+  same switch as the `perf` tables decides it (`NO_COLOR`, `FORCE_COLOR`, `TERM=dumb`, a terminal);
+  `--format json`, `--format markdown` and `--code-quality` stay free of escapes.
+- **Color in GitLab CI and GitHub Actions logs.** Both render ANSI color although the job's stdout
+  is a pipe, so the CLI now paints when `GITLAB_CI` or `GITHUB_ACTIONS` is set; `NO_COLOR`,
+  `FORCE_COLOR=0` and `TERM=dumb` still turn it off.
+
 ## [5.49.0] - 2026-09-28
 
 ### Added
