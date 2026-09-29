@@ -78,7 +78,7 @@ describe('runCli', () => {
     ]);
   });
 
-  it('rejects a misspelled flag with exit code 2 rather than running without it', () => {
+  it('rejects a misspelled flag with exit code 2 rather than running without it', async () => {
     const root = createTempRepo(HEALTHY);
     const io = recorder();
 
@@ -86,7 +86,7 @@ describe('runCli', () => {
     expect(io.stderr).toEqual(['Unknown flag for `init`: --dryrun. Nothing ran.', 'Did you mean `--dry-run`?']);
     expect(readTextFile(join(root, 'AGENTS.md'))).toBe(HEALTHY['AGENTS.md']);
     expect(runCli(['perf', '--gat', '--cwd', root], recorder())).toBe(2);
-    expect(runCli(['codemod', '--wirte', '--cwd', root], recorder())).toBe(2);
+    expect(await runCli(['codemod', '--wirte', '--cwd', root], recorder())).toBe(2);
   });
 
   it('points a --json or --markdown on doctor at --format, and says nothing of it where --format is not taken', () => {
@@ -114,11 +114,11 @@ describe('runCli', () => {
     expect(runCli(['doctor', '--cwd', root], recorder())).toBe(0);
   });
 
-  it('takes every flag its own command documents, and the common ones on any command', () => {
+  it('takes every flag its own command documents, and the common ones on any command', async () => {
     const root = createTempRepo(HEALTHY);
 
     expect(runCli(['init', '--check', '--dry-run', '--uninstall', '--cwd', root], recorder())).toBe(0);
-    expect(runCli(['codemod', '--verify', '--list', '--from', 'auto', '--cwd', root], recorder())).toBe(0);
+    expect(await runCli(['codemod', '--verify', '--list', '--from', 'auto', '--cwd', root], recorder())).toBe(0);
     expect(runCli(['doctor', '--min-severity', 'error', '--cwd', root], recorder())).toBe(0);
   });
 
@@ -207,7 +207,9 @@ describe('doctor', () => {
       'Unknown check id for --ignore: everything. Known ids: analog-behind-angular-build, analog-fast-compile-ctor-injection,',
     );
     expect(runCli(['doctor', '--cwd', root, '--ignore', 'no-agent-instructions,'], recorder())).toBe(0);
-    expect(far.stderr[0]).toContain('vitest-5-available, vitest-5-clear-mocks, vitest-5-deprecated, vitest-5-removed.');
+    expect(far.stderr[0]).toContain(
+      'vitest-5-removed, vitest-5-report-path, vitest-5-vite-peer, vitest-entry-without-vitest. Nothing ran.',
+    );
     expect(runCli(['doctor', '--cwd', root, '--ignore', 'vitest-5-available,fs-module-cache-not-persisted'], recorder())).toBe(0);
   });
 });

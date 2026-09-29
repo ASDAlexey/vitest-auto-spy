@@ -14,15 +14,15 @@
  * in from here; its path arrives in the environment and the consumer's config attaches it.
  */
 import { spawnSync } from 'node:child_process';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 import { bareRunWouldMeasureSomethingElse } from './checks/perf-harness';
 import { BARE_RUN_DOCS, NOTHING_TO_READ_DOCS } from './docs';
-import { parseJsonc, pathExists, readTextFile, removeFile } from './fs-scan';
+import { isDirectory, parseJsonc, pathExists, readTextFile, removeFile } from './fs-scan';
 import type { PerfRun } from './perf-data';
-import { PERF_OUTPUT_ENV, PERF_PROFILE_ENV, PERF_REPORTER_ENV, parsePerfRun, whyNotAPerfRun } from './perf-data';
+import { PERF_ISOLATE_ENV, PERF_OUTPUT_ENV, PERF_PROFILE_ENV, PERF_REPORTER_ENV, parsePerfRun, whyNotAPerfRun } from './perf-data';
 import { describeMerge, mergeRuns, readRuns, resolveReportPaths } from './perf-merge';
-import type { CpuProfile } from './perf-profile';
+import type { ProfileSummary } from './perf-profile';
 import { takeProfiles } from './perf-profiler';
 import type { Profile } from './profile';
 import { isRecord } from './profile';
@@ -76,6 +76,10 @@ export interface PerfRunOptions {
   readonly paths: readonly string[];
   /** Where the run leaves a CPU profile per spec file. Only the confirmation pass asks for one. */
   readonly profileDir?: string;
+  /** `--profile-dir`: keep each profile the confirmation pass records here, as a `.cpuprofile`. */
+  readonly keepProfiles?: string;
+  /** `--ab-isolate`: run every project with this `isolate`, whatever its config says. */
+  readonly isolate?: boolean;
 }
 
 export interface PerfMeasured {
@@ -85,10 +89,12 @@ export interface PerfMeasured {
   readonly note?: string;
   /** The suite itself exited non-zero. The timings are still real, so the report is still printed. */
   readonly runFailed: boolean;
-  /** CPU profiles by the absolute path of their spec file, when the run was asked for them. */
-  readonly profiles?: ReadonlyMap<string, CpuProfile>;
+  /** What each CPU profile says, by the absolute path of its spec file, when the run was asked for them. */
+  readonly profiles?: ReadonlyMap<string, ProfileSummary>;
   /** `--command`, which says what ran the suite even when the report was read from `--json`. */
   readonly command?: string;
+  /** Milliseconds from starting the process to its exit, when this command ran it: what Vitest's own clock cannot see. */
+  readonly endToEnd?: number;
 }
 
 export interface PerfUnavailable {
@@ -145,8 +151,21 @@ export function withPaths(command: string, paths: readonly string[]): string {
   );
 }
 
-function profileEnv(options: PerfRunOptions): Record<string, string> {
-  return options.profileDir === undefined ? {} : { [PERF_PROFILE_ENV]: options.profileDir };
+function runEnv(options: PerfRunOptions, target: string, reporter: string): Record<string, string> {
+  return {
+    [PERF_OUTPUT_ENV]: target,
+    [PERF_REPORTER_ENV]: reporter,
+    ...(options.profileDir === undefined ? {} : { [PERF_PROFILE_ENV]: options.profileDir }),
+    ...(options.isolate === undefined ? {} : { [PERF_ISOLATE_ENV]: String(options.isolate) }),
+  };
+}
+
+/** Runs the process and times it from outside, which is the only clock that sees a build before Vitest starts. */
+function timed(spawn: Spawn, request: SpawnRequest): { readonly outcome: SpawnOutcome; readonly ms: number } {
+  const started = performance.now();
+  const outcome = spawn(request);
+
+  return { outcome, ms: performance.now() - started };
 }
 
 function failed(error: string): PerfUnavailable {
@@ -196,25 +215,43 @@ function unreadableReport(value: string, unreadable: readonly string[], cwd: str
 /** The report a run left behind, or the reason there is nothing to read. Shared by both runners. */
 function collect(
   target: string,
-  keep: boolean,
-  outcome: SpawnOutcome,
+  options: PerfRunOptions,
+  spawned: { readonly outcome: SpawnOutcome; readonly ms: number },
   missing: (status: number) => string,
-  profileDir?: string,
 ): PerfSource {
   const text = readTextFile(target);
-  const profiles = profileDir === undefined ? undefined : takeProfiles(profileDir);
+  const profiles = options.profileDir === undefined ? undefined : takeProfiles(options.profileDir, options.cwd, options.keepProfiles);
 
-  if (!keep) {
+  if (options.out === undefined) {
     removeFile(target);
   }
 
   const run = text === undefined ? undefined : parsePerfRun(text);
 
   if (run === undefined) {
-    return failed(missing(outcome.status));
+    return failed(missing(spawned.outcome.status));
   }
 
-  return { ok: true, run, runFailed: outcome.status !== 0, ...(profiles === undefined ? {} : { profiles }) };
+  return {
+    ok: true,
+    run,
+    runFailed: spawned.outcome.status !== 0,
+    endToEnd: spawned.ms,
+    ...(profiles === undefined ? {} : { profiles }),
+  };
+}
+
+/** The file name `--out` gets when it names a directory. */
+export const OUT_FILE_NAME = 'perf-report.json';
+
+/**
+ * `--out`, absolute. The reporter writes it from the spawned process, which a harness may start in
+ * another directory, and this process reads it back, so a relative path would name two files.
+ */
+export function outPath(out: string, cwd: string): string {
+  const path = resolve(cwd, out);
+
+  return isDirectory(path) || /[/\\]$/.test(out) ? join(path, OUT_FILE_NAME) : path;
 }
 
 /**
@@ -222,7 +259,11 @@ function collect(
  * path erase each other's work, and the second one then reports a command that wrote nothing.
  */
 function targetPath(options: PerfRunOptions): string {
-  return options.out ?? join(options.cwd, 'node_modules', '.cache', 'vitest-auto-spy', `perf-${process.pid}.json`);
+  return options.out === undefined ? defaultTarget(options) : outPath(options.out, options.cwd);
+}
+
+function defaultTarget(options: PerfRunOptions): string {
+  return join(options.cwd, 'node_modules', '.cache', 'vitest-auto-spy', `perf-${process.pid}.json`);
 }
 
 /** The major version of the Vitest a bare run starts, read from the manifest beside its entry. */
@@ -263,23 +304,18 @@ function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | un
 
   removeFile(target);
 
-  const outcome = spawn({
+  const spawned = timed(spawn, {
     command: process.execPath,
     args: [entry, 'run', '--reporter=default', `--reporter=${reporter}`, '--logHeapUsage', ...versionFlags(options.cwd), ...options.paths],
     cwd: options.cwd,
-    env: { [PERF_OUTPUT_ENV]: target, [PERF_REPORTER_ENV]: reporter, ...profileEnv(options) },
+    env: runEnv(options, target, reporter),
     shell: false,
   });
 
-  return collect(
-    target,
-    options.out !== undefined,
-    outcome,
-    (status) =>
-      status === 0
-        ? `\`vitest run\` exited 0 but wrote no perf report, so the perf reporter did not run. Reinstall vitest-auto-spy.\nDocs: ${NOTHING_TO_READ_DOCS}`
-        : `\`vitest run\` exited ${status} before writing a perf report, so the run itself failed. Make it pass, then measure again.\nDocs: ${NOTHING_TO_READ_DOCS}`,
-    options.profileDir,
+  return collect(target, options, spawned, (status) =>
+    status === 0
+      ? `\`vitest run\` exited 0 but wrote no perf report, so the perf reporter did not run. Reinstall vitest-auto-spy.\nDocs: ${NOTHING_TO_READ_DOCS}`
+      : `\`vitest run\` exited ${status} before writing a perf report, so the run itself failed. Make it pass, then measure again.\nDocs: ${NOTHING_TO_READ_DOCS}`,
   );
 }
 
@@ -312,15 +348,15 @@ function fromCommand(options: PerfRunOptions, command: string, spawn: Spawn, pac
   removeFile(target);
 
   const line = withPaths(command, options.paths);
-  const outcome = spawn({
+  const spawned = timed(spawn, {
     command: line,
     args: [],
     cwd: options.cwd,
-    env: { [PERF_OUTPUT_ENV]: target, [PERF_REPORTER_ENV]: reporter, ...profileEnv(options) },
+    env: runEnv(options, target, reporter),
     shell: true,
   });
 
-  return collect(target, options.out !== undefined, outcome, (status) => commandWroteNothing(line, status), options.profileDir);
+  return collect(target, options, spawned, (status) => commandWroteNothing(line, status));
 }
 
 function commandWroteNothing(line: string, status: number): string {
@@ -376,4 +412,20 @@ export function perfRemeasure(
   const profileDir = join(options.cwd, 'node_modules', '.cache', 'vitest-auto-spy', `profiles-${process.pid}`);
 
   return (paths) => readPerfRun({ ...options, json: undefined, out: undefined, paths, profileDir }, spawn, packageRoot);
+}
+
+/**
+ * How `--ab-isolate` runs the suite a second time, or `undefined` when this source cannot: `--json`
+ * alone is a past run. The second run keeps nothing: no `--out`, no profiles, the same paths.
+ */
+export function perfAbIsolate(
+  options: PerfRunOptions,
+  spawn: Spawn,
+  packageRoot: string | undefined = ownPackageRoot(),
+): ((isolate: boolean) => PerfSource) | undefined {
+  if (options.command === undefined && options.json !== undefined) {
+    return undefined;
+  }
+
+  return (isolate) => readPerfRun({ ...options, json: undefined, out: undefined, isolate }, spawn, packageRoot);
 }

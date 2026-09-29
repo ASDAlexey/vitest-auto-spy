@@ -8,9 +8,9 @@ import type { ParsedArgs } from './args';
 import { OPTIONAL_VALUE_FLAGS, VALUE_FLAGS, flagEnabled, flagList, flagNumber, flagValue, parseArgs } from './args';
 import { isSpecFile } from './checks/graph';
 import { writeCodeQuality } from './code-quality';
-import { runCodemod } from './codemod/run';
 import { DOCTOR_CHECKS } from './docs';
 import { doctorDocument, runDoctor } from './doctor';
+import { failsOn, severityNamed } from './fail-on';
 import { isDirectory } from './fs-scan';
 import { HELP } from './help';
 import { runInit } from './init';
@@ -25,9 +25,9 @@ import { CASE_FLOOR_MS } from './perf-data';
 import type { GateOptions } from './perf-gate';
 import { GATE_DEFAULTS } from './perf-gate';
 import type { PerfRunOptions } from './perf-run';
-import { perfRemeasure, readPerfRun, spawnProcess, spawnToStderr } from './perf-run';
+import { perfAbIsolate, perfRemeasure, readPerfRun, spawnProcess, spawnToStderr } from './perf-run';
 import { readProfile } from './profile';
-import { type Severity, formatFindings, hasFailures, summarize } from './report';
+import { type Severity, formatFindings, summarize } from './report';
 import { doctorMarkdown } from './report-markdown';
 import { ownVersion } from './self';
 import { nearest } from './suggest';
@@ -40,6 +40,11 @@ export interface CliIo {
 const STATUS_WIDTH = 10;
 
 const SEVERITIES: Readonly<Record<string, Severity>> = { error: 'error', warning: 'warning', warn: 'warning', info: 'info' };
+
+/** `--fail-on`: the quietest severity that still fails the run. */
+function failOnOf(args: ParsedArgs): Severity | undefined {
+  return severityNamed(flagValue(args, 'fail-on'));
+}
 
 function minSeverityOf(args: ParsedArgs): Severity | undefined {
   const raw = flagValue(args, 'min-severity')?.trim().toLowerCase();
@@ -71,7 +76,7 @@ function doctorCommand(cwd: string, argv: readonly string[], io: CliIo): number 
   const findings = runDoctor(profile).filter((finding) => !ignored.has(finding.check));
   const minSeverity = minSeverityOf(args);
   const codeQuality = flagValue(args, 'code-quality');
-  const exitCode = hasFailures(findings) ? 1 : 0;
+  const exitCode = failsOn(findings, failOnOf(args) ?? 'warning') ? 1 : 0;
   const specFiles = profile.files.filter(isSpecFile).length;
 
   if (codeQuality !== undefined) {
@@ -147,11 +152,15 @@ function baselineRequest(args: ParsedArgs, cwd: string): BaselineRequest | undef
   };
 }
 
+const PROFILE_DIR_UNUSED =
+  "warning  --profile-dir keeps the profiles the gate's confirmation pass records, and this run has no such pass: add --gate, without --no-confirm, on a source it can run again.\n";
+
 function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
   const args = parseArgs(argv);
   const format = formatOf(args);
   const spawn = format === 'json' || format === 'markdown' ? spawnToStderr : spawnProcess;
   const profile = readProfile(cwd);
+  const keepProfiles = flagValue(args, 'profile-dir');
   const options: PerfRunOptions = {
     cwd,
     profile,
@@ -159,14 +168,21 @@ function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
     out: flagValue(args, 'out'),
     command: flagValue(args, 'command'),
     paths: args.positionals,
+    ...(keepProfiles === undefined ? {} : { keepProfiles: resolve(cwd, keepProfiles) }),
   };
   const trustSingle = flagEnabled(args, 'no-confirm');
   const gate: GateRequest | undefined = flagEnabled(args, 'gate')
     ? { options: gateOptions(args), remeasure: trustSingle ? undefined : perfRemeasure(options, spawn), trustSingle }
     : undefined;
+
+  if (keepProfiles !== undefined && gate?.remeasure === undefined) {
+    io.err(PROFILE_DIR_UNUSED);
+  }
+
   const baseline = baselineRequest(args, cwd);
   const top = flagNumber(args, 'top');
   const minSeverity = minSeverityOf(args);
+  const failOn = failOnOf(args);
   const codeQuality = flagValue(args, 'code-quality');
 
   return renderPerf(readPerfRun(options, spawn), profile, io, {
@@ -179,6 +195,8 @@ function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
     ...(codeQuality === undefined ? {} : { codeQuality: resolve(cwd, codeQuality) }),
     ...(flagEnabled(args, 'fail-on-flaky') ? { failOnFlaky: true } : {}),
     ...(flagEnabled(args, 'fail-on-red') ? { failOnRed: true } : {}),
+    ...(failOn === undefined ? {} : { failOn }),
+    ...(flagEnabled(args, 'ab-isolate') ? { abIsolate: { rerun: perfAbIsolate(options, spawn) } } : {}),
   });
 }
 
@@ -235,8 +253,10 @@ function initCommand(cwd: string, argv: readonly string[], io: CliIo): number {
   return reportInit(result, check, io);
 }
 
-function codemodCommand(cwd: string, argv: readonly string[], io: CliIo): number {
+// Loaded on demand: `--version`, `doctor` and `init` should not parse the transforms.
+async function codemodCommand(cwd: string, argv: readonly string[], io: CliIo): Promise<number> {
   const args = parseArgs(argv);
+  const { runCodemod } = await import('./codemod/run');
 
   return runCodemod(
     cwd,
@@ -248,6 +268,7 @@ function codemodCommand(cwd: string, argv: readonly string[], io: CliIo): number
       skip: flagValue(args, 'skip'),
       from: flagValue(args, 'from'),
       paths: args.positionals,
+      format: formatOf(args),
     },
     io,
   );
@@ -283,17 +304,19 @@ const COMMON_FLAGS: readonly string[] = ['cwd', 'help', 'version'];
  * invisible: `init --dryrun` wrote the files, `perf --gat` passed with no gate. Both read as green.
  */
 const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
-  codemod: ['from', 'list', 'only', 'skip', 'verify', 'write'],
-  doctor: ['code-quality', 'format', 'ignore', 'min-severity'],
+  codemod: ['format', 'from', 'list', 'only', 'skip', 'verify', 'write'],
+  doctor: ['code-quality', 'fail-on', 'format', 'ignore', 'min-severity'],
   init: ['check', 'dry-run', 'only', 'uninstall'],
   'ng-test': ['changed', 'dry-run', 'related', 'shard', 'target'],
   perf: [
+    'ab-isolate',
     'baseline',
     'baseline-factor',
     'baseline-floor-ms',
     'code-quality',
     'command',
     'factor',
+    'fail-on',
     'fail-on-flaky',
     'fail-on-red',
     'format',
@@ -307,6 +330,7 @@ const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
     'min-severity',
     'no-confirm',
     'out',
+    'profile-dir',
     'top',
     'update-baseline',
   ],
@@ -374,6 +398,10 @@ function valueProblem(args: ParsedArgs, name: string, command: string): string |
 
   if (name === 'shard' && parseShard(value) === undefined) {
     return `--shard takes <index>/<count>, as in \`--shard 1/4\`, and got ${value}.`;
+  }
+
+  if (name === 'fail-on' && failOnOf(args) === undefined) {
+    return `Unknown --fail-on value: ${value}. Accepted values: error, warning, info.`;
   }
 
   if (name === 'min-severity' && minSeverityOf(args) === undefined) {
@@ -449,7 +477,7 @@ export function guardBrokenPipe(
   });
 }
 
-export function runCli(argv: readonly string[], io: CliIo): number {
+export function runCli(argv: readonly string[], io: CliIo): Promise<number> | number {
   const args = parseArgs(argv);
   const requested = flagValue(args, 'cwd');
   const cwd = resolve(requested ?? process.cwd());
