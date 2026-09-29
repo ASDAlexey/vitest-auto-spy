@@ -19,6 +19,8 @@ interface Signup {
 }
 
 const EMPTY: Signup = { email: '', name: '', age: 0 };
+const NAME_A: Signup = { ...EMPTY, name: 'a' };
+const REQUIRED_EMAIL_ERROR = { kind: 'required', message: 'Email is required' };
 
 const signupSchema: SchemaOrSchemaFn<Signup> = (path) => {
   required(path.email, { message: 'Email is required' });
@@ -143,13 +145,13 @@ describe('toHaveFieldErrors', () => {
   it('matches the message where the spec names one, and ignores it where it does not', () => {
     const user = createForm(EMPTY, signupSchema);
 
-    expect(user.email).toHaveFieldErrors([{ kind: 'required', message: 'Email is required' }]);
+    expect(user.email).toHaveFieldErrors([REQUIRED_EMAIL_ERROR]);
     expect(user.email).toHaveFieldErrors([{ kind: 'required' }]);
     expect(user.email).not.toHaveFieldErrors([{ kind: 'required', message: 'Something else' }]);
   });
 
   it('holds the whole set, so an error nobody expected fails', () => {
-    const user = createForm({ ...EMPTY, name: 'a' }, (path) => {
+    const user = createForm(NAME_A, (path) => {
       minLength(path.name, 2);
       pattern(path.name, /^[A-Z]/);
     });
@@ -167,7 +169,7 @@ describe('toHaveFieldErrors', () => {
   });
 
   it('follows the field as the value moves', () => {
-    const user = createForm({ ...EMPTY, name: 'a' }, signupSchema);
+    const user = createForm(NAME_A, signupSchema);
 
     expect(user.name).toHaveFieldErrors(['minLength']);
 
@@ -182,7 +184,7 @@ describe('toHaveFieldErrors', () => {
     expect(() => expect(user.email).toHaveFieldErrors(['email'])).toThrow(
       /expected field 'email' to have email, got required \(Email is required\)/,
     );
-    expect(() => expect(createForm({ ...EMPTY, name: 'a' }, signupSchema).name).not.toHaveFieldErrors(['minLength'])).toThrow(
+    expect(() => expect(createForm(NAME_A, signupSchema).name).not.toHaveFieldErrors(['minLength'])).toThrow(
       /expected field 'name' not to have minLength/,
     );
     expect(() => expect(user.email).toHaveFieldErrors([])).toThrow(/to have no errors, got required/);
@@ -211,8 +213,6 @@ describe('toHaveFieldErrors', () => {
 
   it('reads a field state a spec built by hand, kind and message alike', () => {
     expect({ errors: signal([{ kind: 'required' }]) }).toHaveFieldErrors(['required']);
-    expect({ errors: signal([{ kind: 'required', message: 'Email is required' }]) }).toHaveFieldErrors([
-      { kind: 'required', message: 'Email is required' },
-    ]);
+    expect({ errors: signal([REQUIRED_EMAIL_ERROR]) }).toHaveFieldErrors([REQUIRED_EMAIL_ERROR]);
   });
 });
