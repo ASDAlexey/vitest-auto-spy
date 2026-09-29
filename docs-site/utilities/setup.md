@@ -1,9 +1,13 @@
 ---
 title: Test-run hygiene
-description: setupAutoSpy() — property restore, mock-registry reset, duplicate-copy detection, stray timers, rejections and console output, global-patch and shared-document guarding and a strict preset in one call.
+description: setupAutoSpy() in your Vitest setup file puts back what a test leaves behind - patched properties, timers, listeners, globals - and names the test that left it.
 ---
 
 # Test-run hygiene
+
+`setupAutoSpy()` is one call in your Vitest setup file. It cleans up what a test leaves behind and
+names the test that left it. You need it most when spec files share one environment
+(`isolate: false`): there, a leftover from one file breaks a different file.
 
 ```ts
 // vitest.setup.ts
@@ -12,125 +16,251 @@ import { setupAutoSpy } from 'vitest-auto-spy/setup';
 setupAutoSpy();
 ```
 
-One call for the pieces of hygiene every project otherwise assembles by hand, each of which is
-cheap to install and expensive to diagnose when it is missing. The first three are on by default;
-the rest are switches, because they change what the code under test sees.
+```ts
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    setupFiles: ['./vitest.setup.ts'],
+    // isolate: false, // if your spec files share one environment
+  },
+});
+```
+
+With the Angular `@angular/build:unit-test` builder, list the file under the test target's
+`options.setupFiles` in `angular.json` instead. `/setup` is for Vitest only: `bun:test`, `node:test`
+and Rstest have no setup entry to host it.
+
+## Common setups
+
+Start with the defaults. They only repair or report, and never change what your code sees.
+
+```ts
+setupAutoSpy();
+```
+
+If your spec files share one environment (`isolate: false`), also clean up between files. This
+cleans up quietly; add `onStrayTimers: 'throw'` and similar options to fail the file instead.
+`restoreMocks` also removes `vi.spyOn` stubs made in `beforeAll`, so make those in `beforeEach`.
+
+```ts
+setupAutoSpy({ restoreMocks: true, strayTimers: true, strayListeners: true, restoreGlobals: true });
+```
+
+To turn every guard to its strictest grade at once, use the preset:
+
+```ts
+setupAutoSpy({ preset: 'strict' });
+```
+
+An option you pass in the same object as the preset wins over it. See
+[`preset: 'strict'`](#one-grade-for-everything-preset-strict).
+
+## Options
+
+Every option is optional. "Grade" options take `'throw'` (fail), `'warn'` (report only) or `'off'`.
+
+| Option                                                                                 | Type                            | Default   | What it does                                                                      |
+| -------------------------------------------------------------------------------------- | ------------------------------- | --------- | --------------------------------------------------------------------------------- |
+| [`restoreProps`](#_1-restoring-patched-properties)                                     | `boolean`                       | `true`    | Undoes `mock*Prop` patches after each test                                        |
+| [`propsOutsideHooks`](#a-patch-put-in-the-wrong-hook-stops-applying)                   | grade                           | `'warn'`  | Reports a `mock*Prop` patch made outside `beforeEach`                             |
+| [`duplicateCopies`](#_2-one-copy-of-the-library-in-the-process)                        | grade                           | `'throw'` | Fails the run when two copies of the library are loaded                           |
+| [`restoreMocks`](#_3-draining-the-runner-s-restore-registry)                           | `boolean`                       | `false`   | Calls `vi.restoreAllMocks()` after each test                                      |
+| [`strayTimers`](#_4-cancelling-timers-that-outlive-their-file)                         | `boolean` \| `{ ignore }`       | `false`   | Cancels timeouts, intervals and frames a file left running                        |
+| [`onStrayTimers`](#_4-cancelling-timers-that-outlive-their-file)                       | `'throw'` \| function           | —         | Fails or reports the file that left timers                                        |
+| [`blockNetwork`](#_5-keeping-the-run-off-the-network)                                  | `boolean` \| object             | `false`   | Makes `fetch`, `XMLHttpRequest` and `sendBeacon` fail instead of going out        |
+| [`restoreTimerGlobals`](#_6-putting-back-timer-globals-the-fakes-took-with-them)       | `boolean`                       | `true`    | Puts back timer globals that removing fake timers deleted                         |
+| [`guardGlobals`](#_7-naming-the-file-that-sealed-a-global)                             | grade                           | `'off'`   | Reports a test that made a global property non-configurable                       |
+| [`strayRejections`](#_8-failing-on-a-rejection-zone-js-swallowed)                      | `boolean`                       | `false`   | Fails the test in which zone.js swallowed a rejected promise                      |
+| [`pruneMockRegistry`](#_9-pruning-the-mock-registry-nothing-empties)                   | `boolean`                       | `false`   | Stops Vitest's list of all mocks from growing for the whole run                   |
+| [`strict`](#_10-strict-doubles-for-the-whole-suite)                                    | `boolean` \| `'survey'`         | `false`   | A method nobody configured throws instead of returning `undefined`                |
+| [`onUnstubbedCall`](#_10-strict-doubles-for-the-whole-suite)                           | function                        | —         | Runs on a call nobody configured; its return value becomes the result             |
+| [`swallowedStrictCalls`](/core/strict-mode)                                            | grade                           | see link  | Fails a test whose strict throw was caught before the test saw it                 |
+| [`unconfiguredReads`](#_10-strict-doubles-for-the-whole-suite)                         | grade                           | `'off'`   | Reports getters and streams of a strict spy that nothing configured               |
+| [`onUnstubbedRead`](#_10-strict-doubles-for-the-whole-suite)                           | function                        | —         | Receives those findings instead of the report                                     |
+| [`hookTimeoutHint`](#_11-the-hook-budget-jest-had-only-one-of)                         | `boolean`                       | `true`    | Explains a hook timeout caused by `hookTimeout` being smaller than `testTimeout`  |
+| [`frozenClockHint`](#_12-a-timeout-the-clock-explains-not-the-code)                    | `boolean`                       | `true`    | Explains a timeout caused by a fake clock nobody advanced                         |
+| [`angularBuildHint`](#_13-the-builder-version-that-eats-memory-named-in-the-run)       | `boolean`                       | `true`    | Warns about the `@angular/build` versions that build tests without code splitting |
+| [`restoreWebStorage`](#_14-web-storage-the-runner-never-handed-over)                   | `boolean`                       | `true`    | Gives the run a working `localStorage` and `sessionStorage`                       |
+| [`prototypePollution`](#_15-the-key-on-object-prototype-that-stops-the-run-collecting) | grade                           | `'throw'` | Removes and reports a key a test left on `Object.prototype`                       |
+| [`strayConsole`](#_16-console-output-nothing-absorbed)                                 | grade \| `{ reaction, allow }`  | `'off'`   | Fails a test that wrote to the console without a spy to absorb it                 |
+| [`resetConsoleSpies`](./console)                                                       | `boolean`                       | `true`    | Clears the `vitest-auto-spy/console` spies after each test                        |
+| [`documentPollution`](#_17-an-attribute-left-on-the-shared-document)                   | grade \| object                 | `'off'`   | Puts back and reports attributes a test left on `<html>`, `<head>`, `<body>`      |
+| [`restoreStorageSpies`](#_18-a-spy-on-storage-the-runner-cannot-take-off)              | `boolean`                       | `true`    | Takes spies off Web Storage methods where `mockRestore()` cannot                  |
+| [`strayListeners`](#_19-listeners-that-outlive-their-file)                             | `boolean`                       | `false`   | Removes `window` and `document` listeners a file left behind                      |
+| [`onStrayListeners`](#_19-listeners-that-outlive-their-file)                           | `'throw'` \| function           | —         | Fails or reports the file that left listeners                                     |
+| [`restoreGlobals`](#_20-globals-put-back-at-the-file-boundary)                         | `boolean`                       | `false`   | Puts every changed global back at the end of each file                            |
+| [`cleanTestBed`](#_21-a-testbed-left-dirty-at-file-end)                                | grade                           | `'warn'`  | Resets an Angular `TestBed` a file left dirty                                     |
+| [`misconfiguration`](#misconfiguration-reports-that-fail-at-the-call)                  | `'warn'` \| `'throw'`           | `'warn'`  | Makes the library's own misuse warnings throw at the call                         |
+| [`globalFakeTimers`](#fake-timers-for-the-whole-run)                                   | `boolean` \| fake-timers config | `false`   | Fake timers for every test and between tests                                      |
+| [`preset`](#one-grade-for-everything-preset-strict)                                    | `'strict'`                      | —         | Starts every guard at its strictest grade                                         |
+
+`swallowedStrictCalls` defaults to `'throw'` with `strict: true` or `preset: 'strict'`, and to
+`'off'` otherwise.
+
+```ts
+setupAutoSpy({ restoreMocks: true, duplicateCopies: 'warn' });
+```
 
 ## 1. Restoring patched properties
 
-`vi.restoreAllMocks()` knows about spies, not about properties
-[`mockReadonlyProp` / `mockValueProp`](../adapters/angular#signal-readonly-property-mocking)
-redefined. Under `isolate: false` an un-restored patch on a global, a prototype or a singleton
-leaks straight into the next file. `setupAutoSpy()` registers `restoreMockedProps()` in a global
-`afterEach`.
+On by default (`restoreProps`). After each test, every property that
+[`mockReadonlyProp` / `mockValueProp`](../adapters/angular#signal-readonly-property-mocking) patched
+goes back to its original value. `vi.restoreAllMocks()` does not do this: it knows about spies,
+not about patched properties.
 
-**And in an `onTestFinished` net behind it**, because the `afterEach` is not guaranteed to run.
-Vitest calls `afterEach` hooks in **reverse** registration order, so the one a setup file registers
-is the _last_, and any hook the spec file registered — which therefore runs first — takes the chain
-down with it when it throws:
+The cleanup also runs if a spec's own `afterEach` throws first. In that case you get a warning that
+names the test, the number of patches put back and the hook that threw.
 
-```ts
-// in the spec file, and therefore running before the library's hook
-afterEach(() => vi.restoreAllMocks()); // ← throws, and the cleanup below it never happens
-```
-
-That is not hypothetical. One spec kept exactly that line for years; migrating it to
-`provideAutoSpy(LayoutStateService, { gettersToSpyOn: [...] })` made the restored getter return
-`undefined`, `ngOnDestroy` called it as a signal, and the resulting `TypeError` aborted the hook.
-The patch travelled, and the failure surfaced in a **different `describe`** as a template error
-about a null profile. With the hand-rolled `vi.fn()` it replaced, the restored getter was still
-callable, so the mine had been sitting there invisible the whole time.
-
-`onTestFinished` runs after the `afterEach` chain and runs whatever that chain did, so the net puts
-the properties back and warns — naming the test, how many patches it put back and the hook that
-threw, at the test where it happened rather than two tests later. It costs one boolean on the ordinary path: it does nothing unless the hook was
-skipped.
-
-`countMockedProps()` is exported for suites that would rather assert it:
+To assert that no patch is left, use `countMockedProps()`:
 
 ```ts
+import { countMockedProps } from 'vitest-auto-spy/setup';
+
 afterEach(() => expect(countMockedProps()).toBe(0));
 ```
 
+**Common mistake:** a patch written in a `describe` body or `beforeAll` applies to the first test
+only. See [A patch put in the wrong hook stops applying](#a-patch-put-in-the-wrong-hook-stops-applying).
+
+Why it also needs a safety net after `afterEach`: [In depth](#restoring-properties-when-a-hook-throws).
+
 ## 2. One copy of the library in the process
 
-Two copies keep two sets of console spies and two registries, so an assertion runs against a spy
-that never replaced the console the code under test called — and the symptom reads as "tests fail
-depending on file order". The check fails the run with a report naming both copies and what to do
-about each cause: a second install, or one install loaded in both its ESM and CommonJS form.
+On by default (`duplicateCopies: 'throw'`). If two copies of `vitest-auto-spy` are loaded, the run
+fails with a report that names both copies and how to fix each cause.
+
+Two copies keep two sets of console spies and two registries. The symptom is "tests fail depending
+on file order". The usual causes are a second install, or one install loaded both as ESM and as
+CommonJS.
 
 ```ts
 import { describeDuplicateCopies, getPackageCopies } from 'vitest-auto-spy/setup';
 
 getPackageCopies(); // the registered copies, for your own reporting
-describeDuplicateCopies(); // the human-readable report, or undefined when there is only one
+describeDuplicateCopies(); // the readable report, or undefined when there is only one copy
 ```
 
-Both are exported from the core entry as well.
+Both functions are also exported from the main `vitest-auto-spy` entry. Use `'warn'` to report
+without failing, or `'off'` to skip the check.
 
 ## 3. Draining the runner's restore registry
 
-Every `vi.spyOn` adds an entry that only `vi.restoreAllMocks()` removes; with a shared environment
-that list grows for the whole run. `restoreMocks: true` drains it after each test.
+Off by default (`restoreMocks: false`). When on, it calls `vi.restoreAllMocks()` after each test.
+
+Every `vi.spyOn` adds an entry that only `vi.restoreAllMocks()` removes. With a shared environment
+(`isolate: false`) that list grows for the whole run. Turn this on in that case.
+
+```ts
+setupAutoSpy({ restoreMocks: true });
+```
+
+**Common mistake:** it also removes `vi.spyOn` stubs you installed in `beforeAll`. That is why it is
+off by default.
 
 ### Clear, reset and restore applied to an auto-spy
 
-Since 4.1 a method spy is not a `vi.fn()` but the library's own mock, so it is fair to ask whether
-the runner's three config flags still reach it. They do, exactly as far as they reach a `vi.fn()`.
-Vitest applies the flags through `vi.clearAllMocks()`, `vi.resetAllMocks()` and
-`vi.restoreAllMocks()` before every test, and the library registers one `vi.fn()` of its own whose
-`mockClear` and `mockReset` sweep every auto-spy in the worker at once. Under
-[`setSpyEngine('runner')`](/core/performance#the-spy-engine) the spies are `vi.fn()`s and are reached directly. The
-table is the same for both engines, measured on Vitest 5:
+Vitest's `clearMocks`, `mockReset` and `restoreMocks` config flags affect a spy built by this
+library (an auto-spy) exactly as they affect a `vi.fn()`. This holds whichever spy engine you use.
 
-| config flag    | default               | recorded calls | `mockReturnValue` / `mockImplementation`       | `calledWith(…)` rules | a `vi.spyOn` on a real object      |
-| -------------- | --------------------- | -------------- | ---------------------------------------------- | --------------------- | ---------------------------------- |
-| `clearMocks`   | `true` since Vitest 5 | emptied        | kept                                           | kept                  | calls emptied, stays installed     |
-| `mockReset`    | `false`               | emptied        | dropped — a method or getter answers undefined | kept                  | real implementation answers again  |
-| `restoreMocks` | `false`               | untouched      | untouched                                      | untouched             | taken off, the real member is back |
+| Config flag    | Default               | Recorded calls | `mockReturnValue` / `mockImplementation`      | `calledWith(…)` rules | `vi.spyOn` on a real object        |
+| -------------- | --------------------- | -------------- | --------------------------------------------- | --------------------- | ---------------------------------- |
+| `clearMocks`   | `true` since Vitest 5 | emptied        | kept                                          | kept                  | calls emptied, stays installed     |
+| `mockReset`    | `false`               | emptied        | dropped; a method or getter returns undefined | kept                  | real implementation answers again  |
+| `restoreMocks` | `false`               | untouched      | untouched                                     | untouched             | taken off, the real member is back |
 
-What that means in practice:
+What this means for you:
 
-- **`clearMocks` is already doing its job on Vitest 5.** It is on by default there, it reaches every
-  auto-spy, and it keeps whatever configured them.
-- **`mockReset` wipes configuration made outside `beforeEach`.** It runs before each test, after
-  `beforeAll` and after a `describe` body, so a double configured there answers `undefined` in every
-  test — the same trap as a `vi.fn()` configured there, and the reason to build doubles in
-  `beforeEach`. `calledWith(…)` rules survive it; [`resetAutoSpy(double)`](/core/control-helpers#resetting-spies-—-clearautospy-resetautospy)
-  drops those too.
-- **`restoreMocks` never touches an auto-spy.** Since Vitest 4 it only undoes `vi.spyOn`, and a
-  double built from a class has no real member underneath to put back. Setting it does not reset
-  your doubles; it puts spied real objects back, which is what `setupAutoSpy({ restoreMocks: true })`
-  does after each test as well.
+- **`clearMocks`** is on by default on Vitest 5. It empties recorded calls and keeps the setup.
+- **`mockReset`** runs before each test. It wipes any setup you made in `beforeAll` or a `describe`
+  body, so that spy returns `undefined`. Build spies in `beforeEach`. `calledWith(…)` rules survive;
+  [`resetAutoSpy(spy)`](/core/control-helpers#resetting-spies-—-clearautospy-resetautospy) drops
+  them too.
+- **`restoreMocks`** never touches an auto-spy. It only undoes `vi.spyOn` on real objects.
 
-None of the three is needed for an auto-spy built in `beforeEach`: the next test builds a fresh one.
-`setupAutoSpy()` adds nothing on top of the flags: it does not clear or reset doubles itself,
-because the flags are the runner's contract. A double that outlives a test is what [`resetAutoSpy` and `clearAutoSpy`](/core/control-helpers#resetting-spies-—-clearautospy-resetautospy) are for.
+A spy built in `beforeEach` needs none of the three: the next test builds a fresh one.
+`setupAutoSpy()` does not clear or reset spies on its own. For a spy that lives longer than one test,
+use [`resetAutoSpy` and `clearAutoSpy`](/core/control-helpers#resetting-spies-—-clearautospy-resetautospy).
+
+### Switching the engine for one file
+
+You need this only if you switch spy engines. `setSpyEngine(...)` changes the engine for the whole
+worker, not only your file. It returns an
+undo function. Under `isolate: false`, switch in `beforeAll` and undo in `afterAll`:
+
+```ts
+import { setSpyEngine } from 'vitest-auto-spy/setup';
+
+let undo: () => void;
+
+beforeAll(() => {
+  undo = setSpyEngine('runner');
+});
+afterAll(() => undo());
+```
+
+In a setup file you can ignore the return value.
+`beforeEach(() => setSpyEngine('runner'))` also works: Vitest treats the returned undo as the hook's
+teardown and runs it after each test. What the engines are:
+[The spy engine](/core/performance#the-spy-engine).
 
 ## 4. Cancelling timers that outlive their file
 
-Opt-in, and only relevant with `isolate: false` — where every spec file in a worker shares one set of
-globals. A `setTimeout` a component schedules and never clears survives the file that created it: the
-callback fires while a **different** file is mid-test, against mocks and a DOM that no longer match,
-and the runner blames whichever file happened to be running.
-
-`requestAnimationFrame` is the half that gets missed. Angular's zoneless change-detection scheduler
-races a timeout against a frame callback, so a component torn down at the end of one file can still
-have a frame queued — and what surfaces later is an Angular-internal complaint (a scheduler running
-watches while scheduling, a signal read in the notification phase) attributed to innocent code.
+Off by default (`strayTimers: false`). When on, every `setTimeout`, `setInterval` and
+`requestAnimationFrame` callback still pending at the end of a file is cancelled. It matters only
+with `isolate: false`. There, a timer from one file fires while a different file is running, and the
+runner blames the wrong file.
 
 ```ts
-setupAutoSpy({ strayTimers: true });
+setupAutoSpy({ strayTimers: true, onStrayTimers: 'throw' });
 ```
 
-That wraps the four schedulers once per worker and sweeps whatever is outstanding in `afterAll`. The
-pieces are exported for a suite that wants the sweep elsewhere — or wants a leak to **fail** rather
-than be tidied away:
+With `onStrayTimers: 'throw'`, the file fails and the report names each timer:
+
+```text
+[vitest-auto-spy] src/app/cart.component.spec.ts left 1 timer pending when it ended:
+  - setTimeout 5000 ms, scheduled in "CartComponent > polls" at src/app/cart.component.spec.ts:14:5
+It was cancelled so it cannot fire in the next file. Clear it in the test that scheduled it — clearTimeout, unsubscribe, fixture.destroy() — or run it out with fake timers before the test ends.
+```
+
+| Option          | Type                                            | Default | Meaning                                                   |
+| --------------- | ----------------------------------------------- | ------- | --------------------------------------------------------- |
+| `strayTimers`   | `boolean` \| `{ ignore: (string \| RegExp)[] }` | `false` | Turns the sweep on; `ignore` leaves matching timers alone |
+| `onStrayTimers` | `'throw'` \| `(report) => void`                 | —       | Called once per file, only when something was cancelled   |
+
+Without `onStrayTimers`, the sweep cancels quietly.
+
+A timer scheduled after one file ended counts against the next file. So the file that fails is not
+always the one that scheduled the timer; each timer's `file` field names the real owner.
+
+The handler receives `{ cancelled, timers }`. Each entry in `timers` has:
+
+- `kind` and `delay` of the timer;
+- `file`: the spec file that was running when it was scheduled;
+- `test` (as `suite > test`), or `outsideTest: 'import' | 'hook'` when no test was running;
+- `frames`: up to five lines of the stack trace, showing where the timer was scheduled. Lines from
+  your own code come first. Lines from `node_modules` appear only when there is nothing else. Lines
+  from this library never appear.
+
+```ts
+setupAutoSpy({ strayTimers: true, onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0) });
+
+setupAutoSpy({
+  strayTimers: true,
+  onStrayTimers: ({ timers }) => expect(timers).toEqual([]), // the diff names file and frames
+});
+```
+
+If your handler prints its own message, print `kind`, `delay`, `test` and `frames[0]`.
+
+The pieces work without `setupAutoSpy` too. Each takes an optional host: an object with timer
+functions to use instead of the real globals, for example in a test of your own:
 
 ```ts
 import { cancelStrayTimers, countStrayTimers, trackStrayTimers } from 'vitest-auto-spy/setup';
 
-const stop = trackStrayTimers(); // idempotent; returns the undo, which also cancels
+const stop = trackStrayTimers(); // safe to call twice; stop() ends tracking and cancels what is left
 afterEach(() => expect(countStrayTimers()).toBe(0));
 afterAll(() => {
   const cancelled = cancelStrayTimers(); // how many had to be cancelled
@@ -141,32 +271,10 @@ afterAll(() => {
 });
 ```
 
-Each takes an optional host, defaulting to the real globals, so a test can contain a stand-in object
-instead. Under `isolate: true` this is close to a no-op — the environment is discarded per file
-anyway. `trackStrayTimers()` is idempotent even where a host refuses one of the five patches: a
-partial installation is rolled back whole rather than left in place with no undo and no registry
-entry.
+`describeStrayTimers()` returns the same list as `timers`, for a suite that sweeps by hand.
 
-::: warning It cannot see a timer created under fake timers
-`vi.useFakeTimers()` assigns its own `setTimeout` over the wrappers, so everything the fake clock
-hands out bypasses the tracking entirely. `expect(countStrayTimers()).toBe(0)` is therefore vacuous
-for any file running on a frozen clock, `setupAutoSpy({ strayTimers: true, globalFakeTimers: true })`
-included — `vi.getTimerCount()` is the fake clock's own backlog, and the two do not compose.
-:::
-
-What counts as cancelled is wider than the handle the tracker recorded. Node hands out a `Timeout`
-object, and a library that keeps the id as a number cancels with `clearTimeout(+handle)`, or calls
-`handle.close()` on the object itself; both are read as cancelled rather than reported as a stray
-with a stack pointing at healthy code. `promisify(setTimeout)` keeps working too — the wrapper
-carries over the custom `promisify` implementation Node puts on the real scheduler, which a
-`const sleep = promisify(setTimeout)` evaluated at import depends on.
-
-Not every timer a file owns is one its code scheduled. jsdom answers every `setItem`, `removeItem`
-and `clear` on a Web Storage with a real `setTimeout(…, 0)` that dispatches the `storage` event
-(`living/webstorage/Storage-impl.js`), so a file that only writes to `localStorage` still has
-timeouts queued — and a fully synchronous one can reach `afterAll` with them pending. The library's
-own storage probe (see section 14) runs under `withoutStrayTimerTracking`, so it is never charged to
-a file; the same helper takes any setup work of a suite's own out of the count:
+Setup work that schedules timers (for example, writing to jsdom's `localStorage`) can be excluded
+from the count:
 
 ```ts
 import { withoutStrayTimerTracking } from 'vitest-auto-spy/setup';
@@ -174,60 +282,26 @@ import { withoutStrayTimerTracking } from 'vitest-auto-spy/setup';
 withoutStrayTimerTracking(() => seedStorage()); // what this schedules is neither counted nor cancelled
 ```
 
-`onStrayTimers` is the same count without leaving `setupAutoSpy`, plus **where each stray came from**:
-`timers` lists every one with its kind, the delay a timeout or interval was given, the spec file that
-was running when it was scheduled, the test that was running (`test`, as `suite > test`) — or
-`outsideTest: 'import' | 'hook'` when none was — and up to five frames of the scheduling call. The
-frames start at the caller: those outside `node_modules` first, dependency frames when there are no
-others, and never the library's own — neither from source nor from `dist`. `onStrayTimers: 'throw'`
-fails the file with a report that names the file, every stray and the one thing to do; a handler
-that prints its own message should print the same `kind`, `delay`, `test` and `frames[0]`:
+::: warning It cannot see a timer created under fake timers
+`vi.useFakeTimers()` puts its own `setTimeout` over the tracking, so nothing the fake clock schedules
+is counted. `expect(countStrayTimers()).toBe(0)` proves nothing in a file on a frozen clock,
+including with `globalFakeTimers: true`. For the fake clock's own queue, use `vi.getTimerCount()`.
+:::
 
-```text
-[vitest-auto-spy] src/app/cart.component.spec.ts left 1 timer pending when it ended:
-  - setTimeout 5000 ms, scheduled in "CartComponent > polls" at src/app/cart.component.spec.ts:14:5
-It was cancelled so it cannot fire in the next file. Clear it in the test that scheduled it — clearTimeout, unsubscribe, fixture.destroy() — or run it out with fake timers before the test ends.
-```
+**Common mistake:** expecting it to help with `isolate: true`. Each file then gets a fresh
+environment anyway, so there is nothing to sweep.
 
-```ts
-setupAutoSpy({ strayTimers: true, onStrayTimers: 'throw' }); // every stray's kind, delay, file and first frame
-
-setupAutoSpy({ strayTimers: true, onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0) });
-
-setupAutoSpy({
-  strayTimers: true,
-  onStrayTimers: ({ timers }) => expect(timers).toEqual([]), // the failure diff names file and frames
-});
-```
-
-The file is what makes a stray charged to the wrong file traceable: a callback scheduled after the
-previous file's sweep is counted against the next file, and its `file` says which one really
-scheduled it. The stack is captured when the callback is scheduled — forty frames below the tracking wrapper at
-most, so a zone or an rxjs scheduler in between does not use them all up, formatted only for the ones
-that turn out to be strays — and `describeStrayTimers()` returns the same list for
-a suite that sweeps by hand.
-
-That capture is what `strayTimers` costs. A `setTimeout` + `clearTimeout` pair on Node's real timers
-takes 70 ns untracked, 116 ns tracked in 5.5.0 and about 1.75 µs tracked now, and a pending timer
-holds about 0.9 kB more until it fires or is swept (Node v24.19.0, Apple M4 Max). On a shallow stack the
-cap changes nothing: V8 pays about 0.9 µs for any stack at all. Behind a deep framework chain each
-frame taken costs about 60 ns, so a timer scheduled there costs about 3 µs where twelve frames cost
-1.4 µs. A file that schedules 10 000
-timers pays about 16 ms for knowing where each came from. Naming the test adds one property read
-when the callback is scheduled — the name itself is built only for a stray — and does not show
-against the stack capture: a tracked pair measured 4.0 µs before and after, both with coverage on.
+How the tracker reads a cancelled timer, and what tracking costs:
+[In depth](#stray-timers-in-depth).
 
 ### Timers a dependency owns
 
-Node's global `fetch()` runs on undici, and undici keeps timers of its own: a 499 ms tick that drives
-its connect and keep-alive timeouts, and a keep-alive timeout per pooled connection. They outlive the
-test by design, and a file that talks to a server it cannot close — a local auth stub, a dev proxy —
-used to fail with `setTimeout 499 ms … at new Promise (<anonymous>)` and nothing to fix. Timers whose
-scheduling call comes from undici — Node's bundled copy or the `undici` package — are now neither
-counted, reported nor cancelled. Only the nearest frame outside this package and zone.js decides, so
-a spec callback that undici calls, a `MockAgent` reply, still has its own timers charged to it.
+Some libraries keep timers on purpose. Timers scheduled by undici (the HTTP client behind Node's
+`fetch()`, bundled or as the `undici` package) are never counted, reported or cancelled. A callback
+that undici calls on your behalf, such as a `MockAgent` reply handler, is your code: timers it
+schedules still count.
 
-For another dependency's housekeeping, name it:
+For another library's housekeeping timers, list them in `ignore`:
 
 ```ts
 setupAutoSpy({ strayTimers: { ignore: [/some-sdk[/\\]poll/, 'heartbeat.js'] }, onStrayTimers: 'throw' });
@@ -235,19 +309,16 @@ setupAutoSpy({ strayTimers: { ignore: [/some-sdk[/\\]poll/, 'heartbeat.js'] }, o
 trackStrayTimers(undefined, { ignore: [/some-sdk[/\\]poll/] }); // the same without setupAutoSpy
 ```
 
-Each entry is a substring or a RegExp searched in the stack of the call that scheduled the timer.
-An ignored timer is not cancelled either: its owner still holds the handle, and a pool whose timer was
-cancelled behind its back never times anything out again. Every call to `trackStrayTimers` replaces
-the list, so the last setup to run decides — in a shared-environment run that is the same setup file
-every time.
+Each entry is a substring or a RegExp. It is searched in the stack of the call that scheduled the
+timer. An ignored timer is not cancelled either: its owner still needs it. Each call to
+`trackStrayTimers` (or `setupAutoSpy`) replaces the `ignore` list. If two setup files set it, the one
+that runs last wins.
 
 ### An Observable error nothing handled
 
-rxjs rethrows an error no subscriber handles from `setTimeout(() => { throw error })`, so it escapes
-the subscriber. That timer fails no test: it fires once the test is over, or the sweep cancels it at
-the end of the file, and the only trace was a stray `setTimeout 0 ms, scheduled in "<test>" at
-TestRequest.error (…)`. With `strayTimers` on, the `afterEach` runs such a pending rethrow early —
-what the timer would have done — and fails the test that scheduled it:
+When a stream errors and no subscriber handles it, rxjs rethrows the error from a `setTimeout`. That
+fails no test. With `strayTimers` on, the library runs that rethrow in `afterEach` and fails the test
+that caused it:
 
 ```text
 [vitest-auto-spy] Unhandled Observable error in "TokenSetupScreen > saves the token":
@@ -255,48 +326,64 @@ what the timer would have done — and fails the test that scheduled it:
 rxjs rethrows an error no subscriber handles from a setTimeout, where it fails no test; it was rethrown now instead. …
 ```
 
-The original error is the failure's `cause`, so the runner prints its stack too. A rethrow scheduled
-outside a test fails the file at its sweep instead. The check reads the fake clock as well, while one
-is installed when it runs — `globalFakeTimers` qualifies; a spec whose own `afterEach` calls
-`vi.useRealTimers()` has discarded the timer by then. A rethrow that `config.onUnhandledError` takes
-reports nothing, as rxjs would. `flushUnhandledObservableErrors()` is the same check by hand: it runs
-the pending rethrows and returns `{ error, test }` for each that threw — `{ error, outsideTest }` for
-one scheduled outside a test. To assert the errors alone, compare with `toMatchObject`, which checks
-the count and ignores `test`: `expect(flushUnhandledObservableErrors()).toMatchObject([{ error: new Error('502') }])`.
+The original error is the failure's `cause`, so you also see its stack. An error scheduled outside a
+test fails the file at the end instead. The check also works under fake timers while they are
+installed, including `globalFakeTimers`. An error that `config.onUnhandledError` handles is not
+reported.
 
-A test that leaves an error unhandled on purpose — the retry-exhausted path, a stream the component
-never subscribes an error handler to — asserts it where it happens with
-`expectUnhandledObservableErrors`:
+If a test leaves an error unhandled on purpose, assert it with `expectUnhandledObservableErrors`:
 
 ```ts
+import { HttpErrorResponse } from '@angular/common/http';
 import { expectUnhandledObservableErrors } from 'vitest-auto-spy/setup';
 
-service.refresh(); // the stream errors with a 502 and nothing handles it
+it('gives up after the last retry', () => {
+  service.refresh(); // the stream errors with a 502 and nothing handles it
 
-expectUnhandledObservableErrors([{ message: /502/ }]);
+  expectUnhandledObservableErrors([{ message: /502/ }]);
+});
 ```
 
-It runs the same flush and compares what came out, in order, against the list: each entry is the
-error itself (same name and message), its class (`TypeError`, your own `ApiError`), or `{ message }` with a string
-or a pattern. Anything missing, extra or out of order fails the test with both lists side by side,
-and the flushed entries come back for a closer look. Called with no argument, it asserts that
-nothing was left — the line to end a test with when the absence is the point.
+Each list entry matches one error, in order. An entry can be:
+
+- the error itself (same name and message);
+- a class, such as `TypeError`, your `ApiError` or Angular's `HttpErrorResponse` (it does not have to
+  extend `Error`);
+- `{ message }` with a string or a RegExp.
+
+A missing, extra or out-of-order error fails the test and shows both lists. The flushed entries are
+returned. Call it with no argument to assert that nothing was left.
+
+```ts
+expectUnhandledObservableErrors([HttpErrorResponse]);
+expectUnhandledObservableErrors([{ message: /Http failure response.*502/ }]);
+```
+
+`flushUnhandledObservableErrors()` does the same flush without comparing. It returns
+`{ error, test }` for each error, or `{ error, outsideTest }` for one scheduled outside a test. To
+check only the errors, use `toMatchObject`:
+
+```ts
+expect(flushUnhandledObservableErrors()).toMatchObject([{ error: new Error('502') }]);
+```
+
+**Common mistake:** a spec whose own `afterEach` calls `vi.useRealTimers()` throws the pending fake
+timer away before the check runs, so nothing is reported.
 
 ### With Vitest 4.1's `--detect-async-leaks`
 
-::: warning The two cancel each other out, and the quiet one wins
-`detectAsyncLeaks` remembers every async resource a file created and, once the file is over, asks
-each whether anything still holds it. The sweep runs in `afterAll` — **before** that question — so
-every timer it cancelled answers no, and a file that leaks timers is reported as leaking nothing.
+::: warning The two cancel each other out
+Vitest's leak detector checks for leftover timers after the file ends. `strayTimers` has already
+cancelled them by then, so Vitest reports no leaks.
 :::
 
-Cancelling is still the right default: a callback that fires during a later file is the more
-expensive failure, and it is the one `strayTimers` exists to prevent. So when both are on and no
-`onStrayTimers` is given, the sweep prints to stderr the report `'throw'` fails with — the file, the
-count, the first three timers with the test that scheduled each — and closes it with one sentence:
-these timers are missing from Vitest's "Async Leaks" report. `onStrayTimers` gets all of them. Vitest's own report, with `strayTimers` off, points its code frame at the `setTimeout` in the
-spec: the library's scheduler wrappers go through `vi.defineHelper`, so the frames inside
-`vitest-auto-spy` are dropped from the stack rather than shown in place of the spec's.
+The sweep still cancels, because a timer firing in another file is the worse failure. To make up
+for it, when both are on and you set no `onStrayTimers`, the sweep prints its own report to stderr: the file, the count, the first three timers with their tests.
+It ends with a sentence saying these timers are missing from Vitest's "Async Leaks" report. An
+`onStrayTimers` handler receives all of them.
+
+With `strayTimers` off, Vitest's own report points at the `setTimeout` in your spec, not at library
+code:
 
 ```
 ⎯⎯⎯⎯⎯⎯⎯ Async Leaks 1 ⎯⎯⎯⎯⎯⎯⎯⎯
@@ -308,18 +395,30 @@ Timeout leaking in src/app/cart.component.spec.ts
      |     ^
 ```
 
-The warning goes to stderr rather than `console.warn` on purpose: the sweep runs after the file's
-last test, and Vitest attributes intercepted console output to the task that produced it — with no
-task left, the line is dropped.
+The report goes to stderr rather than `console.warn` because Vitest drops console output that
+arrives after the file's last test.
 
 ## 5. Keeping the run off the network
 
-Opt-in, and the reason it exists is a run that is green and still fails.
+Off by default (`blockNetwork: false`). When on, `fetch` rejects, `XMLHttpRequest` fails and
+`navigator.sendBeacon` returns `false`. Nothing leaves the machine, and each refusal names the
+request and the test that made it.
 
-jsdom ships no `fetch`, so under it a component reaching for a remote asset is inert and the suite
-never notices. happy-dom implements it, and the same component starts issuing real requests — an
-icon loader pulling every SVG from a CDN, a config service polling an endpoint. The tests still
-pass, because nothing they assert depends on the response. The run does not:
+```ts
+setupAutoSpy({ blockNetwork: true });
+```
+
+```text
+[vitest-auto-spy] fetch is stubbed in unit tests — GET https://cdn.example.test/sprite.svg. The test "icons > loads the sprite" requested it, and blockNetwork() refused it: unit tests stay off the network. Answer it in this test: vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ body: … })).
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_5-keeping-the-run-off-the-network
+```
+
+A `fetch` your spec stubs itself is not blocked.
+
+Turn it on so tests never reach the network. It matters most when a green run still fails with a
+non-zero exit code. That happens under happy-dom, which implements `fetch`: a component quietly
+loads icons or polls an endpoint, and Vitest aborts those requests at teardown. The aborts arrive as
+unhandled errors after the summary, with no test named:
 
 ```text
  Test Files  260 passed (260)
@@ -329,76 +428,66 @@ Vitest caught 8 unhandled errors during the test run.
 DOMException [AbortError]: The operation was aborted.
 ```
 
-The runner aborts whatever is in flight when it tears the environment down, and those aborts arrive
-as unhandled rejections after the summary. Exit code 1, and no test named — because no test failed.
+It helps under jsdom too, which implements `XMLHttpRequest` in full.
 
-```ts
-setupAutoSpy({ blockNetwork: true });
-```
+The object form narrows what is blocked:
 
-`fetch` then rejects immediately, naming what was requested and by which test — which is the thing
-a stack trace does not tell you — and the line that answers it:
+| Option   | Type                               | Default    | Meaning                                                              |
+| -------- | ---------------------------------- | ---------- | -------------------------------------------------------------------- |
+| `fetch`  | `boolean`                          | `true`     | `fetch` rejects, naming what was requested                           |
+| `xhr`    | `'reject'` \| `'empty'` \| `false` | `'reject'` | How a blocked `XMLHttpRequest` is answered; `false` leaves it alone  |
+| `beacon` | `boolean`                          | `true`     | `navigator.sendBeacon` returns `false`, where the environment has it |
 
-```text
-[vitest-auto-spy] fetch is stubbed in unit tests — GET https://cdn.example.test/sprite.svg. The test "icons > loads the sprite" requested it, and blockNetwork() refused it: unit tests stay off the network. Answer it in this test: vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ body: … })).
-Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_5-keeping-the-run-off-the-network
-```
-
-A blocked `XMLHttpRequest` carries its own line on `statusText`:
-`[vitest-auto-spy] XMLHttpRequest is stubbed in unit tests — GET <url> blocked. Stub it in this test, or blockNetwork({ xhr: 'empty' }) if nothing reads the reply.`
-
-Nothing leaves the machine, the run stops depending on a host being reachable, and the code under
-test takes exactly the branch it would take for a failed request. A spec that genuinely wants
-`fetch` replaces it as before — this is a floor, not a ceiling. The stub is installed per test
-(`restoreProps` takes it off again), and `blockNetwork()` is exported for suites that want it
-somewhere narrower.
-
-`fetch` is only half of the network, and the other half is the one jsdom implements in full.
-Plenty of libraries never left `XMLHttpRequest` — `rmp-vast` pings every VAST tracker through a
-hand-rolled one — so a suite with `blockNetwork: true` already on was still reaching the internet,
-one ping per quartile per ad per test, and printing jsdom's `AggregateError at
-Object.dispatchError` for each connection that failed. Whether a green run prints that depends on
-whether the machine has a route out, which is not a property a test suite should have.
-
-Every channel the environment implements is closed by default. The object narrows it:
-
-| option   | default    | what it does                                                               |
-| -------- | ---------- | -------------------------------------------------------------------------- |
-| `fetch`  | `true`     | `fetch` rejects, naming what was requested                                 |
-| `xhr`    | `'reject'` | how a diverted `XMLHttpRequest` is answered — or `false` to leave it alone |
-| `beacon` | `true`     | `navigator.sendBeacon` answers `false`, where the environment has one      |
-
-`'reject'` fails the request the way an unreachable host does: `readyState` 4, `status` 0, an
-`error` event, and the marker on `statusText` — the one string channel a failed request has.
-`'empty'` answers it with status 200 and an empty body instead, which is what a request nobody
-reads the response of wants:
+- `'reject'` fails the request like an unreachable host: `readyState` 4, `status` 0, an `error`
+  event, and the marker on `statusText`.
+- `'empty'` answers every blocked `XMLHttpRequest` with status 200 and an empty body. Use it when
+  the only XHR traffic is requests nobody reads, like tracker pings.
 
 ```ts
 setupAutoSpy({ blockNetwork: { xhr: 'empty' } }); // tracker pings, answered and silent
 ```
 
-**Called twice, the mode of the last caller wins.** A setup file's stub goes in from a `beforeEach`
-that runs before the spec's own, so a spec calling `blockNetwork({ xhr: 'reject' })` to drive the
-failure branch was being served the setup file's silent empty 200 — with nothing saying so. The
-stubs themselves are installed once and not patched again: that is what keeps the restore journal
-from growing for the whole run under `restoreProps: false`, where nothing ever takes them off.
+A blocked `XMLHttpRequest` puts this on `statusText`:
+`[vitest-auto-spy] XMLHttpRequest is stubbed in unit tests — GET <url> blocked. Stub it in this test, or blockNetwork({ xhr: 'empty' }) if nothing reads the reply.`
 
-A `data:` URL is let through, and it is the only thing that is: it is the scheme a spec serves its
-own fixtures from, and the only one a DOM answers without a socket. A **relative** URL is not
-exempt — the DOM resolves it against the document origin, so a spec that reaches `/config` and
-passes is resting on nothing listening on that port.
+To match these errors in a spec or a reporter, use the exported markers. The text after the marker
+may change between releases; the marker does not.
 
-`WebSocket` and `EventSource` are deliberately left alone. Their failure is an event on an object
-the code keeps and reconnects, so there is no answer a blanket stub could give that is not a
-behaviour change of its own;
-[`stubConstructor`](/utilities/constructor-doubles) is the tool for a spec that has one.
+```ts
+import { BLOCKED_FETCH_MESSAGE, BLOCKED_XHR_MESSAGE } from 'vitest-auto-spy/setup';
+
+await expect(fetch('https://api.example.test/cart')).rejects.toThrow(BLOCKED_FETCH_MESSAGE);
+
+const xhr = new XMLHttpRequest();
+xhr.open('GET', 'https://api.example.test/cart');
+xhr.send();
+await vi.waitFor(() => expect(xhr.statusText).toContain(BLOCKED_XHR_MESSAGE));
+```
+
+`BLOCKED_FETCH_MESSAGE` is `'[vitest-auto-spy] fetch is stubbed in unit tests'`, and
+`BLOCKED_XHR_MESSAGE` is `'[vitest-auto-spy] XMLHttpRequest is stubbed in unit tests'`.
+
+What else to know:
+
+- The block is installed before each test and removed after it. A spec can still stub `fetch`
+  itself, for example with `vi.spyOn(globalThis, 'fetch')`; a stubbed call never reaches the block.
+  Stub it in `beforeEach` or in the test: the block is installed after `beforeAll` and would replace
+  a stub made there.
+- `blockNetwork()` is exported, for a suite that wants it somewhere narrower.
+- If `blockNetwork` is called twice, the latest call's mode applies. The `blockNetwork` option of
+  `setupAutoSpy` counts as a call. So a spec that calls `blockNetwork({ xhr: 'reject' })` gets
+  `'reject'`, even when the setup file asked for `'empty'`.
+- Only `data:` URLs pass. A relative URL like `/config` is blocked too, because the DOM resolves it
+  against the page's origin.
+- `WebSocket` and `EventSource` are not blocked. Use
+  [`stubConstructor`](/utilities/constructor-doubles) for those.
+
+**Common mistake:** returning a hand-built `{ ok: true, json: async () => data } as Response` from a
+`fetch` stub. Use [`stubResponse`](#answering-a-stubbed-fetch-—-stubresponse) instead.
 
 ### Answering a stubbed `fetch` — `stubResponse`
 
-A spec that wants the success branch replaces `fetch` and has to hand back a `Response`. The usual
-hand-built one is `{ ok: true, json: async () => data } as Response` — a cast over an object that
-has two of the members the code under test may read. `stubResponse` builds a real one, from the
-environment's own constructor, with no cast:
+`stubResponse(init)` builds a real `Response` for a `fetch` stub, with no cast.
 
 ```ts
 import { stubResponse } from 'vitest-auto-spy/setup';
@@ -407,23 +496,23 @@ vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ body: { id: 1, na
 vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ ok: false, status: 404 }));
 ```
 
-| field        | default                          | what it does                                                                            |
-| ------------ | -------------------------------- | --------------------------------------------------------------------------------------- |
-| `body`       | no body                          | plain object, array, number, boolean, `null` → JSON with `application/json`; else as is |
-| `status`     | `200`, or `500` when `ok: false` | the status; a status the platform refuses (`0`, `600`) throws the platform's own error  |
-| `ok`         | derived from `status`            | shorthand for the status class; an `ok` that disagrees with `status` throws             |
-| `statusText` | `''`                             | as given                                                                                |
-| `headers`    | —                                | any `HeadersInit`; a `content-type` set here wins over the JSON one                     |
-| `url`        | `''`                             | what `response.url` reads — Angular's fetch backend reports it as the request's URL     |
+| Field        | Default                          | Meaning                                                                                   |
+| ------------ | -------------------------------- | ----------------------------------------------------------------------------------------- |
+| `body`       | no body                          | object, array, number, boolean or `null` becomes JSON with `application/json`; else as is |
+| `status`     | `200`, or `500` when `ok: false` | the status; one the platform refuses (`0`, `600`) throws the platform's error             |
+| `ok`         | derived from `status`            | shorthand for the status class; an `ok` that disagrees with `status` throws               |
+| `statusText` | `''`                             | as given                                                                                  |
+| `headers`    | —                                | any `HeadersInit`; a `content-type` here wins over the JSON one                           |
+| `url`        | `''`                             | what `response.url` returns; Angular's fetch backend reports it as the request URL        |
 
-A string is sent as it is, not as a JSON string. `Blob`, `ArrayBuffer`, typed-array, `FormData`,
-`URLSearchParams` and `ReadableStream` bodies go to the constructor untouched — with one catch under jsdom, whose `Blob`
-and `FormData` are jsdom's own and are not readable by Node's `Response`: pass a string or bytes
-there.
+Body rules:
 
-**`null` is the JSON literal, and `undefined` is "no body".** A backend that reports "nothing here"
-as a JSON `null` — an empty login, an absent profile — is a real shape, and the code under test
-parses it like any other:
+- A string is sent as is, not as a JSON string.
+- `null` is JSON `null`. `undefined`, or no `body` at all, means "no body".
+- `Blob`, `ArrayBuffer`, typed arrays, `FormData`, `URLSearchParams` and `ReadableStream` go to the
+  constructor untouched. Under jsdom, pass a string or bytes instead of `Blob` or `FormData`: Node's
+  `Response` cannot read jsdom's versions of them.
+- `{ body: null, status: 204 }` throws: a 204, 205 or 304 carries no body.
 
 ```ts
 await stubResponse({ body: null }).json(); // → null, content type application/json
@@ -431,54 +520,35 @@ await stubResponse({ body: undefined }).text(); // → '', no content type, .jso
 await stubResponse({}).text(); // → the same: an omitted body is no body
 ```
 
-**This reversed a released contract.** `null` used to mean "no body", indistinguishable from
-omitting the field, so `.json()` on it threw `Unexpected end of JSON input` while `0`, `false`, `[]`
-and `{}` all round-tripped — a trap rather than a preference, since nothing told the reader this
-one literal was different. There is one way to say "no body" and every caller already reaches for
-it, which is what leaves `null` free to mean what it means in JSON. A spec that relied on the old
-reading drops the field, or writes `body: undefined`. The one place that says so out loud is
-`{ body: null, status: 204 }`: a 204, 205 or 304 carries no body, so it now throws by name rather
-than letting the constructor raise "Response with null body status cannot have body" about a field
-whose old meaning was the opposite.
+**Common mistake:** `stubResponse({ ok: true })` for a JSON body `{ ok: true }`. `ok` is a field of
+`stubResponse` and sets the status; the JSON goes in `body`: `stubResponse({ body: { ok: true } })`.
 
-**A `Response` body can be read once.** `mockResolvedValue(stubResponse(…))` hands the same object
-to every call, so the second `response.json()` rejects with "Body is unusable". A stub that answers
-more than one request builds one per call:
+**Common mistake:** `mockResolvedValue(stubResponse(…))` returns the same object on every call, and
+a body can be read only once. The second `response.json()` rejects with "Body is unusable". Build
+one response per call:
 
 ```ts
 vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body: user }));
 ```
 
-It works wherever the runtime has a global `Response`: Node, jsdom (which ships none of its own, so
-Node's is the one in scope), happy-dom, Bun, and `node:test`. Anywhere else it throws a
-`TypeError` naming the missing constructor. Each of its three errors ends with the fix for that
-case — drop `ok`, omit `body`, run where a `Response` exists — and links this section.
+It works wherever there is a global `Response`: Node, jsdom (which uses Node's), happy-dom, Bun and
+`node:test`. Elsewhere it throws a `TypeError` that names the missing constructor. Each of its errors
+ends with the fix and links this section.
 
 ### Next to MSW
 
-`blockNetwork` and [MSW](https://mswjs.io)'s `setupServer()` patch the same globals, so the order they
-run in used to decide who won. `server.listen()` sits in a `beforeAll`, which runs before
-`setupAutoSpy()`'s per-test `beforeEach`, so the `fetch` stub went on **over** MSW's interceptor, and
-every handler for a `fetch` request was switched off: a request the spec had mocked rejected with
-`fetch is stubbed in unit tests`. That includes Angular's `HttpClient`, whose default backend is `fetch`
-in current Angular — `withFetch()` is deprecated as redundant, and `withXhr()` opts back out.
+`blockNetwork` works next to [MSW](https://mswjs.io)'s `setupServer()`. While an interceptor from
+`@mswjs/interceptors` holds `fetch` (MSW's `setupServer()`, or nock 14), `blockNetwork` leaves
+`fetch` alone. After `server.close()`, it blocks `fetch` again.
 
-`blockNetwork` now leaves `fetch` alone while an interceptor from `@mswjs/interceptors` holds it —
-MSW's `setupServer()`, and nock 14, which is built on the same package — and blocks it again once
-`server.close()` takes the interceptor off. `XMLHttpRequest` needs no such care: MSW builds the
-real class underneath, so a request it does not handle still reaches the blocked `open` and `send`
-and fails with the marker on `statusText`. Measured with MSW 2.15, under jsdom and happy-dom, on
-`fetch`, `XMLHttpRequest` and `HttpClient` with `withFetch()` and `withXhr()`:
-
-| request                              | handled by MSW | not handled by MSW                 |
+| Request                              | Handled by MSW | Not handled by MSW                 |
 | ------------------------------------ | -------------- | ---------------------------------- |
 | `fetch`, `HttpClient` (fetch)        | MSW's response | MSW's `onUnhandledRequest` decides |
 | `XMLHttpRequest`, `HttpClient` (XHR) | MSW's response | blocked, naming the URL            |
 
-So under MSW the floor for `fetch` is MSW's own, and `onUnhandledRequest: 'error'` is not quite one.
-It exempts every URL whose path looks like a static asset — `.svg`, `.png`, fonts, `.css`, `.js`,
-and `.json` too — and lets it go out to the network unreported: exactly the icon loader this
-section began with. A catch-all handler registered last makes the floor hard:
+So under MSW, MSW decides what happens to an unhandled `fetch`. `onUnhandledRequest: 'error'` is
+not enough on its own: it lets through every URL that looks like a static asset (`.svg`, `.png`,
+fonts, `.css`, `.js`, `.json`). Register a catch-all handler last:
 
 ```ts
 import { HttpResponse, http } from 'msw';
@@ -494,22 +564,18 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 ```
 
-`server.use(…)` in a spec prepends its handlers, so the catch-all stays last; `resetHandlers()`
-keeps it, because it was passed to `setupServer`. Keep `blockNetwork: true` next to it for the
-channels MSW does not cover — `sendBeacon`, and any file that never starts the server.
+`server.use(…)` in a spec adds handlers in front, so the catch-all stays last. `resetHandlers()`
+keeps it, because it was passed to `setupServer`. Keep `blockNetwork: true` as well: it covers
+`sendBeacon` and files that never start the server.
 
 ## 6. Putting back timer globals the fakes took with them
 
-On by default, because it can only ever repair.
+On by default (`restoreTimerGlobals`). After each test, it puts back any timer global (such as
+`Date`) that removing fake timers deleted. It never overwrites a value a spec set on purpose.
 
-`vi.useRealTimers()` reads like the inverse of `vi.useFakeTimers()`, and in a plain Node realm it
-is. Under a DOM environment it is not: `@sinonjs/fake-timers` restores a global by assigning the
-original back **when it was an own property of the global object**, and deletes it otherwise. In
-happy-dom `Date` is inherited from the environment's realm, so uninstalling removes it outright.
-
-With `isolate: true` nothing notices. With `isolate: false` the next file in the same worker meets
-a realm with no `Date` and dies inside Vitest's own `useFakeTimers`, several files away from
-whatever installed the fakes:
+Under a DOM environment, `vi.useRealTimers()` can delete a global instead of restoring it. In
+happy-dom, it deletes `Date`. With `isolate: false`, the next file then fails inside Vitest's own
+`useFakeTimers`:
 
 ```text
 TypeError: Cannot read properties of undefined (reading 'now')
@@ -520,32 +586,29 @@ TypeError: Cannot read properties of undefined (reading 'now')
 
 The file in that stack is simply the one that ran next.
 
-The real globals are captured when the library is first imported — before any spec can install
-fakes — and anything left `undefined` after a test is put back. Only that: a value a spec replaced
-on purpose is still there and is left alone, so the repair cannot overwrite a deliberate stub.
-
 ```ts
 import { getWatchedTimerGlobals, restoreTimerGlobals } from 'vitest-auto-spy/setup';
 
-restoreTimerGlobals(); // safe at any point, and as often as you like
+restoreTimerGlobals(); // safe at any point, as often as you like
 getWatchedTimerGlobals(); // the names captured in this environment
 ```
 
-`setupFakeTimers()` runs the same repair in its own `afterEach`, so a suite using it is covered
-whether or not `setupAutoSpy()` is installed.
+The real globals are captured when the library is first imported, before any spec can install
+fakes. [`setupFakeTimers()`](./fake-timers) runs the same repair in its own `afterEach`, with or
+without `setupAutoSpy()`.
 
 ## 7. Naming the file that sealed a global
 
-Opt-in, and it answers a question that is otherwise answered by grepping the repository.
+Off by default (`guardGlobals: 'off'`). When on, it reports a test that adds a property to a global
+object that nothing can remove afterwards.
 
-`Object.defineProperty(document, 'cookie', { value, writable: true })` is the Jest-era way to stub a
-browser global, and `configurable` defaults to `false`. Under per-file isolation that is harmless —
-the environment is discarded anyway. Under `isolate: false` the property can no longer be redefined
-_or_ deleted, so every later file in that worker inherits it, and what fails is some library, every
-other run, with nothing pointing back at the file that did it.
+`Object.defineProperty(document, 'cookie', { value, writable: true })` is a common way to stub a
+browser global. It makes the property non-configurable, because `configurable` defaults to `false`.
+Under `isolate: false`, every later file in that worker inherits it, and nothing points back at the
+file that did it.
 
 ```ts
-setupAutoSpy({ guardGlobals: 'throw' }); // or 'warn' while a large suite is being cleaned up
+setupAutoSpy({ guardGlobals: 'throw' }); // or 'warn' while you clean up a large suite
 ```
 
 ```text
@@ -554,49 +617,27 @@ Patch it with mockValueProp(document, 'cookie', value) instead: it records what 
 Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_7-naming-the-file-that-sealed-a-global
 ```
 
-The helper the report names follows the descriptor it found: a value gets `mockValueProp`, a
-getter `mockReadonlyPropGetter`, a getter with a setter `mockAccessorsProp`.
+The fix the report names depends on what was defined: a value gets `mockValueProp`, a getter gets
+`mockReadonlyPropGetter`, a getter with a setter gets `mockAccessorsProp`.
 
-**What is watched.** `globalThis`, `document`, `navigator`, `location` and `screen`, and the DOM
-prototypes a stub is written against instead of a global: `Element`, `HTMLElement`,
-`HTMLCanvasElement`, `HTMLMediaElement`, `Node` and `EventTarget`.
-`Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: vi.fn() })` is the
-canonical one — jsdom implements none of those members, so the patch defines a **new** property,
-and with `configurable` defaulting to `false` the next file's `mockValueProp` fails with
-`Cannot redefine property` having touched nothing. A prototype is cheap to watch, too: tens of own
-names where `globalThis` carries several hundred. Keys are read with `Reflect.ownKeys`, so a symbol
-key is seen as well and the report prints it.
+**What is watched:** `globalThis`, `document`, `navigator`, `location`, `screen`, and the prototypes
+of `Element`, `HTMLElement`, `HTMLCanvasElement`, `HTMLMediaElement`, `Node` and `EventTarget`.
+Symbol keys are watched too.
 
-Only properties that appeared _and_ cannot be removed are reported. The snapshot is taken once per
-file, in `beforeAll`. While the guard is on, `Object.defineProperty`, `Object.defineProperties` and
-`Reflect.defineProperty` note which watched object received a non-configurable definition, and after
-each test only those objects are compared — so the report names the test, `globalThis` included, and a
-test that seals nothing costs nothing. Once per file, in the cleanup of that `beforeAll` (after every
-`afterAll`), every watched object is compared in full: that catches a patch made in an `afterAll`, and
-one that went around the three functions — a sloppy-mode `var`, or a `defineProperty` a bundled module
-captured before the file started — which the report then attributes to the file rather than a test.
-The functions are put back at the end of the file. The [performance page](/core/performance) has the
-per-test figures.
+**What it cannot see:** an existing property redefined in place with `configurable: false`. It
+reports only new properties that cannot be removed, which is the usual shape of such a stub.
 
-**What it cannot see: an _existing_ name redefined with `configurable: false`.** Comparing names is
-what makes the check affordable; answering that question means a `getOwnPropertyDescriptor` for
-every name on every watched object after every test — around 950 of them on `globalThis` alone,
-more than the whole rest of the guard costs together. So a name that was already there and is
-redefined in place is reported by nothing. The **addition**, which is the shape a Jest-era stub
-actually takes, is.
+`guardGlobalPatches(reaction)` is exported, to register the same check somewhere narrower.
 
-`guardGlobalPatches(reaction)` is exported for a suite that wants the check somewhere narrower.
+How and when it checks: [In depth](#global-guard-in-depth).
 
 ## 8. Failing on a rejection zone.js swallowed
 
-Opt-in, and the one switch on this page that changes whether a green run is telling the truth.
+Off by default (`strayRejections: false`). When on, a rejected promise that nobody handled fails the
+test instead of passing silently. It is for Angular suites that load zone.js.
 
-zone.js replaces the global `Promise`. A rejected `ZoneAwarePromise` nobody handled is drained in
-`api.microtaskDrainDone()` and reported through `api.onUnhandledError` — which is a
-`console.error` and nothing else. It never reaches `process.on('unhandledRejection')`, the channel
-Vitest listens on, so the runner is never told: a file that rejected a hundred promises still exits 0.
-
-What that hides is ordinary code:
+zone.js replaces the global `Promise`. It prints an unhandled rejection with `console.error` and
+stops there. Vitest never hears about it, so the file still passes. This hides ordinary bugs:
 
 ```ts
 it('renders once compiled', () => {
@@ -604,18 +645,17 @@ it('renders once compiled', () => {
 });
 ```
 
-The test is over before the callback runs, so the assertion settles after the test it belongs to was
-already reported green — and when it fails, the failure _is_ a rejection nothing handled. The same
-goes for an `async` helper called without `await`, and for a `TypeError` thrown inside an
-`import('…').then(…)` in production code. In one migrated Angular monorepo — 1688 spec files,
-11 587 tests, green, exit 0 — six real defects were sitting behind exactly this, two of them
-assertions that were simply false.
+The test ends before the callback runs, so a failing assertion becomes an unhandled rejection. The
+same happens with an `async` helper called without `await`, and with an error thrown inside
+`import('…').then(…)` in your app code.
 
 ```ts
+import 'zone.js';
+
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
 setupAutoSpy({ strayRejections: true });
 ```
-
-The rejection then fails the test the runner was in when zone.js gave up on it:
 
 ```text
 [vitest-auto-spy] 1 promise rejection went unhandled in "TaskListComponent > renders once compiled", and zone.js swallowed it into console.error:
@@ -623,191 +663,180 @@ The rejection then fails the test the runner was in when zone.js gave up on it:
 An assertion that settles after its test has ended cannot fail it, so that test passed without it. Return or await the promise — `.then(() => expect(…))` or an async helper called without await is the usual cause.
 ```
 
-"Went unhandled in" names the test the rejection surfaced in, not the one that made it, because a
-rejection created by one file's test routinely surfaces during a later one; with several tests
-involved, each line says where it surfaced. The closing advice changes with the kind — a failed
-matcher and a thrown error are different bugs.
+The report names the test in which the rejection surfaced. That may be a later test than the one
+that created it. The closing advice depends on the kind of error: a failed assertion and a thrown
+error get different advice.
 
-Two deliberate limits. zone.js has to be loaded already: this package never imports it — a zoneless
-project must not pull it in — so `import 'zone.js';` at the top of the setup file, or the
-`@angular/build:unit-test` builder's own entry point, is what puts it there, and without it the call
-**throws** rather than quietly watching nothing. And no `process.on('unhandledRejection')` listener
-is installed: Vitest's own handler bails out as soon as a second listener exists, so adding one would
-_silence_ the native rejections the runner already reports and fails runs for. Native rejections are
-not the gap; the zone-swallowed ones are.
+What to know:
 
-The pieces are exported for a suite that wants the check somewhere narrower, or wants the captures
-themselves:
+- **zone.js must already be loaded.** The library never imports it. Import `zone.js` at the top of
+  the setup file, or use the `@angular/build:unit-test` builder, which loads it. Without zone.js the
+  call throws.
+- **Native rejections are not affected.** Vitest already fails on those. The library adds no
+  `process.on('unhandledRejection')` listener, because a second listener would silence Vitest's.
+- **A rejection Vitest already reported is not reported twice.** A failed assertion in an `async`
+  test shows once, as the test failure.
+
+The pieces are exported too. Each takes the same optional host as the stray-timer functions:
 
 ```ts
 import { countStrayRejections, flushStrayRejections, trackStrayRejections } from 'vitest-auto-spy/setup';
 
-const stop = trackStrayRejections(); // idempotent; returns the undo, which restores the previous handler
+const stop = trackStrayRejections(); // safe to call twice; the undo restores the previous handler
 
 afterEach(() => {
-  const stray = flushStrayRejections(); // { reason, assertion, testName }[], and starts again from empty
+  const stray = flushStrayRejections(); // { reason, assertion, testName }[], then starts from empty
 
   expect(stray).toEqual([]);
 });
 ```
 
-Each takes the same optional host as the stray-timer trackers, defaulting to the real globals.
-`countStrayRejections()` throws when nothing is tracking the host — asking for a count that is
-always `0` because nothing is watching is the failure mode worth being loud about — while
-`flushStrayRejections()` returns an empty array instead, so a teardown left behind after the option
-is turned off does not throw at the suite.
+`countStrayRejections()` throws when nothing is tracking. `flushStrayRejections()` returns an empty
+array instead, so a leftover teardown does not fail after you turn the option off.
 
-A rejection the runner has **already** blamed the finished test for is not reported again. An
-`async` test that fails an assertion leaves its own `AssertionError` in both places: the runner names
-the failure, and the same error arrives here as a rejection nobody handled. A red run therefore
-used to print two messages per failure, and the first thing a reader does with the second one is go
-looking for a defect that is not there. What survives the filter is what this check exists for —
-the rejections that fail no test at all.
+**Common mistake:** reading only `countStrayRejections()`. A counter empties nothing, so the captured
+errors pile up for the whole worker. Read through `flushStrayRejections()`, or let `setupAutoSpy()`
+do it. See [The two buffers teardown drains](#the-two-buffers-teardown-drains).
 
-The [`no-floating-assertion`](/utilities/eslint-plugin) rule catches the commonest shape statically,
-before it ever runs.
+The [`no-floating-assertion`](/utilities/eslint-plugin) lint rule catches the most common shape
+before you run anything.
 
 ## 9. Pruning the mock registry nothing empties
 
-Opt-in, and the one switch on this page that is about what the run costs rather than what it reports.
+Off by default (`pruneMockRegistry: false`). It keeps a large `isolate: false` run fast and small.
 
-`vi.fn()` and `vi.spyOn()` add the mock they create to a single module-level `Set` inside
-`@vitest/spy`, because that is what `vi.clearAllMocks()` walks — and no API ever takes anything out
-of it again. With `isolate: true` the module is re-evaluated per file and the set starts empty every
-time. With `isolate: false` it is evaluated once per worker and only grows, and a large suite feels
-both halves of that:
+Vitest adds every `vi.fn()` and `vi.spyOn()` to one internal list, so that `vi.clearAllMocks()` can
+reach them. Nothing ever removes them. With `isolate: false` the list grows for the whole run:
 
-- `clearMocks: true` walks every mock of every file already run **before every single test**, so the
-  cost of clearing grows with the number of tests already behind it.
-- the worker's heap holds every mock of the run at once — with their recorded arguments, and through
-  those whole component trees.
+- `clearMocks: true` walks every mock of every earlier file before each test, so it gets slower as
+  the run goes on;
+- the worker's memory holds every mock of the run, with the arguments it recorded.
 
 ```ts
 setupAutoSpy({ pruneMockRegistry: true }); // keep only the mocks that outlive a file
 ```
 
-There is no API for that set, so it is taken from the one thing that iterates it: `Set.forEach`
-passes the set to its callback as the third argument, so `vi.clearAllMocks()` under a briefly patched
-`Set.prototype.forEach` hands the registry over. The capture is verified against a probe mock, and
-without a match nothing is pruned — a slower run beats a broken one.
+At the end of each file, it removes the mocks that file created in its tests and hooks. It keeps the
+mocks created while modules were imported, such as a `vi.fn()` in a shared `*.mock.ts`. If the
+registry cannot be reached safely, nothing is pruned.
 
-The half worth understanding before turning it on is what must **not** go. Dropping a mock from the
-registry means `vi.clearAllMocks()` and `clearMocks: true` can no longer see it, so its calls
-accumulate silently: harmless for a mock that dies with the file that made it, a bug for the
-module-level `vi.fn()` in a shared `*.mock.ts` that six spec files import. The first file to import
-it creates it, a naive prune drops it when that file ends, and the file that happens to run **second**
-then fails on calls its predecessor made — which reads as flakiness, because which file runs first is
-the runner's choice.
-
-So the split is drawn where it is observable: whatever is already in the registry when a file's hooks
-start was created while the module graph was being evaluated, which is exactly what "lives in a
-module" means, and it is kept; everything added afterwards belongs to a test or a hook of that file
-and goes when the file ends. One case lands on the wrong side of that line — a module first loaded by
-a dynamic `import()` inside a test — and says so explicitly:
+**Common mistake:** a shared mock module first loaded by a dynamic `import()` inside a test. Its
+mocks look like the test's own and would be dropped. Mark them to keep:
 
 ```ts
 // fixtures/navigation.mock.ts — imported by six spec files
+import { keepMockRegistered } from 'vitest-auto-spy/setup';
+
 export const navigation = { setFocus: keepMockRegistered(vi.fn()) };
 ```
 
+How the registry is reached and why the split is safe: [In depth](#mock-registry-in-depth).
+
 ### The mocks it keeps, it also guards
 
-Staying registered has a second consequence, and it is the one that costs a day to find. `clearAllMocks`
-is not the only thing that walks the set: `vi.resetAllMocks()` walks the same one and calls
-`mockReset()` on everything in it, and `mockReset` puts an implementation back only when it was
-passed to `vi.fn(implementation)`. A `vi.fn()` that got its behaviour from a chained
-`.mockReturnValue(…)` or `.mockReturnThis()` is simply left answering `undefined` — `@vitest/spy`
-spells it `resetToMockImplementation ? mockImplementation : undefined`.
-
-With `isolate: false` the bill arrives somewhere else entirely. One spec calls `vi.resetAllMocks()` in
-its own `afterEach`; a **different** file later in the same worker then dies inside application code,
-because a shared double it never touched now answers `undefined`:
+`vi.resetAllMocks()` wipes the behaviour of every registered mock. A `vi.fn()` that got its behaviour
+from `.mockReturnValue(…)` or `.mockReturnThis()` then returns `undefined`. Under `isolate: false`,
+one spec's `vi.resetAllMocks()` breaks a shared mock for a different file:
 
 ```
 TypeError: Cannot read properties of undefined (reading 'info')
   app.component.ts:316   AppComponent.syncAllProcesses
 ```
 
-Nothing in that failure names the spec that caused it. It moves whenever the runner reorders files, it
-never reproduces on the file that did the resetting, and `vi.restoreAllMocks()` — the call one
-naturally probes with — does not cause it at all: in Vitest 4 that one walks `MOCK_RESTORE`, which only
-`vi.spyOn` writes to, so a probe built around it comes back green and sends the search the wrong way.
+With `pruneMockRegistry` on, the library remembers each kept mock's behaviour. Before each test, it
+puts that behaviour back if it was lost. It leaves alone a mock that a test changed on purpose, and a
+mock that never had a behaviour.
 
-So the implementation a long-lived mock carries when it is first classified is remembered, and put
-back before a test that has lost it. Only when it has been lost: a mock a test deliberately
-re-implements is left as that test left it, and a mock that never carried an implementation is never
-touched. The hook is `beforeEach`, because Vitest applies `restoreMocks` / `mockReset` / `clearMocks`
-from `onBeforeTryTask`, which runs _before_ the `beforeEach` hooks rather than after them.
+**Common mistake:** probing this with `vi.restoreAllMocks()`. That call does not cause the problem,
+so the probe comes back green. `vi.resetAllMocks()` does.
 
-The pieces are exported for a suite that wants them without the rest: `trackMockRegistry()` installs
-the same hooks on its own, `keepRegisteredMocks()` marks everything currently registered as
-long-lived, `pruneMockRegistry()` is the one-shot sweep and returns how many went,
-`restoreLongLivedImplementations()` is the repair above and returns how many it put back, and
-`getMockRegistrySize()` reports what is left — `undefined` when the capture never took.
+The pieces are exported, to use without the rest:
+
+| Function                            | What it does                                                                                                                                                      |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trackMockRegistry()`               | Installs the same hooks on its own                                                                                                                                |
+| `keepRegisteredMocks()`             | Marks every mock registered now as long-lived                                                                                                                     |
+| `keepMockRegistered(mock)`          | Marks one mock as long-lived and returns it                                                                                                                       |
+| `pruneMockRegistry()`               | One sweep now; returns how many were removed                                                                                                                      |
+| `restoreLongLivedImplementations()` | Puts lost behaviour back; returns how many                                                                                                                        |
+| `getMockRegistrySize()`             | How many are registered; `undefined` when the registry was not found                                                                                              |
+| `captureMockRegistry()`             | Captures Vitest's mock registry once per worker; returns the `Set`, or `undefined` if it cannot be confirmed. Clears every mock's recorded calls as a side effect |
+| `resetMockRegistryTracking()`       | Forgets the capture and every long-lived mark. A worker never needs it; it is for testing the tracking itself                                                     |
+
+### A pruner of your own keeps the sweep sentinel
+
+If you write your own registry pruner, keep every entry that carries
+`Symbol.for('vitest-auto-spy.sweepSentinel')`. That one mock is how `vi.clearAllMocks()` and
+`clearMocks: true` reach this library's spies. Remove it, and they silently stop being cleared.
+
+```ts
+for (const mock of captured) {
+  if (Symbol.for('vitest-auto-spy.sweepSentinel') in mock) continue; // the library's sweep
+  if (!keep.has(mock)) captured.delete(mock);
+}
+```
+
+With `pruneMockRegistry: true` or `trackMockRegistry()` in the same run, the library puts the
+sentinel back before each test and warns once per worker:
+
+```text
+[vitest-auto-spy] Something removed this library's sweep mock from Vitest's mock registry — most likely a hand-written registry pruner. It has been put back: without it vi.clearAllMocks() and clearMocks: true stop clearing every spy this library builds.
+Make the pruner keep any entry that carries Symbol.for('vitest-auto-spy.sweepSentinel'), or use setupAutoSpy({ pruneMockRegistry: true }).
+```
+
+This repair works on Vitest 4 and earlier only. A suite that prunes with only its own code gets no
+repair; `doctor` reports that pruner as
+[`mock-registry-capture-drops-sentinel`](./cli#mock-registry-capture-drops-sentinel). On Vitest 5
+you can drop the capture altogether.
 
 ## 10. Strict doubles for the whole suite
 
-Opt-in, and the one switch here that changes what a **double** does rather than what the environment
-does.
+Off by default (`strict: false`). When on, every spy built afterwards throws when a method nobody
+configured is called. Without it, the method returns `undefined`, and the test fails later, far from
+the cause.
 
 ```ts
 setupAutoSpy({ strict: true }); // a method nobody configured throws, naming itself
 ```
 
-Off, a method nobody configured returns `undefined` — a legal value, so the failure surfaces
-wherever it is finally used, several frames from the omission and usually inside production code.
-On, it throws on the call that produced it, naming the class, the method and the arguments. The
-per-double form is `createSpyFromClass(X, { strict: true })`; this is the same switch for a whole
-suite, so adopting it is one line rather than an edit per factory call.
+The error names the class, the method and the arguments. The same switch for one spy is
+`createSpyFromClass(UserService, { strict: true })`.
 
-`onUnstubbedCall` is the general form — whatever it returns becomes the call's result, so a suite can
-record the gap before turning the throw on:
+| Option              | Type                             | Default | Meaning                                                           |
+| ------------------- | -------------------------------- | ------- | ----------------------------------------------------------------- |
+| `strict`            | `boolean` \| `'survey'`          | `false` | Unconfigured calls throw; `'survey'` only counts them             |
+| `onUnstubbedCall`   | `(call) => unknown`              | —       | Runs on an unconfigured call; its return value becomes the result |
+| `unconfiguredReads` | `'off'` \| `'warn'` \| `'throw'` | `'off'` | Reports getters and streams of a strict spy nobody configured     |
+| `onUnstubbedRead`   | `(read) => void`                 | —       | Receives those findings instead of the report, for a survey       |
+
+A spy's own configuration wins, including an explicit `strict: false`. That is how you exempt one
+large collaborator.
+
+`onUnstubbedCall` lets you log the gaps before you turn the throw on:
 
 ```ts
 setupAutoSpy({ onUnstubbedCall: ({ className, method }) => console.warn(`unstubbed ${className}.${method}`) });
 ```
 
-A double's own configuration wins, **including an explicit `strict: false`** — which is the only way
-to exempt one wide collaborator from the default.
-
-Two things about the lifetime, both of which matter under `isolate: false`. The default is armed only
-when one of the two options is actually passed, so a plain `setupAutoSpy()` cannot clobber a default
-something else installed. And it is released in `afterAll` of the file that armed it: the module
-holding it is shared by every file in the worker, so a default left armed would fail a spec that
-never opted in, with a message naming a class that spec had nothing to do with. That is the same seam
-`strayTimers` uses, for the same reason.
-
-**Before this release the switch reached no double a spec built.** The default lived in a module
-variable, and `setupAutoSpy` ships in `/setup` while the factories ship in `dist/index.js` and
-`dist/angular.js`, each carrying its own copy of that module — so the setup file armed one copy and
-every spec read another. A 1759-file Angular consumer ran its full suite of 12 717 tests with
-`strict: true` and every one stayed green. The default, `onUnstubbedCall` with it, and
-`setSpyEngine()` now live on `globalThis`, where every bundle reads the same answer.
-
-A strict double's getter nobody configured still answers `undefined`, and its observable property
-nobody fed never emits — a read cannot throw without breaking a failure diff that prints the double.
-`unconfiguredReads` reports them after the test instead, and `onUnstubbedRead` surveys them first:
+A strict spy's unconfigured getter still returns `undefined`, and an unfed observable property never
+emits. `unconfiguredReads` reports those after the test:
 
 ```ts
-setupAutoSpy({ strict: true, unconfiguredReads: 'warn' }); // 'off' by default; 'throw' to fail the test
+setupAutoSpy({ strict: true, unconfiguredReads: 'warn' }); // 'off' by default; 'throw' fails the test
 ```
 
-Where the guard reaches, what counts as configured, the full precedence chain and what the read report
-counts are on [Strict mode](/core/strict-mode#reads-nobody-configured).
+What counts as configured, and the full precedence:
+[Strict mode](/core/strict-mode#reads-nobody-configured).
 
-**To try it on a slice without editing the setup file**, set `VITEST_AUTO_SPY_STRICT` for the run:
+**Try it on part of the suite** with the `VITEST_AUTO_SPY_STRICT` environment variable. It accepts
+`1`/`true`, `0`/`false` and `survey`, and wins over the `strict` option. Any other value is ignored.
 
 ```bash
 VITEST_AUTO_SPY_STRICT=1 npx vitest run src/app/cards   # strict for this run; 0 turns it off
 ```
 
-`setupAutoSpy()` reads `1`/`true`, `0`/`false` and `survey`, and lets the variable win over the
-`strict` it was passed; anything else leaves the option alone.
-
-**`strict: 'survey'`** (or `VITEST_AUTO_SPY_STRICT=survey`) is the step before `true`: nothing throws,
-every call and read strict mode would refuse is counted, and each file ends with the list on stderr —
-the whole migration from one run, where `strict: true` stops every test at its first unconfigured
-call:
+**`strict: 'survey'`** (or `VITEST_AUTO_SPY_STRICT=survey`) is the step before `true`. Nothing
+throws. Each file ends with a list on stderr of the calls and reads strict mode would refuse:
 
 ```
 [vitest-auto-spy] strict survey — src/app/cards/card.component.spec.ts: what strict mode would have refused.
@@ -816,53 +845,29 @@ Calls nobody configured (seed them in `returns`, or `registerAutoSpyDefaults` in
   SvgIconService.getIcon ×4
 ```
 
-A double built without a class and without a `name` is listed by the line that built it,
-`createAutoMock(card.component.spec.ts:42)`. A second `setupAutoSpy()` in an extra setup file works
-too — the per-test hooks of both calls share one epoch, so the first call's network stubs are not
-graded as written outside a hook — but the variable is the one that needs no file.
+A spy built without a class and without a `name` is listed by the line that built it:
+`createAutoMock(card.component.spec.ts:42)`. A second `setupAutoSpy()` in another setup file works
+too.
+
+The option lasts for the file that set it: it is released in that file's `afterAll`. A plain
+`setupAutoSpy()` with neither `strict` nor `onUnstubbedCall` leaves any existing default alone.
 
 ## 11. The hook budget Jest had only one of
 
-On by default, because it only ever appends a sentence to a test that has already failed.
+On by default (`hookTimeoutHint`). When a `beforeEach` times out because `hookTimeout` is smaller
+than `testTimeout`, it adds a sentence saying so.
 
-```ts
-setupAutoSpy({ hookTimeoutHint: false }); // off
-```
-
-Jest resolves **one** budget and spends it on a hook and on a test body alike:
-
-```js
-const timeout = hook.timeout || getState().testTimeout; // jest-circus
-const timeout = test.timeout || getState().testTimeout;
-```
-
-Vitest resolves two, and `hookTimeout` has its own default of 10 000 ms. So a suite that carried its
-Jest preset's `testTimeout: 30000` into the runner config and stopped there gives every hook a third
-of the budget its tests get, and nothing says so.
-
-What makes that expensive is where the failure lands. Vitest attributes a `beforeEach` timeout to the
-**test**, with the test's duration pinned at the limit:
-
-```text
-× should create 10045ms
-```
-
-It reads as a slow test. The body it names never ran at all, so the ten seconds are nowhere to be
-found in it, and the reader spends the afternoon in the wrong file. The hint puts the missing
-sentence on the error itself, naming both budgets and the field to set:
+Jest uses one timeout for hooks and tests. Vitest has a separate `hookTimeout`, 10 000 ms by
+default. A suite that moved `testTimeout: 30000` from Jest gives hooks a third of the time. Vitest
+then reports the hook timeout against the test (`× should create 10045ms`), which looks like a slow
+test. The hint adds:
 
 ```text
 [vitest-auto-spy] hookTimeout is 10000ms while testTimeout is 30000ms, so this hook ran on a smaller budget than the test body it prepares — Vitest resolves `hookTimeout` on its own and defaults it to 10000ms. Set `hookTimeout` next to `testTimeout` in the runner config.
 Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_11-the-hook-budget-jest-had-only-one-of
 ```
 
-It is silent when the budgets agree — then the hook really is slow and the config is not the story —
-and silent for a hook that named its own limit (`beforeEach(fn, 300)`). `beforeAll` is out of reach
-by construction: its timeout is reported as a failed _suite_, every test is marked skipped, and no
-`afterEach` runs for the hint to ride on.
-
-Migrating a runner config off Jest, set the two side by side and treat the single Jest number as
-belonging to both:
+The fix is in your Vitest config:
 
 ```ts
 test: {
@@ -872,89 +877,78 @@ test: {
 }
 ```
 
-One neighbouring field differs quietly and changes only the report: `slowTestThreshold` is `5` in
-Jest (**seconds**) and `300` in Vitest (**milliseconds**), so a migrated suite starts marking most of
-its files slow. A unit change, not a regression.
+It stays silent when the two budgets are equal, and for a hook with its own limit
+(`beforeEach(fn, 300)`). It cannot help with `beforeAll`: Vitest reports that timeout as a failed
+suite and runs no `afterEach`.
+
+```ts
+setupAutoSpy({ hookTimeoutHint: false }); // off
+```
+
+**Common mistake:** after moving from Jest, most files are marked slow. That is `slowTestThreshold`:
+`5` seconds in Jest, `300` milliseconds in Vitest. It changes only the report.
 
 ## 12. A timeout the clock explains, not the code
 
-On by default, and silent unless the clock is frozen with callbacks queued on it.
+On by default (`frozenClockHint`). When a test times out while fake timers are installed and
+callbacks are waiting on them, it says the clock was never advanced.
 
-```ts
-setupAutoSpy({ frozenClockHint: false }); // off
-```
-
-Fake timers turn waiting into waiting forever. `await new Promise((r) => setTimeout(r, 10))` never
-resolves unless something advances them, and all the runner has to say about it is what it says
-about a genuinely slow test:
+Under fake timers, `await new Promise((r) => setTimeout(r, 10))` never resolves by itself. Vitest
+then reports an ordinary timeout and suggests a bigger timeout, which cannot help:
 
 ```text
 Error: Test timed out in 5000ms.
 If this is a long-running test, pass a timeout value as the last argument …
 ```
 
-So the reader is told to raise the budget — the one repair that cannot work, because the callback is
-not late, it is never going to run. Under [`globalFakeTimers`](#fake-timers-for-the-whole-run) it is
-worse: nothing in the spec says the clock is fake, because the setting came from a Jest preset that
-had `fakeTimers.enableGlobally`, so the timeout arrives in a file that never mentions a timer.
-
-The hint reports `vi.isFakeTimers()` and `vi.getTimerCount()` — the clock is frozen, N callbacks are
-queued on it, and nothing advanced it. That is a fact rather than a guess, which is why the check
-says nothing when the fake clock's queue is empty: an empty queue explains no timeout. The hint is
-one diagnosis and one action:
+The hint adds the real cause:
 
 ```text
 [vitest-auto-spy] the clock is frozen and 1 callback is queued on it, so this did not run out of time — nothing advanced the clock, and raising the timeout cannot help. Advance it (`await vi.advanceTimersByTimeAsync(ms)`, `await vi.runAllTimersAsync()`) or use real timers for this test.
 Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_12-a-timeout-the-clock-explains-not-the-code
 ```
 
-The sentence about `setImmediate` and a lost HTTP 404 below is added only when `setImmediate`
-callbacks are among the queued ones.
+It stays silent when the clock is real or the fake queue is empty. When `setImmediate` callbacks are
+among the queued ones, it adds a sentence about them.
 
-**The shape that reaches this with no timer in sight is an HTTP spec.** `setImmediate` is among the
-globals `vi.useFakeTimers()` replaces by default, and Express ends a request that matched no route
-through `finalhandler`, which schedules on `setImmediate`. The 404 is therefore never written, and a
-routing mistake is reported as a test that took thirty seconds. In such a file, "the test hung"
-means _the route did not match_.
+**Common mistake: an HTTP spec that hangs.** `vi.useFakeTimers()` fakes `setImmediate` by default.
+Express answers an unmatched route through `setImmediate`, so the 404 is never sent. In such a file,
+"the test hung" means the route did not match. Take `setImmediate` out of `toFake`: see
+[Fake timers](./fake-timers#taking-setimmediate-out-of-tofake).
 
-One thing this cannot see through: a spec whose own `afterEach` calls `vi.useRealTimers()`. Hooks
-run in reverse registration order, so a spec's own hook runs before the one `setupAutoSpy` installs,
-and the clock is real again by the time the hint reads it. Nothing is reported then, rather than
-something wrong.
+This matters most with [`globalFakeTimers`](#fake-timers-for-the-whole-run), where nothing in the
+spec says the clock is fake.
+
+```ts
+setupAutoSpy({ frozenClockHint: false }); // off
+```
+
+It cannot see through a spec whose own `afterEach` calls `vi.useRealTimers()`. That hook runs first,
+so the clock is already real. Nothing is reported then.
 
 ## 13. The builder version that eats memory, named in the run
 
-On by default, and silent unless the process is a worker of `@angular/build:unit-test` **and** the
-installed `@angular/build` is in `[22.1.5, 22.1.7)`.
+On by default (`angularBuildHint`). Under `@angular/build:unit-test` versions `>=22.1.5 <22.1.7`, it
+prints one line to stderr, once per worker. Those versions build tests without code splitting, and
+`--coverage` then uses memory until the run is killed. Upgrade `@angular/build` to fix it.
 
 ```ts
 setupAutoSpy({ angularBuildHint: false }); // off
 ```
 
-In that window the builder compiles the unit-test bundle with esbuild code splitting off, so every
-spec is a self-contained bundle and `--coverage` grows by hundreds of megabytes with no plateau —
-791 chunks / 596 MB on a 784-spec suite, until the OOM killer ends the run. The builder emits no
-warning, and the two places that already say so — the
-[`doctor` check](/utilities/cli#doctor-—-defects-that-never-fail) `angular-build-splitting-off` and the
-[Angular page](/adapters/angular#when-the-unit-test-build-has-code-splitting-off) — both have to
-be sought out. This one line is printed from inside the run where it hurts, to stderr, once per
-worker: by default the builder runs Vitest with `isolate: false`, so `globalThis` outlives each spec file in a
-worker, and the notice keeps a flag there that silences every later evaluation of the setup file.
+It is silent outside the builder, outside those versions, and wherever the installed version cannot
+be read. The same problem is reported by the `angular-build-splitting-off`
+[`doctor` check](/utilities/cli#doctor-—-defects-that-never-fail) and explained on the
+[Angular unit-test builder guide](/guides/angular-unit-test-builder#when-the-unit-test-build-has-code-splitting-off).
 
-The builder is recognised by the marker its own `vitest-mock-patch` setup file leaves on
-`globalThis` (`Symbol.for('@angular/cli/vitest-mock-patch')`, set before any user setup file runs),
-so a plain Vitest run never reads anything. Under the builder the version comes from the nearest
-`node_modules/@angular/build/package.json` above the working directory — **the one place this
-library reads the disk**: one file, read-only, through `process.getBuiltinModule` rather than a
-static `node:fs` import so the `/setup` entry still loads where there is no `process`, and nothing
-but the line depends on what it finds. On a Node without `getBuiltinModule` (before 20.16 / 22.3)
-it stays silent rather than guessing.
-
-The same marker is exported as `isAngularUnitTestBuilder()`, for a setup file that both the builder
-and plain Vitest run. The builder initialises `TestBed` before any setup file, so a second
-`initTestEnvironment()` throws "Cannot set base providers because it has already been called":
+`isAngularUnitTestBuilder()` tells you whether the run is under that builder. Use it in a setup file
+that both the builder and plain Vitest run. The builder sets up `TestBed` before any setup file, so a
+second `initTestEnvironment()` would throw "Cannot set base providers because it has already been
+called":
 
 ```ts
+import { setupTestBed } from '@analogjs/vitest-angular/setup-testbed';
+// or your own initTestEnvironment() call
 import { isAngularUnitTestBuilder, setupAutoSpy } from 'vitest-auto-spy/setup';
 
 if (!isAngularUnitTestBuilder()) {
@@ -964,25 +958,16 @@ if (!isAngularUnitTestBuilder()) {
 setupAutoSpy();
 ```
 
-The builder runs that file only when its target names it in `setupFiles` —
+**Common mistake:** the builder runs this file only when its target lists it in `setupFiles`.
 [`doctor`](/utilities/cli#doctor-—-defects-that-never-fail) reports `builder-setup-unreached` when it
 does not.
 
+How it detects the builder and reads the version: [In depth](#angular-build-hint-in-depth).
+
 ## 14. Web Storage the runner never handed over
 
-On by default, and — like the timer globals — it can only ever repair.
-
-Vitest copies a DOM environment's globals onto `globalThis` behind one filter:
-
-```js
-if (k in global) return KEYS.includes(k);
-```
-
-`Storage` is in that `KEYS` list. `localStorage` and `sessionStorage` are not. For as long as Node
-put neither on `globalThis`, the first half was false and both were copied over. Node's own Web
-Storage made the key exist, so the filter now asks `KEYS`, `KEYS` says no, and the environment's
-storage never arrives. The filter runs before any environment-specific code, so jsdom and happy-dom
-break identically:
+On by default (`restoreWebStorage`). It makes sure `localStorage` and `sessionStorage` work under
+jsdom and happy-dom. On newer Node versions, Vitest does not copy them from the DOM environment:
 
 | Node  | `localStorage` under Vitest |
 | ----- | --------------------------- |
@@ -990,32 +975,28 @@ break identically:
 | 25.9  | `setItem is not a function` |
 | 26.7  | `undefined`                 |
 
-A suite stays green with this broken, because only the specs that touch storage fail — which is why
-it usually arrives as "CI moved to a new Node and eleven unrelated specs died".
+Only the specs that touch storage fail, so it usually shows up as "CI moved to a new Node and
+unrelated specs died".
 
-The repair decides by using the storage, not by looking at it: it writes a namespaced key, reads it
-back and removes it again. Node 25 offers a `setItem` that throws, Node 26 offers nothing, and the
-next runtime is free to invent a third shape; a storage that survives a round trip works, whoever
-implemented it. One that does not is replaced — with the window's own storage where that is a
-separate object, and with a `Map`-backed stand-in otherwise.
+The repair writes a test key, reads it back and removes it. A storage that passes is left alone, so
+your own stub survives. One that fails is replaced: with the window's own storage when that is a
+separate object, otherwise with a simple in-memory storage. In a `node` environment it installs
+nothing, because that environment has no Web Storage.
 
 ```ts
 import { restoreWebStorage } from 'vitest-auto-spy/setup';
 
-restoreWebStorage(); // safe at any point, and as often as you like
-restoreWebStorage({ view: null }); // "there is no window" — installs nothing
+restoreWebStorage(); // safe at any point, as often as you like
+restoreWebStorage({ view: null }); // "there is no window": installs nothing
 ```
 
-Two things it deliberately does not do. It installs nothing in a `node` environment, which is
-supposed to have no Web Storage at all: handing the code under test an API the real runtime lacks
-is a larger change than the one it was there to make. And it leaves a working storage exactly as it
-is, so a spec's own stub survives it.
+Why Vitest drops the storage: [In depth](#web-storage-in-depth).
 
 ### A storage the spec installs itself — `stubWebStorage` {#stub-web-storage}
 
-The other direction, and not part of `setupAutoSpy()`: a spec that wants a storage of its own — empty,
-or seeded, and readable back as a plain record — installs one from `vitest-auto-spy/dom-stubs`
-instead of writing a `TestingStorage` class per project.
+`stubWebStorage(name, options?)` from `vitest-auto-spy/dom-stubs` installs a fresh storage for one
+test. Use it when a spec wants an empty or pre-filled storage and wants to read it back as a plain
+object. It is not part of `setupAutoSpy()`.
 
 ```ts
 import { type WebStorageStub, stubWebStorage } from 'vitest-auto-spy/dom-stubs';
@@ -1033,42 +1014,35 @@ it('forgets the token on logout', () => {
 });
 ```
 
-`getItem`, `setItem`, `removeItem`, `clear`, `key` and `length` behave as the platform's do,
-keys and values coerced to strings and `key()`'s index converted the way an `unsigned long` is.
-`snapshot()` is a copy, not a view. The storage goes on `globalThis` — and on `document.defaultView`
-when that is a separate object — through `mockValueProp`, so `restoreMockedProps()` puts back whatever
-was there, the repaired storage included; install it in `beforeEach`, like every other stub.
+- `getItem`, `setItem`, `removeItem`, `clear`, `key` and `length` behave like the platform's. Keys
+  and values become strings.
+- `snapshot()` returns a copy, not a live view.
+- It goes on `globalThis`, and on `document.defaultView` when that is a separate object. It uses
+  `mockValueProp`, so `restoreMockedProps()` puts the previous storage back after the test.
+- Unlike the repair, it replaces whatever is there, and it installs in a `node` environment too.
 
-Where the two differ on purpose: the repair leaves a working storage alone and installs nothing in a
-`node` environment, because it is guessing what the environment should have been; the stub replaces
-whatever is there and installs in a `node` environment too, because the spec asked for it. What it
-does not do: named-property access (`localStorage.token`, `Object.keys(localStorage)`) does not see
-the items, no `storage` event fires, and there is no quota.
+It does not support named-property access (`localStorage.token`, `Object.keys(localStorage)`),
+`storage` events or a quota.
+
+**Common mistake:** installing it in `beforeAll`. It is removed after the first test. Install it in
+`beforeEach`.
 
 ## 15. The key on `Object.prototype` that stops the run collecting
 
-On by default, and the only check here whose absence makes a run report success over code it never
-executed.
+On by default (`prototypePollution: 'throw'`). It removes and reports any enumerable key a test
+leaves on `Object.prototype`, `Array.prototype` or `Function.prototype`.
 
-Vitest assembles a file's hooks in `mergeHooks`, which walks its hooks object with `for…in`. One own
-enumerable key on `Object.prototype` therefore adds a key that is spread as if it were an array, and
-it happens during **collect**:
+Such a key breaks Vitest while it collects the next file's tests:
 
 ```text
 TypeError: Spread syntax requires ...iterable[Symbol.iterator] to be a function
 ```
 
-with no stack — `parseErrorStacktrace` filters frames through `stackIgnorePatterns`, which covers
-`"/vitest/dist/"` and `/\/@vitest\/\w+\/dist\//`, and every frame of that error lives there. Under
-`isolate: false` the key outlives the file that wrote it, so the casualties are that worker's whole
-tail. In a 1759-file suite the report read `145 failed | 1613 passed` over `11880 passed | 0 failed`
-— zero failing tests because those 145 files never ran — and the count wandered across 0, 75, 83,
-122, 135, 145 and 155 on an unchanged tree, because a run whose writer happened to go last came out
-green. Anything else that walks a plain object breaks the same way; `superagent`'s mime table
-(`typeMap[type].map is not a function`) was the second place the same key surfaced.
+There is no stack. Under `isolate: false`, every later file in that worker fails to collect. The
+summary can then show zero failed tests over code that never ran.
 
 ```ts
-setupAutoSpy(); // prototypePollution: 'throw' — pass 'warn' to sweep and report without failing
+setupAutoSpy(); // prototypePollution: 'throw'; pass 'warn' to remove and report without failing
 ```
 
 ```text
@@ -1077,66 +1051,51 @@ It has been taken off: left there, it stops every later spec file in this worker
 Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_15-the-key-on-object-prototype-that-stops-the-run-collecting
 ```
 
-The report names the test and the kind of value (`(a number)`, `(a function)`), with the path
-relative to the project root; at the file-end check, with no test running, it names the file alone.
+The report names the test and the kind of value, with a path relative to the project root. A key
+found at the end of the file, outside any test, is reported against the file.
 
-The write is nearly always accidental. Code that decorates a class by patching
-`Object.getPrototypeOf(instance)` is handed `Object.prototype` itself the moment `instance` is an
-object literal from a `useValue` provider — or a test double:
+**Common mistake:** patching `Object.getPrototypeOf(instance)` when `instance` is a plain object,
+for example a `useValue` provider or a spy. That prototype is `Object.prototype` itself:
 
 ```ts
 const proto = Object.getPrototypeOf(instance); // Object.prototype, for a plain object
 proto['ngOnDestroy'] = function () { … };      // now every object in the realm has it
 ```
 
-Patch the prototype of the class the object came from, never the prototype of a plain object or of a
-double. `Object.prototype`, `Array.prototype` and `Function.prototype` are compared before and after
-every test; a key the environment already carried is left alone, so a project's own prototype
-polyfill is not swept. The file's baseline is taken in its `beforeAll` and checked once more in that
-hook's cleanup, which runs after every `afterAll` — so a key written in the file's own `beforeAll`
-or `afterAll` is reported too, rather than mistaken for something the environment came with.
-`guardPrototypePollution(reaction)` is the same check registered on its own, for a suite that wants
-it somewhere narrower, and it covers both ends of the file the same way.
+Patch the prototype of the object's class instead.
+
+Keys the environment already had, such as a polyfill of yours, are left alone. A key written in the
+file's own `beforeAll` or `afterAll` is reported too. `guardPrototypePollution(reaction)` registers
+the same check on its own.
 
 ### The key an earlier file left behind
 
-A key written while a spec file is being _imported_, while it is being collected, or in an
-`afterAll` is out of reach of every hook of that file — and the file that dies for it is the **next**
-one, during collect, before anything can report anything. The one seam left is the setup file, which
-the runner executes before each file is collected. So `setupAutoSpy()` compares the three prototypes
-against what the worker started with on the way in, takes back whatever an earlier file left, and
-writes the report to stderr:
+A key written while a spec file is imported, collected, or in its `afterAll` escapes that file's
+hooks. The next file then fails. So `setupAutoSpy()` also checks the prototypes each time the setup
+file runs, before the next file is collected. It removes what an earlier file left and writes this to
+stderr:
 
 ```text
 [vitest-auto-spy] "ngOnDestroy" was left on Object.prototype by the previous spec file of this worker, src/app/checkout/checkout-open.service.spec.ts — while it was imported, collected or in an afterAll — and has been taken off.
 Left on, the key stops every later spec file in the worker from collecting: Vitest walks a file's hooks with for…in. In that file, patch the prototype of the class an object came from, never Object.getPrototypeOf(someObjectLiteral).
 ```
 
-The file is the one whose setup ran before this one in the same worker, remembered as each file
-starts.
+The named file is the one whose setup ran just before in the same worker. This check never throws,
+because the current file did not write the key. A key that cannot be deleted is accepted into the
+baseline, so you hear about it once.
 
-It never throws, whatever the grade: the file that would fail is not the file that wrote the key.
-Stderr rather than `console.warn` for the same reason the stray-timer sweep uses it — there is no
-task yet, and Vitest drops intercepted output belonging to none. A key that refuses to be deleted is
-adopted into the baseline instead, so the rest of the worker is not told about it once per file.
-
-This is the one half `guardPrototypePollution(reaction)` cannot stand in for. It is registered from
-the spec file itself, so by the time it is loaded the damage of an earlier file is already in its
-baseline and the collect that is going to fail is this file's own. Only a call from a **setup
-file** sits at the seam between two files, which is why this half belongs to `setupAutoSpy()`.
+Only a call from a setup file can do this; `guardPrototypePollution` registered in a spec file
+cannot.
 
 ## 16. Console output nothing absorbed
 
-Opt-in. Console output from a green test is either a defect the test never asserted on or noise that
-buries the next real failure, and the runner does not tell the two apart: it attributes the line to
-the test and moves on.
+Off by default (`strayConsole: 'off'`). When on, a test that writes to the console without a spy to
+catch the output fails. Console output from a green test is either a bug nobody asserted on, or noise
+that hides the next real failure.
 
 ```ts
 setupAutoSpy({ strayConsole: 'throw' });
 ```
-
-Any call to a console method that writes, made during a test, that nothing absorbed fails **that
-test** by name:
 
 ```text
 [vitest-auto-spy] "CartService > reports a failed load" wrote to console.error 1 time and nothing absorbed it:
@@ -1145,54 +1104,61 @@ test** by name:
 Absorb what the test expects — useConsoleSpies() in the describe, then assert consoleErrorSpy — or fix the code if the output is a defect.
 ```
 
-The report quotes the method, the first three lines of what was written (200 characters each, five
-calls, then `… and N more`) and the first stack frame outside `node_modules` — for a line a
-dependency wrote, the direct caller instead, which names the package. A line cut short keeps the
-link it carried: the first URL the cut dropped is appended to the quote. Vitest reads the frame as
-the error's location, so the code frame it prints points at the `console.error` itself.
+To absorb expected output, use the [`/console`](./console) spies and assert on them.
+`useConsoleSpies()` in a `describe` installs them before each test and removes them after:
 
-The advice names the spy for each method that wrote — `consoleErrorSpy`, `consoleWarnSpy`, … — and a
-silent `vi.spyOn` for a method the `/console` entry has no spy for (`table`, `dir`, …). When the
-output went through a `vi.spyOn(console, 'error')` with no implementation, the report says exactly
-that instead: `vi.spyOn(console, 'error') calls through — add .mockImplementation(() => undefined).`
+```ts
+import { consoleErrorSpy, useConsoleSpies } from 'vitest-auto-spy/console';
 
-**What counts.** `log`, `info`, `warn`, `error`, `debug`, `trace`, `table`, `dir`, `dirxml`,
-`timeLog`, `timeEnd`, `count`; `group` / `groupCollapsed` only with a label; `assert` only when its
-condition is falsy. `time`, `groupEnd` and `countReset` write nothing and are not watched.
+describe('CartService', () => {
+  useConsoleSpies();
 
-**What absorbs.** The guard puts a recording wrapper _under_ whatever stands on `console`, so a call
-is stray exactly when it reaches that wrapper:
+  it('reports a failed load', () => {
+    service.load();
 
-| In the test                                                          | Result                                                         |
-| -------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `installConsoleSpies()` from `vitest-auto-spy/console`, then asserts | absorbed — the spy never calls through                         |
-| `vi.spyOn(console, 'error').mockImplementation(() => undefined)`     | absorbed                                                       |
-| `vi.spyOn(console, 'error')` with no implementation                  | **stray** — it records the call, then calls through and prints |
-| nothing                                                              | **stray**                                                      |
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.any(Error), { id: 7 });
+  });
+});
+```
 
-**Outside any test.** Output made while the file is being imported, in a `beforeAll` / `afterAll`,
-from a callback that fired after its test had ended, or in a test whose `afterEach` never ran, fails
-the **file** in `afterAll`. The report names the moment — `while the file was being imported`, `in a
-beforeAll`, `after a test had ended` — and gives the advice for that moment alone; a report that
-mixes them tags each call instead. A nested `describe`'s `beforeAll` that runs after earlier tests
-is still reported as a `beforeAll`. An import-time log from a third-party package is caught the same
-way, attributed to whichever file triggered the import — which under `isolate: false` is whichever
-file of the worker imports that module first, so the report can move between files from run to run.
+To cover every test of a file at once, call `installConsoleSpies()` once at the top of the file.
 
-For output written while a module was evaluated, the advice is the diagnosis and the fix: the module
-that was being evaluated, the line to change, and one clause on `isolate: false`. Only when that line
-is inside `node_modules` — code the suite does not own — does it offer `strayConsole: { allow: [...] }`.
+| Option     | Type                             | Default   | Meaning                                             |
+| ---------- | -------------------------------- | --------- | --------------------------------------------------- |
+| `reaction` | `'throw'` \| `'warn'` \| `'off'` | `'throw'` | In the object form; `'warn'` prints without failing |
+| `allow`    | `(string \| RegExp)[]`           | `[]`      | Output to ignore; a string matches as a substring   |
 
-**The file that wrote it is the file that is named.** Each call remembers the spec file it was made
-in, and the file-end report runs inside the same sweep as the stray-timer and stray-listener reports,
-so a report that throws first cannot push it into the next file. Should a file's end never run at
-all — its own `afterAll` threw — the next file reports the output under the file that wrote it, and
-says so.
+**What absorbs output:**
 
-**A line the library recognises is explained.** The cause is read from the whole output, not from the
-quoted 200 characters, and printed under `Likely cause:` — `NG0912` names both classes and the
-selector, and calls them two copies of one component in one bundle; any other Angular `NGxxxx` gets
-the link Angular printed:
+| In the test                                                          | Result                                                        |
+| -------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `installConsoleSpies()` from `vitest-auto-spy/console`, then asserts | absorbed; the spy never calls through                         |
+| `vi.spyOn(console, 'error').mockImplementation(() => undefined)`     | absorbed                                                      |
+| `vi.spyOn(console, 'error')` with no implementation                  | **stray**; it records the call, then calls through and prints |
+| nothing                                                              | **stray**                                                     |
+
+**What counts as output:** `log`, `info`, `warn`, `error`, `debug`, `trace`, `table`, `dir`,
+`dirxml`, `timeLog`, `timeEnd`, `count`; `group` / `groupCollapsed` only with a label; `assert` only
+when its condition is false. `time`, `groupEnd` and `countReset` print nothing and are not watched.
+Output written straight to `process.stdout` or `process.stderr` is not seen.
+
+**The report.** It quotes the method and up to three lines of output (200 characters each, five
+calls, then `… and N more`). If a cut dropped a URL, the first dropped URL is appended. It shows the
+first stack frame outside `node_modules`, or the direct caller for a dependency's output. It names
+the spy to use for each method (`consoleErrorSpy`, `consoleWarnSpy`, …). For a `vi.spyOn(console,
+'error')` without an implementation, it says:
+`vi.spyOn(console, 'error') calls through — add .mockImplementation(() => undefined).`
+
+**Output outside a test** fails the file in `afterAll`. That covers output during import, in
+`beforeAll` / `afterAll`, from a callback that fired after its test ended, or in a test whose
+`afterEach` never ran. The report names the moment (`while the file was being imported`,
+`in a beforeAll`, `after a test had ended`) and gives advice for it. For output during import, it
+names the module and the line to fix. Only when that line is inside `node_modules` does it suggest
+`allow`. Under `isolate: false`, import-time output is reported on the first file of the worker that
+imports that module.
+
+**Known causes are explained** under `Likely cause:`. For example, Angular's `NG0912` means two
+copies of one component are in the bundle:
 
 ```text
 [vitest-auto-spy] src/app/checkout.component.spec.ts wrote to console.warn 1 time while the file was being imported and nothing absorbed it:
@@ -1203,82 +1169,51 @@ Likely cause:
 Written while src/app/ui/radio-group.component.ts was evaluated, before any hook — no spy can absorb it; fix it at src/app/ui/radio-group.component.ts:210:44. Under isolate: false it is reported on the first file of the worker that imports that module.
 ```
 
-**Nothing a test installs outlives it.** Every console method a test replaced is put back after the
-test; one a file replaced — in a `describe` body, a `beforeAll` or at the top of the module — after
-the file. Under `isolate: false` that is what keeps one file's silence out of the next.
+Any other Angular `NGxxxx` code gets the link Angular printed.
 
-**The `/console` import installs nothing under the guard.** Without the guard, importing
-`vitest-auto-spy/console` puts silent spies on the console. Under `isolate: false` that import runs
-**once per worker**, so the spies went on in whichever file imported them first and stayed for every
-later file of the worker — which is precisely the output the guard exists to see. So while the guard
-is on, install them where they belong:
+**Other behaviour:**
 
-```ts
-import { consoleErrorSpy, installConsoleSpies } from 'vitest-auto-spy/console';
+- Every console method a test replaced is put back after the test. One replaced in a `describe`
+  body, `beforeAll` or at module level is put back after the file.
+- While the guard is on, importing `vitest-auto-spy/console` installs nothing. Install the spies with
+  `installConsoleSpies()` as shown above. Spies installed by an earlier import are removed when the
+  guard turns on. A file that imports a spy without installing it gets the failure plus a sentence
+  with the fix.
+- The library's own warnings are not counted as stray output: `propsOutsideHooks`, `guardGlobals`,
+  `prototypePollution`, `unconfiguredReads`, a strict call the test swallowed, the duplicate-copy
+  report, the misconfiguration reports, the teardown safety net of section 1 and the
+  `test.concurrent` notice. They stay warnings under `strayConsole: 'throw'`. A `vi.spyOn(console, 'warn')` in your test still catches them. To make
+  them fail at the call instead, use [`misconfiguration: 'throw'`](#misconfiguration-reports-that-fail-at-the-call).
+- It changes nothing else: Vitest's per-test output, `onConsoleLog` and failure output stay the same.
+- Output of the DOM environment's own console (happy-dom's page console, jsdom's virtual console) is
+  watched too. For example, `Not implemented: navigation` is reported against the test that caused
+  it, with a `Likely cause:` line.
+- The file that wrote the output is the file that is named, even if a report before it threw.
+- With `strayRejections` on, a rejection zone.js swallowed is printed through `console.error`. The
+  rejection report comes first and wins.
 
-beforeEach(() => installConsoleSpies()); // for each test — or call it at the top of the file, for the file
-
-it('reports a failed load', () => {
-  service.load();
-
-  expect(consoleErrorSpy).toHaveBeenCalledWith('load failed', expect.any(Error));
-});
-```
-
-Spies an import installed before the guard armed are taken off when it does. A file that imports a
-spy without installing it gets the failure above plus one sentence naming the fix.
-
-**The library's own reports are not counted as stray output.** A `'warn'` grade is supposed to mean
-a warning, and it stopped meaning one as soon as this guard was on beside it: the report arrived
-back as "this test wrote to the console and nothing absorbed it", quoting three truncated lines of
-itself and pointing at a frame inside `dist/`. So a report this library makes goes to the real
-console method the guard replaced, past the wrapper — `propsOutsideHooks`, whose default **is**
-`'warn'` and which was therefore the commonest way a suite met this at all, along with
-`guardGlobals`, `prototypePollution`, `unconfiguredReads`, a strict call the test swallowed, the
-duplicate-copy report, the misconfiguration reports (`injectSpy` handed a real instance, a
-`createSpyFromClass` typo), the teardown net of section 1 and the `test.concurrent` notice. All of
-them stay warnings under `strayConsole: 'throw'`.
-
-Only the guard's own wrapper is stepped over. A `vi.spyOn(console, 'warn')` a **test** installed
-absorbs these reports exactly as it absorbs anything else, so a suite that asserts on the library's
-warnings keeps working. [`misconfiguration: 'throw'`](#misconfiguration-reports-that-fail-at-the-call)
-makes those reports throw at the call instead, which is the better stack.
-
-**It changes nothing else.** The wrapper forwards every call unchanged, so Vitest's
-`stdout | file > test` attribution, `onConsoleLog` and the output of a failing test all stay exactly
-as they were — checked on Vitest 4.1 and 5.0, with the guard in a setup file and two spec files sharing one worker under `isolate: false`.
-
-**`allow` is the last resort**, for environment noise no spec can reach — never for output the code
-under test makes, which is a defect to fix or an assertion to write:
+**`allow` is the last resort.** Use it only for environment noise no spec can reach, never for output
+your code makes:
 
 ```ts
 setupAutoSpy({ strayConsole: { allow: ['Download the React DevTools', /^Lit is in dev mode/] } });
 ```
 
-An Angular suite that resets its module graph between files under `isolate: false` is the common
-case: Angular prints `NG0912: Component ID generation collision` while a spec bundle is evaluated
-again, and the guard blames whichever file is importing at the time. No spec can absorb an
-import-time warning, so allow that one — `allow: [/NG0912/]` — rather than every warning. It is not
-allowed by default: outside a reset it names two components that really do share a generated id.
+A RegExp is searched; its `g` / `y` flags make no difference. Use `{ reaction: 'warn' }` to measure a
+large suite before turning the guard on. `guardStrayConsole(reaction)` registers the same guard on
+its own.
 
-A string matches as a substring, a `RegExp` is searched (its `g` / `y` flags make no difference). The
-object form's `reaction` defaults to `'throw'`; `'warn'` prints the same report — through the console
-for a test, to stderr for a file — without failing, which is how to measure a large suite before
-turning it on. `guardStrayConsole(reaction)` is the same guard registered on its own.
+**Common mistake: `NG0912` under `isolate: false` with a module reset.** When an Angular suite
+re-evaluates spec bundles between files, Angular prints `NG0912` during import, and no spec can
+absorb it. Allow that one only: `allow: [/NG0912/]`. It is not allowed by default, because outside a
+reset it points at a real duplicate.
 
-**What the DOM environment writes counts too.** happy-dom's page console and jsdom's virtual console
-were handed the worker's own console when the environment was built, before Vitest swapped
-`globalThis.console`, so their lines reached stderr of a green run. The guard routes that console into
-the one it watches: happy-dom's `NotSupportedError: Failed to load iframe page … Iframe page loading is
-disabled` or jsdom's `Not implemented: navigation` is reported against the test that caused it, at the
-spec's frame, with a `Likely cause:` line — and a console spy or an `allow` pattern takes it like any
-other line.
+### An iframe that must stay unloaded under happy-dom
 
-**An iframe that must stay unloaded under happy-dom.** happy-dom 20 has no setting that keeps a
-remote-`src` iframe both unloaded and silent: `disableIframePageLoading` logs the `NotSupportedError`
-above for every iframe (and dispatches `error`), and `navigation.disableChildFrameNavigation` is silent
-but dispatches `load` itself, so a "the page never loads" branch cannot be reached. Two ways out, both
-per file:
+happy-dom 20 cannot keep a remote-`src` iframe both unloaded and silent.
+`disableIframePageLoading` logs a `NotSupportedError` for each iframe (and fires `error`).
+`navigation.disableChildFrameNavigation` is silent but fires `load`, so a "page never loads" branch
+cannot be reached. Two ways out, both per file. Absorb the log:
 
 ```ts
 // @vitest-environment-options {"settings":{"disableIframePageLoading":true}}
@@ -1293,24 +1228,18 @@ it('gives up when the logout page never loads', async () => {
 });
 ```
 
-or `// @vitest-environment jsdom` at the top of the file: jsdom leaves a remote `src` unloaded, silent
-and without `load`. There is no `dom-stubs` helper for it: holding happy-dom's `load` back without its
-log means patching its internals, which a happy-dom minor is free to move.
-
-What it does not see: output written to `process.stdout` / `process.stderr` directly. A rejection zone.js swallowed is printed
-through `console.error`, so with `strayRejections` on it is reported twice over; the first failure
-wins, and it is the rejection report.
+Or put `// @vitest-environment jsdom` at the top of the file: jsdom leaves a remote `src` unloaded,
+silent and without `load`. There is no `dom-stubs` helper for this.
 
 ## 17. An attribute left on the shared document
 
-Opt-in, and on under `preset: 'strict'`. Under `isolate: false` every spec file in a worker renders
-into one jsdom document, and nothing puts it back between files. In the suite this was found in, a
-keyboard component's effect ran `renderer.setAttribute(document.body, 'data-reset-focus', '')` and
-nothing took it off. A navigation service elsewhere returns early whenever
-`document.querySelector('[data-reset-focus]')` matches, so its spec failed 34 of 209 tests — about one
-full run in six, only when the two files landed in the same worker, and never on its own. No other
-guard sees it: nothing was sealed or added to a prototype, no timer, console call or rejection was
-left behind.
+When on, it reports any attribute a test added, changed or removed on `<html>`, `<head>` or
+`<body>`, and puts back its value from before the test. Off by default (`documentPollution: 'off'`);
+`preset: 'strict'` turns it on as `'throw'`.
+
+Under `isolate: false`, all spec files in a worker render into one document. For example, a
+component sets `data-reset-focus` on `<body>` and never removes it. Another service returns early
+when `[data-reset-focus]` matches, so its spec fails, but only when both files share a worker.
 
 ```ts
 setupAutoSpy({ documentPollution: 'throw' }); // 'warn' puts the document back and only reports
@@ -1323,305 +1252,275 @@ It has been put back, because every later spec file in this worker shares this d
 Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_17-an-attribute-left-on-the-shared-document
 ```
 
-The Angular teardown advice is printed only when Angular is detected (`globalThis.ng`, or a CDK /
-`ng-` marker in the change itself); otherwise the advice is an `afterEach` of the spec, or an
-`afterAll` for a change made outside any test.
+The Angular advice appears only when Angular is detected. Otherwise the advice is an `afterEach` in
+the spec, or `afterAll` for a change made outside a test. A change made in `beforeAll` and never
+undone is reported against the file.
 
-It finds production leaks as well as spec ones. On an 850-spec Angular application, turning it on
-exposed two components that left `style="cursor: grabbing"` on `<body>` when destroyed mid-drag —
-fixed in their `ngOnDestroy` — and two tests that passed only on a CSS variable an earlier test had
-left behind.
+| Form                                                          | What it does                                                                            |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `'throw'` / `'warn'` / `'off'`                                | The reaction; `'warn'` writes to stderr and still puts the document back                |
+| `{ reaction }`                                                | Same; `'throw'` when left out                                                           |
+| `{ nodes: true }`                                             | Also child elements of `<head>` and `<body>`: added ones removed, removed ones put back |
+| `{ ignoreAttributes: ['aria-hidden', /^data-cdk-/] }`         | Attributes to leave alone, by exact name or RegExp                                      |
+| `{ nodes: true, ignoreNodes: 'style, link[rel=stylesheet]' }` | Child elements to leave alone, as a CSS selector                                        |
 
-The attributes of `<html>`, `<head>` and `<body>` are recorded before each test. Every attribute
-added, changed or removed by the end of it is reported with both values and put back, and the test
-fails. A change made in a `beforeAll` and never undone is reported against the file.
+`nodes` is off by default. A library that injects a stylesheet on first import does so once per
+worker, and a node check would blame whichever test imported it first.
 
-An empty `class` or `style` counts as no attribute at all. `classList.add` followed by `classList.remove`
-(or Renderer2 `addClass` / `removeClass`, or a style set and cleared) leaves `class=""` behind where there
-was none, and nothing can tell the two apart — on a consumer suite that artifact was 9 of the first 32
-failures. Every other empty value is still a change: `data-reset-focus=""` is a flag
-`[data-reset-focus]` matches.
+An empty `class` or `style` counts as no attribute. `classList.add` then `classList.remove` leaves
+`class=""`, and that is not reported. Any other empty value is a change: `data-reset-focus=""` is a
+flag that `[data-reset-focus]` matches.
 
-**When it looks matters.** Not in an `afterEach`: a setup file registers its hooks after the TestBed's
-(the builder's `init-testbed.js` is its first setup file), `afterEach` hooks run in reverse, and so an
-`afterEach` check would run before the TestBed destroys the fixtures — reporting every attribute a
-component removes on destroy, and every `<style>` and root element Angular removes in the same
-teardown. The test check runs from `onTestFinished`, which Vitest calls after the whole `afterEach`
-chain; the file check from a `beforeAll` cleanup, which runs after every `afterAll`. Measured on a
-zoneless TestBed: at `afterEach` time the component's style, its root element and the attribute its
-`DestroyRef` owned were still there, and at both of these points none was.
-
-| Form                                                          | What it does                                                                                   |
-| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `'throw'` / `'warn'` / `'off'`                                | The reaction; `'warn'` writes to stderr and still puts the document back                       |
-| `{ reaction }`                                                | Same, `'throw'` when left out                                                                  |
-| `{ nodes: true }`                                             | Also the child elements of `<head>` and `<body>` — added ones taken out, removed ones put back |
-| `{ ignoreAttributes: ['aria-hidden', /^data-cdk-/] }`         | Attributes left alone, by exact name or tested RegExp                                          |
-| `{ nodes: true, ignoreNodes: 'style, link[rel=stylesheet]' }` | Child elements left alone, as a CSS selector                                                   |
-
-`nodes` is off by default: a library that injects a stylesheet the first time it is imported does so
-once per worker, and a node check would charge that `<style>` to whichever test imported it first.
-
-What it costs: about 4 µs per test for the attributes — the per-test check rides the
-`onTestFinished` the teardown net registers anyway, rather than paying for a registration of its
-own. `nodes` scales with how many children the two elements have, because it walks them: about
-11 µs per test for a `<head>` of 50 elements and 0.19 ms for one of 1000, and roughly four times
-that with `ignoreNodes`, whose selector answers are remembered for the test rather than matched
-twice per child. The [performance page](/core/performance) has the table.
+It checks after the `TestBed` destroys its fixtures, so what a component cleans up on destroy is
+never reported.
 
 What it cannot see:
 
-- a write made while the spec file is being **imported** — it happens before any hook of that file,
-  so the baseline already contains it;
-- a fixture kept alive by `teardown: { destroyAfterEach: false }`: the TestBed destroys it in the next
-  test's `beforeEach`, so what its component owns is reported against the test that rendered it —
-  turn `destroyAfterEach` on, or put the owned attribute in `ignoreAttributes`;
-- `document.title`, focus, cookies and `customElements` — none of them an attribute, and a custom
-  element definition cannot be undone.
+- a change made while the spec file is imported (it is already in the baseline);
+- a fixture kept alive by `teardown: { destroyAfterEach: false }`. It is destroyed in the next test,
+  so its leftovers are reported against the test that rendered it. Turn `destroyAfterEach` on, or
+  list the attribute in `ignoreAttributes`;
+- `document.title`, focus, cookies and `customElements`.
 
-What an Angular suite should expect it to find: code that decorates `<html>` or `<body>` for the whole
-app — a scroll lock a modal or an overlay left open, a theme or platform class, a `lang` / `dir` an i18n
-service sets, a `data-*` flag a focus manager raises. Each is a real leftover under a shared document;
-the fix is to close or destroy what set it, and `ignoreAttributes` is the last resort for one that is
-set once on purpose.
+What an Angular suite typically finds: a scroll lock from a modal left open, a theme or platform
+class, a `lang` / `dir` from an i18n service, a `data-*` flag from a focus manager. Close or destroy
+what set it. Use `ignoreAttributes` only for an attribute set once on purpose.
 
-`guardDocumentPollution(option)` registers the same check on its own. Vitest only, like every guard
-in `/setup`: `bun:test`, `node:test` and Rstest have no setup entry to host it.
+`guardDocumentPollution(option)` registers the same check on its own.
+
+Why it checks where it checks, and what it costs: [In depth](#document-guard-in-depth).
 
 ## 18. A spy on storage the runner cannot take off
 
-On by default. `vi.spyOn(localStorage, 'setItem')` puts the mock on the storage as an own property;
-taking it off again means deleting that property, so the prototype's method shows through once more.
-Under happy-dom that delete never lands: its `Storage` hands each instance out wrapped in a Proxy
-whose `deleteProperty` trap only knows stored items. `mockRestore()` — and `vi.restoreAllMocks()`
-walking the same path — comes back green having done nothing. The spy keeps recording, and a later
-spec's own `vi.spyOn` is handed the same mock with the previous file's calls already in it, so
+On by default (`restoreStorageSpies`). At the end of each file, it removes spies left on
+`localStorage` / `sessionStorage` methods.
+
+Under happy-dom, `mockRestore()` on `vi.spyOn(localStorage, 'setItem')` silently does nothing. The
+spy stays, and a later spec's `vi.spyOn` gets the same mock with the old calls in it. So
 "not to have been called" fails every other run.
 
-Debugging it by hand sends the search the wrong way: the natural probe — run
-`vi.restoreAllMocks()` and see if the leftover clears — is the very path that silently does nothing,
-so it comes back green and appears to rule the mock out.
-
-Writing `Storage.prototype`'s method back over the spy does go through the proxy; that asymmetry,
-define passes and delete does not, is the repair:
-
 ```ts
-setupAutoSpy(); // restoreStorageSpies: true — the sweep runs at the file boundary only
+setupAutoSpy(); // restoreStorageSpies: true; the sweep runs at the end of each file
 ```
 
-The boundary, not the test, is deliberate: a spy a `beforeAll` installed for its whole file is still
-standing while that file's tests run, and only the next file is protected. `restoreStorageSpies()`
-is the one-shot (it returns the storages it repaired), and `restoreStorageSpies: false` is the
-opt-out for a suite that deliberately keeps a spy on a storage method for a whole worker.
+- It works at the file boundary, not per test: a spy a `beforeAll` installed stays for that file's
+  tests.
+- `restoreStorageSpies()` runs the sweep once and returns the storages it repaired.
+- `restoreStorageSpies: false` turns it off, for a suite that keeps a storage spy for a whole worker
+  on purpose.
+- It removes only real mocks. A clean storage or a deliberate replacement is left alone.
 
-The gate is `vi.isMockFunction`, not "differs from the prototype" — jsdom breaks the other half of
-the same contract, its Storage proxy turning a `defineProperty` of a method into a stored item, and
-a gate that compared against the prototype would keep rewriting a storage that is merely odd. A
-mock is repaired; a clean storage, a deliberate replacement and jsdom's junk item are left alone.
+**Common mistake:** checking with `vi.restoreAllMocks()` whether the spy is gone. That call silently
+does nothing here too, so the check looks green.
 
 ## 19. Listeners that outlive their file
+
+Off by default (`strayListeners: false`). When on, it removes `window` and `document` listeners a
+file added and never removed. Under `isolate: false`, those listeners fire during the next file,
+against mocks and a DOM they were not written for.
 
 ```ts
 setupAutoSpy({ strayListeners: true });
 ```
 
-A listener on `window` or `document` is not the component's to take off. Overlays, portals and
-services register on the shared targets, and under `isolate: false` whatever a file leaves
-registered fires during the next one — the same wrong-file blame as a stray timer, with none of the
-visibility: nothing errors, the callback simply runs against mocks and a DOM it was never written
-for.
+Listeners registered while modules are imported (a framework's one-time setup) are kept. Everything
+added later in a file is removed at the end of that file.
 
-The split is the one the mock-registry pruner uses (section 9). A `beforeAll` marks the listeners
-already on `window` and `document` — registered while the module graph was evaluated, a framework's
-one-time initialisation — and the `afterAll` takes off everything added since. No first-file
-special case: import-time registrations are in the baseline of whichever file imports them, so they
-survive every sweep after that.
+To fail the file instead of cleaning up quietly:
 
-The pieces are exported too, from `vitest-auto-spy/setup`:
+```ts
+setupAutoSpy({ strayListeners: true, onStrayListeners: ({ removed }) => expect(removed).toBe(0) });
+```
+
+`onStrayListeners: 'throw'` does the same with a report that lists each listener as
+`keydown on document, added in "<test>" at <frames[0]>`. Each entry has `type` and `target`, plus the
+same `test` / `outsideTest` fields as a stray timer.
+
+The pieces are exported from `vitest-auto-spy/setup`:
 
 | Function                   | What it does                                                                             |
 | -------------------------- | ---------------------------------------------------------------------------------------- |
-| `trackStrayListeners()`    | Wrap `addEventListener` / `removeEventListener`; idempotent, returns the undo            |
-| `baselineStrayListeners()` | Mark what is registered now as module-graph state — the default `beforeAll` step         |
-| `removeStrayListeners()`   | Take off everything added since the baseline; returns how many                           |
-| `countStrayListeners()`    | How many are outstanding — throws before `trackStrayListeners()` has run                 |
-| `describeStrayListeners()` | Each stray's target, type, spec file and up to five frames — the `onStrayListeners` list |
+| `trackStrayListeners()`    | Wraps `addEventListener` / `removeEventListener`; safe twice; returns the undo           |
+| `baselineStrayListeners()` | Marks what is registered now as kept (the default `beforeAll` step)                      |
+| `removeStrayListeners()`   | Removes everything added since the baseline; returns how many                            |
+| `countStrayListeners()`    | How many are outstanding; throws before `trackStrayListeners()` has run                  |
+| `describeStrayListeners()` | Each stray's target, type, spec file and up to five frames (the `onStrayListeners` list) |
 
-`setupAutoSpy({ strayListeners: true, onStrayListeners: ({ removed }) => expect(removed).toBe(0) })`
-fails the file that leaked instead of tidying it away quietly; `onStrayListeners: 'throw'` does the
-same with a report that names the file and lists each stray as
-`keydown on document, added in "<test>" at <frames[0]>`. A listener has `type` and `target` where a
-timer has `kind` and `delay`, and the same `test` / `outsideTest`, so a handler that prints its own
-message prints those fields instead. Under jsdom a listener registered
-with `{ once: true }` that already fired stays counted until something removes it — the wrapper
-cannot observe the firing without breaking identity-based `removeEventListener` from the code under
-test, and removing an already-fired listener is a no-op anyway. happy-dom detaches it through the
-public `removeEventListener`, so there it leaves the count by itself.
+**Common mistake:** under jsdom, a `{ once: true }` listener that already fired stays counted until
+something removes it. Removing it is harmless. happy-dom removes it by itself.
 
-With `strayTimers` on as well, both reports — a handler or `'throw'` alike — run only after the
-timers are cancelled and the listeners taken off, so a throwing `onStrayListeners` cannot leave a
-timer to fire in the next file. Both run even when the first throws; two failures, such as both
-options set to `'throw'` in a file that leaks both, surface as one `AggregateError`, which Vitest
-lists as two errors. The file-end report of `strayConsole` runs in the same sweep, so it is never
-skipped because a report before it threw.
+With `strayTimers` on too, both reports run after timers are cancelled and listeners removed. Both
+run even if the first throws. Two failures appear as one `AggregateError`, which Vitest lists as two
+errors.
 
 ## 20. Globals put back at the file boundary
+
+Off by default (`restoreGlobals: false`). When on, it puts every global that a file changed back at
+the end of the file.
+
+`vi.stubGlobal` is undone by `unstubGlobals`, and `vi.spyOn(globalThis, …)` by `restoreMocks`. A
+plain assignment like `global.ResizeObserver = stub` is undone by nothing. Under `isolate: false`,
+every later file reads it.
 
 ```ts
 setupAutoSpy({ restoreGlobals: true });
 ```
 
-`vi.stubGlobal` is undone by `unstubGlobals` and `vi.spyOn(globalThis, …)` by `restoreMocks`, but a
-plain assignment — `global.ResizeObserver = stub` — is tracked by nothing. Under `isolate: false`
-it is written straight into the shared worker and read by every later file, and the failure it
-causes names neither the property nor the file that planted it. `guardGlobals` (section 7) covers
-the _unrepairable_ case, a non-configurable redefine; this is the net for the repairable one.
+- One snapshot per worker, taken by the first `setupAutoSpy` call. `captureGlobalBaseline()` takes
+  it; later calls of `captureGlobalBaseline()` do nothing. `restoreGlobals()` runs the sweep and returns the keys it changed.
+- Globals added after the snapshot are kept, so a framework that installs a global at import keeps
+  it. This also applies to a global the environment lacks, such as `ResizeObserver` under jsdom: a
+  test that assigns it adds it, and it is not removed. Call
+  [`fillMissingDomApis()`](#members-the-dom-environment-leaves-out-filled-before-the-snapshot)
+  before `setupAutoSpy()`, so the global exists in the snapshot and is put back.
+- `location`, `document`, `window`, `frames`, `global`, `parent`, `self` and `top` are never written
+  back: assigning them would navigate or swap the environment.
+- The library's own wrappers (from `strayTimers`, `strayListeners`) are kept. `blockNetwork` stubs
+  are removed after each test anyway.
+- A leftover fake clock is removed before the sweep.
 
-One snapshot per worker, restored at every file boundary. `captureGlobalBaseline()` takes it — the
-first call is the worker's truth, a later one does nothing, so a re-capture can never launder a
-replacement into the baseline — and `restoreGlobals()` is the sweep, returning the keys it changed.
+`guardGlobals` ([section 7](#_7-naming-the-file-that-sealed-a-global)) covers the case this cannot
+repair: a property made non-configurable.
 
-Two traps the restore steps around, both load-bearing:
+### Members the DOM environment leaves out, filled before the snapshot
 
-- **The descriptor is not the whole story.** A DOM environment installs window properties on
-  `globalThis` as accessor pairs forwarding to an override map. `global.ResizeObserver = stub`
-  runs the setter and leaves the descriptor exactly as it was, so a restore that only re-defines
-  descriptors reports "nothing changed" while the stub keeps answering. The captured value has to
-  go back through the same setter.
-- **The library's own wrappers must survive.** `strayTimers` has `setTimeout` wrapped,
-  `strayListeners` has `addEventListener`; a restore that put every original back would uninstall
-  the tracking at the first boundary. Wrappers this library installs carry a mark, and the restore
-  steps around them.
+If your setup file adds `PointerEvent` or `ResizeObserver` by hand after the snapshot,
+`restoreGlobals` and `guardGlobals` blame the first test for it. Call [`fillMissingDomApis()`](./element-stub) from
+`vitest-auto-spy/dom-stubs` first. It fills what jsdom and happy-dom leave out (`PointerEvent`, a
+no-op `ResizeObserver`, `scrollTo` / `scrollBy` / `scrollIntoView`, `document.doctype`), only where
+missing, and returns the names it filled.
 
-The boundaries of the net: keys **added** after the snapshot are never deleted (a framework that
-installs a global at import time must not lose it at the first boundary), and the identity globals —
-`location`, `document`, `window`, `frames`, `global`, `parent`, `self`, `top` — are never written
-back at all, because assigning them navigates or swaps the environment rather than replacing a
-value. A leftover fake clock comes off before the sweep, because restoring timer descriptors under
-an installed fake breaks both.
+```ts
+// vitest.setup.ts
+import { fillMissingDomApis } from 'vitest-auto-spy/dom-stubs';
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
+fillMissingDomApis();
+setupAutoSpy();
+```
+
+## 21. A TestBed left dirty at file end
+
+On by default (`cleanTestBed: 'warn'`). Once any spec imports `vitest-auto-spy/angular`, the end of
+each file checks the Angular `TestBed`. A testing module still set up, fixtures still alive, or a spy on
+a `TestBed` method is reported and reset. The next file starts clean. A suite without Angular runs
+nothing.
+
+```ts
+setupAutoSpy({ cleanTestBed: 'throw' }); // 'warn' by default, 'off' to skip
+```
+
+```text
+[vitest-auto-spy] src/app/cart.spec.ts left the TestBed dirty: a testing module is still instantiated and 1 fixture still alive; TestBed.inject is still a spy. It has been reset now; under isolate: false the next file in this worker would have inherited it.
+```
+
+The per-file state of `enableAngularDiagnostics` is dropped at the same point.
+
+**Common mistake:** no global `afterEach` in the runner. Angular registers its own `TestBed` reset
+only when a global `afterEach` exists. Any one of `globals: true`, `setupTestBed()` or
+`setupAngularTestEnv()` provides it. Remove a spy on
+`TestBed` in the test that installed it: `mockRestore()` or `vi.restoreAllMocks()`.
 
 ## One grade for everything: `preset: 'strict'` {#one-grade-for-everything-preset-strict}
+
+`preset: 'strict'` starts every guard at its strictest grade. An option you pass in the same object
+still wins, so `{ preset: 'strict', guardGlobals: 'warn' }` relaxes exactly one.
 
 ```ts
 setupAutoSpy({ preset: 'strict' });
 ```
 
-Starts every guard at its strictest grade. An option passed alongside it still wins, so
-`{ preset: 'strict', guardGlobals: 'warn' }` relaxes exactly one. All of it together costs about
-67 µs per test against 19 µs for a plain `setupAutoSpy()`, on a 10 000-test measurement under
-happy-dom; the [performance page](/core/performance) breaks that down per option.
+| Option                 | Under `preset: 'strict'`                | Default without it                          |
+| ---------------------- | --------------------------------------- | ------------------------------------------- |
+| `duplicateCopies`      | `'throw'`                               | `'throw'`                                   |
+| `propsOutsideHooks`    | `'throw'`                               | `'warn'`                                    |
+| `guardGlobals`         | `'throw'`                               | `'off'`                                     |
+| `prototypePollution`   | `'throw'`                               | `'throw'`                                   |
+| `documentPollution`    | `'throw'`                               | `'off'`                                     |
+| `strayConsole`         | `'throw'`                               | `'off'`                                     |
+| `misconfiguration`     | `'throw'`                               | `'warn'`                                    |
+| `swallowedStrictCalls` | `'throw'`                               | `'throw'` with `strict: true`, else `'off'` |
+| `cleanTestBed`         | `'throw'`                               | `'warn'`                                    |
+| `strayTimers`          | `true`                                  | `false`                                     |
+| `strayRejections`      | `true` when zone.js is loaded, else off | `false`                                     |
 
-| Option               | Under `preset: 'strict'`                | Default without it |
-| -------------------- | --------------------------------------- | ------------------ |
-| `duplicateCopies`    | `'throw'`                               | `'throw'`          |
-| `propsOutsideHooks`  | `'throw'`                               | `'warn'`           |
-| `guardGlobals`       | `'throw'`                               | `'off'`            |
-| `prototypePollution` | `'throw'`                               | `'throw'`          |
-| `documentPollution`  | `'throw'`                               | `'off'`            |
-| `strayConsole`       | `'throw'`                               | `'off'`            |
-| `misconfiguration`   | `'throw'`                               | `'warn'`           |
-| `strayTimers`        | `true`                                  | `false`            |
-| `strayRejections`    | `true` when zone.js is loaded, else off | `false`            |
+Not in the preset, and why:
 
-`strayRejections` is conditional because it throws where there is no zone.js to watch; the preset
-checks for `Zone.__symbol__` instead.
+- **`strict`**: it changes what an unconfigured call returns. That is a choice about how you write
+  spies, not a report grade.
+- **`unconfiguredReads`**: the read side of `strict`. On an existing suite, start with a survey
+  (`onUnstubbedRead`).
+- **`blockNetwork`**: it changes what the code under test sees.
+- **`restoreMocks`**: it also drops `vi.spyOn` stubs installed in `beforeAll`.
+- **Failing on stray timers**: the failure lands on a whole file. A timer scheduled after one file
+  ended counts against the next file, so the failure can hit a file that scheduled nothing. Each
+  timer's `file` field names its real owner. Read the `timers` list first, then opt in with
+  `onStrayTimers: 'throw'`.
+- **`enableAngularDiagnostics()`**: it lives in `vitest-auto-spy/angular/diagnostics` and needs the
+  `TestBed` environment first. Call it in the same setup file.
 
-Deliberately **not** in it, each for a reason:
-
-- **`strict`** — strict doubles change what an unconfigured call _returns_; that is a decision about
-  how a suite writes its doubles, not a grade for a report. The option name was already taken by it,
-  which is why this one is `preset`.
-- **`unconfiguredReads`** — the read side of `strict`, so the same decision: it asks every getter and
-  stream a test touches to be configured, and on an existing suite it starts with a survey
-  (`onUnstubbedRead`), not with a red run.
-- **`blockNetwork`** — it changes what the code under test sees.
-- **`restoreMocks`** — it also drops `vi.spyOn` stubs a suite installed in `beforeAll`.
-- **Failing on stray timers** — the sweep runs in `afterAll`, so the failure lands on the file rather
-  than a test, and a callback scheduled after the previous file's sweep is charged to the next one:
-  the count can fail a file that scheduled nothing. `timers` names who really scheduled each, so it is
-  one line to opt in once a suite has read them: `onStrayTimers: 'throw'`, or
-  `onStrayTimers: ({ timers }) => expect(timers).toEqual([])`.
-- **`enableAngularDiagnostics()`** — it lives in `vitest-auto-spy/angular/diagnostics` and needs the
-  TestBed environment first. Call it in the same setup file as the Angular half of strict: on a
-  1759-file Angular consumer it found real defects in 25 files and 324 tests, and cost nothing
-  measurable (12.5 s against 13.4 s for the full run).
+What the preset costs per test: [Performance](/core/performance).
 
 ## Misconfiguration reports that fail at the call {#misconfiguration-reports-that-fail-at-the-call}
+
+`misconfiguration: 'throw'` turns the library's warnings about its own misuse into errors thrown at
+the call, with the stack pointing at your configuration line.
 
 ```ts
 setupAutoSpy({ misconfiguration: 'throw' });
 ```
 
-The library reports a misuse of its own API — a typo in `onlyMethodsToSpyOn`, `gettersToSpyOn` /
-`settersToSpyOn` naming a method, a `returns` key no spy answers to (`then` and `constructor` on
-`createAutoMock` included), `injectSpy` handed a real instance, a write to
-`jasmine.DEFAULT_TIMEOUT_INTERVAL`, the deprecated `providedMethodNames`. By default each is a
-`console.warn`, and several are printed once and then de-duplicated — which under `isolate: false`
-meant the one file showing the line was whichever got there first. `'throw'` fails at the call site,
-every occurrence, with the stack at the line that wrote the configuration.
+It covers:
 
-The grade is process-wide — the core, `/angular` and `/setup` are separate bundles, so it lives on
-`globalThis` — and it is released after the file that set it.
+- a typo in `onlyMethodsToSpyOn`;
+- `gettersToSpyOn` / `settersToSpyOn` naming a method;
+- a `returns` key no spy answers to (`then` and `constructor` on `createAutoMock` included);
+- `injectSpy` handed a real instance;
+- a write to `jasmine.DEFAULT_TIMEOUT_INTERVAL`;
+- the deprecated `providedMethodNames`.
 
-The printed grade changed too: `injectSpy`'s "got a real …" warning is now de-duplicated per token
-**per spec file** rather than per worker, so the file that shows it no longer depends on run order.
+By default each is a `console.warn`, and some print only once. `'throw'` fails at every occurrence.
+The setting applies to the whole process and is released after the file that set it. `injectSpy`'s
+"got a real …" warning prints once per token per spec file.
 
 ## The two buffers teardown drains
 
-Two of the checks above keep what they find in a buffer until something takes it out, and both
-buffers are unbounded.
+Two checks keep what they find in a list until something reads it:
 
-- **The rejection captures.** `trackStrayRejections()` appends one entry per swallowed rejection,
-  and each entry holds the reason itself — an `Error`, its stack, and through that the whole async
-  closure chain that produced it.
-- **The property journal.** `mockReadonlyProp` and its siblings append to
-  `globalThis.__vitestAutoSpyPatchedProps__`, one entry per patch, each holding the object it
-  patched and the descriptor it overwrote.
+- `trackStrayRejections()` keeps each swallowed rejection, including its error and stack;
+- `mockReadonlyProp` and its siblings keep each patch, with the object and the value it replaced.
 
-On the supported path neither grows: `setupAutoSpy()`'s `afterEach` drains both after every test —
-`flushStrayRejections()` hands the array over and leaves it empty, `restoreMockedProps()` empties
-the journal before it puts anything back. What accumulates for the worker's life is the hand-wired
-half: a `trackStrayRejections()` read only through `countStrayRejections()`, or patches read only
-through `countMockedProps()`. **A counter empties nothing.** Read through the flush, or let
-`setupAutoSpy()` own the teardown and use the counters for the assertion they are there for.
+`setupAutoSpy()` empties both after every test. They grow only if you wire the pieces by hand and
+read them only through the counters. **A counter empties nothing.** Read through
+`flushStrayRejections()` / `restoreMockedProps()`, or let `setupAutoSpy()` own the teardown.
 
-Nor does the per-patch undo empty anything: it marks its entry rather than splicing it out, so that a
-spec stubbing in a loop does not go quadratic. The journal stays as long as it was, with nothing left
-on those objects — its length is not the number of live patches, which is why `countMockedProps()`
-and the report about patches held from an earlier spec file both read past the marked entries.
+An undone patch releases its object and value. `countMockedProps()` is cheap to call.
 
 ## Under `test.concurrent`
 
-The rollbacks hold; the attribution of a finding does not.
-
-Everything this call puts back is keyed to the test it belongs to, and the net of section 1 now
-remembers **per test** rather than per file whether the shared `afterEach` ran — keyed by the task
-object the runner hands every hook, with the single flag kept only as the fallback for a runner that
-hands over no task. A concurrent neighbour can therefore no longer clear the flag the first test's
-net was about to read, which used to make the net either fire for a test whose teardown did run or
-stay quiet for one whose teardown did not.
-
-What cannot be promised is which test a console or document finding belongs to. The document
-snapshot is one document, by construction, and the console window lives in a single slot — console
-output arrives through the global `console` rather than through the task, so there is nothing to key
-it by. With two tests in flight such a finding can be reported against the other one, or cleared
-before it is seen. The unconfigured-read counter keeps a window per concurrent test instead: a read
-made while several tests were in flight is reported once, after the last of them, naming them all
-([Reads nobody configured](../core/strict-mode#reads-nobody-configured)). The first concurrent test
-a worker runs earns one warning:
+The cleanups still work under `test.concurrent`, but the console and document guards can blame the
+wrong test. With two tests running at once, a console or document finding can land on the other test,
+or be cleared before it is seen. The first concurrent test in a worker prints one warning:
 
 ```text
 [vitest-auto-spy] "CartComponent > loads" runs as test.concurrent, and setupAutoSpy()'s per-test guards judge one test at a time: a console or document finding can land on the other test in flight, or be cleared before it is seen.
 Run this file's tests sequentially, or give the files that keep test.concurrent a setup with strayConsole: 'off' and documentPollution: 'off'. Said once per worker.
 ```
 
-Once per worker, not once per test. Run the files that need the console or document guard
-sequentially, or keep `test.concurrent` for files whose setup passes `strayConsole: 'off'` and
-`documentPollution: 'off'`.
+Run files that need those guards sequentially, or give concurrent files a setup with
+`strayConsole: 'off'` and `documentPollution: 'off'`.
+
+Property restore is tracked per test, so it stays correct. The unconfigured-read report waits for the
+last of the concurrent tests and names them all
+([Reads nobody configured](../core/strict-mode#reads-nobody-configured)).
 
 ## Reinstalling a stub for every test
 
+`installPerTest(install)` installs a stub before each test and gives you a function that returns the
+current one.
+
 ```ts
+import { stubIntersectionObserver } from 'vitest-auto-spy/dom-stubs';
 import { installPerTest } from 'vitest-auto-spy/setup';
 
 const observers = installPerTest(() => stubIntersectionObserver({ autoEmit: true }));
@@ -1633,65 +1532,21 @@ it('loads the section once it scrolls into view', () => {
 });
 ```
 
-Every stub this library installs is taken off again by `restoreMockedProps()` after each test — that
-is what keeps it out of the next file. The consequence is easy to miss: a stub installed once at
-`describe` level, or in a `beforeAll`, is gone from the second test on, and what fails is an
-assertion about the component ("expected 2 calls, got 0") with the stub sitting ten lines above it,
-apparently in force.
+You need it because every stub this library installs is removed after each test. A stub installed
+once in a `describe` body or `beforeAll` is gone from the second test on.
 
-The same ordering bites from the other direction. A project-wide setup file installs default
-observers in a root `beforeEach`, and root hooks run **before** a file's own — so a `beforeAll` in a
-spec loses to them silently, while a `beforeEach` in the same spec wins.
+The same applies to a project setup file that installs default stubs in its own `beforeEach`. That
+hook runs before every test, after the spec's `beforeAll`, so it replaces what the `beforeAll`
+installed. A `beforeEach` in the spec runs after it and wins.
 
-`installPerTest` hands back a **reader**, not the handle, because the handle is a different object
-each test: a stub installed for the previous test is exactly what must not still be reachable.
-Read with nothing installed, it throws `installPerTest: nothing is installed yet` and names the
-moment it was read — before the first test (a `describe` body), after `"suite > test"` ended, or
-during `"suite > test"` from a hook registered before `installPerTest()` — with the fix for that
-moment.
-
-## Options
-
-| Option                | Default   | Notes                                                                                                     |
-| --------------------- | --------- | --------------------------------------------------------------------------------------------------------- |
-| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                                             |
-| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                                            |
-| `propsOutsideHooks`   | `'warn'`  | Report a `mock*Prop` patch made outside a per-test hook — see below                                       |
-| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`                             |
-| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file — section 4                       |
-| `onStrayTimers`       | —         | Takes the per-file count and each stray's origin, instead of the stderr warning; `'throw'` fails the file |
-| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js                                   |
-| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object                           |
-| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable                                        |
-| `prototypePollution`  | `'throw'` | Sweep and report an enumerable key a test left on a built-in prototype                                    |
-| `documentPollution`   | `'off'`   | Put back and report an attribute a test left on `<html>` / `<head>` / `<body>` — section 17               |
-| `strayConsole`        | `'off'`   | Fail a test (or file) that wrote to the console without absorbing it — section 16                         |
-| `misconfiguration`    | `'warn'`  | `'throw'` fails the library's own misuse reports at the call site                                         |
-| `preset`              | —         | `'strict'` starts every guard at its strictest grade — see above                                          |
-| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                                               |
-| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                                                |
-| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work — see section 14                               |
-| `restoreStorageSpies` | `true`    | Take spies off Web Storage methods `mockRestore()` cannot — happy-dom's proxy, section 18                 |
-| `strayListeners`      | `false`   | Remove `window` / `document` listeners a file leaves registered — section 19                              |
-| `onStrayListeners`    | —         | Takes the per-file count and each stray's origin, instead of the quiet sweep; `'throw'` fails the file    |
-| `restoreGlobals`      | `false`   | Put every changed `globalThis` global back at the file boundary — section 20                              |
-| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file                            |
-| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger                                |
-| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock                                   |
-| `angularBuildHint`    | `true`    | Say once per worker that `@angular/build` builds the test bundle unsplit                                  |
-| `strict`              | `false`   | Every double built afterwards throws on a method nobody configured                                        |
-| `onUnstubbedCall`     | —         | The general form of `strict` — its return value becomes the call's result                                 |
-| `unconfiguredReads`   | `'off'`   | Report a strict double's getter read, or stream subscribed to, that nothing configured                    |
-| `onUnstubbedRead`     | —         | Takes those findings instead of the report, from every double — for a survey                              |
-
-`restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
-`beforeAll`; it is the knob to reach for when the run shares one environment across files.
-
-```ts
-setupAutoSpy({ restoreMocks: true, duplicateCopies: 'warn' });
-```
+The reader returns a new handle each test. Called when nothing is installed, it throws
+`installPerTest: nothing is installed yet` and says when it was called: before the first test, after
+a test ended, or from a hook registered before `installPerTest()`.
 
 ## A patch put in the wrong hook stops applying
+
+A `mock*Prop` patch applies until the end of the test in which it ran. A patch written in a
+`describe` body or `beforeAll` therefore lasts for the first test only:
 
 ```ts
 describe('modal', () => {
@@ -1704,17 +1559,10 @@ describe('modal', () => {
 });
 ```
 
-`restoreProps` undoes a `mock*Prop` patch after the test **during which it was applied**, whenever
-it was created. A patch written in a `describe` body — or in `beforeAll` — therefore survives exactly
-one test, and nothing puts it back. The first test passes, every test after it reads the real member,
-and the failure lands as `… is not a function` nowhere near the line that caused it. Found in six
-files of one suite at once, during a bulk move onto `mockValueProp`.
+The fix is one line: move the call into `beforeEach`.
 
-The repair is one line: move the call into `beforeEach`, where a patch every test needs belongs.
-
-`setupAutoSpy` now says so rather than leaving it to be found by debugging. `propsOutsideHooks`
-grades the report — `'warn'` by default, `'throw'` for a suite that would rather fail on the first
-test, `'off'` to decide that its `beforeAll` patches are its own business:
+`propsOutsideHooks` reports it: `'warn'` by default, `'throw'` to fail on the first test, `'off'` to
+turn it off. With `restoreProps: false` nothing is removed and nothing is reported.
 
 ```ts
 setupAutoSpy({ propsOutsideHooks: 'throw' });
@@ -1726,63 +1574,73 @@ Move the call into beforeEach, so it is applied again for each test.
 Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#a-patch-put-in-the-wrong-hook-stops-applying
 ```
 
-The call is written with its first argument when it has a name — `globalThis`, `document`, a
-function or a prototype — and described after the call otherwise (`on an object`, `on a Modal`).
+The report names the target when it can (`globalThis`, `document`, a function or a prototype) and
+describes it otherwise (`on an object`, `on a Modal`). It fires once per object and property in each
+spec file.
 
-For a suite that wires its own hooks rather than calling `setupAutoSpy`, `reportPropsOutsideHooks(reaction)`
-sets the same dial directly; the reaction type is exported as `OutsideHookReaction`.
+Without `setupAutoSpy`, `reportPropsOutsideHooks(reaction)` from `vitest-auto-spy` sets the same option. Its type is
+exported as `OutsideHookReaction`.
 
-It fires once per object and property in each spec file, so a `describe`-body patch is named once
-rather than once per test. Per file rather than per worker: under `isolate: false` a worker-wide record
-named a patch of a shared object only in whichever file happened to run first. It is keyed by the
-object rather than by the name, because two files of one worker routinely patch a member of the same
-name on different objects, and a name-keyed report would name the first and silence the second.
-
-**Why the patch is not simply re-applied**, which is the fix this looks like it should have.
-`restoreMockedProps()` exists so a patch does not outlive its file; a patch that put itself back on
-every test would defeat exactly that under `isolate: false`, where "the file this patch belongs to"
-is not something the journal can observe. The silence is what gets removed here, not the rule.
-
-This is the second helper of the pair — the first was `restoreMocks: true` taking accessor spies off
-a double built anywhere but a `beforeEach`. That one was fixed rather than reported, because there
-was nothing legitimate a spec could have meant by it; this one has a legitimate reading and a
-one-line repair, so it is reported.
+Why the patch is not simply re-applied: [In depth](#why-a-patch-is-not-re-applied).
 
 ## Fake timers for the whole run
+
+`globalFakeTimers` installs fake timers for every test and keeps them on between tests, like Jest's
+`fakeTimers: { enableGlobally: true }`. Vitest has no such setting.
 
 ```ts
 setupAutoSpy({ globalFakeTimers: true }); // or a `vi.useFakeTimers()` config object
 ```
 
-Jest had `fakeTimers: { enableGlobally: true }`; Vitest has no such setting. A suite ported from a
-project that used it was written against a frozen clock throughout, and turning that back on file by
-file is a thousand edits.
+Use it for a suite ported from a Jest project that had `enableGlobally` on.
 
-Both ends are guarded, which is the half a hand-written pair of hooks gets wrong. A spec that drives
-the clock itself would otherwise reach a second `vi.useRealTimers()`, and under happy-dom that one
-leaves the environment without `clearInterval` — which explodes during teardown of whichever file
-runs next, blaming it.
+- Pass a config such as `{ toFake: ['setTimeout', 'Date'] }` instead of `true` to narrow it.
+- Both ends are guarded: a spec that calls `vi.useRealTimers()` itself does not break the next file.
+- The clock stays fake between tests too, so a nested `beforeAll` does not fail with
+  `the timers APIs are not mocked`.
+- The fakes come off for good in `afterAll`, so they never outlive the file.
 
-It also keeps the clock fake **between** tests, which is the half of `enableGlobally` a
-`beforeEach`-only pair misses: a `beforeAll` inside a nested `describe` runs _after_ the previous
-test's `afterEach`, so a block that prepares its samples there would otherwise meet real timers and
-fail with `the timers APIs are not mocked` — in a set whose own tests never touch a timer. The fakes
-come off for good in `afterAll`, so they never outlive the file. For one `describe` rather than the
-whole run, that is [`setupFakeTimers(config, { betweenTests: true })`](./fake-timers).
+For one `describe` instead of the whole run, use
+[`setupFakeTimers(config, { betweenTests: true })`](./fake-timers).
 
-Pass a config object rather than `true` when the run drives a real HTTP handler: the default
-`toFake` includes `setImmediate`, which is how an Express `404` becomes a 30-second timeout that
-names nothing — see [taking `setImmediate` out of `toFake`](./fake-timers#taking-setimmediate-out-of-tofake).
+**Common mistake:** `true` with a real HTTP handler. The default `toFake` includes `setImmediate`,
+which turns an Express 404 into a 30-second timeout. Pass a config without it: see
+[taking `setImmediate` out of `toFake`](./fake-timers#taking-setimmediate-out-of-tofake).
 
-It does not compose with `strayTimers`: the fake clock assigns its own `setTimeout` over the
-tracking wrappers, so nothing the clock hands out is counted — see section 4.
+It does not work together with `strayTimers`: timers the fake clock schedules are not counted (see
+[section 4](#_4-cancelling-timers-that-outlive-their-file)).
+
+### One test on fake timers — `withFakeTimers`
+
+`withFakeTimers(fn, config?)` from `vitest-auto-spy/setup` runs one body on fake timers and restores
+real timers however it ends: returned, thrown or rejected. It returns what `fn` returns, or a promise
+for an async body.
+
+```ts
+import { advanceTimers, withFakeTimers } from 'vitest-auto-spy/setup';
+
+it('retries after a second', () =>
+  withFakeTimers(async () => {
+    poller.start();
+    await advanceTimers(1_000);
+    expect(api.fetch).toHaveBeenCalledTimes(2);
+  }));
+```
+
+Inside `setupFakeTimers()` or `globalFakeTimers`, it runs on the installed fakes and leaves them on.
+Passing a `config` there throws:
+
+```text
+[vitest-auto-spy] withFakeTimers(fn, config) found fake timers already installed, and cannot put them back after installing its own config. Drop the config to run on the installed fakes, or call it outside setupFakeTimers().
+```
+
+Over `mockSystemTime()`, it starts at the mocked time and ends on real timers.
 
 ## Shared fixtures are functions, not constants
 
-Under `isolate: false` a module is evaluated **once per worker**. An exported object holding
-`vi.fn()`s is therefore one set of spies shared by every file that imports it, registered against
-whichever file got there first, and the other files' `clearMocks` never reaches them. The symptom is
-a 30-second timeout in a different file on each run.
+Under `isolate: false`, a module runs once per worker. An exported object holding `vi.fn()`s is one
+set of spies shared by every file that imports it. The symptom is a 30-second timeout in a different
+file on each run. Export a factory instead:
 
 ```ts
 // ❌ a constant: one set of spies for the whole worker
@@ -1792,86 +1650,75 @@ export const mockActionContext = { actions: { navigateToSection: vi.fn() } };
 export const createActionContext = () => ({ actions: { navigateToSection: vi.fn() } });
 ```
 
-The same applies to a shared provider fixture — `{ provide: X, useValue: { load: vi.fn() } }` is a
-constant unless it is returned from a function. And a spec file must **export nothing**: under
-`isolate: false` an exported spec file gets imported by its neighbours and loses its own suite. Put
-shared doubles in a `*.mock.ts` beside them.
+The same applies to a provider fixture: `{ provide: X, useValue: { load: vi.fn() } }` is a constant
+unless a function returns it.
 
-The [`no-shared-module-level-mock`](/utilities/eslint-plugin) rule finds these mechanically, which
-is faster than the timeout that finds them otherwise.
+A spec file must export nothing. Under `isolate: false`, an exported spec file gets imported by its
+neighbours and loses its own tests. Put shared spies in a `*.mock.ts` next to the specs.
+
+The [`no-shared-module-level-mock`](/utilities/eslint-plugin) lint rule finds these for you.
 
 ## Hook order differs from Jest
 
-Vitest runs `afterEach` hooks as a stack — innermost and last-registered first — where Jest ran them
-in declaration order. In a ported suite where a spec's `afterEach` depends on something the setup
-file installed, the setup file's teardown now runs first and the spec's hook operates on an
-already-restored environment. `sequence: { hooks: 'list' }` in the Vitest config restores the Jest
-ordering.
+Vitest runs `afterEach` hooks innermost and last-registered first. Jest ran them in declaration
+order. So in a suite ported from Jest, the setup file's teardown runs before a spec's own
+`afterEach`. To get Jest's order back, set `sequence: { hooks: 'list' }` in the Vitest config.
 
 ## The hooks belong to the file this call ran in
 
-Everything `setupAutoSpy()` installs is a `beforeEach` / `afterEach` / `afterAll`, and a hook
-registered while a setup file is imported belongs to the spec file whose collection imported it.
-Vitest re-imports the setup files for every spec file, so normally none of that is visible.
+Everything `setupAutoSpy()` installs is a hook. Vitest runs the setup file again before each spec
+file, and the hooks registered at that moment belong to that spec file. So normally each file gets
+its own hooks.
 
-It becomes visible when something keeps the setup module in the module cache across files: the call
-runs once, and every file after the first in that worker has none of the hooks — no property
-restore, no `blockNetwork`, no stray-timer cancellation, no `restoreTimerGlobals`, no global fake
-timers. Nothing reports it, and the symptom lands somewhere else entirely — a leaked global, or
-`A function to advance timers was called but the timers APIs are not mocked` in a spec that is green
-when it runs on its own.
+If the setup module is cached across files (see the known cause below), the call runs only once. Every later file in that worker
+then has no hooks: no property restore, no `blockNetwork`, no timer cleanup, no global fake timers.
+The symptom shows up elsewhere, for example
+`A function to advance timers was called but the timers APIs are not mocked` in a spec that passes on
+its own.
 
-`setupAutoSpy()` reports it now. A call made from a configured setup file records the spec file it
-registered its hooks for; when a test of a different file starts and no call registered for that file,
-one line per worker goes to stderr, naming both files and the ways out below:
+`setupAutoSpy()` reports this with one line per worker on stderr:
 
 ```text
 [vitest-auto-spy] setupAutoSpy() registered its hooks for src/a.spec.ts and not for src/b.spec.ts, which runs after it in the same worker: …
 ```
 
-A call made from a spec file, as in a `describe` block, is not a setup-file call and is never reported.
+A call from a spec file (for example inside `describe`) is never reported. Calling `setupAutoSpy()`
+for only some spec files is fine too: the check sees that the setup module ran again for the file and
+stays quiet.
 
-The case seen in the wild is `@angular/build:unit-test` **before 22.2.0, with coverage**. The
-builder then serves each test file — setup files included — as a wrapper that imports the built
-bundle, the setup module stays resolved in the shared environment, and its top level never runs
-again; without coverage the same run is fine, which is what makes it read as "coverage broke the
-tests". **`@angular/build` 22.2.0 fixes it** (angular-cli PR #34143): setup files are no longer
-wrapped, so their hooks are registered for every spec file under `--coverage` too.
+**Known cause:** `@angular/build:unit-test` before 22.2.0, with `--coverage`. It looks like
+"coverage broke the tests". Upgrade `@angular/build` to 22.2.0 or later. On an older builder:
 
-On an older builder there are two ways out: run coverage with per-file isolation
-(`ng test <project> --coverage --isolate`, or `isolate: true` in the config for that case alone —
-the builder keeps a runner config's `test.isolate` unless the target sets its own `isolate` option), or
-call `setupAutoSpy()` from something that is evaluated per file rather than from a module the runner
-can cache. On any version, keep the call at the top level of the setup file itself: a module the
-setup file imports for its side effects can still land in a shared chunk and run once per worker.
+- run coverage with per-file isolation: `ng test <project> --coverage --isolate`, or
+  `isolate: true` in the config for that case. The builder keeps the config's `test.isolate` unless
+  the target sets its own `isolate`;
+- or call `setupAutoSpy()` from something evaluated per file.
+
+On any version, keep the call at the top level of the setup file. A module the setup file imports
+for side effects can still land in a shared chunk and run once per worker.
 
 ## The setup file that gets its own copy of Angular
 
-A setup file that calls `initTestEnvironment` — directly, or through whichever preset a workspace
-inherited — runs before any spec, and therefore before the library is imported. Where the two halves
-of the run resolve `@angular/core` differently, that ordering is enough to leave two copies of
-Angular in the process: the platform, the environment and the `TestBed` the setup file built belong
-to one of them, and every spec builds on the other.
+A setup file that calls `initTestEnvironment` runs before the library is imported. If the setup file
+and the specs resolve `@angular/core` differently, the process ends up with two copies of Angular.
+The setup file's `TestBed` belongs to one, and every spec uses the other.
 
-What surfaces says nothing about copies. One half of it is this:
+The symptoms say nothing about copies. One is:
 
 ```text
 [vitest-auto-spy] No mock adapter registered: a spy was built before 'vitest-auto-spy' was imported. This is Vitest — import the factories from 'vitest-auto-spy', in the spec or once in the `setupFiles` entry.
 Docs: https://asdalexey.github.io/vitest-auto-spy/core/installation#vitest
 ```
 
-The registry is module state of `vitest-auto-spy`, and importing an entry is what writes to it, so a
-run holding two copies of the library can hand a spec the copy nobody imported.
+Others: `configureTestingModule` is accepted but the component still gets the real service, an
+`overrideProvider` never applies, or `NG0203` appears in an ordinary injection context.
 
-The other half is a `TestBed` that behaves like a stranger — `configureTestingModule` accepted and
-the component still resolving the real service, an `overrideProvider` that never applies, `NG0203`
-from an injection context that looks perfectly ordinary. A second `TestBed` with an injector of its
-own explains all three, and none of them says so.
-
-The repair is in the runner config, not in a spec:
+Fix it in the Vitest config:
 
 ```ts
 // vitest.config.ts
+import { defineConfig } from 'vitest/config';
+
 export default defineConfig({
   resolve: {
     dedupe: ['@angular/core', '@angular/common', '@angular/platform-browser', '@angular/compiler', 'rxjs'],
@@ -1882,17 +1729,231 @@ export default defineConfig({
 });
 ```
 
-`dedupe` makes every importer resolve those packages to one file, whichever nested `node_modules`
-directory it happens to sit under. Inlining the library sends it through the same transform pipeline
-the specs go through instead of leaving it externalised to Node, so the copy the setup file loads and
-the copy a spec loads are one module instance — one registry, one set of spies. `rxjs` earns its
-place on that list for the same reason the Angular packages do: an `Observable` from one copy fails
-the other's `instanceof`, which is a different failure with the same cause.
+- `dedupe` makes every import of those packages resolve to one file.
+- `server.deps.inline` makes Vitest process the library like your specs, so the setup file and the
+  specs share one copy. The old top-level `test.deps.inline` moved here in Vitest 1 and no longer
+  exists (checked against the Vitest 5.0 types).
+- `rxjs` is on the list because an `Observable` from one copy fails the other copy's `instanceof`.
 
-`test.server.deps.inline` is where that key lives from Vitest 1 onwards — checked here against the
-5.0 typings; the top-level `test.deps.inline` that older answers still show moved there and is gone.
+Check the [duplicate-copy report](#_2-one-copy-of-the-library-in-the-process) first. A second install,
+or one install loaded as both ESM and CommonJS, is more common, and needs no `dedupe`. Use this
+section when the report shows the same package resolved twice.
 
-Reach for the duplicate-copy report in section 2 first. Two installs, or one install loaded as both
-ESM and CommonJS, are the commoner causes, and neither of them needs `dedupe` — the report names
-both copies, and this section is what to do when the paths it prints are the same package resolved
-twice.
+## In depth
+
+Background for the options above. You do not need it to use them.
+
+### Restoring properties when a hook throws
+
+Vitest runs `afterEach` hooks in reverse registration order. The setup file registers its hook
+first, so it runs last. If a spec's own `afterEach` throws, the hooks after it never run:
+
+```ts
+// in the spec file, and therefore running before the library's hook
+afterEach(() => vi.restoreAllMocks()); // ← throws, and the cleanup below it never happens
+```
+
+This happened in practice. A spec moved to `provideAutoSpy(LayoutStateService, { gettersToSpyOn: [...] })`.
+The restored getter then returned `undefined`, `ngOnDestroy` called it as a signal, and the
+`TypeError` stopped the hook chain. The patch leaked, and the failure appeared in a different
+`describe` as a template error.
+
+So the library also registers an `onTestFinished` callback. Vitest runs it after the whole
+`afterEach` chain. It does nothing unless the `afterEach` was skipped; then it puts the properties
+back and warns at the test where it happened.
+
+### Stray timers in depth
+
+- Cancelling is recognised in more ways than `clearTimeout(handle)`. On Node, a library may cancel
+  with `clearTimeout(+handle)` or `handle.close()`. Both count as cancelled.
+- `promisify(setTimeout)` keeps working: the wrapper carries Node's custom `promisify`.
+- jsdom answers each `setItem`, `removeItem` and `clear` on Web Storage with a real
+  `setTimeout(…, 0)` for the `storage` event. So a file that only writes to `localStorage` still has
+  timers queued. The library's own storage check runs under `withoutStrayTimerTracking`.
+- `trackStrayTimers()` is all-or-nothing: if a host refuses one of the five patches, the rest are
+  rolled back.
+- The stack is captured when a timer is scheduled, at most forty frames below the tracking wrapper,
+  so a zone or rxjs scheduler in between does not use them up. It is formatted only for strays.
+- A callback scheduled after the previous file's sweep is counted against the next file. Its `file`
+  field says which file really scheduled it.
+- Timers from undici used to fail files with `setTimeout 499 ms … at new Promise (<anonymous>)`.
+  Only the nearest stack frame outside this package and zone.js decides whether a timer is undici's.
+- The per-timer cost of tracking is on the [performance page](/core/performance).
+- With `strayTimers` off, Vitest's own "Async Leaks" report points its code frame at the
+  `setTimeout` in your spec. The library's timer wrappers go through `vi.defineHelper`, so Vitest
+  drops the frames inside `vitest-auto-spy` instead of showing them in place of your line.
+
+### Global guard in depth
+
+- The baseline is taken once per file, in `beforeAll`.
+- While the guard is on, `Object.defineProperty`, `Object.defineProperties` and
+  `Reflect.defineProperty` note which watched object got a non-configurable definition. After each
+  test, only those objects are compared, so a test that seals nothing costs nothing.
+- Once per file, after every `afterAll`, all watched objects are compared in full. That catches a
+  patch in `afterAll`, a sloppy-mode `var`, or a `defineProperty` captured before the file started.
+  Such a patch is reported against the file.
+- The three functions are put back at the end of the file.
+- Checking every existing property on every watched object after every test would cost more than the
+  rest of the guard together (`globalThis` alone has hundreds of names). That is why redefining an
+  existing name is not reported.
+- `Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: vi.fn() })` is the typical
+  case: jsdom lacks the member, the patch adds a non-configurable property, and the next file's
+  `mockValueProp` fails with `Cannot redefine property`.
+
+### Mock registry in depth
+
+- Vitest's registry is a module-level `Set` inside `@vitest/spy`. With `isolate: true` it is
+  recreated per file; with `isolate: false` once per worker.
+- There is no API for it. The library briefly patches `Set.prototype.forEach` while calling
+  `vi.clearAllMocks()`: `forEach` passes the set itself as its third argument. The capture is
+  checked against a probe mock; without a match, nothing is pruned.
+- The split: whatever is in the registry when a file's hooks start was created while modules were
+  imported, so it is kept. Everything added afterwards belongs to the file and goes when it ends. A
+  naive prune would drop a shared `*.mock.ts` mock after the first file, and the second file would
+  then fail on calls its predecessor made.
+- `mockReset` restores an implementation only when it was passed to `vi.fn(implementation)`.
+  `@vitest/spy` spells it `resetToMockImplementation ? mockImplementation : undefined`.
+- Lost behaviour is restored in `beforeEach`, because Vitest applies `restoreMocks` / `mockReset` /
+  `clearMocks` before the `beforeEach` hooks.
+- In Vitest 4, `vi.restoreAllMocks()` walks a separate list that only `vi.spyOn` writes to. That is
+  why it does not cause the reset problem.
+
+### Angular build hint in depth
+
+- The builder is recognised by a marker its own setup file leaves on `globalThis`
+  (`Symbol.for('@angular/cli/vitest-mock-patch')`), before any user setup file runs. A plain Vitest
+  run never reads anything.
+- Under the builder, the version comes from the nearest `node_modules/@angular/build/package.json`
+  above the working directory. This is the one place the library reads the disk: one file,
+  read-only, through `process.getBuiltinModule`, so `/setup` still loads where there is no
+  `process`. On a Node without `getBuiltinModule` (before 20.16 / 22.3), it stays silent.
+- The builder runs Vitest with `isolate: false` by default, so a flag on `globalThis` keeps the notice
+  to once per worker.
+- Memory figures for the affected versions are on the [performance page](/core/performance).
+
+### Web Storage in depth
+
+Vitest copies a DOM environment's globals onto `globalThis` behind one filter:
+
+```js
+if (k in global) return KEYS.includes(k);
+```
+
+`Storage` is in `KEYS`; `localStorage` and `sessionStorage` are not. While Node had no Web Storage of
+its own, `k in global` was false and both were copied. Node's own Web Storage made the key exist, so
+the filter now asks `KEYS`, and the environment's storage never arrives. The filter runs before any
+environment-specific code, so jsdom and happy-dom break the same way.
+
+The repair tests the storage by using it, because each Node version breaks it differently: Node 25
+has a `setItem` that throws, Node 26 has nothing.
+
+The storage-spy repair (section 18) touches only a method that `vi.isMockFunction` says is a mock.
+It does not compare against the prototype: jsdom's `Storage` turns a `defineProperty` of a method
+into a stored item, so a prototype check would keep rewriting a storage that is merely odd. A mock is
+repaired; a clean storage, a deliberate replacement and jsdom's stray item are left alone.
+
+### Prototype guard in depth
+
+Vitest builds a file's hooks by walking an object with `for…in`, so an enumerable key on
+`Object.prototype` is treated as a hook list and spread. The error has no stack because every frame
+is inside Vitest's own `dist`, which Vitest filters out of stacks. In one large suite this made the
+report show `145 failed | 1613 passed` files over `11880 passed | 0 failed` tests, and the count
+changed from run to run. `superagent`'s mime table (`typeMap[type].map is not a function`) broke the
+same way.
+
+The baseline is taken in the file's `beforeAll` and checked again after every `afterAll`.
+
+### Document guard in depth
+
+The check does not run in `afterEach`. A setup file registers its hooks after the `TestBed`'s, and
+`afterEach` hooks run in reverse, so an `afterEach` check would run before the `TestBed` destroys the
+fixtures. It would report every attribute and `<style>` that Angular removes on destroy. The test
+check runs from `onTestFinished`, after the whole `afterEach` chain. The file check runs after every
+`afterAll`.
+
+Per-test cost: a few microseconds for attributes; `nodes` scales with the number of children. The
+figures are on the [performance page](/core/performance).
+
+Why the guard exists. Under `isolate: false` every spec file in a worker renders into one jsdom
+document, and nothing resets it between files. In the project where this was found, a keyboard
+component's effect set `data-reset-focus` on `document.body` and never removed it. A navigation
+service elsewhere returns early when `document.querySelector('[data-reset-focus]')` matches. So the
+service's spec failed 34 of its 209 tests, in about one full run in six: only when the two files
+shared a worker, never on its own. No other guard saw it, because nothing was sealed, added to a
+prototype or left running.
+
+It finds leaks in production code too. On an 850-spec Angular application it exposed two components
+that left `style="cursor: grabbing"` on `<body>` when destroyed mid-drag, and two tests that passed
+only because of a CSS variable an earlier test had left behind.
+
+An empty `class` or `style` counts as no attribute, because `classList.add` followed by
+`classList.remove` leaves `class=""` where there was none. On one project that artifact was 9 of the
+first 32 failures.
+
+### Stray rejections in depth
+
+A callback that runs after its test has ended settles its assertion too late: the test was already
+reported green. When such an assertion fails, the failure surfaces only as a rejection nothing
+handled. The same happens with an `async` helper called without `await`, and with a `TypeError`
+thrown inside `import('…').then(…)` in production code. In one migrated Angular monorepo (1688 spec
+files, 11 587 tests, green, exit code 0) this was hiding six real defects. Two of them were
+assertions that were simply false.
+
+### Console guard in depth
+
+- The guard wraps `console` and forwards every call unchanged. Vitest's `stdout | file > test`
+  labels, `onConsoleLog` and the output of a failing test stay as they were. This was checked on
+  Vitest 4.1 and 5.0, with the guard in a setup file and two spec files sharing one worker under
+  `isolate: false`.
+- The DOM environment's own console is covered too. happy-dom's page console and jsdom's virtual
+  console were given the worker's console when the environment was built, before Vitest replaced
+  `globalThis.console`. So their lines reached stderr of a green run. The guard routes that console
+  into the one it watches. happy-dom's
+  `NotSupportedError: Failed to load iframe page … Iframe page loading is disabled` or jsdom's
+  `Not implemented: navigation` is then reported against the test that caused it, with a
+  `Likely cause:` line. A console spy or an `allow` pattern takes it like any other line.
+
+### Globals restore in depth
+
+The restore at the file boundary steps around two traps:
+
+- **The descriptor is not the whole story.** A DOM environment installs window properties on
+  `globalThis` as getter/setter pairs that forward to a map. `global.ResizeObserver = stub` runs the
+  setter and leaves the descriptor unchanged. A restore that only redefined descriptors would report
+  "nothing changed" while the stub kept answering. So the captured value goes back through the same
+  setter.
+- **The library's own wrappers stay.** `strayTimers` has wrapped `setTimeout`, and `strayListeners`
+  has wrapped `addEventListener`. A restore that put every original back would remove that tracking
+  at the first file boundary. The library marks the wrappers it installs, and the restore skips
+  them.
+
+### Listener guard in depth
+
+The guard splits listeners the same way the mock-registry pruner does (section 9). A `beforeAll`
+marks the listeners already on `window` and `document`: they were registered while the modules were
+imported, for example by a framework's one-time setup. The `afterAll` removes everything added
+after that. There is no special case for the first file: an import-time listener is in the baseline
+of whichever file imports it, so it survives every later sweep.
+
+### Global fake timers in depth
+
+Both ends of the global fake timers are guarded, which is the half a hand-written pair of hooks gets
+wrong. A spec that drives the clock itself would otherwise reach a second `vi.useRealTimers()`. Under
+happy-dom that second call leaves the environment without `clearInterval`, which breaks during the
+teardown of whichever file runs next and blames that file.
+
+### Why the builder before 22.2 runs the setup file once
+
+`@angular/build:unit-test` before 22.2.0, with coverage, serves each test file, setup files included,
+as a small wrapper that imports the built bundle. The setup module stays resolved in the shared
+environment, so its top level never runs again. Without coverage the same run is fine, which is why
+it looks like "coverage broke the tests". `@angular/build` 22.2.0 fixes it (angular-cli pull request
+34143): setup files are no longer wrapped, so their hooks are registered for every spec file under
+`--coverage` too.
+
+### Why a patch is not re-applied
+
+`restoreMockedProps()` exists so that a patch does not outlive its file. A patch that re-applied
+itself on every test would outlive its file under `isolate: false`. So the library reports the
+problem instead of changing the rule. It is reported per object, not per property name, because two
+files often patch a member of the same name on different objects.
