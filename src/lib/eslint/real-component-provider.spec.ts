@@ -27,7 +27,7 @@ describe('no-real-component-provider', () => {
     const [message] = verify(realStore);
 
     expect(lint(realStore)).toEqual([`vitest-auto-spy/${RULE}`]);
-    expect(message?.message).toContain('overrideComponentProvider(Component, CartStore)');
+    expect(message?.message).toContain('overrideComponentProvider(CartComponent, CartStore)');
     expect(message?.message).toContain('const cartStore =');
   });
 
@@ -38,6 +38,19 @@ describe('no-real-component-provider', () => {
     `;
 
     expect(lint(code)).toEqual([`vitest-auto-spy/${RULE}`]);
+  });
+
+  it('names the placeholder component when the file creates more than one, or none', () => {
+    const two = `
+      TestBed.createComponent(CartComponent);
+      const fixture = TestBed.createComponent(OtherComponent);
+      fixture.debugElement.injector.get(CartStore);
+    `;
+
+    expect(verify(two)[0]?.message).toContain('overrideComponentProvider(Component, CartStore)');
+    expect(verify('fixture.debugElement.injector.get(CartStore);')[0]?.message).toContain(
+      'overrideComponentProvider(Component, CartStore)',
+    );
   });
 
   it.each([
@@ -100,6 +113,53 @@ describe('no-real-component-provider', () => {
     `;
 
     expect(lint(code)).toEqual([]);
+  });
+
+  describe('with childInjectors', () => {
+    const options = { childInjectors: true };
+
+    it('reports a service read through a queried child, naming the directive the query found', () => {
+      const code = `
+        const fixture = TestBed.createComponent(HostComponent);
+        fixture.debugElement.query(By.directive(CartComponent)).injector.get(CartStore);
+        fixture.debugElement.query(By.directive(CartComponent)).injector.get(CartComponent);
+      `;
+      const messages = verify(code, options);
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0]?.message).toContain('overrideComponentProvider(CartComponent, CartStore)');
+    });
+
+    it.each([
+      ['a css query', "fixture.debugElement.query(By.css('app-cart')).injector.get(CartStore);"],
+      ['a query with no argument', 'fixture.debugElement.query().injector.get(CartStore);'],
+      ['a queryAll element', "fixture.debugElement.queryAll(By.css('li'))[0].injector.get(CartStore);"],
+      ['a child element', 'fixture.debugElement.children[1].injector.get(CartStore);'],
+    ])('reports %s, with a placeholder component', (_label, statement) => {
+      const code = `
+        const fixture = TestBed.createComponent(HostComponent);
+        ${statement}
+      `;
+      const messages = verify(code, options);
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0]?.message).toContain('overrideComponentProvider(Component, CartStore)');
+    });
+
+    it('reads only element injectors, and names no component for a By.directive that names no class', () => {
+      const code = `
+        fixture.debugElement.query(By.directive(directives[0])).injector.get(CartStore);
+        fixture.debugElement.nativeElement.injector.get(CartStore);
+        fixture.debugElement.items[0].injector.get(CartStore);
+        fixture.debugElement.children.first.injector.get(CartStore);
+        fixture.debugElement.children[0].injector.get(TooltipDirective);
+        fixture.debugElement.query(By.directive(TooltipDirective));
+      `;
+
+      expect(verify(code, options).map((message) => [message.line, message.message.includes('(Component, CartStore)')])).toEqual([
+        [2, true],
+      ]);
+    });
   });
 
   it('stays quiet in a file that builds its doubles through createWithAutoSpies', () => {

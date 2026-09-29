@@ -15,10 +15,11 @@
  * the store's own spec under the component's name. The spy has to be installed where the component
  * looks, which is `overrideComponentProvider`.
  *
- * **Only the fixture's own injector is read.** `fixture.debugElement.injector` and
+ * **By default only the fixture's own injector is read.** `fixture.debugElement.injector` and
  * `fixture.componentRef.injector` are the component under test; `debugElement.query(…).injector` is
  * some child, and asking a child's injector for a directive class is how a spec reaches that
- * directive's instance — a legitimate read this rule cannot tell apart from a service by syntax.
+ * directive's instance — a legitimate read syntax cannot tell apart from a service. `{ childInjectors:
+ * true }` reads those too, leaving alone any class the file names in `By.directive(…)`.
  *
  * A token counts as replaced when the file names it anywhere a double is installed: the arguments of
  * `provideAutoSpy`, `overrideAutoSpy`, `overrideComponentProvider`, `overrideProvider`,
@@ -66,7 +67,10 @@ const FRAMEWORK_SCOPE = '@angular/';
 export const REAL_COMPONENT_PROVIDER_SCHEMA = [
   {
     type: 'object',
-    properties: { ignoreTokens: { type: 'array', items: { type: 'string' }, uniqueItems: true } },
+    properties: {
+      ignoreTokens: { type: 'array', items: { type: 'string' }, uniqueItems: true },
+      childInjectors: { type: 'boolean' },
+    },
     additionalProperties: false,
   },
 ];
@@ -99,8 +103,43 @@ function isReplacingArgument(node: EsNode): boolean {
   return name !== undefined && REPLACING_CALLS.has(name);
 }
 
-/** `<fixture>.debugElement.injector.get(Token)` → `Token`, for the fixture's own injector only. */
-function ownInjectorToken(node: EsCallExpression): EsIdentifier | undefined {
+/** One `….injector.get(Token)` the rule judges, and the component that provides `Token` when the read names it. */
+interface ProviderRead {
+  readonly token: EsIdentifier;
+  readonly child: boolean;
+  readonly owner?: string;
+}
+
+/** `By.directive(X)` → `X`. */
+function directiveOf(node: EsNode | undefined): EsIdentifier | undefined {
+  if (!node || !isCallExpression(node) || calleeName(node) !== 'directive') {
+    return undefined;
+  }
+
+  const [directive] = node.arguments;
+
+  return directive && isIdentifier(directive) ? directive : undefined;
+}
+
+/** A child element: `debugElement.query(…)`, `queryAll(…)[i]` or `children[i]`, with the class `By.directive` names. */
+function childElement(node: EsNode): { owner?: string } | undefined {
+  if (isCallExpression(node) && calleeName(node) === 'query') {
+    const owner = directiveOf(node.arguments[0])?.name;
+
+    return owner === undefined ? {} : { owner };
+  }
+
+  if (!isMemberExpression(node) || !node.computed) {
+    return undefined;
+  }
+
+  const list = node.object;
+
+  return (isCallExpression(list) && calleeName(list) === 'queryAll') || memberName(list) === 'children' ? {} : undefined;
+}
+
+/** `<fixture>.debugElement.injector.get(Token)` → `Token`; a child element's injector only when `childInjectors` is on. */
+function injectorRead(node: EsCallExpression, childInjectors: boolean): ProviderRead | undefined {
   const [token] = node.arguments;
 
   if (!isMemberExpression(node.callee) || memberName(node.callee) !== 'get' || !token || !isIdentifier(token)) {
@@ -115,7 +154,13 @@ function ownInjectorToken(node: EsCallExpression): EsIdentifier | undefined {
 
   const holder = memberName(injector.object);
 
-  return holder !== undefined && OWN_INJECTOR_HOLDERS.has(holder) ? token : undefined;
+  if (holder !== undefined && OWN_INJECTOR_HOLDERS.has(holder)) {
+    return { token, child: false };
+  }
+
+  const child = childInjectors ? childElement(injector.object) : undefined;
+
+  return child && { token, child: true, ...child };
 }
 
 /** Whether the read is already re-viewed as a spy — `asSpy(fixture.debugElement.injector.get(X))`. */
@@ -125,11 +170,17 @@ function isClaimedSpy(node: EsCallExpression): boolean {
 
 /** What one file adds up to: the reads, and every reason a read may be left alone. */
 interface ProviderScan {
-  readonly reads: EsIdentifier[];
+  readonly childInjectors: boolean;
+  readonly reads: ProviderRead[];
+  readonly created: Set<string>;
   readonly replaced: Set<string>;
   readonly rendered: Set<string>;
   readonly framework: Set<string>;
   opaque: boolean;
+}
+
+function childInjectorsOn(options: readonly unknown[]): boolean {
+  return Reflect.get(Object(options[0]), 'childInjectors') === true;
 }
 
 /** The tokens the project listed in `{ ignoreTokens }`. */
@@ -153,14 +204,34 @@ function readCall(node: EsCallExpression, scan: ProviderScan): void {
   }
 
   if (name === 'createComponent') {
-    node.arguments.filter(isIdentifier).forEach((argument) => scan.rendered.add(argument.name));
+    node.arguments.filter(isIdentifier).forEach((argument) => {
+      scan.rendered.add(argument.name);
+      scan.created.add(argument.name);
+    });
   }
 
-  const token = ownInjectorToken(node);
+  const directive = directiveOf(node);
 
-  if (token && !isClaimedSpy(node)) {
-    scan.reads.push(token);
+  if (directive) {
+    scan.rendered.add(directive.name);
   }
+
+  const read = injectorRead(node, scan.childInjectors);
+
+  if (read && !isClaimedSpy(node)) {
+    scan.reads.push(read);
+  }
+}
+
+/** The component to name in the fix: the one the read queried, else the only one the file creates. */
+function ownerOf(read: ProviderRead, scan: ProviderScan): string {
+  if (read.owner !== undefined) {
+    return read.owner;
+  }
+
+  const [only] = scan.created;
+
+  return !read.child && scan.created.size === 1 && only !== undefined ? only : 'Component';
 }
 
 export const noRealComponentProvider = defineRule({
@@ -169,10 +240,18 @@ export const noRealComponentProvider = defineRule({
   schema: REAL_COMPONENT_PROVIDER_SCHEMA,
   messages: {
     noRealComponentProvider:
-      'Nothing in this file replaces `{{token}}`, so the fixture hands back the real instance the component provides, and the spec tests it through the component. Install the spy where the component looks: `const {{variable}} = overrideComponentProvider(Component, {{token}});`, before the fixture is created. If the real one is meant, list `{{token}}` in `{ ignoreTokens }`.',
+      'Nothing in this file replaces `{{token}}`, so the fixture hands back the real instance the component provides, and the spec tests it through the component. Install the spy where the component looks: `const {{variable}} = overrideComponentProvider({{component}}, {{token}});`, before the fixture is created. If the real one is meant, list `{{token}}` in `{ ignoreTokens }`.',
   },
   create: (context) => {
-    const scan: ProviderScan = { reads: [], replaced: new Set(), rendered: new Set(), framework: new Set(), opaque: false };
+    const scan: ProviderScan = {
+      childInjectors: childInjectorsOn(context.options),
+      reads: [],
+      created: new Set(),
+      replaced: new Set(),
+      rendered: new Set(),
+      framework: new Set(),
+      opaque: false,
+    };
     const ignored = ignoredTokens(context.options);
 
     return {
@@ -205,11 +284,16 @@ export const noRealComponentProvider = defineRule({
         const skipped = [scan.replaced, scan.rendered, scan.framework, ignored];
 
         scan.reads
-          .filter(({ name }) => !skipped.some((names) => names.has(name)))
-          .forEach((token) => {
+          .filter(({ token }) => !skipped.some((names) => names.has(token.name)))
+          .forEach((read) => {
+            const { token } = read;
             const variable = `${token.name.charAt(0).toLowerCase()}${token.name.slice(1)}`;
 
-            context.report({ node: token, messageId: 'noRealComponentProvider', data: { token: token.name, variable } });
+            context.report({
+              node: token,
+              messageId: 'noRealComponentProvider',
+              data: { token: token.name, variable, component: ownerOf(read, scan) },
+            });
           });
       },
     };
