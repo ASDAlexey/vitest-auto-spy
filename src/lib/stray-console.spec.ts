@@ -3,6 +3,7 @@
  * a guard armed on the real one fails the very test that asserts about it. The wiring through
  * `setupAutoSpy` is covered at the end, with `it.fails` for the tests whose teardown must throw.
  */
+/* eslint-disable vitest-auto-spy/no-console-in-spec -- the stray-console guard is the subject: these tests print on purpose */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import '../index';
@@ -59,12 +60,15 @@ function thrownBy(run: () => void): string {
 
 // The guard forwards what it records; silenced here, before anything arms it, so the run stays quiet.
 const realConsole = { error: console.error, info: console.info, warn: console.warn };
+// The console entry remembers the first method it ever replaced, worker-wide; one it met here would be a guard's wrapper.
+const consoleOriginals = globalThis.__vitestAutoSpyConsoleOriginals__ && new Map(globalThis.__vitestAutoSpyConsoleOriginals__);
 
 Object.assign(console, { error: () => undefined, info: () => undefined, warn: () => undefined });
 
 afterAll(() => {
   stopGuardingConsole();
   Object.assign(console, realConsole);
+  globalThis.__vitestAutoSpyConsoleOriginals__ = consoleOriginals;
 });
 
 describe('resolveStrayConsole', () => {
@@ -104,8 +108,8 @@ describe('describeOutput', () => {
 
 describe('callerFrame', () => {
   const stackOf = (stack: string) => ({
-    captureStackTrace(target: object): void {
-      Reflect.set(target, 'stack', stack);
+    captureStackTrace(target: { stack?: string }): void {
+      target.stack = stack;
     },
   });
 
@@ -385,11 +389,11 @@ describe('the guard on a stand-in console', () => {
   it('names "this file", and an empty test, when the runner reports neither', () => {
     const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
     const key: PropertyKey = 'getState';
+    const worker: { filepath?: string } = Reflect.get(globalThis, '__vitest_worker__');
+    // The file goes first, so both patches are recorded as the nameless file's; the other way round the first
+    // reads as a patch another file left behind, and prop-mock says so once a worker has reported before.
+    const restoreFile = mockValueProp(worker, 'filepath', undefined);
     const restore = mockValueProp(expect, key, () => ({}));
-    const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
-    const filepath: unknown = Reflect.get(Object(worker), 'filepath');
-
-    Reflect.set(Object(worker), 'filepath', undefined);
 
     openConsoleWindow(guard);
     call(console$.host, 'log', 'in a nameless test');
@@ -401,21 +405,47 @@ describe('the guard on a stand-in console', () => {
     const file = thrownBy(() => finishConsoleFile(guard));
 
     restore();
-    Reflect.set(Object(worker), 'filepath', filepath);
+    restoreFile();
 
     expect(test).toContain('"" wrote to console.log');
     expect(file).toContain('this file wrote to console.log');
   });
 
+  it('forgets a sentinel the console entry remembered as the real method, and only that', () => {
+    const realInfo = (): void => undefined;
+
+    armConsoleGuard({ reaction: 'warn', allow: [] }, console$.host);
+
+    const remembered = new Map([
+      ['log', console$.host['log']],
+      ['info', realInfo],
+    ]);
+    const restore = mockValueProp(globalThis, '__vitestAutoSpyConsoleOriginals__', remembered);
+
+    stopGuardingConsole();
+    restore();
+
+    expect([...remembered.keys()]).toEqual(['info']);
+  });
+
+  it('stops a guard whose console the console entry never touched', () => {
+    armConsoleGuard({ reaction: 'warn', allow: [] }, console$.host);
+
+    const restore = mockValueProp(globalThis, '__vitestAutoSpyConsoleOriginals__', undefined);
+
+    expect(() => stopGuardingConsole()).not.toThrow();
+    restore();
+  });
+
   it('arms once per console, takes installed console spies off first, and reuses the wrappers', () => {
     const detach = vi.fn();
 
-    globalThis.__vitestAutoSpyDetachConsoleSpies__ = detach;
+    const restore = mockValueProp(globalThis, '__vitestAutoSpyDetachConsoleSpies__', detach);
 
     const first = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
     const again = armConsoleGuard({ reaction: 'warn', allow: ['x'] }, console$.host);
 
-    globalThis.__vitestAutoSpyDetachConsoleSpies__ = undefined;
+    restore();
 
     expect(again).toBe(first);
     expect(first.reaction).toBe('warn');
@@ -491,15 +521,21 @@ describe('the guard on a stand-in console', () => {
   it('adds the console-entry advice once that entry is loaded in the worker', () => {
     const reset = vi.fn();
 
-    globalThis.__vitestAutoSpyResetConsoleSpies__ = reset;
+    const restore = mockValueProp(globalThis, '__vitestAutoSpyResetConsoleSpies__', reset);
 
     const message = describeStrayConsole({ calls: [], total: 1 }, 'a test');
 
-    globalThis.__vitestAutoSpyResetConsoleSpies__ = undefined;
+    restore();
+
+    // Not loaded, rather than whatever an earlier file of a shared worker left in the slot.
+    const restoreUnloaded = mockValueProp(globalThis, '__vitestAutoSpyResetConsoleSpies__', undefined);
+    const withoutEntry = describeStrayConsole({ calls: [], total: 1 }, undefined);
+
+    restoreUnloaded();
 
     expect(message).toMatch(/Importing vitest-auto-spy\/console installs nothing under strayConsole/);
     expect(message).toContain('useConsoleSpies() in the describe, then assert its spies');
-    expect(describeStrayConsole({ calls: [], total: 1 }, undefined)).not.toMatch(/installs nothing/);
+    expect(withoutEntry).not.toMatch(/installs nothing/);
   });
 
   it("reads a call recorded without a phase as a test's, and tags it with nothing", () => {
@@ -718,11 +754,13 @@ describe('setupAutoSpy({ strayConsole: "throw" })', () => {
   });
 
   it.fails('counts a vi.spyOn with no implementation, which calls through and prints', () => {
+    // eslint-disable-next-line vitest-auto-spy/no-passthrough-console-spy -- the passthrough spy is the case under test
     const spy = vi.spyOn(console, 'error');
 
+    // eslint-disable-next-line vitest-auto-spy/no-self-called-spy -- the spec's own print is what the guard must count
     console.error('still printed');
 
-    expect(spy).toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledWith('still printed');
   });
 
   it('absorbs a vi.spyOn that replaces the implementation', () => {
@@ -770,17 +808,15 @@ describe('setupAutoSpy({ strayConsole: "throw" })', () => {
 
 /** The line each DOM environment writes for itself: happy-dom refusing an iframe, jsdom refusing to navigate. */
 function appendRefusedFrameOrNavigate(): void {
-  const happyDOM: unknown = Reflect.get(window, 'happyDOM');
+  const happyDOM: { settings: object } | undefined = Reflect.get(window, 'happyDOM');
 
-  if (typeof happyDOM !== 'object' || happyDOM === null) {
+  if (happyDOM === undefined) {
     window.location.assign('https://example.com/elsewhere');
 
     return;
   }
 
-  const settings: unknown = Reflect.get(happyDOM, 'settings');
-
-  mockValueProp(Object(settings), 'disableIframePageLoading', true);
+  mockValueProp(happyDOM.settings, 'disableIframePageLoading', true);
 
   const frame = document.createElement('iframe');
 

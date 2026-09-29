@@ -2,6 +2,8 @@
  * The words the stray-console guard reports with: the quote, the likely cause, and the one action
  * that fits the phase and the methods the output went through.
  */
+// Declares the console registry slots on `globalThis`; type-only, so this never loads the `/console` entry.
+import type {} from './console-spy';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { count, displayFrame, displayPath } from './message-text';

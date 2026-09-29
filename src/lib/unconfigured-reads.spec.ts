@@ -6,6 +6,7 @@
 import { type Observable, of } from 'rxjs';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useConsoleSpies } from '../console';
 import '../index';
 import '../rxjs';
 import { createAutoMock } from './auto-mock';
@@ -124,6 +125,8 @@ function armForEachTest(): void {
 }
 
 describe('an unconfigured getter', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   armForEachTest();
 
   it('is reported with the class, the member and the count', () => {
@@ -223,17 +226,14 @@ describe('an unconfigured getter', () => {
   });
 
   it('prints under warn, and says nothing under off', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     void strictSettings().theme;
     reportUnconfiguredReads('warn');
     openReadWindow();
     void strictSettings().theme;
     reportUnconfiguredReads('off');
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Settings.theme was read 1 time'));
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Settings.theme was read 1 time'));
   });
 
   it('is tracked on an instance spied in place', () => {

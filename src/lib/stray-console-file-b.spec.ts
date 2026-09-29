@@ -1,3 +1,4 @@
+/* eslint-disable vitest-auto-spy/no-console-in-spec -- the stray-console guard is under test, so the spec prints and swaps console.error itself */
 /**
  * One of two identical files. Under `isolate: false` (`npm run test:shared-env`) whichever of them
  * runs second meets a `vitest-auto-spy/console` the first one already evaluated — the case an

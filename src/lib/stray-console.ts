@@ -5,6 +5,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from 'vitest';
 
 import { consoleCause } from './console-causes';
+// Declares the console registry slots on `globalThis`; type-only, so this never loads the `/console` entry.
+import type {} from './console-spy';
 import type { GuardReaction } from './guard-reaction';
 import type { OpenStep } from './guard-registry';
 import { currentSpecFile } from './spec-file';
@@ -398,6 +400,20 @@ function createGuard(host: object, environment: object | undefined, previous: Co
   return guard;
 }
 
+/**
+ * The console entry remembers, worker-wide, the first method it ever replaced as the real one; met under
+ * this guard, that was a sentinel, and `restoreConsole()` would put it back after the guard is gone.
+ */
+function forgetSentinelsAsOriginals(guard: ConsoleGuard): void {
+  const remembered = globalThis.__vitestAutoSpyConsoleOriginals__;
+
+  guard.sentinels.forEach((sentinel, method) => {
+    if (remembered !== undefined && remembered.get(method) === sentinel) {
+      remembered.delete(method);
+    }
+  });
+}
+
 /** Take the wrappers off and forget the guard. For specs, and for a suite that wires the guard by hand. */
 export function stopGuardingConsole(): void {
   const guard = globalThis.__vitestAutoSpyStrayConsole__;
@@ -406,6 +422,7 @@ export function stopGuardingConsole(): void {
     return;
   }
 
+  forgetSentinelsAsOriginals(guard);
   guard.originals.forEach((original, method) => Reflect.set(guard.host, method, original));
   releaseEnvironmentConsole(guard.environment);
   globalThis.__vitestAutoSpyStrayConsole__ = undefined;

@@ -5,9 +5,10 @@
  * patched property once per worker — in a file with other `blockNetwork` suites the first report is
  * spent before this one runs, and the ordering defect would sit behind the dedup, silent.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import '../index';
+import { useConsoleSpies } from './console-spy';
 import { setupAutoSpy } from './setup-auto-spy';
 
 describe('the epoch opens before the stub-installing hooks', () => {
@@ -16,12 +17,15 @@ describe('the epoch opens before the stub-installing hooks', () => {
   // first, `open`, `send` and `fetch` were stamped with the previous test's epoch, and the sweep
   // reported its own patches. The first test fails on that throw and the second watches the tolerant
   // grade, so the pair holds for both reactions while the ordering holds.
+  // Ahead of `setupAutoSpy()`: after-hooks run in reverse, so its sweep reports while the spies are on.
+  const { consoleWarnSpy } = useConsoleSpies();
+
   setupAutoSpy({ duplicateCopies: 'off', blockNetwork: true, propsOutsideHooks: 'throw' });
 
   const warnings: string[] = [];
 
   beforeEach(() => {
-    vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
+    consoleWarnSpy.mockImplementation((message: unknown) => {
       warnings.push(String(message));
     });
   });

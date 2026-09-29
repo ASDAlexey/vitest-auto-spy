@@ -3,6 +3,7 @@
  * runs second meets a `vitest-auto-spy/console` the first one already evaluated — the case an
  * import-time install got wrong, silencing every later file of the worker.
  */
+/* eslint-disable vitest-auto-spy/no-console-in-spec -- the console entry and the stray-console guard are under test: the spec has to print and swap console itself */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { ConsoleSpies } from '../console';

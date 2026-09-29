@@ -4,10 +4,11 @@
  * tests were in flight names them all instead of landing silently on one.
  */
 import { type Observable, of } from 'rxjs';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import '../index';
 import '../rxjs';
+import { installConsoleSpies, restoreConsole } from './console-spy';
 import { createSpyFromClass } from './create-spy-from-class';
 import type { Spy } from './types';
 import { openReadWindow, reportUnconfiguredReads, setUnconfiguredReadsDefault } from './unconfigured-reads';
@@ -58,11 +59,13 @@ describe('two test.concurrent windows that overlap', () => {
   const secondOpened = gate();
   const overlapRead = gate();
   const firstClosed = gate();
-  const warn = vi.spyOn(console, 'warn').mockImplementation((message: string) => void warnings.push(message));
   let shared: Spy<Settings>;
   let feed: Spy<Feed>;
 
+  // Installed for the whole block rather than per test: a per-test restore would take the spies off
+  // while the other concurrent test is still writing.
   beforeAll(() => {
+    installConsoleSpies().consoleWarnSpy.mockImplementation((message: unknown) => void warnings.push(String(message)));
     setUnconfiguredReadsDefault(true, undefined);
     shared = strictSettings();
     feed = createSpyFromClass(Feed, { strict: true, observablePropsToSpyOn: ['items$'] });
@@ -70,7 +73,7 @@ describe('two test.concurrent windows that overlap', () => {
 
   afterAll(() => {
     setUnconfiguredReadsDefault(false, undefined);
-    warn.mockRestore();
+    restoreConsole();
   });
 
   beforeEach(async (context) => {
