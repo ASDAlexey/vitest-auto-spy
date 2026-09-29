@@ -1,3 +1,4 @@
+import { Blob as NodeBlob } from 'node:buffer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { type StubResponseInit, stubResponse } from './network-stub';
@@ -108,8 +109,9 @@ describe('stubResponse', () => {
   });
 
   it('hands a Blob, bytes or search params to the constructor untouched', async () => {
-    // A Blob from the constructor's own realm: jsdom's `Blob` is not one Node's `Response` can read.
-    const blob = await new Response('blob').blob();
+    // A Blob from the constructor's own realm: under jsdom `Response` is Node's, which cannot read jsdom's `Blob`
+    // (and under `threads` / `forks` its own `blob()` builds one from that global); happy-dom brings both.
+    const blob = new (expect.getState().environment === 'happy-dom' ? Blob : NodeBlob)(['blob']);
 
     expect(await stubResponse({ body: blob }).text()).toBe('blob');
     expect(await stubResponse({ body: new TextEncoder().encode('bytes') }).text()).toBe('bytes');
