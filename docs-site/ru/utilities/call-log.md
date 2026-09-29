@@ -1,64 +1,104 @@
 ---
 title: Журнал вызовов
-description: createLog — один журнал порядка вызовов, в который пишет каждый коллаборант, поэтому ПОРЯДОК вызовов между объектами сам становится значением, которое проверяет спека, а не набор поштучных спаев, каждый из которых знает, что сработал, и ни один — когда.
+description: createLog — один журнал, в который пишут несколько объектов, чтобы спека проверяла порядок вызовов между ними одним значением.
 ---
 
 # Журнал вызовов
 
+`createLog()` даёт журнал, в который пишут несколько объектов. Затем спека проверяет весь порядок
+вызовов одной строкой. Используйте его, когда порядок важен: шаги завершения, хуки жизненного цикла,
+guard-ы, resolver-ы, уборка.
+
 ```ts
 import { createLog } from 'vitest-auto-spy';
 
-const log = createLog<'drop-cache' | 'flush-telemetry' | 'stop-engine'>();
+it('shuts down in order', () => {
+  const log = createLog<'drop-cache' | 'flush-telemetry' | 'stop-engine'>();
 
-engine.onShutdown(log.fn('drop-cache'));
-engine.onShutdown(log.fn('flush-telemetry'));
-engine.onShutdown(log.fn('stop-engine'));
+  engine.onShutdown(log.fn('drop-cache'));
+  engine.onShutdown(log.fn('flush-telemetry'));
+  engine.onShutdown(log.fn('stop-engine'));
 
-engine.shutdown();
+  engine.shutdown();
 
-expect(log.result()).toBe('drop-cache; flush-telemetry; stop-engine');
+  expect(log.result()).toBe('drop-cache; flush-telemetry; stop-engine');
+});
 ```
 
-Спай отвечает на вопрос, сработал ли его единственный метод. Порядок между коллаборантами — другой
-вопрос: он живёт _между_ спаями, и доступные формы для него быстро деградируют:
+При падении настоящий порядок видно в диффе.
 
-- по одному `toHaveBeenCalled` на спай проходит в любом из шести порядков, какими могут прийти три
-  вызова, — три зелёных проверки, которые приняли бы последовательность задом наперёд;
-- `toHaveBeenCalledBefore` закрепляет её только попарно, цепочкой, растущей как квадрат числа
-  коллаборантов, — и ничего не говорит о вызове, который спека забыла назвать;
-- массив таймстемпов, который спека ведёт руками, — журнал без единого утверждения.
+Почему не спаи:
 
-Один журнал, в который пишет код под тестом, превращает последовательность в одно сравниваемое
-значение, а падение печатает реальный порядок как диф вместо `expected spy to be called before spy`.
+- по `toHaveBeenCalled` на каждый спай проходит при любом порядке, даже обратном;
+- `toHaveBeenCalledBefore` сравнивает только пары спаев. Чем больше объектов, тем больше таких
+  проверок, а вызов, который спека забыла назвать, всё равно пропускается;
+- самописный массив меток времени — тот же журнал, только без готовых проверок.
 
-Портирован из собственного `Log` Angular (`packages/core/testing/src/logger.ts`) — класса, который
-Angular держит в трёх копиях по core, router и forms, потому что это идиоматичный ответ везде, где
-предмет — последовательность: хуки жизненного цикла, гарды, резолверы, разборка.
+Хелпер сделан по образцу внутреннего тестового класса `Log` из самого Angular, который Angular
+использует для таких же тестов.
 
 ## Члены {#the-members}
 
-| Член         | Что делает                                                                            |
-| ------------ | ------------------------------------------------------------------------------------- |
-| `add(value)` | дописать одну запись — отчёт коллаборанта о том, докуда он дошёл                      |
-| `fn(value)`  | колбэк, который записывает `value` при запуске — для хендлеров, хуков, методов гардов |
-| `clear()`    | стереть все записи: свежий журнал без смены личности                                  |
-| `items`      | записи на данный момент по порядку; каждое чтение — независимая копия                 |
-| `result()`   | журнал одной строкой: записи через `'; '`, `''` когда записей нет                     |
+| Член         | Что делает                                                                                          |
+| ------------ | --------------------------------------------------------------------------------------------------- |
+| `add(value)` | добавляет одну запись: объект сообщает, до какого шага дошёл                                        |
+| `fn(value)`  | возвращает колбэк, который записывает `value`, когда его вызвали; для обработчиков, хуков, guard-ов |
+| `clear()`    | удаляет все записи, оставляя тот же объект журнала                                                  |
+| `items`      | записи на этот момент, по порядку; каждое чтение возвращает новую копию                             |
+| `result()`   | записи одной строкой через `'; '`, или `''`, если ничего не записано                                |
 
-`fn()` типизирован как принимающий ничего, поэтому встаёт туда, где нужен хендлер, и игнорирует то,
-что ему передаёт вызвавший, — для мест, которым нужен колбэк, а не вызов.
+Колбэк, который возвращает `fn()`, не смотрит на переданные ему аргументы и возвращает `undefined`.
+Поэтому он подходит в любое место, где ждут колбэк.
 
-`T` ограничен строками не случайно: то, чем `fn()` помечает колбэк, — имя, слово, которое человек
-прочитает в `result()`. Литеральный union делает словарь частью типа —
-`createLog<'init' | 'ready' | 'destroy'>()` отклонит шаг, который журнал никогда не объявлял, там,
-где неограниченный журнал записал бы опечатку и отдал зелёный тест.
+Параметр типа — объединение строковых литералов, например `createLog<'init' | 'ready' | 'destroy'>()`.
+Тогда шаг, которого нет в этом списке, — ошибка компиляции, и опечатка в журнал не попадёт.
 
-## Рецепт для Angular: журнал — это коллаборант {#the-angular-recipe-the-log-is-the-collaborator}
+**Частая ошибка:** проверять `items` через `toEqual`, когда нужен только порядок. `result()` даёт
+одну строку, которую удобно читать в диффе падения.
 
-Польза журнала максимальна, когда прод-код записывает свою последовательность сам. Через DI это
-один провайдер:
+## Запись в журнал из существующих спаев {#logging-from-existing-spies}
+
+Если зависимости — это спаи, которые у вас уже есть, пусть каждый спай пишет в журнал и возвращает то,
+что нужно вашему коду:
 
 ```ts
+import { createLog, createSpyFromClass } from 'vitest-auto-spy';
+
+const log = createLog<'validate' | 'save' | 'navigate'>();
+const steps = createSpyFromClass(StepService);
+const router = createSpyFromClass(Router);
+
+steps.validate.mockImplementation(() => {
+  log.add('validate');
+  return true;
+});
+steps.save.mockImplementation(async () => {
+  log.add('save');
+});
+router.navigate.mockImplementation(async () => {
+  log.add('navigate');
+  return true;
+});
+
+await wizard.finish();
+
+expect(log.result()).toBe('validate; save; navigate');
+```
+
+Запись появляется в момент вызова, а не когда промис завершится. `log.fn('step')` используйте только
+там, где возвращаемое значение не важно: обработчики событий,
+хуки.
+
+## Рецепт для Angular: журнал — это зависимость {#the-angular-recipe-the-log-is-the-collaborator}
+
+Если код приложения может сам записывать в журнал свои шаги, спаи не нужны вовсе. Через DI это один
+провайдер:
+
+```ts
+import { Component, InjectionToken, inject } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { type CallLog, createLog } from 'vitest-auto-spy';
+
 const PANEL_LOG = new InjectionToken<CallLog<'init' | 'ready' | 'destroy'>>('panel log');
 
 @Component({ selector: 'panel', template: '' })
@@ -78,14 +118,15 @@ class Panel {
   }
 }
 
-const log = createLog<'init' | 'ready' | 'destroy'>();
+it('runs the lifecycle in order', () => {
+  const log = createLog<'init' | 'ready' | 'destroy'>();
 
-TestBed.configureTestingModule({ providers: [{ provide: PANEL_LOG, useValue: log }] });
-TestBed.createComponent(Panel).destroy();
+  TestBed.configureTestingModule({ providers: [{ provide: PANEL_LOG, useValue: log }] });
+  TestBed.createComponent(Panel).destroy();
 
-expect(log.result()).toBe('init; ready; destroy');
+  expect(log.result()).toBe('init; ready; destroy');
+});
 ```
 
-Здесь нет ни Angular, ни раннера — модуль ничего не импортирует, — поэтому один и тот же журнал
-без изменений работает на Vitest, `bun test` и `node:test` и в обычном юнит-тесте вовсе без
-`TestBed`.
+Журнал ничего не знает ни об Angular, ни о тест-раннере. Он одинаково работает в Vitest, `bun test`
+и `node:test`, а также в обычном юнит-тесте без `TestBed`.

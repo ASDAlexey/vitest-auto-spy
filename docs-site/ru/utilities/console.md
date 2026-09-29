@@ -1,31 +1,59 @@
 ---
 title: Спаи над console
-description: Тихие типизированные спаи над глобальным console — ставятся на тест через useConsoleSpies() или installConsoleSpies(), снимаются в afterEach и поглощают вывод под охраной от посторонней консоли.
+description: Тихие типизированные спаи над глобальным console из vitest-auto-spy/console - поставьте их тестам, которые ждут вывода, проверьте, и после каждого теста они снимаются.
 ---
 
 # Спаи над console
 
-Спаи над консолью живут за подпутём `vitest-auto-spy/console`: `console.debug` / `error` / `info` /
-`log` / `time` / `timeEnd` / `trace` / `warn` заменяются **тихими, полностью типизированными
-спаями**, готовыми к проверке, — никакого бойлерплейта `vi.spyOn(console, 'info')` в каждой сюите и
-никакого лога, который засоряет прогон. Ставьте их тестам, которые ждут вывода, и снимайте обратно:
+`vitest-auto-spy/console` заменяет `console.debug`, `error`, `info`, `log`, `time`, `timeEnd`,
+`trace` и `warn` тихими типизированными спаями. Он нужен, когда ваш код пишет в лог, а тест хочет
+этот лог проверить, или чтобы лог не засорял вывод прогона. Чтобы проверить весь вывод разом,
+включая «больше ничего не печаталось», используйте [`consoleOutput()`](#everything-a-test-wrote-as-one-value),
+а если важен и порядок — [`consoleLines()`](#everything-a-test-wrote-in-order).
 
 ```ts
 import { useConsoleSpies } from 'vitest-auto-spy/console';
 
-const { consoleInfoSpy, consoleWarnSpy } = useConsoleSpies();
+describe('JobService', () => {
+  const { consoleInfoSpy, consoleWarnSpy } = useConsoleSpies();
 
-it('logs the finished job', () => {
-  service.doWork();
+  it('logs the finished job', () => {
+    service.doWork();
 
-  expect(consoleInfoSpy).toHaveBeenCalledWith('done');
-  expect(consoleWarnSpy).not.toHaveBeenCalled();
+    expect(consoleInfoSpy).toHaveBeenCalledWith('done');
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
+  });
 });
 ```
 
-`useConsoleSpies()` регистрирует `beforeEach(installConsoleSpies)` и `afterEach(restoreConsole)` в
-объемлющем `describe` (или в файле) и возвращает спаи. Хуки он берёт из Vitest, и Bun подставляет
-вместо них свои; на `node:test` и Rstest эту пару пишут в хуках раннера сами:
+## `useConsoleSpies()` {#useconsolespies}
+
+Ставит спаи перед каждым тестом окружающего `describe` (или файла) и снимает после каждого теста.
+Возвращает спаи.
+
+Экспортированные константы (`consoleInfoSpy`, `consoleErrorSpy`, …) — те же самые объекты, так что
+их можно импортировать напрямую:
+
+```ts
+import { consoleErrorSpy, useConsoleSpies } from 'vitest-auto-spy/console';
+
+useConsoleSpies();
+
+it('reports the failure', () => {
+  service.doWork();
+  expect(consoleErrorSpy).toHaveBeenCalledWith('boom');
+});
+```
+
+Если вывода ждёт каждый тест файла, вместо этого один раз вызовите `installConsoleSpies()` в начале
+файла.
+
+Работает в Vitest, `node:test`, Bun и Rstest. Хуки ставятся в раннер, чью точку входа вы
+импортировали (`vitest-auto-spy/node`, `vitest-auto-spy/bun`, `vitest-auto-spy/rstest`), а иначе —
+в Vitest. `vitest-auto-spy/console` не импортирует пакет `vitest` и загружается без него.
+
+Если хуки раннера не найдены, `useConsoleSpies()` бросает ошибку и называет точки входа, которые
+нужно импортировать. Пару всегда можно записать в собственных хуках раннера:
 
 ```ts
 import { installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
@@ -34,25 +62,17 @@ beforeEach(() => installConsoleSpies());
 afterEach(() => restoreConsole());
 ```
 
-Сам entry импортирует `vitest` — ради этих хуков и адаптера, который он регистрирует, если runtime-entry
-этого не сделал, — так что на `node:test` и Rstest он загружается только там, где резолвится пакет `vitest`.
-
-Голый `useConsoleSpies();` в теле `describe` задевает `vitest/require-hook`; разверните
-`autoSpy.hookRegisteringHelpers` из `vitest-auto-spy/eslint-plugin` в его `allowedFunctionCalls`
-([Рядом с `vitest/require-hook`](/ru/utilities/eslint-plugin#alongside-vitest-require-hook)).
-
-Экспортированные константы — `consoleInfoSpy`, `consoleErrorSpy`, … — те же объекты, что и мешок,
-который возвращают `useConsoleSpies()` и `installConsoleSpies()`, так что `expect(consoleErrorSpy)` — та же проверка. Когда
-вывода ждут все тесты файла, `installConsoleSpies()` один раз в начале файла делает то же для всего
-файла.
+**Частая ошибка:** голый `useConsoleSpies();` в теле `describe` нарушает правило линтера
+`vitest/require-hook`. Добавьте `autoSpy.hookRegisteringHelpers` из
+`vitest-auto-spy/eslint-plugin` в `allowedFunctionCalls` этого правила; см.
+[Рядом с `vitest/require-hook`](/ru/utilities/eslint-plugin#alongside-vitest-require-hook).
 
 ### Всё, что тест написал, одним значением {#everything-a-test-wrote-as-one-value}
 
-`toHaveBeenCalledWith` на одном спае ничего не говорит об остальных: тест, который закрепил
-`consoleInfoSpy`, проходит, пока мимо идёт никем не проверенный `console.warn`. `consoleOutput()`
-возвращает все вызовы, которые записали спаи, по каналам (`debug`, `error`, `info`, `log`, `trace`,
-`warn`), с аргументами каждого вызова — и только те каналы, в которые что-то писали. Точное сравнение
-закрепляет весь вывод целиком, а лишняя строка роняет его с полным диффом:
+`consoleOutput()` возвращает все вызовы, которые записали спаи, по каналам (`debug`, `error`,
+`info`, `log`, `trace`, `warn`), с аргументами каждого вызова. Каналов, в которые никто не писал, в
+результате нет. Сравните его точно — и любая лишняя строка уронит тест с полным диффом.
+`toHaveBeenCalledWith` на одном спае так не умеет: неожиданный `console.warn` он пропустит.
 
 ```ts
 import { consoleOutput, installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
@@ -73,75 +93,96 @@ it('stays silent on a clean run', () => {
 });
 ```
 
-`time` и `timeEnd` не входят: `timeEnd` печатает длительность, которую тест не закрепит.
-`consoleOutput()` бросает, пока ни один спай не сидит на `console`, — после `restoreConsole()` или под
-охраной от посторонней консоли до `installConsoleSpies()`: снятые спаи ничего не записывают, и пустой
-результат читался бы как тишина.
+`time` и `timeEnd` не входят: `timeEnd` печатает длительность, которую тест не может предсказать.
 
-Это функция, а не матчер `toHaveLogged(…)`, намеренно: `toStrictEqual` уже даёт точное сравнение и
-дифф, функция добавляет входу 184 байта (min+gzip) против 340 у функции вместе с матчером, и ей не
-нужны ни `expect.extend` при импорте, ни типизация матчера.
+**Частая ошибка:** вызывать её, когда спаи не установлены, например после `restoreConsole()`. Она
+бросает ошибку, потому что пустой результат выглядел бы как тишина.
+
+### Всё, что тест написал, по порядку {#everything-a-test-wrote-in-order}
+
+`consoleLines()` возвращает один массив по всем каналам в порядке вызовов. Каждый элемент — канал и
+за ним аргументы вызова. Используйте, когда важен порядок, например предупреждение перед результатом.
+
+```ts
+import { consoleLines, useConsoleSpies } from 'vitest-auto-spy/console';
+
+describe('cli', () => {
+  useConsoleSpies();
+
+  it('warns before it reports', () => {
+    cli.run(['--dry-run']);
+
+    expect(consoleLines()).toStrictEqual([
+      ['warn', 'deprecated flag'],
+      ['info', 'done'],
+    ]);
+  });
+});
+```
+
+`time` и `timeEnd` не входят и сюда. `vi.clearAllMocks()` или `clearMocks: true` между тестами
+порядок не ломают.
+
+**Частая ошибка:** задавать спаю консоли свой `mockImplementation` или `mockReturnValue`. Тогда
+порядок вызовов больше не записывается, и `consoleLines()` бросает ошибку, а не гадает. В этом
+случае проверяйте `consoleOutput()`.
 
 ### Почему не полагаться на импорт {#why-not-rely-on-the-import}
 
-Импорт входа тоже ставит спаи, при первом вычислении модуля, — а под `isolate: false` это один раз на
-**воркер**: спаи встают в том файле, который импортировал их первым, глушат каждый следующий файл
-воркера, и ничто в этих файлах их не снимает. Что это скрывает — зависит от порядка файлов. На
-Angular-потребителе в 1759 файлов 32 из 39 файлов, импортирующих вход, полагались ровно на это; как
-только три файла начали звать `restoreConsole()` в `afterEach`, упали 12 тестов в 5 других файлах, а
-вывод, который скрывала тишина, всплыл в 7 файлах. Правило
-[`no-import-time-console-spies`](/ru/utilities/eslint-rules#no-import-time-console-spies) ловит этот
-паттерн. Установка при импорте оставлена только ради совместимости для прогона без охраны от
-посторонней консоли; под охраной импорт не ставит ничего.
+Импорт точки входа тоже ставит спаи — при первом выполнении модуля. Если файлы спек делят одно
+окружение (`isolate: false`), это происходит один раз на воркер: спаи встают в том файле, который
+импортировал их первым, и глушат все следующие файлы воркера. Никто их не снимает, и что они скрывают, зависит от порядка файлов.
+
+Ставьте их явно через `useConsoleSpies()` или `installConsoleSpies()`. Правило линтера
+[`no-import-time-console-spies`](/ru/utilities/eslint-rules#no-import-time-console-spies) находит
+спеки, которые полагаются на импорт. Установка при импорте оставлена только для прогонов без
+[охраны консоли](#under-the-stray-console-guard); под охраной импорт ничего не ставит.
 
 ## Экспорты {#exports}
 
-По одному спаю на каждый пропатченный метод: `consoleDebugSpy`, `consoleErrorSpy`, `consoleInfoSpy`,
-`consoleLogSpy`, `consoleTimeSpy`, `consoleTimeEndSpy`, `consoleTraceSpy`, `consoleWarnSpy`
-(тип `ConsoleMethodSpy`). `consoleOutput()` (тип `ConsoleOutput` с ключами `ConsoleChannel`) читает
-их все разом.
+| Экспорт                                                                                                                                             | Что это                                                                                      |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `consoleDebugSpy`, `consoleErrorSpy`, `consoleInfoSpy`, `consoleLogSpy`, `consoleTimeSpy`, `consoleTimeEndSpy`, `consoleTraceSpy`, `consoleWarnSpy` | Спай на каждый метод, тип `ConsoleMethodSpy`                                                 |
+| `useConsoleSpies()`                                                                                                                                 | Ставит перед каждым тестом, снимает после; возвращает спаи                                   |
+| `installConsoleSpies()`                                                                                                                             | Ставит сейчас; возвращает объект `ConsoleSpies`                                              |
+| `restoreConsole()`                                                                                                                                  | Возвращает настоящие методы                                                                  |
+| `resetConsoleSpies()`                                                                                                                               | Очищает записанные вызовы, спаи остаются                                                     |
+| `consoleOutput()`                                                                                                                                   | Все вызовы по каналам, тип `ConsoleOutput` с ключами `ConsoleChannel`                        |
+| `consoleLines()`                                                                                                                                    | Все вызовы по порядку, тип `ConsoleLine[]` (`[channel: ConsoleChannel, ...args: unknown[]]`) |
 
 ## Уборка {#housekeeping}
 
 ```ts
 import { installConsoleSpies, resetConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
 
-resetConsoleSpies(); // очистить записанные вызовы (`clearMocks: true` в Vitest делает это на каждый тест)
-restoreConsole(); // вернуть на место настоящие методы console
-installConsoleSpies(); // поставить заново после снятия (в остальных случаях идемпотентно)
+resetConsoleSpies(); // очистить записанные вызовы
+restoreConsole(); // вернуть настоящие методы console
+installConsoleSpies(); // поставить снова после restore; повторный вызов безопасен
 ```
 
-- `resetConsoleSpies()` очищает записанные вызовы, но оставляет спаи на месте. С `clearMocks: true`
-  в конфиге Vitest это происходит само перед каждым тестом.
-- `restoreConsole()` возвращает настоящие методы и очищает записанное спаями. Сами спаи сохраняются,
-  так что `consoleErrorSpy` и остальные экспорты остаются живыми до следующей установки — под
-  `isolate: false` снятие, которое их забывало, оставляло каждый следующий файл воркера проверять спаи,
-  до которых уже ничто не дотягивалось.
-- `useConsoleSpies()` регистрирует пару «поставить / снять» хуками объемлющего блока.
-- `installConsoleSpies()` возвращает полный мешок `ConsoleSpies` — всегда один и тот же — и снова
-  сажает его спаи на консоль, если что-то их сняло.
-
-Спаи переживают `vi.resetModules()`. Этот вызов отдаёт следующему импорту свежую копию модуля, пока
-спаи предыдущей копии ещё сидят на `console`, и новая копия никогда не примет такой спай за настоящий
-метод: настоящие запомнены один раз на воркер, и там их находит любая копия. Поэтому
-`restoreConsole()` не может посадить обратно на `console` спай, до которого уже никто не дотянется, —
-и так на весь остаток жизни воркера.
+- `resetConsoleSpies()` очищает записанные вызовы, но оставляет спаи на месте. `clearMocks: true` в
+  конфиге Vitest делает это перед каждым тестом. [`setupAutoSpy()`](/ru/utilities/setup) делает это
+  после каждого теста через свою опцию `resetConsoleSpies` (по умолчанию включена). Выключайте эту
+  опцию, только если спека проверяет то, что записал предыдущий тест.
+- `restoreConsole()` возвращает настоящие методы и очищает записанное. Сами объекты спаев остаются,
+  поэтому `consoleErrorSpy` и остальные экспорты работают и после следующей установки.
+- `installConsoleSpies()` всегда возвращает один и тот же объект `ConsoleSpies`. Если что-то сняло
+  спаи с `console`, он ставит их обратно.
+- Спаи переживают `vi.resetModules()`. Свежая копия модуля всё равно находит настоящие методы
+  консоли, поэтому `restoreConsole()` никогда не оставит на `console` устаревший спай.
 
 ## Под охраной от посторонней консоли {#under-the-stray-console-guard}
 
 [`setupAutoSpy({ strayConsole: 'throw' })`](/ru/utilities/setup#_16-console-output-nothing-absorbed)
-роняет тест на любом выводе в консоль, который никто не поглотил, и поглощают его как раз эти спаи. Пока
-охрана включена, меняются три вещи.
+роняет тест, который пишет в консоль, когда этот вывод нечем поглотить. Поглощают его эти спаи.
+Пока охрана включена, меняются три вещи.
 
-**Импорт ничего не ставит.** Под `isolate: false` модуль вычисляется один раз на воркер, поэтому
-установка при импорте сажала спаи на консоль в том файле, который импортировал их первым, и оставляла
-их там для всех следующих файлов воркера — глуша ровно тот вывод, ради которого охрана существует.
-Поэтому импорт только строит спаи, а `installConsoleSpies()` ставит те же объекты на консоль:
+**Импорт ничего не ставит.** Он только создаёт спаи. Ставьте их там, где они нужны:
 
 ```ts
 import { consoleWarnSpy, useConsoleSpies } from 'vitest-auto-spy/console';
 
-useConsoleSpies(); // для тестов этого файла — или installConsoleSpies() в начале файла
+useConsoleSpies(); // тесты этого файла; или installConsoleSpies() в начале файла
 
 it('warns about the deprecated flag', () => {
   service.configure({ legacy: true });
@@ -151,33 +192,39 @@ it('warns about the deprecated flag', () => {
 ```
 
 **Спаи не переживают свою область.** Поставленные в тесте или в `beforeEach`, они снимаются после
-теста; поставленные в начале файла — после файла. Спаи, которые импорт успел поставить до включения
-охраны, снимаются в момент включения. `vi.spyOn(console, m)` без реализации — не замена: он вызывает
-оригинал, строка всё равно печатается, и охрана всё равно роняет тест со словами
-`vi.spyOn(console, 'error') calls through — add .mockImplementation(() => undefined).` Такую форму
-ещё до прогона ловит правило
-[`no-passthrough-console-spy`](/ru/utilities/eslint-rules#no-passthrough-console-spy).
+теста. Поставленные в начале файла — после файла. Спаи, поставленные более ранним импортом,
+снимаются, когда охрана включается.
 
-**То, что пишет DOM-окружение, тоже доходит до спаев.** Консоль страницы happy-dom и виртуальная
-консоль jsdom держат собственную консоль воркера, захваченную до того, как Vitest подменил
-`globalThis.console`, поэтому их строки уходили в stderr мимо всех спаев и мимо охраны. Охрана
-перенаправляет их в ту консоль, на которой сидят спаи: `consoleErrorSpy` поглощает
-`NotSupportedError … Iframe page loading is disabled` от happy-dom, как любой другой `console.error`, и
-тест может это проверить.
+**То, что пишет DOM-среда, тоже доходит до спаев.** Консоль страницы happy-dom и виртуальная
+консоль jsdom раньше писали мимо всех спаев. Охрана перенаправляет их в консоль, на которой стоят
+спаи. Поэтому `consoleErrorSpy` поглощает `NotSupportedError … Iframe page loading is disabled` из
+happy-dom, как любой другой `console.error`, и тест может это проверить.
 
-Без охраны здесь ничего не меняется: импорт входа ставит спаи, как и раньше.
+**Частая ошибка:** `vi.spyOn(console, 'error')` без реализации. Он передаёт вызов дальше, строка всё
+равно печатается, и охрана всё равно роняет тест:
+`vi.spyOn(console, 'error') calls through — add .mockImplementation(() => undefined).` Правило
+линтера [`no-passthrough-console-spy`](/ru/utilities/eslint-rules#no-passthrough-console-spy) находит
+его до запуска.
+
+Без охраны здесь ничего не меняется: импорт точки входа ставит спаи, как и раньше.
 
 ## Рантаймы {#runtimes}
 
-Спаи строятся на зарегистрированном [`MockAdapter`](../runtimes/vitest), а не напрямую на
-`vi.spyOn` — импортируйте вход своего рантайма (`vitest-auto-spy/bun`, `vitest-auto-spy/node`)
-**до** `vitest-auto-spy/console`, и спаями над консолью будут править моки этого раннера. Если
-никакого входа рантайма до этого не было, регистрируется адаптер Vitest по умолчанию.
+Спаи построены на зарегистрированном [`MockAdapter`](../runtimes/vitest) (связь библиотеки с
+`vi.fn()` / `mock()` вашего раннера), а не напрямую на `vi.spyOn`. Импортируйте точку входа вашего
+рантайма (`vitest-auto-spy/bun`, `vitest-auto-spy/node`) **до** `vitest-auto-spy/console`, и спаи
+консоли будут работать на моках этого раннера.
+
+В Vitest без импортированной точки входа рантайма адаптер по умолчанию использует собственный `vi`
+Vitest. В другом раннере спаи ждут точку входа этого раннера. Если `/console` импортирован первым
+(отсортированный список импортов ставит его перед `/node`), он пока ничего не создаёт. Первый
+`installConsoleSpies()` или `useConsoleSpies()` создаёт спаи, и экспортированный `consoleErrorSpy` с
+остальными их подхватывают.
 
 ## Полностью отвязанная альтернатива {#fully-detached-alternative}
 
-Не хочется трогать настоящий глобал? `createAutoMock<Console>()` даёт типизированную консоль в
-памяти, которую можно передать коду, принимающему логгер:
+Чтобы не трогать настоящий `console`, передайте в код типизированную консоль в памяти.
+`createAutoMock<Console>()` даёт такую для кода, который принимает логгер:
 
 ```ts
 import { createAutoMock } from 'vitest-auto-spy';

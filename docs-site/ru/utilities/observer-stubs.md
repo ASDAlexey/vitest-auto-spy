@@ -1,19 +1,13 @@
 ---
 title: Заглушки observer-ов
-description: stubIntersectionObserver и его родня — подменить observer, который компонент создаёт сам, на такой, которым управляет спека, и автоматически получить настоящий глобал обратно.
+description: stubIntersectionObserver и родственные подменяют observer, который компонент создаёт сам, на тот, которым управляет спека, и после теста возвращают настоящий глобал.
 ---
 
 # Заглушки observer-ов
 
-::: tip Переехало в 4.0.0
-Раньше это экспортировалось из корневой точки входа. Реэкспорт в ESM жадный, и ни один раннер не
-делает tree-shaking тестового файла, так что каждая спека в каждом проекте — включая Node-сервисы —
-вычисляла DOM-заглушки только ради `createSpyFromClass`. Теперь они живут за
-`vitest-auto-spy/dom-stubs`: **−0.159 мс** на каждом файле спеки, который их не импортирует,
-**+0.155 мс** на тех, которые импортируют, и 20.3 кБ долой из `dist`.
-Те же хелперы, те же сигнатуры; `restoreMockedProps()` и `setupAutoSpy()` из корня по-прежнему
-возвращают на место всё, что было пропатчено здесь.
-:::
+Эти заглушки нужны, чтобы протестировать компонент, который сам создаёт `IntersectionObserver`,
+`ResizeObserver` или `MutationObserver`. Заглушка запоминает каждый observer, который создал
+компонент, и даёт спеке вызвать его колбэк. После каждого теста настоящий глобал возвращается.
 
 ```ts
 import { intersectionEntry, stubIntersectionObserver } from 'vitest-auto-spy/dom-stubs';
@@ -31,32 +25,60 @@ it('reveals the card once it scrolls into view', async () => {
 });
 ```
 
-У `IntersectionObserver`, `ResizeObserver` и `MutationObserver` общая форма, из-за которой их
-неудобно тестировать. Код под тестом создаёт observer сам, держит инстанс приватным, и единственное,
-до чего дотягивается спека, — глобальный конструктор. Значит, спеке приходится перехватить создание,
-запомнить колбэк и вызвать его с entries, собранными руками, — сорок строк, которые ничего не говорят
-о компоненте и которые каждый проект пишет заново.
+Всё на этой странице импортируется из `vitest-auto-spy/dom-stubs`. Ничего специфичного для Angular
+здесь нет: спаи берутся из зарегистрированного [адаптера раннера](../runtimes/vitest), поэтому
+заглушки работают и в Bun, и в `node:test`.
 
-Две детали превращают самописную версию из просто занудной в неправильную.
+::: tip Zoneless Angular
+`emit` сразу вызывает колбэк компонента, но change detection, который он запланировал, ещё не
+выполнен. После него вызовите `await fixture.whenStable()` или
+[`stable(fixture)`](../adapters/angular#zoneless-waiting).
+:::
 
-## Заглушка, которую никто не снимает {#the-stub-nobody-takes-off}
+## Установщики {#the-installers}
 
-Спека, которая присваивает `globalThis.IntersectionObserver` напрямую, там его и оставляет. При
-`isolate: false` следующий файл в воркере наследует её и падает на чём-то постороннем —
-`.observe is not a function` или ассерт, который никогда не срабатывает, — указывая на невиновный код.
+| Функция                      | Какой глобал подменяет  |
+| ---------------------------- | ----------------------- |
+| `stubIntersectionObserver()` | `IntersectionObserver`  |
+| `stubResizeObserver()`       | `ResizeObserver`        |
+| `stubMutationObserver()`     | `MutationObserver`      |
+| `stubObserver(name)`         | любой из трёх, по имени |
 
-Установка здесь идёт через `mockValueProp`, поэтому `restoreMockedProps()` — который
-[`setupAutoSpy()`](./setup) и так вызывает после каждого теста — возвращает настоящий конструктор на
-место без всякого тирдауна с вашей стороны.
+Каждая возвращает [хендл](#the-handle). Вызывайте её в `beforeEach` или в самом тесте; см.
+[ниже](#install-it-in-beforeeach-never-in-beforeall).
 
-## Инстанс, до которого добираются через статическое поле {#the-instance-reached-through-a-static-field}
+## Хендл {#the-handle}
 
-`MockObserver.last` — обычный трюк, и это разделяемое изменяемое состояние, переживающее файл ровно
-так же, как заглушка: observer, созданный одной спекой, всё ещё лежит там, где его найдёт следующая.
+```ts
+const observers = stubResizeObserver();
 
-Здесь инстансами владеет хендл, который вернул установщик, поэтому ничто не переживает создавшую его
-спеку. Обращение к `last`, когда код под тестом ничего не создал, бросает ошибку и говорит об этом
-прямо, вместо того чтобы упасть тремя строками позже на `undefined`:
+observers.instances; // все observer-ы, созданные после установки заглушки, по порядку
+observers.last; // последний; обычный случай, когда компонент создаёт ровно один
+```
+
+У каждого экземпляра есть то, что спека проверяет, и то, чем она управляет:
+
+| Член            | Что это                                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------------------- |
+| `targets`       | всё, что передали в `observe`, с учётом `unobserve` / `disconnect`                                            |
+| `observe`       | спай — проверить, что наблюдение началось и с чем                                                             |
+| `unobserve`     | спай                                                                                                          |
+| `disconnect`    | спай                                                                                                          |
+| `disconnected`  | было ли отключение; читается проще, чем проверка `disconnect`                                                 |
+| `emit(entries)` | вызывает колбэк компонента с одной пачкой, как это делает браузер                                             |
+| `options`       | опции, переданные конструктору; см. [ниже](#options-—-what-the-constructor-was-given)                         |
+| `host`          | объект observer-а, который держит ваш код (не хост-элемент); см. [ниже](#the-observer-the-callback-is-handed) |
+
+`emit` принимает массив: быстрая прокрутка или изменение размера приносят несколько записей сразу.
+Код, который рассчитывает на одну запись за вызов, содержит настоящий баг, и так его можно
+воспроизвести:
+
+```ts
+observers.last.emit([intersectionEntry(first, false), intersectionEntry(second, true)]);
+```
+
+**Частая ошибка:** обращаться к `last` раньше, чем компонент создал observer. Он бросает ошибку, а
+не возвращает `undefined`:
 
 ```text
 [vitest-auto-spy] stubObserver('IntersectionObserver'): the stub is installed, but the code under test
@@ -65,38 +87,57 @@ reaching for `last`.
 Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs#the-handle
 ```
 
-## Хендл {#the-handle}
+Сначала отрендерите компонент (`fixture.detectChanges()`), потом берите `last`.
+
+## Построение entries {#building-entries}
+
+Хелперы, которые строят записи для `emit`:
 
 ```ts
-const observers = stubResizeObserver();
+import { intersectionEntry, mutationRecord, resizeEntry } from 'vitest-auto-spy/dom-stubs';
 
-observers.instances; // все observer-ы, созданные с момента установки заглушки, по порядку
-observers.last; // самый свежий — обычный случай, когда компонент строит ровно один
+observers.last.emit([intersectionEntry(element, true)]);
+observers.last.emit([mutationRecord(host, { addedNodes: [span] })]);
+observers.last.emit([resizeEntry(host, { width: 320, height: 200 })]);
 ```
 
-Каждый инстанс отдаёт наружу то, что спека проверяет, и то, чем она управляет:
+| Хелпер                                                  | Что строит                  |
+| ------------------------------------------------------- | --------------------------- |
+| `intersectionEntry(target, isIntersecting, overrides?)` | `IntersectionObserverEntry` |
+| `resizeEntry(target, rect)`                             | `ResizeObserverEntry`       |
+| `mutationRecord(target, init)`                          | `MutationRecord`            |
 
-| Член            | Что это                                                                   |
-| --------------- | ------------------------------------------------------------------------- |
-| `targets`       | всё, что передали в `observe`, с учётом `unobserve`/`disconnect`          |
-| `observe`       | спай — чтобы проверить, _что_ наблюдение вообще началось, и за чем именно |
-| `unobserve`     | спай                                                                      |
-| `disconnect`    | спай                                                                      |
-| `disconnected`  | отработал ли тирдаун — читаемая форма проверки на `disconnect`            |
-| `emit(entries)` | вызвать колбэк одной пачкой, ровно так, как их доставляет браузер         |
+Почему не писать записи руками:
 
-`emit` принимает массив, а не одну запись, и это сделано намеренно. Быстрый скролл или шторм ресайзов
-доставляет сразу несколько, и код, который считает, что на вызов приходится одна запись, — настоящий
-баг, до которого так можно дотянуться:
+- У `IntersectionObserverEntry` семь обязательных полей, а код обычно читает одно. Без хелпера в
+  каждой спеке нужно двойное приведение типа.
+- `MutationRecord` нельзя записать объектным литералом: `addedNodes` и `removedNodes` — это
+  `NodeList`. Привычный приём (добавить узлы в `DocumentFragment` и взять `childNodes`)
+  **перемещает** узлы из вашей фикстуры. `mutationRecord()` строит список с индексами, `item()`,
+  `forEach`, `for…of` и `entries` / `keys` / `values` и ничего не перемещает.
+
+`intersectionEntry` сам заполняет поля, которые код обычно не читает. `intersectionRatio` вычисляется из
+`isIntersecting`: браузер никогда не отдаёт их несогласованными. Прямоугольники не заполняются, пока
+вы их не передадите в `overrides`: `boundingClientRect`, `intersectionRect` и `rootBounds` принимают
+`DOMRect` или числа `{ x, y, width, height }`.
 
 ```ts
-observers.last.emit([intersectionEntry(first, false), intersectionEntry(second, true)]);
+intersectionEntry(element, true);
+intersectionEntry(element, true, { boundingClientRect: new DOMRect(0, 0, 200, 100) });
+observers.last.emit([intersectionEntry(tooltip, true, { boundingClientRect: { x: 10, y: 20, width: 200, height: 100 } })]);
+```
+
+Запись `ResizeObserver` можно по-прежнему написать самому, если компонент читает что-то
+необычное:
+
+```ts
+observers.last.emit([{ contentRect: { width: 320 } } as ResizeObserverEntry]);
 ```
 
 ## Observer, который передают в колбэк {#the-observer-the-callback-is-handed}
 
-Второй аргумент колбэка — тот объект, который вернул `new IntersectionObserver(…)`, — тот, что
-сохранил код под тестом, а не запись, о которой шла речь выше. Продакшн-код до него тянется:
+Второй аргумент колбэка — объект, который вернул `new IntersectionObserver(…)`, тот самый, что
+сохранил ваш код. Код часто им пользуется:
 
 ```ts
 new IntersectionObserver((entries, observer) => {
@@ -104,49 +145,83 @@ new IntersectionObserver((entries, observer) => {
 });
 ```
 
-поэтому `takeRecords()` на нём — спай, отвечающий пустым списком, а `root`, `rootMargin` и
-`thresholds` читаются обратно из init, который передали конструктору, а не остаются пустыми, —
-директива, которая строит по observer-у на каждый root margin, ассертит именно их. `rootMargin` по
-умолчанию `'0px 0px 0px 0px'`, а `thresholds` — `[0]`, как у платформы, и `threshold`, переданный
-одним числом, приезжает одноэлементным массивом.
+У этого объекта:
 
-`instances[i].host` (и `last.host`) — тот же объект, для спеки, которая сравнивает его с
-observer-ом, который держит компонент:
+- `takeRecords()` — спай, который возвращает пустой список;
+- `root`, `rootMargin` и `thresholds` берутся из опций, которые получил конструктор;
+- `rootMargin` по умолчанию `'0px 0px 0px 0px'`, а `thresholds` — `[0]`, как в браузере; `threshold`
+  одним числом превращается в массив из одного элемента.
+
+`instances[i].host` (и `last.host`) — тот же объект, чтобы сравнить его с тем, что держит компонент:
 
 ```ts
 expect(observers.last.host).toBe(component.observer);
 ```
 
-## Построение entries {#building-entries}
+## `options` — с чем позвали конструктор {#options-—-what-the-constructor-was-given}
 
-`intersectionEntry(target, isIntersecting, overrides?)` заполняет поля, которые никто не читает.
-`intersectionRatio` вычисляется, а не принимается снаружи, потому что расхождение между этими двумя —
-не то состояние, которое производит браузер: спека, которая разводит их в стороны, проверяет то, чего
-не бывает.
+`options` — второй аргумент, который компонент передал конструктору. Нужен, когда компонент создаёт
+по observer-у на каждую конфигурацию, например по одному на каждый root margin.
 
 ```ts
-intersectionEntry(element, true);
-intersectionEntry(element, true, { boundingClientRect: new DOMRect(0, 0, 200, 100) });
+new IntersectionObserver(callback, { rootMargin: '-20% 0px -70% 0px' });
+
+expect(observers.last.options).toEqual({ rootMargin: '-20% 0px -70% 0px' });
 ```
 
-Поля с прямоугольниками не заполняются, пока их не попросят. Сочинять четыре `DOMRectReadOnly` ради
-ассерта, который смотрит на `isIntersecting`, — это церемония, а не достоверность, а `overrides`
-подставит то, что конкретный компонент действительно читает: `boundingClientRect`,
-`intersectionRect` и `rootBounds` принимают `DOMRect` или четыре числа.
+## `autoEmit` — всё видно, и сразу {#autoemit-—-everything-is-visible-immediately}
 
-Для `ResizeObserver` и `MutationObserver` entries остаются вашими, потому что читаемое из них
-компонентом слишком разное, чтобы угадывать:
+С `autoEmit: true` заглушка вызывает колбэк с `isIntersecting: true`, как только компонент вызвал
+`observe()`. Нужно для набора тестов, перенесённого с Jest, где глобальный мок делал именно так, и
+ленивые секции загружались во время `detectChanges()`.
 
 ```ts
-observers.last.emit([{ contentRect: { width: 320 } } as ResizeObserverEntry]);
+stubIntersectionObserver({ autoEmit: true });
 ```
+
+Заглушка по умолчанию молчит, пока вы не вызовете `emit`, — это правильно, когда момент пересечения
+выбирает спека. Без `autoEmit` перенесённая спека проверяет компонент, который ничего не загрузил, и
+падает с ошибкой, не связанной с пересечением.
+
+`stubObserver` принимает вместо этого функцию, и запись строите вы:
+
+```ts
+stubObserver<ResizeObserverEntry, Element>('ResizeObserver', {
+  autoEmit: (target) => resizeEntry(target, { width: 320 }),
+});
+```
+
+## Ставьте её в `beforeEach`, никогда в `beforeAll` {#install-it-in-beforeeach-never-in-beforeall}
+
+Vitest выполняет `beforeAll` файла один раз, раньше любого `beforeEach`. Поэтому корневой
+`beforeEach` общего setup-файла выполняется **после** этого `beforeAll`. Если setup-файл ставит там
+свою заглушку observer-а по умолчанию, она ещё до первого теста заменяет заглушку из `beforeAll`. Симптом —
+`expected "vi.fn()" to be called 2 times, but got 0 times`, хотя заглушка стоит десятью строками
+выше проверки.
+
+Чтобы один и тот же observer был в каждом тесте файла, используйте
+[`installPerTest`](./setup#reinstalling-a-stub-for-every-test).
+
+## Заглушка, которую никто не снимает {#the-stub-nobody-takes-off}
+
+Заглушка ставится через `mockValueProp`, поэтому `restoreMockedProps()` после каждого теста
+возвращает настоящий конструктор. [`setupAutoSpy()`](./setup) и так это делает; своей уборки писать
+не нужно.
+
+Спека, которая сама присваивает `globalThis.IntersectionObserver`, оставляет его на месте. При
+`isolate: false` его наследует следующий файл воркера и падает на чём-то постороннем, например
+`.observe is not a function`.
+
+## Экземпляр, до которого добираются через статическое поле {#the-instance-reached-through-a-static-field}
+
+Самописный мок часто хранит последний экземпляр в статическом поле (`MockObserver.last`). Это поле
+остаётся после конца файла, как и заглушка: следующая спека находит observer предыдущей. Здесь экземплярами
+владеет хендл, и ничто не переживает спеку, которая его создала.
 
 ## Замена рукописной заглушки глобала {#replacing-a-hand-rolled-global-stub}
 
-Форма, которую это заменяет, — встречается в поле и пишется руками чаще, чем нужно:
-
 ```ts
-// было — девятнадцать строк, каст и восстановление, о котором надо помнить
+// было — приведение типа и уборка, о которой надо помнить
 const original = global.IntersectionObserver;
 
 global.IntersectionObserver = class {
@@ -165,95 +240,10 @@ afterEach(() => {
 const observer = stubIntersectionObserver();
 ```
 
-Одной строкой приезжает три вещи: заглушка — настоящий дубль, которым спека управляет
-(`observer.emit(...)`); присваивание регистрируется как патч свойства, поэтому `restoreMockedProps()`
-(а значит и `setupAutoSpy()`) возвращает глобал сам; и `as unknown as` исчезает, потому что заглушка
-типизирована тем же типом, что и глобал, который она подменяет.
+Одна строка даёт три вещи: заглушку, которой спека управляет (`observer.emit(...)`), автоматический
+возврат глобала и правильные типы без `as unknown as`.
 
-Рукописную форму не оставляют на ревью — о ней сообщает
-[`prefer-observer-stub`](./eslint-plugin#the-observer-stub-everybody-writes-again): оно ловит все три
-написания — присваивание выше, `vi.stubGlobal('IntersectionObserver', Fake)` и
-`vi.spyOn(globalThis, 'ResizeObserver')` — и называет хелпер, который его заменяет. В
-`configs.recommended` это `error`, как и все остальные правила плагина.
-
-## Установщики {#the-installers}
-
-| Функция                      | Какой глобал подменяет  |
-| ---------------------------- | ----------------------- |
-| `stubIntersectionObserver()` | `IntersectionObserver`  |
-| `stubResizeObserver()`       | `ResizeObserver`        |
-| `stubMutationObserver()`     | `MutationObserver`      |
-| `stubObserver(name)`         | любой из трёх, по имени |
-
-Все четыре экспортируются из основной точки входа — ничто здесь не привязано к Angular, а спаи
-приходят от того [рантайм-адаптера](../runtimes/vitest), который зарегистрирован, так что всё это
-работает и на Bun, и на `node:test`.
-
-::: tip Angular без зоны
-`emit` выполняет колбэк компонента синхронно; запланированный им change detection — нет.
-Добавьте следом `await fixture.whenStable()` или [`stable(fixture)`](../adapters/angular#zoneless-waiting).
-:::
-
-## Ставьте её в `beforeEach`, никогда в `beforeAll` {#install-it-in-beforeeach-never-in-beforeall}
-
-Корневой `beforeEach` из общего сетап-файла выполняется **после** `beforeAll` файла. Значит, заглушку,
-поставленную в `beforeAll`, перезатрёт дефолтный observer из сетап-файла ещё до старта первого теста,
-а симптомом будет `expected "vi.fn()" to be called 2 times, but got 0 times` в файле, где мок-класс
-лежит десятью строками выше ассерта.
-
-Поэтому правило, парное к «не присваивайте `globalThis.IntersectionObserver` руками», звучит так: и
-не ставьте её в `beforeAll` тоже.
-
-## `autoEmit` — всё видно, и сразу {#autoemit-—-everything-is-visible-immediately}
-
-```ts
-stubIntersectionObserver({ autoEmit: true });
-```
-
-Заглушка по умолчанию инертна, и это правильно, когда спека хочет сама выбрать момент пересечения. Это
-неправильно для сюиты, перенесённой с Jest, где глобальный мок дёргал свой колбэк с
-`isIntersecting: true` синхронно из `observe()`, так что лениво загружаемые секции и карточки тянули
-свои данные прямо во время `detectChanges()`. Против инертного observer-а такие спеки тихо проверяют
-компонент, который ничего не загрузил, и падают на чём-то, не имеющем отношения к пересечению, — вот
-одна опция вместо переписывания каждой спеки.
-
-`stubObserver` принимает общую форму, где запись вы строите сами:
-
-```ts
-stubObserver<ResizeObserverEntry, Element>('ResizeObserver', {
-  autoEmit: (target) => resizeEntry(target, { width: 320 }),
-});
-```
-
-## `options` — с чем позвали конструктор {#options-—-what-the-constructor-was-given}
-
-```ts
-new IntersectionObserver(callback, { rootMargin: '-20% 0px -70% 0px' });
-
-expect(observers.last.options).toEqual({ rootMargin: '-20% 0px -70% 0px' });
-```
-
-Компонент, который строит по одному observer-у на конфигурацию, утверждает контракт — «один observer
-на уникальный root margin», — и без этого единственное, что спека может посчитать, — количество
-созданий, а это более слабое утверждение и вообще про другое.
-
-## Построение entries {#building-entries-1}
-
-```ts
-import { intersectionEntry, mutationRecord, resizeEntry } from 'vitest-auto-spy/dom-stubs';
-
-observers.last.emit([intersectionEntry(element, true)]);
-observers.last.emit([mutationRecord(host, { addedNodes: [span] })]);
-observers.last.emit([resizeEntry(host, { width: 320, height: 200 })]);
-```
-
-У `IntersectionObserverEntry` семь обязательных полей, из которых продакшен-код обычно читает одно, и
-типы не сузить — этому мешает контравариантность параметров, так что альтернатива — двойное приведение
-типа в каждой спеке.
-
-С `MutationRecord` хуже: его вообще нельзя записать объектным литералом, потому что `addedNodes` и
-`removedNodes` — это `NodeList`. Очевидная конструкция — добавить узлы в `DocumentFragment` и взять
-его `childNodes` — как раз та, которой надо избегать, потому что добавление **перемещает** узел: спека,
-передающая только что отрендеренный элемент, молча вырывает его из фикстуры, и следующий ассерт падает
-на DOM, который сломал сам тест. `mutationRecord()` строит список, поддерживающий индексацию, `item()`,
-`forEach`, `for…of`, `entries`/`keys`/`values`, — и ничего не перемещает.
+Правило линтера [`prefer-observer-stub`](./eslint-rules#prefer-observer-stub)
+находит самописную форму во всех трёх вариантах: присваивание выше,
+`vi.stubGlobal('IntersectionObserver', Fake)` и `vi.spyOn(globalThis, 'ResizeObserver')`. Оно называет
+хелпер для замены и в `configs.recommended` имеет уровень `error`.
