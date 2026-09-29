@@ -127,7 +127,7 @@ export function packageOf(path: string): string | undefined {
 
 type Origin = { readonly kind: 'package'; readonly name: string } | { readonly kind: 'project' | 'runtime' | 'spec' };
 
-function originOf(frame: CpuCallFrame, specPath: string, cwd: string): Origin {
+function originOf(frame: CpuCallFrame, specPath: string, specTail: string): Origin {
   const path = pathOf(frame.url);
   const pkg = packageOf(path);
 
@@ -139,7 +139,7 @@ function originOf(frame: CpuCallFrame, specPath: string, cwd: string): Origin {
     return { kind: 'runtime' };
   }
 
-  if (path === specPath || path.endsWith(`/${relative(cwd, specPath)}`)) {
+  if (path === specPath || path.endsWith(specTail)) {
     return { kind: 'spec' };
   }
 
@@ -166,37 +166,23 @@ function angularShares(totals: ReadonlyMap<string, number>, sampledMs: number): 
   return [...totals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name, ms]) => ({ name, ms, share: ms / sampledMs }));
 }
 
-/** Self time per sample node: `timeDeltas[i]` is the gap before `samples[i]`, in microseconds. */
-function selfTimes(profile: CpuProfile): Map<number, number> {
-  const self = new Map<number, number>();
+/** Self time and sample count per node: `timeDeltas[i]` is the gap before `samples[i]`, in microseconds. */
+function selfTimes(profile: CpuProfile): Map<number, Subtree> {
+  const self = new Map<number, Subtree>();
 
   profile.samples.forEach((id, index) => {
-    self.set(id, (self.get(id) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1_000);
+    const ms = (profile.timeDeltas[index] ?? 0) / 1_000;
+    const seen = self.get(id);
+
+    if (seen === undefined) {
+      self.set(id, { ms, hits: 1 });
+    } else {
+      seen.ms += ms;
+      seen.hits += 1;
+    }
   });
 
   return self;
-}
-
-/** Every node's ancestors, leaf first, by the id of the leaf. */
-function stacksOf(profile: CpuProfile): (id: number) => CpuNode[] {
-  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
-  const parent = new Map<number, number>();
-
-  for (const node of profile.nodes) {
-    for (const child of node.children ?? []) {
-      parent.set(child, node.id);
-    }
-  }
-
-  return (id) => {
-    const stack: CpuNode[] = [];
-
-    for (let current = byId.get(id); current !== undefined; current = byId.get(parent.get(current.id) ?? -1)) {
-      stack.push(current);
-    }
-
-    return stack;
-  };
 }
 
 function packageLabel(origin: Origin): string {
@@ -225,83 +211,166 @@ function angularCostOf(frame: CpuCallFrame, origin: Origin): AngularCost | undef
   return origin.name === 'jsdom' && frame.functionName === 'getComputedStyle' ? 'computed styles' : undefined;
 }
 
-interface Inclusive {
-  readonly spec: Map<string, number>;
-  readonly project: Map<string, number>;
-  readonly angular: Map<string, number>;
+const HOOK_KEY = 'hook';
+
+/** The inclusive totals a frame opens: its spec or project function, its Angular cost, the runner's hook. */
+function keysOf(frame: CpuCallFrame, origin: Origin): string[] {
+  const cost = angularCostOf(frame, origin);
+
+  return [
+    ...(origin.kind === 'spec' || origin.kind === 'project' ? [`${origin.kind}:${labelOf(frame)}`] : []),
+    ...(cost === undefined ? [] : [`angular:${cost}`]),
+    ...(frame.functionName === HOOK_FRAME ? [HOOK_KEY] : []),
+  ];
 }
 
-/** Adds one sample to every spec, project and Angular cost on its stack, once each; answers whether a hook was on it. */
-function addInclusive(stack: readonly CpuNode[], ms: number, totals: Inclusive, specPath: string, cwd: string): boolean {
-  const seen = new Set<string>();
-  let inHook = false;
-
-  for (const { callFrame: frame } of stack) {
-    const origin = originOf(frame, specPath, cwd);
-    const key = `${origin.kind}:${labelOf(frame)}`;
-    const cost = angularCostOf(frame, origin);
-
-    inHook = inHook || frame.functionName === HOOK_FRAME;
-
-    if (!seen.has(key) && (origin.kind === 'spec' || origin.kind === 'project')) {
-      add(totals[origin.kind], labelOf(frame), ms);
-    }
-
-    if (cost !== undefined && !seen.has(`angular:${cost}`)) {
-      add(totals.angular, cost, ms);
-      seen.add(`angular:${cost}`);
-    }
-
-    seen.add(key);
-  }
-
-  return inHook;
+interface Subtree {
+  ms: number;
+  hits: number;
 }
 
-export function summariseProfile(profile: CpuProfile, specPath: string, cwd: string): ProfileSummary {
-  const stackOf = stacksOf(profile);
+interface Totals {
+  sampledMs: number;
+  /** Self time inside `@angular/compiler`. */
+  jit: number;
+  readonly self: Map<string, number>;
+  readonly packages: Map<string, number>;
+  readonly inclusive: Map<string, Subtree>;
+}
 
-  const spec = new Map<string, number>();
-  const project = new Map<string, number>();
-  const packages = new Map<string, number>();
-  const hottest = new Map<string, number>();
-  const angular = new Map<string, number>();
-  let sampledMs = 0;
-  let hookMs = 0;
-  let sawRunner = false;
+interface Frame {
+  readonly origin: Origin;
+  readonly keys: readonly string[];
+}
 
-  for (const [id, ms] of selfTimes(profile)) {
-    const stack = stackOf(id);
-    const [leaf] = stack;
+/**
+ * One depth-first pass instead of a stack walk per sampled node. A key's inclusive total is the
+ * subtree of each node holding it with no ancestor holding it too, so recursion is counted once;
+ * a subtree under the profiler's own frames counts nowhere, and idle ticks count only as nothing.
+ */
+function walk(profile: CpuProfile, specPath: string, cwd: string): Totals {
+  const self = selfTimes(profile);
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const children = new Set(profile.nodes.flatMap((node) => node.children ?? []));
+  const specTail = `/${relative(cwd, specPath)}`;
+  const frames = new Map<string, Frame>();
+  const totals: Totals = { sampledMs: 0, jit: 0, self: new Map(), packages: new Map(), inclusive: new Map() };
+  const open = new Set<string>();
+  const subtrees = new Map<number, Subtree>();
+  const pending: { readonly id: number; readonly excluded: boolean; readonly exit?: Exit }[] = profile.nodes
+    .filter((node) => !children.has(node.id))
+    .map((node) => ({ id: node.id, excluded: false }));
 
-    if (leaf === undefined || NOT_WORK.has(leaf.callFrame.functionName) || stack.some((node) => isProfilerOverhead(node.callFrame))) {
+  for (let step = pending.pop(); step !== undefined; step = pending.pop()) {
+    const node = byId.get(step.id);
+
+    if (node === undefined) {
       continue;
     }
 
-    sampledMs += ms;
-
-    const leafOrigin = originOf(leaf.callFrame, specPath, cwd);
-    const inHook = addInclusive(stack, ms, { spec, project, angular }, specPath, cwd);
-
-    if (leafOrigin.kind === 'package' && leafOrigin.name === '@angular/compiler') {
-      add(angular, 'JIT compilation', ms);
+    if (step.exit !== undefined) {
+      close(node, step.exit, subtrees, open, totals);
+      continue;
     }
 
-    add(packages, packageLabel(leafOrigin), ms);
-    add(hottest, `${labelOf(leaf.callFrame)}${leafOrigin.kind === 'package' ? ` (${leafOrigin.name})` : ''}`, ms);
-    sawRunner = sawRunner || inHook;
-    hookMs += inHook ? ms : 0;
+    const excluded = step.excluded || isProfilerOverhead(node.callFrame);
+    const frame = frameOf(node.callFrame, frames, specPath, specTail);
+    const counted = !excluded && !NOT_WORK.has(node.callFrame.functionName);
+    const sampled = counted ? self.get(node.id) : undefined;
+    const ms = sampled?.ms ?? 0;
+    const subtree = { ms, hits: sampled?.hits ?? 0 };
+    const owned = frame.keys.filter((key) => !open.has(key));
+
+    subtrees.set(node.id, subtree);
+
+    if (counted) {
+      totals.sampledMs += ms;
+      add(totals.packages, packageLabel(frame.origin), ms);
+      add(totals.self, `${labelOf(node.callFrame)}${frame.origin.kind === 'package' ? ` (${frame.origin.name})` : ''}`, ms);
+
+      if (frame.origin.kind === 'package' && frame.origin.name === '@angular/compiler') {
+        totals.jit += ms;
+      }
+    }
+
+    owned.forEach((key) => open.add(key));
+    pending.push({ id: node.id, excluded, exit: { subtree, owned } });
+    node.children?.forEach((child) => pending.push({ id: child, excluded }));
   }
 
-  return sampledMs === 0
-    ? { sampledMs: 0, hooks: undefined, spec: [], project: [], packages: [], hottest: [], angular: [] }
-    : {
-        sampledMs,
-        hooks: sawRunner ? hookMs / sampledMs : undefined,
-        spec: topOf(spec, sampledMs),
-        project: topOf(project, sampledMs),
-        packages: topOf(packages, sampledMs),
-        hottest: topOf(hottest, sampledMs),
-        angular: angularShares(angular, sampledMs),
-      };
+  return totals;
+}
+
+/** A node's frame origin and keys, read once per distinct frame rather than once per node. */
+function frameOf(callFrame: CpuCallFrame, frames: Map<string, Frame>, specPath: string, specTail: string): Frame {
+  const id = `${callFrame.url}\n${callFrame.functionName}`;
+  const known = frames.get(id);
+
+  if (known !== undefined) {
+    return known;
+  }
+
+  const origin = originOf(callFrame, specPath, specTail);
+  const frame = { origin, keys: keysOf(callFrame, origin) };
+
+  frames.set(id, frame);
+
+  return frame;
+}
+
+/** A node left on the stack to be closed once its children are: its running subtree, and the keys it holds for them. */
+interface Exit {
+  readonly subtree: Subtree;
+  readonly owned: readonly string[];
+}
+
+/** Leaving a node: its subtree is complete, and each key it opened takes all of it. */
+function close(node: CpuNode, exit: Exit, subtrees: ReadonlyMap<number, Subtree>, open: Set<string>, totals: Totals): void {
+  const { subtree, owned } = exit;
+
+  for (const child of node.children ?? []) {
+    const below = subtrees.get(child);
+
+    subtree.ms += below?.ms ?? 0;
+    subtree.hits += below?.hits ?? 0;
+  }
+
+  for (const key of owned) {
+    const total = totals.inclusive.get(key) ?? { ms: 0, hits: 0 };
+
+    open.delete(key);
+    totals.inclusive.set(key, { ms: total.ms + subtree.ms, hits: total.hits + subtree.hits });
+  }
+}
+
+function inclusiveOf(totals: Totals, prefix: string): Map<string, number> {
+  return new Map(
+    [...totals.inclusive].filter(([key]) => key.startsWith(prefix)).map(([key, total]) => [key.slice(prefix.length), total.ms]),
+  );
+}
+
+export function summariseProfile(profile: CpuProfile, specPath: string, cwd: string): ProfileSummary {
+  const totals = walk(profile, specPath, cwd);
+  const sampledMs = totals.sampledMs;
+
+  if (sampledMs === 0) {
+    return { sampledMs: 0, hooks: undefined, spec: [], project: [], packages: [], hottest: [], angular: [] };
+  }
+
+  const angular = inclusiveOf(totals, 'angular:');
+  const hook = totals.inclusive.get(HOOK_KEY);
+
+  if (totals.jit > 0) {
+    add(angular, 'JIT compilation', totals.jit);
+  }
+
+  return {
+    sampledMs,
+    hooks: hook === undefined || hook.hits === 0 ? undefined : hook.ms / sampledMs,
+    spec: topOf(inclusiveOf(totals, 'spec:'), sampledMs),
+    project: topOf(inclusiveOf(totals, 'project:'), sampledMs),
+    packages: topOf(totals.packages, sampledMs),
+    hottest: topOf(totals.self, sampledMs),
+    angular: angularShares(angular, sampledMs),
+  };
 }

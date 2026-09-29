@@ -41,7 +41,16 @@ const MODULE_CACHE = /\bfsModuleCache\s*:\s*true/;
 const ISOLATING_POOLS: ReadonlySet<string> = new Set(['forks', 'threads']);
 
 /** The findings `npx vitest doctor` can A/B on this machine: pool, isolation, DOM engine, module cache, workers. */
-const CONFIRMABLE: ReadonlySet<string> = new Set(['perf-environment-engine', 'perf-isolation', 'perf-transform', 'perf-workers']);
+const CONFIRMABLE: ReadonlySet<string> = new Set([
+  'perf-environment-engine',
+  'perf-isolation',
+  'perf-pool',
+  'perf-transform',
+  'perf-workers',
+]);
+
+/** The DOM environments a `vm` pool builds once per worker and hands each file a fresh context of. */
+const DOM_ENVIRONMENTS: ReadonlySet<string> = new Set(['happy-dom', 'jsdom']);
 
 /**
  * Summed phase time above which the worker count is a decision rather than a detail.
@@ -58,8 +67,10 @@ const LARGE_RUN_MS = 60_000;
 function configCode(graph: SourceGraph): [string, string][] {
   const configs: [string, string][] = [];
 
-  for (const [file, text] of graph.texts) {
-    if (!CONFIG_FILE.test(file)) {
+  for (const file of graph.texts.keys()) {
+    const text = CONFIG_FILE.test(file) ? graph.texts.get(file) : undefined;
+
+    if (text === undefined) {
       continue;
     }
 
@@ -309,6 +320,14 @@ function isolationFix(graph: SourceGraph, context: PerfContext): string {
   return fixIn(graph, context, '`isolate: false`', (config) => `Try \`isolate: false\` in ${config} and ${ISOLATION_TRADE}`);
 }
 
+function overheadOf(phases: readonly Phase[]): number {
+  return shareOf(phases, 'environment') + shareOf(phases, 'setup') + shareOf(phases, 'prepare');
+}
+
+/**
+ * Only as a question: on a suite where the overhead read 30 % and more, `isolate: false` measured 0 %
+ * faster, because the work moved rather than vanished. `--ab-isolate` measures it on this suite.
+ */
 export function isolationFindings(
   phases: readonly Phase[],
   graph: SourceGraph,
@@ -317,7 +336,7 @@ export function isolationFindings(
   cores: number = availableParallelism(),
   context: PerfContext = PLAIN_CONTEXT,
 ): Finding[] {
-  const overhead = shareOf(phases, 'environment') + shareOf(phases, 'setup') + shareOf(phases, 'prepare');
+  const overhead = overheadOf(phases);
 
   if (overhead < DOMINATES || isolationSettled(graph, profile, run, context)) {
     return [];
@@ -327,8 +346,46 @@ export function isolationFindings(
     {
       check: 'perf-isolation',
       severity: 'info',
-      message: `Per-file environment, setup and prepare together are ${formatShare(overhead)} of the measured CPU time. \`test.isolate: false\` pays those once per worker instead of once per file.${startupCost(run, cores)}`,
-      fix: isolationFix(graph, context),
+      message: `Per-file environment, setup and prepare together are ${formatShare(overhead)} of the measured CPU time. \`test.isolate: false\` pays those once per worker instead of once per file, but whether that is faster here cannot be read off one run: the work can move into the files rather than go away.${startupCost(run, cores)}`,
+      fix: `Measure it first with \`perf --ab-isolate\`, which runs the suite both ways. ${isolationFix(graph, context)}`,
+    },
+  ];
+}
+
+/**
+ * Vitest 5's default `forks` pool starts a process per file and builds the DOM in each; `vmThreads`
+ * builds it once per worker and gives each file a fresh context. Measured on 30 jsdom files:
+ * 1.4–1.85 s down to 0.83–0.88 s.
+ */
+export function poolFindings(phases: readonly Phase[], graph: SourceGraph, run: PerfRun, context: PerfContext = PLAIN_CONTEXT): Finding[] {
+  const config = run.config;
+  const environment = config?.environment;
+
+  if (
+    (vitestMajor(run) ?? 0) < 5 ||
+    config === undefined ||
+    environment === undefined ||
+    !DOM_ENVIRONMENTS.has(environment) ||
+    (config.pool !== undefined && config.pool !== 'forks') ||
+    config.isolate === false ||
+    provided(run, 'pool', context) ||
+    overheadOf(phases) < DOMINATES
+  ) {
+    return [];
+  }
+
+  return [
+    {
+      check: 'perf-pool',
+      severity: 'info',
+      message: `No \`pool\` is set, so Vitest ${String(run.vitest)} starts a fresh \`forks\` process for every file and builds \`${environment}\` in each; per-file environment, setup and prepare are ${formatShare(overheadOf(phases))} of the measured CPU time. \`pool: 'vmThreads'\` keeps the workers and gives each file a new VM context instead: measured on 30 ${environment} files, 1.4–1.85 s went to 0.83–0.88 s.`,
+      fix: fixIn(
+        graph,
+        context,
+        "`pool: 'vmThreads'`",
+        (config) =>
+          `Try \`pool: 'vmThreads'\` in ${config} and keep it only if the suite stays green and peak memory stays acceptable: a \`vm\` pool keeps a worker's native modules between files, so cap it with \`vmMemoryLimit\`.`,
+      ),
     },
   ];
 }
@@ -337,7 +394,13 @@ const ANALOG_CONFIG = /@analogjs\/vite-plugin-angular/;
 const INLINE_STYLES = /\bstyles\s*:\s*["'[`]/;
 
 function inlineStyledComponent(graph: SourceGraph): boolean {
-  return [...graph.texts.values()].some((text) => text.includes('@Component(') && INLINE_STYLES.test(text));
+  for (const text of graph.texts.values()) {
+    if (text.includes('@Component(') && INLINE_STYLES.test(text)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /** Analog compiles inline `styles` in JIT mode into virtual modules a warm module cache cannot find again. */

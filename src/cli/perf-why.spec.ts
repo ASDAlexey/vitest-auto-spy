@@ -13,6 +13,7 @@ import { PERF_OUTPUT_ENV, PERF_PROFILE_ENV } from './perf-data';
 import { file, ordinary, recorder, run } from './perf-fixtures';
 import { GATE_DEFAULTS } from './perf-gate';
 import type { CpuProfile } from './perf-profile';
+import { summariseProfile } from './perf-profile';
 import type { PerfRunOptions, PerfSource, Spawn } from './perf-run';
 import { perfRemeasure } from './perf-run';
 import { readProfile } from './profile';
@@ -98,7 +99,7 @@ describe('renderPerf --gate, why a confirmed file is slow', () => {
           }),
         ],
       }),
-      profiles: new Map([[specPath, profileOf(specPath)]]),
+      profiles: new Map([[specPath, summariseProfile(profileOf(specPath), specPath, root)]]),
     });
     const io = recorder();
 
