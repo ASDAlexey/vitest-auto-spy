@@ -1,29 +1,16 @@
 ---
 title: node:test
-description: Run vitest-auto-spy on Node's built-in test runner — a runnable example and how node:test's native mock surface differs.
+description: Use vitest-auto-spy with Node's built-in test runner - a runnable example, where node:test mocks differ, spy names and freeing mock memory.
 ---
 
 # node:test
 
-The `vitest-auto-spy/node` entry runs the same core on `node:test`'s `mock.fn()`.
-
-```ts
-import { createSpyFromClass } from 'vitest-auto-spy/node';
-
-// node:test
-```
-
-The public API is identical to the Vitest entry. Importing the entry registers the `node:test`
-adapter; the auto-spy helpers (`calledWith`, `resolveWith`, `nextWith`, …) are normalised, while
-native mock methods stay the runner's own.
-
-## A runnable example
-
-`node:test` ships no `expect`, so pair it with `node:assert` — the spy surface is the same either
-way.
+Use the `vitest-auto-spy/node` entry when your tests run under Node's built-in `node --test`. The
+library helpers are the same as on Vitest; the runner's own mock methods differ (see the table
+below). Spies are built on `node:test`'s `mock.fn()`.
 
 ```js
-// user.test.mjs
+// greeter.test.mjs
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createSpyFromClass } from 'vitest-auto-spy/node';
@@ -38,15 +25,31 @@ class UserService {
   }
 }
 
-describe('UserService spy', () => {
-  it('returns per-argument values and resolves promises', async () => {
+// the code under test: receives UserService through its constructor
+class Greeter {
+  constructor(users) {
+    this.users = users;
+  }
+
+  greet(id) {
+    return `Hello, ${this.users.getName(id)}!`;
+  }
+
+  async welcome(id) {
+    return `Welcome, ${await this.users.load(id)}`;
+  }
+}
+
+describe('Greeter', () => {
+  it('greets the user the service returns', async () => {
     const users = createSpyFromClass(UserService);
+    const greeter = new Greeter(users);
 
-    users.getName.calledWith(7).mockReturnValue('seven');
-    users.load.resolveWith('ok');
+    users.getName.calledWith(7).mockReturnValue('Ada'); // answers getName(7) only
+    users.load.resolveWith('Ada'); // no calledWith: answers every call
 
-    assert.equal(users.getName(7), 'seven');
-    assert.equal(await users.load(1), 'ok');
+    assert.equal(greeter.greet(7), 'Hello, Ada!');
+    assert.equal(await greeter.welcome(1), 'Welcome, Ada');
     assert.deepEqual(users.getName.mock.calls[0].arguments, [7]);
   });
 });
@@ -56,56 +59,74 @@ describe('UserService spy', () => {
 node --test
 ```
 
+- `node:test` has no `expect`, so the example uses `node:assert`.
+- Importing the entry is the only required setup. [`trackNodeMocks()`](#tracknodemocks) is an optional
+  extra for large test runs that grow in memory.
+- On Node 24, `node --test` also runs `*.test.ts` files: Node removes the type annotations itself.
+  Syntax that needs compiling, such as `enum`, needs a loader like `tsx`.
+- In TypeScript, the spy type is `Spy<UserService>`: `import { type Spy } from 'vitest-auto-spy/node'`.
+- `resolveWith` takes any value the promise should resolve to, arrays included:
+  `api.get.resolveWith([{ id: 1 }])`.
+
 ## Where the native surface differs
 
-`node:test`'s mock is not Jest-compatible, and this is the one place that shows through. The
-auto-spy helpers hide it; reading the raw mock does not.
+The library helpers (`calledWith`, `resolveWith`, `nextWith`, …) work the same on every runner. The
+runner's own mock methods do not: `node:test` mocks are not Jest-style.
 
-| What you want              | Vitest / Bun                        | `node:test`                                  |
-| -------------------------- | ----------------------------------- | -------------------------------------------- |
-| Recorded calls             | `spy.method.mock.calls[0]` → args   | `spy.method.mock.calls[0].arguments`         |
-| Replace the implementation | `spy.method.mockImplementation(fn)` | `spy.method.mock.mockImplementation(fn)`     |
-| Reset                      | `spy.method.mockReset()`            | `spy.method.mock.resetCalls()` / `restore()` |
-| Read the spy's name back   | `spy.method.getMockName()`          | **absent** — read `spy.method.name` instead  |
-| Return value               | `spy.method.mockReturnValue(v)`     | **absent** — see the note below              |
+| What you want              | Vitest / Bun                        | `node:test`                                                                                              |
+| -------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Recorded calls             | `spy.method.mock.calls[0]` → args   | `spy.method.mock.calls[0].arguments`                                                                     |
+| Replace the implementation | `spy.method.mockImplementation(fn)` | `spy.method.mock.mockImplementation(fn)`                                                                 |
+| Reset                      | `spy.method.mockReset()`            | `spy.method.mock.resetCalls()` clears calls; `spy.method.mock.restore()` puts the original function back |
+| Read the spy's name back   | `spy.method.getMockName()`          | **absent**: read `spy.method.name` instead                                                               |
+| Return value               | `spy.method.mockReturnValue(v)`     | **absent** on the raw mock: use `spy.method.calledWith(...).mockReturnValue(v)`, see below               |
 
-The last row is the one that bites: `spy.method.mockReturnValue('x')` is a **native** Vitest/Bun
-method, and `node:test` has none, so it is `undefined` here. The library's own
-`spy.method.calledWith(...).mockReturnValue('x')` **does** work on all three runtimes — it is part of
-the normalised surface, not the runner's.
+**Common mistake:** `spy.method.mockReturnValue('x')` on `node:test`. It is a Vitest/Bun mock
+method, so here it is `undefined` and the call throws. Use the library's version, which works on
+every runner:
 
 ```js
 users.getName.calledWith(7).mockReturnValue('seven'); // ✅ everywhere
 users.getName.mockReturnValue('seven'); // ❌ not on node:test
 ```
 
-Prefer the normalised helpers (`calledWith(...).mockReturnValue(...)`, `resolveWith`, `nextWith`)
-and the differences stop mattering: they read the same on all three runtimes.
+To clear both calls and configured answers in one go, on any runner, use `resetAutoSpy(users)`.
 
-`mock.settledResults` — which `node:test` does not track natively — is provided by a built-in
-polyfill, so it reads identically to Vitest (`{ type: 'fulfilled' | 'incomplete' | 'rejected', value }`).
-See [Control helpers → Inspecting promise outcomes](/core/control-helpers#settled-results).
+Two more things work as on Vitest and Bun:
+
+- `resetAutoSpy(users)` (from `vitest-auto-spy/node`) removes an implementation a test set with
+  `spy.method.mock.mockImplementation()`, accessor spies included. The spy then answers through
+  `calledWith` and the other helpers again.
+- `mock.settledResults` is added by the library, because `node:test` does not track it. It reads
+  `{ type: 'fulfilled' | 'incomplete' | 'rejected', value }`, as on Vitest; `'incomplete'` means the
+  promise has not settled yet. See
+  [Control helpers → Inspecting promise outcomes](/core/control-helpers#settled-results).
+
+## Beside this entry
+
+These entries also work under `node:test`, without Vitest installed:
+
+- `vitest-auto-spy/console`: [`useConsoleSpies()`](/utilities/console) registers its hooks on
+  `node:test`'s `beforeEach` / `afterEach` once this entry is imported. Its types do not name `vitest` either.
+- `vitest-auto-spy/nestjs`: the Nest helpers build `node:test` mocks. This entry also exports
+  `createNestUnit` and its types, so a [Nest test](/adapters/nestjs#any-runner) needs one import.
+
+Other entries (the root `vitest-auto-spy`, `/angular`, `/setup`, `/dom-stubs`, `/react`, `/vue`, …)
+import `vitest`. Without Vitest installed, the run stops before any test with
+`Cannot find package 'vitest' imported from …/node_modules/vitest-auto-spy/dist/<entry>.js`. Import
+the factories from this entry instead. `npx vitest-auto-spy doctor` reports such an import as
+[`vitest-entry-without-vitest`](/utilities/cli#vitest-entry-without-vitest) and names the entry to
+use.
+
+The types of this entry do not reference `vitest`, so a project without Vitest type-checks cleanly,
+even with `skipLibCheck: false`. `Spy<T>` here has the same members as on Vitest,
+except Vitest's `mockThrow`; `failWith()` does the same on every runner.
 
 ## Spy names
 
-`node:test`'s `mock.fn()` takes no name and has no `mockName()`, and the proxy it returns keeps the
-name of whatever function was passed in — so before this was handled, every spy printed as
-`[Function: dispatch]`, the library's internal dispatcher, wherever a spy was rendered.
-
-The adapter now gives the method's name to the _implementation_, at the moment it is created, and
-`mock.fn()` carries it onto the mock — a `node:test` mock takes its `name` from the function it
-wraps. `displayName` is set on the mock as well, for inspectors that prefer that convention. The
-name survives `mock.reset()`, `mock.restore()`, `resetCalls()` and a `mockImplementation()` swap,
-because the mock captured it when it was built.
-
-Naming at creation rather than redefining `name` afterwards is a memory decision, not a style one.
-`Object.defineProperty(mock, 'name', …)` works, but it drops the function out of V8's fast map:
-measured over 200 000 mocks on Node 24.19.0, redefining costs **+206 B each** against **+65 B** for
-naming at creation. An anonymous function expression under a computed key is named by the language
-itself, and — unlike a concise method — stays constructable, which `mockConstructor` needs.
-
-That is what `node:assert` diffs, `util.inspect()` and this library's own messages read, so a spy
-identifies itself the same way it does on Vitest and Bun:
+Each spy is named after its method, as on Vitest and Bun. The name shows up in `node:assert` diffs,
+in `util.inspect()` and in the library's own messages. For example, `getName` is set up to accept only `7`
+(`mustBeCalledWith`), and the code under test calls it with a function by mistake. The message reads:
 
 ```txt
 [vitest-auto-spy] getName is set up with mustBeCalledWith, and this call matches none of its configs — argument 1: expected 7, got [Function: getName].
@@ -115,28 +136,29 @@ Fix the value the code under test passes, or configure this call too.
 Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#what-a-mustbecalledwith-failure-prints
 ```
 
-Two things it still does not buy you, and neither has a fix on this side:
-
-- **`getMockName()` does not exist on a `node:test` mock.** It is a Jest-family method Vitest and Bun
-  ship and `node:test` does not; read `spy.method.name` there instead.
-- **`node:test`'s own reporter never labels a mock.** Its output names the _test_ that failed, not
-  the mock involved — the name shows up only where a spy is actually rendered as a value (an
-  assertion diff, `util.inspect`, a library message), never as a heading in the TAP or spec reporter.
+- The spy's `name` and `displayName` are set. They survive `mock.reset()` on the `mock` object from
+  `node:test`, `spy.method.mock.restore()`, `spy.method.mock.resetCalls()` and a
+  `mockImplementation()` swap.
+- `getMockName()` does not exist on a `node:test` mock. Read `spy.method.name` instead.
+- `node:test`'s own reporter names the failed **test**, never a mock. The spy name appears only where
+  a spy is printed as a value: an assertion diff, `util.inspect`, a library message.
 
 ## Every mock is retained until the tracker is dropped
 
-`node:test` registers every `mock.fn()` in its module-level `MockTracker` and keeps the reference for
-the lifetime of the process. Nothing is ever removed from that list one entry at a time: `reset()` is
-the only method that empties it, and it restores everything on the way. So a dropped spy stays
-reachable — and so does everything it closed over, its recorded arguments included.
-
-Measured on Node v24.19.0, 20 000 spies of a 10-method class created across 20 tests, dropped, then
-two forced collections: **124.5 MB** retained against a 5.5 MB baseline.
+`node:test` records every `mock.fn()` in a tracker: the `mock` object you import from `node:test`
+(a `MockTracker`). Do not confuse it with `spy.method.mock`, the call record of one spy. The tracker
+keeps each mock for the whole process. A spy you no longer use stays in memory, with everything it
+recorded. Only `mock.reset()` on the `mock` object from `node:test` empties the tracker, and it also
+puts the original implementations back and forgets every mock. For example, 20 000 spies of a
+10-method class kept about 120 MB in memory until the process ended.
 
 ### `trackNodeMocks()`
 
-Call it once and the library creates its spies on a `MockTracker` **it owns**, replacing that tracker
-with a fresh one after every test. The retired instance and its list become garbage together.
+Call it once, as early as possible. The library then creates its spies on its own tracker and
+replaces that tracker with a fresh one after every test, so old spies can be freed. It returns a
+function that turns tracking off. Calling `trackNodeMocks()` again while tracking is on does nothing.
+In the example above, the same 20 000 spies kept 5.9 MB instead of 124.5 MB (the measurement is on
+[Performance](/core/performance#on-node-test)).
 
 ```js
 import { before, describe, it } from 'node:test';
@@ -147,32 +169,27 @@ before(() => {
 });
 ```
 
-Same measurement, same machine, with the helper: **5.9 MB** — a **21×** reduction, and 0.4 MB above
-the baseline rather than 119 MB.
+- **It never calls `mock.reset()` on the `mock` object from `node:test`,** so `mock.fn()` mocks your
+  test made by hand keep working. Spies
+  keep recording calls and keep their implementation after their tracker is replaced.
+- **It does not move spies that already exist.** Spies created before the call stay on the `mock` object
+  from `node:test`. Call it as early as the file allows.
+- **It never throws.** If a future Node version changes how `node:test` builds trackers,
+  `trackNodeMocks()` quietly does nothing: tests keep passing, but memory is not freed. See
+  [In depth](#in-depth).
+- Without it, nothing changes: the behaviour is opt-in.
 
-It is opt-in, and a suite that does nothing keeps exactly today's behaviour. Three things it
-deliberately does not do:
+Two optional helpers come with it:
 
-- **It never calls `mock.reset()`.** That is the whole reason a private tracker is worth the code:
-  resetting the shared one restores and forgets the `mock.fn()` a spec wrote by hand. Swapping a
-  tracker the library owns touches no spy at all — a `node:test` mock keeps recording calls and keeps
-  its implementation once its tracker is gone, because the tracker exists only for restore/reset.
-- **It does not move spies that already exist.** Anything created before the call stays on the
-  runtime's tracker. Call it once, as early as your file allows.
-- **It never throws.** The class is reached through `mock.constructor`, which is not documented API,
-  so the construction is probed before a single spy is routed at it. If a future runtime does not
-  give it up, `trackNodeMocks()` is a no-op and spies keep going where they go today.
-
-Two more exports come with it, both optional: `pruneNodeMocks()` sweeps by hand — for a suite running
-its tests concurrently, where a shared per-test hook is the wrong granularity — and returns how many
-spies went; `countNodeMocks()` reads the current number back, for a suite that would rather assert on
-it than trust it.
+| Export             | What it does                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `pruneNodeMocks()` | frees the spies now and returns how many; for tests running concurrently in one file |
+| `countNodeMocks()` | returns the current number of tracked spies, for a test that asserts on it           |
 
 ### The fallback, for a suite that does not want the helper
 
-`mock.reset()` in `afterEach` still works and still frees everything. It is the blunter instrument —
-it also restores and forgets any `mock.fn()` the spec made itself — but it needs nothing from this
-package:
+`mock.reset()` on the `mock` object from `node:test`, in `afterEach`, also frees everything and needs
+nothing from this package. It also restores and forgets any `mock.fn()` the test made itself:
 
 ```js
 import { afterEach, mock } from 'node:test';
@@ -182,11 +199,15 @@ afterEach(() => {
 });
 ```
 
-Vitest and Bun both drop their own registries between files, so none of this applies to
-`vitest-auto-spy` or `vitest-auto-spy/bun`.
+Vitest and Bun drop their mock lists between files, so this section applies only to `node:test`.
 
 ::: tip Which runtime
-`node:test` needs no dependency at all beyond Node, which makes it a good fit for a library with no
-build step. For an app suite, [Vitest](/runtimes/vitest) or [Bun](/runtimes/bun) will be less work —
-both ship `expect` and a watch mode.
+`node:test` needs nothing but Node, so it suits a library with no build step. For an app,
+[Vitest](/runtimes/vitest) or [Bun](/runtimes/bun) is less work: both have `expect` and a watch mode.
 :::
+
+## In depth
+
+`trackNodeMocks()` builds its tracker through `mock.constructor`, which is not documented Node API.
+It checks that this works before routing a single spy to it. If the check fails, spies stay on the
+`mock` object from `node:test`, as without the helper.

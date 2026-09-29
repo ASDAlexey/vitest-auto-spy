@@ -1,9 +1,13 @@
 ---
 title: explainSpy
-description: Print what a double is configured to answer next to what it was actually asked - before anything has failed. Lives on the `/diagnostics` entry.
+description: Print what a spy is configured to answer next to what it was actually called with, before anything has failed. Lives on the /diagnostics entry.
 ---
 
 # explainSpy
+
+`explainSpy(spy)` prints a report: which argument lists a spy is configured for, and which of them
+each call actually hit. Use it while debugging a red test, when you wonder why a spy returned the
+default value.
 
 ```ts
 import { createSpyFromClass } from 'vitest-auto-spy';
@@ -29,26 +33,25 @@ load — 1 call, 1 configured, none matched
 
 ## The question it answers
 
-`mustBeCalledWith` already prints wanted next to actual — but only on the call that breaks. The
-question a spec author has while the test is red for some _other_ reason is different: which of my
-configs did this call hit, and which one never fired at all. Until now the only way to answer it was
-to scroll back to the setup and match argument lists by eye.
+`mustBeCalledWith` (a `calledWith` that throws on any other arguments) prints wanted and actual
+arguments, but only for the call that fails. When a test
+is red for another reason, you want to know: which of my `calledWith` setups did this call hit, and
+which one never fired? Without this helper you scroll back to the setup and compare argument lists by
+eye.
 
-`explainSpy` builds the answer instead. It reads the double's `calledWith` / `mustBeCalledWith`
-configs, numbers them, pairs each recorded call against them, and says which config the call hit —
-or that it hit none and the default value was used.
+`explainSpy` reads the spy's `calledWith` / `mustBeCalledWith` setups and numbers them. Then it
+matches each recorded call against them and says which setup it hit, or that it hit none and got the
+default value.
 
 ## Reading the report
 
-- **The headline** — `load — 3 calls, 2 configured` — is the whole state of one member in one line.
-  Two states are called out because they are the ones a reader most often arrives in and a bare list
-  answers badly: `nothing configured` (every call returned the default) and `none matched` (N calls,
-  and not one of them reached a config).
-- **`configured:`** lists every registered argument list as the chain call that registered it, so
-  `#2 calledWith(Any<String>)` is the line you wrote. Both chains share one numbering, so a call
-  names a single number whichever chain answered it.
-- **`calls:`** lists every recorded invocation in order, each with the config it matched. When
-  nothing is configured the verdict is dropped — it would say the same thing on every line.
+- **The headline**, `load — 3 calls, 2 configured`, sums up one method in one line. Two states are
+  spelled out: `nothing configured` (every call got the default value) and `none matched` (there were
+  calls, and not one hit a setup).
+- **`configured:`** lists every setup as the call that created it, so `#2 calledWith(Any<String>)`
+  is the line you wrote. `calledWith` and `mustBeCalledWith` share one numbering.
+- **`calls:`** lists every call in order, with the setup it matched. When nothing is configured, the
+  match is left out, because it would be the same on every line.
 
 A fuller report, from `explainSpy(users)` with no method named:
 
@@ -76,25 +79,27 @@ remove — never called, 1 configured
 ## What it accepts
 
 ```ts
-explainSpy(spy); // every spied member that the double exposes
+explainSpy(spy); // every spied member of the object
 explainSpy(spy, 'load'); // just that member
-explainSpy(spy.load); // a single function spy, named from the mock
+explainSpy(spy.load); // a single method spy; the report uses the spy's name
 ```
 
-- `createSpyFromClass`, `createAutoMock`, `createFunctionSpy` and `mockDeep` doubles are all
-  understood; a `mockDeep` child is reached either as `explainSpy(api.repo, 'find')` or as
-  `explainSpy(api.repo.find)`.
-- An accessor spy is reported as `get name` / `set name`, read from the double's `accessorSpies`
-  bag — naming it (`explainSpy(users, 'name')`) never invokes the live accessor, which would record
-  a call just for being looked at.
-- A lazy method nobody has touched is left out rather than materialised: it would be built only to
-  report that it has nothing to report.
+| Argument | Type                                                                    | Meaning                            |
+| -------- | ----------------------------------------------------------------------- | ---------------------------------- |
+| `spy`    | an object of spies (from `createSpyFromClass` etc.) or one spied method | What to explain                    |
+| `member` | `string` (optional)                                                     | Only this member of the spy object |
+
+- Spies from `createSpyFromClass`, `createAutoMock`, `createFunctionSpy` and `mockDeep` all work. A
+  `mockDeep` child works as `explainSpy(api.repo, 'find')` or `explainSpy(api.repo.find)`.
+- A getter or setter spy is reported as `get name` / `set name`. Naming it
+  (`explainSpy(users, 'name')`) does not call the getter, so it records no extra call.
+- A method the test never called and never configured is left out. It would only report that there
+  is nothing to report.
 
 ## It never throws
 
-`explainSpy` is reached from a spec that is already failing, so a diagnostic that fails on the way
-is worse than no diagnostic. A plain `vi.fn()`, or any value that is not one of this library's
-doubles, is reported in the text rather than raised:
+You call `explainSpy` from a test that is already failing, so it never throws itself. A plain
+`vi.fn()`, or any value that is not a spy from this library, is reported in the text:
 
 ```text
 [vitest-auto-spy] explainSpy
@@ -103,5 +108,7 @@ nothing to explain: this value is a plain runner mock (vi.fn()) and holds no spy
 vitest-auto-spy. `adoptMock(mock)` gives it the library's helpers.
 ```
 
-The result is a report to print, not something to assert on — the wording is a diagnostic and is
-free to improve between releases.
+`null` and `undefined` (for example a `let` that no `beforeEach` assigned) are reported the same way.
+
+**Common mistake:** asserting on the report text. It is meant to be printed; the wording may improve
+between releases.

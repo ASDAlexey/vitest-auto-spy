@@ -1,62 +1,85 @@
 ---
 title: Waiting and the clock
-description: flushEventLoop, flushEventLoopUntil, settleDynamicImport, mockSystemTime and useCountingClock — four pending queues, and the tool that drives each.
+description: flushEventLoop, flushEventLoopUntil and settleDynamicImport wait for work a promise cannot; mockSystemTime and useCountingClock control what Date says.
 ---
 
 # Waiting and the clock
 
+These helpers wait for work that `await Promise.resolve()` cannot reach, and control what the clock
+says. Use them when a test clicks something that loads code with `import()`, waits for an SDK to get
+ready, or asserts on a date.
+
 ```ts
-import { flushEventLoop, settleDynamicImport } from 'vitest-auto-spy';
+import { settleDynamicImport } from 'vitest-auto-spy';
 
-fixture.debugElement.query(By.css('.open')).nativeElement.click(); // production: await import(…)
-await settleDynamicImport(() => import('./profile-select.modal'));
+it('opens the profile dialog', async () => {
+  fixture.debugElement.query(By.css('.open')).nativeElement.click(); // production: await import(…)
+  await settleDynamicImport(() => import('./profile-select.modal'));
 
-expect(dialog.open).toHaveBeenCalled();
+  expect(dialog.open).toHaveBeenCalled();
+});
 ```
+
+`flushEventLoop`, `flushEventLoopUntil` and `settleDynamicImport` come from `vitest-auto-spy`. The
+clock helpers come from `vitest-auto-spy/setup`.
 
 ## Four queues
 
-Under Jest these were hard to tell apart, because `import()` was compiled to `require()` and fake
-timers were usually global. Under Vitest with a real bundler they are four separate mechanisms, and
-a test that waits on the wrong one fails with a message that names none of them.
+Code under test can leave four different kinds of work pending. If the test waits on the wrong one,
+the failure message does not tell you which one it should have been. Pick the helper by what is
+pending ("CD" is Angular change detection):
 
-| What is pending                               | What drives it                                     | What does **not**                         |
-| --------------------------------------------- | -------------------------------------------------- | ----------------------------------------- |
-| change detection                              | `fixture.detectChanges()`                          | anything `await`ed                        |
-| effects, `afterNextRender`, then CD           | `await stable(fixture)`                            | `detectChanges()` alone                   |
-| timers, debounces, polling                    | `await advanceTimers(ms)`                          | `await Promise.resolve()`                 |
-| a dynamic `import()`, native `async` in a dep | `await flushEventLoop()` / `settleDynamicImport()` | `tick()`, `flushMicrotasks()`, microtasks |
+| What is pending                                   | What drives it                                     | What does **not**                         |
+| ------------------------------------------------- | -------------------------------------------------- | ----------------------------------------- |
+| change detection                                  | `fixture.detectChanges()`                          | an `await` alone                          |
+| effects, `afterNextRender`, then CD               | `await stable(fixture)`                            | `detectChanges()` alone                   |
+| timers, debounces, polling                        | `await advanceTimers(ms)`                          | `await Promise.resolve()`                 |
+| a dynamic `import()`, native `async` in a library | `await flushEventLoop()` / `settleDynamicImport()` | `tick()`, `flushMicrotasks()`, microtasks |
+
+Each row is a separate mechanism, so one kind of wait does not cover another.
 
 ## `flushEventLoop(turns?)`
 
-Gives the runtime real event-loop turns, whatever the timers are doing, without touching the clock.
+Lets the runtime run for one or more real event-loop turns. It works the same with fake timers on,
+and it does not move the clock.
 
-A suite carried over from Jest usually runs with fake timers on for every test, and that leaves no
-obvious way to say "let the runtime breathe once":
+```ts
+import { flushEventLoop } from 'vitest-auto-spy';
 
-- `await Promise.resolve()`, any number of times, only drains microtasks. It never advances a
-  dynamic `import()`, and it never advances a native `async` function inside `node_modules` —
-  both continue on a task, not a microtask.
-- `setTimeout` is the fake one, so scheduling through it schedules nothing.
-- `await vi.advanceTimersByTimeAsync(0)` does work, but it reads as "move the timers" in a test that
-  has no timers, so the next reader deletes it as noise. That is not hypothetical: it is what
-  happened to the hand-rolled version of this helper in the suite that motivated it.
+service.start(); // calls a native async function inside node_modules
+await flushEventLoop();
 
-Internally it schedules a `MessageChannel` task, which no fake-timer implementation replaces. It
-yields a _task_ turn, and deliberately does not run pending `setTimeout` callbacks — those are a
-different task source, and a helper that fired them too would be `advanceTimersByTime` under another
-name.
+expect(service.ready).toBe(true);
+```
 
-It is not the answer for `httpResource()` / `resource()` / `rxResource`, which need a
-change-detection **tick** rather than an event-loop turn —
-[`settleResource()`](../adapters/angular#resources-httpresource-and-resource) is that wait. What this
-helper is right for is the case one step below: work whose delivery crosses the boundary between
-zone-patched promises and native ones, where a fixed number of `await Promise.resolve()` calls is a
-guess that happens to hold until it does not.
+| Parameter | Type     | Default | Meaning                           |
+| --------- | -------- | ------- | --------------------------------- |
+| `turns`   | `number` | `1`     | How many event-loop turns to give |
+
+Why the usual tricks do not work:
+
+- `await Promise.resolve()` only runs microtasks. A dynamic `import()` and a native `async` function
+  inside `node_modules` continue on a task, so they never move.
+- Under fake timers, `setTimeout` is fake, so scheduling through it does nothing.
+- `await vi.advanceTimersByTimeAsync(0)` works, but reads as "move the timers" in a test with no
+  timers. The next reader deletes it as noise.
+
+It does not run pending `setTimeout` callbacks; use [`advanceTimers`](./fake-timers#advancetimers-ms)
+for those.
+
+**Common mistake:** using it for Angular's `httpResource()`, `resource()` or `rxResource`. Those need
+a change-detection tick, not an event-loop turn. Use
+[`settleResource()`](../adapters/angular#resources-httpresource-and-resource).
 
 ## `flushEventLoopUntil(isDone, options?)`
 
+Gives real event-loop turns until `isDone()` returns `true`, then stops. If it never does, the test
+fails with your `label` in the message. Use it for "wait until X is ready": a lazily loaded chunk, an
+SDK handshake, a queue draining.
+
 ```ts
+import { flushEventLoopUntil } from 'vitest-auto-spy';
+
 client.warmUp();
 
 await flushEventLoopUntil(() => client.isReady(), { label: 'the SDK handshake' });
@@ -64,27 +87,16 @@ await flushEventLoopUntil(() => client.isReady(), { label: 'the SDK handshake' }
 expect(client.session()).toBeDefined();
 ```
 
-Takes real turns until the condition holds, then stops — the shape behind every hand-rolled
-"settle" helper: a lazily-loaded chunk becoming reachable, an SDK reporting itself ready, a queue
-draining.
+| Option      | Type     | Default           | Meaning                                               |
+| ----------- | -------- | ----------------- | ----------------------------------------------------- |
+| `turns`     | `number` | `20`              | How many turns to try before failing                  |
+| `timeoutMs` | `number` | —                 | Poll the real clock every 10 ms for this long instead |
+| `label`     | `string` | `'the condition'` | What you were waiting for, quoted in the failure      |
 
-::: warning Not for an Angular resource
-This page used to show `httpResource()` here, and that example never worked. `flushEventLoopUntil`
-takes event-loop turns and never **ticks**, and an `httpResource` issues no request at all until
-something does — measured, a resource awaited this way finishes the whole budget having made zero
-requests, then fails saying the condition was never met.
-[`settleResource()`](../adapters/angular#resources-httpresource-and-resource) from
-`vitest-auto-spy/angular` is that wait.
-:::
+`isDone` must be synchronous. It is checked before the first turn and after every turn. `turns` and `timeoutMs` cannot be
+combined; the options type rejects the pair.
 
-Written by hand that is a fixed number of turns, tuned by trial until the suite goes green, which is
-both slower than it needs to be (it always waits the maximum) and quietly fragile — one more
-hand-off inside a dependency and the number is wrong again.
-
-The turn budget (20 by default) is what separates this from a `while (true)`. A condition that never
-becomes true is the normal way to use it wrongly — the request was never made, the stub was never
-configured — and a test that hangs until the runner's timeout reports the file, not the wait. The
-failure names the `label` instead:
+When the condition never holds, the failure names what to check:
 
 ```text
 [vitest-auto-spy] flushEventLoopUntil: the SDK handshake was still not ready after 20 real event-loop
@@ -94,25 +106,29 @@ stub was never configured.
 Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop#flusheventloopuntil-isdone-options
 ```
 
-Under fake timers with callbacks queued, the second sentence is replaced by the one cause the clock
-can confirm:
+If fake timers have callbacks queued, the second sentence says so instead:
 
 ```text
 … 3 callbacks wait on the fake clock, and this helper never advances it — advance it instead:
 `await advanceTimers(ms)`.
 ```
 
-The dynamic import is the cause that costs the most time to diagnose: a **cold** chunk takes more turns than the budget, and the giveaway is that only the _first_
-such test in a file fails while every later one passes off the module cache. That reads as a flake,
-and it is not — the answer is to await the module rather than count turns, with
-[`settleDynamicImport`](#settledynamicimport-load-turns) below.
+**Common mistake: only the first test in a file fails.** The code is waiting on a dynamic
+`import()`. The first time, the chunk is cold and needs more turns than the budget; later tests hit
+the module cache. It is not a flaky test. Await the module with
+[`settleDynamicImport`](#settledynamicimport-load-turns) instead of counting turns.
+
+::: warning Not for an Angular resource
+`flushEventLoopUntil` never runs change detection, and an `httpResource` sends no request until
+change detection runs. Awaited this way, it uses up the whole budget with zero requests made. Use
+[`settleResource()`](../adapters/angular#resources-httpresource-and-resource) from
+`vitest-auto-spy/angular`.
+:::
 
 ### A time budget, for real I/O
 
-A turn is the wrong unit when the work is real I/O: an HTTP round-trip to a server the spec started,
-a child process exiting, a file watcher firing. Those take milliseconds, and a turn budget either
-runs out long before them or has to be tuned so high that a condition that never holds waits for
-the runner's timeout anyway. `{ timeoutMs }` polls the real clock instead, every 10 ms:
+For real I/O (an HTTP round-trip to a server your spec started, a child process exiting, a file
+watcher firing), use `timeoutMs`. Such work takes milliseconds, and a turn budget is the wrong unit.
 
 ```ts
 await server.listen(0);
@@ -121,73 +137,88 @@ void request(server.url('/health'));
 await flushEventLoopUntil(() => server.requests.length > 0, { timeoutMs: 1000, label: 'the health check' });
 ```
 
-It replaces the hand-rolled `waitFor(predicate, ms)` such a spec carries. The poll schedules
-through the `setTimeout` captured when the module loaded, so fake timers neither freeze it nor
-shorten it, and the failure says `after 1000 ms of real time`. `turns` and `timeoutMs` do not
-combine — the options type refuses the pair, because a reader could not tell which one ends the
-wait.
+It checks the condition every 10 ms on the real clock. Fake timers neither freeze nor speed it up.
+The failure says `after 1000 ms of real time`. It replaces a hand-written `waitFor(predicate, ms)`.
 
 ## `settleDynamicImport(load, turns?)`
 
+Awaits a dynamic `import()` and then gives real event-loop turns. Returns the module.
+
 ```ts
+import { settleDynamicImport } from 'vitest-auto-spy';
+
 const module = await settleDynamicImport(() => import('@scope/lazy-feature'));
 ```
 
-Two situations, one mechanism.
+| Parameter | Type               | Default | Meaning                                       |
+| --------- | ------------------ | ------- | --------------------------------------------- |
+| `load`    | `() => Promise<T>` | —       | The same `import()` your code under test runs |
+| `turns`   | `number`           | `1`     | Event-loop turns to give after the import     |
 
-Production code that does `await import('./thing')` on a click leaves the spec with no promise to
-await. Awaiting the _same_ specifier here resolves against the same module instance, and the real
-turns that follow let the component's own continuation drain.
+Use it in two cases:
 
-The second is a bundled Angular suite where a symbol re-exported through a barrel reads as
-`undefined` until its chunk has been evaluated. Awaiting the import is what evaluates it — and,
-unlike a bare `await import('…')` with a comment, the name says why the line is there, which is what
-keeps the next "remove the unused line" pass from deleting it.
+- **Your code runs `await import('./thing')` on a click**, so the spec has no promise to await.
+  The `import()` runs in your spec, so write the path relative to the spec file. It resolves to the
+  same module your code loaded, and the turns that follow let your component's own code continue.
+- **A bundled Angular suite reads a re-exported symbol as `undefined`** until its chunk has loaded.
+  Awaiting the import loads it. The name also tells the next reader why the line is there.
 
-Spinning `await Promise.resolve()` instead is worse than not waiting: the tests go green and the
-continuation lands after teardown, producing eight `NG0205: Injector has already been destroyed`
-entries under "Unhandled Errors", no failing test, and a non-zero exit code.
+**Common mistake:** spinning `await Promise.resolve()` instead. The tests go green, the code
+continues after teardown, and the run ends with `NG0205: Injector has already been destroyed` under
+"Unhandled Errors", no failing test, and a non-zero exit code.
 
-The bare `await import('…')` this replaces is what
-[`prefer-settle-dynamic-import`](/utilities/eslint-rules#prefer-settle-dynamic-import) reports, with
-the wrap offered as an edit — so a suite that has the plugin on does not have to find these by
-reading.
+The lint rule [`prefer-settle-dynamic-import`](/utilities/eslint-rules#prefer-settle-dynamic-import)
+reports a bare `await import('…')` in a spec and offers this wrap as a fix.
 
 ## The clock
 
 ```ts
-import { mockSystemTime, useCountingClock, withSystemTime } from 'vitest-auto-spy/setup';
+import { mockNow, mockSystemTime, useCountingClock, withSystemTime } from 'vitest-auto-spy/setup';
 ```
 
 ### `mockSystemTime(time)` and `withSystemTime(time, body)`
 
-Freeze the clock whether or not fake timers are already running. With fakes installed this is
-`vi.setSystemTime`; without them it installs `Date`-only fakes, so timers stay real.
+Set the current date for a test. Use them whenever an assertion contains a date. Without a fixed
+date, the expected value comes from `new Date()`, and the test starts failing by itself days later.
 
-**An assertion that contains a date must set the clock.** Otherwise the expected string is computed
-from `new Date()`, and the test starts failing on its own some days after it was written — which
-reads as a regression and is not one.
+```ts
+import { withSystemTime } from 'vitest-auto-spy/setup';
 
-The ported `jest.spyOn(global, 'Date')` is not the way. Fake timers already own that global, so it
-throws `Date is not a constructor` with a stack in production code and no mention of timers
-anywhere.
+it('shows the renewal date', async () => {
+  await withSystemTime('2025-04-30T00:00:00Z', async () => {
+    await expect(subscription.renewalLabel()).resolves.toBe('renews 30.05.25');
+  });
+});
+```
 
-Both hand back an undo, and the undo works in both worlds. Where this call installed the `Date`-only
-fakes it takes them off again; where the suite already had fakes on it leaves them exactly where
-they were and only puts the **clock** back — carrying over whatever the block advanced inside
-itself, so a `withSystemTime(t, body)` whose body moved the clock by a minute leaves it a minute
-past where it started rather than back at `t`. Taking the suite's fakes off there would break every
-later test in the file, and an undo that did nothing at all was the reason a frozen date used to
-leak out of the block it was written for. Calling the undo twice, or after the block took the fakes
-off itself, does nothing further.
+- `withSystemTime(time, body)` runs `body` at that time and puts the clock back afterwards, also when
+  `body` fails. `body` may be sync or async; it returns a promise of what `body` returns. Create the
+  component inside `body` if it reads the date when it is created.
+- `time` is a `Date`, a timestamp or a date string, as for `vi.setSystemTime`. A string is parsed like
+  `new Date(string)`; end it with `Z` for UTC.
+- `mockSystemTime(time)` sets the time and returns an undo function. Call the undo yourself, for
+  example in `afterEach`.
+- With fake timers already installed, they move the fake clock and leave the fakes on. If your spec
+  advanced the fake clock inside the block, that advance is kept after it.
+- Without fake timers, they fake only `Date`; timers stay real. The undo removes those fakes.
+- Calling the undo twice does nothing more.
 
-The `Date`-only set this installs is marked as such, so the fake-timer helpers can tell it from a
-suite that owns the whole clock — see [fake timers](/utilities/fake-timers) for what `setupFakeTimers`
-and `advanceTimers` do with that.
+**Common mistake:** porting `jest.spyOn(global, 'Date')`. Fake timers already own that global, so it
+throws `Date is not a constructor` from inside your app code, with no mention of timers.
+
+`advanceTimers()` does not work on these `Date`-only fakes: see
+[Fake timers](/utilities/fake-timers).
 
 ### `useCountingClock(options?)`
 
+Makes `Date.now()` return 1, 2, 3, … instead of the time. It resets before every test. Use it when a
+spec asserts on order or duration: analytics batches, tracing spans, a rate limiter, a TTL cache.
+Without it, every call in one test under fake timers gets the same "now", and such a spec has
+nothing to assert on.
+
 ```ts
+import { useCountingClock } from 'vitest-auto-spy/setup';
+
 describe('MetricsCollector', () => {
   const clock = useCountingClock();
 
@@ -204,26 +235,44 @@ describe('MetricsCollector', () => {
 });
 ```
 
-Under fake timers every call inside one test reports the same "now", so a spec that asserts on
-**order** or **duration** — analytics batches, tracing spans, a rate limiter, a TTL cache,
-dedupe-by-time — cannot express its expectation at all.
+| Option  | Type     | Default | Meaning                              |
+| ------- | -------- | ------- | ------------------------------------ |
+| `start` | `number` | `1`     | The first value `Date.now()` returns |
+| `step`  | `number` | `1`     | Added on every read                  |
 
-Patching `Date.now` by hand does not survive a suite that keeps fakes on globally:
-`vi.useFakeTimers()` installs a _fresh_ `Date` on every call, so a module-scope or `beforeAll` patch
-is left sitting on an object nothing reads any more, and the naive undo (`afterEach(() => { Date.now
-= saved })`) re-attaches a dead clock's `now` to the live one, where it breaks a later file.
-`useCountingClock` and `mockNow` re-apply per test and hand the undo to `restoreMockedProps()`,
-which recorded the exact object it patched.
+The returned clock has `value` (what the next `Date.now()` returns) and `reset()` (start over from
+`start`). Call `useCountingClock` at `describe` level; it registers its own hooks.
+
+### `mockNow(source)`
+
+Replaces `Date.now` with your function before every test in the block and restores it after. Call it
+at `describe` level. `useCountingClock` is built on it.
+
+```ts
+import { mockNow } from 'vitest-auto-spy/setup';
+
+describe('AnalyticsQueue', () => {
+  let tick = 0;
+
+  mockNow(() => (tick += 1));
+});
+```
+
+**Common mistake:** patching `Date.now` by hand in a suite with fake timers on everywhere.
+`vi.useFakeTimers()` installs a new `Date` each time, so a patch made once is left on an object
+nothing reads. `mockNow` and `useCountingClock` patch the live `Date` before each test and undo it
+exactly.
 
 ## A watchdog is not on your clock, and not on your zone
 
-The helpers whose own timeout _is_ the assertion — [`expectEmission` and its
-family](/core/observable-assertions) and [`stable`](/adapters/angular) — read the timer functions
-once, at import, so `vi.useFakeTimers()` cannot silence them: the failure stays "the stream did not
-emit" rather than becoming "the test timed out".
+Some helpers fail by timing out on purpose: [`expectEmission` and its
+family](/core/observable-assertions), and [`stable`](/adapters/angular). Their timeout stays real:
 
-zone.js needs one step more, because it replaces `setTimeout` while it loads and its replacement
-picks a scheduler from `Zone.current` at call time. So these watchdogs take the untouched function
-zone.js parks aside: one armed inside `fakeAsync` stays on real time, and a `tick()` cannot expire
-the wait it is driving. Only the watchdogs do that — everything else a spec schedules is the zone's,
-which is the whole point of [running under one](/utilities/zone).
+- **Fake timers do not stop it.** They read the timer functions once, at import, so
+  `vi.useFakeTimers()` cannot freeze them. The failure stays "the stream did not emit" instead of
+  "the test timed out".
+- **zone.js does not capture it.** They use the original `setTimeout` that zone.js keeps aside. A
+  timeout armed inside `fakeAsync` stays on real time, and `tick()` cannot expire it.
+
+Everything else your spec schedules belongs to the zone, which is the point of
+[running under one](/utilities/zone).

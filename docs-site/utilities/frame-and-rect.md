@@ -1,9 +1,15 @@
 ---
 title: Frames and element boxes
-description: stubAnimationFrame and stubElementRect — requestAnimationFrame on the spec's schedule, and a getBoundingClientRect that reports a box, both put back automatically.
+description: stubAnimationFrame runs requestAnimationFrame when the spec says, and stubElementRect makes getBoundingClientRect report a box; both are put back after the test.
 ---
 
 # Frames and element boxes
+
+Two stubs for code that measures elements or waits for the next frame. jsdom and happy-dom lay
+nothing out, so every element measures 0 × 0, and they run frames on their own timers.
+
+- `stubAnimationFrame()` runs `requestAnimationFrame` callbacks when your spec says so.
+- `stubElementRect()` makes one element's `getBoundingClientRect()` return the box you give.
 
 ```ts
 import { stubAnimationFrame, stubElementRect } from 'vitest-auto-spy/dom-stubs';
@@ -22,54 +28,46 @@ it('scrolls the selected row into view after the next frame', () => {
 });
 ```
 
-jsdom and happy-dom lay nothing out and schedule frames on their own timers. Code that measures an
-element or waits for a frame meets a spec that assigns `window.requestAnimationFrame` by hand and
-returns a partial literal from `getBoundingClientRect`. Both leak into the next file under
-`isolate: false`, and the literal passes for a `DOMRect` only because nothing reads the fields it
-lacks.
+Both are removed after each test. A hand-written `window.requestAnimationFrame = …` or a partial
+object returned from `getBoundingClientRect` leaks into the next file under `isolate: false`.
 
 ## `stubAnimationFrame(options?)`
 
-Replaces `requestAnimationFrame` and `cancelAnimationFrame` with spies whose timing the spec decides.
+Replaces `requestAnimationFrame` and `cancelAnimationFrame` with spies whose timing your spec decides.
 
-| `mode`                  | A requested frame runs                                           |
-| ----------------------- | ---------------------------------------------------------------- |
-| `'immediate'` (default) | before `requestAnimationFrame` returns, with `performance.now()` |
-| `'queued'`              | on `flush(timestamp?)`, with the same timestamp for every frame  |
+| Option    | Type                        | Default                | Meaning                                                         |
+| --------- | --------------------------- | ---------------------- | --------------------------------------------------------------- |
+| `mode`    | `'immediate'` \| `'queued'` | `'immediate'`          | When a requested frame runs; see below                          |
+| `onError` | `(error) => void`           | —                      | Called with what a callback threw, instead of throwing it       |
+| `view`    | `object` \| `null`          | `document.defaultView` | Also patch this window object; `null` patches `globalThis` only |
 
-The handle:
+| `mode`        | A requested frame runs                                           |
+| ------------- | ---------------------------------------------------------------- |
+| `'immediate'` | before `requestAnimationFrame` returns, with `performance.now()` |
+| `'queued'`    | on `flush(timestamp?)`, with the same timestamp for every frame  |
 
-- `pending` — how many requested frames have not run.
-- `lastHandle` — the handle the latest `requestAnimationFrame` call returned, `undefined` before the
-  first. Handles start above 2^30 (see below), so assert a cancel against it —
-  `expect(frames.cancelAnimationFrame).toHaveBeenLastCalledWith(frames.lastHandle)` — never against a
-  literal such as `1`.
-- `flush(timestamp?)` — run every frame requested so far, as one browser frame. The timestamp defaults
-  to `performance.now()`. A frame cancelled by an earlier callback of the same flush does not run.
-- `flushAll(timestamp?)` — run frames until none is pending, including frames requested from inside
-  a frame, for code that chains through several. It throws after 1000 rounds: only a loop that never
-  stops requesting its next frame gets there, and that one wants `flush()`, one frame per call.
-- `requestAnimationFrame` / `cancelAnimationFrame` — the installed spies, for
-  `expect(frames.cancelAnimationFrame).toHaveBeenCalledWith(handle)`. Typed as
-  `Mock<RequestAnimationFrameFn>` / `Mock<CancelAnimationFrameFn>`, so `.mock.calls` reads typed.
-- `restore()` — put the previous globals back and drop what is pending, before the test ends.
+The returned handle:
 
-**A frame requested from inside a running frame waits for the next `flush()`**, in both modes, as it
-waits for the next frame in a browser. An animation loop that requests its own next frame therefore
-advances one step per `flush()`; in `'immediate'` mode the first step runs on the spot and the loop
-does not recurse.
+| Member                                          | What it is                                                                                         |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `pending`                                       | How many requested frames have not run                                                             |
+| `flush(timestamp?)`                             | Runs every frame requested so far, as one browser frame; timestamp defaults to `performance.now()` |
+| `flushAll(timestamp?)`                          | Runs frames until none is pending, including frames requested from inside a frame                  |
+| `lastHandle`                                    | The handle the latest `requestAnimationFrame` call returned; `undefined` before the first          |
+| `requestAnimationFrame`, `cancelAnimationFrame` | The installed spies, typed `Mock<RequestAnimationFrameFn>` / `Mock<CancelAnimationFrameFn>`        |
+| `restore()`                                     | Puts the previous globals back and drops what is pending, before the test ends                     |
 
-**A handle the stub did not issue goes to the real `cancelAnimationFrame`.** Install the stub after
-a render and a native frame is already pending — zoneless Angular's scheduler races one against a
-timer, and cancels the loser. The stub's handles start far above the small integers jsdom and
-happy-dom hand out, so a cancel for any other handle is passed on to the `cancelAnimationFrame` the
-stub replaced, and that native frame is cancelled rather than left behind as a pending timer.
+Rules worth knowing:
 
-A callback that throws stops the flush. The frames after it stay pending, and the next `flush()` runs
-them. Pass `onError` to intercept the throw instead — called with whatever the callback threw, in
-place of letting it propagate out of `flush()` (or, in `'immediate'` mode, out of
-`requestAnimationFrame` itself); rethrow from inside it to keep the default for an error you did not
-mean to swallow:
+- **A frame requested inside a running frame waits for the next `flush()`**, in both modes, as in a
+  browser. An animation loop moves one step per `flush()`. In `'immediate'` mode the first step runs
+  right away, and a frame requested from inside it does not run immediately as well.
+- **A frame cancelled by an earlier callback in the same `flush()` does not run.**
+- **`flushAll()` stops after 1000 rounds** and throws. Only a loop that never stops requesting frames
+  gets there; step it with `flush()` instead.
+- **A callback that throws stops the flush.** The frames after it stay pending, and the next `flush()`
+  runs them. With `onError`, the error goes to your function instead (in `'immediate'` mode, instead
+  of out of `requestAnimationFrame`). Rethrow inside it for errors you did not mean to swallow:
 
 ```ts
 const frames = stubAnimationFrame({
@@ -81,10 +79,22 @@ const frames = stubAnimationFrame({
 });
 ```
 
+**Common mistake:** asserting a cancel against a literal handle such as `1`. Handles start above
+2^30, so compare with `lastHandle`:
+
+```ts
+expect(frames.cancelAnimationFrame).toHaveBeenLastCalledWith(frames.lastHandle);
+```
+
+Handles start that high so the stub can tell its own from the environment's. A cancel for a handle the
+stub did not issue goes to the real `cancelAnimationFrame`. This matters when you install the stub
+after a render: zoneless Angular may already have a real frame pending, and its cancel still reaches
+it.
+
 ## `stubElementRect(element, rect?)`
 
-Makes `element.getBoundingClientRect()` return a box. The `rect` is a `DOMRectInit`: `x`, `y`,
-`width` and `height`, each `0` when left out.
+Makes `element.getBoundingClientRect()` return a box. `rect` is a `DOMRectInit`: `x`, `y`, `width`
+and `height`, each `0` when left out.
 
 ```ts
 stubElementRect(mapContainer, { width: 800, height: 600 });
@@ -92,11 +102,11 @@ stubElementRect(mapContainer, { width: 800, height: 600 });
 mapContainer.getBoundingClientRect(); // DOMRect { x: 0, y: 0, width: 800, height: 600, right: 800, bottom: 600, … }
 ```
 
-Every call returns a fresh `DOMRect`, as the browser does, so `top`, `right`, `bottom` and `left`
-always agree with the four numbers given. Only the element passed is patched; its siblings keep
-answering zeros. The call returns the undo, which also carries the installed spy as
-`.getBoundingClientRect`, for a test that must assert the measurement happened rather than only shape
-its result:
+- Every call returns a new `DOMRect`, as the browser does. `top`, `right`, `bottom` and `left` always
+  match the four numbers.
+- Only this element is patched; other elements still report zeros.
+- It returns an undo function. The undo also carries the installed spy as `.getBoundingClientRect`,
+  to assert that the measurement happened:
 
 ```ts
 const stub = stubElementRect(settingsTab, { width: 240 });
@@ -106,15 +116,19 @@ component.selectTab('settings');
 expect(stub.getBoundingClientRect).toHaveBeenCalled();
 ```
 
-The box is the implementation the spy was created with, so a `vi.resetAllMocks()` or `mockReset()`
-in the middle of a test empties the calls and keeps the box, on both spy engines. Bun is the
-exception: its `mockReset()` drops the implementation, and the element then answers `undefined` —
-call `stubElementRect` again after a reset there. The same holds for the `stubAnimationFrame` spies.
+`vi.resetAllMocks()` or `mockReset()` during a test clears the calls and keeps the box, whichever
+spy engine you use. The same holds for the `stubAnimationFrame` spies.
+
+**Common mistake on Bun:** there, `mockReset()` drops the box, and the element returns `undefined`.
+Call `stubElementRect` again after a reset.
 
 ## Taking them off
 
-Both go through `mockValueProp`. `restoreMockedProps()`, which `setupAutoSpy()` runs after every test,
-puts back the previous globals and the element's own method. Install them in `beforeEach` or in the
-test. A call in `beforeAll` or a `describe` body is swept after the first test and gone for the rest.
+Both install through `mockValueProp`. `restoreMockedProps()`, which `setupAutoSpy()` runs after every
+test, puts back the previous globals and the element's own method.
+
+Install them in `beforeEach` or in the test. A call in `beforeAll` or a `describe` body is removed
+after the first test and is gone for the rest.
+
 `stubAnimationFrame` also patches `document.defaultView` when it is a separate object from
-`globalThis`, as it is under happy-dom. `view: null` patches `globalThis` alone.
+`globalThis`, as under happy-dom. `view: null` patches `globalThis` only.

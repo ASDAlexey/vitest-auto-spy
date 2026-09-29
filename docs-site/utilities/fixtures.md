@@ -1,53 +1,71 @@
 ---
 title: Fixtures without casts
-description: createMock’s deep partial, createFixture/createFixtureFactory for a model many specs build, narrow() for a union a test knows the branch of, and withOverrides() for a model whose getters a spread would drop.
+description: createMock takes a deep partial, createFixture and createFixtureFactory build a model many specs share, narrow() picks the branch of a union a test knows it got, and withOverrides() keeps a model's getters.
 ---
 
 # Fixtures without casts
 
-Four helpers for the data a spec builds rather than the collaborators it drives. What they have in
-common: each one replaces a type assertion that silently stops checking, with something that keeps
-checking.
+Helpers for the test data a spec builds: models, configs, API responses. Each one replaces an
+`as T` cast, which silently stops type-checking, with a call the compiler still checks. So when a
+model changes, the fixtures that no longer match fail to compile.
+
+```ts
+import { createFixtureFactory, createMock } from 'vitest-auto-spy';
+
+// one spec reads two nested fields of a big type
+const token = createMock<AccountToken>({ profiles: { active: { id: '1' } } });
+
+// many specs build the same model
+export const anArticle = createFixtureFactory<Article>({
+  id: '1',
+  header: { title: '', subtitle: 'none' },
+  tags: [],
+  publishedAt: new Date(0),
+});
+
+const draft = anArticle({ header: { title: 'Draft' } });
+```
+
+::: tip Which of the three?
+`createMock<T>` builds data from the fields one spec reads. `createFixture<T>` builds it from
+defaults many specs share. `createAutoMock<T>` builds a collaborator whose calls you assert. All three
+take a deep partial.
+:::
 
 ## `createMock<T>(partial?)` — now partial all the way down
 
+Builds a `T` from only the fields your spec reads, at any depth. Use it for a config object, an
+account token or a route snapshot, where the test reads one leaf of a big tree.
+
 ```ts
+import { createMock } from 'vitest-auto-spy';
+
 const config = createMock<FeatureFlagService>({ featureFlags: { retry_count: '3' } });
 const token = createMock<AccountToken>({ profiles: { active: { id: '1' } } });
 ```
 
-`Partial<T>` is one level deep, so a fixture for a configuration object, an account token or a route
-snapshot — a tree the test reads one leaf of — used to need the type of every nested level named and
-built with its own call. The input is now a deep partial, and the part that matters survives: a key
-`T` does not have, **at any depth**, is still rejected.
+A key that `T` does not have is still rejected, at any depth. That is the point: after a model
+changes, a renamed field fails here instead of hiding behind `as T`.
 
 ```ts
 // @ts-expect-error — `nickname` is not on the active profile
 createMock<AccountToken>({ profiles: { active: { nickname: 'ada' } } });
 ```
 
-That rejection is the whole value. After a model changes, a renamed or removed field is exactly what
-a spec fixture is least likely to notice and most likely to be lying about — and `as T` throws the
-check away, which is why "the fixture compiles" stops meaning anything.
+Built-ins are passed through as they are: a `Date`, a `Map`, a `Promise` or a function stays itself.
 
-::: tip Which of the three?
-`createMock<T>` builds data from the fields one spec reads; `createFixture<T>` builds it from
-defaults many specs share; `createAutoMock<T>` builds the collaborator whose calls you assert. All
-three take a deep partial.
-:::
-
-Built-ins are handed through untouched — a `Date`, a `Map`, a `Promise`, a function stays itself
-rather than becoming an object of optional methods.
+**Common mistake:** `{ ... } as AccountToken`. It compiles today and keeps compiling after the model
+changes, so the fixture quietly stops matching the real type.
 
 ## `createFixture<T>(defaults, overrides?)` — a model written out once
 
-`createMock` answers "this spec reads two fields of a big shape". It has nothing to say about the
-other habit, which is more expensive: a content model with seventeen required fields, each with its
-own nested interface, copied into every spec that needs one. Measured on a single migration shard,
-those copies produced **28 `TS1117`** diagnostics — a duplicate key in a literal — and half of the
-shard's `TS2741`.
+Builds a model from full defaults written once, plus the few fields one test cares about. Use it for
+a model with many required fields that many specs need. `createFixtureFactory<T>(defaults)` returns
+a reusable function that does the same.
 
 ```ts
+import { createFixture, createFixtureFactory } from 'vitest-auto-spy';
+
 // article.fixture.ts — the model, written out once, checked in full
 export const anArticle = createFixtureFactory<Article>({
   id: '1',
@@ -58,32 +76,38 @@ export const anArticle = createFixtureFactory<Article>({
 
 // in a spec — name only what this test is about
 const draft = anArticle({ header: { title: 'Draft' } });
+const archived = createFixture(draft, { tags: ['archived'] }); // any complete Article works as defaults
 ```
 
-The `defaults` argument is a **complete** `T`, and that is the point rather than a chore: a field the
-model dropped six months ago fails here, in one place, instead of in eight copies nobody re-checks.
-`Partial<T>` and `as T` both delete that diagnostic, which is why neither is the answer.
+| Argument    | Type                | Meaning                                                      |
+| ----------- | ------------------- | ------------------------------------------------------------ |
+| `defaults`  | `T` (complete)      | Every required field; checked in full                        |
+| `overrides` | deep partial of `T` | Fields for this test; unknown keys are rejected at any depth |
 
-Overrides are deep-partial-checked like `createMock`'s, and merge leaf by leaf — `header.subtitle`
-above survives an override that only names `header.title`. An overridden **array** replaces the
-default one outright; no merge rule over arrays is right often enough to guess at.
+How it behaves:
 
-**An optional key takes an explicit `undefined`**, under `exactOptionalPropertyTypes` too:
-`createFixture(anOrganisation, { sites: undefined })` clears it, and `createMock<T>({ ...base, sites: undefined })`
-says "present, and unset". A required key still refuses `undefined` — that is
-[`outOfType`](/api) territory.
+- **`defaults` must be a complete `T`.** A field the model dropped fails here, in one place, not in
+  eight copies nobody checks.
+- **Overrides merge field by field.** `header.subtitle` above survives an override that only sets
+  `header.title`.
+- **An overridden array replaces the default array.** Arrays are not merged.
+- **An optional key accepts an explicit `undefined`**, also under `exactOptionalPropertyTypes`:
+  `createFixture(anOrganisation, { sites: undefined })` clears it, and
+  `createMock<T>({ ...base, sites: undefined })` keeps the key, with the value `undefined`. A required key still
+  rejects `undefined`; for that, see [`outOfType`](/api).
+- **Every call returns a new object**, and the defaults are copied when the factory is built. One
+  test's changes never leak into another test, even across files under `isolate: false`.
+- **The copy is deep through plain objects and arrays only.** A `Date`, a `Map`, a DOM node or a
+  class instance is shared by reference, because rebuilding it would lose its prototype and getters.
 
-**Every call hands back a new object**, and the defaults are copied when the factory is built. A
-fixture shared by reference is the most common way one test's mutation decides another's outcome,
-and under `isolate: false` that sharing reaches across files.
-
-The copy is deep through plain objects and arrays and stops there: a `Date`, a `Map`, a DOM node or a
-class instance is carried across by reference, because rebuilding one would strip its prototype —
-accessors included. When the defaults _are_ a class instance with getters, snapshot it with
-[`withOverrides`](#withoverrides-model-overrides-—-a-model-whose-getters-survive) first and hand the
-result here.
+**Common mistake:** passing a class instance with getters as `defaults`. Snapshot it with
+[`withOverrides`](#withoverrides-model-overrides-—-a-model-whose-getters-survive) first; the
+result is a complete plain `T`, and you can pass it as `defaults`.
 
 ## `narrow(value, predicate)` — the branch a test knows it got
+
+Returns `value` typed as the branch your test expects, and fails with the value's real shape if it
+is not. Use it when your test knows which member of a union it got, but the type does not.
 
 ```ts
 import { narrow } from 'vitest-auto-spy';
@@ -95,51 +119,62 @@ const covers = narrow.defined(row.content?.covers);
 const form = narrow.instanceOf(request.body, FormData); // a class instance, typed as it
 ```
 
-A spec routinely knows something the type does not: that `result.link` is the one form of twenty that
-carries `params`, that a guard returned the `Observable` and not the `boolean`. The two usual ways to
-say it are both bad — an assertion is a lie the compiler stops checking, and a hand-written
-`if ('params' in link) … else throw` is six lines per site whose message is whatever the author felt
-like typing.
+| Form                              | Narrows to                                        |
+| --------------------------------- | ------------------------------------------------- |
+| `narrow(value, predicate)`        | whatever your type-guard predicate says           |
+| `narrow.byKey(value, key)`        | the union member that has `key`                   |
+| `narrow.observable(value)`        | the `Observable` branch, keeping its element type |
+| `narrow.defined(value, label?)`   | the value without `undefined` / `null`            |
+| `narrow.instanceOf(value, Class)` | an instance of `Class`                            |
 
-The failure prints the shape the value actually had, which is the only thing that makes it cheaper
-than the assertion it replaces:
+The failure prints the shape the value actually had:
 
 ```text
 [vitest-auto-spy] narrow.byKey: expected an object with a 'params' property, but the value is Object { type, slug }. The code under test took another branch than this test assumes — check the setup that should lead to it.
 Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/fixtures#narrow-value-predicate-—-the-branch-a-test-knows-it-got
 ```
 
-`narrow.observable` exists here rather than as a call to rxjs's `isObservable` because that one
-narrows to `Observable<unknown>` and drops the element type, so every call site adds a type argument
-back by hand. The check is structural, so nothing in the core imports rxjs.
+Why not the usual ways:
 
-`narrow.defined(value, label?)` is the one every optional read needs, and it exists because
-`expect(value).toBeDefined()` and `assert.exists(value)` both assert without **returning**. Under a
-strict spec type-check that costs two statements and a local per read — `const covers = row.content?.covers; assert.exists(covers); … covers …` —
-which multiplies fast: one suite hit that shape fifteen times across four files, and twice grew a
-helper function per member of a stub just to carry the narrowing. It is not a replacement for
-`assert.exists` where the assertion _is_ the point of the test; the difference is whether the line
-asserts that a value arrived, or reads one the test already knows arrived. A falsy-but-present value
-passes: `0`, `''`, `false` and `NaN` are all defined.
+- `as OpenLink` is a cast the compiler stops checking.
+- A hand-written `if ('params' in link) … else throw` is several lines per place, with a message
+  nobody maintains.
+- rxjs's `isObservable` narrows to `Observable<unknown>` and drops the element type.
+  `narrow.observable` keeps it, and does not import rxjs.
+- `expect(value).toBeDefined()` and `assert.exists(value)` check, but do not **return** the narrowed
+  value. You then need a local variable and a second statement for each read.
+  `narrow.defined` does both in one expression.
+
+`narrow.defined` passes falsy values that are present: `0`, `''`, `false` and `NaN` are defined.
+
+**Common mistake:** replacing `assert.exists` where the check itself is the point of the test. Use
+`narrow.defined` to read a value the test already knows is there; keep the assertion when "the value
+arrived" is what you test.
 
 ## `withOverrides(model, overrides?)` — a model whose getters survive
 
+Returns a plain copy of a model with every getter's value captured, plus your overrides. Use it for
+"the same object, but with one field different" when the model is a class with getters.
+
 ```ts
+import { withOverrides } from 'vitest-auto-spy';
+
 const expired = withOverrides(SUBSCRIPTION, { isExpired: true });
 ```
 
-Angular codebases model API responses as classes with getters — `get isSubscribed()`,
-`get isExpired()` — computed from the raw fields. "The same subscription, but expired" then has two
-usual spellings, and both are broken in ways that are hard to see:
+| Argument    | Type         | Default | Meaning                              |
+| ----------- | ------------ | ------- | ------------------------------------ |
+| `model`     | `T`          | —       | The complete model instance          |
+| `overrides` | `Partial<T>` | `{}`    | Fields and getter results to replace |
 
-- `{ ...subscription, isExpired: true }` **drops every getter**: spread copies own enumerable
-  properties, and a prototype accessor is neither. The component reads `undefined` from a flag that
-  should have had a value.
-- `Object.assign(new SubscriptionModel(), fields)` keeps the getters **live**, so each runs against a
-  half-filled instance — and a getter written for real data throws from inside the model, with a
-  stack that names neither the spec nor the missing field.
+Angular apps often model API responses as classes with getters such as `get isExpired()`. The two
+usual ways to change one field both break:
 
-`withOverrides` reads every accessor once, while the model is still whole, and hands back a plain
-object carrying the results as data. A getter that throws contributes `undefined` rather than failing
-the snapshot: a spec that asserts on that field will say so far more clearly than a stack inside the
-model would.
+- `{ ...subscription, isExpired: true }` **drops every getter**. Spread copies only own enumerable
+  properties, and a getter on the prototype is neither. The component then reads `undefined`.
+- `Object.assign(new SubscriptionModel(), fields)` keeps the getters **live**. Each one runs against
+  a half-filled instance and may throw from inside the model, with a stack that names neither the
+  spec nor the missing field.
+
+`withOverrides` reads every getter once, while the model is complete, and returns a plain object
+with the results as data. A getter that throws gives `undefined` instead of failing the snapshot.

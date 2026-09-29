@@ -1,9 +1,13 @@
 ---
 title: Constructor doubles
-description: mockConstructor and stubConstructor — a test double the code under test can call with `new`, because a vi.fn() cannot be one.
+description: mockConstructor and stubConstructor build a stand-in the code under test can call with new, which a vi.fn() with an arrow function cannot be.
 ---
 
 # Constructor doubles
+
+Use these helpers when your code calls `new` on something you want to replace: `new Image()` for a
+tracking pixel, `new Worker()`, `new WebSocket()`, a payment widget or a player SDK. A `vi.fn()` with
+an arrow function cannot stand in for a constructor; these can.
 
 ```ts
 import { stubConstructor } from 'vitest-auto-spy';
@@ -20,32 +24,26 @@ it('fires the tracking pixel', () => {
 
 ## The mistake this replaces
 
-`jest.fn().mockImplementation(() => instance)` served `new` under Jest, so every suite old enough to
-have mocked a global constructor carries that shape: `new Image()` for a tracking pixel, `new
-Worker()`, `new WebSocket()`, `new Audio()`, a payment widget or a player SDK published as a global
-class.
+Under Jest, `jest.fn().mockImplementation(() => instance)` worked with `new`. Vitest calls the
+implementation on `new` only if the implementation itself can be constructed, and an arrow function
+cannot. The call is recorded, the body never runs, and `new` returns an empty object. Vitest prints a
+warning to stderr ("the mock did not use 'function' or 'class' in its implementation"), but it is far
+from the failure.
 
-Vitest only forwards `new` to an implementation that is **itself constructible**, and an arrow
-function is not. The call is recorded, the body never runs, and `new` hands back an empty object.
-Vitest prints a warning on stderr — "the mock did not use 'function' or 'class' in its
-implementation" — but it is not adjacent to the failure, and in a monorepo run it is one line among
-thousands.
+You then see one of two things, and neither points at the spec:
 
-What arrives instead is one of two things, and neither points at the spec:
-
-- `TypeError: (cb) => {…} is not a constructor`, with a stack **in production code** and the source
-  of the arrow printed in the message but nothing saying that the arrow is the problem;
-- a green test for the wrong reason: the empty object has no methods, the call throws inside a
-  `try`, the `catch` logs, and `expect(logger.err).toHaveBeenCalledWith(expect.any(Error))` is
-  satisfied.
+- `TypeError: (cb) => {…} is not a constructor`, with a stack in your app code;
+- a test that passes for the wrong reason: the empty object has no methods, a call on it throws
+  inside a `try`, the `catch` logs, and `expect(logger.err).toHaveBeenCalledWith(expect.any(Error))`
+  is satisfied.
 
 ## `mockConstructor(factory, name?)`
 
-Returns a runner mock that is also a constructor. Everything a mock can do still applies —
-`toHaveBeenCalledWith`, `mockClear`, `mock.calls` — and `new` reaches the factory.
+Returns a mock that also works with `new`. Every normal mock feature still works
+(`toHaveBeenCalledWith`, `mockClear`, `mock.calls`), and `new` runs your factory.
 
 ```ts
-import { mockConstructor } from 'vitest-auto-spy';
+import { mockConstructor, mockValueProp } from 'vitest-auto-spy';
 
 const LicenseClient = mockConstructor<LicenseClient>(() => ({ prepareRequest: vi.fn() }));
 
@@ -56,60 +54,62 @@ expect(LicenseClient).toHaveBeenCalledWith('widevine');
 expect(LicenseClient.instances[0].prepareRequest).toHaveBeenCalled();
 ```
 
-- **`instances`** collects what the factory produced, in construction order. It is owned by the
-  helper rather than read off the runner, so `mockClear()` does not empty it — clearing the call
-  record and forgetting objects a spec still asserts against are different wishes, and the runner's
-  own `mock.instances` covers the first one.
-- **Called without `new`, it throws by name,** with the file and line of the call that lost the
-  `new`. Otherwise the only way to learn that a double was used wrongly is a `TypeError` several
-  frames into somebody else's code.
-- **The factory must return an object.** JavaScript discards a primitive returned from `new`, so a
-  factory that returns one would hand the code under test something the spec never configured; that
-  is reported immediately instead, with the fix: return the instance from the factory.
+| Parameter | Type             | Default             | Meaning                                               |
+| --------- | ---------------- | ------------------- | ----------------------------------------------------- |
+| `factory` | `(...args) => T` | —                   | Builds one instance; receives the `new` arguments     |
+| `name`    | `string`         | `'mockConstructor'` | Shown in assertion output and in this helper's errors |
+
+- **`instances`** (for example `Image.instances`) holds what the factory produced, in construction
+  order. `mockClear()` does not empty it, so you can still assert on objects after clearing the calls.
+  This is the helper's own list; the runner's `mock.instances` is separate and is cleared as usual.
+- **Called without `new`, it throws**, naming the file and line of the call that lost the `new`.
+- **The factory must return an object.** `new` throws away a primitive return value, so a factory
+  that returns one fails right away with the fix: return the instance from the factory.
+
+**Common mistake:** `vi.fn(() => instance)` as a constructor. It records the call but `new` returns
+an empty object. Use `mockConstructor(() => instance)`.
 
 ## `stubConstructor(target, property, factory)`
 
-The same double, installed on a global (or on any object) and taken off again for you.
+The same double, put on a global (or on any object) and removed again after the test.
 
 ```ts
+import { stubConstructor } from 'vitest-auto-spy';
+
 const Widget = stubConstructor(window, 'PaymentSdk', (params: PayParams) => ({ render: vi.fn() }));
 ```
 
-Installation goes through [`mockValueProp`](/utilities/setup), so `restoreMockedProps()` — which
-`setupAutoSpy()` already runs after every test — puts the real constructor back. That is the
-difference from a hand-written `vi.stubGlobal`: with `isolate: false` a stub that is never removed
-is inherited by the next file in the worker and fails there.
+It is installed through [`mockValueProp`](/utilities/setup), so `restoreMockedProps()` puts the real
+constructor back. `setupAutoSpy()` already runs that after every test. That is the difference from a
+hand-written `vi.stubGlobal`: with `isolate: false`, a stub nobody removes is inherited by the next
+file in the worker and fails there.
 
-This is the generalisation of the [observer stubs](/utilities/observer-stubs) to everything else the
-platform publishes as a class and production code constructs directly.
+For `IntersectionObserver`, `ResizeObserver` and `MutationObserver`, use the ready-made
+[observer stubs](/utilities/observer-stubs) instead.
 
 ## Which of the three
 
-| You have                             | Use                                              |
-| ------------------------------------ | ------------------------------------------------ |
-| a real class at runtime              | `createSpyClass(Foo)` — instances are auto-spies |
-| only a type, or a hand-built shape   | `mockConstructor<T>(() => shape)`                |
-| the constructor lives on a global    | `stubConstructor(globalThis, 'Image', factory)`  |
-| it is one of the three DOM observers | `stubIntersectionObserver()` and friends         |
-| it is `AbortController`              | `stubAbortController()`                          |
+| You have                           | Use                                             | Import from                 |
+| ---------------------------------- | ----------------------------------------------- | --------------------------- |
+| a real class at runtime            | `createSpyClass(Foo)`; instances are auto-spies | `vitest-auto-spy`           |
+| only a type, or a hand-built shape | `mockConstructor<T>(() => shape)`               | `vitest-auto-spy`           |
+| the constructor lives on a global  | `stubConstructor(globalThis, 'Image', factory)` | `vitest-auto-spy`           |
+| one of the three DOM observers     | `stubIntersectionObserver()` and friends        | `vitest-auto-spy/dom-stubs` |
+| `AbortController`                  | `stubAbortController()`                         | `vitest-auto-spy/dom-stubs` |
 
-The bottom two rows are imported from `vitest-auto-spy/dom-stubs` since 4.0.0, not from the root —
-see [Observer stubs](./observer-stubs). `mockConstructor`, `stubConstructor` and `createSpyClass`
-stayed on the root: they are about `new`, not about the DOM.
-
-`createSpyClass(Foo)` carries the instances and nothing else. Where production code also reads
-statics off the name it replaced — `Foo.isSupported()`, `Foo.create()`, `Foo.VERSION` — pass
-`{ statics: true }` as its third argument; [Bridging `Spy<T>` and `T`](/core/spy-typing) has what
-each kind of static becomes.
+`createSpyClass(Foo)` replaces the constructor only. If your code also reads statics from the class
+(`Foo.isSupported()`, `Foo.create()`, `Foo.VERSION`), pass `{ statics: true }` as its third argument.
+What each kind of static becomes: [Bridging `Spy<T>` and `T`](/core/spy-typing).
 
 ### A constructor that is a member of a double
 
-None of the three is needed when the class is reached **through a dependency** the spec already
-doubles — `new this.sdk.Client(key)`, `new deps.Session()`. A spied member answers `new`: the
-construction is recorded like any other call, and what the code under test receives is a fresh
-instance, or the object that argument list was configured to answer with.
+You need none of the three when your code reaches the class **through a dependency** the spec already
+replaces, as in `new this.sdk.Client(key)`. A spied member works with `new`: the call is recorded,
+and your code receives a fresh instance or whatever you configured for those arguments.
 
 ```ts
+import { createAutoMock } from 'vitest-auto-spy';
+
 const sdk = createAutoMock<Sdk>();
 
 service.connect(); // `new this.sdk.Client(key)` inside
@@ -117,23 +117,17 @@ service.connect(); // `new this.sdk.Client(key)` inside
 expect(sdk.Client).toHaveBeenCalledWith(key);
 ```
 
-The three helpers above are for a constructor the code under test reaches **directly**: a global it
-names, an import it calls, a real class whose instances should be auto-spies.
+The three helpers are for a constructor your code reaches **directly**: a global it names, an import
+it calls, or a real class whose instances should be auto-spies.
 
 ## `stubAbortController()`
 
-`element.addEventListener('pointerdown', handler, { signal })` is the recommended way to detach
-listeners since Angular 16, and it fails in a jsdom run with a message that names none of the three
-parties responsible:
+Replaces `AbortController` and `AbortSignal` with versions that work under jsdom. Use it when a
+component uses `addEventListener(…, { signal })` and a jsdom test fails with:
 
 ```
 TypeError: 'addEventListener' called on an object that is not a valid instance of EventTarget
 ```
-
-Vitest lays Node's fetch family over the jsdom globals, so a signal is a _Node_ `EventTarget`;
-zone.js registers the abort listener through jsdom's own `addEventListener` with that signal as the
-receiver; jsdom brand-checks the receiver and refuses. jsdom raises it, Node caused it, zone.js
-triggered it, and the component under test is blamed.
 
 ```ts
 import { stubAbortController } from 'vitest-auto-spy/dom-stubs';
@@ -143,14 +137,18 @@ beforeEach(() => {
 });
 ```
 
-The replacement extends whichever `EventTarget` belongs to the current realm, which is the one thing
-all three parties agree on. It is registered as a property patch, so it comes off with everything
-else.
+The error has three parties and names none of them. Vitest puts Node's `AbortController` over the
+jsdom globals, so a signal is a Node `EventTarget`. zone.js then calls jsdom's `addEventListener`
+with that signal, and jsdom rejects it. The replacement extends the `EventTarget` of the current
+environment, which all three accept. It is installed as a property patch, so it is removed after the
+test with everything else.
+
+**Common mistake:** installing it in `beforeAll`. It is removed after the first test; install it in
+`beforeEach`.
 
 ### The statics, too
 
-`AbortSignal.abort()`, `AbortSignal.timeout()` and `AbortSignal.any()` are how modern code makes a
-signal without holding a controller, and the stub answers all three:
+`AbortSignal.abort()`, `AbortSignal.timeout()` and `AbortSignal.any()` work on the stub too:
 
 ```ts
 vi.useFakeTimers();
@@ -163,7 +161,6 @@ vi.advanceTimersByTime(5_000);
 await expect(request).rejects.toMatchObject({ name: 'TimeoutError' });
 ```
 
-`timeout()` aborts through `setTimeout`, so fake timers drive it exactly as they drive the
-platform's. The reason it aborts with is a `DOMException` named `TimeoutError`, and every other abort
-carries one named `AbortError` — the distinction the platform draws, and the one production code
-branches on.
+`timeout()` aborts through `setTimeout`, so fake timers drive it like the real one. A timeout aborts
+with a `DOMException` named `TimeoutError`; every other abort uses one named `AbortError`. Your code
+can branch on that name, as with the real platform.

@@ -1,31 +1,59 @@
 ---
 title: Console spies
-description: Silent, typed spies over the global console — installed per test with useConsoleSpies() or installConsoleSpies(), restored in afterEach, and what absorbs output under the stray-console guard.
+description: Silent, typed spies over the global console from vitest-auto-spy/console - install them for the tests that expect output, assert on them, and they come off after each test.
 ---
 
 # Console spies
 
-Console spying lives behind the `vitest-auto-spy/console` subpath: `console.debug` / `error` /
-`info` / `log` / `time` / `timeEnd` / `trace` / `warn` replaced with **silent, fully-typed spies**,
-ready to assert — no `vi.spyOn(console, 'info')` boilerplate in every suite, no log output polluting
-the test run. Install them for the tests that expect output, and take them off again:
+`vitest-auto-spy/console` replaces `console.debug`, `error`, `info`, `log`, `time`, `timeEnd`,
+`trace` and `warn` with silent, typed spies. Use it when your code logs and a test wants to assert on
+the log, or to keep log output out of the test run. To check the whole output at once, including "nothing
+else was logged", use [`consoleOutput()`](#everything-a-test-wrote-as-one-value), or
+[`consoleLines()`](#everything-a-test-wrote-in-order) when the order matters too.
 
 ```ts
 import { useConsoleSpies } from 'vitest-auto-spy/console';
 
-const { consoleInfoSpy, consoleWarnSpy } = useConsoleSpies();
+describe('JobService', () => {
+  const { consoleInfoSpy, consoleWarnSpy } = useConsoleSpies();
 
-it('logs the finished job', () => {
-  service.doWork();
+  it('logs the finished job', () => {
+    service.doWork();
 
-  expect(consoleInfoSpy).toHaveBeenCalledWith('done');
-  expect(consoleWarnSpy).not.toHaveBeenCalled();
+    expect(consoleInfoSpy).toHaveBeenCalledWith('done');
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
+  });
 });
 ```
 
-`useConsoleSpies()` registers `beforeEach(installConsoleSpies)` and `afterEach(restoreConsole)` in the
-enclosing `describe` (or the file) and returns the spies. It registers Vitest hooks, which Bun
-resolves to its own; on `node:test` and Rstest write that pair in the runner's hooks yourself:
+## `useConsoleSpies()`
+
+Installs the spies before each test of the enclosing `describe` (or file) and removes them after
+each test. Returns the spies.
+
+The exported constants (`consoleInfoSpy`, `consoleErrorSpy`, …) are the same objects, so you can also
+import them directly:
+
+```ts
+import { consoleErrorSpy, useConsoleSpies } from 'vitest-auto-spy/console';
+
+useConsoleSpies();
+
+it('reports the failure', () => {
+  service.doWork();
+  expect(consoleErrorSpy).toHaveBeenCalledWith('boom');
+});
+```
+
+If every test of the file expects output, call `installConsoleSpies()` once at the top of the file
+instead.
+
+It works on Vitest, `node:test`, Bun and Rstest. It registers its hooks on the runner whose entry you
+imported (`vitest-auto-spy/node`, `vitest-auto-spy/bun`, `vitest-auto-spy/rstest`), and on Vitest
+otherwise. `vitest-auto-spy/console` does not import the `vitest` package, so it loads without it.
+
+If no runner hooks can be found, `useConsoleSpies()` throws and names the entries to import. You can
+always write the pair in your runner's own hooks:
 
 ```ts
 import { installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
@@ -34,26 +62,17 @@ beforeEach(() => installConsoleSpies());
 afterEach(() => restoreConsole());
 ```
 
-The entry imports `vitest` itself — for these hooks and for the adapter it registers when no runtime
-entry did — so on `node:test` and Rstest it loads only where the `vitest` package resolves.
-
-A bare `useConsoleSpies();` in a `describe` body trips `vitest/require-hook`; spread
-`autoSpy.hookRegisteringHelpers` from `vitest-auto-spy/eslint-plugin` into its `allowedFunctionCalls`
-([Alongside `vitest/require-hook`](/utilities/eslint-plugin#alongside-vitest-require-hook)).
-
-The exported constants — `consoleInfoSpy`, `consoleErrorSpy`, … — are the same objects as the bag
-`useConsoleSpies()` and `installConsoleSpies()` return, so `expect(consoleErrorSpy)` is the same
-assertion. When every test
-of the file expects output, `installConsoleSpies()` once at the top of the file does the same for the
-whole file.
+**Common mistake:** a bare `useConsoleSpies();` in a `describe` body trips the `vitest/require-hook`
+lint rule. Add `autoSpy.hookRegisteringHelpers` from `vitest-auto-spy/eslint-plugin` to that rule's
+`allowedFunctionCalls`; see
+[Alongside `vitest/require-hook`](/utilities/eslint-plugin#alongside-vitest-require-hook).
 
 ### Everything a test wrote, as one value {#everything-a-test-wrote-as-one-value}
 
-`toHaveBeenCalledWith` on one spy says nothing about the others: a test that pins `consoleInfoSpy`
-passes while an unasserted `console.warn` goes by. `consoleOutput()` returns every call the spies
-recorded, keyed by channel (`debug`, `error`, `info`, `log`, `trace`, `warn`), with the arguments of
-each call — and only the channels something wrote to. An exact comparison then pins the whole
-output, and a stray line fails it with the full diff:
+`consoleOutput()` returns every call the spies recorded, grouped by channel (`debug`, `error`,
+`info`, `log`, `trace`, `warn`), with the arguments of each call. Channels nobody wrote to are left
+out. Compare it exactly, and any extra line fails the test with a full diff. `toHaveBeenCalledWith`
+on one spy cannot do that: it misses an unexpected `console.warn`.
 
 ```ts
 import { consoleOutput, installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
@@ -74,74 +93,96 @@ it('stays silent on a clean run', () => {
 });
 ```
 
-`time` and `timeEnd` are left out: `timeEnd` prints a duration no test can pin. `consoleOutput()`
-throws while none of the spies is on `console` — after a `restoreConsole()`, or under the
-stray-console guard before `installConsoleSpies()` — because spies that are off record nothing, and
-an empty result would read as silence.
+`time` and `timeEnd` are left out: `timeEnd` prints a duration no test can predict.
 
-It is a function rather than a `toHaveLogged(…)` matcher on purpose: `toStrictEqual` already gives
-the exact comparison and the diff, the function adds 184 bytes (min+gzip) to the entry against 340
-for a function plus a matcher, and it needs no `expect.extend` at import and no matcher typings.
+**Common mistake:** calling it when the spies are not installed, for example after
+`restoreConsole()`. It throws, because an empty result would look like silence.
+
+### Everything a test wrote, in order
+
+`consoleLines()` returns one array across all channels, in call order. Each entry is the channel
+followed by the call's arguments. Use it when order matters, for example a warning before the result.
+
+```ts
+import { consoleLines, useConsoleSpies } from 'vitest-auto-spy/console';
+
+describe('cli', () => {
+  useConsoleSpies();
+
+  it('warns before it reports', () => {
+    cli.run(['--dry-run']);
+
+    expect(consoleLines()).toStrictEqual([
+      ['warn', 'deprecated flag'],
+      ['info', 'done'],
+    ]);
+  });
+});
+```
+
+`time` and `timeEnd` are left out here too. `vi.clearAllMocks()` or `clearMocks: true` between tests
+does not break the order.
+
+**Common mistake:** giving a console spy its own `mockImplementation` or `mockReturnValue`. Then the
+call order is no longer recorded, so `consoleLines()` throws instead of guessing. Assert on
+`consoleOutput()` in that case.
 
 ### Why not rely on the import {#why-not-rely-on-the-import}
 
-Importing the entry also installs the spies, on the module's first evaluation — and under
-`isolate: false` that is once per **worker**: the spies go on in whichever file imported them first,
-silence every later file of the worker, and nothing in any of those files takes them off. What that
-hides depends on file order. On a 1759-file Angular consumer, 32 of the 39 files importing the entry
-relied on exactly that; the moment three files started calling `restoreConsole()` in an
-`afterEach`, 12 tests in 5 other files failed and output the silence had hidden surfaced in 7 files.
-The [`no-import-time-console-spies`](/utilities/eslint-rules#no-import-time-console-spies) rule
-reports the pattern. The import-time install is kept only for a run without the stray-console guard,
-for compatibility; under the guard the import installs nothing.
+Importing the entry also installs the spies, the first time the module runs. Under `isolate: false`
+that is once per worker: the spies go on in whichever file imported them first and silence every
+later file in that worker. Nothing takes them off, and what they hide depends on file order.
+
+Install them explicitly with `useConsoleSpies()` or `installConsoleSpies()`. The
+[`no-import-time-console-spies`](/utilities/eslint-rules#no-import-time-console-spies) lint rule
+reports specs that rely on the import. The install on import is kept only for runs without the
+[stray-console guard](#under-the-stray-console-guard); under the guard, the import installs nothing.
 
 ## Exports
 
-One spy per patched method: `consoleDebugSpy`, `consoleErrorSpy`, `consoleInfoSpy`,
-`consoleLogSpy`, `consoleTimeSpy`, `consoleTimeEndSpy`, `consoleTraceSpy`, `consoleWarnSpy`
-(type `ConsoleMethodSpy`). `consoleOutput()` (type `ConsoleOutput`, keyed by `ConsoleChannel`) reads
-them all at once.
+| Export                                                                                                                                              | What it is                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `consoleDebugSpy`, `consoleErrorSpy`, `consoleInfoSpy`, `consoleLogSpy`, `consoleTimeSpy`, `consoleTimeEndSpy`, `consoleTraceSpy`, `consoleWarnSpy` | One spy per method, type `ConsoleMethodSpy`                                                |
+| `useConsoleSpies()`                                                                                                                                 | Install before each test, remove after; returns the spies                                  |
+| `installConsoleSpies()`                                                                                                                             | Install now; returns the `ConsoleSpies` object                                             |
+| `restoreConsole()`                                                                                                                                  | Put the real methods back                                                                  |
+| `resetConsoleSpies()`                                                                                                                               | Clear recorded calls, keep the spies installed                                             |
+| `consoleOutput()`                                                                                                                                   | All calls grouped by channel, type `ConsoleOutput` keyed by `ConsoleChannel`               |
+| `consoleLines()`                                                                                                                                    | All calls in order, type `ConsoleLine[]` (`[channel: ConsoleChannel, ...args: unknown[]]`) |
 
 ## Housekeeping
 
 ```ts
 import { installConsoleSpies, resetConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
 
-resetConsoleSpies(); // clear the recorded calls (Vitest's `clearMocks: true` does this per test)
+resetConsoleSpies(); // clear the recorded calls
 restoreConsole(); // put the original console methods back
-installConsoleSpies(); // re-install after a restore (idempotent otherwise)
+installConsoleSpies(); // install again after a restore; calling it twice is safe
 ```
 
-- `resetConsoleSpies()` clears recorded calls but keeps the spies installed. With
-  `clearMocks: true` in your Vitest config this happens automatically before each test.
-- `restoreConsole()` puts the original methods back and clears what the spies recorded. The spies
-  themselves are kept, so `consoleErrorSpy` and the other exports stay live for the next install —
-  under `isolate: false` a restore that forgot them left every later file of the worker asserting on
-  spies nothing could reach.
-- `useConsoleSpies()` registers the install / restore pair as hooks of the enclosing block.
-- `installConsoleSpies()` returns the full `ConsoleSpies` bag — always the same one — and puts its
-  spies back on the console if something took them off.
-
-The spies survive `vi.resetModules()`. That call hands the next import a fresh copy of this module
-while the previous copy's spies are still on `console`, and a new copy never mistakes one of those
-for the real method: the real ones are remembered once per worker, where every copy finds them. So
-`restoreConsole()` cannot put a spy nobody can reach back on `console` for the rest of the worker.
+- `resetConsoleSpies()` clears recorded calls but keeps the spies installed. `clearMocks: true` in
+  the Vitest config does this before each test. [`setupAutoSpy()`](/utilities/setup) does it after
+  each test, through its `resetConsoleSpies` option (on by default). Turn that option off only for a
+  spec that asserts on what an earlier test logged.
+- `restoreConsole()` puts the original methods back and clears what the spies recorded. The spy
+  objects stay, so `consoleErrorSpy` and the other exports keep working after the next install.
+- `installConsoleSpies()` always returns the same `ConsoleSpies` object. If something removed the
+  spies from `console`, it puts them back.
+- The spies survive `vi.resetModules()`. A fresh copy of the module still finds the real console
+  methods, so `restoreConsole()` never leaves a stale spy on `console`.
 
 ## Under the stray-console guard
 
 [`setupAutoSpy({ strayConsole: 'throw' })`](/utilities/setup#_16-console-output-nothing-absorbed)
-fails a test on any console output nothing absorbed, and these spies are what absorbs it. Three
-things change while the guard is on.
+fails a test that writes to the console with nothing to absorb the output. These spies absorb it.
+Three things change while the guard is on.
 
-**The import installs nothing.** Under `isolate: false` a module is evaluated once per worker, so the
-import-time install put the spies on the console in whichever file imported them first and left them
-there for every later file of the worker — silencing exactly the output the guard exists to see. So
-the import only builds the spies, and `installConsoleSpies()` puts the same objects on the console:
+**The import installs nothing.** It only creates the spies. Install them where you need them:
 
 ```ts
 import { consoleWarnSpy, useConsoleSpies } from 'vitest-auto-spy/console';
 
-useConsoleSpies(); // this file's tests — or installConsoleSpies() at the top of the file
+useConsoleSpies(); // this file's tests; or installConsoleSpies() at the top of the file
 
 it('warns about the deprecated flag', () => {
   service.configure({ legacy: true });
@@ -151,33 +192,38 @@ it('warns about the deprecated flag', () => {
 ```
 
 **The spies do not outlive their scope.** Installed in a test or a `beforeEach`, they come off after
-the test; installed at the top of the file, after the file. Spies an import installed before the guard
-armed are taken off when it does. A `vi.spyOn(console, m)` with no implementation is not a substitute:
-it calls through, so the line still prints and the guard still fails the test, saying
-`vi.spyOn(console, 'error') calls through — add .mockImplementation(() => undefined).` The
-[`no-passthrough-console-spy`](/utilities/eslint-rules#no-passthrough-console-spy) rule reports it
-before the run.
+the test. Installed at the top of the file, they come off after the file. Spies installed by an
+earlier import are removed when the guard turns on.
 
 **What the DOM environment writes reaches the spies too.** happy-dom's page console and jsdom's
-virtual console hold the worker's own console, captured before Vitest swapped `globalThis.console`, so
-their lines used to reach stderr past every spy and past the guard. The guard routes them into the
-console the spies sit on: `consoleErrorSpy` absorbs happy-dom's
-`NotSupportedError … Iframe page loading is disabled` like any other `console.error`, and the test
-can assert it.
+virtual console used to write past every spy. The guard routes them to the console the spies sit
+on. So `consoleErrorSpy` absorbs happy-dom's `NotSupportedError … Iframe page loading is disabled`
+like any other `console.error`, and the test can assert it.
 
-Without the guard nothing here changes: importing the entry installs the spies, as it always did.
+**Common mistake:** `vi.spyOn(console, 'error')` without an implementation. It passes the call on, so
+the line still prints and the guard still fails the test:
+`vi.spyOn(console, 'error') calls through — add .mockImplementation(() => undefined).` The
+[`no-passthrough-console-spy`](/utilities/eslint-rules#no-passthrough-console-spy) lint rule reports
+it before the run.
+
+Without the guard, nothing here changes: importing the entry installs the spies, as before.
 
 ## Runtimes
 
-The spies are built on the registered [`MockAdapter`](../runtimes/vitest), not on `vi.spyOn`
-directly — import your runtime entry (`vitest-auto-spy/bun`, `vitest-auto-spy/node`) **before**
-`vitest-auto-spy/console` and the console spies are driven by that runner's mocks. With no prior
-runtime entry, the default Vitest adapter is registered.
+The spies are built on the registered [`MockAdapter`](../runtimes/vitest) (the link between the
+library and your runner's `vi.fn()` / `mock()`), not on `vi.spyOn` directly. Import your runtime
+entry (`vitest-auto-spy/bun`, `vitest-auto-spy/node`) **before** `vitest-auto-spy/console`, and the
+console spies use that runner's mocks.
+
+On Vitest with no runtime entry imported, the default adapter uses Vitest's own `vi`. On another
+runner, the spies wait for that runner's entry. So if `/console` is imported before `/node` (a sorted
+import list does that), it creates nothing yet. The first `installConsoleSpies()` or
+`useConsoleSpies()` creates the spies, and the exported `consoleErrorSpy` and the rest pick them up.
 
 ## Fully detached alternative
 
-Prefer not to touch the real global? `createAutoMock<Console>()` gives you a typed, in-memory
-console to inject into code that takes a logger:
+To leave the real `console` alone, inject a typed in-memory console instead. `createAutoMock<Console>()`
+gives you one for code that takes a logger:
 
 ```ts
 import { createAutoMock } from 'vitest-auto-spy';

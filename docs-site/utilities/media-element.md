@@ -1,60 +1,67 @@
 ---
 title: Media element stub
-description: stubMediaElement — a <video> / <audio> that plays, reports a duration and fires the events a component listens for, which jsdom does not.
+description: stubMediaElement makes video and audio elements play, report a duration and fire the events a component listens for, which jsdom does not do.
 ---
 
 # Media element stub
 
-::: tip Moved in 4.0.0
-These used to be exported from the root entry. ESM re-export is eager and no runner tree-shakes a
-test file, so every spec in every project — Node services included — was evaluating the DOM stubs to
-get `createSpyFromClass`. They now live behind `vitest-auto-spy/dom-stubs`: **−0.159 ms** on every
-spec file that does not import them, **+0.155 ms** on the ones that do, and 20.3 kB off `dist`.
-Same helpers, same signatures; `restoreMockedProps()` and `setupAutoSpy()` from the root still put
-back everything patched here.
-:::
+`stubMediaElement()` makes `<video>` and `<audio>` elements work in a jsdom test: `play()`
+resolves, `duration` has a value, and changing the state fires the events your component listens
+for. Use it for player, advertising or subtitle components.
 
 ```ts
 import { stubMediaElement } from 'vitest-auto-spy/dom-stubs';
 
-const media = stubMediaElement({ duration: 120 });
+let media: ReturnType<typeof stubMediaElement>;
+
+beforeEach(() => {
+  media = stubMediaElement({ duration: 120 });
+});
+
+it('marks the video finished', () => {
+  const fixture = TestBed.createComponent(PlayerComponent);
+  fixture.detectChanges();
+
+  const video = fixture.nativeElement.querySelector('video');
+
+  media.set(video, { ended: true }); // fires `pause`, then `ended`
+
+  expect(media.play).toHaveBeenCalledTimes(1);
+  expect(fixture.componentInstance.finished()).toBe(true);
+});
 ```
 
-jsdom implements the media elements as a shell, and every player, advertising or subtitle suite hits
-the same list:
+Without it, jsdom gives you an empty shell:
 
-| What the code under test does    | What jsdom does                                    |
-| -------------------------------- | -------------------------------------------------- |
-| `await video.play()`             | throws `Not implemented: HTMLMediaElement.play()`  |
-| `video.duration`                 | `NaN`, and it is an accessor — assigning it throws |
-| `video.canPlayType('video/mp4')` | `''` for every type, so feature detection says no  |
-| `video.readyState`               | `0`, forever                                       |
-| `video.error`                    | not on the prototype at all                        |
-| `video.load()`                   | nothing                                            |
+| What the code under test does    | What jsdom does                                   |
+| -------------------------------- | ------------------------------------------------- |
+| `await video.play()`             | throws `Not implemented: HTMLMediaElement.play()` |
+| `video.duration`                 | `NaN`, and assigning it throws                    |
+| `video.canPlayType('video/mp4')` | `''` for every type, so feature detection says no |
+| `video.readyState`               | `0`, forever                                      |
+| `video.error`                    | not there at all                                  |
+| `video.load()`                   | nothing                                           |
 
-So the spec writes forty lines of `Object.defineProperty` against `HTMLMediaElement.prototype` —
-which leaks into the next file, because nothing takes it off again.
+| Option        | Type                                  | Default            | Meaning                                          |
+| ------------- | ------------------------------------- | ------------------ | ------------------------------------------------ |
+| `duration`    | `number`                              | `0`                | Duration every element reports until you set one |
+| `canPlayType` | `(type: string) => CanPlayTypeResult` | `() => 'probably'` | What `canPlayType(type)` answers                 |
+
+**Common mistake:** installing it once in a `describe` body or `beforeAll`. It is removed after the
+first test. Install it in `beforeEach`, as above, or use
+[`installPerTest`](/utilities/setup#reinstalling-a-stub-for-every-test).
 
 ## Driving one
 
+`media.set(element, state)` changes an element's state and fires the events the browser would fire.
+Use it instead of assigning fields: your component's `durationchange`, `timeupdate` or `ended`
+handlers only run when the event fires.
+
 ```ts
-const fixture = TestBed.createComponent(PlayerComponent);
-fixture.detectChanges();
-
-const video = fixture.nativeElement.querySelector('video');
-
 media.set(video, { readyState: 1 }); // fires `loadedmetadata`
 media.set(video, { currentTime: 119 }); // fires `timeupdate`
-media.set(video, { ended: true }); // fires `ended`
-
-expect(media.play).toHaveBeenCalledTimes(1);
-expect(component.finished()).toBe(true);
+media.set(video, { ended: true }); // fires `pause`, `ended`
 ```
-
-`set` is the part a hand-written patch usually gets wrong. Production code listens for
-`durationchange` / `timeupdate` / `ended`; assigning the field alone leaves those handlers unrun, so
-the component stays on its initial state while the assertion reads the element and sees the new
-value — a disagreement that looks like a bug in the component.
 
 | Field passed to `set` | Event dispatched |
 | --------------------- | ---------------- |
@@ -64,17 +71,18 @@ value — a disagreement that looks like a bug in the component.
 | `ended: true`         | `pause`, `ended` |
 | a non-null `error`    | `error`          |
 
-`ended: false` and `error: null` announce nothing: those clear a state, and the platform has no
-event for that.
+Several fields in one call fire several events, in the order of the table.
 
-`ended: true` on its own also **pauses** the element, and says so first. The platform pauses an
-unlooped element that runs to its end, and its `pause` event arrives before `ended`; a component
-reading `paused` after the `ended` event used to see `false`, a state no browser produces. Passing
-`paused` explicitly in the same call leaves it exactly as written.
+- `ended: false` and `error: null` fire nothing: they clear a state, and the browser has no event for
+  that.
+- `ended: true` also sets `paused` to `true` and fires `pause` before `ended`, as the browser does
+  when media plays to the end. If you pass `paused` in the same call, your value is kept.
+- `media.state(element)` returns the current state: `duration`, `currentTime`, `paused`, `ended`,
+  `readyState` and `error`.
 
 ## Seeking the way the component does
 
-A player restarting itself does not call a helper — it assigns the field:
+A player that restarts assigns the field directly, and that works too:
 
 ```ts
 component.restart(); // video.currentTime = 0
@@ -83,12 +91,11 @@ expect(media.state(video).currentTime).toBe(0);
 expect(component.progress()).toBe(0); // its own `timeupdate` handler ran
 ```
 
-`currentTime` is a get/set pair on the stub, so a direct assignment reaches the per-element record
-and dispatches `timeupdate` exactly as `media.set(video, { currentTime: 0 })` does. Without that the
-handler stays unrun while the assertion reads the new value — a disagreement that reads as a bug in
-the component.
+Assigning `currentTime` fires `timeupdate`, exactly as `media.set(video, { currentTime: 0 })` does.
 
 ## State is per element
+
+Each element has its own state, so an ad and the main video can report different durations:
 
 ```ts
 media.set(advert, { duration: 15 });
@@ -97,31 +104,25 @@ expect(advert.duration).toBe(15);
 expect(content.duration).toBe(120); // the option's default
 ```
 
-A patch that closes over one `duration` variable reports the same duration for the ad and for the
-content — precisely the pair a player spec exists to tell apart. Every element gets its own record,
-weakly keyed, and `media.state(element)` reads it back.
+`duration` starts at the `duration` option, or `0`. It is never `NaN`, so a component that waits for
+a known length has one from the first read.
 
-The records belong to the **install**, not to the module. An element that outlives the test that
-made it — kept in module scope by a spec, or left in `<body>` under `isolate: false` — therefore
-starts from the state of whichever install is in force, so a later `stubMediaElement({ duration: 30 })`
-reports 30 for it rather than the duration the test that first read it saw. `duration` starts at the
-option, `0` when it is left out; it is never the platform's `NaN`, so a component that waits for a
-known length has one from the first read.
+The state belongs to the current `stubMediaElement()` call. An element that outlives its test (kept
+in a module variable, or left in `<body>` under `isolate: false`) starts again from the defaults of
+the stub installed now.
 
 ## `play`, `pause`, `load`, `canPlayType`
 
-They are runner mocks shared by every media element, so every matcher applies:
+They are mocks of your test runner (`vi.fn()` on Vitest), shared by every media element, so every matcher works:
 
 ```ts
 expect(media.pause).toHaveBeenCalledTimes(1);
 ```
 
-`play()` resolves a promise rather than returning `undefined` — production code routinely calls
-`.catch()` on the result to swallow an autoplay rejection, and jsdom's `undefined` makes that line
-throw. It also fires `play` and `playing`, since a component may wait for either.
-
-`canPlayType` answers `'probably'` by default, and takes an implementation when one codec has to be
-unsupported:
+- `play()` returns a resolved promise, not `undefined`. Code often calls `.catch()` on it to ignore an
+  autoplay error, and that line would throw on `undefined`. It also fires `play` and `playing`.
+- `play.mock.instances[0]` tells you which element played.
+- `canPlayType` answers `'probably'` by default. To make one codec unsupported, pass your own:
 
 ```ts
 stubMediaElement({ canPlayType: (type) => (type.includes('vp9') ? '' : 'probably') });
@@ -129,11 +130,9 @@ stubMediaElement({ canPlayType: (type) => (type.includes('vp9') ? '' : 'probably
 
 ## Installation and undo
 
-The patch goes on `HTMLMediaElement.prototype`, so it also covers an element production code creates
-itself with `document.createElement('video')` — the case a per-instance stub cannot reach. It is
-installed through `mockValueProp` / `mockReadonlyPropGetter`, so `restoreMockedProps()` — which
-[`setupAutoSpy()`](/utilities/setup) runs after every test — puts the real prototype back.
+The stub is installed on `HTMLMediaElement.prototype`. So it also covers an element your code
+creates with `document.createElement('video')`, which a per-element stub could not reach.
 
-Install it in a `beforeEach`, or through
-[`installPerTest`](/utilities/setup#reinstalling-a-stub-for-every-test): a stub installed once at
-`describe` level is restored away after the first test.
+It is installed through `mockValueProp` / `mockReadonlyPropGetter`, so `restoreMockedProps()` puts
+the real prototype back after each test. [`setupAutoSpy()`](/utilities/setup) already runs that.
+Without this, a hand-written `Object.defineProperty` on the prototype leaks into the next file.

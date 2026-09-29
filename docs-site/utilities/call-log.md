@@ -1,64 +1,103 @@
 ---
 title: Call log
-description: createLog — one call-order journal every collaborator reports to, so the ORDER of calls across objects is itself the value a spec asserts, instead of per-method spies that each know they ran and none knows when.
+description: createLog is one journal every collaborator writes to, so a spec can assert the order of calls across several objects as a single value.
 ---
 
 # Call log
 
+`createLog()` gives you a journal that several collaborators write to. The spec then asserts the
+whole order of calls as one string. Use it when the order matters: shutdown steps, lifecycle hooks,
+guards, resolvers, teardown.
+
 ```ts
 import { createLog } from 'vitest-auto-spy';
 
-const log = createLog<'drop-cache' | 'flush-telemetry' | 'stop-engine'>();
+it('shuts down in order', () => {
+  const log = createLog<'drop-cache' | 'flush-telemetry' | 'stop-engine'>();
 
-engine.onShutdown(log.fn('drop-cache'));
-engine.onShutdown(log.fn('flush-telemetry'));
-engine.onShutdown(log.fn('stop-engine'));
+  engine.onShutdown(log.fn('drop-cache'));
+  engine.onShutdown(log.fn('flush-telemetry'));
+  engine.onShutdown(log.fn('stop-engine'));
 
-engine.shutdown();
+  engine.shutdown();
 
-expect(log.result()).toBe('drop-cache; flush-telemetry; stop-engine');
+  expect(log.result()).toBe('drop-cache; flush-telemetry; stop-engine');
+});
 ```
 
-A spy answers whether its one method ran. Order across collaborators is a different question — it
-lives _between_ the spies, and the shapes available for it degrade quickly:
+A failure shows the real order as a diff.
 
-- one `toHaveBeenCalled` per spy passes in any of the six orders three calls can arrive in — three
-  green checks that would accept the sequence backwards;
-- `toHaveBeenCalledBefore` pins it only pairwise, a chain that grows with the square of the
-  collaborators — and it says nothing about a call the spec forgot to name;
-- an array of timestamps the spec maintains by hand is a journal with none of the assertions.
+Why not spies:
 
-One journal the code under test writes into makes the sequence a single comparable value, and a
-failure prints the real order as a diff rather than `expected spy to be called before spy`.
+- one `toHaveBeenCalled` per spy passes in any order, even backwards;
+- `toHaveBeenCalledBefore` compares only pairs, the chain grows fast with more collaborators, and it
+  misses a call the spec forgot to name;
+- an array of timestamps you keep by hand is a journal without the assertions.
 
-Ported from Angular's own `Log` (`packages/core/testing/src/logger.ts`) — the class Angular keeps
-three copies of across core, router and forms, because it is the idiomatic answer wherever the
-subject is a sequence: lifecycle hooks, guards, resolvers, teardown.
+It is modelled on Angular's own internal test `Log` class, which Angular uses for the same kind of
+tests.
 
 ## The members
 
-| Member       | What it does                                                                        |
-| ------------ | ----------------------------------------------------------------------------------- |
-| `add(value)` | append one entry — a collaborator's report of where it got to                       |
-| `fn(value)`  | a callback that records `value` when it runs — for handlers, hooks, guard methods   |
-| `clear()`    | drop every entry: a fresh journal without a fresh identity                          |
-| `items`      | the entries so far, in order — each read an independent copy                        |
-| `result()`   | the journal as one line: entries joined with `'; '`, `''` when nothing was recorded |
+| Member       | What it does                                                                      |
+| ------------ | --------------------------------------------------------------------------------- |
+| `add(value)` | appends one entry: a collaborator reports where it got to                         |
+| `fn(value)`  | returns a callback that records `value` when it runs; for handlers, hooks, guards |
+| `clear()`    | removes every entry, keeping the same log object                                  |
+| `items`      | the entries so far, in order; each read returns a new copy                        |
+| `result()`   | the entries as one line joined with `'; '`, or `''` when nothing was recorded     |
 
-`fn()` is typed as taking nothing, so it slots wherever a handler fits and ignores whatever the
-caller passes it — the places that want a callback, not a call.
+The callback `fn()` returns ignores any arguments it is called with and returns `undefined`. So it
+fits anywhere a callback is expected.
 
-`T` is constrained to strings on purpose: what `fn()` labels a callback with is a name, a word a
-human reads in `result()`. A literal union makes the vocabulary part of the type —
-`createLog<'init' | 'ready' | 'destroy'>()` rejects a step the log never declared, where the
-unconstrained journal would record the typo and hand back a green test.
+The type parameter is a union of string literals, such as `createLog<'init' | 'ready' | 'destroy'>()`.
+Then a step the log does not declare is a compile error, so a typo cannot slip into the journal.
+
+**Common mistake:** asserting on `items` with `toEqual` when you only need the order. `result()` gives
+one string that reads well in a failure diff.
+
+## Logging from existing spies
+
+When the collaborators are spies you already have, make each spy write to the log and return what
+your code needs:
+
+```ts
+import { createLog, createSpyFromClass } from 'vitest-auto-spy';
+
+const log = createLog<'validate' | 'save' | 'navigate'>();
+const steps = createSpyFromClass(StepService);
+const router = createSpyFromClass(Router);
+
+steps.validate.mockImplementation(() => {
+  log.add('validate');
+  return true;
+});
+steps.save.mockImplementation(async () => {
+  log.add('save');
+});
+router.navigate.mockImplementation(async () => {
+  log.add('navigate');
+  return true;
+});
+
+await wizard.finish();
+
+expect(log.result()).toBe('validate; save; navigate');
+```
+
+Each entry is written when the call happens, not when its promise resolves. Use `log.fn('step')` only
+where the return value does not matter, such as event handlers and hooks.
 
 ## The Angular recipe: the log is the collaborator
 
-The journal's worth is highest when the production code records its own sequence into it. Through
-DI, that is one provider:
+If your app code can write its own steps into the log, you need no spies at all. With DI that is one
+provider:
 
 ```ts
+import { Component, InjectionToken, inject } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { type CallLog, createLog } from 'vitest-auto-spy';
+
 const PANEL_LOG = new InjectionToken<CallLog<'init' | 'ready' | 'destroy'>>('panel log');
 
 @Component({ selector: 'panel', template: '' })
@@ -78,13 +117,15 @@ class Panel {
   }
 }
 
-const log = createLog<'init' | 'ready' | 'destroy'>();
+it('runs the lifecycle in order', () => {
+  const log = createLog<'init' | 'ready' | 'destroy'>();
 
-TestBed.configureTestingModule({ providers: [{ provide: PANEL_LOG, useValue: log }] });
-TestBed.createComponent(Panel).destroy();
+  TestBed.configureTestingModule({ providers: [{ provide: PANEL_LOG, useValue: log }] });
+  TestBed.createComponent(Panel).destroy();
 
-expect(log.result()).toBe('init; ready; destroy');
+  expect(log.result()).toBe('init; ready; destroy');
+});
 ```
 
-Nothing here knows Angular or any runner — the module imports nothing — so the same journal works
-unchanged on Vitest, `bun test` and `node:test`, and in a plain unit test without a `TestBed` at all.
+The log knows nothing about Angular or the test runner. It works the same on Vitest, `bun test` and
+`node:test`, and in a plain unit test without `TestBed`.

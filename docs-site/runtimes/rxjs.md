@@ -1,78 +1,305 @@
 ---
 title: RxJS
-description: The opt-in observable layer — nextWith, nextWithValues, nextWithPerCall, returnSubject, how delays behave, and why no declaration names rxjs.
+description: Make a spied method or property return an Observable you control - nextWith, nextWithValues, nextWithPerCall, returnSubject, delays and resets.
 ---
 
 # RxJS
 
-Observable spying lives behind the `vitest-auto-spy/rxjs` subpath, keeping `rxjs` out of the
-runtime bundle of non-rxjs projects. Import it **once** (e.g. in your test setup) to enable
-observable helpers:
+The `vitest-auto-spy/rxjs` entry lets a spy return an `Observable` you control from the test. Use
+it when the code under test subscribes to a service method or a `$` property.
+
+Import it once in a setup file, and list that file in the Vitest config:
 
 ```ts
+// vitest.setup.ts
 import 'vitest-auto-spy/rxjs';
 ```
 
-Both spied **methods** that return an `Observable` and spied **properties** of type `Observable`
-get the same control surface:
-
 ```ts
-myService.getProducts$.nextWith([{ name: 'Product 1' }]); // emit, stream stays open
-myService.getProducts$.nextOneTimeWith([{ name: 'X' }]); // emit one value, then complete
-myService.getProducts$.throwWith('FAKE ERROR'); // error the stream
-myService.getProducts$.complete(); // complete the stream
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
 
-// emit a precise sequence — values, errors, completion, optional delays
-myService.getProducts$.nextWithValues([{ value: [{ name: 'Product 1' }] }, { errorValue: 'FAKE ERROR' }, { complete: true }]);
-
-// a fresh stream per call
-myService.getProducts$.nextWithPerCall([{ value: ['a'] }, { value: ['b'] }]);
-
-// grab the underlying Subject for full manual control
-const subject = myService.getProducts$.returnSubject();
+export default defineConfig({
+  test: { setupFiles: ['./vitest.setup.ts'] },
+});
 ```
 
-Using an observable spy without importing `vitest-auto-spy/rxjs` throws a clear hint telling you to
-add the import. Since **4.0.0** the same is true of the _types_: nothing in the core declarations
-names an rxjs type either, so a project without rxjs never loads it — see
-[rxjs in the types](#rxjs-in-the-types) below.
+Then a spec creates the spy, passes it to the class under test, and sets what the stream emits:
+
+```ts
+// product-list.spec.ts
+import { expect, it } from 'vitest';
+import { type Spy, createSpyFromClass } from 'vitest-auto-spy';
+
+import { ProductList } from './product-list';
+// calls products.getProducts().subscribe(...) in load()
+import { ProductService } from './product.service';
+
+// getProducts(): Observable<Product[]>
+
+it('shows the products the service returns', () => {
+  const products: Spy<ProductService> = createSpyFromClass(ProductService);
+  const list = new ProductList(products);
+
+  products.getProducts.nextWith([{ name: 'Tea' }]);
+  list.load();
+
+  expect(list.names).toEqual(['Tea']);
+});
+```
+
+If the setup import is missing, the first observable helper throws `Observable spies require rxjs`
+and names the import to add. The rest of the library never imports rxjs, so projects without rxjs
+do not need it installed.
+
+## Observable properties
+
+A property like `items$` is not a method, so you name it in `observablePropsToSpyOn`. It then gets
+the same helpers as a method.
+
+```ts
+const store = createSpyFromClass(CartStore, { observablePropsToSpyOn: ['items$'] });
+
+store.items$.nextWith([{ id: 1 }]);
+```
+
+## Helpers
+
+Every spied method that returns an `Observable`, and every property in `observablePropsToSpyOn`, has
+these helpers.
+
+| Helper                    | What it does                                                    |
+| ------------------------- | --------------------------------------------------------------- |
+| `nextWith(value)`         | emits `value`; the stream stays open                            |
+| `nextOneTimeWith(value)`  | emits `value`, then completes                                   |
+| `throwWith(error)`        | errors the stream                                               |
+| `complete()`              | completes the stream                                            |
+| `nextWithValues(configs)` | emits a sequence: values, an error, completion, optional delays |
+| `nextWithPerCall(list)`   | gives each call its own stream; returns their subjects          |
+| `returnSubject()`         | returns the `Subject` behind the spy, for full manual control   |
+| `subscriberCount()`       | number of open subscriptions (properties only)                  |
+
+```ts
+products.getProducts.nextWith([{ name: 'Tea' }]); // emit, stream stays open
+products.getProducts.nextOneTimeWith([{ name: 'Tea' }]); // emit one value, then complete
+products.getProducts.throwWith(new Error('offline')); // error the stream
+products.getProducts.complete(); // complete the stream
+
+// a precise sequence
+products.getProducts.nextWithValues([{ value: [{ name: 'Tea' }] }, { errorValue: 'offline' }, { complete: true }]);
+
+// a fresh stream per call: the first call gets ['a'], the second ['b']
+products.getProducts.nextWithPerCall([{ value: ['a'] }, { value: ['b'] }]);
+
+// the Subject itself
+const subject = products.getProducts.returnSubject();
+subject.next([{ name: 'Coffee' }]);
+```
+
+The entries of the two list helpers:
+
+| Type                                     | Shape                                                                             |
+| ---------------------------------------- | --------------------------------------------------------------------------------- |
+| `ValueConfig` (for `nextWithValues`)     | `{ value, delay? }` or `{ errorValue, delay? }` or `{ complete?, delay? }`        |
+| `ValueConfigPerCall` (`nextWithPerCall`) | `{ value, delay?, doNotComplete? }`; each stream completes unless `doNotComplete` |
+
+## `nextWith` pushes; `nextWithValues` republishes
+
+The two look interchangeable. On an observable **property** they are not. On a **method** spy they
+behave the same, because each call reads the current stream.
+
+| Helper                                                    | What it does to the stream                   | A subscriber that is already on it |
+| --------------------------------------------------------- | -------------------------------------------- | ---------------------------------- |
+| `nextWith` / `nextOneTimeWith` / `throwWith` / `complete` | pushes into the subject everybody shares     | receives it                        |
+| `nextWithValues` (on a property spy)                      | publishes a **new** stream over the property | stays on the old one               |
+
+A component usually subscribes to a property once, in `ngOnInit`. It keeps the stream it got then.
+If you call `nextWithValues` after that, the component never sees the values. The library warns
+once:
+
+```text
+[vitest-auto-spy] Feed.items$.nextWithValues() ran after something subscribed to Feed.items$, and it
+publishes a new stream that subscriber never sees — these values will not reach it. Call
+nextWithValues() before the code under test subscribes, or push into the stream it holds with nextWith().
+Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#nextwith-pushes-nextwithvalues-republishes
+```
+
+Fix it one of two ways:
+
+- Call `nextWithValues` in the arrange step, before you create the component.
+- Or push into the live stream:
+
+```ts
+service.items$.nextWith(['a']); // reaches the component that subscribed in ngOnInit
+service.items$.returnSubject().error(new Error('offline')); // so does this
+```
+
+## Reading a sequence as a marble
+
+`nextWithValues` emits its entries in order. Only `delay` puts time between them. The comments show
+each example as a marble diagram (`|` is completion, `#` is an error).
+
+```ts
+products.getProducts.nextWithValues([{ value: 'a' }, { value: 'b' }, { complete: true }]);
+// (ab|)   both values at once, then completion
+```
+
+```ts
+products.getProducts.nextWithValues([{ value: 'a' }, { value: 'b', delay: 20 }, { complete: true, delay: 10 }]);
+// a 20ms b 10ms |
+```
+
+```ts
+products.getProducts.nextWithValues([{ value: 'a' }, { errorValue: 'boom', delay: 20 }]);
+// a 20ms #
+```
+
+- `{ complete: false }` emits nothing and leaves the stream open.
+- Entries after the first `{ complete: true }` are dropped.
+
+## Timing
+
+- **`delay` is in milliseconds of real time.** It uses RxJS's `delay()` for values and completion,
+  and `timer()` for errors. There is no virtual scheduler.
+- **Without a delay, emission is synchronous.** A subscriber sees the value in the same tick.
+- **A late subscriber still gets the last value.** The stream behind a spy is a `ReplaySubject(1)`.
+  So `nextWith(v)` works whether the code under test subscribes before or after it.
+- **Under fake timers, advance the clock for a delayed entry.** Use
+  [`advanceTimers(ms)`](/utilities/fake-timers): it also runs the pending promise callbacks. A bare
+  `vi.advanceTimersByTime()` does not, so the assertion can run too early.
+
+```ts
+import { expect, it } from 'vitest';
+import { advanceTimers, setupFakeTimers } from 'vitest-auto-spy/setup';
+
+setupFakeTimers();
+
+it('emits after 100 ms', async () => {
+  products.getProducts.nextWithValues([{ value: 'a', delay: 100 }]);
+
+  const seen: string[] = [];
+  products.getProducts().subscribe((value) => seen.push(value));
+
+  await advanceTimers(100);
+
+  expect(seen).toEqual(['a']);
+});
+```
+
+## Standalone observable builder
+
+`createObservableWithValues` builds the same kind of stream without a spy. It takes the same entries
+as `nextWithValues`.
+
+```ts
+import { createObservableWithValues } from 'vitest-auto-spy/rxjs';
+
+const fake$ = createObservableWithValues([{ value: 1 }, { value: 2 }, { complete: true }]);
+
+// the Subject too
+const { values$, subject } = createObservableWithValues([{ value: 1 }], { returnSubject: true });
+```
+
+## Check for a missing unsubscribe: `subscriberCount()`
+
+`items$.subscriberCount()` returns how many subscriptions to a spied property are open now. A
+subscription stops counting when it unsubscribes, or when the stream completes or errors. Check
+for `0` after destroying a component to catch a leak:
+
+```ts
+fixture.destroy();
+expect(store.items$.subscriberCount()).toBe(0);
+```
+
+## Reset streams between tests
+
+Each spied member keeps one `ReplaySubject(1)`. Its buffered value is configuration, like a
+`calledWith` rule (an answer set up for specific arguments). If a spy lives across tests, reset it,
+or the next test sees the old value first.
+
+```ts
+import { beforeEach } from 'vitest';
+import { resetAutoSpy } from 'vitest-auto-spy';
+
+beforeEach(() => {
+  resetAutoSpy(service); // the TestBed is built in beforeAll, so the spy is shared
+});
+```
+
+- **`vi.clearAllMocks()` and `clearMocks: true` do not reset the stream.** The stream is library
+  state, not part of the runner's mock. Call `resetAutoSpy(spy)`.
+- **A finished stream is replaced.** The stream is finished after `throwWith()` or `complete()` on the
+  spy, or after `complete()` or `error()` on the subject from `returnSubject()`. Then the next
+  `nextWith` starts a new stream:
+
+```ts
+const subject = service.load$.returnSubject();
+
+subject.complete(); // the spec closes it by hand
+
+service.load$.nextWith(page); // a fresh stream, not a value nobody can receive
+```
+
+- **Inside one test, calls add up.** `nextWith(a)` then `throwWith(e)` means "emit `a`, then fail".
+  To get a stream that fails on subscription no matter what came before, use
+  `nextWithValues([{ errorValue: e }])`. On a property spy, call it before the code subscribes: see
+  [`nextWith` pushes; `nextWithValues` republishes](#nextwith-pushes-nextwithvalues-republishes).
+
+## Asserting instead of subscribing
+
+To check what a stream emits ("it emits", "it emits these three", "it stays silent"), use the
+[observable assertions](/core/observable-assertions). They work on any object with `subscribe` and
+do not need rxjs:
+
+```ts
+import { expectEmission } from 'vitest-auto-spy';
+
+const emitted = expectEmission(products.getProducts());
+
+products.getProducts.nextWith(['x']);
+
+expect(await emitted).toEqual(['x']);
+```
 
 ## rxjs in the types
 
-Until 4.0.0 the invariant on this page — "rxjs lives behind `/rxjs`" — held at runtime and was
-broken at the type level. `dist/types-*.d.ts` opened with `import { Observable, Subject } from
-'rxjs'`, which is not something `import type` fixes: TypeScript resolves a type-only import exactly
-as it resolves a value one. Measured on the shipped package, against a consumer whose only use of
-this library is `createSpyFromClass`:
+The core type declarations never import rxjs. React, Vue, Svelte and Node projects without rxjs
+type-check with `skipLibCheck: false` and load no rxjs `.d.ts` files. Only the `vitest-auto-spy/rxjs`
+and `vitest-auto-spy/observer-spy` declarations name rxjs.
 
-|                                                           |                     3.18 |     4.0 |
-| --------------------------------------------------------- | -----------------------: | ------: |
-| files in the consumer's TypeScript program                |                      303 | **114** |
-| of those, rxjs `.d.ts` files                              |                      189 |   **0** |
-| `TS2307` with `skipLibCheck: false` and no rxjs installed | yes, at `types-*.d.ts:1` |    none |
+Neither of the two names `vitest`, so a Bun or `node:test` project type-checks them with
+`skipLibCheck: false` and no Vitest installed. On Bun and `node:test`, `returnSubject()` is typed as
+rxjs's `Subject` once this entry is imported, as on Vitest.
 
-Every React, Vue, Svelte and Node consumer paid the first column. `scripts/check-dist.mjs` now
-fails the build if any declaration but `dist/rxjs.d.ts` and `dist/observer-spy.d.ts` names rxjs
-again.
+Any rxjs `Observable` or `Subject` gets the observable helpers, and so does Angular's `EventEmitter`.
+How the type is detected is described in [In depth](#in-depth).
 
-### What replaced it
+### Naming the subject type
 
-**Detection is structural.** A method or property counts as observable when its type has both
-`subscribe` and a `forEach(next)` returning a promise — which rxjs's `Observable`, every `Subject`,
-and Angular's `EventEmitter` all do, and `Promise`, arrays, `Signal` and Angular's
-`OutputEmitterRef` all do not. `forEach` rather than `subscribe` carries the element type on
-purpose: TypeScript pairs the **trailing** signature of an overloaded method when it infers, and
-rxjs 7's last `subscribe` overload is the deprecated positional one, through which `T` infers as
-`unknown`.
+`returnSubject()` returns `SubjectOf<T>`:
 
-One thing now matches that did not before: an `Observable` from a **second copy of rxjs** in the
-tree. `Subject` is nominal (it has a private field), so a duplicated rxjs used to fall through to
-the plain-spy branch with nothing to explain why `nextWith` had disappeared.
+- rxjs's own `Subject<T>`, when `vitest-auto-spy/rxjs` is imported somewhere your TypeScript program
+  sees;
+- otherwise `SubjectLike<T>`, a plain interface with everything the helper is used for.
 
-**`returnSubject()` follows your import.** It is typed `SubjectOf<T>`, which resolves to rxjs's own
-`Subject<T>` as soon as `vitest-auto-spy/rxjs` is in your TypeScript program, and to the structural
-`SubjectLike<T>` — everything the helper is used for — when it is not. All four types are exported
-from the core, so a spec can name any of them:
+```ts
+import type { Subject } from 'rxjs';
+
+import 'vitest-auto-spy/rxjs';
+
+const subject: Subject<Product[]> = products.getProducts.returnSubject(); // ✔ compiles
+```
+
+**Common mistake:** the annotation above stops compiling because the only `import 'vitest-auto-spy/rxjs'`
+sits in a setup file your spec `tsconfig` does not include. Put the import in a file the compiler
+checks:
+
+- works: a spec, a file in `setupFiles`, a `.d.ts` file, and (with `@angular/build:unit-test`) the
+  `providersFile`;
+- does not work: a plain `.ts` file that is only listed in `tsconfig.spec.json`'s `include`. This
+  applies to `@angular/build:unit-test` 22.2 and later.
+
+All four types are exported from the core, so a spec can name any of them:
 
 ```ts
 interface ObservableLike<T> {
@@ -89,14 +316,14 @@ interface SubjectLike<T> extends ObservableLike<T> {
   readonly closed: boolean;
 }
 
-// the seam: empty here, filled in by `vitest-auto-spy/rxjs`
+// empty here, filled in by `vitest-auto-spy/rxjs`
 interface AutoSpyRxjsTypes<T> {}
 
 type SubjectOf<T> = AutoSpyRxjsTypes<T> extends { subject: infer S } ? S : SubjectLike<T>;
 ```
 
-`AutoSpyRxjsTypes<T>` is a normal augmentable interface, so a project with its own `Subject`
-implementation can point `SubjectOf` at that instead:
+If your project has its own `Subject` class, point `SubjectOf` at it with a type extension
+(`declare module`):
 
 ```ts
 declare module 'vitest-auto-spy' {
@@ -106,196 +333,14 @@ declare module 'vitest-auto-spy' {
 }
 ```
 
-Under `@angular/build:unit-test` from 22.2.0, keep that declaration in a `.d.ts` (with an `import` or
-`export {}`, so it stays an augmentation), a spec or a setup file: the builder no longer compiles a
-plain `.ts` that is only listed in `tsconfig.spec.json`'s `include`.
-
-The one import that makes the helpers _exist_ is the one that makes them rxjs-typed, so the two
-cannot drift apart.
-
-```ts
-import type { Subject } from 'rxjs';
-import 'vitest-auto-spy/rxjs';
-
-const subject: Subject<Product[]> = myService.getProducts$.returnSubject(); // ✔ compiles
-```
-
-The catch worth knowing: the type follows the **import**, not the installed package. If your only
-`import 'vitest-auto-spy/rxjs'` sits in a setup file outside the `tsconfig` your specs are checked
-with, you get `SubjectLike<T>` back and an annotation like the one above stops compiling. Move the
-import somewhere the compiler sees it — the same place it has to be for the helpers to be
-registered at runtime. Under `@angular/build:unit-test` from 22.2.0 the compiler sees only specs, the
-`providersFile`, the `setupFiles` and `.d.ts` files; a plain `.ts` listed in `include` is not enough.
-
-## The backing subject, and how long it lives
-
-Every observable helper writes into one `ReplaySubject(1)` per spied member. Its buffer is
-**configuration**, in exactly the sense a `calledWith` chain is, and until 3.5.0 it outlived the test
-that filled it. Two silent failures came out of that.
-
-```ts
-// test 1
-service.createTransition.nextWith(uri); // buffered
-
-// test 2 — the failure path is what this test is about
-service.createTransition.throwWith(error); // the subscriber gets `uri` FIRST, then the error
-```
-
-The code under test ran the **success** branch on the previous test's data, and the branch the test
-existed for arrived one emission late — with nothing in the failure pointing back. The second is
-quieter still: `error()` and `complete()` close a Subject for good, so every later `nextWith` on that
-spy pushed into a dead subject and emitted nothing.
-
-Both are fixed: `resetAutoSpy(spy)` drops the subject, and a terminated one is replaced by the next
-configuration. A subject the **spec** closed counts as terminated too: `returnSubject()` hands back
-the real thing, and the subject reports its own `complete()` / `error()` back to the spy, so the
-next `nextWith` starts a new stream instead of pushing into a dead one.
-
-```ts
-const subject = service.load$.returnSubject();
-
-subject.complete(); // the spec closes it by hand
-
-service.load$.nextWith(page); // a fresh stream — not a value nobody can receive
-```
-
-Two more things follow that are worth knowing.
-
-**`vi.clearAllMocks()` and `clearMocks: true` still cannot reach it.** That is not an oversight — it
-is the same boundary that keeps them from clearing a `calledWith` chain: the state lives in this
-library's closures, not on the runner's mock object. When a spy outlives a test, reset it yourself:
-
-```ts
-beforeEach(() => {
-  resetAutoSpy(service); // the TestBed is built in beforeAll, so the spy is shared
-});
-```
-
-**Inside one test, nothing changed.** `nextWith(a)` followed by `throwWith(e)` still means "emit a,
-then fail" — both calls belong to one story, and only a reset or a terminal call starts a new one.
-`nextWithValues([{ errorValue: e }])` remains the way to build a stream that fails on subscription
-regardless of what came before it.
-
-## `nextWith` pushes; `nextWithValues` republishes
-
-The two look interchangeable and are not, and the difference only shows on an observable
-**property** — the kind a component subscribes to once, in `ngOnInit`.
-
-| Helper                                                    | What it does to the stream                   | A subscriber that is already on it |
-| --------------------------------------------------------- | -------------------------------------------- | ---------------------------------- |
-| `nextWith` / `nextOneTimeWith` / `throwWith` / `complete` | pushes into the subject everybody shares     | receives it                        |
-| `nextWithValues`                                          | publishes a **new** stream over the property | stays on the old one               |
-
-The property's stream is read at subscription time, so a component that subscribed in `ngOnInit`
-holds the stream that was published then. `nextWithValues` after that point builds its sequence
-beside it, not into it — no error, no timeout, nothing at all unless the spec also awaits an
-emission. The property says so once instead:
-
-```
-[vitest-auto-spy] Feed.items$.nextWithValues() ran after something subscribed to Feed.items$, and it
-publishes a new stream that subscriber never sees — these values will not reach it. Call
-nextWithValues() before the code under test subscribes, or push into the stream it holds with nextWith().
-Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#nextwith-pushes-nextwithvalues-republishes
-```
-
-Both repairs are one line. Configure the property in the arrange step, before the fixture is built —
-which is what most specs meant anyway — or drive the live stream:
-
-```ts
-service.items$.nextWith(['a']); // reaches the component that subscribed in ngOnInit
-service.items$.returnSubject().error(new Error('offline')); // so does this
-```
-
-A method spy has no such problem: its stream is read per call, so the next call gets the new one.
-
-## Standalone observable builder
-
-```ts
-import { createObservableWithValues } from 'vitest-auto-spy/rxjs';
-
-const fake$ = createObservableWithValues([{ value: 1 }, { value: 2 }, { complete: true }]);
-
-// or get the subject too
-const { values$, subject } = createObservableWithValues([{ value: 1 }], { returnSubject: true });
-```
-
-`ValueConfig` (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` | `{ complete?, delay? }`.
-
-`ValueConfigPerCall` (for `nextWithPerCall`) is `{ value, delay?, doNotComplete? }`.
-
-## Reading a sequence as a marble
-
-`nextWithValues` emits its entries in order, so the config list maps one-to-one onto a marble
-diagram — `delay` is the only thing that puts space between frames.
-
-```ts
-myService.getProducts$.nextWithValues([{ value: 'a' }, { value: 'b' }, { complete: true }]);
-// (ab|)   — both values synchronously, then completion
-```
-
-```ts
-myService.getProducts$.nextWithValues([{ value: 'a' }, { value: 'b', delay: 20 }, { complete: true, delay: 10 }]);
-// a 20ms b 10ms |
-```
-
-```ts
-myService.getProducts$.nextWithValues([{ value: 'a' }, { errorValue: 'boom', delay: 20 }]);
-// a 20ms #
-```
-
-A `{ complete: false }` entry emits nothing and does not stop the stream — it is the "leave it open"
-form. Everything after the first `{ complete: true }` is dropped.
-
-## Timing
-
-- **`delay` is milliseconds**, applied with RxJS's own `delay()` (values, completion) and `timer()`
-  (errors). It is real time, not a virtual scheduler.
-- **Without a delay, emission is synchronous.** `nextWith` pushes onto a `ReplaySubject` right away,
-  so a subscriber that has already run sees the value in the same tick.
-- **The backing subject is a `ReplaySubject`**, so a subscriber that arrives _after_ the emission
-  still receives it. This is what makes `spy.thing$.nextWith(v)` work regardless of whether the code
-  under test subscribed first.
-- **Under fake timers**, a delayed entry needs the clock advanced.
-  [`advanceTimers(ms)`](/utilities/fake-timers) advances **and** drains the microtasks the emission
-  queues — a bare `vi.advanceTimersByTime()` leaves the `await` continuation pending, and the
-  assertion then reads state from before the callback finished.
-
-```ts
-import { advanceTimers, setupFakeTimers } from 'vitest-auto-spy/setup';
-
-setupFakeTimers();
-
-myService.getProducts$.nextWithValues([{ value: 'a', delay: 100 }]);
-
-const seen: string[] = [];
-myService.getProducts$.subscribe((value) => seen.push(value));
-
-await advanceTimers(100);
-
-expect(seen).toEqual(['a']);
-```
-
-## Asserting instead of subscribing
-
-For the assertion side of a stream — "it emits", "it emits these three", "it stays silent" — use the
-[observable assertions](/core/observable-assertions). They are duck-typed, so they work on any
-subscribable and pull in no rxjs of their own:
-
-```ts
-import { expectEmission, expectNoEmission } from 'vitest-auto-spy';
-
-const emitted = expectEmission(myService.getProducts$);
-
-myService.getProducts$.nextWith(['x']);
-
-expect(await emitted).toEqual(['x']);
-```
+Put it in a `.d.ts` file (with an `import` or `export {}` so it stays an extension), a spec or a
+setup file. The rule is the same as above. A plain `.ts` listed only in `include` does not work with
+`@angular/build:unit-test` 22.2 and later.
 
 ## `subscribeSpyTo`, for a suite arriving with observer-spy
 
-`@hirez_io/observer-spy` sits beside `jasmine-auto-spies` in almost every suite that has one — same
-author, and the larger of the two by downloads — and it was last published in 2022. This entry ships
-its surface so a migrating suite runs before its stream assertions are rewritten:
+`vitest-auto-spy/observer-spy` provides the API of `@hirez_io/observer-spy`. Use it when you migrate
+tests that already use that package: they run before you rewrite their stream assertions.
 
 ```ts
 import { subscribeSpyTo } from 'vitest-auto-spy/observer-spy';
@@ -306,45 +351,43 @@ expect(spy.getValues()).toEqual(['a', 'b']);
 expect(spy.receivedComplete()).toBe(true);
 ```
 
-**It is a bridge, and the assertions above are the destination.** `subscribeSpyTo` is synchronous
-inspection: subscribe, let things happen, then read the spy. Its failure mode is silence — a stream
-that never emits gives `getValues() === []`, a spec asserts something about that, and the test passes
-having observed nothing. `expectEmission` makes the assertion _be_ the await, so silence is a
-timeout naming the stream.
+Treat it as a bridge. For new tests, use [`expectEmission`](/core/observable-assertions) and its
+siblings. With `subscribeSpyTo`, a stream that never emits gives `getValues() === []`, and a test can
+pass having seen nothing. `expectEmission` waits for the value, so silence becomes a timeout that
+names the stream.
 
-Four things behave better here than upstream, and a migrated spec will notice the last one:
-`getValues()` hands back a copy rather than the spy's own live array, and is typed `T[]` rather than
-`any[]`; `getFirstValue()` and `getValueAt(i)` throw instead of answering `undefined` from a
-signature that promised `T`; and an unexpected error is thrown by the value reader that asked,
-carrying the original as `cause`, rather than rethrown from the observer. That last one is not a
-preference — upstream's rethrow stopped working when rxjs 7 began routing anything thrown out of an
-observer callback through `reportUnhandledError`, which reports it asynchronously, so it never
-reaches the subscribing line. Pass `{ expectErrors: true }` (or call `.expectErrors()`) when the
-error is the point, and read `getError()`.
+Differences from `@hirez_io/observer-spy`:
 
-`onComplete()` and `onError()` have the same shape here, with one difference that only shows on a
-failing spec: awaited as promises, each **rejects** when the stream ended the other way round. A
-stream that errors can never complete, so `await spy.onComplete()` on it could only ever hang — and
-what the runner then reported was the file's timeout, which is the failure these helpers exist to
-replace:
+- `getValues()` returns a copy, typed `T[]` instead of `any[]`.
+- `getFirstValue()` and `getValueAt(i)` throw when there is no such value, instead of returning
+  `undefined`.
+- An unexpected stream error is thrown by the next value reader (`getValues()` and the like), with
+  the original error as `cause`. When the error is what you test, pass `{ expectErrors: true }` (or
+  call `.expectErrors()`) and read `getError()`.
+- Awaited `onComplete()` rejects when the stream errored, and awaited `onError()` rejects when it
+  completed. Otherwise the test would hang until the file timeout. It does not matter whether the stream ended before or after you called `onComplete()` / `onError()`.
+  The callback form (`onComplete(() => …)`) behaves as in the original: the callback never runs.
 
-```
+```text
 [vitest-auto-spy] this spy's observable errored (Error: offline), so the promise from onComplete() can never resolve:
 completion is not coming. Read receivedComplete() / receivedError(), or await
 `expectCompletion(source$)` / `expectError(source$)`, which fail with a message naming the stream.
 Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
 ```
 
-It holds whichever order the two happen in — the stream that already ended rejects at the call, and
-one that ends afterwards rejects the promise then. The **callback** form is unchanged and matches
-upstream: a callback for an ending that never comes is simply never invoked.
-
-`SubscriberSpy` is disposable, so the subscription can be scoped to its block instead of to a global
+`SubscriberSpy` is disposable, so you can scope the subscription to a block instead of a global
 `afterEach`:
 
 ```ts
 using spy = subscribeSpyTo(service.load());
 ```
 
-`fakeTime()` has no counterpart here — it is built on rxjs's `TestScheduler` virtual time and on the
-`done` callback protocol. Use [fake timers](/utilities/fake-timers), or `TestScheduler` directly.
+There is no `fakeTime()`: it relies on rxjs's `TestScheduler` and the `done` callback. Use
+[fake timers](/utilities/fake-timers), or `TestScheduler` directly.
+
+## In depth
+
+A member counts as observable when its type has `subscribe` and a `forEach(next)` that returns a
+promise. rxjs `Observable`, every `Subject` and Angular's `EventEmitter` match. `Promise`, arrays,
+`Signal` and Angular's `OutputEmitterRef` do not. An `Observable` from a second copy of rxjs in
+`node_modules` matches too, so it still gets `nextWith`.

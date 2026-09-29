@@ -1,9 +1,13 @@
 ---
 title: Fake timers
-description: setupFakeTimers pairs install with restore, and advanceTimers drains the microtasks a bare advance leaves pending.
+description: setupFakeTimers installs fake timers for a describe and removes them after each test; advanceTimers moves the clock and waits for the promises the timers started.
 ---
 
 # Fake timers
+
+Use these helpers to test a debounce, a poll or a retry without waiting in real time.
+`setupFakeTimers()` turns fake timers on for a `describe` and always turns them off again.
+`advanceTimers(ms)` moves the clock and waits for the promises the timer callbacks started.
 
 ```ts
 import { advanceTimers, setupFakeTimers } from 'vitest-auto-spy/setup';
@@ -19,157 +23,171 @@ describe('SearchComponent', () => {
 });
 ```
 
-Two pieces of boilerplate every suite that tests a debounce, a poll or a retry ends up writing, and
-the one bug that hides in them.
-
 ## `setupFakeTimers(config?)`
 
-Installs the clock in a `beforeEach` and gives it back in an `afterEach`.
-
-Written as two separate hooks, the second is the one a suite forgets — and a frozen clock left
-behind leaks into every later file in the same worker, where it surfaces as an unrelated test
-hanging on a `setTimeout` that never fires. Pairing them in one call is the whole point.
-
-Both hooks are guarded. Installing or uninstalling twice does not round-trip: a suite that drives
-the clock itself, or a nested `describe` that calls this helper again, otherwise reaches a second
-`vi.useRealTimers()` — and that one leaves the environment without `clearInterval`, which explodes
-during teardown of whichever file happens to run next.
-
-The `afterEach` also puts back any timer global that uninstalling removed rather than restored.
-Under happy-dom `Date` is inherited from the environment's realm, so `vi.useRealTimers()` deletes
-it instead of reassigning; with `isolate: false` the next file then dies inside Vitest's own
-`useFakeTimers`. See [test-run hygiene](./setup#_6-putting-back-timer-globals-the-fakes-took-with-them)
-for the whole story, including the standalone `restoreTimerGlobals()`.
-
-The optional `config` is forwarded verbatim to `vi.useFakeTimers()`, typed off Vitest's own
-signature so it tracks whatever the installed version accepts:
+Installs fake timers in a `beforeEach` and removes them in an `afterEach`. Call it inside a
+`describe` or at the top of a spec file.
 
 ```ts
-setupFakeTimers({ toFake: ['setTimeout'] }); // leave Date and queueMicrotask real
+setupFakeTimers(); // Vitest's default set of fakes
+setupFakeTimers({ toFake: ['setTimeout'] }); // fake only setTimeout; Date stays real
 ```
 
-**A config is installed, not merely offered.** A call that was given one takes the clock over even
-where fakes are already running: a nested `describe` inside a file that armed its own set, a
-`describe` under [`globalFakeTimers`](./setup#fake-timers-for-the-whole-run), or a file whose
-`beforeAll` called `mockSystemTime()` and so faked nothing but `Date`. Those are the cases where
-deferring to whoever got there first means doing the opposite of what the caller asked — with
-`Date`-only fakes in place, `setTimeout` stayed real and `advanceTimers(100)` passed having advanced
-nothing at all. A call with **no** config of its own still defers, as it always has: an outer
-`describe` or a global setup owns the clock and knows what it wanted.
+| Parameter              | Type                        | Default | Meaning                                                                                        |
+| ---------------------- | --------------------------- | ------- | ---------------------------------------------------------------------------------------------- |
+| `config`               | `vi.useFakeTimers()` config | —       | Passed as is to `vi.useFakeTimers()`                                                           |
+| `options.betweenTests` | `boolean`                   | `false` | Keeps the clock fake between tests too; see [below](#between-the-tests-as-well-—-betweentests) |
+
+Why one call instead of your own two hooks:
+
+- **You cannot forget the removal.** A fake clock left behind leaks into later files in the same
+  worker. There it shows up as an unrelated test hanging on a `setTimeout` that never fires.
+- **Installing or removing twice is safe.** A nested `describe` can call `setupFakeTimers` again
+  without breaking the next file.
+- **Deleted timer globals come back.** Under happy-dom, `vi.useRealTimers()` deletes `Date` instead
+  of restoring it. The `afterEach` puts it back. Details:
+  [Test-run hygiene](./setup#_6-putting-back-timer-globals-the-fakes-took-with-them).
+
+**A config always takes effect.** If you pass a config, your fakes are installed even when fakes are
+already running: in a nested `describe`, under
+[`globalFakeTimers`](./setup#fake-timers-for-the-whole-run), or after `mockSystemTime()`. A call
+**without** a config uses the fakes already running, because an outer `describe` or a global setup
+owns the clock.
+
+**Common mistake:** calling `vi.useRealTimers()` in the file to get out of fake timers. The rest of
+the file still expects fake timers, and with `betweenTests` or `globalFakeTimers` so does the rest of
+the run. Narrow `toFake` instead.
 
 ### Taking `setImmediate` out of `toFake`
 
-Vitest's default `toFake` is _every_ timer the environment has except `process.nextTick` and
-`queueMicrotask` (Vitest 4.1.9). In Node that includes `setImmediate`, and `setImmediate` is the one
-whose absence is felt well outside timer code.
+By default, Vitest fakes every timer except `process.nextTick` and `queueMicrotask`. In Node, the
+faked set includes `setImmediate`, which also matters outside timer code.
 
-Express's router ends an unmatched request through `setImmediate(done, layerError)`
-(`router/index.js:203`). With the clock frozen that callback is queued and never drained, so a
-request that should come back `404` sits there until the runner gives up:
+Express ends an unmatched request through `setImmediate`. With the clock frozen, that callback never
+runs, so a request that should return `404` hangs until the runner gives up:
 
 ```text
 Test timed out in 30000ms
 ```
 
-Nobody reading that on an HTTP call goes looking for a routing mistake — the natural reading is a
-hung socket, and the actual defect is three layers away. **A suite that drives a real HTTP handler
-wants `setImmediate` out of `toFake`.** Name the ones you want; anything not listed stays real:
+That looks like a hung socket, not a routing mistake. **If your spec drives a real HTTP handler,
+take `setImmediate` out of `toFake`.** List the timers you want faked; the rest stay real:
 
 ```ts
 setupFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
 ```
 
-For a whole run, the same object goes to
-[`setupAutoSpy`](./setup#fake-timers-for-the-whole-run):
+If only one test in the file needs fake timers, you can instead leave the file on real timers and
+wrap that test in [`withFakeTimers`](#one-test-—-withfaketimers-fn-config).
+
+For the whole run, pass the same object to [`setupAutoSpy`](./setup#fake-timers-for-the-whole-run):
 
 ```ts
 setupAutoSpy({ globalFakeTimers: { toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] } });
 ```
 
-Narrowing `toFake` is the fix; `vi.useRealTimers()` inside the file is not. It un-arms the clock the
-rest of the file — and, with `betweenTests` or `globalFakeTimers`, the rest of the run — is written
-against, and the guarded arming above exists so that reaching for it does not also take teardown
-down with it, not to make it a supported way out.
+## `advanceTimers(ms?)`
+
+Moves fake timers forward by `ms`, then waits until the promises the timer callbacks started have
+settled. Always `await` it.
+
+```ts
+import { advanceTimers } from 'vitest-auto-spy/setup';
+
+// Fails like a race in the code under test:
+vi.advanceTimersByTime(300);
+expect(search.query).toHaveBeenCalled();
+
+// Waits for what the callback queued:
+await advanceTimers(300);
+expect(search.query).toHaveBeenCalled();
+```
+
+`vi.advanceTimersByTime()` runs the timer callbacks, but what they queue (a resolved promise, an
+`await` continuation, an rxjs `delay()`) has not run yet on the next line. `advanceTimers` waits for
+all of it, including a long `.then()` chain and a timer scheduled from a promise. Timers due within
+`ms` run in order, and the promises they start settle before the next timer runs, so
+`await advanceTimers(10_000)` runs a 5-second interval twice.
+
+| Parameter | Type     | Default | Meaning                                                      |
+| --------- | -------- | ------- | ------------------------------------------------------------ |
+| `ms`      | `number` | `0`     | How far to move the clock; `0` runs only what is already due |
+
+`advanceTimers()` with no argument is the step a `setTimeout(fn, 0)` or a resolved promise chain
+needs.
+
+**Common mistake:** calling it on real timers, or after `mockSystemTime()` alone (that fakes only
+`Date`). It throws and tells you to call `setupFakeTimers()`:
+
+```text
+[vitest-auto-spy] advanceTimers() requires fake timers, and the timers in this test are real. Call setupFakeTimers() once in the setup file, or vi.useFakeTimers() in this test.
+```
+
+::: tip Angular
+Pair it with [`stable(fixture)`](../adapters/angular#zoneless-waiting): `advanceTimers` moves the
+clock, `stable` runs the effects and change detection that followed.
+:::
+
+## One test — `withFakeTimers(fn, config?)`
+
+Runs one function on fake timers and restores real timers however it ends: returned, thrown or
+rejected. Use it when only one test in a file needs a clock.
+
+```ts
+import { advanceTimers, withFakeTimers } from 'vitest-auto-spy/setup';
+
+it('retries after a second', () =>
+  withFakeTimers(async () => {
+    poller.start(); // fetches once right away
+    await advanceTimers(1_000); // the retry fires
+    expect(api.fetch).toHaveBeenCalledTimes(2);
+  }));
+```
+
+- It returns what `fn` returns, or a promise for an async `fn`.
+- `config` goes to `vi.useFakeTimers()`, as for `setupFakeTimers`.
+- Inside `setupFakeTimers()` or [`globalFakeTimers`](./setup#fake-timers-for-the-whole-run), it runs
+  on the fakes already installed and leaves them on.
+- If `mockSystemTime()` is active, it starts at the mocked time and ends on real timers.
+
+**Common mistake:** passing a `config` to `withFakeTimers` in a `describe` that already has
+`setupFakeTimers()`. It throws, because the installed clock could not be put back afterwards. Drop
+the `config`.
 
 ## Between the tests as well — `betweenTests`
+
+Keeps the clock fake in the gaps between tests, like Jest's `fakeTimers.enableGlobally`. Use it for
+a suite ported from Jest that relied on that setting.
 
 ```ts
 setupFakeTimers(undefined, { betweenTests: true });
 ```
 
-Off by default, because a scoped call belongs to its `describe` and has to leave the clock as it
-found it. Turned on, the clock stays fake in the gaps _between_ tests too — which is what Jest's
-`fakeTimers.enableGlobally` did, and what a suite ported from it was written against.
+Without it, a `beforeAll` in a nested `describe` runs on real timers: it runs after the previous
+test's `afterEach` removed the fakes. If it advances an animation clock, it fails with
+`A function to advance timers was called but the timers APIs are not mocked`.
 
-Arming in `beforeEach` alone does not reproduce that, and the gap is not hypothetical: a `beforeAll`
-inside a **nested** `describe` runs _after_ the previous test's `afterEach`, so it meets whatever
-that hook left behind. A block that prepares its samples there — driving an animation clock with
-`vi.advanceTimersByTimeAsync`, say — fails with `A function to advance timers was called but the
-timers APIs are not mocked`, in a set whose own tests never touch a timer.
+With it, the fakes are installed again right after each `afterEach` removes them, and removed for
+good in `afterAll`. So they never outlive the file. Each test still starts with an empty timer queue.
 
-So the fakes are re-armed in `afterEach` right after they come off, and taken off for good in
-`afterAll` — the boundary that matters under `isolate: false`, where a clock outliving its file
-would meet the next one's imports. Every test still starts fresh: the uninstall discards whatever
-the previous one scheduled.
+It is off by default: a call inside a `describe` should leave the clock as it found it.
 
-For a whole run, [`setupAutoSpy({ globalFakeTimers: true })`](./setup#fake-timers-for-the-whole-run)
-turns this on from the setup file — that option exists for exactly this case and passes
-`betweenTests` itself.
-
-## `advanceTimers(ms?)`
-
-`vi.advanceTimersByTime()` plus the step that is easy to miss.
-
-Advancing runs the timer callbacks synchronously — but whatever they _queue_ is still sitting in
-the microtask queue when the next line executes: a resolved promise, an `await` continuation, an
-RxJS `delay()` handing control back. The assertion then reads state from before the callback
-finished, and the test fails in a way that reads like a race in the code under test.
-
-```ts
-// Fails like a race in the code under test:
-vi.advanceTimersByTime(300);
-expect(search.query).toHaveBeenCalled();
-
-// Awaits the queue the callback filled:
-await advanceTimers(300);
-expect(search.query).toHaveBeenCalled();
-```
-
-That is why it is `async` — the return value must be awaited.
-
-It drains the whole queue rather than a fixed couple of turns of it. A `.then().then().then()` chain
-a timer callback started was otherwise left one level short, and a timer _scheduled_ from a promise
-continuation never ran at all — which is the rxjs `delay()`, retry and poll shape this helper exists
-for.
-
-`ms` defaults to `0`: the "run everything already due, then flush microtasks" step, which is what a
-`setTimeout(fn, 0)` or a resolved-promise chain needs.
-
-On real timers it throws a message naming the fix, rather than letting Vitest fail deeper in with
-"timers are not mocked". It refuses the same way when only the **clock** is faked:
-`mockSystemTime()` installs `Date` alone, so there is nothing for the call to advance, and it used
-to pass having done nothing. The error names `setupFakeTimers()` as what a test driving timers wants
-instead.
-
-::: tip Angular
-Pair it with [`stable(fixture)`](../adapters/angular#zoneless-waiting): `advanceTimers` moves the
-clock, `stable` flushes the effects and change detection the clock set off.
-:::
+For the whole run, use [`setupAutoSpy({ globalFakeTimers: true })`](./setup#fake-timers-for-the-whole-run),
+which turns `betweenTests` on for you.
 
 ## Freezing the clock alone
 
-[`mockSystemTime(time)` and `withSystemTime(time, body)`](./event-loop) freeze the clock whether or
-not fake timers are already running: with fakes installed they move the fake clock, without them
-they install `Date`-only fakes and leave the timers real.
+To set only the current time, use
+[`mockSystemTime(time)` and `withSystemTime(time, body)`](./event-loop). With fake timers installed,
+they move the fake clock. Without them, they fake `Date` only and leave timers real.
 
-Either way the clock goes back afterwards — under fakes the suite installed too, where the undo was
-a no-op and `withSystemTime`'s promise to restore "including on failure" reached nothing. Time the
-spec advanced inside the block is kept rather than thrown away: the clock is put back to where it
-would have been had the block not set it, not to the instant the block opened.
+Either way, the clock goes back afterwards. If your spec advanced the fake clock inside the block,
+that advance is kept: a block that moved the clock by a minute leaves it a minute later than before
+the block.
 
 ::: warning `countStrayTimers()` is blind under fake timers
-`vi.useFakeTimers()` assigns its own `setTimeout` over the [stray-timer](./setup) wrappers, so every
-timer the fake clock hands out bypasses the tracking. `expect(countStrayTimers()).toBe(0)` says
-nothing at all about a file running on a frozen clock, and `strayTimers` does not compose with
-`globalFakeTimers` or with this helper. `vi.getTimerCount()` is the fake clock's own backlog.
+`vi.useFakeTimers()` puts its own `setTimeout` over the [stray-timer](./setup) tracking, so nothing
+the fake clock schedules is counted. `expect(countStrayTimers()).toBe(0)` proves nothing in a file on
+a frozen clock. The `strayTimers` option does not work together with `globalFakeTimers` or `setupFakeTimers`.
+For the fake clock's own queue, use `vi.getTimerCount()`.
 :::

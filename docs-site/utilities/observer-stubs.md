@@ -1,18 +1,13 @@
 ---
 title: Observer stubs
-description: stubIntersectionObserver and friends — replace an observer the component constructs itself with one the spec drives, and get the real global back automatically.
+description: stubIntersectionObserver and friends replace an observer the component creates itself with one the spec drives, and put the real global back after the test.
 ---
 
 # Observer stubs
 
-::: tip Moved in 4.0.0
-These used to be exported from the root entry. ESM re-export is eager and no runner tree-shakes a
-test file, so every spec in every project — Node services included — was evaluating the DOM stubs to
-get `createSpyFromClass`. They now live behind `vitest-auto-spy/dom-stubs`: **−0.159 ms** on every
-spec file that does not import them, **+0.155 ms** on the ones that do, and 20.3 kB off `dist`.
-Same helpers, same signatures; `restoreMockedProps()` and `setupAutoSpy()` from the root still put
-back everything patched here.
-:::
+Use these stubs to test a component that creates its own `IntersectionObserver`, `ResizeObserver`
+or `MutationObserver`. The stub records every observer the component creates and lets your spec fire
+its callback. The real global comes back after each test.
 
 ```ts
 import { intersectionEntry, stubIntersectionObserver } from 'vitest-auto-spy/dom-stubs';
@@ -21,7 +16,7 @@ it('reveals the card once it scrolls into view', async () => {
   const observers = stubIntersectionObserver();
   const fixture = TestBed.createComponent(RevealHost);
 
-  fixture.detectChanges(); // the directive constructs its observer
+  fixture.detectChanges(); // the directive creates its observer
 
   observers.last.emit([intersectionEntry(fixture.nativeElement, true)]);
   await fixture.whenStable();
@@ -30,32 +25,58 @@ it('reveals the card once it scrolls into view', async () => {
 });
 ```
 
-`IntersectionObserver`, `ResizeObserver` and `MutationObserver` share a shape that makes them
-awkward to test. The code under test constructs the observer itself, keeps the instance private,
-and the only thing a spec can reach is the global constructor. So the spec has to intercept the
-construction, remember the callback, and invoke it with entries it builds by hand — forty lines
-that say nothing about the component, and that every project writes again.
+Everything on this page is imported from `vitest-auto-spy/dom-stubs`. Nothing here is Angular-specific:
+the spies come from the registered [runtime adapter](../runtimes/vitest), so the stubs also work on
+Bun and `node:test`.
 
-Two details make the hand-rolled version go wrong rather than merely be tedious.
+::: tip Zoneless Angular
+`emit` runs the component's callback right away, but the change detection it schedules does not run
+yet. Follow it with `await fixture.whenStable()` or [`stable(fixture)`](../adapters/angular#zoneless-waiting).
+:::
 
-## The stub nobody takes off
+## The installers
 
-A spec that assigns `globalThis.IntersectionObserver` directly leaves it there. With
-`isolate: false` the next file in the worker inherits it and fails on something unrelated —
-`.observe is not a function`, or an assertion that never fires — pointing at innocent code.
+| Function                     | Global replaced           |
+| ---------------------------- | ------------------------- |
+| `stubIntersectionObserver()` | `IntersectionObserver`    |
+| `stubResizeObserver()`       | `ResizeObserver`          |
+| `stubMutationObserver()`     | `MutationObserver`        |
+| `stubObserver(name)`         | any of the three, by name |
 
-Installation here goes through `mockValueProp`, so `restoreMockedProps()` — which
-[`setupAutoSpy()`](./setup) already runs after every test — puts the real constructor back with no
-teardown of your own.
+Each returns a [handle](#the-handle). Call it in `beforeEach` or in the test; see
+[below](#install-it-in-beforeeach-never-in-beforeall).
 
-## The instance reached through a static field
+## The handle
 
-`MockObserver.last` is the usual trick, and it is shared mutable state that survives the file just
-like the stub does: the observer one spec constructed is still there for the next one to find.
+```ts
+const observers = stubResizeObserver();
 
-Here the handle returned by the installer owns the instances, so nothing outlives the spec that
-made it. Reaching for `last` when the code under test constructed nothing throws and says so,
-rather than failing three lines later against `undefined`:
+observers.instances; // every observer created since the stub went in, in order
+observers.last; // the newest; the usual case, where a component creates exactly one
+```
+
+Each instance has what a spec asserts on and what it drives:
+
+| Member          | What it is                                                                                                  |
+| --------------- | ----------------------------------------------------------------------------------------------------------- |
+| `targets`       | everything passed to `observe`, with `unobserve` / `disconnect` applied                                     |
+| `observe`       | a spy, to assert that something was observed, and with what                                                 |
+| `unobserve`     | a spy                                                                                                       |
+| `disconnect`    | a spy                                                                                                       |
+| `disconnected`  | whether teardown ran; easier to read than asserting on `disconnect`                                         |
+| `emit(entries)` | calls the component's callback with one batch, as the browser does                                          |
+| `options`       | the options the constructor received; see [below](#options-—-what-the-constructor-was-given)                |
+| `host`          | the observer object your code holds (not a host element); see [below](#the-observer-the-callback-is-handed) |
+
+`emit` takes an array, because a fast scroll or a resize delivers several entries at once. Code that
+assumes one entry per call has a real bug, and this lets you reach it:
+
+```ts
+observers.last.emit([intersectionEntry(first, false), intersectionEntry(second, true)]);
+```
+
+**Common mistake:** reading `last` before the component has created an observer. It throws instead
+of returning `undefined`:
 
 ```text
 [vitest-auto-spy] stubObserver('IntersectionObserver'): the stub is installed, but the code under test
@@ -64,46 +85,56 @@ reaching for `last`.
 Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs#the-handle
 ```
 
-## The handle
+Render the component (`fixture.detectChanges()`) before you reach for `last`.
+
+## Building entries
+
+Helpers that build the entries `emit` delivers:
 
 ```ts
-const observers = stubResizeObserver();
+import { intersectionEntry, mutationRecord, resizeEntry } from 'vitest-auto-spy/dom-stubs';
 
-observers.instances; // every observer constructed since the stub went in, in order
-observers.last; // the newest — the usual case, where a component builds exactly one
+observers.last.emit([intersectionEntry(element, true)]);
+observers.last.emit([mutationRecord(host, { addedNodes: [span] })]);
+observers.last.emit([resizeEntry(host, { width: 320, height: 200 })]);
 ```
 
-Each instance exposes what a spec asserts on and what it drives:
+| Helper                                                  | Builds                         |
+| ------------------------------------------------------- | ------------------------------ |
+| `intersectionEntry(target, isIntersecting, overrides?)` | an `IntersectionObserverEntry` |
+| `resizeEntry(target, rect)`                             | a `ResizeObserverEntry`        |
+| `mutationRecord(target, init)`                          | a `MutationRecord`             |
 
-| Member          | What it is                                                             |
-| --------------- | ---------------------------------------------------------------------- |
-| `targets`       | everything passed to `observe`, with `unobserve`/`disconnect` applied  |
-| `observe`       | the spy — for asserting _that_ something was observed, and with what   |
-| `unobserve`     | the spy                                                                |
-| `disconnect`    | the spy                                                                |
-| `disconnected`  | whether teardown ran — the readable form of asserting on `disconnect`  |
-| `emit(entries)` | invoke the callback with one batch, exactly as the browser delivers it |
-| `host`          | the observer the code under test constructed — see below               |
+Why not write the entries by hand:
 
-`emit` takes an array rather than a single entry on purpose. A fast scroll or a resize storm
-delivers several at once, and code that assumes one entry per call is a real bug this makes
-reachable:
+- `IntersectionObserverEntry` has seven required fields, and your code usually reads one. Without
+  the helper, every spec needs a double type assertion.
+- `MutationRecord` cannot be an object literal: `addedNodes` and `removedNodes` are `NodeList`s. The
+  usual trick (append the nodes to a `DocumentFragment` and take `childNodes`) **moves** the nodes out
+  of your fixture. `mutationRecord()` builds a list with indexing, `item()`, `forEach`, `for…of` and
+  `entries` / `keys` / `values`, and moves nothing.
 
-```ts
-observers.last.emit([intersectionEntry(first, false), intersectionEntry(second, true)]);
-```
-
-A component that reads a rect gets it from `overrides`, as a `DOMRect` or as the four numbers the
-rest is derived from:
+`intersectionEntry` fills in the fields nothing reads. It derives `intersectionRatio` from
+`isIntersecting`, because the browser never reports them disagreeing. The rect fields are left out
+unless you pass them in `overrides`: `boundingClientRect`, `intersectionRect` and `rootBounds` each
+take a `DOMRect` or the numbers `{ x, y, width, height }`.
 
 ```ts
+intersectionEntry(element, true);
+intersectionEntry(element, true, { boundingClientRect: new DOMRect(0, 0, 200, 100) });
 observers.last.emit([intersectionEntry(tooltip, true, { boundingClientRect: { x: 10, y: 20, width: 200, height: 100 } })]);
+```
+
+You can still write a `ResizeObserver` entry yourself when the component reads something unusual:
+
+```ts
+observers.last.emit([{ contentRect: { width: 320 } } as ResizeObserverEntry]);
 ```
 
 ## The observer the callback is handed
 
-The callback's second argument is the object `new IntersectionObserver(…)` returned — the one the
-code under test kept — and not the record above. Production code reaches for it:
+The callback's second argument is the object `new IntersectionObserver(…)` returned, the one your
+code kept. Code often uses it:
 
 ```ts
 new IntersectionObserver((entries, observer) => {
@@ -111,48 +142,82 @@ new IntersectionObserver((entries, observer) => {
 });
 ```
 
-so `takeRecords()` is a spy on it, answering an empty list, and `root`, `rootMargin` and
-`thresholds` are read back off the init the constructor was given rather than left blank — a
-directive that builds one observer per root margin asserts on exactly those. `rootMargin` defaults
-to `'0px 0px 0px 0px'` and `thresholds` to `[0]`, as the platform's do, and a `threshold` given as a
-single number arrives as a one-element array.
+On that object:
 
-`instances[i].host` (and `last.host`) is the same object, for a spec that compares it against the
-observer the component holds:
+- `takeRecords()` is a spy that returns an empty list;
+- `root`, `rootMargin` and `thresholds` come from the options the constructor received;
+- `rootMargin` defaults to `'0px 0px 0px 0px'` and `thresholds` to `[0]`, as in the browser; a single
+  number `threshold` becomes a one-element array.
+
+`instances[i].host` (and `last.host`) is that same object, to compare with what the component holds:
 
 ```ts
 expect(observers.last.host).toBe(component.observer);
 ```
 
-## Building entries
+## `options` — what the constructor was given
 
-`intersectionEntry(target, isIntersecting, overrides?)` fills in the fields nothing reads.
-`intersectionRatio` is derived rather than accepted, because the two disagreeing is not a state the
-browser produces — a spec that sets them apart is testing something that cannot happen.
-
-```ts
-intersectionEntry(element, true);
-intersectionEntry(element, true, { boundingClientRect: new DOMRect(0, 0, 200, 100) });
-```
-
-The rect fields are left out unless asked for. Fabricating four `DOMRectReadOnly`s for an assertion
-that looks at `isIntersecting` would be ceremony, not fidelity — and `overrides` supplies whatever
-a particular component does read: `boundingClientRect`, `intersectionRect` and `rootBounds` each
-take a `DOMRect` or the four numbers.
-
-For `ResizeObserver` and `MutationObserver` the entries stay yours, since what a component reads
-from them varies too much to guess:
+`options` is the second argument the component passed to the constructor. Use it when a component
+creates one observer per configuration, for example one per root margin.
 
 ```ts
-observers.last.emit([{ contentRect: { width: 320 } } as ResizeObserverEntry]);
+new IntersectionObserver(callback, { rootMargin: '-20% 0px -70% 0px' });
+
+expect(observers.last.options).toEqual({ rootMargin: '-20% 0px -70% 0px' });
 ```
+
+## `autoEmit` — everything is visible, immediately
+
+With `autoEmit: true`, the stub calls the callback with `isIntersecting: true` as soon as the
+component calls `observe()`. Use it for a suite ported from Jest whose global mock did that, so lazy
+sections load during `detectChanges()`.
+
+```ts
+stubIntersectionObserver({ autoEmit: true });
+```
+
+The default stub stays silent until you call `emit`, which is right when the spec picks the moment of
+intersection. Without `autoEmit`, a ported spec asserts on a component that never loaded anything,
+and fails with an error that has nothing to do with intersection.
+
+`stubObserver` takes a function instead, and you build the entry:
+
+```ts
+stubObserver<ResizeObserverEntry, Element>('ResizeObserver', {
+  autoEmit: (target) => resizeEntry(target, { width: 320 }),
+});
+```
+
+## Install it in `beforeEach`, never in `beforeAll`
+
+Vitest runs a file's `beforeAll` once, before any `beforeEach`. So a root `beforeEach` in a shared
+setup file runs **after** that `beforeAll`. If the setup file installs a default observer stub there, a stub
+installed in `beforeAll` is replaced by it before the first test
+starts. The symptom is `expected "vi.fn()" to be called 2 times, but got 0 times` with the stub ten
+lines above the assertion.
+
+For the same observer in every test of a file, use
+[`installPerTest`](./setup#reinstalling-a-stub-for-every-test).
+
+## The stub nobody takes off
+
+The stub is installed through `mockValueProp`, so `restoreMockedProps()` puts the real constructor
+back after each test. [`setupAutoSpy()`](./setup) already runs that; you write no teardown.
+
+A spec that assigns `globalThis.IntersectionObserver` itself leaves it there. With `isolate: false`,
+the next file in the worker inherits it and fails on something unrelated, such as
+`.observe is not a function`.
+
+## The instance reached through a static field
+
+A hand-written mock often keeps the last instance in a static field (`MockObserver.last`). That
+field survives the file just like the stub: the next spec finds the previous spec's observer. Here
+the handle owns the instances, so nothing outlives the spec that made it.
 
 ## Replacing a hand-rolled global stub
 
-The shape this replaces, found in the field and still written by hand more often than it needs to be:
-
 ```ts
-// before — 19 lines, a cast, and a restore you have to remember
+// before — a cast, and a restore you have to remember
 const original = global.IntersectionObserver;
 
 global.IntersectionObserver = class {
@@ -171,95 +236,10 @@ afterEach(() => {
 const observer = stubIntersectionObserver();
 ```
 
-Three things come with the one line: the stub is a real double the spec can drive (`observer.emit(...)`),
-the assignment is registered as a property patch so `restoreMockedProps()` — and therefore
-`setupAutoSpy()` — puts the global back on its own, and the `as unknown as` goes away because the stub
-is typed as the global it replaces.
+The one line gives you three things: a stub the spec can drive (`observer.emit(...)`), automatic
+restore of the global, and correct types without `as unknown as`.
 
-The hand-rolled form is reported rather than left to review:
-[`prefer-observer-stub`](./eslint-plugin#the-observer-stub-everybody-writes-again) catches all three
-spellings it is written in — the assignment above, `vi.stubGlobal('IntersectionObserver', Fake)` and
-`vi.spyOn(globalThis, 'ResizeObserver')` — and names the helper that replaces it. It is an
-`error` in `configs.recommended`, like every other rule in the plugin.
-
-## The installers
-
-| Function                     | Global replaced           |
-| ---------------------------- | ------------------------- |
-| `stubIntersectionObserver()` | `IntersectionObserver`    |
-| `stubResizeObserver()`       | `ResizeObserver`          |
-| `stubMutationObserver()`     | `MutationObserver`        |
-| `stubObserver(name)`         | any of the three, by name |
-
-All four are exported from the core entry — nothing here is Angular-specific, and the spies come
-from whichever [runtime adapter](../runtimes/vitest) is registered, so they work on Bun and
-`node:test` too.
-
-::: tip Zoneless Angular
-`emit` runs the component's callback synchronously; the change detection it schedules does not.
-Follow it with `await fixture.whenStable()` or [`stable(fixture)`](../adapters/angular#zoneless-waiting).
-:::
-
-## Install it in `beforeEach`, never in `beforeAll`
-
-A shared setup file's root `beforeEach` runs **after** a file's `beforeAll`. So a stub installed in
-`beforeAll` is overwritten by the setup file's default observer before the first test even starts,
-and the symptom is `expected "vi.fn()" to be called 2 times, but got 0 times` in a file where the
-mock class sits ten lines above the assertion.
-
-The rule that pairs with "do not assign `globalThis.IntersectionObserver` by hand" is therefore: and
-do not install it in `beforeAll` either.
-
-## `autoEmit` — everything is visible, immediately
-
-```ts
-stubIntersectionObserver({ autoEmit: true });
-```
-
-The default stub is inert, which is right when the spec wants to choose the moment of intersection.
-It is wrong for a suite carried over from Jest, where the global mock fired its callback with
-`isIntersecting: true` synchronously from `observe()`, so lazily-loading sections and cards fetched
-their data during `detectChanges()`. Against an inert observer those specs quietly assert on a
-component that never loaded anything, and fail with something unrelated to intersection — one option
-here instead of rewriting every spec.
-
-`stubObserver` takes the general form, where the entry is yours to build:
-
-```ts
-stubObserver<ResizeObserverEntry, Element>('ResizeObserver', {
-  autoEmit: (target) => resizeEntry(target, { width: 320 }),
-});
-```
-
-## `options` — what the constructor was given
-
-```ts
-new IntersectionObserver(callback, { rootMargin: '-20% 0px -70% 0px' });
-
-expect(observers.last.options).toEqual({ rootMargin: '-20% 0px -70% 0px' });
-```
-
-A component that builds one observer per configuration is asserting a contract — "one observer per
-unique root margin" — and without this the only thing a spec can count is the number of
-constructions, which is a weaker statement about a different thing.
-
-## Building entries
-
-```ts
-import { intersectionEntry, mutationRecord, resizeEntry } from 'vitest-auto-spy/dom-stubs';
-
-observers.last.emit([intersectionEntry(element, true)]);
-observers.last.emit([mutationRecord(host, { addedNodes: [span] })]);
-observers.last.emit([resizeEntry(host, { width: 320, height: 200 })]);
-```
-
-`IntersectionObserverEntry` has seven required fields of which production code usually reads one, and
-the types cannot be narrowed away — parameter contravariance blocks it, so the alternative is a
-double type assertion in every spec.
-
-`MutationRecord` is worse: it cannot be written as an object literal at all, because `addedNodes` and
-`removedNodes` are `NodeList`s. The obvious construction — append the nodes to a `DocumentFragment`
-and take its `childNodes` — is the one to avoid, because appending **moves** a node: a spec that
-passes an element it had just rendered silently tears that element out of the fixture, and the
-assertion that follows fails on a DOM the test itself broke. `mutationRecord()` builds a list that
-supports indexing, `item()`, `forEach`, `for…of`, `entries`/`keys`/`values` — and moves nothing.
+The lint rule [`prefer-observer-stub`](./eslint-rules#prefer-observer-stub)
+reports the hand-written form in all three spellings: the assignment above,
+`vi.stubGlobal('IntersectionObserver', Fake)` and `vi.spyOn(globalThis, 'ResizeObserver')`. It names
+the helper to use instead, and it is an `error` in `configs.recommended`.

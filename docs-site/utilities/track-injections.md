@@ -1,81 +1,87 @@
 ---
 title: Tracking injections
-description: trackInjections — which collaborators an entry point actually asked for, recorded through DI provider factories instead of a barrel module mock. Angular and NestJS, one implementation.
+description: trackInjections records which dependencies your code actually asked DI for, and gives each one an auto-spy. Works with Angular and NestJS.
 ---
 
 # Tracking injections
 
+`trackInjections(tokens)` replaces a list of dependencies with spies and records which of them your
+code asked DI for, in order. Use it to assert "this entry point only uses these services", instead of
+mocking a barrel module with `vi.mock`.
+
 ```ts
-// the same function is exported from 'vitest-auto-spy/nestjs'
+import { TestBed } from '@angular/core/testing';
 import { trackInjections } from 'vitest-auto-spy/angular';
 
-const collaborators = trackInjections([FeatureFlagService, ANALYTICS_TOKEN]);
+// also exported from 'vitest-auto-spy/nestjs'
 
-TestBed.configureTestingModule({ providers: [CheckoutFacade, ...collaborators.providers] });
-collaborators.get(FeatureFlagService).isOn.mockReturnValue(true);
+it('starts checkout without analytics', () => {
+  const collaborators = trackInjections([FeatureFlagService, ANALYTICS_TOKEN]);
 
-TestBed.inject(CheckoutFacade).start();
+  TestBed.configureTestingModule({ providers: [CheckoutFacade, ...collaborators.providers] });
+  collaborators.get(FeatureFlagService).isOn.mockReturnValue(true);
 
-expect(collaborators.names({ clean: true })).toEqual(['FeatureFlagService']); // analytics was never asked for
+  TestBed.inject(CheckoutFacade).start();
+
+  expect(collaborators.names({ clean: true })).toEqual(['FeatureFlagService']); // analytics was never asked for
+});
 ```
 
 ## The question it answers
 
-The assertion behind most `vi.mock('@app/services')` calls is not "this module was replaced". It is
-**which collaborators did this entry point actually ask for** — and that question is answerable
-without touching the module boundary at all, because a provider factory runs exactly when something
-injects its token. Register the collaborators as factories, run the entry point, read back the
-tokens whose factories fired, in order.
+Most `vi.mock('@app/services')` calls really ask: which dependencies did this code use? DI can answer
+that directly. A provider factory runs exactly when something injects its token. So
+`trackInjections` registers each dependency as a factory, and you read back the tokens whose
+factories ran.
 
-That matters because the module boundary is the part a bundler is free to remove. Under
-`@angular/build:unit-test` a barrel or a workspace alias is already inlined by the time the mock
-would be installed, and `vi.mock` becomes a silent no-op —
-[the whole first half of the module-mocks page](/utilities/module-mocks). DI is a seam the build has
-to keep.
+This keeps working under a bundler. Under `@angular/build:unit-test`, a barrel or a workspace alias
+is already inlined, and `vi.mock` silently does nothing; see
+[Module mocks that did nothing](/utilities/module-mocks). DI is a boundary the build has to keep.
 
-Written by hand this is the same nine lines every time — a `providers.map(token => ({ provide: token,
-useFactory: … }))` pushing into an array declared just above it. On one real suite it got written
-twice in a single afternoon and was wanted a third time. The hand-written version also always stops
-at the record, so the spec still needs a second mechanism to stub what each collaborator answers.
-This builds both: the providers carry auto-spies, and the log says which of them DI constructed.
+A hand-written version (`providers.map(token => ({ provide: token, useFactory: … }))`) only records.
+You would still need a second mechanism to stub what each dependency returns. `trackInjections` does
+both: the providers carry auto-spies, and the log says which of them DI created.
 
 ## `trackInjections(tokens, options?)`
 
-Returns an `InjectionLog`:
+| Parameter        | Type                       | Default     | Meaning                                                       |
+| ---------------- | -------------------------- | ----------- | ------------------------------------------------------------- |
+| `tokens`         | array of classes or tokens | —           | The dependencies to replace and track                         |
+| `options.double` | `(token) => unknown`       | an auto-spy | Builds the replacement for a token; see [below](#the-doubles) |
 
-| Member               | What it gives                                                            |
-| -------------------- | ------------------------------------------------------------------------ |
-| `providers`          | the `{ provide, useFactory }` list to spread into a testing module       |
-| `injectedTokens()`   | the tokens DI asked for, in the order their factories ran — a copy       |
-| `names(options?)`    | the same list as names, which is what makes a failing `toEqual` readable |
-| `wasInjected(token)` | whether DI ever constructed `token`                                      |
-| `get<D>(token)`      | the double registered for `token`, typed as `Spy<D>`                     |
-| `reset()`            | forget the record; the doubles are untouched                             |
+It returns a log:
 
-`injectedTokens()` hands back a copy, so mutating it changes nothing. `names()` reads the class name
-off the token rather than off a literal, and hands it back as is: the Angular plugin's decorator
-downlevelling compiles `FeatureFlagService` to a class named `_FeatureFlagService`, and that is what
-`names()` returns. `names({ clean: true })` takes a bundler's rename off — esbuild's leading `_`,
-Rollup's `$1` suffix — so the list matches the names you wrote and the ones every failure message of
-this package prints. An `InjectionToken`, or a class a minifier stripped the name from, is named by
-its `String` form either way.
+| Member               | What it gives                                                      |
+| -------------------- | ------------------------------------------------------------------ |
+| `providers`          | the `{ provide, useFactory }` list to spread into a testing module |
+| `injectedTokens()`   | the tokens DI asked for, in the order their factories ran (a copy) |
+| `names(options?)`    | the same list as names, so a failing `toEqual` is readable         |
+| `wasInjected(token)` | whether DI ever created `token`                                    |
+| `get<D>(token)`      | the spy registered for `token`, typed as `Spy<D>`                  |
+| `reset()`            | forgets the record; the spies are untouched                        |
 
-`reset()` clears the record only. The doubles survive it — reset those with `resetAutoSpy` if the
-spec needs their call history cleared too.
+**Use `names({ clean: true })`.** A bundler may rename classes: the Angular plugin compiles
+`FeatureFlagService` to a class named `_FeatureFlagService`, and plain `names()` returns that name.
+`clean: true` removes the bundler's rename (esbuild's leading `_`, Rollup's `$1` suffix), so the list
+matches the names you wrote. An `InjectionToken`, or a class whose name a minifier removed, is named
+by its `String` form.
+
+`reset()` clears only the record. To clear the spies' call history as well, use `resetAutoSpy`.
 
 ### The doubles
 
-By default each token gets a double built the same way `createWithAutoSpies` builds one: a class spy
-(`createSpyFromClass(token, { lazySpies: true })`) when the token is a function, and
-[`createAutoMock()`](/core/auto-mock-by-type) otherwise — an `InjectionToken` carries no runtime
-shape, so a type-level mock is the only honest stand-in.
+By default, each token gets a spy built like `createWithAutoSpies` builds one:
+
+- a class token gets a class spy, `createSpyFromClass(token)` with its default options;
+- any other token, such as an `InjectionToken`, gets [`createAutoMock()`](/core/auto-mock-by-type),
+  because such a token has no runtime shape to read.
 
 ```ts
 collaborators.get<{ retries: number }>(CONFIG).retries = 3;
 collaborators.get(FeatureFlagService).isOn.mockReturnValue(true);
 ```
 
-Pass `double` when a collaborator has to be a real object — a `FormBuilder`, a config literal:
+Pass `double` when a dependency has to be a real object, such as a `FormBuilder` or a config object:
 
 ```ts
 const collaborators = trackInjections([CONFIG], { double: () => ({ retries: 7 }) });
@@ -83,19 +89,28 @@ const collaborators = trackInjections([CONFIG], { double: () => ({ retries: 7 })
 
 ### The timing contract
 
-The doubles are built **eagerly**, when `trackInjections` is called, so a spec can stub one before
-the entry point runs. The _record_ fills in only as DI constructs them:
+The spies are created right away, when you call `trackInjections`, so you can stub one before your
+code runs. The record fills in only when DI creates them:
 
 ```ts
 expect(collaborators.injectedTokens()).toEqual([]); // nothing asked yet
-injector.get(CheckoutFacade).start();
+TestBed.inject(CheckoutFacade).start();
 expect(collaborators.injectedTokens()).toEqual([FeatureFlagService]);
 ```
 
-A factory runs once per injector, so a token appears once per injector that asked for it — not once
-per injection site.
+DI creates each dependency once per injector. So a token appears once for each injector that asked
+for it, not once for each place that injects it.
+
+**Common mistake:** expecting the record to show what one method asked for. Most classes inject
+their dependencies when they are created, so the record fills in at `TestBed.inject(CheckoutFacade)`,
+before `start()` runs. To see only what `start()` asked for, call `collaborators.reset()` after
+creating the class. A dependency created earlier is not recorded again. So if the class injects
+its dependencies in the constructor or in fields, you can prove what the class asked for, but not
+what one method asked for.
 
 ### `get` on a token that is not tracked
+
+**Common mistake:** calling `get` with a token that is not in the list. It throws:
 
 ```
 [vitest-auto-spy] trackInjections(...).get(AnalyticsService): that token is not tracked by this log.
@@ -103,16 +118,18 @@ Tracked here: FeatureFlagService. Add it to the trackInjections([...]) list, or 
 Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/track-injections#get-on-a-token-that-is-not-tracked
 ```
 
-With an empty token list the same message reads `Tracked here: (none)`.
+With an empty token list, the message says `Tracked here: (none)`.
 
 ## Not Angular-specific
 
-`{ provide, useFactory }` is literally the same object in both frameworks: Angular's `deps` and
-NestJS's `inject` are both optional, and this helper's factories take no dependencies, so neither key
-is written.
+`{ provide, useFactory }` is the same object in Angular and NestJS, and the factories take no
+dependencies. So the same `providers` list works in both.
 
 ```ts
 // NestJS
+import { Test } from '@nestjs/testing';
+import { trackInjections } from 'vitest-auto-spy/nestjs';
+
 const collaborators = trackInjections([MailerService, ConfigService]);
 
 const moduleRef = await Test.createTestingModule({
@@ -124,15 +141,13 @@ moduleRef.get(OrdersService).place(order);
 expect(collaborators.wasInjected(MailerService)).toBe(true);
 ```
 
-One implementation is re-exported from both `vitest-auto-spy/angular` and `vitest-auto-spy/nestjs`
-rather than written twice and left to drift. The core imports **no framework at all** — which is
-what keeps the [NestJS entry](/adapters/nestjs) dependency-free, since `@nestjs/common` and
-`@nestjs/testing` are optional peers it never imports.
+It is one implementation, exported from both `vitest-auto-spy/angular` and `vitest-auto-spy/nestjs`.
+It imports no framework, so the [NestJS entry](/adapters/nestjs) needs no dependency:
+`@nestjs/common` and `@nestjs/testing` are optional peers it never imports.
 
 ## Related
 
-- [Provide a real seam](/utilities/module-mocks#provide-a-real-seam) — the constructive advice this
-  helper is the tooling for. That section says to inject the dependency rather than mock the module;
-  `trackInjections` is what you assert with once you have.
-- [`createWithAutoSpies`](/adapters/angular#building-a-class-with-auto-spied-dependencies) — when the
-  question is "build this class with doubles" rather than "record what it asked for".
+- [Provide a real seam](/utilities/module-mocks#provide-a-real-seam): why to inject a dependency
+  instead of mocking its module. `trackInjections` is how you assert once you have.
+- [`createWithAutoSpies`](/adapters/angular#building-a-class-with-auto-spied-dependencies): when you
+  want to build a class with spied dependencies rather than record what it asked for.

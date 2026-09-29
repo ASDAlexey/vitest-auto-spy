@@ -1,19 +1,41 @@
 ---
 title: Module mocks that did nothing
-description: assertMocked, moduleNamespace and adoptMock — prove a vi.mock() applied under a bundler, give its factory the shape an interop probe recognises, and configure the mocks it built with calledWith.
+description: assertMocked proves a vi.mock() applied, moduleNamespace gives a mock factory the shape libraries expect, and adoptMock adds calledWith and resolveWith to the mocks it built.
 ---
 
 # Module mocks that did nothing
 
+`vi.mock()` can fail silently: when a bundler has already inlined the module, the mock does nothing
+and prints no warning. These three helpers make module mocks safe:
+
+- `assertMocked` fails the test when a `vi.mock()` did not apply;
+- `moduleNamespace` gives a mock factory the shape libraries expect (`default`, `__esModule`);
+- `adoptMock` adds `calledWith`, `resolveWith` and the other helpers to a mock a factory built.
+
 ```ts
-import { adoptMock, assertMocked, moduleNamespace } from 'vitest-auto-spy';
+import { adoptMock, assertMocked } from 'vitest-auto-spy';
+
+import * as api from './api';
+import { greet } from './greeting';
+
+vi.mock('./api', () => ({ loadUser: vi.fn() }));
+
+beforeEach(() => {
+  assertMocked(api, { specifier: './api', exports: ['loadUser'] });
+});
+
+it('greets the user it loaded', async () => {
+  adoptMock(api.loadUser).calledWith(7).resolveWith({ id: 7, name: 'Ada' });
+
+  await expect(greet(7)).resolves.toBe('Hello, Ada');
+});
 ```
 
-`vi.mock()` is the one piece of a ported suite that can fail **silently**. It is a transform over
-the module graph, so it has nothing to say when the graph is not what the spec assumed — and what
-follows is either a test passing for the wrong reason or a failure with no connection to mocking.
-
 ## `assertMocked(namespace, options?)`
+
+Checks that a module mock applied, and fails at that line, naming the module, if it did not. Returns
+the namespace. Call it in `beforeEach`, or right after a dynamic import, so a failure is reported as
+a test failure.
 
 ```ts
 import * as engine from '@app/pricing-engine';
@@ -25,48 +47,47 @@ beforeEach(() => {
 });
 ```
 
-Fails at the line that assumed the mock, naming the module. Without `exports` it checks that _some_
-export is a runner mock; with it, that each named one is — which is what a factory that stubs part
-of a module and re-exports the rest needs, since a factory that lost the one export the test drives
-still looks mocked from the outside.
+| Option      | Type       | Default                       | Meaning                                                 |
+| ----------- | ---------- | ----------------------------- | ------------------------------------------------------- |
+| `specifier` | `string`   | —                             | The path you passed to `vi.mock`, quoted in the failure |
+| `exports`   | `string[]` | at least one export is a mock | Every listed export must be a runner mock               |
 
-An **empty** `exports` list is refused rather than accepted. `exports: []` — which is what
-`Object.keys(stubs)` or a filtered constant produces when it comes out empty — used to take the
-named-exports branch, find nothing to check and return, so the one call in the file whose job is to
-prove the mock applied proved nothing.
+Without `exports`, it checks that at least one export is a mock. List `exports` when your factory
+mocks part of a module and re-exports the rest: otherwise a factory that forgot to mock the export
+your test uses still passes the check.
 
-### The two ways `vi.mock` becomes a no-op
-
-**A bundler already inlined the module.** Under `@angular/build:unit-test`, or `vite-node` handed a
-pre-built entry, a workspace alias (`@scope/lib`) or a barrel is part of the bundle by the time the
-mock would be installed. There is nothing left to intercept. No warning is printed.
-
-**`isolate: false` and a module already in the worker graph.** A built-in such as `node:fs` keeps
-whichever mock reached it first, so the same spec passes or fails depending on the order the worker
-picked up the files. A run that is green locally and red in CI, at a different file each time, is
-this.
-
-Neither has a fix inside `vi.mock`. What works is not mocking the module at all: pass the dependency
-in — a TestBed provider, a constructor argument, a function parameter — and stub the value.
-`assertMocked` is what turns the silent case into a sentence, so that conclusion is reached in one
-run rather than three.
-
-It names the export that stayed real and only the cause that fits the run: under `isolate: false` it
-blames the earlier file that loaded the module first, otherwise the path the code under test imports
-it through:
+The failure names the export that stayed real and the likely cause:
 
 ```text
-[vitest-auto-spy] assertMocked('./api'): fetchUser is the real function — the `vi.mock('./api')` for
+[vitest-auto-spy] assertMocked('./api'): loadUser is the real function — the `vi.mock('./api')` for
 this file did not apply. The code under test reaches the module through another path (a barrel, an
 alias, a bundled entry) — `vi.mock` the specifier it imports, or pass the dependency in as an argument
 or a provider.
 Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/module-mocks#the-two-ways-vi-mock-becomes-a-no-op
 ```
 
+**Common mistake:** `exports: []`. That often comes from an empty `Object.keys(stubs)`. An empty list
+would check nothing, so it is rejected with an error.
+
+### The two ways `vi.mock` becomes a no-op
+
+- **A bundler already inlined the module.** Under `@angular/build:unit-test`, or `vite-node` given a
+  pre-built entry, a workspace alias (`@scope/lib`) or a barrel file is already part of the bundle.
+  There is nothing left for the mock to replace, and no warning is printed.
+- **`isolate: false`, and the module is already loaded in the worker.** A built-in such as `node:fs`
+  keeps whichever mock reached it first. The same spec passes or fails depending on file order. A run
+  that is green locally and red in CI, at a different file each time, is this.
+
+`vi.mock` cannot fix either. Stop mocking the module: pass the dependency in (a `TestBed` provider, a
+constructor argument, a function parameter) and stub that value. See
+[Provide a real seam](#provide-a-real-seam).
+
+For the "green locally, red in CI" case, the failure blames the earlier file that loaded the module
+first. Otherwise, it points at the path your code imports the module through.
+
 ## Provide a real seam
 
-The silent `vi.mock` has a loud twin, and it is the one people hit _next_ — after the mock does
-nothing, the natural move is to reach for a spy instead:
+After `vi.mock` does nothing, the next attempt is usually `vi.spyOn` on the module. That fails loudly:
 
 ```ts
 import * as appMetrics from '@app/domain-metrics';
@@ -74,16 +95,12 @@ import * as appMetrics from '@app/domain-metrics';
 vi.spyOn(appMetrics, 'injectAppMetrics'); // TypeError: Cannot redefine property: injectAppMetrics
 ```
 
-Same cause, opposite symptom. Once a bundler has inlined the barrel, its exports are live bindings
-on a module namespace object: not configurable, not writable, not replaceable by `vi.spyOn`,
-`jest.spyOn`, `Object.defineProperty` or anything else. There is no spy library that can win this,
-and the `TypeError` says none of that — it names the property and stops.
+It is the same cause. Once a bundler has inlined the module, its exports are read-only live bindings.
+A live binding is a read-only link to the module's variable, not a normal object property. No spy
+library can replace it: not `vi.spyOn`, not `jest.spyOn`, not `Object.defineProperty`.
 
-A `vi.spyOn` written by hand in a spec is not something this package can see, so that one still
-reports the bare `TypeError`. Everywhere the redefinition goes through the library the same failure
-is re-thrown with the whole sentence, naming the property, what the target actually is, and the way
-out — that is the accessor spies (an `observablePropsToSpyOn` / getter-setter spy taken on an
-auto-spy) and the `mock*Prop` helpers alike:
+When the redefinition goes through this library (accessor spies such as `observablePropsToSpyOn`, or
+the `mock*Prop` helpers), you get the full explanation instead of the bare `TypeError`:
 
 ```
 [vitest-auto-spy] Cannot spy on the 'get' accessor of 'injectAppMetrics': the property is not
@@ -96,26 +113,24 @@ Give the code under test a real seam and spy on that: inject the dependency, pas
 argument, or reach it through a class or object your own code owns.
 ```
 
-`mockValueProp` / `mockReadonlyProp` word the first line for what they do
-(`Cannot mock the property 'x': it is not configurable, so it cannot be redefined.`) and share the
-rest. They also leave nothing behind: the undo journal is written only once the redefinition has
-succeeded, so a refused patch cannot come back a second time as a `restoreMockedProps()` teardown
-failure for something that never happened.
+`mockValueProp` / `mockReadonlyProp` start with
+`Cannot mock the property 'x': it is not configurable, so it cannot be redefined.` and share the
+rest. A refused patch leaves nothing behind for `restoreMockedProps()` to undo.
 
-**The seam is a change to the code under test, not to the test.** Three shapes, cheapest first:
+**The fix is a change to the code under test, not to the test.** Three shapes, cheapest first:
 
 ```ts
-// 1. Inject it. The consumer takes the dependency from DI, so the spec supplies a double.
+// 1. Inject it. The consumer takes the dependency from DI, so the spec supplies a spy.
 readonly #metrics = inject(AppMetrics);
 // spec: TestBed.configureTestingModule({ providers: [provideAutoSpy(AppMetrics)] });
 
-// 2. Pass it in. A free function that takes its collaborator as an argument needs no mocking at all.
+// 2. Pass it in. A function that takes its collaborator as an argument needs no mocking at all.
 export function priceBasket(items: Item[], rate: RateLookup): number { … }
 // spec: priceBasket(items, () => 1.2);
 
-// 3. Own the indirection. Re-export the third-party call through a class you control,
-//    and let every caller — and every spec — go through that.
-@Service()
+// 3. Own the indirection. Call the third-party function through a class you control,
+//    and let every caller (and every spec) go through that class.
+@Injectable({ providedIn: 'root' })
 export class MetricsGateway {
   track(event: string): void {
     injectAppMetrics().track(event);
@@ -123,32 +138,39 @@ export class MetricsGateway {
 }
 ```
 
-All three survive the bundler, because none of them depends on the module graph having a boundary
-where the spec wants one. That is the point: `vi.mock` and `vi.spyOn` on a module both bet on a
-boundary the build is free to remove, and a seam you wrote yourself is one the build has to keep.
+All three survive the bundler. `vi.mock` and `vi.spyOn` on a module rely on a module boundary the
+build may remove. A seam you wrote yourself is one the build has to keep.
 
-Once the dependency is injected, [`trackInjections`](/utilities/track-injections) is what asserts
-_which_ collaborators the entry point actually asked for — the question the barrel mock was usually
-standing in for.
+Once the dependency is injected, [`trackInjections`](/utilities/track-injections) can assert which
+dependencies your code actually asked for.
 
 ## `moduleNamespace(exports, options?)`
 
+Wraps a mock factory's exports as `{ ...exports, default, __esModule: true }`. Use it in every
+`vi.mock` factory for a library that runs as both CommonJS and ESM: such libraries read
+`mod.default ?? mod`.
+
 ```ts
+import { mockConstructor, moduleNamespace } from 'vitest-auto-spy';
+
 vi.mock('shaka-player', () => moduleNamespace({ Player: mockConstructor(() => playerStub) }));
 ```
 
-Returns `{ ...exports, default, __esModule: true }` — the shape any dependency written to run as
-both CommonJS and ESM probes for with `mod.default ?? mod`. `default` is the whole namespace, unless
-the factory spelled one out.
+`default` is the whole namespace, unless your factory defines its own `default`.
 
-The missing `default` is the failure this removes. A factory returning bare named exports makes
-Vitest throw `No "default" export is defined on the mock` **from inside that dependency**, with a
-stack that names the library rather than the factory three lines up in the spec.
+| Option        | Type      | Default | Meaning                                                                       |
+| ------------- | --------- | ------- | ----------------------------------------------------------------------------- |
+| `lenient`     | `boolean` | `false` | An export the factory did not define reads as `undefined` instead of throwing |
+| `passthrough` | `boolean` | `false` | Every function export becomes a spy that runs the real function               |
+
+**Common mistake:** a factory that returns bare named exports. Vitest then throws
+`No "default" export is defined on the mock` from inside the library, with a stack that names the
+library instead of your factory.
 
 ### A module whose default export _is_ the dependency
 
-A date library, a player, a generated client — plenty of packages export one callable as their
-default, and that is the thing the spec stubs:
+Many packages export one function as their default: a date library, a player, a generated client.
+Define `default` in the factory, and the namespace keeps it:
 
 ```ts
 const format = vi.fn(() => 'Monday');
@@ -156,48 +178,48 @@ const format = vi.fn(() => 'Monday');
 vi.mock('dayjs', () => moduleNamespace({ default: vi.fn(() => ({ format })) }));
 ```
 
-The `default` the factory wrote is the `default` the namespace carries. Replacing it with the
-namespace object is what turned `default(…)` into `default is not a function` inside the dependency
-— the same failure this helper exists to remove, arriving from the other side. `ModuleNamespace<T>`
-is typed to match: `default` is the type of the `default` the factory declared where there is one,
-and the namespace otherwise.
+`ModuleNamespace<T>` types `default` as the one your factory declared, or as the namespace
+otherwise.
 
 ### `lenient`
+
+Reads an export the factory did not define as `undefined` instead of throwing. Use it to port a Jest
+suite first and tighten the factories later.
 
 ```ts
 vi.mock('shaka-player', () => moduleNamespace({ Player }, { lenient: true }));
 ```
 
-Reads an export the factory did not define as `undefined` instead of throwing.
+The strict default is better: it catches a factory that no longer matches its module. Jest did not
+throw, though, so a ported suite may read exports it never stubbed. Then the error appears deep in
+your app code, far from the test.
 
-The strict default is the better one: it catches a factory that has drifted from the module it
-stands in for. But Jest did not throw, so a suite ported from it can be reaching for exports it
-never stubbed — and there the guard fails inside production code, several frames from the assertion
-that would have said what the test actually wanted. Turn leniency on to port first and tighten
-later.
-
-`then` and symbol keys are never claimed, whatever the mode: a namespace that answers to `then`
-would be treated as a promise by `await import(…)` and never resolve.
+`then` and symbol keys always read as missing, in either mode: a namespace with a `then` would look
+like a promise to `await import(…)`, which would never resolve.
 
 ### `passthrough`
+
+Every function export becomes a spy that runs the real function until the test configures it. It
+records every call either way. Pass the real module in:
 
 ```ts
 vi.mock('./api', async (importOriginal) => moduleNamespace(await importOriginal<typeof import('./api')>(), { passthrough: true }));
 ```
 
-Every function export becomes a spy that runs the real function until the test configures it, and
-records every call either way. It is Vitest's `vi.mock(path, { spy: true })` with this library's
-helpers on top — `calledWith`, `mustBeCalledWith`, `resolveWith` — and the same rule as
+It is Vitest's `vi.mock(path, { spy: true })` plus this library's helpers (`calledWith`,
+`mustBeCalledWith`, `resolveWith`). It follows the same rules as
 [`createSpyFromInstance(obj, { passthrough: true })`](/core/create-spy-from-class#passthrough):
 
-- **A configured export is handed over whole.** A `calledWith(7)` chain answers `undefined` for
-  `loadUser(1)`, as on any other spy; it does not fall back to the real `loadUser`.
-- **`resetAutoSpy(api)` hands the real function back.**
-- **Classes and values stay as they are.** A class needs `new`, and the double for that is
+- **A configured export no longer calls the real function.** A `calledWith(7)` setup answers
+  `undefined` for `loadUser(1)`, as on any other spy.
+- **`resetAutoSpy(api)` brings the real function back.**
+- **The real function runs with the caller's `this`.** A method called as `api.load()` or through
+  `.call(owner)` sees that `this`.
+- **Classes and values stay as they are.** A class needs `new`; for that, use
   [`mockConstructor`](/utilities/constructor-doubles). Nested objects are not walked.
 
-The exports are typed as the module's own functions, so reach the helpers through
-[`adoptMock`](#adoptmock-mock-options), which hands a spy this library built back unchanged:
+The exports keep the module's own function types. To reach the helpers, wrap an export with
+[`adoptMock`](#adoptmock-mock-options), which returns a spy this library built unchanged:
 
 ```ts
 import { loadUser } from './api';
@@ -207,7 +229,13 @@ adoptMock(loadUser).calledWith(7).resolveWith({ id: 7, name: 'Ada' });
 
 ## `adoptMock(mock, options?)`
 
+Takes a mock that a `vi.mock` factory built and gives it this library's helpers (`calledWith`,
+`resolveWith`, `mustBeCalledWith`, …). A factory's `vi.fn()` comes back typed as the real function,
+so without it you only have `mockResolvedValue`.
+
 ```ts
+import { adoptMock } from 'vitest-auto-spy';
+
 import { loadUser } from './api';
 import { greet } from './greeting';
 
@@ -220,53 +248,55 @@ it('greets the user it loaded', async () => {
 });
 ```
 
-A `vi.mock` factory builds its own `vi.fn()`s, and the spec gets them back typed as the real
-functions: `mockResolvedValue` is there, `calledWith` and `resolveWith` are not. `adoptMock` takes
-such a mock over **in place**. It is the same object — the code under test holds it through the
-mocked module, so a copy would configure nothing — the calls it already recorded stay recorded, and
-it comes back typed as a function spy of the export's own signature.
+| Option | Type     | Default         | Meaning                                       |
+| ------ | -------- | --------------- | --------------------------------------------- |
+| `name` | `string` | the mock's name | What a `mustBeCalledWith` miss calls this spy |
 
-- **Nothing changes until the test configures it.** An unconfigured call answers what the mock
-  answered before: the implementation it was built with (`vi.fn(impl)`), or `undefined`. Once
-  configured, the configuration decides, as on every spy — an argument list no `calledWith`
-  matches gets the spy's default.
-- **The runner's resets keep it.** `vi.resetAllMocks()`, `mockReset: true` and `mockRestore()` clear
-  the calls and leave the configuration, as they do on any spy this library builds.
-  `resetAutoSpy(loadUser)` — or `resetAutoSpy(api)` on the namespace — drops the configuration and
-  goes back to the mock's own implementation.
+- **It is the same object, not a copy.** Your code holds this mock through the mocked module, so a
+  copy would configure nothing. Calls it already recorded stay recorded. It comes back typed as a
+  spy with the export's own signature.
+- **Nothing changes until you configure it.** An unconfigured call answers what the mock answered
+  before: the implementation it was built with (`vi.fn(impl)`), or `undefined`. Once configured, the
+  configuration decides. Arguments no `calledWith` matches get `undefined`, unless the spy has a
+  default answer.
+- **Runner resets keep the configuration.** Unlike a plain `vi.fn()`, `vi.resetAllMocks()`,
+  `mockReset: true` and `mockRestore()` clear only the calls and keep the configuration, as on every
+  spy this library builds.
+  `resetAutoSpy(loadUser)`, or `resetAutoSpy(api)` on the namespace, drops the configuration.
 - **Adopting twice is harmless.** The same mock, or a spy this library built, comes back unchanged.
-- **`name`** is what a `mustBeCalledWith` miss calls it. Default: the mock's own name.
 
-A plain function is refused with a pointer to `assertMocked`: it means the module mock did not apply,
-and configuring the real function would only move the silence one line down.
+**Common mistake:** adopting a plain function. It is refused with a pointer to `assertMocked`: a
+plain function means the module mock did not apply.
 
 ### Where it works
 
-| Runner                  | Adopts  |                                                                                                                                                                                   |
-| ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Vitest `vi.fn()`        | yes     | The configuration survives `vi.resetAllMocks()`, `mockReset: true` and `mockRestore()`.                                                                                           |
-| Rstest `rstest.fn()`    | yes     | Same, through `rstest.resetAllMocks()`.                                                                                                                                           |
-| Bun `mock()`            | yes     | Bun's `mockReset` is read-only, so `jest.resetAllMocks()` drops the configuration — as it does on every spy this library builds on Bun. Reset with `resetAutoSpy`.                |
-| `node:test` `mock.fn()` | refused | It cannot report its implementation, and `mock.restoreAll()` would put it back over the configuration without a word. Build the double with `createFunctionSpy` and pass that in. |
+| Runner                  | Adopts  | Notes                                                                                                                                                             |
+| ----------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Vitest `vi.fn()`        | yes     | The configuration survives `vi.resetAllMocks()`, `mockReset: true` and `mockRestore()`.                                                                           |
+| Rstest `rstest.fn()`    | yes     | Same, through `rstest.resetAllMocks()`.                                                                                                                           |
+| Bun `mock()`            | yes     | Bun's `mockReset` is read-only, so `jest.resetAllMocks()` drops the configuration, as on every spy on Bun. Reset with `resetAutoSpy`.                             |
+| `node:test` `mock.fn()` | refused | It cannot report its implementation, and `mock.restoreAll()` would silently overwrite the configuration. Build the spy with `createFunctionSpy` and pass that in. |
 
 ### A spy that calls through
 
 `vi.spyOn(obj, 'method')` without an implementation, and every export of
-`vi.mock(path, { spy: true })`, run an original they do not report: `getMockImplementation()` answers
-`undefined`, the same as for a bare `vi.fn()`. Adopted, such a mock answers `undefined` to an
-unconfigured call. To record calls, run the real code and configure one case, build the spies that
-way from the start — [`passthrough`](#passthrough) for a module,
-[`createSpyFromInstance(obj, { passthrough: true })`](/core/create-spy-from-class#passthrough) for an
-object.
+`vi.mock(path, { spy: true })`, call the real function but do not expose it to the library. Adopted,
+such a mock answers `undefined` to an unconfigured call.
+
+If you want a spy that records calls, runs the real code, and lets you configure one case, build it
+that way from the start: [`passthrough`](#passthrough) for a module,
+[`createSpyFromInstance(obj, { passthrough: true })`](/core/create-spy-from-class#passthrough) for
+an object.
 
 ## `vi.doMock`, a dynamic import and `assertMocked`
 
-`vi.mock` is hoisted above the imports, which is what makes it work and also why its factory cannot
-see anything the test declares. `vi.doMock` is the way out: it is not hoisted, so it can differ per
-test — and it applies only to what is imported **after** it. That makes it the quietest mock of all:
-a static import at the top of the file already holds the real module, and nothing about it fails.
+`vi.doMock` is not hoisted, so it can differ per test. It applies only to modules imported **after**
+it. A static import at the top of the file already holds the real module, and nothing fails. Use
+this recipe:
 
 ```ts
+import { adoptMock, assertMocked } from 'vitest-auto-spy';
+
 afterEach(() => {
   vi.doUnmock('./api');
   vi.resetModules();
@@ -284,21 +314,17 @@ it('greets the user it loaded', async () => {
 });
 ```
 
-Three things carry the recipe:
-
-- **Import the code under test after the `doMock` too.** `./greeting` imported at the top of the file
-  bound the real `./api` before the test ran; `assertMocked` on the namespace cannot see that.
-- **`vi.resetModules()` in `afterEach`,** so the next test's dynamic import evaluates the module
-  again instead of handing back the one this test mocked.
-- **`assertMocked` on the namespace the import returned.** Under a bundler `vi.doMock` is as silent
-  as `vi.mock`, and this is the line that says so.
+1. **Import the code under test after `vi.doMock` too.** A top-level import of `./greeting` already
+   bound the real `./api`, and `assertMocked` cannot see that.
+2. **Call `vi.resetModules()` in `afterEach`,** so the next test's import loads the module again.
+3. **Call `assertMocked` on the namespace the import returned.** Under a bundler, `vi.doMock` is as
+   silent as `vi.mock`, and this line tells you.
 
 ## What this does not do
 
-A helper cannot make `vi.mock` hoist from inside another function, so there is no
-`mockModule('x', factory)` here — Vitest hoists the literal `vi.mock` call, and a wrapper around it
-would be hoisted as a call to a function that does not exist yet. When the factory and the tests
-need to share a fixture, `vi.hoisted` is the mechanism:
+There is no `mockModule('x', factory)` helper. Vitest hoists the literal `vi.mock` call, and a
+wrapper around it would be hoisted as a call to a function that does not exist yet. To share a
+fixture between the factory and the tests, use `vi.hoisted`:
 
 ```ts
 const stripe = vi.hoisted(() => {
