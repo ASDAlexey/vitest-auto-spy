@@ -3,6 +3,7 @@
  * restraint: what it refuses to create, what it refuses to touch twice, and what `--uninstall`
  * puts back. The happy path is one assertion; the rest of this file is the restraint.
  */
+import { execFileSync } from 'node:child_process';
 import { chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -183,6 +184,35 @@ describe('runInit', () => {
     expect(install(root).warnings[0]).toMatch(
       /^AGENTS\.md would be \d+ bytes, past the 32768 bytes Codex reads \(project_doc_max_bytes\), and Codex drops the rest without a word\. Move long sections of AGENTS\.md into files it links to\.$/,
     );
+  });
+});
+
+describe('runInit in a repository that ignores its instruction files', () => {
+  const git = (root: string, ...args: string[]): void => {
+    execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+  };
+
+  it('says which written files git will not show, and leaves tracked ones unmarked', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST, 'CLAUDE.md': '# Team notes\n', 'empty-excludes': '' });
+
+    git(root, 'init', '-q');
+    git(root, 'config', 'core.excludesFile', join(root, 'empty-excludes'));
+    writeTextFile(join(root, '.git/info/exclude'), 'AGENTS.md\nCLAUDE.md\n');
+    git(root, 'add', '-f', 'CLAUDE.md');
+
+    const result = install(root);
+    const noteOf = (path: string): string | undefined => result.actions.find((action) => action.path === path)?.note;
+
+    expect(noteOf('AGENTS.md')).toContain('not tracked by git');
+    expect(noteOf('CLAUDE.md')).not.toContain('not tracked by git');
+    expect(noteOf('GEMINI.md')).not.toContain('not tracked by git');
+  });
+
+  it('marks nothing outside a repository, or when there is nothing to write', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST });
+
+    expect(install(root).actions.every((action) => !action.note.includes('not tracked by git'))).toBe(true);
+    expect(install(root).actions.every((action) => action.status === 'unchanged' || action.status === 'skipped')).toBe(true);
   });
 });
 

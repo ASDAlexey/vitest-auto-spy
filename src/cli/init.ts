@@ -8,6 +8,7 @@
 import { join } from 'node:path';
 
 import { isDirectory, isSymlink, pathExists, readTextFile, removeFile, writeTextFile } from './fs-scan';
+import { ignoredByGit } from './git-ignored';
 import { type BlockFacts, applyManaged, hasHandEditedBlock, hasManaged, managedSpans, removeManaged, withoutVersion } from './init-block';
 import { blockFacts } from './init-facts';
 import { LEGACY_FILES, TIER_ONE_MARKDOWN, TIER_TWO, managedBlock, ownedContent, skillStub } from './init-targets';
@@ -361,11 +362,25 @@ function unmatchedWarnings(only: readonly string[] | undefined): string[] {
     });
 }
 
+const UNTRACKED_NOTE = 'not tracked by git, so `git diff` will not show this change';
+
+/** A refreshed file git ignores leaves `git diff` empty, which reads as "init changed nothing". */
+function markUntracked(cwd: string, actions: readonly InitAction[]): InitAction[] {
+  const ignored = ignoredByGit(
+    cwd,
+    actions.filter((action) => action.status === 'created' || action.status === 'updated').map((action) => action.path),
+  );
+
+  return actions.map((action) => (ignored.has(action.path) ? { ...action, note: `${action.note} — ${UNTRACKED_NOTE}` } : action));
+}
+
 const PENDING: ReadonlySet<ActionStatus> = new Set(['created', 'edited', 'stale', 'updated']);
 
 export function runInit(profile: Profile, version: string, options: InitOptions): InitResult {
   const plans = buildPlans(profile, version, options.only).map((plan) => (options.uninstall ? uninstallPlan(plan) : guardHandEdited(plan)));
-  const { actions, failures } = applyPlans(profile.cwd, plans, options);
+  const applied = applyPlans(profile.cwd, plans, options);
+  const actions = markUntracked(profile.cwd, applied.actions);
+  const { failures } = applied;
   const pending = options.check && actions.some((action) => PENDING.has(action.status));
 
   return {
