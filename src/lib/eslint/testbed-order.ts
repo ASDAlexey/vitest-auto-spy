@@ -33,7 +33,7 @@
  * "does this suite override at all", with the one exemption that can be read off the source: an
  * `override*` that sits in the same hook body *before* the injection really does run first.
  */
-import { type EsNode, enclosingFunction, isCallExpression, isIdentifier } from './rule-types';
+import { type EsNode, enclosingFunction, isCallExpression, isIdentifier, propertyName } from './rule-types';
 
 /**
  * Every spelling that instantiates the testing module, as one esquery selector list.
@@ -67,13 +67,14 @@ function testBedCall(members: ReadonlySet<string>): string {
 
 /**
  * The two `TestBed` calls the ordering rules read, as selectors, so each is collected once per file.
+ * `overrideComponentProvider` counts as an override: it ends in `TestBed.overrideProvider`.
  *
  * Asking "does this suite override at all" by walking the suite answers the same question, and
  * answers it again for every injection in the file: on a 2700-line spec with fifteen of them in one
  * `beforeEach`, that walk was 96 % of the plugin's time. Collected in a visitor and decided by
  * range in `Program:exit`, the same rule reads the file once.
  */
-export const OVERRIDES_THE_MODULE = testBedCall(OVERRIDES);
+export const OVERRIDES_THE_MODULE = `${testBedCall(OVERRIDES)},CallExpression[callee.type="Identifier"][callee.name="overrideComponentProvider"]`;
 
 /** The reset, whose presence in a suite exempts a suite from both ordering rules. */
 export const RESETS_THE_MODULE = testBedCall(RESETS);
@@ -158,9 +159,26 @@ export function resetsTheTestingModule(resets: readonly EsNode[], suite: EsNode)
   return resets.some((reset) => within(reset, suite));
 }
 
-/** Whether an override is written in the same hook, ahead of the injection — the one order that works. */
+/**
+ * Whether an override runs before the injection: ahead of it in the same hook, or inside the call's
+ * own `beforeCreate`, which `renderShallow` runs before it creates the component.
+ */
 function runsFirst(override: EsNode, injection: EsNode, hook: EsNode): boolean {
-  return within(override, hook) && override.range[1] < injection.range[0];
+  return within(override, injection) || (within(override, hook) && override.range[1] < injection.range[0]);
+}
+
+/** The `beforeCreate` option of `renderShallow` a node is written directly in. */
+function enclosingBeforeCreate(node: EsNode): EsNode | undefined {
+  const setup = enclosingFunction(node);
+
+  return setup && propertyName(setup.parent) === 'beforeCreate' ? setup : undefined;
+}
+
+/** Whether an injection in `beforeCreate` precedes an override in that same `beforeCreate`, wherever the render is. */
+export function injectsBeforeSetupOverride(injection: EsNode, { overrides }: TestBedOrdering): boolean {
+  const setup = enclosingBeforeCreate(injection);
+
+  return setup !== undefined && overrides.some((override) => within(override, setup) && override.range[0] > injection.range[1]);
 }
 
 /**

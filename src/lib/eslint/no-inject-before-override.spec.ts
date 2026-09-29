@@ -119,3 +119,53 @@ describe('no-inject-before-override', () => {
     expect(lint("beforeEach(() => { TestBed.inject(Api); });\nit('x', () => TestBed.compileComponents());")).toEqual([]);
   });
 });
+
+describe('no-inject-before-override, overrideComponentProvider and beforeCreate', () => {
+  const render = (setup: string): string =>
+    ["it('renders', () => {", `  renderShallow(PageComponent, { beforeCreate: () => {\n    ${setup}\n  } });`, '});'].join('\n');
+
+  it('flags an injectSpy that precedes an overrideComponentProvider in the same beforeCreate', () => {
+    const messages = verify(render('injectSpy(Store);\n    overrideComponentProvider(PageComponent, Menu);'));
+
+    expect(messages.map((message) => message.ruleId)).toEqual(['vitest-auto-spy/no-inject-before-override']);
+    expect(messages[0]?.message).toContain('Move every override above the first `injectSpy`');
+  });
+
+  it('flags the method spelling of beforeCreate and a TestBed override after the injection', () => {
+    const code = "it('x', () => renderShallow(Page, { beforeCreate() { injectSpy(Store); TestBed.overrideProvider(A, {}); } }));";
+
+    expect(lint(code)).toHaveLength(1);
+  });
+
+  it('leaves the order that works alone, and the override the render runs first', () => {
+    expect(lint(render('overrideComponentProvider(PageComponent, Menu);\n    injectSpy(Store);'))).toEqual([]);
+    // The render itself runs its own beforeCreate before it creates the component.
+    const inHook = [
+      "describe('page', () => {",
+      '  beforeEach(() => {',
+      '    renderShallow(PageComponent, { beforeCreate: () => overrideComponentProvider(PageComponent, Menu) });',
+      '  });',
+      '});',
+    ].join('\n');
+
+    expect(lint(inHook)).toEqual([]);
+  });
+
+  it('counts overrideComponentProvider as an override for an injection in a hook', () => {
+    const code = [
+      "describe('page', () => {",
+      '  beforeEach(() => { injectSpy(Store); });',
+      "  it('x', () => overrideComponentProvider(PageComponent, Menu));",
+      '});',
+    ].join('\n');
+
+    expect(firstMessage(code)).toContain('`overrideComponentProvider`');
+  });
+
+  it('ignores an injection in some other option, and an override that ran before it', () => {
+    expect(lint("it('x', () => build({ setup: () => { injectSpy(A); overrideComponentProvider(P, B); } }));")).toEqual([]);
+    expect(lint("it('x', () => renderShallow(P, { beforeCreate: () => { TestBed.overrideProvider(A, {}); injectSpy(A); } }));")).toEqual(
+      [],
+    );
+  });
+});
