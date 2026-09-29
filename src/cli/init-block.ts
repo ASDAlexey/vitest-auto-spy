@@ -90,8 +90,61 @@ export function wrapManaged(body: string, version: string): string {
   return `<!-- vitest-auto-spy:begin v=${version} sha=${digest(body)} -->\n${body}\n${MARKER_END}`;
 }
 
+export interface ManagedSpan {
+  readonly start: number;
+  readonly end: number;
+  readonly marker: string;
+  readonly inner: string;
+}
+
+/**
+ * Every complete block, in order. A begin marker pairs with the first end marker after it, and only
+ * when no other begin sits in between: a stray end before the block, or a begin left dangling by a
+ * bad merge, stays plain text instead of swallowing the text around it.
+ */
+export function managedSpans(text: string): ManagedSpan[] {
+  const begin = new RegExp(MARKER_BEGIN.source, 'g');
+  const spans: ManagedSpan[] = [];
+  let match = begin.exec(text);
+
+  while (match !== null) {
+    const open = match;
+    const bodyStart = open.index + open[0].length;
+    const endAt = text.indexOf(MARKER_END, bodyStart);
+
+    if (endAt === -1) {
+      break;
+    }
+
+    match = begin.exec(text);
+
+    if (match === null || match.index > endAt) {
+      spans.push({ start: open.index, end: endAt + MARKER_END.length, marker: open[0], inner: text.slice(bodyStart, endAt) });
+      begin.lastIndex = endAt + MARKER_END.length;
+      match = begin.exec(text);
+    }
+  }
+
+  return spans;
+}
+
 export function hasManaged(text: string): boolean {
-  return MARKER_BEGIN.test(text) && text.includes(MARKER_END);
+  return managedSpans(text).length > 0;
+}
+
+/**
+ * A block whose body no longer matches the `sha=` its marker was stamped with was edited by hand.
+ * Line endings are normalised first, so a checkout with `core.autocrlf` is not an edit.
+ */
+export function isHandEdited(span: ManagedSpan): boolean {
+  const stamped = /\ssha=([\da-f]+)/.exec(span.marker)?.[1];
+  const body = span.inner.replace(/\r\n/g, '\n').replace(/^\n/, '').replace(/\n$/, '');
+
+  return stamped !== undefined && digest(body) !== stamped;
+}
+
+export function hasHandEditedBlock(text: string): boolean {
+  return managedSpans(text).some(isHandEdited);
 }
 
 /**
@@ -107,30 +160,30 @@ export function withoutVersion(text: string): string {
 
 /**
  * Replaces the managed block in `existing`, or appends it. Text outside the markers is preserved
- * byte for byte — a consumer's own instructions are none of this CLI's business.
+ * byte for byte — a consumer's own instructions are none of this CLI's business. A second block,
+ * left by a merge or a copy, is removed: one pointer is the whole point.
  */
 export function applyManaged(existing: string, managed: string): string {
-  if (!hasManaged(existing)) {
+  const [first, ...duplicates] = managedSpans(existing);
+
+  if (first === undefined) {
     const separator = existing.length === 0 || existing.endsWith('\n\n') ? '' : existing.endsWith('\n') ? '\n' : '\n\n';
 
     return `${existing}${separator}${managed}\n`;
   }
 
-  const start = existing.search(MARKER_BEGIN);
-  const end = existing.indexOf(MARKER_END) + MARKER_END.length;
+  const rest = duplicates.reduceRight((text, span) => cut(text, span), existing);
 
-  return `${existing.slice(0, start)}${managed}${existing.slice(end)}`;
+  return `${rest.slice(0, first.start)}${managed}${rest.slice(first.end)}`;
 }
 
-/** Removes the managed block and the blank line it was appended with. */
+function cut(text: string, span: ManagedSpan): string {
+  const before = text.slice(0, span.start).replace(/\n{2,}$/, '\n');
+
+  return `${before}${text.slice(span.end).replace(/^\n+/, '')}`;
+}
+
+/** Removes every managed block and the blank line each was appended with. */
 export function removeManaged(existing: string): string {
-  if (!hasManaged(existing)) {
-    return existing;
-  }
-
-  const start = existing.search(MARKER_BEGIN);
-  const end = existing.indexOf(MARKER_END) + MARKER_END.length;
-  const before = existing.slice(0, start).replace(/\n{2,}$/, '\n');
-
-  return `${before}${existing.slice(end).replace(/^\n+/, '')}`;
+  return managedSpans(existing).reduceRight((text, span) => cut(text, span), existing);
 }

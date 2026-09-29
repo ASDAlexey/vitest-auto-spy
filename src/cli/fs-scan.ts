@@ -1,14 +1,15 @@
 /**
- * The only place in this package that touches `node:fs`.
+ * The only place in this package that touches `node:fs`, besides the write-and-rename in `atomic-write.ts`.
  *
  * Keeping it in one module is what makes the invariant checkable: the library itself never reads
  * the disk, so `node:fs` must appear in the CLI bundle and nowhere else. Everything above this
  * module works on plain strings and can therefore be tested without a temporary directory.
  */
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
+import { writeFileAtomic } from './atomic-write';
 import type { IgnoreRule, IgnoreSource } from './gitignore';
 import { excludesFileSetting, isIgnoredBy, parseGitignore } from './gitignore';
 
@@ -113,10 +114,10 @@ export function readTextFile(path: string): string | undefined {
   }
 }
 
-/** Writes a file, creating the parent directories. Returns the content actually written. */
+/** Writes a file atomically, creating the parent directories. */
 export function writeTextFile(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, content, 'utf8');
+  writeFileAtomic(path, content);
 }
 
 export function removeFile(path: string): void {
@@ -324,81 +325,4 @@ function isGitignored(walker: Walker, directory: string): boolean {
   return true;
 }
 
-/**
- * `JSON.parse` over a file that may legitimately contain comments and trailing commas — every
- * `tsconfig.json` does. Returns `undefined` when the text is not recoverable rather than throwing:
- * a doctor that dies on one malformed file reports nothing about the other 151.
- */
-export function parseJsonc(text: string): unknown {
-  try {
-    return JSON.parse(stripJsonComments(text));
-  } catch {
-    return undefined;
-  }
-}
-
-function stripJsonComments(text: string): string {
-  let result = '';
-  let index = 0;
-
-  while (index < text.length) {
-    const rest = text.slice(index);
-
-    if (text[index] === '"') {
-      const end = findStringEnd(text, index);
-
-      result += text.slice(index, end);
-      index = end;
-
-      continue;
-    }
-
-    if (rest.startsWith('//')) {
-      index = advancePast(text, index, '\n');
-
-      continue;
-    }
-
-    if (rest.startsWith('/*')) {
-      index = advancePast(text, index + 2, '*/');
-
-      continue;
-    }
-
-    result += text[index];
-    index += 1;
-  }
-
-  return result.replace(/,(\s*[\]}])/g, '$1');
-}
-
-/**
- * The index just past the string literal opening at `start`, whose quote character is whatever sits
- * there — `"` in JSON, any of the three in TypeScript. `text.length` when it is never closed.
- */
-export function findStringEnd(text: string, start: number): number {
-  const quote = text[start];
-  let index = start + 1;
-
-  while (index < text.length) {
-    if (text[index] === '\\') {
-      index += 2;
-
-      continue;
-    }
-
-    if (text[index] === quote) {
-      return index + 1;
-    }
-
-    index += 1;
-  }
-
-  return text.length;
-}
-
-function advancePast(text: string, start: number, terminator: string): number {
-  const found = text.indexOf(terminator, start);
-
-  return found === -1 ? text.length : found + terminator.length;
-}
+export { findStringEnd, parseJsonc } from '../lib/jsonc';

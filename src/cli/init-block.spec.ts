@@ -5,7 +5,18 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { applyManaged, digest, hasManaged, removeManaged, renderBody, withoutVersion, wrapManaged } from './init-block';
+import {
+  MARKER_END,
+  applyManaged,
+  digest,
+  hasHandEditedBlock,
+  hasManaged,
+  managedSpans,
+  removeManaged,
+  renderBody,
+  withoutVersion,
+  wrapManaged,
+} from './init-block';
 import type { Profile } from './profile';
 
 const profileWith = (over: Partial<Profile>): Profile => ({
@@ -130,5 +141,54 @@ describe('removeManaged', () => {
     const applied = `${applyManaged('', wrapManaged('block', '1.0.0'))}tail\n`;
 
     expect(removeManaged(applied)).toBe('tail\n');
+  });
+});
+
+describe('managedSpans', () => {
+  const block = wrapManaged('body', '1.0.0');
+
+  it('leaves an end marker that comes before the begin as plain text', () => {
+    const text = `${MARKER_END}\nmine\n`;
+
+    expect(hasManaged(`${text}<!-- vitest-auto-spy:begin v=1 -->\nno end`)).toBe(false);
+    expect(applyManaged(text, block)).toBe(`${text}\n${block}\n`);
+    expect(applyManaged(`${text}\n${block}\n`, wrapManaged('new', '2.0.0'))).toBe(`${text}\n${wrapManaged('new', '2.0.0')}\n`);
+  });
+
+  it('skips a begin marker left dangling before a complete block', () => {
+    const text = `<!-- vitest-auto-spy:begin v=0 -->\nhalf\n${block}\n`;
+    const [span] = managedSpans(text);
+
+    expect(managedSpans(text)).toHaveLength(1);
+    expect(span?.inner).toBe('\nbody\n');
+    expect(applyManaged(text, wrapManaged('new', '2.0.0'))).toBe(
+      `<!-- vitest-auto-spy:begin v=0 -->\nhalf\n${wrapManaged('new', '2.0.0')}\n`,
+    );
+  });
+
+  it('updates the first of two blocks and removes the second', () => {
+    const text = `top\n\n${block}\n\nmiddle\n\n${wrapManaged('copy', '0.9.0')}\n\nbottom\n`;
+    const next = wrapManaged('new', '2.0.0');
+
+    expect(applyManaged(text, next)).toBe(`top\n\n${next}\n\nmiddle\nbottom\n`);
+    expect(removeManaged(text)).toBe('top\nmiddle\nbottom\n');
+  });
+});
+
+describe('hasHandEditedBlock', () => {
+  it('reads the digest back and flags a body that no longer matches it', () => {
+    const block = wrapManaged('body', '1.0.0');
+
+    expect(hasHandEditedBlock(block)).toBe(false);
+    expect(hasHandEditedBlock(block.replace('body', 'body, edited'))).toBe(true);
+    expect(hasHandEditedBlock('no markers here')).toBe(false);
+  });
+
+  it('does not count line endings a checkout converted as an edit', () => {
+    expect(hasHandEditedBlock(wrapManaged('line one\nline two', '1.0.0').replace(/\n/g, '\r\n'))).toBe(false);
+  });
+
+  it('cannot judge a block whose marker carries no digest', () => {
+    expect(hasHandEditedBlock(`<!-- vitest-auto-spy:begin v=1.0.0 -->\nanything\n${MARKER_END}`)).toBe(false);
   });
 });

@@ -3,13 +3,14 @@
  * restraint: what it refuses to create, what it refuses to touch twice, and what `--uninstall`
  * puts back. The happy path is one assertion; the rest of this file is the restraint.
  */
+import { chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { pathExists, readTextFile, writeTextFile } from './fs-scan';
 import { runInit, skillPlan } from './init';
 import type { InitOptions, Plan } from './init';
-import { hasManaged } from './init-block';
+import { digest, hasManaged, managedSpans } from './init-block';
 import { LEGACY_FILES, TIER_TWO, ownedContent, skillStub } from './init-targets';
 import { readProfile } from './profile';
 import { ownFile, ownPackageRoot, ownVersion, skillFrontmatter, versionFrom } from './self';
@@ -26,6 +27,14 @@ const install = (root: string, over: Partial<InitOptions> = {}): ReturnType<type
 
 const statusOf = (result: ReturnType<typeof runInit>, path: string): string | undefined =>
   result.actions.find((action) => action.path === path)?.status;
+
+/** What the package shipping a different body looks like: new text under a matching digest. */
+const reshipped = (text: string, from: string, to: string): string => {
+  const edited = text.replace(from, to);
+  const [span] = managedSpans(edited);
+
+  return edited.replace(/sha=[\da-f]+/, `sha=${digest(span?.inner.slice(1, -1) ?? '')}`);
+};
 
 const MANIFEST = JSON.stringify({ scripts: { test: 'vitest run' }, devDependencies: { '@angular/core': '^21', rxjs: '^7' } });
 
@@ -203,7 +212,7 @@ describe('runInit --check and --dry-run', () => {
 
     expect(stampNotes.every((note) => note?.includes('only the version stamp differs'))).toBe(true);
 
-    const stale = (readTextFile(join(root, 'AGENTS.md')) ?? '').replace('`methodsToSpyOn`', '`methodsToSpyOnce`');
+    const stale = reshipped(readTextFile(join(root, 'AGENTS.md')) ?? '', '`methodsToSpyOn`', '`methodsToSpyOnce`');
 
     writeTextFile(join(root, 'AGENTS.md'), stale);
 
@@ -222,6 +231,45 @@ describe('runInit --check and --dry-run', () => {
     expect(readTextFile(join(root, 'AGENTS.md'))).toContain('v=9.9.9');
   });
 
+  it('fails on a block edited by hand, and a plain run reports it instead of overwriting it', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST });
+
+    install(root);
+
+    const edited = (readTextFile(join(root, 'AGENTS.md')) ?? '').replace('`methodsToSpyOn`', '`methodsToSpyOnce`');
+
+    writeTextFile(join(root, 'AGENTS.md'), edited);
+
+    const checked = install(root, { check: true });
+    const plain = install(root);
+
+    expect(statusOf(checked, 'AGENTS.md')).toBe('edited');
+    expect(checked.ok).toBe(false);
+    expect(statusOf(plain, 'AGENTS.md')).toBe('edited');
+    expect(plain.ok).toBe(true);
+    expect(plain.warnings).toContainEqual(
+      expect.stringContaining('AGENTS.md: the block between the vitest-auto-spy markers was edited by hand'),
+    );
+    expect(readTextFile(join(root, 'AGENTS.md'))).toBe(edited);
+    expect(statusOf(install(root, { uninstall: true }), 'AGENTS.md')).toBe('removed');
+  });
+
+  it('keeps one block when a merge left two, and says so', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST });
+
+    install(root);
+
+    const block = readTextFile(join(root, 'AGENTS.md')) ?? '';
+
+    writeTextFile(join(root, 'AGENTS.md'), `${block}\n${block}\n${block}`);
+
+    const result = install(root);
+
+    expect(statusOf(result, 'AGENTS.md')).toBe('updated');
+    expect(result.actions.find((action) => action.path === 'AGENTS.md')?.note).toContain('duplicate managed blocks removed: 2');
+    expect(readTextFile(join(root, 'AGENTS.md'))).toBe(block);
+  });
+
   it('reports what it would do without touching the disk', () => {
     const root = createTempRepo({ 'package.json': MANIFEST });
     const result = install(root, { dryRun: true });
@@ -229,6 +277,45 @@ describe('runInit --check and --dry-run', () => {
     expect(statusOf(result, 'AGENTS.md')).toBe('created');
     expect(pathExists(join(root, 'AGENTS.md'))).toBe(false);
     expect(result.ok).toBe(true);
+  });
+});
+
+describe('runInit when a write fails', () => {
+  it('marks the file failed, puts back the ones already written, and says why', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST, 'CLAUDE.md': 'mine\n', 'GEMINI.md/inner': '' });
+    const result = install(root);
+
+    expect(statusOf(result, 'GEMINI.md')).toBe('failed');
+    expect(statusOf(result, 'AGENTS.md')).toBe('skipped');
+    expect(result.actions.find((action) => action.path === 'AGENTS.md')?.note).toBe('rolled back — GEMINI.md could not be written');
+    expect(pathExists(join(root, 'AGENTS.md'))).toBe(false);
+    expect(readTextFile(join(root, 'CLAUDE.md'))).toBe('mine\n');
+    expect(result.warnings[0]).toMatch(/^GEMINI\.md could not be written \(.+\)\.$/);
+    expect(result.ok).toBe(false);
+  });
+
+  it('puts back the files --uninstall already removed when a later removal fails', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST, 'AGENTS.md': 'mine\n', '.cursor/': '' });
+
+    install(root);
+
+    const agents = readTextFile(join(root, 'AGENTS.md'));
+    const gemini = readTextFile(join(root, 'GEMINI.md'));
+
+    chmodSync(join(root, '.cursor/rules'), 0o555);
+
+    try {
+      const removal = install(root, { uninstall: true });
+
+      expect(statusOf(removal, '.cursor/rules/vitest-auto-spy.mdc')).toBe('failed');
+      expect(removal.ok).toBe(false);
+    } finally {
+      chmodSync(join(root, '.cursor/rules'), 0o755);
+    }
+
+    expect(readTextFile(join(root, 'AGENTS.md'))).toBe(agents);
+    expect(readTextFile(join(root, 'GEMINI.md'))).toBe(gemini);
+    expect(pathExists(join(root, '.cursor/rules/vitest-auto-spy.mdc'))).toBe(true);
   });
 });
 

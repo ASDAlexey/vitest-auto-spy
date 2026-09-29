@@ -8,7 +8,7 @@
 import { join } from 'node:path';
 
 import { isDirectory, isSymlink, pathExists, readTextFile, removeFile, writeTextFile } from './fs-scan';
-import { type BlockFacts, applyManaged, hasManaged, removeManaged, withoutVersion } from './init-block';
+import { type BlockFacts, applyManaged, hasHandEditedBlock, hasManaged, managedSpans, removeManaged, withoutVersion } from './init-block';
 import { blockFacts } from './init-facts';
 import { LEGACY_FILES, TIER_ONE_MARKDOWN, TIER_TWO, managedBlock, ownedContent, skillStub } from './init-targets';
 import type { Target } from './init-targets';
@@ -16,7 +16,7 @@ import type { Profile } from './profile';
 import { skillFrontmatter } from './self';
 import { nearest } from './suggest';
 
-export type ActionStatus = 'created' | 'removed' | 'skipped' | 'stale' | 'unchanged' | 'updated';
+export type ActionStatus = 'created' | 'edited' | 'failed' | 'removed' | 'skipped' | 'stale' | 'unchanged' | 'updated';
 
 export interface InitAction {
   readonly path: string;
@@ -51,6 +51,8 @@ export interface Plan {
   readonly note: string;
   /** A copy of the shipped skill init never wrote: it cannot be refreshed, and `--check` fails on it. */
   readonly staleCopy?: true;
+  /** A managed block whose body no longer matches its `sha=`: somebody edited it, so init leaves it. */
+  readonly handEdited?: true;
 }
 
 function planFor(target: Target, content: string | undefined, profile: Profile, version: string, facts: BlockFacts): Plan {
@@ -77,7 +79,10 @@ function planFor(target: Target, content: string | undefined, profile: Profile, 
     return { target, existing, desired: undefined, note: 'already imports @AGENTS.md — nothing to add' };
   }
 
-  return { target, existing, desired: applyManaged(existing ?? '', managedBlock(profile, version, facts)), note };
+  const duplicates = managedSpans(existing ?? '').length - 1;
+  const duplicateNote = duplicates > 0 ? `${note} — duplicate managed blocks removed: ${duplicates}` : note;
+
+  return { target, existing, desired: applyManaged(existing ?? '', managedBlock(profile, version, facts)), note: duplicateNote };
 }
 
 /**
@@ -99,6 +104,10 @@ const STAMP_ONLY_NOTE = 'only the version stamp differs, which `--check` does no
 function statusOf(plan: Plan, check: boolean): ActionStatus {
   if (plan.staleCopy === true) {
     return 'stale';
+  }
+
+  if (plan.handEdited === true) {
+    return 'edited';
   }
 
   if (plan.desired === undefined) {
@@ -187,6 +196,17 @@ function buildPlans(profile: Profile, version: string, only: readonly string[] |
   });
 }
 
+const HAND_EDITED_NOTE = 'the managed block was edited by hand — left untouched';
+
+/** Overwriting a block somebody changed would drop their edit without a word, so it is reported instead. */
+function guardHandEdited(plan: Plan): Plan {
+  if (plan.existing === undefined || plan.desired === undefined || plan.existing === plan.desired || !hasHandEditedBlock(plan.existing)) {
+    return plan;
+  }
+
+  return { ...plan, desired: undefined, handEdited: true, note: HAND_EDITED_NOTE };
+}
+
 function uninstallPlan(plan: Plan): Plan {
   const { existing, target } = plan;
 
@@ -201,22 +221,83 @@ function uninstallPlan(plan: Plan): Plan {
   return { ...plan, desired: removeManaged(existing), note: 'managed block removed' };
 }
 
-function applyPlan(cwd: string, plan: Plan, options: InitOptions): InitAction {
+function describeAction(plan: Plan, options: InitOptions): InitAction {
   const status = options.uninstall ? uninstallStatus(plan) : statusOf(plan, options.check);
-  const path = plan.target.path;
   const note = !options.uninstall && isStampOnly(plan) ? `${plan.note} — ${STAMP_ONLY_NOTE}` : plan.note;
 
-  if (options.check || options.dryRun || plan.desired === undefined || status === 'unchanged') {
-    return { path, status, note };
-  }
+  return { path: plan.target.path, status, note };
+}
 
-  if (plan.desired === '') {
+function writes(action: InitAction, plan: Plan, options: InitOptions): boolean {
+  return !options.check && !options.dryRun && plan.desired !== undefined && action.status !== 'unchanged' && action.status !== 'skipped';
+}
+
+/** `undefined` means the file should not exist. */
+function put(cwd: string, path: string, content: string | undefined): void {
+  if (content === undefined) {
     removeFile(join(cwd, path));
   } else {
-    writeTextFile(join(cwd, path), plan.desired);
+    writeTextFile(join(cwd, path), content);
+  }
+}
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+interface Step {
+  readonly plan: Plan;
+  action: InitAction;
+}
+
+interface Applied {
+  readonly actions: InitAction[];
+  readonly failures: string[];
+}
+
+/**
+ * All or nothing: every write goes through a temporary file and a rename, and when one fails the
+ * files already written are put back, so a failed run leaves the repository as it found it.
+ */
+function applyPlans(cwd: string, plans: readonly Plan[], options: InitOptions): Applied {
+  const steps: Step[] = plans.map((plan) => ({ plan, action: describeAction(plan, options) }));
+  const done: Step[] = [];
+  const failures: string[] = [];
+
+  for (const step of steps) {
+    const { plan, action } = step;
+
+    if (failures.length > 0 || !writes(action, plan, options)) {
+      continue;
+    }
+
+    try {
+      put(cwd, action.path, plan.desired === '' ? undefined : plan.desired);
+      done.push(step);
+    } catch (error) {
+      step.action = { ...action, status: 'failed', note: reasonOf(error) };
+      failures.push(`${action.path} could not be written (${reasonOf(error)}).`, ...rollBack(cwd, done, action.path));
+    }
   }
 
-  return { path, status, note };
+  return { actions: steps.map((step) => step.action), failures };
+}
+
+function rollBack(cwd: string, done: readonly Step[], failed: string): string[] {
+  return done.flatMap((step) => {
+    const path = step.plan.target.path;
+
+    try {
+      put(cwd, path, step.plan.existing);
+      step.action = { path, status: 'skipped', note: `rolled back — ${failed} could not be written` };
+
+      return [];
+    } catch (error) {
+      step.action = { path, status: 'failed', note: `written, and could not be rolled back: ${reasonOf(error)}` };
+
+      return [`${path} was written but could not be put back (${reasonOf(error)}).`];
+    }
+  });
 }
 
 function uninstallStatus(plan: Plan): ActionStatus {
@@ -256,6 +337,15 @@ function untouchedWarnings(plans: readonly Plan[]): string[] {
     );
 }
 
+function editedWarnings(plans: readonly Plan[]): string[] {
+  return plans
+    .filter((plan) => plan.handEdited === true)
+    .map(
+      (plan) =>
+        `${plan.target.path}: the block between the vitest-auto-spy markers was edited by hand, so init left it as it is. Move your text outside the markers, then delete the block and re-run \`npx vitest-auto-spy init\`.`,
+    );
+}
+
 /** An `--only` entry that selects no target is a typo, and a silent one would read as "nothing to do". */
 function unmatchedWarnings(only: readonly string[] | undefined): string[] {
   const known = [...TIER_ONE_MARKDOWN, ...TIER_TWO, ...LEGACY_FILES].map((target) => target.path).concat(SKILL_PATH);
@@ -271,14 +361,20 @@ function unmatchedWarnings(only: readonly string[] | undefined): string[] {
     });
 }
 
+const PENDING: ReadonlySet<ActionStatus> = new Set(['created', 'edited', 'stale', 'updated']);
+
 export function runInit(profile: Profile, version: string, options: InitOptions): InitResult {
-  const plans = buildPlans(profile, version, options.only).map((plan) => (options.uninstall ? uninstallPlan(plan) : plan));
-  const actions = plans.map((plan) => applyPlan(profile.cwd, plan, options));
-  const pending = actions.some((action) => action.status === 'created' || action.status === 'updated' || action.status === 'stale');
+  const plans = buildPlans(profile, version, options.only).map((plan) => (options.uninstall ? uninstallPlan(plan) : guardHandEdited(plan)));
+  const { actions, failures } = applyPlans(profile.cwd, plans, options);
+  const pending = options.check && actions.some((action) => PENDING.has(action.status));
 
   return {
     actions,
-    warnings: [...unmatchedWarnings(options.only), ...(options.uninstall ? [] : [...untouchedWarnings(plans), ...budgetWarnings(plans)])],
-    ok: !options.check || !pending,
+    warnings: [
+      ...failures,
+      ...unmatchedWarnings(options.only),
+      ...(options.uninstall ? [] : [...untouchedWarnings(plans), ...editedWarnings(plans), ...budgetWarnings(plans)]),
+    ],
+    ok: failures.length === 0 && !pending,
   };
 }
