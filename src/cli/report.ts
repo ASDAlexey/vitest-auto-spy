@@ -6,7 +6,7 @@
  * throw site to hang them off. They are collected, sorted and printed together.
  */
 import { docsFor } from './docs';
-import { outputWidth, stripColor, wrapText } from './paint';
+import { MONOCHROME, type Painter, outputWidth, padEnd, stripColor, wrapText } from './paint';
 
 /** How loudly a finding is reported, and whether it makes the process exit non-zero. */
 export type Severity = 'error' | 'info' | 'warning';
@@ -26,7 +26,16 @@ export interface Finding {
 }
 
 const SEVERITY_ORDER: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
-const SEVERITY_LABEL: Record<Severity, string> = { error: 'error', warning: 'warn ', info: 'info ' };
+const SEVERITY_LABEL: Record<Severity, string> = { error: 'error', warning: 'warn', info: 'info' };
+const SEVERITY_PAINT: Record<Severity, (paint: Painter, text: string) => string> = {
+  error: (paint, text) => paint.red(text),
+  warning: (paint, text) => paint.yellow(text),
+  info: (_paint, text) => text,
+};
+
+function severityLabel(severity: Severity, paint: Painter): string {
+  return padEnd(SEVERITY_PAINT[severity](paint, SEVERITY_LABEL[severity]), 5);
+}
 
 /** Under the severity label, so every line of a finding but its first starts with whitespace. */
 const BODY = '       ';
@@ -59,11 +68,11 @@ function fixLines(finding: Finding, width: number): string[] {
   return [...wrapText(finding.fix, width, `${BODY}  `, `${BODY}→ `), ...(docs === undefined ? [] : [`${BODY}Docs: ${docs}`])];
 }
 
-function formatOne(finding: Finding, width: number): string {
+function formatOne(finding: Finding, width: number, paint: Painter): string {
   const where = finding.file === undefined ? '' : ` ${finding.file}`;
 
   return [
-    `${SEVERITY_LABEL[finding.severity]}  ${finding.check}${where}`,
+    `${severityLabel(finding.severity, paint)}  ${finding.check}${where}`,
     ...wrapText(finding.message, width, BODY),
     ...(finding.details ?? []).map((line) => `${BODY}${line}`),
     ...fixLines(finding, width),
@@ -74,7 +83,7 @@ function formatOne(finding: Finding, width: number): string {
  * One cause in many places: the same check with the same fix, each about a file. Printed once with
  * the files under it, and the message once too when every place says the same thing.
  */
-function formatGroup({ first, members: group }: FindingGroup, width: number): string {
+function formatGroup({ first, members: group }: FindingGroup, width: number, paint: Painter): string {
   const sameMessage = group.every((finding) => finding.message === first.message);
   const places = group.flatMap((finding) => [
     `${ITEM}${String(finding.file)}`,
@@ -82,7 +91,7 @@ function formatGroup({ first, members: group }: FindingGroup, width: number): st
   ]);
 
   return [
-    `${SEVERITY_LABEL[first.severity]}  ${first.check} — ${placesOf(group)}`,
+    `${severityLabel(first.severity, paint)}  ${first.check} — ${placesOf(group)}`,
     ...(sameMessage ? wrapText(first.message, width, BODY) : []),
     ...places,
     ...fixLines(first, width),
@@ -133,9 +142,14 @@ export function filterBySeverity(findings: readonly Finding[], minSeverity: Seve
   return findings.filter((finding) => SEVERITY_ORDER[finding.severity] <= SEVERITY_ORDER[minSeverity]);
 }
 
-export function formatFindings(findings: readonly Finding[], minSeverity: Severity = 'info', width: number = outputWidth()): string {
+export function formatFindings(
+  findings: readonly Finding[],
+  minSeverity: Severity = 'info',
+  width: number = outputWidth(),
+  paint: Painter = MONOCHROME,
+): string {
   return groupFindings(filterBySeverity(findings, minSeverity))
-    .map((group) => (group.members.length === 1 ? formatOne(group.first, width) : formatGroup(group, width)))
+    .map((group) => (group.members.length === 1 ? formatOne(group.first, width, paint) : formatGroup(group, width, paint)))
     .join('\n\n');
 }
 

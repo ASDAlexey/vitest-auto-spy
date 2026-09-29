@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { TERMINAL } from './paint';
+import { TERMINAL, stripColor } from './paint';
 import type { Finding } from './report';
 import { findingJson, formatFindings, groupFindings, hasFailures, sortFindings, summarize, tallyOf } from './report';
 
@@ -89,6 +89,22 @@ describe('formatFindings', () => {
 
   it('is empty when the threshold hid everything, so the caller can print the tally alone', () => {
     expect(formatFindings([finding({ severity: 'info' })], 'warning')).toBe('');
+  });
+
+  it('paints the label by severity, error red and warning yellow, and keeps the column where it was', () => {
+    const findings = [
+      finding({ severity: 'info', check: 'note' }),
+      finding({ severity: 'warning', check: 'warn', file: 'a.ts' }),
+      finding({ severity: 'warning', check: 'warn', file: 'b.ts' }),
+      finding({ check: 'boom' }),
+    ];
+    const painted = formatFindings(findings, 'info', 80, TERMINAL);
+    const lines = painted.split('\n');
+
+    expect(lines).toContain(`${TERMINAL.red('error')}  boom`);
+    expect(lines).toContain(`${TERMINAL.yellow('warn')}   warn — 2 files`);
+    expect(lines).toContain('info   note');
+    expect(stripColor(painted)).toBe(formatFindings(findings, 'info', 80));
   });
 });
 
