@@ -1,4 +1,10 @@
 {
+  "measuredOn": "2026-09-29",
+  "node": "v24.19.0",
+  "tolerance": {
+    "ratio": 0.02,
+    "minModuleSlack": 1
+  },
   "entries": {
     ".": {
       "modules": 2,
@@ -50,7 +56,7 @@
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 295436
+      "bytes": 303444
     },
     "./jasmine": {
       "modules": 18,
@@ -109,8 +115,6 @@
       "bytes": 15138
     }
   },
-  "measuredOn": "2026-09-29",
-  "node": "v24.19.0",
   "released": {
     "version": "5.52.0",
     "entries": {
@@ -223,9 +227,5 @@
         "bytes": 15138
       }
     }
-  },
-  "tolerance": {
-    "ratio": 0.02,
-    "minModuleSlack": 1
   }
 }
