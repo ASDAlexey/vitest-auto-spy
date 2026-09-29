@@ -38,6 +38,14 @@ describe('colorWanted', () => {
     expect(colorWanted({ FORCE_COLOR: '1', NO_COLOR: '1' }, false)).toBe(false);
     expect(colorWanted({})).toBe(process.stdout.isTTY === true);
   });
+
+  it('says yes in a GitLab or GitHub Actions job, whose log renders escapes though stdout is a pipe, unless told no', () => {
+    expect(colorWanted({ GITLAB_CI: 'true' }, false)).toBe(true);
+    expect(colorWanted({ GITHUB_ACTIONS: 'true' }, false)).toBe(true);
+    expect(colorWanted({ GITLAB_CI: 'true', NO_COLOR: '1' }, false)).toBe(false);
+    expect(colorWanted({ GITLAB_CI: 'true', FORCE_COLOR: '0' }, false)).toBe(false);
+    expect(colorWanted({ GITHUB_ACTIONS: 'true', TERM: 'dumb' }, false)).toBe(false);
+  });
 });
 
 describe('painterFor', () => {

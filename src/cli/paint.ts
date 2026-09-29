@@ -3,7 +3,9 @@
  *
  * One place decides whether color is wanted, because two renderers deciding it differently print
  * one report half in color. `NO_COLOR` (its presence), `FORCE_COLOR=0` and `TERM=dumb` all mean no;
- * any other `FORCE_COLOR` means yes, and without one the answer is whether stdout is a terminal.
+ * any other `FORCE_COLOR` means yes, and so does a CI whose job log renders escapes though stdout is
+ * a pipe there — GitLab (`GITLAB_CI`) and GitHub Actions (`GITHUB_ACTIONS`). Otherwise the answer is
+ * whether stdout is a terminal.
  */
 
 export interface Painter {
@@ -27,16 +29,19 @@ const same = (text: string): string => text;
 
 export const MONOCHROME: Painter = { red: same, yellow: same, cyan: same, bold: same, dim: same };
 
+/** CI systems whose job log renders ANSI color although the job's stdout is not a terminal. */
+const COLOR_LOGS = ['GITLAB_CI', 'GITHUB_ACTIONS'] as const;
+
 /**
- * A pipe or a file gets no escapes unless `FORCE_COLOR` asks for them: a harness that captures this
- * output and repaints it line by line would otherwise nest its own colors around ours.
+ * A pipe or a file gets no escapes unless `FORCE_COLOR` or one of `COLOR_LOGS` asks for them: a
+ * harness that captures this output and repaints it line by line would otherwise nest its own colors around ours.
  */
 export function colorWanted(env: NodeJS.ProcessEnv, isTTY: boolean = process.stdout.isTTY === true): boolean {
   if (env['NO_COLOR'] !== undefined || env['FORCE_COLOR'] === '0' || env['TERM'] === 'dumb') {
     return false;
   }
 
-  return env['FORCE_COLOR'] !== undefined || isTTY;
+  return env['FORCE_COLOR'] !== undefined || COLOR_LOGS.some((name) => env[name] !== undefined) || isTTY;
 }
 
 export function painterFor(colors: boolean | undefined): Painter {
