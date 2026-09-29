@@ -91,7 +91,7 @@ describe('createSpyFromClass on Rstest', () => {
     const service = createSpyFromClass(UserService);
 
     service.getName(1);
-    expect(service.getName).toHaveBeenCalled();
+    expect(service.getName).toHaveBeenCalledWith(1);
 
     rstest.clearAllMocks();
 
