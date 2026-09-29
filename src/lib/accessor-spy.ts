@@ -80,7 +80,9 @@ export function createAccessorsSpies(
     gettersToSpyOn.length === 0 && settersToSpyOn.length === 0
       ? { getters: emptyRecord(), setters: emptyRecord() }
       : { getters: {}, setters: {} };
-  autoSpy['accessorSpies'] = accessorSpies;
+  // Non-enumerable: the bag is library plumbing, and as an own key it showed up in every
+  // `Object.keys`, spread, `toEqual` and snapshot of a double.
+  Object.defineProperty(autoSpy, 'accessorSpies', { value: accessorSpies, writable: true, configurable: true, enumerable: false });
 
   gettersToSpyOn.forEach((getterName) => {
     defineWithEmptyAccessors(autoSpy, getterName, reads && unconfiguredGetter(reads, getterName));
