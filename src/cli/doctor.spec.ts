@@ -293,10 +293,21 @@ describe('checkForeignPragma', () => {
 
     expect(findings).toHaveLength(1);
     expect(findings[0]?.file).toBe('src/a.spec.ts');
+    expect(findings[0]?.severity).toBe('info');
     expect(findings[0]?.message).toBe(
-      `Line 1: \`${pragma('environment')} jsdom\` is a Jest docblock pragma, which this runner never reads.`,
+      `Line 1: \`${pragma('environment')} jsdom\` is the Jest spelling of a Vitest pragma. Vitest reads it as well, so it works, but it reads as a leftover of a migration.`,
     );
     expect(findings[0]?.fix).toBe('Write `@vitest-environment jsdom` instead.');
+  });
+
+  it('reports environment options in the Jest spelling as info, with the Vitest spelling as the fix', () => {
+    const root = createTempRepo({
+      'package.json': '{}',
+      'src/a.spec.ts': `/** ${pragma('environment-options')} {"url":"http://x"} */`,
+    });
+    const findings = checkForeignPragma(buildGraph(readProfile(root)));
+
+    expect(findings.map((finding) => [finding.severity, finding.fix])).toEqual([['info', 'Write `@vitest-environment-options` instead.']]);
   });
 
   it('names every line a pragma is on, and says to delete one that names no environment', () => {
@@ -308,11 +319,11 @@ describe('checkForeignPragma', () => {
 
     expect(findings.map((finding) => [finding.message, finding.fix])).toEqual([
       [
-        `Lines 1, 3: \`${pragma('config')}\` is a Jest docblock pragma, which this runner never reads.`,
+        `Lines 1, 3: \`${pragma('config')}\` is a Jest docblock pragma, which Vitest never reads.`,
         'Delete it: the runner config decides this.',
       ],
       [
-        `Line 4: \`${pragma('environment')}\` is a Jest docblock pragma, which this runner never reads.`,
+        `Line 4: \`${pragma('environment')}\` is a Jest docblock pragma, which Vitest never reads.`,
         'Delete it: the runner config decides this.',
       ],
     ]);
@@ -641,7 +652,7 @@ describe('checkCoverageConfig', () => {
       'The coverage scope here is 55 globs, and Vitest 4 compiles every one of them again for every file it checks, so matching can cost more than the coverage itself.',
     );
     expect(finding?.fix).toBe(
-      'Upgrade to Vitest 5, which compiles them once. To stay on 4, use the custom-provider recipe: https://asdalexey.github.io/vitest-auto-spy/adapters/angular#coverage-matching-costs-more-than-coverage',
+      'Upgrade to Vitest 5, which compiles them once. To stay on 4, use the custom-provider recipe: https://asdalexey.github.io/vitest-auto-spy/guides/angular-unit-test-builder#coverage-matching-costs-more-than-coverage',
     );
   });
 
@@ -681,7 +692,7 @@ describe('checkCoverageConfig', () => {
 
     expect(checks(checkCoverageConfig(readProfile(root)))).toEqual(['coverage-include-recompiles-globs']);
     expect(finding?.fix).toBe(
-      'Upgrade to Vitest 5, which compiles them once. Under `@angular/build:unit-test`, Vitest 5 needs @angular/build 22.2.0 or newer. To stay on 4, use the custom-provider recipe: https://asdalexey.github.io/vitest-auto-spy/adapters/angular#coverage-matching-costs-more-than-coverage',
+      'Upgrade to Vitest 5, which compiles them once. Under `@angular/build:unit-test`, Vitest 5 needs @angular/build 22.2.0 or newer. To stay on 4, use the custom-provider recipe: https://asdalexey.github.io/vitest-auto-spy/guides/angular-unit-test-builder#coverage-matching-costs-more-than-coverage',
     );
   });
 
@@ -750,6 +761,7 @@ describe('checkAgentInstructions', () => {
 
     vi.stubEnv('GIT_CONFIG_GLOBAL', join(home, 'none'));
     vi.stubEnv('XDG_CONFIG_HOME', home);
+    vi.stubEnv('CI', '');
 
     const fixOf = (files: Record<string, string>): string | undefined =>
       checkAgentInstructions(readProfile(createTempRepo({ 'package.json': '{}', ...files })))[0]?.fix;
@@ -763,7 +775,7 @@ describe('checkAgentInstructions', () => {
         'Run `npx vitest-auto-spy init` to point them at `node_modules/vitest-auto-spy/AGENTS.md`.',
       );
       expect(fixOf({ '.gitignore': '*.md\n.claude/\n' })).toBe(
-        'Run `npx vitest-auto-spy init` on your machine. CI never sees these files, because .gitignore keeps them out of git: pass `--ignore no-agent-instructions` there.',
+        'Run `npx vitest-auto-spy init` on your machine. CI never sees these files, because .gitignore keeps them out of git, and under `CI` this note stays quiet.',
       );
     } finally {
       vi.unstubAllEnvs();

@@ -7,26 +7,32 @@
  * spread across files.
  */
 import { checkAgentInstructions } from './checks/agent-instructions';
-import { checkAnalogFastCompile } from './checks/analog-fast-compile';
-import { checkAnalogModuleCache } from './checks/analog-module-cache';
+import { analogFastCompilePass } from './checks/analog-fast-compile';
+import { analogModuleCachePass } from './checks/analog-module-cache';
 import { checkAngularBuild } from './checks/angular-build';
+import { checkAngularCacheInCi } from './checks/angular-cache-ci';
+import { angularTestBedSplitPass } from './checks/angular-testbed-split';
 import { checkBuilderSetup } from './checks/builder-setup';
 import { checkBuilderSpeed } from './checks/builder-speed';
 import { checkCoverageConfig } from './checks/coverage-config';
-import { checkForeignPragma } from './checks/foreign-pragma';
-import { buildGraph, isSpecFile } from './checks/graph';
-import { checkHelperEntry } from './checks/helper-entry';
+import { foreignPragmaPass } from './checks/foreign-pragma';
+import { buildGraph, inOnePass, isSpecFile } from './checks/graph';
+import { helperEntryPass } from './checks/helper-entry';
 import { checkJasmineEra } from './checks/jasmine-era';
-import { checkMockResetConfig } from './checks/mock-reset-config';
-import { checkModuleMockLeak } from './checks/module-mock-leak';
+import { mockRegistryCapturePass } from './checks/mock-registry-capture';
+import { mockResetConfigPass } from './checks/mock-reset-config';
+import { moduleMockLeakPass } from './checks/module-mock-leak';
 import { checkOrphanRunnerConfig } from './checks/orphan-runner-config';
-import { checkAnalogTestBed, checkRunnerDom } from './checks/runner-parity';
+import { analogTestBedPass, checkRunnerDom } from './checks/runner-parity';
 import { checkScanCap } from './checks/scan-cap';
+import { sharedEnvRestorePass } from './checks/shared-env-restore';
 import { checkSpecImports } from './checks/spec-imports';
 import { checkTsconfigGlobs } from './checks/tsconfig-globs';
-import { checkUnawaitedHelper } from './checks/unawaited-helper';
-import { checkVitest5ClearMocks, checkVitest5Removed } from './checks/vitest-5';
+import { unawaitedHelperPass } from './checks/unawaited-helper';
+import { checkVitest5ClearMocks, vitest5RemovedPass } from './checks/vitest-5';
+import { vitest5TrapsPass } from './checks/vitest-5-traps';
 import { checkModuleCachePersisted, checkVitest5Available } from './checks/vitest-5-upgrade';
+import { vitestLessEntryPass } from './checks/vitest-less-entry';
 import type { Profile } from './profile';
 import { type Finding, REPORT_SCHEMA, type Tally, findingJson, sortFindings, tallyOf } from './report';
 import { ownVersion } from './self';
@@ -34,31 +40,38 @@ import { ownVersion } from './self';
 export function runDoctor(profile: Profile): Finding[] {
   const graph = buildGraph(profile);
 
-  return [
-    ...checkScanCap(profile),
-    ...checkTsconfigGlobs(profile),
-    ...checkSpecImports(graph),
-    ...checkForeignPragma(graph),
-    ...checkOrphanRunnerConfig(profile, graph),
-    ...checkAngularBuild(profile),
-    ...checkBuilderSetup(profile),
-    ...checkBuilderSpeed(profile),
-    ...checkRunnerDom(profile, graph),
-    ...checkAnalogTestBed(profile, graph),
-    ...checkCoverageConfig(profile),
-    ...checkAgentInstructions(profile),
-    ...checkJasmineEra(profile),
-    ...checkHelperEntry(profile, graph),
-    ...checkUnawaitedHelper(profile, graph),
-    ...checkModuleMockLeak(profile, graph),
-    ...checkMockResetConfig(profile, graph),
-    ...checkVitest5Removed(profile, graph),
-    ...checkVitest5ClearMocks(profile, graph),
-    ...checkVitest5Available(profile),
-    ...checkModuleCachePersisted(profile, graph),
-    ...checkAnalogModuleCache(profile, graph),
-    ...checkAnalogFastCompile(graph),
-  ];
+  // One read of each text for every check that walks them; see `TextPass`.
+  return inOnePass(graph, [
+    checkScanCap(profile),
+    checkTsconfigGlobs(profile),
+    checkSpecImports(graph),
+    foreignPragmaPass(),
+    checkOrphanRunnerConfig(profile, graph),
+    checkAngularBuild(profile),
+    checkBuilderSetup(profile),
+    checkBuilderSpeed(profile),
+    checkRunnerDom(profile, graph),
+    analogTestBedPass(profile),
+    checkCoverageConfig(profile),
+    checkAgentInstructions(profile),
+    checkJasmineEra(profile),
+    helperEntryPass(profile),
+    unawaitedHelperPass(profile),
+    moduleMockLeakPass(profile),
+    mockResetConfigPass(profile),
+    vitest5RemovedPass(profile, graph),
+    checkVitest5ClearMocks(profile, graph),
+    checkVitest5Available(profile),
+    checkModuleCachePersisted(profile, graph),
+    analogModuleCachePass(profile, graph),
+    analogFastCompilePass(graph),
+    vitest5TrapsPass(profile, graph),
+    checkAngularCacheInCi(profile),
+    sharedEnvRestorePass(profile, graph),
+    mockRegistryCapturePass(profile),
+    angularTestBedSplitPass(profile, graph),
+    vitestLessEntryPass(profile),
+  ]);
 }
 
 /** The `--format json` document, which `--format markdown` renders too. */
