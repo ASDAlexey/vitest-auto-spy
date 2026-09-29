@@ -28,7 +28,9 @@ describe('no-hand-assigned-global', () => {
 
     expect(count(code)).toBe(1);
     expect(text).toMatch(/^`fetch` is replaced by assignment/);
-    expect(text).toContain("mockValueProp(globalThis, 'fetch', vi.fn(…))");
+    expect(text).toContain("mockValueProp(globalThis, 'fetch', vi.fn(async () => stubResponse({ body })))");
+    expect(text).toContain('`stubResponse` from `vitest-auto-spy/setup`');
+    expect(message('globalThis.XMLHttpRequest = vi.fn();')).toContain("stubConstructor(globalThis, 'XMLHttpRequest', …)");
     expect(text).toContain('/utilities/eslint-rules#no-hand-assigned-global');
     expect(message('self.WebSocket = function () {};')).toContain("stubConstructor(globalThis, 'WebSocket', …)");
     expect(message('window.ResizeObserverEntry = function () {};')).toContain("stubConstructor(globalThis, 'ResizeObserverEntry', …)");

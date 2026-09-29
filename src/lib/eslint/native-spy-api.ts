@@ -13,6 +13,9 @@
  * A chain carrying an optional link is left alone: the replacement is built from the receiver's
  * source text plus a member name, so `spy?.and.returnValue(1)` would come back as `spy.mockReturnValue(1)`
  * — the same call with the guard silently removed.
+ *
+ * A comment inside the replaced span that the replacement does not carry over marks the rewrite
+ * `dropsComments`, and the rule then offers it as a suggestion instead of applying it.
  */
 import {
   type EsCallExpression,
@@ -24,12 +27,19 @@ import {
   memberName,
 } from './rule-types';
 
+export interface RewriteEdit {
+  range: [number, number];
+  text: string;
+}
+
 /** One edit, and the two spellings the message quotes. */
 export interface NativeRewrite {
-  /** The node the edit replaces. */
+  /** The node the report points at. */
   node: EsNode;
-  /** What it becomes. */
-  text: string;
+  /** The spans the edit replaces, and what each becomes. */
+  edits: RewriteEdit[];
+  /** Whether a replaced span holds a comment the replacement does not carry over. */
+  dropsComments: boolean;
   /** The compatibility layer's spelling. */
   from: string;
   /** The spy's own. */
@@ -70,6 +80,10 @@ function andTarget(member: string): string | undefined {
 interface NamespaceCall {
   /** What the namespace hangs off. */
   base: EsNode;
+  /** The namespace's own name, `and` or `calls`. */
+  namespace: EsNode;
+  /** The member's name as written after the namespace. */
+  name: EsNode;
   /** The name read off the namespace. */
   member: string;
   /** The call itself. */
@@ -91,7 +105,38 @@ function namespaceCall(node: EsMemberExpression, namespace: string): NamespaceCa
     return undefined;
   }
 
-  return { base: node.object, member, call };
+  return { base: node.object, namespace: node.property, name: method.property, member, call };
+}
+
+/** Whether the source of `range`, minus the nodes the replacement copies verbatim, holds a comment. */
+function losesComment(context: RuleContext, range: [number, number], kept: readonly EsNode[]): boolean {
+  const source = context.sourceCode.getText();
+  let rest = '';
+  let from = range[0];
+
+  for (const node of kept) {
+    rest += source.slice(from, node.range[0]);
+    from = node.range[1];
+  }
+
+  return /\/[*/]/.test(rest + source.slice(from, range[1]));
+}
+
+/** An edit that replaces `node` whole with `text` built from the source of `kept`, in source order. */
+function replaceNode(
+  context: RuleContext,
+  node: EsNode,
+  text: string,
+  kept: readonly EsNode[],
+): Pick<NativeRewrite, 'dropsComments' | 'edits' | 'node'> {
+  return { node, edits: [{ range: node.range, text }], dropsComments: losesComment(context, node.range, kept) };
+}
+
+/** `and.returnValue` → `mockReturnValue`: the namespace through the member name, and nothing around it. */
+function memberEdit(context: RuleContext, found: NamespaceCall, target: string): { edit: RewriteEdit; dropsComments: boolean } {
+  const range: [number, number] = [found.namespace.range[0], found.name.range[1]];
+
+  return { edit: { range, text: target }, dropsComments: losesComment(context, range, []) };
 }
 
 /** An optional link inside the chain being replaced — the rewrite would drop it without a word. */
@@ -101,7 +146,8 @@ function reachesThroughOptional(context: RuleContext, node: EsNode): boolean {
 
 /** A `withArgs(…)` call, split into the spy it was called on and the call itself. */
 interface WithArgsChain {
-  receiver: EsNode;
+  /** The `withArgs` name itself. */
+  name: EsNode;
   call: EsCallExpression;
 }
 
@@ -111,27 +157,30 @@ function withArgsCall(node: EsNode): WithArgsChain | undefined {
     return undefined;
   }
 
-  return { receiver: node.callee.object, call: node };
+  return { name: node.callee.property, call: node };
 }
 
-/** The arguments of a call, as they are written. */
-function argumentText(context: RuleContext, call: EsCallExpression): string {
-  return call.arguments.map((argument) => context.sourceCode.getText(argument)).join(', ');
-}
-
-/** `spy.withArgs(a).and.returnValue(v)` → `spy.calledWith(a).mockReturnValue(v)`. */
+/** `spy.withArgs(a).and.returnValue(v)` → `spy.calledWith(a).mockReturnValue(v)`, two renames and nothing else. */
 function chainRewrite(context: RuleContext, found: NamespaceCall, withArgs: WithArgsChain, target: string): NativeRewrite {
-  const receiver = context.sourceCode.getText(withArgs.receiver);
-  const text = `${receiver}.calledWith(${argumentText(context, withArgs.call)}).${target}(${argumentText(context, found.call)})`;
+  const { edit, dropsComments } = memberEdit(context, found, target);
 
-  return { node: found.call, text, from: `.withArgs(…).and.${found.member}(…)`, to: `.calledWith(…).${target}(…)` };
+  return {
+    node: found.call,
+    edits: [{ range: withArgs.name.range, text: 'calledWith' }, edit],
+    dropsComments,
+    from: `.withArgs(…).and.${found.member}(…)`,
+    to: `.calledWith(…).${target}(…)`,
+  };
 }
 
-/** `spy.and.returnValue(v)` → `spy.mockReturnValue(v)`, the receiver and the argument untouched. */
+/** `spy.and.returnValue(v)` → `spy.mockReturnValue(v)`: only `and.returnValue` is rewritten, so the receiver and the arguments stay as written. */
 function renameRewrite(context: RuleContext, found: NamespaceCall, target: string): NativeRewrite {
+  const { edit, dropsComments } = memberEdit(context, found, target);
+
   return {
     node: found.call.callee,
-    text: `${context.sourceCode.getText(found.base)}.${target}`,
+    edits: [edit],
+    dropsComments,
     from: `.and.${found.member}(…)`,
     to: `.${target}(…)`,
   };
@@ -168,11 +217,15 @@ export function callsRewrite(context: RuleContext, node: EsMemberExpression): Na
   const [index] = found.call.arguments;
 
   if (found.member === 'count') {
-    return { node: found.call, text: `${base}.mock.calls.length`, from: '.calls.count()', to: '.mock.calls.length' };
+    return {
+      ...replaceNode(context, found.call, `${base}.mock.calls.length`, [found.base]),
+      from: '.calls.count()',
+      to: '.mock.calls.length',
+    };
   }
 
   if (found.member === 'reset') {
-    return { node: found.call, text: `${base}.mockClear()`, from: '.calls.reset()', to: '.mockClear()' };
+    return { ...replaceNode(context, found.call, `${base}.mockClear()`, [found.base]), from: '.calls.reset()', to: '.mockClear()' };
   }
 
   // Without an index there is nothing to write between the brackets, and `mock.calls[undefined]` is
@@ -183,7 +236,7 @@ export function callsRewrite(context: RuleContext, node: EsMemberExpression): Na
 
   const text = `${base}.mock.calls[${context.sourceCode.getText(index)}]`;
 
-  return { node: found.call, text, from: '.calls.argsFor(i)', to: '.mock.calls[i]' };
+  return { ...replaceNode(context, found.call, text, [found.base, index]), from: '.calls.argsFor(i)', to: '.mock.calls[i]' };
 }
 
 /** The `<base>.calls.saveArgumentsByValue()` call — the one namespace call that has no replacement. */

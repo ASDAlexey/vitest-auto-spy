@@ -1,7 +1,8 @@
 import { MessageChannel as NodeMessageChannel } from 'node:worker_threads';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { flushEventLoop, flushEventLoopUntil, settleDynamicImport } from './event-loop';
+import { withFakeTimers } from './fake-timers';
 import { mockValueProp, restoreMockedProps } from './prop-mock';
 
 // happy-dom's realm ships no `MessageChannel` and jsdom's does; the helper below and the code under
@@ -39,40 +40,33 @@ function resolvesOnARealTurn(): Promise<'done'> {
 }
 
 describe('flushEventLoop', () => {
-  afterEach(() => {
-    if (vi.isFakeTimers()) {
-      vi.useRealTimers();
-    }
-  });
+  it('lets a real event-loop turn happen while the timers are faked', () =>
+    withFakeTimers(async () => {
+      let settled = false;
 
-  it('lets a real event-loop turn happen while the timers are faked', async () => {
-    vi.useFakeTimers();
+      void resolvesOnARealTurn().then(() => {
+        settled = true;
+      });
 
-    let settled = false;
+      // The comparison that motivates the helper: microtasks alone never get there.
+      await Promise.resolve();
+      await Promise.resolve();
 
-    void resolvesOnARealTurn().then(() => {
-      settled = true;
-    });
+      expect(settled).toBe(false);
 
-    // The comparison that motivates the helper: microtasks alone never get there.
-    await Promise.resolve();
-    await Promise.resolve();
+      await flushEventLoop();
 
-    expect(settled).toBe(false);
+      expect(settled).toBe(true);
+    }));
 
-    await flushEventLoop();
+  it('does not move the clock', () =>
+    withFakeTimers(async () => {
+      vi.setSystemTime('2025-04-30T00:00:00.000Z');
 
-    expect(settled).toBe(true);
-  });
+      await flushEventLoop(3);
 
-  it('does not move the clock', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime('2025-04-30T00:00:00.000Z');
-
-    await flushEventLoop(3);
-
-    expect(new Date().toISOString()).toBe('2025-04-30T00:00:00.000Z');
-  });
+      expect(new Date().toISOString()).toBe('2025-04-30T00:00:00.000Z');
+    }));
 
   it('takes as many turns as asked for', async () => {
     let hops = 0;
@@ -131,6 +125,7 @@ describe('settleDynamicImport', () => {
     let loadedByProductionCode = false;
 
     // The shape the helper exists for: the spec has no handle on this promise.
+    // eslint-disable-next-line vitest-auto-spy/prefer-settle-dynamic-import -- this bare import stands in for the production code the helper waits on
     void import('./create-mock').then(() => {
       loadedByProductionCode = true;
     });
@@ -182,29 +177,19 @@ describe('flushEventLoopUntil', () => {
     );
   });
 
-  it('counts the callbacks waiting on a fake clock and says to advance it', async () => {
-    vi.useFakeTimers();
-    setTimeout(() => undefined, 100);
+  it('counts the callbacks waiting on a fake clock and says to advance it', () =>
+    withFakeTimers(async () => {
+      setTimeout(() => undefined, 100);
 
-    try {
       await expect(flushEventLoopUntil(() => false, { turns: 1 })).rejects.toThrow(
         '1 callback waits on the fake clock, and this helper never advances it — advance it instead: `await advanceTimers(ms)`.',
       );
       setTimeout(() => undefined, 100);
       await expect(flushEventLoopUntil(() => false, { turns: 1 })).rejects.toThrow('2 callbacks wait on the fake clock');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+    }));
 });
 
 describe('flushEventLoopUntil with a time budget', () => {
-  afterEach(() => {
-    if (vi.isFakeTimers()) {
-      vi.useRealTimers();
-    }
-  });
-
   it('waits on the real clock for work that takes milliseconds, not turns', async () => {
     let ready = false;
 
@@ -217,17 +202,17 @@ describe('flushEventLoopUntil with a time budget', () => {
     expect(ready).toBe(true);
   });
 
-  it('is not frozen by fake timers', async () => {
+  it('is not frozen by fake timers', () => {
     const realNow = performance.now.bind(performance);
 
-    vi.useFakeTimers();
+    return withFakeTimers(async () => {
+      const started = realNow();
 
-    const started = realNow();
-
-    await expect(flushEventLoopUntil(() => false, { timeoutMs: 25, label: 'the socket' })).rejects.toThrow(
-      /the socket was still not ready after 25 ms of real time\. No timer is pending: either the work never started[\s\S]*raise `timeoutMs`/,
-    );
-    expect(realNow() - started).toBeGreaterThanOrEqual(20);
+      await expect(flushEventLoopUntil(() => false, { timeoutMs: 25, label: 'the socket' })).rejects.toThrow(
+        /the socket was still not ready after 25 ms of real time\. No timer is pending: either the work never started[\s\S]*raise `timeoutMs`/,
+      );
+      expect(realNow() - started).toBeGreaterThanOrEqual(20);
+    });
   });
 
   it('checks once and fails at a budget of zero, naming the condition when no label is given', async () => {

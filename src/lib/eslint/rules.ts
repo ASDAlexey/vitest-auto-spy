@@ -41,9 +41,11 @@
  * for, and `--fix` over a suite would look as though it had left its own reports behind.
  */
 import { noVacuousAbsenceAssertion } from './absence-assertion';
+import { noRelativeMockUnderBuilder } from './builder-relative-mock';
 import { noUnassertedArgument } from './called-arguments';
 import { noCompileComponents } from './compile-components';
 import { noConsoleInSpec, noImportTimeConsoleSpies, noPassthroughConsoleSpy } from './console-rules';
+import { noUnassertedConsoleSpy } from './console-spy-assertion';
 import { noConstantExpect } from './constant-expect';
 import { preferCreateSpyFromClass } from './create-spy-from-class';
 import { noDeadSchemas } from './dead-schemas';
@@ -55,6 +57,7 @@ import { preferAsSpy } from './injected-spy';
 import { jasmineRules } from './jasmine-rules';
 import { noInstanceLifecycleSpy } from './lifecycle-spy';
 import { noMistypedUseValue } from './mistyped-use-value';
+import { noOuterBindingInMockFactory } from './mock-factory-binding';
 import { noRedundantMockReset } from './mock-reset';
 import { noBareCalledWith } from './no-bare-called-with';
 import { noDoneCallback } from './no-done-callback';
@@ -74,6 +77,7 @@ import { preferToHaveSignalValue } from './prefer-to-have-signal-value';
 import { noPrivateMemberAccess } from './private-access';
 import { preferProvideAutoSpy } from './provide-auto-spy';
 import { noRealComponentProvider } from './real-component-provider';
+import { noRealWaitInTest } from './real-wait';
 import { noReflectMemberAccess } from './reflect-access';
 import { preferProvideActivatedRoute } from './route-double';
 import type { RuleModule } from './rule-types';
@@ -84,6 +88,7 @@ import { preferSpyOnOwnMethod } from './spy-on-own-method';
 import { noStubClassDouble } from './stub-class';
 import { preferStubResponse } from './stub-response';
 import { noSyncTestbedAwait } from './testbed-await';
+import { noDisabledTestbedTeardown } from './testbed-teardown';
 import { noTsExpectErrorOnDouble } from './ts-expect-error-on-double';
 import { noUnknownUseValueKey } from './unknown-use-value-key';
 
@@ -143,5 +148,10 @@ export const rules: Record<string, RuleModule> = {
   'no-self-called-spy': noSelfCalledSpy,
   'prefer-set-inputs': preferSetInputs,
   'prefer-spy-on-own-method': preferSpyOnOwnMethod,
+  'no-unasserted-console-spy': noUnassertedConsoleSpy,
+  'no-outer-binding-in-mock-factory': noOuterBindingInMockFactory,
+  'no-relative-mock-under-builder': noRelativeMockUnderBuilder,
+  'no-real-wait-in-test': noRealWaitInTest,
+  'no-disabled-testbed-teardown': noDisabledTestbedTeardown,
   ...jasmineRules,
 };

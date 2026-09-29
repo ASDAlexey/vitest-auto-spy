@@ -44,6 +44,7 @@ import {
   type RuleContext,
   findProperty,
   isCallExpression,
+  isCast,
   isIdentifier,
   isMemberExpression,
   isObjectExpression,
@@ -127,7 +128,10 @@ export function readCall(context: RuleContext, node: EsCallExpression, tally: Sp
   }
 
   if (name === INJECT_SPY) {
-    tally.injections.push({ node, token: context.sourceCode.getText(first) });
+    // The Nest form, `injectSpy(moduleRef, Token)`, takes the module ref first.
+    const token = node.arguments[1] ?? first;
+
+    tally.injections.push({ node, token: context.sourceCode.getText(isCast(token) ? token.expression : token) });
   }
 }
 
