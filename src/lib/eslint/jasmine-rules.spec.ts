@@ -102,6 +102,9 @@ describe('jasmine-namespace-without-entry', () => {
     // from a setup file, which is the arrangement the docs prescribe rather than a mistake.
     ['a Bun entry, whose layer can only come from a setup file', "import { createSpyFromClass } from 'vitest-auto-spy/bun';"],
     ['a node:test entry, for the same reason', "import { createSpyFromClass } from 'vitest-auto-spy/node';"],
+    ['a local re-export of the entry', "import { createSpyFromClass } from './jasmine';"],
+    ['a local re-export one folder up, with its extension', "import { createSpyFromClass } from '../testing/jasmine.ts';"],
+    ['a local re-export folder', "import { createSpyFromClass } from '../jasmine/index.js';"],
   ])('stays quiet in a file that imports %s', (_label, statement) => {
     expect(lint(`${statement}\n${uninstalled}`, RULE)).toEqual([]);
   });
@@ -128,6 +131,13 @@ describe('jasmine-namespace-without-entry', () => {
     // An import that installs nothing leaves the report where it was, whatever else the file loads.
     expect(lintWith(`import './other';\n${uninstalled}`, RULE, { setupModules: ['./test-setup'] })).toHaveLength(1);
   });
+
+  it.each([["'./jasmine-helpers'"], ["'jasmine'"], ["'./jasmine/matchers'"]])(
+    'does not take %s for a local copy of the entry',
+    (source) => {
+      expect(lint(`import { helper } from ${source};\n${uninstalled}`, RULE)).toHaveLength(1);
+    },
+  );
 
   it('follows a double assigned in a hook, not only one initialised where it is declared', () => {
     const inHook = `
@@ -183,6 +193,41 @@ describe('prefer-native-spy-api', () => {
   ])('rewrites %s', (_label, before, after) => {
     expect(lint(spy + before, RULE)).toHaveLength(1);
     expect(autofix(spy + before, RULE)).toBe(spy + after);
+  });
+
+  it.each([
+    [
+      'a comment before the namespace',
+      'api.load\n  // the first page\n  .and.returnValue(1);',
+      'api.load\n  // the first page\n  .mockReturnValue(1);',
+    ],
+    ['a comment inside the arguments', 'api.load.and.returnValue(/* page */ 1);', 'api.load.mockReturnValue(/* page */ 1);'],
+    [
+      'a comment inside a rebuilt call',
+      'api.load.withArgs(/* id */ 1).and.returnValue(2);',
+      'api.load.calledWith(/* id */ 1).mockReturnValue(2);',
+    ],
+    [
+      'a comment between withArgs and the namespace',
+      'api.load.withArgs(1) // first call\n  .and.returnValue(2);',
+      'api.load.calledWith(1) // first call\n  .mockReturnValue(2);',
+    ],
+    ['a url string in the arguments', "api.load.and.returnValue('http://x');", "api.load.mockReturnValue('http://x');"],
+  ])('keeps %s when it applies the edit', (_label, before, after) => {
+    expect(autofix(spy + before, RULE)).toBe(spy + after);
+  });
+
+  it.each([
+    ['between the namespace and the member', 'api.load.and /* legacy */ .returnValue(1);', 'api.load.mockReturnValue(1);'],
+    ['inside a chain', 'api.load.withArgs(1).and // first call\n  .returnValue(2);', 'api.load.calledWith(1).mockReturnValue(2);'],
+    ['before a call count', 'expect(api.load /* all */ .calls.count()).toBe(1);', 'expect(api.load.mock.calls.length).toBe(1);'],
+    ['before a reset', 'api.load.calls /* between */ .reset();', 'api.load.mockClear();'],
+    ['inside argsFor', 'api.load.calls.argsFor(/* first */ 0 /* only */);', 'api.load.mock.calls[0];'],
+  ])('only suggests the edit when it would drop a comment %s', (_label, before, after) => {
+    expect(lint(spy + before, RULE)).toHaveLength(1);
+    expect(autofix(spy + before, RULE)).toBe(spy + before);
+    expect(suggestionsFor(spy + before, RULE)[0]).toContain('(drops the comment inside the call)');
+    expect(applySuggestion(spy + before, RULE)).toBe(spy + after);
   });
 
   it('quotes both spellings in the message', () => {

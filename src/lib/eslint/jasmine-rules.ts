@@ -132,13 +132,12 @@ const preferNativeSpyApi = defineRule({
         return;
       }
 
-      const fix = (fixer: EsFixer): EsFix => fixer.replaceText(rewrite.node, rewrite.text);
+      const fix = (fixer: EsFixer): EsFix[] => rewrite.edits.map(({ range, text }) => fixer.replaceTextRange(range, text));
       const descriptor = { node: rewrite.node, messageId: 'preferNativeSpyApi', data: { from: rewrite.from, to: rewrite.to } };
+      const desc = `Call the spy’s own API: ${rewrite.to}${rewrite.dropsComments ? ' (drops the comment inside the call)' : ''}`;
 
       context.report(
-        fromLibrarySpy(context, spy)
-          ? { ...descriptor, fix }
-          : { ...descriptor, suggest: [{ desc: `Call the spy’s own API: ${rewrite.to}`, fix }] },
+        fromLibrarySpy(context, spy) && !rewrite.dropsComments ? { ...descriptor, fix } : { ...descriptor, suggest: [{ desc, fix }] },
       );
     };
 

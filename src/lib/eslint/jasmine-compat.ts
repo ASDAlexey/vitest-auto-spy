@@ -58,6 +58,9 @@ const JASMINE_ENTRIES = entries('jasmine');
  */
 const FOREIGN_RUNTIME_ENTRIES = entries('bun', 'bun-angular', 'node', 'rstest');
 
+/** A relative `./jasmine` (any extension, or its `index`): a local re-export of the entry, or the entry's own source. */
+const LOCAL_JASMINE_FILE = /^\.{1,2}\/(?:.*\/)?jasmine(?:\/index)?(?:\.[cm]?[jt]s)?$/;
+
 /** The factories whose result carries this library's spy helpers, and therefore the namespaces. */
 const SPY_FACTORIES = new Set([
   'asSpy',
@@ -90,7 +93,7 @@ export function installsJasmineCompat(node: EsImportDeclaration, declared: reado
 
   const source = String(node.source.value);
 
-  return JASMINE_ENTRIES.has(source) || FOREIGN_RUNTIME_ENTRIES.has(source) || declared.includes(source);
+  return JASMINE_ENTRIES.has(source) || FOREIGN_RUNTIME_ENTRIES.has(source) || declared.includes(source) || LOCAL_JASMINE_FILE.test(source);
 }
 
 /** Whether a node is a call to one of this library's spy factories. */
