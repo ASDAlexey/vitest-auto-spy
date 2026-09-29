@@ -293,3 +293,14 @@ const PROTOCOL_KEYS: ReadonlySet<string> = new Set(['schedule', 'lift', '@@obser
 export function isProtocolKey(key: string | symbol): boolean {
   return typeof key === 'string' && PROTOCOL_KEYS.has(key);
 }
+
+const OBJECT_METHOD_KEYS: ReadonlySet<string> = new Set(['toString', 'valueOf']);
+
+/**
+ * Keys a string conversion or a logger reads on any object, answered with `Object.prototype`'s own
+ * member rather than a fresh spy: a spy there landed in `ownKeys`, so printing the double changed
+ * its snapshot, and `${double}` read `'undefined'`. A seed or an assignment still wins.
+ */
+export function isObjectMethodKey(key: string | symbol): boolean {
+  return typeof key === 'string' && OBJECT_METHOD_KEYS.has(key);
+}
