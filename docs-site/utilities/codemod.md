@@ -1,36 +1,58 @@
 ---
 title: The codemod — npx vitest-auto-spy codemod
-description: Thirteen transforms that migrate a suite off jest-auto-spies and Jest, or off jasmine-auto-spies and jasmine — splitting the legacy import across the entry points the installed package actually exports, transposing jest.Mock<R, [A]> into the call signature Vitest takes, giving spyOn back the stub jasmine installed for free, and reporting every span it refused to rewrite. Dry run by default; --verify checks the result by matching, not by diffing.
+description: Migrate a test suite off jest-auto-spies and Jest, or off jasmine-auto-spies and jasmine. The codemod rewrites what it can decide safely, leaves the rest as it was, and lists every place left for you. It previews by default, writes with --write, and --verify fails CI when leftovers come back.
 ---
 
 # The codemod
 
+`codemod` migrates a test suite off `jest-auto-spies` and Jest, or off `jasmine-auto-spies` and
+jasmine, to Vitest and this library. It rewrites what it can decide safely, leaves everything else
+exactly as it was, and lists each place you still need to rewrite by hand.
+
 ```bash
-npx vitest-auto-spy codemod            # dry run: prints a diff, writes nothing
+npx vitest-auto-spy codemod            # preview: print the diff, write nothing
 npx vitest-auto-spy codemod --write    # apply it
-npx vitest-auto-spy codemod --verify   # match the result against what should be gone
+npx vitest-auto-spy codemod --verify   # check that nothing is left to migrate
 ```
 
-The [migration](/migrating) is a find-and-replace right up to the point where it is not, and the
-places where it is not do not fail — they compile. `jest.Mock<void, [Order]>` renamed in place
-becomes a mock that takes a `void` and returns an `Order`. `jest.requireMock` renamed in place
-becomes `TypeError: vi.requireMock is not a function`, which reads as "the runner broke". A legacy
-import moved to `vitest-auto-spy` wholesale puts `provideAutoSpy` behind an entry that does not
-export it.
+Why not a find-and-replace? Because several plain renames compile and do the opposite of what you
+meant:
 
-And on the jasmine side the same sentence has a worse example: `spyOn(o, 'm')` renamed to
-`vi.spyOn(o, 'm')` inverts the default — jasmine stubs the method, Vitest calls through — so the
-real implementation starts running inside every spec that installed the spy to stop it, silently.
+- `jest.Mock<void, [Order]>` → `Mock<void, [Order]>` compiles but means the reverse: Jest puts the
+  return type first, Vitest the arguments.
+- `jest.requireMock` renamed to `vi.requireMock` fails with `TypeError: vi.requireMock is not a
+function`.
+- jasmine's `spyOn(o, 'm')` renamed to `vi.spyOn(o, 'm')` starts calling the real method: jasmine stubs
+  it, Vitest calls through.
+- Moving every `jest-auto-spies` import to the root `vitest-auto-spy` breaks `provideAutoSpy`: the
+  root entry point does not export it.
 
-So this is a codemod rather than a `sed` script, and most of what it does is **decline**: thirteen
-transforms, each of which either rewrites a span it can decide or leaves it exactly as it was and
-names it in the report.
+The step-by-step migration guide is [Migrating from jest-auto-spies](/migrating); for jasmine, see
+[Migrating from jasmine-auto-spies](/migrating-jasmine).
 
-## Dry run by default
+## Migrate a suite
 
-The first thing a repository sees from this tool is a proposal it can reject. `--write` is the
-opt-in, and it is the same posture [`doctor`](/utilities/cli) takes for the same reason — trust
-before edit rights.
+1. **Preview.** Run `npx vitest-auto-spy codemod` and read the diff. Nothing is written.
+2. **Apply.** Run it again with `--write`.
+3. **Fix what it left.** Each `error` and `warn` in the report names a `path:line` and says what to do.
+4. **Verify.** `npx vitest-auto-spy codemod --verify` exits 0 with `Nothing left to migrate.` once
+   everything is done. Keep it in CI.
+5. **Check what the migration left behind.** [`npx vitest-auto-spy doctor`](/utilities/cli) reports a
+   `tsconfig` include pattern the edit broke, a `jest.config.ts` for a runner that is gone, and setup
+   files only that config used.
+
+**One directory at a time.** Pass the directory to each command:
+
+```bash
+npx vitest-auto-spy codemod src/app            # preview
+npx vitest-auto-spy codemod src/app --write    # apply
+npx vitest-auto-spy codemod src/app --verify   # check
+```
+
+With a path, the codemod visits every source file under it, not only specs, so a `jest.` in
+application code there is rewritten too.
+
+### Read the report
 
 ```
 $ npx vitest-auto-spy codemod
@@ -89,40 +111,65 @@ warn   no-vi-twin src/app/service.spec.ts:12
 1 error, 1 warning, 0 notes
 ```
 
-That run exits **1**, and the reason is the whole design: one line — `jest.requireActual` — was left
-alone, so a person still has work to do. Nothing about the six edits failed. A residue the
-transform declined quotes what it said on that line; one it said nothing about is a span it could not
-reach — inside a template literal, or after a bracket that did not balance.
+For each changed file the report shows:
 
-| Exit | When                                                                                                         |
-| ---- | ------------------------------------------------------------------------------------------------------------ |
-| `0`  | Every span was decided, and nothing matched a residue pattern afterwards                                     |
-| `1`  | Something was left alone, or a residue survived the run — including under `--verify`                         |
-| `2`  | Nothing ran: an unknown transform id on `--only` / `--skip`, an unknown flag, or a path that matches no file |
+1. **The edits per transform** — how many times each transform fired.
+2. **The resulting import statements, in full.** Check these first: they show which entry point each
+   name now comes from.
+3. **The diff.**
 
-With no path it visits every `*.spec.*` / `*.test.*` in the repository, JavaScript ones included —
-a Jest suite that was never TypeScript is the suite with the most `jest.` in it. With a path it
-visits every source file under it, declaration files excluded. The narrow default is deliberate — a
-`jest.` in a `main.ts` is not a test to migrate, and a codemod that offers to edit application code
-on its first run does not get a second one. A file whose text matches none of the selected
-transforms' patterns is never read into the report at all, so the output is the files that have
-something to say.
+Then come the findings. One line can get two: the `error` says the work is not done, the `warn` says
+why the codemod did not do it. Fix the line itself. A **residue** is text a migration should have removed: `jest.`,
+`from 'jest-auto-spies'`, `as Spy<`. Here one line, `jest.requireActual`, was left alone, so the run exits **1**:
+you still have work to do. Nothing about the six edits failed.
 
-**A path that names no file is an error, exit 2.** Paths are resolved against `--cwd` before they
-are matched, so an absolute path, a `./` prefix, a trailing slash and a Windows separator all name
-the files the scan listed, and `.` is the repository root. A path that matches nothing is printed on
-stderr and nothing is read at all: a misspelled path in a CI line is not a clean result, and under
-`--verify` a run that let it through would answer `Nothing left to migrate.` and exit 0.
+A residue error that quotes a transform ("`jest-namespace` declined it") was left on purpose; the
+reason follows. A residue with no such note sits where no transform could reach: inside a template
+literal, or after brackets that do not balance.
+
+| Exit | When                                                                                                                              |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | Everything was rewritten, and no residue is left                                                                                  |
+| `1`  | Something was left for you to rewrite, or a residue is still there — including under `--verify`                                   |
+| `2`  | Nothing ran: an unknown transform id on `--only` / `--skip`, an unknown flag, `--format markdown`, or a path that matches no file |
+
+### Which files it visits
+
+- **With no path**, every `*.spec.*` and `*.test.*` file in the repository, JavaScript included. A
+  `jest.` in `main.ts` is application code, not a test, so a run without a path leaves it alone.
+- **With a path**, every source file under it, except declaration files.
+- **A file that matches none of the selected transforms** is not read into the report, so the output
+  lists only files with something to say.
+- **A path that matches no file** is an error, exit 2, and nothing is read. A typo in a CI line must
+  not look like a clean result. Paths are resolved against `--cwd`, so an absolute path, a `./`
+  prefix, a trailing slash and a Windows separator all work, and `.` is the repository root.
+
+## Pick the dialect with `--from`
+
+```bash
+npx vitest-auto-spy codemod --from jasmine   # or jasmine-auto-spies
+npx vitest-auto-spy codemod --from jest-auto-spies
+npx vitest-auto-spy codemod                  # --from auto, the default
+```
+
+`auto` reads each file and decides. A file with a `jasmine.` member, a `.and.`, an import of
+`jasmine-auto-spies` or an import of `vitest-auto-spy/jasmine` gets the jasmine transforms; other files
+do not. The four shared transforms always run.
+
+**If your jasmine suite only uses `spyOn`, pass `--from jasmine`.** A bare `spyOn(` is not a jasmine
+marker: both dialects spell it the same way and give it opposite defaults (jasmine stubs, Vitest calls
+through). Guessing would bring back the exact behaviour change `jasmine-spy-on` exists to prevent.
+
+An unknown value is an error that lists the accepted ones, never a silent fallback.
 
 ## The thirteen transforms
 
-Each has an id, and each is individually skippable. Nothing is applied until every transform has
-looked at the same untouched source, so `--skip` removes one transform's edits and nothing else —
-it cannot change what the others saw.
+Each transform has an id you can pass to `--only` or `--skip`. All of them read the same untouched
+source before anything is applied, so `--skip` removes one transform's edits and nothing else.
 
-They come in three families. **Four are shared**, because both dialects have the construct:
+**Four are shared**, because both dialects have the construct:
 
-| Id                          | Rewrites                                                                                            | Declines                                                          |
+| Id                          | Rewrites                                                                                            | Leaves alone                                                      |
 | --------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `auto-spies-import`         | `import … from 'jest-auto-spies'` / `'jasmine-auto-spies'` → the entry points that export each name | A default or namespace import; a name no entry exports            |
 | `inject-cast`               | `TestBed.inject(X) as Spy<X>` → `asSpy<X>(TestBed.inject(X))`, adding the import                    | `as Spy<T>` over anything else                                    |
@@ -131,16 +178,16 @@ They come in three families. **Four are shared**, because both dialects have the
 
 **Three are Jest's:**
 
-| Id                    | Rewrites                                                                                | Declines                                                                                                    |
+| Id                    | Rewrites                                                                                | Leaves alone                                                                                                |
 | --------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `jest-globals-import` | `from '@jest/globals'` → `from 'vitest'`, renaming the `jest` binding to `vi`           | The rest of the clause — `describe` / `it` / `expect` are named the same                                    |
 | `jest-namespace`      | `jest.<member>` → `vi.<member>` for the 26 members that have a twin                     | A member with no twin, and any member it does not know                                                      |
 | `jest-types`          | `jest.Mock<R, [A]>` → `Mock<(a: A) => R>`, plus four renames, importing the Vitest name | A type argument list it cannot split at the top level; a `jest` from `@jest/globals`, which is renamed only |
 
-**Six are jasmine's** — see [Migrating from jasmine-auto-spies](/migrating-jasmine) for what each
-one is protecting:
+**Six are jasmine's.** [Migrating from jasmine-auto-spies](/migrating-jasmine) explains what each one
+protects:
 
-| Id                    | Rewrites                                                                                                                                     | Declines                                                                                                                     |
+| Id                    | Rewrites                                                                                                                                     | Leaves alone                                                                                                                 |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `jasmine-and-helpers` | `spy.load.and.nextWith(v)` → `spy.load.nextWith(v)` — the ten auto-spies helpers lose the namespace                                          | Nothing; the list is closed                                                                                                  |
 | `jasmine-strategies`  | `.and.returnValue` / `callFake` / `stub` / `throwError` / `returnValues` / `resolveTo` → the `mock*` twin, and `.withArgs(` → `.calledWith(` | `.and.callThrough()`, which has no original to call through to; a strategy it does not know; `.withArgs(` on a `spyOn` chain |
@@ -149,262 +196,74 @@ one is protecting:
 | `jasmine-types`       | `jasmine.Spy` → `Mock` from `vitest`, `jasmine.SpyObj<T>` → `Spy<T>` from this package                                                       | Either name when the entry table could not be generated                                                                      |
 | `jasmine-matchers`    | `toBeTrue` / `toBeFalse` / `toHaveSize` / `toHaveBeenCalledOnceWith` / `withContext` / `fail` → their Vitest spellings                       | A `fail` that is not a call; a `withContext` on an `expect()` with nothing in it                                             |
 
-`auto-spies-import` runs first, because it is what creates the `vitest-auto-spy` import that
-`inject-cast` then adds `asSpy` to. Everything after that is order-independent.
+`auto-spies-import` runs first: it creates the `vitest-auto-spy` import that `inject-cast` then adds
+`asSpy` to. The order of the rest does not matter.
 
-One strategy is worth reading in full, because the obvious rewrite is wrong in one direction only.
-jasmine's `.and.throwError(x)` builds an `Error` out of **any** string it is handed, so a variable
-becomes `throw typeof x === 'string' ? new Error(x) : x` rather than a bare `throw x` — otherwise a
-spec that passed a message threw the string here and a `toThrow(Error)` beside it failed on a file
-nobody had changed. A string literal is still a plain `new Error('…')`, and an argument the guard
-would have to evaluate twice is declined rather than duplicated.
+A few rewrites are worth knowing:
 
-### `--from` picks the family
+- `jest.dontMock` becomes `vi.doUnmock`, and `jest.SpyInstance` becomes `MockInstance`.
+- A `vi.mock()` of a **relative** path is renamed and then warned about. Under a test builder that
+  bundles your code, such as `@angular/build:unit-test`, that module no longer exists on its own, so
+  the mock silently does nothing. Instead, [provide a real seam](/utilities/module-mocks#provide-a-real-seam): pass the double explicitly, through DI or an argument.
+- jasmine's `.and.throwError(x)` turns any string into an `Error`. So a variable becomes
+  `throw typeof x === 'string' ? new Error(x) : x`, not a bare `throw x`; otherwise a `toThrow(Error)`
+  next to it would fail. A string literal becomes a plain `new Error('…')`. An argument that the guard
+  would have to evaluate twice is left alone.
+- `jest.Mock<R, [A]>` is rebuilt, not renamed: see
+  [The trap: Jest puts the return type first](#the-trap-jest-puts-the-return-type-first).
 
-```bash
-npx vitest-auto-spy codemod --from jasmine   # or jasmine-auto-spies
-npx vitest-auto-spy codemod --from jest-auto-spies
-npx vitest-auto-spy codemod                  # --from auto, the default
-```
+## Warnings a rewrite can raise
 
-`auto` reads each file and decides: a file carrying a `jasmine.` member, a `.and.`, an import of
-`jasmine-auto-spies` or one of `vitest-auto-spy/jasmine` gets the jasmine family; a file with none
-of those does not. The shared four always run.
+Besides the spans it leaves alone, the codemod warns where a rewrite it did apply needs a second look:
 
-A bare `spyOn(` is deliberately **not** a marker. It is the one construct both dialects spell the
-same way and give opposite defaults to — jasmine stubs, Vitest calls through — so guessing which one
-a file meant is exactly the silent behaviour inversion `jasmine-spy-on` exists to prevent. A suite
-whose only jasmine construct is `spyOn` has to say `--from jasmine` out loud. An unrecognised value
-is an error naming the accepted ones, never a silent fallback: a misspelled dialect that quietly ran
-the other family is a migration that looks finished and is not.
+| Check                   | What it means and what to do                                                                                                                                                                                                                                                                                      |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `overlapping-edit`      | Two rewrites claimed the same span. The rewrite the warning names was not applied and is not counted in the edit totals; the other is in the diff. Check the line by hand                                                                                                                                         |
+| `name-declared-locally` | The rewrite needs a name — `asSpy`, `Mock`, … — that the file declares itself (`const`, `let`, `var`, `function`, `class`, `enum`, `interface`, `type`, `namespace`), so no import was added. Rename the local binding and import the library's. A destructured binding is not recognised, so check those by hand |
+| `fake-timers-option`    | `vi.useFakeTimers` got a Jest-only option, which it ignores silently. One warning per option, naming the Vitest equivalent: `advanceTimers` → `shouldAdvanceTime` (with `advanceTimeDelta` for a number), `doNotFake` → `toFake` with the inverse list, `legacyFakeTimers` → nothing, `timerLimit` → `loopLimit`  |
+| `vi-without-globals`    | The file uses `vi` without importing it, and the Vitest config does not set `test.globals: true`, so the suite throws `ReferenceError: vi is not defined`. Import `vi`, `describe`, `it` and `expect` from `vitest`, or turn `globals` on                                                                         |
 
-The two `import` rules and `jest-namespace` are worth reading together. `jest.dontMock` becomes
-`vi.doUnmock` — a rename, not a copy — and `jest.SpyInstance` becomes `MockInstance`. A `vi.mock()`
-of a **relative** path is renamed and then warned about, because under a bundling test builder the
-module boundary it would replace no longer exists and the mock is a silent no-op;
-[provide a real seam](/utilities/module-mocks#provide-a-real-seam) instead.
-
-## The trap: Jest puts the return type first
-
-```diff
-- let hook: jest.Mock<void, [Order]>;
-+ let hook: Mock<(order: Order) => void>;
-```
-
-Jest's first type argument is the **return type** and its second is the **argument tuple**. Vitest's
-single type argument is a **call signature**. A rename that leaves the type arguments in place —
-which is what every migration gist does — compiles cleanly into the reverse meaning, and nothing
-fails until a call site disagrees with it, somewhere else, later.
-
-So this transform rebuilds the type rather than renaming it, and four details are the difference
-between that being safe and being a slower way to be wrong:
-
-- **The bracket matcher skips `=>` as a unit.** Without that, `jest.Mock<() => void, []>` "closes"
-  its type-argument list at the arrow's `>`, and the rewrite silently takes half the type.
-- **Tuple elements keep their labels, their optionality and their rest.**
-  `[id: number, force?: boolean, ...rest: string[]]` becomes
-  `(id: number, force?: boolean, ...rest: string[])`. An unlabelled element is numbered `arg0`,
-  `arg1` — a function type has to name its parameters and Jest's tuple did not.
-- **Anything that is not a tuple literal is spread rather than parsed.** `jest.Mock<void, Args>`
-  becomes `Mock<(...args: Args) => void>`, which is what Jest's second argument means for every
-  possible `Args` and needs nothing understood about it.
-- **Three or more type arguments produce an error note and no edit.** So does an unbalanced
-  `<`…`>`. The line is left byte-for-byte as it was, with `jest-mock-type-arguments` naming it.
-
-`jest.Mock` with no type arguments at all is left as `Mock`: on its own it already means the same
-thing on both sides.
-
-**Which `jest` the file imports decides whether there is a transposition at all.** The `jest` of
-`@jest/globals` is `jest-mock` ≥ 29, which took the whole function type years ago, so
-`jest.Mock<() => string>` there already means what Vitest means. Transposing it a second time
-produced `Mock<() => () => string>` — a mock that returns a function — and nothing failed until a
-call site disagreed. So a file that imports from `@jest/globals` has the name renamed and the type
-arguments left exactly as written.
-
-**The same transposition on a _call_ is reported rather than carried across.** `jest.fn<R, [A]>()`
-and `jest.spyOn<…>()` in the `@types/jest` spelling put the return type first the way the type does,
-and `jest-namespace` renames the callee to `vi.fn` / `vi.spyOn`, where the single type argument is
-read as a call signature. The list is named by `jest-mock-type-arguments` and left for a person —
-again, only in a file whose `jest` is not the one from `@jest/globals`, where the order is already
-right.
-
-## The entry-point table is generated, not written down
-
-Splitting `import { createSpyFromClass, provideAutoSpy, Spy } from 'jest-auto-spies'` requires
-knowing which name lives behind which entry point — and a table typed into the codemod's source is
-a table that is correct for the version it was written against and wrong for the one the consumer
-installed. An entry added in a later minor is a name this codemod would leave at the root; an entry
-that moved is a rewrite that no longer resolves. Both still compile at the import line.
-
-So there is no table in the source. At run time the command:
-
-1. **Locates the installed `vitest-auto-spy`**, walking `node_modules` up to six directories out of
-   the working directory — enough for a workspace whose dependencies are hoisted — and falling back
-   to the copy the CLI is itself running from.
-2. **Reads that package's own `exports` map**, and resolves each subpath to a file, preferring the
-   `types` condition: a declaration file names the type-only exports a runtime bundle cannot. A
-   checkout with no `dist` falls back to the sources beside it, which is how a monorepo consumes the
-   package before its first release.
-3. **Collects the exported names lexically** — named clauses, declarations, and both spellings of the
-   star re-export, `export * from './…'` and `export type * from './…'`, followed through the barrels
-   to a depth of eight — against a
-   [comment-and-string-masked view](#how-a-pattern-never-matches-a-comment) of each file, so a name
-   inside a comment or a string is not an export.
-
-The result is a name → specifiers lookup with no false positives available to it, because it is not
-a guess about the API — it _is_ the API, read off the copy on disk.
-
-::: warning The two spellings of `export *` are not interchangeable, and the difference is invisible
-The type-only form is what a package uses to re-export its public type surface in one line, so a
-walker that knows only the value form loses every type at once — here that is `Spy<T>` and everything
-declared beside it. Nothing announces the loss: the table still builds, still looks complete, and the
-import transform simply decides it cannot place the name and leaves the import on `jest-auto-spies`
-with a residue error. The failure also only appears on the source path, since a `.d.ts` spells its
-exports out — so a suite run against a built `dist` stays green while the same suite run before the
-build fails.
-:::
-
-**Resolution order**, when a name is exported by more than one entry:
-
-1. **The root wins** if it exports the name, because the root is the entry that registers the mock
-   adapter and the one every runner has.
-2. Otherwise **the repository's own entry wins** — the same runner-and-framework detection
-   [`init`](/utilities/cli) uses, so `provideAutoSpy` goes
-   to `/angular` in an Angular repository and to `/nestjs` in a NestJS one.
-3. Otherwise **the single entry that has it** wins.
-4. Two non-root entries and no preference is **not decidable from the file**. The name is left
-   importing from the legacy package and reported as `unmapped-legacy-export`.
-
-When no installed copy can be found at all, the table is unavailable, and the four transforms that
-need it — `auto-spies-import`, `inject-cast`, and the two jasmine ones that have to place
-`createSpyObj` and `Spy<T>` — decline to run and say so rather than guessing. A wrong entry that still compiles is the
-exact failure this command exists to avoid.
-
-### Auditing it before trusting it
-
-`--list` prints the transforms and the whole generated table — **270 rows** against the export map
-this package ships today — so it can be read before it is believed:
-
-```
-$ npx vitest-auto-spy codemod --list
-Transforms
-    auto-spies-import         import … from 'jest-auto-spies' → the vitest-auto-spy entry points that export each name.
-    inject-cast               TestBed.inject(X) as Spy<X> → asSpy<X>(TestBed.inject(X)), adding the import.
-    …
-
-Entry-point table (/work/app/node_modules/vitest-auto-spy)
-  createSpyFromClass            vitest-auto-spy, vitest-auto-spy/bun, vitest-auto-spy/bun-angular, vitest-auto-spy/node, …
-  injectSpy                     vitest-auto-spy/bun-angular, vitest-auto-spy/angular, vitest-auto-spy/nestjs
-  provideAutoSpy                vitest-auto-spy/bun-angular, vitest-auto-spy/angular, vitest-auto-spy/nestjs, vitest-auto-spy/vue
-  renderShallow                 vitest-auto-spy/bun-angular, vitest-auto-spy/angular
-```
-
-A transform that this run would skip is marked `-` in the left column, so `--list --skip jest-types`
-answers "what exactly am I about to run" in one command. `--list` writes nothing and exits 0.
-
-## The import statement is edited in place, not rebuilt
-
-The import block is what every migration touches, and it is also where a file keeps things a rewrite
-has no business losing: an alias, a comment on a specifier, the line ending the repository uses. So
-a clause is edited by range rather than reassembled out of the names it holds.
-
-- **A line comment inside the clause is not a list of names.** The clause is split into slots on the
-  commas of the [masked view](#how-a-pattern-never-matches-a-comment), so the words inside a
-  `// keep this one` are never read as imports of that name. An added name lands after the last
-  _code_ character of the clause and before the comment rather than inside it; a removed specifier
-  takes its own comma and its own trailing comment and nothing else. Aliases (`a as b`) and the
-  clause's own line breaks survive, because nothing rewrites the specifiers that stay.
-- **A new statement goes on its own line.** The insertion point is just past the newline that ends
-  the statement above, so an import with a comment at the end of its line keeps it — and the newline
-  written is the one the file already uses, so a CRLF file stays CRLF.
-- **A byte-order mark is not part of the first import.** A file that starts with one is migrated
-  like any other, and keeps it.
-
-## The result is parsed before it is written
-
-Every transform here works on text, and the failure that hurts is the one where the diff looks
-plausible and the file no longer compiles. So the result of each rewrite is handed to a parser — the
-`typescript` of the repository being migrated, resolved from `--cwd` rather than from wherever the
-CLI happens to be installed, so a global `npx vitest-auto-spy` does not read a consumer's files with
-somebody else's compiler.
-
-A file whose syntax diagnostics the run added to is **not written**. It is left byte for byte as it
-was, its edits and its new import lines dropped with it, and reported:
-
-```
-error  codemod-broke-syntax src/app/service.spec.ts:7
-       The rewritten file would not parse at line 7 (',' expected.), so the file was left as it
-       was.
-       → Migrate this file by hand, and report the construct on that line as a codemod defect.
-       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/codemod#the-result-is-parsed-before-it-is-written
-```
-
-The line and the message are the parser's own, read from the rewritten text, so the report points at
-the construct the rewrite tripped over rather than at the top of the file.
-
-The comparison is between the diagnostics before and the diagnostics after, never against zero, so a
-spec that already had a syntax error is not blamed for it. Where `typescript` does not resolve from
-the repository the check is skipped in silence — it is a safety net, not an install instruction.
+`vi-without-globals` is a note, not an added `import { vi }`: with globals off, `describe`, `it` and
+`expect` are missing too, and importing only `vi` would still leave the suite broken. `globals` is read
+from every `vitest.config.*`, `vite.config.*` and `vitest.workspace.*` the scan finds. An `angular.json`
+with `@angular/build:unit-test` counts as on (the builder turns globals on), and other runners are not
+judged.
 
 ## What it deliberately leaves alone
 
-This list is the feature. Every entry is a span where a plausible rewrite exists, compiles, and is
-wrong — so the codemod prints it instead, with the reason and a `path:line` an editor turns into a
-jump.
+The spans below have an obvious rewrite that compiles but is wrong. So the codemod leaves them as they
+are and prints each one with the reason and a `path:line` your editor can jump to.
 
-| Left alone                                                                      | Why                                                                                                                                                                                                                                               |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jest.requireActual(id)`                                                        | `vi.importActual(id)` is asynchronous and only legal inside a `vi.mock` factory — rewriting it changes the control flow around it                                                                                                                 |
-| `jest.requireMock(id)`, `jest.setMock(…)`                                       | There is no `vi` twin; the double is provided through the TestBed / the container, or passed as an argument                                                                                                                                       |
-| `jest.replaceProperty(o, k, v)`                                                 | The answer is `mockValueProp(o, k, v)` from this package — a different helper with its own restore, not a member with a new name                                                                                                                  |
-| `jest.setTimeout(n)`                                                            | The replacement is the `testTimeout` config option or `vi.setConfig({ testTimeout: n })`; the argument is not a plain number there                                                                                                                |
-| `enableAutomock`, `createMockFromModule`, `now`, `retryTimes`, `runAllTicks`, … | No `vi` member of that name exists, and for each the honest answer is a different design                                                                                                                                                          |
-| Any **unknown** `jest.<member>`                                                 | Never renamed on the assumption that `vi` has it. That assumption is exactly the `vi.requireMock is not a function` failure                                                                                                                       |
-| `as Spy<T>` over anything but `TestBed.inject(...)`                             | If the value really is a spy, `asSpy(...)`; if it is a hand-built double, [`createAutoMock<T>()`](/core/auto-mock-by-type) builds it                                                                                                              |
-| A default or namespace import of the legacy package                             | The helpers live behind different entry points, and a namespace cannot straddle them                                                                                                                                                              |
-| Anything inside a template literal                                              | Every pattern is matched against a masked view; a template literal's contents are blank there                                                                                                                                                     |
-| Any span whose brackets do not balance                                          | The end of the region is unknown, and guessing where it ends is how a rewrite takes half a type                                                                                                                                                   |
-| `.withArgs(…)` on a `spyOn(…)` chain                                            | `vi.spyOn` has no `calledWith`, so the rename produced `calledWith is not a function` on the first run. Reported as `jasmine-with-args-on-spy-on`, and the `spyOn` under it is left as written too                                                |
-| `.and.throwError(build())`                                                      | jasmine wraps a string it is handed and throws anything else, which the rewrite spells with the argument named twice — fine for `err` or `state.err`, wrong for an expression that would then run twice. Declined with `unknown-jasmine-strategy` |
-| `expect()` with nothing in it                                                   | There is no subject for a `withContext` message to move next to, and moving it anyway wrote `expect(, 'm')`                                                                                                                                       |
-| `fail`, `fit`, `xit` and their siblings where they are not calls                | A method or a function of the same name, which a rename turns into a syntax error. `--verify` does not report a declaration either                                                                                                                |
+| Left alone                                                                      | Why, and what to write instead                                                                                                                                                  |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jest.requireActual(id)`                                                        | `vi.importActual(id)` is asynchronous and only allowed inside a `vi.mock` factory. Rewrite it by hand, as shown below the table                                                 |
+| `jest.requireMock(id)`, `jest.setMock(…)`                                       | There is no `vi` twin. Provide the double through the TestBed or the DI container, or pass it as an argument                                                                    |
+| `jest.replaceProperty(o, k, v)`                                                 | Use `mockValueProp(o, k, v)` from this package: a different helper with its own restore                                                                                         |
+| `jest.setTimeout(n)`                                                            | Use the `testTimeout` config option or `vi.setConfig({ testTimeout: n })`                                                                                                       |
+| `enableAutomock`, `createMockFromModule`, `now`, `retryTimes`, `runAllTicks`, … | No `vi` member of that name exists, and each needs a different approach. Rewrite it by hand                                                                                     |
+| Any **unknown** `jest.<member>`                                                 | Not renamed: the codemod does not assume `vi` has the same member. That assumption is how `vi.requireMock is not a function` happens                                            |
+| `as Spy<T>` over anything but `TestBed.inject(...)`                             | If the value really is a spy, use `asSpy(...)`; if it is a hand-built double, [`createAutoMock<T>()`](/core/auto-mock-by-type) builds it                                        |
+| A default or namespace import of the legacy package                             | The helpers live behind different entry points, and one namespace cannot cover them all                                                                                         |
+| Anything inside a template literal                                              | Patterns are matched against a [masked view](#how-a-pattern-never-matches-a-comment) where a template literal is blank                                                          |
+| Any span whose brackets do not balance                                          | The end of the expression is unknown; guessing it can make a rewrite take only half a type                                                                                      |
+| `.withArgs(…)` on a `spyOn(…)` chain                                            | `vi.spyOn` has no `calledWith`, so the rename fails with `calledWith is not a function`. Reported as `jasmine-with-args-on-spy-on`; the `spyOn` under it is left as written too |
+| `.and.throwError(build())`                                                      | The rewritten code contains the argument twice, which would run the expression twice. Fine for `err` or `state.err`. Declined with `unknown-jasmine-strategy`                   |
+| `expect()` with nothing in it                                                   | There is no subject for a `withContext` message to move next to                                                                                                                 |
+| `fail`, `fit`, `xit` and their siblings where they are not calls                | A method or function of the same name, which a rename would turn into a syntax error. `--verify` does not report a declaration either                                           |
 
-### How a pattern never matches a comment
+**Rewriting `jest.requireActual` by hand.** If it builds a partial mock, move it into the `vi.mock`
+factory and await it. If the spec only needs the real module, import it normally.
 
-A codemod that matches its patterns against raw source rewrites the sentence in the comment
-explaining the migration and the string literal in the assertion asserting on it. Neither failure is
-loud — the file still compiles and the diff looks plausible.
-
-So every pattern is matched against a **mask**: the same string, the same length, the same line
-breaks, with the _contents_ of comments, strings, template literals and regular expressions replaced
-by spaces. Offsets found in the mask are valid in the original, which is what makes "find in the
-mask, slice from the source" safe. Quotes are kept, so `from 'jest-auto-spies'` is still findable —
-the quote is matched in the mask and the specifier is read from the source between them.
-
-**JSX is code, not a regular expression.** The slash of `<Thing />` and of `</Thing>` sits exactly
-where a regular expression may open, and reading it as one blanked everything up to the next tag's
-slash — so a `.tsx` spec had a region no transform could reach and the residue check could not see
-either, which is a migration that looks finished on a file it never entered. A `<` immediately
-before a `/` is not an operator, and a candidate literal with a `<` inside it is not a regular
-expression, so a `.tsx` suite is migrated and reported in full.
-
-The residue check ([below](#verifying-by-matching-not-by-diffing)) uses a second view of the same
-mask that differs in exactly two places, both because what it is looking for lives inside a literal:
-a module specifier stays visible, because `from 'jest-auto-spies'` _is_ the leftover, and a template
-literal stays visible, because the transforms decline to edit inside one and a `jest.` left there is
-real. An ordinary string stays blank — `expect(text).toBe('jest.spyOn(…)')` is prose about the
-migration, not a thing to migrate.
+```ts
+// before: jest.mock('./x', () => ({ ...jest.requireActual('./x'), load: jest.fn() }));
+vi.mock('./x', async () => ({ ...(await vi.importActual<typeof import('./x')>('./x')), load: vi.fn() }));
+```
 
 ## Verifying by matching, not by diffing
 
-[The closing note of the migration page](/migrating#a-codemod-that-edits-globs-is-verified-by-matching-not-by-diffing)
-argues that the natural check on a codemod — "did the file change the way I meant?" — passes while
-the result is broken, and that the honest check is to match the **result** against what should no
-longer be there. `--verify` is that note, implemented.
-
-Every transform declares a `residue` pattern: what it is supposed to have removed. After a run —
-or on a suite nobody ran this tool over at all — the files are matched against those patterns, and
-every survivor is reported with `file:line`:
+`--verify` checks the files for what a migration should have removed, and reports every match with
+`file:line`. If the codemod pointed you here, open that line and rewrite what the message quotes by
+hand. The message says which transform declined it and why.
 
 ```
 $ npx vitest-auto-spy codemod --verify
@@ -427,46 +286,80 @@ error  residue/jest-types src/app/service.spec.ts:7
        Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/codemod#verifying-by-matching-not-by-diffing
 ```
 
-Two properties follow from matching rather than diffing, and neither is available to a check built
-on the diff:
+Each transform declares a residue pattern: what it is supposed to remove. `--verify` transforms nothing
+and only matches those patterns. The line under the output header counts the patterns of the transforms selected for this
+suite — above, the four shared ones and the three Jest ones. Matching gives it two properties a check on the diff lacks:
 
-- **It works on a file this tool never touched.** A spec somebody migrated by hand, a spec a
-  different agent edited, a span a `--skip` excluded — all of them answer the same question the
-  same way. `--verify` transforms nothing, so it is safe to leave in CI on a repository that is
-  already migrated: it exits 0 with `Nothing left to migrate.`, and 1 the moment a `jest.` comes
-  back.
-- **A diff that looks exactly right can still leave the pattern.** Inside a template literal the
-  transforms decline to enter; in a statement whose brackets did not balance they could not reach.
-  The change is correct and the file still says `jest.`.
+- **It works on files the codemod never touched**: a spec migrated by hand, a spec someone else
+  edited, a span `--skip` excluded. On a migrated repository it exits 0 with `Nothing left to
+migrate.`, and 1 as soon as a `jest.` comes back, so it is safe to keep in CI.
+- **It catches a diff that looks right but is not done.** The transforms cannot reach inside a template
+  literal or past brackets that do not balance. The rest of the diff is right, yet the file still
+  contains `jest.`.
 
-The report prints **the resulting import statements in full**, not a count — the three lines under
-each filename in the dry-run output above. That is the same point the migration note makes about
-`fixed: 152` hiding the case where the replacement produced two different wrong shapes. A count says
-the import block changed; the statements say what it changed into, which is the thing a reviewer was
-going to check by hand anyway.
+This is the check the [migration guide's closing note](/migrating#a-codemod-that-edits-globs-is-verified-by-matching-not-by-diffing)
+recommends: "did the file change the way I meant?" can pass while the result is broken, so match the
+**result** against what should be gone. For the same reason the dry-run report prints the resulting
+import statements in full, not a count.
 
 ## Flags
 
-| Flag           | Effect                                                                                            |
-| -------------- | ------------------------------------------------------------------------------------------------- |
-| _(none)_       | Dry run. Print the diff, the transform tally, the resulting imports and the report. Write nothing |
-| `--write`      | Apply the edits. Spans that were left alone are still left alone, and still reported              |
-| `--verify`     | Transform nothing; match the files against the residue patterns. Exit 1 if anything matched       |
-| `--from <pkg>` | Which dialect this suite is: `jest-auto-spies`, `jasmine-auto-spies` (alias `jasmine`), or `auto` |
-| `--only <ids>` | Run only these transforms, comma-separated                                                        |
-| `--skip <ids>` | Run everything except these                                                                       |
-| `--list`       | Print the transforms and the generated entry-point table, and exit 0                              |
-| `--cwd <dir>`  | Run against another directory instead of the current one                                          |
+| Flag           | What it does                                                                                                                          |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| _(none)_       | Dry run. Print the diff, the edits per transform, the resulting imports and the report. Write nothing                                 |
+| `--write`      | Apply the edits, each file through a temporary file and a rename. Spans that were left alone are still left alone, and still reported |
+| `--verify`     | Transform nothing; match the files against the residue patterns. Exit 1 if anything matched                                           |
+| `--from <pkg>` | Which dialect this suite is: `jest-auto-spies`, `jasmine-auto-spies` (alias `jasmine`), or `auto` (default)                           |
+| `--only <ids>` | Run only these transforms, comma-separated                                                                                            |
+| `--skip <ids>` | Run everything except these                                                                                                           |
+| `--list`       | Print the transforms and the generated entry-point table, and exit 0                                                                  |
+| `--cwd <dir>`  | Run against another directory instead of the current one                                                                              |
+| `--format <f>` | `text` (default) or `json`: one JSON document on stdout instead of the text report                                                    |
 
-An id neither `--only` nor `--skip` recognises exits **2** naming the known ids, rather than quietly
-running everything. A flag this table does not have exits **2** the same way, before anything is
-read, with the flag it most likely meant: `codemod --wirte` is not a dry run that happened to write nothing, it is a line that did not
-say what its author meant.
+An id `--only` or `--skip` does not know exits **2** and lists the known ids, rather than running
+everything. A flag this table does not have exits **2** too, before anything is read, and suggests the
+flag you most likely meant: `codemod --wirte` must not look like a dry run that happened to write
+nothing.
+
+`--list` shows what a run would do, without doing it. A transform the run would skip is marked `-` in
+the left column, so `--list --skip jest-types` answers "what exactly am I about to run". It also prints
+the [entry-point table](#the-entry-point-table-is-generated-not-written-down):
+
+```
+$ npx vitest-auto-spy codemod --list
+Transforms
+    auto-spies-import         import … from 'jest-auto-spies' → the vitest-auto-spy entry points that export each name.
+    inject-cast               TestBed.inject(X) as Spy<X> → asSpy<X>(TestBed.inject(X)), adding the import.
+    …
+
+Entry-point table (/work/app/node_modules/vitest-auto-spy)
+  createSpyFromClass            vitest-auto-spy, vitest-auto-spy/bun, vitest-auto-spy/bun-angular, vitest-auto-spy/node, …
+  injectSpy                     vitest-auto-spy/bun-angular, vitest-auto-spy/angular, vitest-auto-spy/nestjs
+  provideAutoSpy                vitest-auto-spy/bun-angular, vitest-auto-spy/angular, vitest-auto-spy/nestjs, vitest-auto-spy/vue
+  renderShallow                 vitest-auto-spy/bun-angular, vitest-auto-spy/angular
+```
+
+### `--format json` for CI
+
+`--format json` prints one JSON document instead of the text report, for a CI step to read:
+
+```bash
+npx vitest-auto-spy codemod --verify --format json > codemod.json
+```
+
+- **A run**: `schema`, `command`, `version`, `cwd`, `run` (`dry-run`, `write` or `verify`),
+  `exitCode`, `tally`, `findings`, and `files` — each with `file`, `changed`, `edits`, `fired` (edits
+  per transform), the resulting `imports` and the unified `diff`.
+- **With `--list`**: the transforms (`id`, `family`, `summary`, `selected`) and the entry-point table
+  (`entries`).
+
+The exit code is the same as the text run's. `--format markdown`, which `doctor` and `perf` take, is
+refused with exit 2.
 
 ### When the scan hits its cap
 
-The file scan stops at 50 000 files, and past that the codemod says so on stderr rather than
-reporting a clean repository off a list it never finished:
+The file scan stops at 50 000 files. Past that the codemod says so on stderr rather than calling the
+repository migrated:
 
 ```
 The repository scan stopped at its safety cap of 50000 files — part of the tree was never looked at,
@@ -474,13 +367,15 @@ so a clean result here is not a migrated repository. Raise the cap with VITEST_A
 pass the directories to migrate as arguments: `npx vitest-auto-spy codemod src/app`.
 ```
 
-`VITEST_AUTO_SPY_SCAN_CAP=200000 npx vitest-auto-spy codemod --verify` raises it. Passing the
-directories to migrate as arguments is usually the better answer: the scan is not the slow part, the
-transforms are.
+Passing the directories to migrate is usually the better answer: the transforms are the slow part,
+not the scan. To raise the cap:
 
-The scan does not descend into a directory that is a repository of its own — a git worktree, whose
-`.git` is a file, or a nested clone. Those files belong to another branch's working copy, and
-`--write` has no business rewriting a spec that is not in the tree being migrated.
+```bash
+VITEST_AUTO_SPY_SCAN_CAP=200000 npx vitest-auto-spy codemod --verify
+```
+
+The scan does not enter a directory that is a repository of its own — a git worktree (whose `.git` is
+a file) or a nested clone. Those files belong to another branch, and `--write` must not rewrite them.
 
 ## In CI
 
@@ -488,19 +383,178 @@ The scan does not descend into a directory that is a repository of its own — a
 - run: npx vitest-auto-spy codemod --verify
 ```
 
-One line, no network, no config, no token. On a migrated repository it is a green no-op; it turns
-red when a `jest.`, a legacy import or an `as Spy<…>` cast reappears — which, in a suite big enough
-to be migrated by a codemod, is a thing that reappears.
+While you migrate one directory at a time, check only the finished ones:
+`npx vitest-auto-spy codemod src/app --verify`.
 
-The order that works on a real suite:
+One line, no network, no config, no token. On a migrated repository it passes and changes nothing. It
+fails when a `jest.`, a legacy import or an `as Spy<…>` cast comes back, which in a large suite happens.
 
-```bash
-npx vitest-auto-spy codemod            # read the diff
-npx vitest-auto-spy codemod --write    # apply it
-npx vitest-auto-spy codemod --verify   # then check the result, not the diff
-npx vitest-auto-spy doctor             # and what a migration leaves behind
+## In depth
+
+### The trap: Jest puts the return type first
+
+```diff
+- let hook: jest.Mock<void, [Order]>;
++ let hook: Mock<(arg0: Order) => void>;
 ```
 
-`doctor` is the other half of the same shift: the codemod edits what a migration has to change,
-[`doctor`](/utilities/cli) reports what it leaves behind — a `tsconfig` include pattern the edit
-broke, a `jest.config.ts` for a runner that is gone, the setup files only it referenced.
+Jest's first type argument is the **return type** and its second is the **argument tuple**. Vitest's
+single type argument is a **call signature**. A rename that keeps the type arguments in place compiles
+into the reverse meaning, and nothing fails until a call site disagrees, somewhere else, later.
+
+So `jest-types` rebuilds the type instead of renaming it:
+
+- **`=>` is skipped as a unit** when matching brackets. Otherwise `jest.Mock<() => void, []>` would
+  "close" at the arrow's `>` and the rewrite would take half the type.
+- **Tuple elements keep their labels, optionality and rest.** `[id: number, force?: boolean,
+...rest: string[]]` becomes `(id: number, force?: boolean, ...rest: string[])`. An unlabelled element
+  is named `arg0`, `arg1`: a function type must name its parameters.
+- **Anything that is not a tuple literal is spread.** `jest.Mock<void, Args>` becomes
+  `Mock<(...args: Args) => void>`, which is correct for any `Args`.
+- **Three or more type arguments, or an unbalanced `<`…`>`, produce a `jest-mock-type-arguments` note
+  and no edit.** The line stays byte for byte as it was. Rewrite it by hand in the form above.
+
+`jest.Mock` with no type arguments becomes plain `Mock`: it means the same on both sides.
+
+**A file that imports `jest` from `@jest/globals` keeps its type arguments.** That `jest` comes from
+`jest-mock` 29 or newer, where `jest.Mock` already takes a function type (`jest.Mock<() => string>`),
+the same as Vitest. So only the name changes. Reordering it would produce `Mock<() => () => string>`, a
+mock that returns a function.
+
+**Type arguments on a call are reported, not rewritten.** `jest.fn<R, [A]>()` and `jest.spyOn<…>()` in
+the `@types/jest` spelling also put the return type first. `jest-namespace`
+renames the callee to `vi.fn` / `vi.spyOn`, where the single type argument is a call signature, so
+`jest-mock-type-arguments` names the list and leaves it for you — again only in a file whose `jest` is
+not from `@jest/globals`.
+
+### The entry-point table is generated, not written down
+
+The codemod reports three notes from this section:
+
+- `ambiguous-entry-point` (warning): several entries export the name and nothing in the file says
+  which one it wants. The codemod picked the common one and lists the others. If this spec needs one
+  of those, change the specifier by hand: each entry registers the mock adapter (the link to your runner's
+  `vi.fn()` or `mock()`) for its own runner, so the wrong one breaks every spy.
+- `unmapped-legacy-export` (error): no entry of the installed package exports the name. The import
+  stays on the legacy package; see the [mapping table](/migrating#mapping-table) for its replacement.
+- `no-entry-table` (error): the table could not be built, so nothing was placed. Install
+  `vitest-auto-spy` in the repository (`npm i -D vitest-auto-spy`) and run again.
+
+To split `import { createSpyFromClass, provideAutoSpy, Spy } from 'jest-auto-spies'`, the codemod must
+know which entry point exports which name. A table typed into the codemod would be right for one
+version and wrong for the one you installed. So it builds the table at run time:
+
+1. **It finds the installed `vitest-auto-spy`**, walking `node_modules` up to six directories from the
+   working directory (enough for hoisted workspaces), and falling back to the copy the CLI runs from.
+2. **It reads that package's `exports` map** and resolves each entry to a file, preferring the `types`
+   condition: a declaration file lists the type-only exports a runtime bundle cannot. A checkout with no
+   `dist` falls back to the sources beside it, so a monorepo can use the package before its first
+   release.
+3. **It collects the exported names** — named clauses, declarations, and both forms of star
+   re-export, `export * from './…'` and `export type * from './…'` — following barrels eight levels
+   deep, on a [view with comments and strings masked](#how-a-pattern-never-matches-a-comment).
+
+The result is not a guess about the API: it is the API, read from the copy on disk.
+
+::: warning The two forms of `export *` are not interchangeable
+A package uses `export type *` to re-export all its public types in one line. A walker that knows only
+the value form loses every type at once — here `Spy<T>` and everything declared beside it. Nothing
+announces the loss: the table still builds, and the import transform just cannot place the name and
+leaves it on `jest-auto-spies` with a residue error. It only shows on the source path, since a `.d.ts`
+spells its exports out, so a suite run against a built `dist` stays green while the same suite run
+before the build fails.
+:::
+
+**When a name is exported by more than one entry**, the codemod picks:
+
+1. **The root**, if it exports the name — it registers the mock adapter and every runner has it.
+2. Otherwise **your repository's own entry**, detected the same way [`init`](/utilities/cli) detects
+   it: `provideAutoSpy` goes to `/angular` in an Angular repository and to `/nestjs` in a NestJS one.
+3. Otherwise **the single entry that has it**.
+4. Otherwise it asks the file: **an entry the file already imports from**, or one for **the framework
+   the file's own text names** — on Bun, the Bun variant (`/bun-angular` rather than `/angular`).
+5. Otherwise it **guesses** the likeliest entry for your runtime and reports `ambiguous-entry-point`
+   with the alternatives.
+
+A name no entry exports stays on the legacy package and is reported as `unmapped-legacy-export`.
+
+When no installed copy can be found, the table is unavailable. The four transforms that need it —
+`auto-spies-import`, `inject-cast`, and the two jasmine ones that place `createSpyObj` and `Spy<T>` —
+decline to run and say so. A wrong entry that still compiles is exactly what this command exists to
+avoid.
+
+`--list` prints the whole table, so you can read it before trusting it.
+
+### The import statement is edited in place, not rebuilt
+
+The import block is where a file keeps things a rewrite must not lose: an alias, a comment on a
+specifier, the line ending the repository uses. So a clause is edited by range, not rebuilt from the
+names in it.
+
+- **A line comment inside the clause is not a list of names.** The clause is split on the commas of
+  the [masked view](#how-a-pattern-never-matches-a-comment), so words inside `// keep this one` are
+  never read as imports. An added name goes after the last code character and before the comment; a
+  removed specifier takes its own comma and trailing comment and nothing else. Aliases (`a as b`) and
+  the clause's line breaks survive.
+- **A new statement goes on its own line**, just after the statement above, so a comment at the end
+  of that line stays. The newline matches the file: a CRLF file stays CRLF.
+- **A byte-order mark** at the start of a file is kept.
+
+### The result is parsed before it is written
+
+If the codemod reports `codemod-broke-syntax`, the file was left exactly as it was. Migrate that file
+by hand, and report the construct on the named line as a codemod defect.
+
+```
+error  codemod-broke-syntax src/app/service.spec.ts:7
+       The rewritten file would not parse at line 7 (',' expected.), so the file was left as it
+       was.
+       → Migrate this file by hand, and report the construct on that line as a codemod defect.
+       Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/codemod#the-result-is-parsed-before-it-is-written
+```
+
+Every transform works on text, and the dangerous failure is a diff that looks plausible on a file that
+no longer compiles. So each result goes through a parser: the `typescript` of the repository being
+migrated, resolved from `--cwd`, so a global `npx vitest-auto-spy` does not read your files with
+another compiler.
+
+- A file whose syntax errors the run **added to** is not written; its edits and new import lines are
+  dropped with it.
+- The line and message are the parser's own, from the rewritten text.
+- Errors before and after are compared, never against zero, so a spec that already had a syntax error
+  is not blamed for it.
+- Where `typescript` does not resolve from the repository, the check is skipped silently.
+
+### One file failing does not stop the run
+
+Each file is transformed on its own, and so is each `--verify` pass over it. A file the codemod throws
+on becomes a `codemod-file-failed` error: nothing in it changes, and the run goes on. Migrate that file
+by hand, and report the code shape that caused it.
+
+`--write` writes each changed file through a temporary file in the same directory and a rename. An
+interrupted run leaves every file either as it was or fully migrated, never half-written. The file's
+mode is kept, and a symlink is written through. A write that fails (a permission, a full disk) becomes
+a `codemod-write-failed` error, and the file on disk is unchanged. Only files whose text changed are
+written.
+
+### How a pattern never matches a comment
+
+A codemod that matched raw source would rewrite the comment explaining the migration and the string
+an assertion checks. Neither failure is loud: the file compiles and the diff looks plausible.
+
+So every pattern is matched against a **mask**: the same text, same length, same line breaks, with the
+contents of comments, strings, template literals and regular expressions replaced by spaces. Offsets
+in the mask are valid in the original, so "find in the mask, slice from the source" is safe. Quotes are
+kept, so `from 'jest-auto-spies'` is still found: the quote is matched in the mask, and the specifier
+is read from the source.
+
+**JSX is code, not a regular expression.** The slash in `<Thing />` and `</Thing>` sits where a
+regular expression may start. The codemod knows that a `/` right after `<` does not
+start a regular expression, and that a literal with `<` inside is not one either. So a `.tsx` suite is
+migrated and reported in full.
+
+**`--verify` uses a slightly different mask**, in two places, because what it looks for sits inside a
+literal. A module specifier stays visible, because `from 'jest-auto-spies'` is the leftover. A
+template literal stays visible, because the transforms do not edit inside one, so a `jest.` there is
+real. The contents of an ordinary string stay masked: `expect(text).toBe('jest.spyOn(…)')` is text about the
+migration, not code to migrate.
