@@ -1,9 +1,11 @@
 import { type EffectRef, type Signal, computed, effect, linkedSignal, signal, ɵSIGNAL } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { createMock } from './create-mock';
 import { restoreMockedProps } from './prop-mock';
 import { runEffect } from './run-effect';
+import { registerSignalMatchers } from './signal-matchers';
 import { trackEffectRuns, trackRecomputations } from './track-signal-runs';
 import { flushEffects } from './zoneless';
 
@@ -14,6 +16,10 @@ function reactiveNode(effectRef: EffectRef): Record<string, unknown> {
 
   return holder[ɵSIGNAL] as Record<string, unknown>;
 }
+
+beforeAll(() => {
+  registerSignalMatchers();
+});
 
 describe('trackRecomputations', () => {
   beforeEach(() => {
@@ -31,7 +37,7 @@ describe('trackRecomputations', () => {
 
     price.set(20);
 
-    expect(total()).toBe(40);
+    expect(total).toHaveSignalValue(40);
     expect(runs.count).toBe(2);
   });
 
@@ -60,7 +66,7 @@ describe('trackRecomputations', () => {
 
     source.set(2);
 
-    expect(mirrored()).toBe(20);
+    expect(mirrored).toHaveSignalValue(20);
     expect(runs.count).toBe(1);
   });
 
@@ -75,7 +81,7 @@ describe('trackRecomputations', () => {
 
     price.set(3);
 
-    expect(total()).toBe(6);
+    expect(total).toHaveSignalValue(6);
     expect(runs.count).toBe(1);
   });
 
@@ -86,7 +92,7 @@ describe('trackRecomputations', () => {
     runs.stop();
     runs.stop();
 
-    expect(total()).toBe(1);
+    expect(total).toHaveSignalValue(1);
     expect(runs.count).toBe(0);
   });
 
@@ -189,7 +195,7 @@ describe('trackEffectRuns', () => {
   });
 
   it('rejects a value that is not an EffectRef', () => {
-    expect(() => trackEffectRuns({} as EffectRef)).toThrow(/not an EffectRef returned by effect\(\)/);
+    expect(() => trackEffectRuns(createMock<EffectRef>())).toThrow(/not an EffectRef returned by effect\(\)/);
   });
 
   it('says what to count instead when the Angular version keeps the body elsewhere', () => {
@@ -201,6 +207,6 @@ describe('trackEffectRuns', () => {
   });
 
   it('links to the Angular adapter docs', () => {
-    expect(() => trackEffectRuns({} as EffectRef)).toThrow(/Docs: https:\/\/.*\/adapters\/angular/);
+    expect(() => trackEffectRuns(createMock<EffectRef>())).toThrow(/Docs: https:\/\/.*\/adapters\/angular/);
   });
 });

@@ -11,10 +11,13 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { resource, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type ResourceStatusLike, settleResource } from './settle-resource';
+import { registerSignalMatchers } from './signal-matchers';
 import { flushEffects } from './zoneless';
+
+beforeAll(() => registerSignalMatchers());
 
 /** The real timer, so the fake-timer case below can still resolve its loader out of band. */
 const realTimer: typeof setTimeout = globalThis.setTimeout.bind(globalThis);
@@ -43,7 +46,7 @@ describe('settleResource', () => {
 
     // Nothing is in flight until something ticks — the whole reason `flushEventLoopUntil` could
     // never serve this, and the reason the tick below comes before the flush rather than after.
-    expect(products.status()).toBe('loading');
+    expect(products.status).toHaveSignalValue('loading');
 
     flushEffects();
     TestBed.inject(HttpTestingController)
@@ -51,12 +54,12 @@ describe('settleResource', () => {
       .flush([{ id: 1 }]);
 
     // Still `loading` with the default value at this point: the response needs one microtask more.
-    expect(products.status()).toBe('loading');
+    expect(products.status).toHaveSignalValue('loading');
 
     await settleResource(products, { label: 'the product resource' });
 
-    expect(products.status()).toBe('resolved');
-    expect(products.value()).toEqual([{ id: 1 }]);
+    expect(products.status).toHaveSignalValue('resolved');
+    expect(products.value).toHaveSignalValue([{ id: 1 }]);
   });
 
   it('settles a plain resource(), which needs one more round than an httpResource', async () => {
@@ -64,8 +67,8 @@ describe('settleResource', () => {
 
     await settleResource(data);
 
-    expect(data.status()).toBe('resolved');
-    expect(data.value()).toBe('loaded');
+    expect(data.status).toHaveSignalValue('resolved');
+    expect(data.value).toHaveSignalValue('loaded');
   });
 
   it('settles a loader that resolves on a real timer, which no number of microtasks reaches', async () => {
@@ -73,6 +76,7 @@ describe('settleResource', () => {
       resource({
         params: () => 1,
         loader: () =>
+          // eslint-disable-next-line vitest-auto-spy/no-real-wait-in-test -- a loader on a real timer is the case under test
           new Promise<string[]>((resolve) => {
             setTimeout(() => resolve(['late']), 5);
           }),
@@ -82,8 +86,8 @@ describe('settleResource', () => {
 
     await settleResource(timed, { label: 'the timed resource' });
 
-    expect(timed.status()).toBe('resolved');
-    expect(timed.value()).toEqual(['late']);
+    expect(timed.status).toHaveSignalValue('resolved');
+    expect(timed.value).toHaveSignalValue(['late']);
   });
 
   it('takes its event-loop turn on a timer captured at import, so fake timers cannot freeze it', async () => {
@@ -103,7 +107,7 @@ describe('settleResource', () => {
 
       await settleResource(timed, { label: 'the timed resource' });
 
-      expect(timed.value()).toBe('late');
+      expect(timed.value).toHaveSignalValue('late');
     } finally {
       vi.useRealTimers();
     }
@@ -131,8 +135,8 @@ describe('settleResource', () => {
       /the idle resource never started .* status is 'idle'.*allowIdle/s,
     );
 
-    expect(idle.status()).toBe('idle');
-    expect(idle.value()).toEqual(['DEFAULT']);
+    expect(idle.status).toHaveSignalValue('idle');
+    expect(idle.value).toHaveSignalValue(['DEFAULT']);
   });
 
   it('accepts idle once the spec says the idle state is what it is asserting', async () => {

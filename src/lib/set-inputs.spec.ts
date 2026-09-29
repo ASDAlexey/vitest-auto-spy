@@ -5,12 +5,17 @@
  * typo from a console line nobody reads into a failure at the call that caused it.
  */
 import { Component, effect, input, model, signal, untracked } from '@angular/core';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 import { expectEmission } from './expect-emission';
 import { mockValueProp } from './prop-mock';
 import { renderShallow } from './render-shallow';
 import { setInputs } from './set-inputs';
+import { registerSignalMatchers } from './signal-matchers';
+
+beforeAll(() => {
+  registerSignalMatchers();
+});
 
 @Component({ selector: 'app-counter', template: '' })
 class CounterComponent {
@@ -51,8 +56,8 @@ describe('setInputs', () => {
 
     await setInputs(fixture, { step: 5, label: 'busy' });
 
-    expect(component.step()).toBe(5);
-    expect(component.label()).toBe('busy');
+    expect(component.step).toHaveSignalValue(5);
+    expect(component.label).toHaveSignalValue('busy');
   });
 
   it('writes a model() input by its value, like any other input', async () => {
@@ -60,7 +65,7 @@ describe('setInputs', () => {
 
     await setInputs(fixture, { total: 42 });
 
-    expect(component.total()).toBe(42);
+    expect(component.total).toHaveSignalValue(42);
   });
 
   it('flushes the effects the new value starts, so the model has already emitted', async () => {
@@ -70,7 +75,7 @@ describe('setInputs', () => {
     await setInputs(fixture, { step: 3 });
 
     await expect(emitted).resolves.toBe(30);
-    expect(component.runs()).toBe(2);
+    expect(component.runs).toHaveSignalValue(2);
   });
 
   it('takes an aliased input under either name', async () => {
@@ -78,7 +83,7 @@ describe('setInputs', () => {
 
     await setInputs(fixture, { heading: 'shipped' });
 
-    expect(component.heading()).toBe('shipped');
+    expect(component.heading).toHaveSignalValue('shipped');
   });
 
   it('passes its options to stable, so a spec driving two fixtures can name them', async () => {
@@ -111,8 +116,8 @@ describe('setInputs', () => {
       setInputs(fixture, { label: 'busy', total: 9, missing: true }),
     ).rejects.toThrow(/'missing'/);
 
-    expect(component.label()).toBe('idle');
-    expect(component.total()).toBe(10);
+    expect(component.label).toHaveSignalValue('idle');
+    expect(component.total).toHaveSignalValue(10);
   });
 
   it('says the component has no inputs at all when that is the reason', async () => {
