@@ -4,7 +4,13 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { describeSetupOncePerWorker, noticeSpecFile, recordSetupRegistration, watchCurrentTask } from './setup-per-file';
+import {
+  describeSetupOncePerWorker,
+  noticeSpecFile,
+  recordSetupRegistration,
+  setupModuleExports,
+  watchCurrentTask,
+} from './setup-per-file';
 
 const THIS_FILE = expect.getState().testPath ?? '';
 
@@ -46,6 +52,79 @@ describe('noticeSpecFile', () => {
     expect(written).toHaveLength(1);
     expect(written[0]).toContain('registered its hooks for /a.spec.ts and not for /b.spec.ts');
   });
+
+  it('stays quiet for a file the setup module was evaluated again for without calling setupAutoSpy()', () => {
+    const written: string[] = [];
+    const first = {};
+    const second = {};
+
+    globalThis.__vitestAutoSpySetupRegistration__ = { file: '/a.spec.ts', seen: '/a.spec.ts', warned: false, setupExports: [first] };
+    noticeSpecFile(
+      '/b.spec.ts',
+      (message) => written.push(message),
+      () => [second],
+    );
+    noticeSpecFile(
+      '/c.spec.ts',
+      (message) => written.push(message),
+      () => [second, {}],
+    );
+
+    expect(written).toEqual([]);
+    expect(globalThis.__vitestAutoSpySetupRegistration__).toMatchObject({ file: '/c.spec.ts', warned: false });
+  });
+
+  it('warns when the setup module was not evaluated again, or its evaluations cannot be read', () => {
+    const exports = [{}];
+    const cases: { recorded: readonly unknown[] | undefined; current: readonly unknown[] | undefined }[] = [
+      { recorded: exports, current: [...exports] },
+      { recorded: exports, current: undefined },
+      { recorded: undefined, current: exports },
+    ];
+
+    for (const { recorded, current } of cases) {
+      const written: string[] = [];
+
+      globalThis.__vitestAutoSpySetupRegistration__ = { file: '/a.spec.ts', seen: '/a.spec.ts', warned: false, setupExports: recorded };
+      noticeSpecFile(
+        '/b.spec.ts',
+        (message) => written.push(message),
+        () => current,
+      );
+
+      expect(written).toHaveLength(1);
+    }
+  });
+});
+
+describe('setupModuleExports', () => {
+  it('reads the export object of every setup module, in setup-file order', () => {
+    const first = {};
+    const second = {};
+    const modules = new Map<unknown, unknown>([
+      ['/b.setup.ts', new Set([{ exports: second }])],
+      ['/a.setup.ts', new Set([{ exports: first }])],
+    ]);
+
+    expect(
+      setupModuleExports({
+        config: { setupFiles: ['/a.setup.ts', '/b.setup.ts', '/c.setup.ts'] },
+        evaluatedModules: { fileToModulesMap: modules },
+      }),
+    ).toEqual([first, second]);
+  });
+
+  it('answers undefined where the runner keeps no record of them', () => {
+    expect(setupModuleExports({ config: { setupFiles: [] } })).toBeUndefined();
+    expect(setupModuleExports({ evaluatedModules: { fileToModulesMap: new Map() } })).toBeUndefined();
+  });
+
+  it("reads this worker's own setup modules, the shape the check relies on", () => {
+    const exports = setupModuleExports(Object(Reflect.get(globalThis, '__vitest_worker__')));
+
+    expect(exports?.length).toBeGreaterThan(0);
+    expect(exports?.every((entry) => Object.prototype.toString.call(entry) === '[object Module]')).toBe(true);
+  });
 });
 
 describe('watchCurrentTask', () => {
@@ -73,7 +152,11 @@ describe('watchCurrentTask', () => {
   });
 
   it('leaves a slot alone that is already an accessor, or cannot be redefined', () => {
-    const accessor = Object.defineProperty({}, 'current', { configurable: true, get: () => undefined });
+    const accessor = {
+      get current(): undefined {
+        return undefined;
+      },
+    };
     const frozen = Object.freeze({ current: undefined });
 
     expect(watchCurrentTask(accessor, () => undefined)).toBe(false);
@@ -103,5 +186,29 @@ describe('recordSetupRegistration', () => {
     recordSetupRegistration(worker);
 
     expect(globalThis.__vitestAutoSpySetupRegistration__).toEqual({ file: THIS_FILE, seen: THIS_FILE, warned: false });
+  });
+
+  it('records the setup modules the call ran in, and watches with them', () => {
+    const evaluatedModules = {
+      fileToModulesMap: new Map<string, Set<{ exports: object }>>([[THIS_FILE, new Set([{ exports: { first: true } }])]]),
+    };
+    const worker: { config: object; evaluatedModules: object; current?: unknown } = {
+      config: { setupFiles: [THIS_FILE] },
+      evaluatedModules,
+      current: undefined,
+    };
+
+    recordSetupRegistration(worker);
+
+    expect(globalThis.__vitestAutoSpySetupRegistration__?.setupExports).toEqual([{ first: true }]);
+
+    evaluatedModules.fileToModulesMap.set(THIS_FILE, new Set([{ exports: { second: true } }]));
+    worker.current = { type: 'test', file: { filepath: '/other.spec.ts' } };
+
+    expect(globalThis.__vitestAutoSpySetupRegistration__).toMatchObject({
+      file: '/other.spec.ts',
+      warned: false,
+      setupExports: [{ second: true }],
+    });
   });
 });

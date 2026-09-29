@@ -12,6 +12,8 @@ interface SetupRegistration {
   /** The last spec file a test was seen in. */
   seen: string | undefined;
   warned: boolean;
+  /** The setup modules' export objects when the latest call ran; a new evaluation gets new ones. */
+  setupExports?: readonly unknown[] | undefined;
 }
 
 declare global {
@@ -32,8 +34,41 @@ export function describeSetupOncePerWorker(registeredFor: string, running: strin
   );
 }
 
-/** Exported for its spec: the check a test of a new spec file triggers. */
-export function noticeSpecFile(file: string, write: (message: string) => void = writeWarning): void {
+function sameEntries(left: readonly unknown[], right: readonly unknown[]): boolean {
+  return left.length === right.length && left.every((entry, index) => entry === right[index]);
+}
+
+/**
+ * The export objects of the worker's setup modules, or `undefined` where the runner keeps no such
+ * record. Vitest's module runner hands a module a fresh one each time it evaluates it.
+ * Exported for its spec.
+ */
+export function setupModuleExports(worker: object): readonly unknown[] | undefined {
+  const setupFiles: unknown = Reflect.get(Object(Reflect.get(worker, 'config')), 'setupFiles');
+  // Duck-typed: under a VM pool the runner's Map comes from another realm.
+  const modules: unknown = Reflect.get(Object(Reflect.get(worker, 'evaluatedModules')), 'fileToModulesMap');
+  const read: unknown = Reflect.get(Object(modules), 'get');
+
+  if (!Array.isArray(setupFiles) || typeof read !== 'function') {
+    return undefined;
+  }
+
+  return setupFiles.flatMap((file: unknown) => {
+    const nodes: unknown[] = Array.from(Object(Reflect.apply(read, modules, [file]) ?? []));
+
+    return nodes.map((node) => Reflect.get(Object(node), 'exports'));
+  });
+}
+
+/**
+ * Exported for its spec: the check a test of a new spec file triggers. A setup module evaluated again
+ * for the file ran, it just did not call `setupAutoSpy()` for it: that is a choice, not the bug.
+ */
+export function noticeSpecFile(
+  file: string,
+  write: (message: string) => void,
+  currentSetupExports: () => readonly unknown[] | undefined = () => undefined,
+): void {
   const registration = globalThis.__vitestAutoSpySetupRegistration__;
 
   if (registration === undefined || registration.seen === file) {
@@ -42,10 +77,21 @@ export function noticeSpecFile(file: string, write: (message: string) => void = 
 
   registration.seen = file;
 
-  if (registration.file !== file && !registration.warned) {
-    registration.warned = true;
-    write(describeSetupOncePerWorker(registration.file, file));
+  if (registration.file === file || registration.warned) {
+    return;
   }
+
+  const exports = currentSetupExports();
+
+  if (exports !== undefined && registration.setupExports !== undefined && !sameEntries(exports, registration.setupExports)) {
+    registration.file = file;
+    registration.setupExports = exports;
+
+    return;
+  }
+
+  registration.warned = true;
+  write(describeSetupOncePerWorker(registration.file, file));
 }
 
 function testFileOf(task: unknown): string | undefined {
@@ -116,13 +162,15 @@ export function recordSetupRegistration(worker: unknown = Reflect.get(globalThis
   }
 
   const existing = globalThis.__vitestAutoSpySetupRegistration__;
+  const setupExports = setupModuleExports(worker);
 
   if (existing !== undefined) {
     existing.file = file;
+    existing.setupExports = setupExports;
 
     return;
   }
 
-  globalThis.__vitestAutoSpySetupRegistration__ = { file, seen: undefined, warned: false };
-  watchCurrentTask(worker, (test) => noticeSpecFile(test));
+  globalThis.__vitestAutoSpySetupRegistration__ = { file, seen: undefined, warned: false, setupExports };
+  watchCurrentTask(worker, (test) => noticeSpecFile(test, writeWarning, () => setupModuleExports(worker)));
 }
