@@ -2,12 +2,13 @@
  * Two halves: the flags handed over as options, which is most of the file, and the search for a
  * runner config on disk, which needs real directories and gets them from `mkdtempSync`.
  */
-import { type LintMessage, Linter } from 'eslint';
+import { type LintMessage } from 'eslint';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { CLEANUP_OPTIONS, createFlatLinter } from './no-redundant-mock-reset.mock';
 import { fixRule, runRule } from './run-rule';
 
 const RULE = 'no-redundant-mock-reset';
@@ -181,12 +182,12 @@ describe('no-redundant-mock-reset, finding the runner config itself', () => {
     writeFileSync(join(vite, 'vite.config.ts'), `export default { test: { restoreMocks: true } };\n`);
   });
 
-  afterAll(() => rmSync(root, { force: true, recursive: true }));
+  afterAll(() => rmSync(root, CLEANUP_OPTIONS));
 
   function inDirectory(directory: string, source = code, options?: object): number {
     return runRule(RULE, source, {
       filename: join(directory, 'nested', 'thing.spec.ts'),
-      linter: new Linter({ configType: 'flat', cwd: directory }),
+      linter: createFlatLinter(directory),
       ...(options ? { options } : {}),
     }).length;
   }
@@ -254,12 +255,12 @@ describe('no-redundant-mock-reset, the clearMocks default of the installed Vites
   function lint(directory: string, source = code, options?: object): LintMessage[] {
     return runRule(RULE, source, {
       filename: join(directory, 'nested', 'thing.spec.ts'),
-      linter: new Linter({ configType: 'flat', cwd: directory }),
+      linter: createFlatLinter(directory),
       ...(options ? { options } : {}),
     });
   }
 
-  afterAll(() => rmSync(root, { force: true, recursive: true }));
+  afterAll(() => rmSync(root, CLEANUP_OPTIONS));
 
   it('counts clearMocks on under Vitest 5 when the config leaves it out, and says it is the default', () => {
     const v5 = project('v5-unset', { version: '5.0.2' }, 'restoreMocks: true');
@@ -334,12 +335,12 @@ describe('no-redundant-mock-reset, specs the Angular unit-test builder also runs
   function lint(directory: string, source: string, options?: object, project = 'app'): number {
     return runRule(RULE, source, {
       filename: join(directory, 'projects', project, 'src', 'thing.spec.ts'),
-      linter: new Linter({ configType: 'flat', cwd: directory }),
+      linter: createFlatLinter(directory),
       ...(options ? { options } : {}),
     }).length;
   }
 
-  afterAll(() => rmSync(root, { force: true, recursive: true }));
+  afterAll(() => rmSync(root, CLEANUP_OPTIONS));
 
   it('does not call a reset dead on a flag the builder target never reads', () => {
     const directory = workspace('no-runner-config', { builder: '@angular/build:unit-test' });
@@ -357,7 +358,7 @@ describe('no-redundant-mock-reset, specs the Angular unit-test builder also runs
     const message = (at: string): string =>
       runRule(RULE, clear, {
         filename: join(at, 'projects', 'app', 'src', 'thing.spec.ts'),
-        linter: new Linter({ configType: 'flat', cwd: at }),
+        linter: createFlatLinter(at),
       })[0]?.message ?? '';
 
     writeFileSync(join(directory, 'vitest.config.ts'), `export default { test: { mockReset: true } };\n`);
