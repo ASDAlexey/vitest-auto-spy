@@ -1,27 +1,33 @@
 ---
 title: После refactor-jasmine-vitest от Angular
-description: Собственный ng generate @schematics/angular:refactor-jasmine-vitest от Angular переписывает jasmine.createSpyObj в написанный руками объектный литерал из vi.fn() и оставляет три комментария TODO, которые не может разрешить. createSpyFromClass закрывает все три по построению — он читает прототип класса, а не место вызова, — и эта страница показывает настоящий вывод схематика рядом с одной строкой, которая его заменяет, плюс историю Karma и Vitest с номерами версий.
+description: Схематик refactor-jasmine-vitest от Angular превращает jasmine.createSpyObj в написанные руками литералы из vi.fn() и оставляет три TODO. createSpyFromClass закрывает все три одной строкой; здесь настоящий вывод схематика рядом с исправлением.
 ---
 
 # После `refactor-jasmine-vitest` от Angular
 
-`ng generate @schematics/angular:refactor-jasmine-vitest` переводит **синтаксис** Angular-сюиты с
-jasmine на Vitest. С этой работой он справляется хорошо и честен насчёт того, чего не умеет: на
-каждом вызове, за который не взялся, он оставляет комментарий `// TODO: vitest-migration:`. Эта
-страница — про диф, который из него выходит: конкретно про строки `jasmine.createSpyObj`, которые он
-разворачивает в написанный руками объектный литерал, и про три формы, которые он не трогает.
+Вы запустили схематик Angular `refactor-jasmine-vitest`, и теперь в спеках лежат написанные руками
+объекты из `vi.fn()` и комментарии `// TODO: vitest-migration:`. Эта страница заменяет каждый
+остаток `jasmine.createSpyObj` одной строкой, которая читает класс, а не список методов:
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+api = createSpyFromClass(Api); // все методы Api, с типами и хелперами по типу возврата
+```
+
+Схематик переводит **синтаксис** с Jasmine на Vitest и делает это хорошо. Там, где он не может
+решить сам, он оставляет TODO. Три TODO, которые он оставляет на `createSpyObj`, разобраны
+[ниже](#the-three-todos-and-the-line-beside-each).
 
 Это **не** [кодмод](/ru/utilities/codemod). `npx vitest-auto-spy codemod --from jasmine` переводит
-сюиту с `jasmine-auto-spies` на эту библиотеку; эта страница переводит на неё вывод
-Angular-схематика. Разный вход, одно назначение. Если сюита на `jasmine-auto-spies`, начинайте с
-[Миграции с jasmine-auto-spies](/ru/migrating-jasmine).
+проект на `jasmine-auto-spies`; эта страница начинается с вывода схематика. Если ваш проект на
+`jasmine-auto-spies`, начните с [Перехода с jasmine-auto-spies](/ru/migrating-jasmine).
 
 ## Что схематик делает с `createSpyObj` {#what-the-schematic-does-to-createspyobj}
 
-Всё, что ниже, — настоящий вывод `@schematics/angular` **22.1.6**, запущенного на однофайловом
-проекте командой
+Ниже — настоящий вывод `@schematics/angular` **22.1.6** на проекте из одного файла. Команда:
 `npx schematics @schematics/angular:refactor-jasmine-vitest --project=app --no-dry-run`
-(`@angular-devkit/schematics-cli` 22.x). Потом ничего не правилось, кроме вырезанных импортов.
+(`@angular-devkit/schematics-cli` 22.x). После запуска удалены только импорты.
 
 Было:
 
@@ -101,18 +107,21 @@ describe('Orders', () => {
 });
 ```
 
-Переписывание случая с литералом сделано верно и аккуратно: `jasmine.SpyObj<Api>` становится
-`MockedObject<Api>`, `.and.returnValue(v)` — `.mockReturnValue(v)`, каждому `vi.fn()` даётся имя
-`Api.get` ради вывода при падении, а `spyOn(o, 'm').and.callThrough()` превращается в голый
-`vi.spyOn(o, 'm')` — и это правильно, потому что `vi.spyOn` по умолчанию пропускает вызов дальше,
-тогда как `spyOn` из jasmine его подменяет
-([перевёрнутое умолчание](/ru/migrating-jasmine#spyon-means-the-opposite-thing-on-the-two-sides)).
-Схематик перепечатывает файл через принтер TypeScript, поэтому отступы становятся четырёхпробельными,
-а кавычки меняются; Prettier возвращает всё назад. `vi` не импортируется, потому что `addImports` по
-умолчанию `false` — билдер `@angular/build:unit-test` включает глобали Vitest.
+Для литеральных аргументов переписывание верное:
 
-Сводка, которую он печатает, и отчёт `jasmine-vitest-<date>.md`, который он кладёт в корень проекта,
-считают то, за что он не взялся:
+- `jasmine.SpyObj<Api>` становится `MockedObject<Api>`;
+- `.and.returnValue(v)` становится `.mockReturnValue(v)`;
+- каждый `vi.fn()` получает имя вроде `Api.get` для сообщений о падении;
+- `spyOn(o, 'm').and.callThrough()` становится голым `vi.spyOn(o, 'm')`. Это правильно: `vi.spyOn`
+  по умолчанию вызывает настоящий метод, а `spyOn` из Jasmine его заменяет
+  ([перевёрнутое умолчание](/ru/migrating-jasmine#spyon-means-the-opposite-thing-on-the-two-sides)).
+
+Схематик перепечатывает файл принтером TypeScript, поэтому отступы становятся по четыре пробела, а
+кавычки меняются; Prettier всё возвращает. `vi` не импортируется: `addImports` по умолчанию `false`, а
+билдер `@angular/build:unit-test` включает глобальные функции Vitest.
+
+То, что он пропустил, схематик считает в сводке в консоли и в отчёте `jasmine-vitest-<date>.md` в
+корне проекта:
 
 ```
 - 3 TODO(s) added for manual review:
@@ -123,10 +132,9 @@ describe('Orders', () => {
 
 ## Три TODO и строка напротив каждого {#the-three-todos-and-the-line-beside-each}
 
-Сообщения процитированы дословно из `refactor/jasmine-vitest/utils/todo-notes.js` в
-`@schematics/angular` 22.1.6, и все три ведут на `vi.fn()` как на способ жить дальше. У всех трёх
-здесь один и тот же ответ, потому что [`createSpyFromClass`](/ru/core/create-spy-from-class) не видит
-списка методов никогда — он читает класс.
+Сообщения ниже процитированы из `@schematics/angular` 22.1.6. Все три отправляют к `vi.fn()`. Здесь у
+всех трёх один ответ: [`createSpyFromClass`](/ru/core/create-spy-from-class) не нужен список
+методов, он читает класс.
 
 ```ts
 import { createSpyFromClass } from 'vitest-auto-spy';
@@ -146,21 +154,20 @@ api = injectSpy(Api);
 
 > jasmine.createSpyObj called with a single argument is not supported for transformation.
 
-`jasmine.createSpyObj('Api')` даёт дублю имя и не перечисляет ничего, так что разворачивать нечего.
-Схематик оставляет вызов как есть, и в рантайме под Vitest строка падает с
-`ReferenceError: jasmine is not defined`. `createSpyFromClass(Api)` — та самая форма с одним
-аргументом, которая работает: имя берётся от класса, а методы — те, что есть у его прототипа.
+`jasmine.createSpyObj('Api')` задаёт имя и не перечисляет методов, так что разворачивать нечего.
+Схематик оставляет вызов как есть, и под Vitest он падает с
+`ReferenceError: jasmine is not defined`. `createSpyFromClass(Api)` — рабочая форма с одним
+аргументом: вы передаёте класс, и спай получает все его методы.
 
 ### `createSpyObj-dynamic-variable` {#createspyobj-dynamic-variable}
 
 > Cannot transform jasmine.createSpyObj with a dynamic variable. Please migrate this manually.
 
-`jasmine.createSpyObj('Api', methods)`, где `methods` объявлен где-то ещё — общий `const`, параметр
-хелпера, список, собранный через `Object.keys`, — не может быть развёрнут трансформером, который
-видит только этот вызов. Здесь разворачивать нечего: `createSpyFromClass(Api)` ставит спай на каждый
-метод, который есть у прототипа. А если список существовал, чтобы _сузить_ дубль, — это
-[`onlyMethodsToSpyOn`](/ru/core/create-spy-from-class#configuration), и он может остаться
-переменной, типизированной ключами методов класса, а не как `string[]`:
+Здесь `methods` объявлен где-то ещё: общий `const`, параметр хелпера или список из `Object.keys`.
+Инструмент, который видит только этот вызов, развернуть его не может. `createSpyFromClass(Api)`
+список не нужен: он ставит спай на каждый метод класса. Если список был нужен, чтобы _ограничить_
+спай, используйте [`onlyMethodsToSpyOn`](/ru/core/create-spy-from-class#configuration). Он может
+остаться переменной, но с типом имён методов класса, а не `string[]`:
 
 ```ts
 const methods = ['get'] satisfies Array<keyof Api>;
@@ -172,75 +179,71 @@ api = createSpyFromClass(Api, { onlyMethodsToSpyOn: methods });
 
 > Cannot transform jasmine.createSpyObj with a dynamic property map. Please migrate this manually.
 
-Вот здесь диф стоит прочитать, потому что схематик всё-таки **переписывает** вызов и роняет третий
-аргумент на пол: `jasmine.createSpyObj('Api', ['get'], props)` стал
-`{ get: vi.fn().mockName('Api.get') }`, и `withProps.baseUrl` строкой ниже теперь `undefined` —
-ошибка компиляции там, где объявлен `MockedObject<Api>`, и молчаливый `undefined` там, где он не
-объявлен. Единственное, что об этом говорит, — комментарий.
+Здесь дифф стоит прочитать внимательно. Схематик **переписывает** вызов, но теряет третий аргумент.
+`jasmine.createSpyObj('Api', ['get'], props)` превратился в `{ get: vi.fn().mockName('Api.get') }`,
+и `withProps.baseUrl` строкой ниже теперь `undefined`. Там, где объявлен `MockedObject<Api>`, это
+ошибка компиляции, в остальных местах — молчаливый `undefined`. Сообщает об этом только комментарий
+TODO.
 
-Честный ответ зависит от того, чем это свойство является на классе:
+Исправление зависит от того, чем это свойство является в классе:
 
-- **обычное поле** сохраняет свой объявленный тип на `Spy<Api>`, так что либо присвойте его, либо
-  отдайте карту в `overrides` провайдера — `provideAutoSpy(Api, { overrides: props })`;
-- **`readonly`-поле** или **сигнал** — это
-  [`mockReadonlyProp(api, 'baseUrl', '/api')`](/ru/adapters/angular#signal-readonly-property-mocking),
-  который запоминает подменённый дескриптор, чтобы `restoreMockedProps()` мог всё вернуть;
-- **геттер** — это
-  [`gettersToSpyOn: ['baseUrl']`](/ru/core/create-spy-from-class#accessor-spies-—-accessorspies), а
-  значение задаётся через `api.accessorSpies.getters.baseUrl.mockReturnValue('/api')` — само свойство
-  остаётся типизированным так, как объявил класс.
+- **обычное поле** сохраняет свой тип на `Spy<Api>`. Присвойте его или передайте объект в
+  `overrides` провайдера: `provideAutoSpy(Api, { overrides: props })`;
+- **`readonly`-поле** или **сигнал**: используйте
+  [`mockReadonlyProp(api, 'baseUrl', '/api')`](/ru/adapters/angular#signal-readonly-property-mocking).
+  Он запоминает, что заменил, и `restoreMockedProps()` может это вернуть;
+- **геттер**: используйте
+  [`gettersToSpyOn: ['baseUrl']`](/ru/core/create-spy-from-class#accessor-spies-—-accessorspies) и
+  задайте значение через `api.accessorSpies.getters.baseUrl.mockReturnValue('/api')`. Само свойство
+  сохраняет тип, объявленный в классе.
 
 ## Почему двух динамических случаев здесь просто не бывает {#why-the-two-dynamic-cases-cannot-exist-here}
 
-Схематик преобразует **место вызова**: имена методов он обязан увидеть литеральным массивом или
-объектом в списке аргументов, потому что строка в переменной может прийти откуда угодно. Значит,
-нелитеральный список преобразовать нельзя, а формы с одним аргументом преобразовывать не во что
-вообще.
+Схематик переписывает **место вызова**. Имена методов он должен видеть литеральным массивом или
+объектом прямо в аргументах, потому что в переменной может оказаться что угодно. Поэтому
+нелитеральный список переписать нельзя, а в вызове без списка переписывать нечего.
 
-`createSpyFromClass` читает **прототип**: в рантайме он обходит `Api.prototype` (и его цепочку) и
-ставит спаи на то, что нашёл, а `Spy<Api>` — это mapped-тип по тому же классу на этапе компиляции.
-Никакого списка в месте вызова — ни литерального, ни какого-либо ещё — нет, так что динамическим
-быть нечему. Метод, добавленный в `Api` через месяц, окажется на дубле при следующем прогоне теста;
-удалённый метод станет ошибкой компиляции на строке, которая его всё ещё зовёт.
+`createSpyFromClass` читает **класс**. В рантайме он обходит `Api.prototype` и его родителей и
+ставит спаи на всё, что нашёл. При компиляции `Spy<Api>` строится по тому же классу. Списка в месте
+вызова нет, поэтому динамическим быть нечему. Метод, добавленный в `Api` через месяц, появится у
+спая при следующем запуске тестов. Удалённый метод станет ошибкой компиляции на строке, которая его
+ещё вызывает.
 
-То же верно для `createSpyObj` из точки входа [`vitest-auto-spy/jasmine`](/ru/migrating-jasmine),
-которая сохраняет форму вызова jasmine для сюиты, ещё не готовой назвать класс: имена она читает в
-рантайме, поэтому список в переменной там работает, а возвращаемый объект типизирован теми именами,
-которые видит компилятор, — переменная типа `string[]` даёт ему ключи `string`. Форму с одним
-аргументом она тоже отвергает — сообщением, которое называет способ починки. Где класс есть,
-предпочитайте класс.
+У [`vitest-auto-spy/jasmine`](/ru/migrating-jasmine) тоже есть `createSpyObj` — для спек, которые
+пока не готовы назвать класс. Он сохраняет форму вызова Jasmine и читает имена в рантайме, поэтому
+список в переменной там работает. Тип результата строится по тем именам, которые видит компилятор:
+переменная `string[]` даёт ключи `string`. Форму с одним аргументом он отвергает с ошибкой, в которой
+назван способ исправить. Если класс есть, берите класс.
 
 ## Во что литерал обходится потом {#what-the-literal-costs-afterwards}
 
-Литерал, который пишет схематик, — ровно то, что
+Литерал, который пишет схематик, — это то, что
 [руководство по тестированию на angular.dev](https://angular.dev/guide/testing/services) советует
-писать руками, так что ничего неправильного в нём нет. Это форма сопровождения, и счёт приходит
-позже:
+писать руками. Ошибки в нём нет. Просто его дороже поддерживать:
 
-- **Его правят при каждом изменении класса.** `MockedObject<Api>` требует каждый член `Api`, поэтому
-  добавленный в сервис метод — это ошибка компиляции в каждой спеке, где лежит литерал, и каждая
-  чинится ещё одной строкой `name: vi.fn().mockName('Api.name')`. `Spy<Api>` следует за классом.
-- **Никаких хелперов по типу возврата.** `api.get.mockReturnValue(of([...]))` — единственная форма,
-  которую знает `vi.fn()`. Здесь `api.get` возвращает `Observable`, поэтому у него есть
+- **Его правят при каждом изменении класса.** `MockedObject<Api>` требует все члены `Api`. Добавьте
+  метод в сервис — и каждая спека с литералом перестанет компилироваться, пока вы не допишете ещё
+  одну строку `name: vi.fn().mockName('Api.name')`. `Spy<Api>` следует за классом сам.
+- **Нет хелперов по типу возврата.** `vi.fn()` знает только `api.get.mockReturnValue(of([...]))`.
+  Здесь `api.get` возвращает `Observable`, поэтому у него есть
   [`nextWith` / `throwWith`](/ru/core/control-helpers#observable-methods-properties-—-nextwith) и
-  `calledWith('/orders').nextWith([...])`; у метода, возвращающего `Promise`, есть
-  [`resolveWith` / `rejectWith`](/ru/core/control-helpers#promise-returning-methods-—-resolvewith); а
-  у каждого метода есть
-  [`mustBeCalledWith`](/ru/core/control-helpers#synchronous-methods), который валит тест на
-  несовпадении аргументов вместо того, чтобы вернуть `undefined`.
-- **Ненастроенный метод молчит в обоих случаях.** `vi.fn()` возвращает `undefined`, и ненастроенный
-  спай здесь тоже; [`strict: true`](/ru/core/strict-mode) превращает это в падение на том вызове,
-  который его вызвал, — для одного дубля или для всей сюиты.
-- **С именованием ничья, но в одну сторону.** С базовым именем схематик называет каждый мок
-  `Api.get`, и это хороший вывод при падении; форма без базового имени
-  (`jasmine.createSpyObj(['get'])`) получает голые `vi.fn()`. Здесь каждый спай метода назван по
-  своему методу — на любом раннере, который умеет имена.
+  `calledWith('/orders').nextWith([...])`. У метода, который возвращает `Promise`, есть
+  [`resolveWith` / `rejectWith`](/ru/core/control-helpers#promise-returning-methods-—-resolvewith).
+  У каждого метода есть [`mustBeCalledWith`](/ru/core/control-helpers#synchronous-methods): при
+  неверных аргументах он валит тест, а не возвращает `undefined`.
+- **Ненастроенный метод молчит в обоих случаях.** `vi.fn()` возвращает `undefined`, ненастроенный
+  спай здесь — тоже. [`strict: true`](/ru/core/strict-mode) превращает такой вызов в падение — для
+  одного спая или для всех тестов.
+- **С именами примерно поровну.** С базовым именем схематик называет каждый мок `Api.get`, и в
+  сообщениях о падении это удобно. Без базового имени (`jasmine.createSpyObj(['get'])`) получаются
+  голые `vi.fn()`. Здесь каждый спай метода назван по своему методу на любом раннере, который
+  поддерживает имена.
 
 ## Если сначала хочется остановиться на синтаксисе jasmine {#if-you-would-rather-stop-at-jasmine-syntax-first}
 
-Собственный вывод схематика уже ушёл дальше синтаксиса jasmine, так что это альтернатива тому, чтобы
-запускать его по спаям вообще: раннер переезжает, спеки — нет, а дубли переписываются позже, по
-одному. [`vitest-auto-spy/jasmine`](/ru/migrating-jasmine#jasmine-s-own-globals) — это тот самый шаг:
+Это альтернатива запуску схематика на ваших спаях. Меняется раннер, спеки остаются как есть, а спаи
+вы переписываете позже, по одному.
+[`vitest-auto-spy/jasmine`](/ru/migrating-jasmine#jasmine-s-own-globals) позволяет так сделать:
 
 ```ts
 import { jasmine } from 'vitest-auto-spy/jasmine';
@@ -249,15 +252,15 @@ const api = jasmine.createSpyObj('Api', ['get', 'post']); // без измене
 api.get.and.returnValue(of([])); // .and, .calls, .withArgs снова на месте
 ```
 
-В `globalThis` ничего не ставится — это импорт на файл, который [кодмод](/ru/utilities/codemod) в
-конце удаляет. На `bun test` или `node --test`, где эту точку входа загрузить нельзя,
-`enableJasmineCompat()` из `vitest-auto-spy/jasmine-compat` включает те же неймспейсы из setup-файла;
-см. [На Bun и `node:test`](/ru/migrating-jasmine#on-bun-and-node-test).
+В `globalThis` ничего не добавляется: вы импортируете модуль в каждом файле, а
+[кодмод](/ru/utilities/codemod) в конце удаляет этот импорт. На `bun test` или `node --test`, где эта
+точка входа не загружается, вызовите `enableJasmineCompat()` из `vitest-auto-spy/jasmine-compat` в
+setup-файле; см. [На Bun и `node:test`](/ru/migrating-jasmine#on-bun-and-node-test).
 
 ## Как было на самом деле, с версиями {#the-record-with-versions}
 
-Про эту миграцию повторяют три вещи, и все три — не вполне то, что произошло. Каждая строка ниже
-сверена с первоисточником 2026-09-02.
+Про эту миграцию часто говорят не совсем точные вещи. Каждая строка ниже сверена с первоисточником
+2026-09-02.
 
 - **Angular не объявлял Karma устаревшей. Это сделали её собственные мейнтейнеры, в 2023 году.**
   Уведомление — "Karma is deprecated and is not accepting new features or general bug fixes" — было

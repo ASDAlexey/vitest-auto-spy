@@ -1,34 +1,195 @@
 ---
 title: Миграция с @testing-library/angular
-description: Пересекается с этим пакетом ровно половина @testing-library/angular — его точка входа /vitest-utils с createMock и provideMock, 52 строки. Во что они переводятся, два дефекта, воспроизводимых в REPL, и то, что остаётся у вас.
+description: Замена createMock и provideMock из @testing-library/angular/vitest-utils на vitest-auto-spy, а render, screen и запросы остаются - соответствие API, спека до и после и два дефекта, которые это исправляет.
 ---
 
 # Миграция с `@testing-library/angular`
 
-Это единственная страница про миграцию здесь, которая советует оставить библиотеку, с которой вы
-пришли.
+Эта страница заменяет хелперы моков из `@testing-library/angular/vitest-utils` (`createMock`,
+`provideMock` и их версии `WithValues`) на `vitest-auto-spy`. `render`, `screen` и запросы остаются;
+меняются только `providers`. Переезжайте, если ваши моки теряют геттеры или ломаются на `toString`
+или если нужны типизированные спаи. Провайдер меняется так:
 
-[`@testing-library/angular`](https://github.com/testing-library/angular-testing-library) — инструмент
-рендеринга: `render`, `screen`, набор запросов и стоящая за ними дисциплина «смотри глазами
-пользователя». Ничему из этого здесь нет близнеца, и ничто из этого переезжать не должно.
-Пересекается одна вторичная точка входа, `@testing-library/angular/vitest-utils`, четыре экспорта
-которой делают ту же работу, что [`createSpyFromClass`](/ru/core/create-spy-from-class) и
-[`provideAutoSpy`](/ru/adapters/angular). В этой точке входа 52 строки, она жадная, она игнорирует
-аксессоры и она мокает `hasOwnProperty`. Страница — про эти 52 строки.
+::: code-group
 
-::: info Как это проверялось
-`npm pack @testing-library/angular@19.4.2` и чтение распакованных
-`fesm2022/testing-library-angular-vitest-utils.mjs` и соответствующего `.d.ts`; `npm view … time` для
-дат публикации; карты `exports` версий 19.1.1 и 19.2.0 рядом — ради точки входа `./zoneless`; и вывод
-`createMock` ниже, полученный импортом опубликованного модуля и печатью того, что вернулось, а не
-чтением кода с предсказанием результата. Проверено **2026-09-04** на 19.4.2, опубликованной
-2026-08-07.
+```ts [Было — /vitest-utils]
+import { provideMockWithValues } from '@testing-library/angular/vitest-utils';
+
+const load = vi.fn().mockReturnValue(of({ name: 'Ann' }));
+
+await render(ProfileComponent, { providers: [provideMockWithValues(UserService, { load })] });
+```
+
+```ts [Стало — vitest-auto-spy]
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+
+await render(ProfileComponent, {
+  providers: [provideAutoSpy(UserService, { returns: { load: of({ name: 'Ann' }) } })],
+});
+expect(injectSpy(UserService).load).toHaveBeenCalledOnce();
+```
+
 :::
+
+Задавайте ответы в провайдере — тогда компонент видит их уже при первом рендере.
+`injectSpy(UserService)` возвращает тот же спай, уже с типом, чтобы потом поменять ответ или проверить
+вызовы. То же касается самописного
+`{ provide: UserService, useValue: { load: vi.fn(() => of(user)) } }`: замените его на
+`provideAutoSpy(UserService, { returns: { load: of(user) } })`. `render` и `screen` остаются как
+есть.
+
+## Установить и оставить {#install-and-keep}
+
+```bash
+npm i -D vitest-auto-spy
+```
+
+Удалять ничего не нужно. `@testing-library/angular` остаётся ради `render`; уходит только импорт
+`/vitest-utils`. Переезд — про то, что делает мок, а не про то, чтобы ставить меньше пакетов.
+
+## Перевод {#the-translation}
+
+| `@testing-library/angular/vitest-utils`        | `vitest-auto-spy`                                                     |
+| ---------------------------------------------- | --------------------------------------------------------------------- |
+| `createMock(Service)`                          | [`createSpyFromClass(Service)`](/ru/core/create-spy-from-class)       |
+| `createMock<SomeInterface>(…)` — невозможно    | [`createAutoMock<SomeInterface>()`](/ru/core/auto-mock-by-type)       |
+| `createMockWithValues(Service, { a: 1 })`      | `createSpyFromClass(Service, { overrides: { a: 1 } })`                |
+| `provideMock(Service)`                         | [`provideAutoSpy(Service)`](/ru/adapters/angular)                     |
+| `provideMockWithValues(Service, { a: 1 })`     | `provideAutoSpy(Service, { overrides: { a: 1 } })`                    |
+| — аналога нет                                  | `provideAutoSpy(Service, { returns: { load: of([]) } })`              |
+| — аналога нет                                  | [`provideAutoSpyForToken(TOKEN)`](/ru/adapters/angular)               |
+| `TestBed.inject(Service)` с ручным приведением | [`injectSpy(Service)`](/ru/adapters/angular)                          |
+| `Mock<T>`                                      | [`Spy<T>`](/ru/core/spy-typing)                                       |
+| `mock.method.mockReturnValue(v)`               | то же самое, плюс `resolveWith` / `nextWith` / `calledWith`           |
+| — аналога нет                                  | [`gettersToSpyOn` / `settersToSpyOn`](/ru/core/create-spy-from-class) |
+| — аналога нет                                  | [`strict: true`](/ru/core/strict-mode)                                |
+
+`overrides` и `returns` — разные вещи:
+
+- **`overrides`** ставит члену готовое значение. Член перестаёт быть спаем. Именно это делает
+  `createMockWithValues` со своими `values`.
+- **`returns`** оставляет метод спаем и задаёт, что он отвечает. В `/vitest-utils` аналога нет.
+
+Обе опции можно передать в одном вызове; каждая действует только на те члены, которые в ней названы.
+Называйте каждый член только в одной из них.
+Если тест берёт `createMockWithValues`, чтобы задать результат метода, используйте `returns`.
+
+### Провайдер, до и после {#a-provider-before-and-after}
+
+Полная спека со значением поля и ответом метода:
+
+```ts
+// Было
+import { TestBed } from '@angular/core/testing';
+import { render, screen } from '@testing-library/angular';
+import { provideMockWithValues } from '@testing-library/angular/vitest-utils';
+import { of } from 'rxjs';
+
+it('shows the user name', async () => {
+  await render(ProfileComponent, {
+    providers: [
+      provideMockWithValues(UserService, {
+        currentUserId: 7,
+        load: vi.fn().mockReturnValue(of({ name: 'Ann' })),
+      }),
+    ],
+  });
+
+  expect(await screen.findByText('Ann')).toBeTruthy();
+  expect((TestBed.inject(UserService) as Mock<UserService>).load).toHaveBeenCalledOnce();
+});
+```
+
+```ts
+// Стало
+import { render, screen } from '@testing-library/angular';
+import { of } from 'rxjs';
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+
+it('shows the user name', async () => {
+  await render(ProfileComponent, {
+    providers: [
+      provideAutoSpy(UserService, {
+        overrides: { currentUserId: 7 },
+        returns: { load: of({ name: 'Ann' }) },
+      }),
+    ],
+  });
+
+  expect(await screen.findByText('Ann')).toBeTruthy();
+  expect(injectSpy(UserService).load).toHaveBeenCalledOnce();
+});
+```
+
+`render` не меняется. Меняется вот что:
+
+- `load` задан через `returns`, поэтому остаётся спаем с типом; `vi.fn()` руками не нужен.
+- `injectSpy` не требует приведения типа.
+- Метод, который вы не настроили, возвращает `undefined`, как и `vi.fn()`. Добавьте
+  [`strict: true`](/ru/core/strict-mode), чтобы такой вызов падал.
+- Если вы забыли подменить токен, `injectSpy` пишет предупреждение в консоль, а не молча возвращает
+  настоящий сервис под типом мока. [Диагностика](/ru/adapters/angular#injectspy-says-when-it-got-the-real-thing)
+  может превратить предупреждение в падение теста.
+
+## Чему здесь нет пары — и не должно быть {#what-has-no-twin-here-and-should-not}
+
+- **`render`, `screen`, запросы, `fireEvent`, `rerender`, `navigate`.** Этот пакет делает спаи из
+  классов. Компоненты так, как их видит пользователь, он не рендерит, поэтому всё это оставьте.
+  [`renderShallow`](/ru/adapters/angular#shallow-component-rendering) — не замена. Он отвечает на
+  вопрос «что делает этот компонент», а `@testing-library/angular` — «что видит пользователь».
+- **`@testing-library/dom` и `@testing-library/user-event`.** Без изменений.
+- **`aliasedInput`, `configure`, `getConfig`, привязки `componentInputs` / `on`.** Это настройка
+  рендеринга; здесь ей замены нет.
+- **Точка входа `jest-utils`.** Точки входа для Jest здесь нет. Пакет поддерживает Vitest, `bun:test`
+  и `node:test`, и публичного способа подключить другой раннер нет. Если ваши тесты остаются на Jest,
+  оставьте `@testing-library/angular/jest-utils`: этот переезд вам недоступен.
+
+## Zoneless — где он впереди поля {#zoneless-—-where-it-is-ahead-of-the-field}
+
+`@testing-library/angular` — единственная сторонняя библиотека на странице [сравнения](/ru/comparison)
+с поддержкой zoneless. Точка входа `./zoneless` впервые появилась в 19.2.0, опубликованной
+**2026-03-17** (в карте `exports` версии 19.1.1 её нет).
+
+`render` в этой точке входа — урезанная версия основного:
+
+- Возвращает `{ fixture, container, debug }` плюс привязанные запросы.
+- Опции: `queries`, `configureTestBed`, `imports`, `providers`, `bindings`, `importOverrides`,
+  `wrapper`, `wrapperProperties`, `skipDetectChanges` и `waitForStableOnRender`.
+- Нет `rerender`, `detectChanges`, `navigate`, `autoDetectChanges`, `routes`, `componentProperties` и
+  обёртки `fireEvent`, которая перезапускает обнаружение изменений после каждого события.
+  Zoneless-спека под эту точку входа запускает обнаружение изменений сама.
+
+Пакеты работают вместе в любом режиме. Спаи никогда не трогают `NgZone`, а хелперы этой библиотеки для Angular
+написаны в первую очередь для [приложений с `provideZonelessChangeDetection`](/ru/adapters/angular#zoneless-waiting). `fakeAsync`, которому по-прежнему нужен zone.js, лежит в
+[`vitest-auto-spy/zone`](/ru/utilities/zone). Zoneless — не повод оставлять `/vitest-utils`.
+
+## Что вы выигрываете {#what-you-gain}
+
+- **Аксессоры работают.** `gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors` и объект
+  `accessorSpies` для проверок. `createMock` аксессоры пропускает, а его тип утверждает, что они есть.
+- **`Object.prototype` на спай не попадает.** Ни замоканного `toString`, ни замоканного
+  `hasOwnProperty`: три ключа вместо тринадцати в [примере ниже](#the-two-defects-and-how-to-reproduce-them).
+- **Тип совпадает с объектом.** [`Spy<T>`](/ru/core/spy-typing) типизирует каждый член по тому, чем он
+  является, а не `T[K] & Mock` для всех подряд.
+- **Хелперы по типу возврата.** `resolveWith` / `rejectWith` у метода с `Promise`, `nextWith` /
+  `throwWith` у метода с `Observable`, `calledWith(…)`, чтобы отвечать по аргументам,
+  `mustBeCalledWith`, чтобы падать на неожиданных аргументах.
+- **[`strict: true`](/ru/core/strict-mode)**: метод, который никто не настроил, бросает ошибку при
+  вызове, а не возвращает `undefined` в чужую проверку.
+- **Моки по одному типу.** [`createAutoMock<T>()`](/ru/core/auto-mock-by-type) работает для интерфейса
+  или токена внедрения. Фабрика, которая читает `type.prototype`, так не может.
+- **Лениво по умолчанию.** Спай метода создаётся, когда тест впервые к нему обращается;
+  `lazySpies: false` создаёт все сразу.
+- **[`injectSpy`, который сообщает о забытом провайдере](/ru/adapters/angular#injectspy-says-when-it-got-the-real-thing)**,
+  а не выдаёт настоящий сервис за мок.
+- **Тот же API вне Angular:** [`bun:test`](/ru/runtimes/bun), [`node:test`](/ru/runtimes/node),
+  NestJS, React, Vue, Svelte, а `TestBed` из Angular — [под `bun test`](/ru/runtimes/bun-angular).
+- **[Правила линтера](/ru/utilities/eslint-plugin)**, которые выходят в той же версии, что и API,
+  который они советуют.
 
 ## Весь `/vitest-utils` целиком {#the-whole-of-vitest-utils}
 
-Он достаточно короткий, чтобы процитировать его полностью, — для конкурента это необычно и как раз
-поэтому каждое утверждение на этой странице легко перепроверить:
+В точке входа 52 строки. Вот её ядро:
 
 ```js
 // @testing-library/angular 19.4.2, fesm2022/testing-library-angular-vitest-utils.mjs
@@ -54,84 +215,21 @@ function createMock(type) {
 }
 ```
 
-`createMockWithValues` вызывает эту функцию и присваивает переданные значения поверх. `provideMock`
-заворачивает её в `{ provide: type, useValue: … }`. `provideMockWithValues` делает и то и другое. Это
-вся точка входа целиком. Точка входа `@testing-library/angular/jest-utils` — тот же файл, где
-`vi.fn()` заменён на `jest.fn()`, в остальном байт в байт.
+Остальные три экспорта построены на нём:
 
-Жадный обход прототипа, дающий мешок моков, — ровно то, что делает `createSpyFromClass`, поэтому эти
-двое конкуренты, а не дополнение друг к другу.
+- `createMockWithValues` вызывает `createMock` и присваивает переданные значения поверх.
+- `provideMock` заворачивает результат в `{ provide: type, useValue: … }`.
+- `provideMockWithValues` делает и то и другое.
 
-## Установить и оставить {#install-and-keep}
+`@testing-library/angular/jest-utils` — тот же файл, где вместо `vi.fn()` стоит `jest.fn()`.
 
-```bash
-npm i -D vitest-auto-spy
-```
-
-Удалять ничего не нужно. `@testing-library/angular` остаётся ради `render`; уходит только импорт
-`/vitest-utils`, а если сюита его никогда не импортировала, мигрировать вообще нечего. В
-`dependencies` пакета лежит один `tslib`, а его peer-зависимости — это `@angular/*` плюс
-`@testing-library/dom`, так что отказ от импорта подпути не экономит вам ни одной установки. Этот
-переезд — про то, что делает дубль, а не про вес зависимостей.
-
-## Перевод {#the-translation}
-
-| `@testing-library/angular/vitest-utils`        | `vitest-auto-spy`                                                     |
-| ---------------------------------------------- | --------------------------------------------------------------------- |
-| `createMock(Service)`                          | [`createSpyFromClass(Service)`](/ru/core/create-spy-from-class)       |
-| `createMock<SomeInterface>(…)` — невозможно    | [`createAutoMock<SomeInterface>()`](/ru/core/auto-mock-by-type)       |
-| `createMockWithValues(Service, { a: 1 })`      | `createSpyFromClass(Service, { overrides: { a: 1 } })`                |
-| `provideMock(Service)`                         | [`provideAutoSpy(Service)`](/ru/adapters/angular)                     |
-| `provideMockWithValues(Service, { a: 1 })`     | `provideAutoSpy(Service, { overrides: { a: 1 } })`                    |
-| — эквивалента нет                              | `provideAutoSpy(Service, { returns: { load: of([]) } })`              |
-| — эквивалента нет                              | [`provideAutoSpyForToken(TOKEN)`](/ru/adapters/angular)               |
-| `TestBed.inject(Service)` с ручным приведением | [`injectSpy(Service)`](/ru/adapters/angular)                          |
-| `Mock<T>`                                      | [`Spy<T>`](/ru/core/spy-typing)                                       |
-| `mock.method.mockReturnValue(v)`               | то же самое, плюс `resolveWith` / `nextWith` / `calledWith`           |
-| — эквивалента нет                              | [`gettersToSpyOn` / `settersToSpyOn`](/ru/core/create-spy-from-class) |
-| — эквивалента нет                              | [`strict: true`](/ru/core/strict-mode)                                |
-
-Две строки заслуживают того, чтобы их назвать по именам. `values` у `createMockWithValues`
-присваиваются поверх готового мока, затирая то, что там было, — это `overrides`, затравка, которая
-хранится дословно и спаем после этого **не является**. А слова у неё нет для `returns` — того, что
-настраивает ответ метода, остающегося спаем. Если сюита тянется к `createMockWithValues`, чтобы
-подставить возвращаемое значение, ей нужна была строка `returns`.
-
-### Провайдер, до и после {#a-provider-before-and-after}
-
-```ts
-// Было
-import { provideMockWithValues } from '@testing-library/angular/vitest-utils';
-
-await render(CartComponent, {
-  providers: [provideMockWithValues(PricingService, { currency: 'EUR' })],
-});
-
-const pricing = TestBed.inject(PricingService) as Mock<PricingService>;
-pricing.total.mockReturnValue(150);
-```
-
-```ts
-// Стало
-import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
-
-await render(CartComponent, {
-  providers: [provideAutoSpy(PricingService, { overrides: { currency: 'EUR' }, returns: { total: 150 } })],
-});
-
-const pricing = injectSpy(PricingService);
-```
-
-`render` не тронут — это правка массива провайдеров и ничего больше. Меняется то, что дубль засеян в
-самом провайдере, а не строкой ниже; что `injectSpy` не требует приведения типа; и что `injectSpy`
-[сообщает о токене, который вы забыли передать](/ru/adapters/angular#injectspy-says-when-it-got-the-real-thing),
-вместо того чтобы вернуть настоящий сервис под типом спая.
+`createMock` обходит прототип класса и ставит мок на каждый метод. `createSpyFromClass` делает ту же
+работу, поэтому одно заменяет другое.
 
 ## Два дефекта и как их воспроизвести {#the-two-defects-and-how-to-reproduce-them}
 
-Оба сидят в двадцати строках, процитированных выше, и оба воспроизведены 2026-09-04 импортом
-опубликованного модуля 19.4.2 с печатью результата. Запустите сами; вывод ниже — это то, что
-вернулось, только первая строка перенесена, чтобы влезть.
+Оба — в коде выше. Оба воспроизведены 2026-09-04: опубликованный модуль 19.4.2 импортирован, результат
+напечатан. Можете запустить сами; ниже — то, что вернулось, только первая строка перенесена по ширине.
 
 ```ts
 import { createMock } from '@testing-library/angular/vitest-utils';
@@ -168,44 +266,45 @@ toString is a mock: true
 String(mock): undefined
 ```
 
-Тринадцать собственных ключей у класса с тремя методами.
+У класса три метода, а у мока — тринадцать собственных ключей.
 
-**Аксессоры не обрабатываются.** Обход присваивает мок только тогда, когда
-`typeof descriptor?.value === 'function'` (строка 14). У дескриптора геттера есть `get`, а не
-`value`, поэтому `isLoggedIn` и сеттер `token` молча пропускаются. На дубле их нет, а компилятор —
-см. раздел про типизацию ниже — по-прежнему говорит, что они есть. Падение всплывает как `undefined`
-в том месте, где читают `session.isLoggedIn`, на кадр-другой в стороне от дубля, который их потерял.
+**Геттеры и сеттеры пропускаются.** Обход добавляет мок, только если
+`typeof descriptor?.value === 'function'`. У дескриптора геттера есть `get`, а не `value`, поэтому
+`isLoggedIn` и сеттер `token` молча выпадают. Тип при этом говорит, что они есть (см. следующий
+раздел). Ошибка всплывает как `undefined` там, где код читает `session.isLoggedIn`, — далеко от мока,
+который его потерял.
 
-`createSpyFromClass` называет их явно — или находит сам:
+`createSpyFromClass` ставит спаи на аксессоры, которые вы назвали, или находит все сам:
 
 ```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+
 const session = createSpyFromClass(AdminSession, { gettersToSpyOn: ['isLoggedIn'] });
-// или { autoSpyAccessors: true }, чтобы взять каждый аксессор по цепочке прототипов
+// или { autoSpyAccessors: true } — спаи на все геттеры и сеттеры класса и его родителей
 
 session.accessorSpies.getters.isLoggedIn.mockReturnValue(false);
 ```
 
-Свойство продолжает читаться и писаться как обычно; `accessorSpies` — отдельный мешок, в котором
-живут проверки. См. [Спаи на аксессоры](/ru/core/create-spy-from-class#accessor-spies-—-accessorspies).
+Свойство по-прежнему читается и пишется как обычно; спаи для проверок лежат в `accessorSpies`. См.
+[Спаи на аксессоры](/ru/core/create-spy-from-class#accessor-spies-—-accessorspies).
 
-**Нет защиты от `Object.prototype`.** `mockFunctions(Object.getPrototypeOf(proto))` (строка 18)
-рекурсирует, пока прототип не станет `null`, а `Object.prototype` — последняя остановка перед этим,
-так что `hasOwnProperty`, `toString`, `valueOf`, `isPrototypeOf`, `propertyIsEnumerable`,
-`toLocaleString` и четыре аксессора `__define*` / `__lookup*` заменяются на дубле на `vi.fn()`.
-Десять из тринадцати ключей выше — это они.
+**`Object.prototype` тоже мокается.** Обход идёт вверх, пока прототип не станет `null`, а
+`Object.prototype` — последняя остановка перед этим. Поэтому `hasOwnProperty`, `toString`, `valueOf`,
+`isPrototypeOf`, `propertyIsEnumerable`, `toLocaleString` и четыре метода `__define*` / `__lookup*`
+становятся на моке `vi.fn()`. Это десять из тринадцати ключей выше.
 
-И это не косметика. Замоканный `toString` возвращает `undefined`, поэтому дубль превращается в
-`undefined` в каждом сообщении об ошибке, снапшоте и строке лога, где он встречается. Замоканный
-`hasOwnProperty` возвращает `undefined`, поэтому любой код — ваш или библиотечный, — который
-проверяет `obj.hasOwnProperty(key)`, уходит в ложную ветку на дубле, у которого этот ключ есть. А
-`vi.clearAllMocks()` между тестами теперь ещё и чистит по десять моков на каждый дубль, которых никто
-не просил.
+Это ломает настоящий код:
 
-`createSpyFromClass` останавливается на один прототип раньше по построению: `walkOwnPrototypes`
-(`src/lib/create-spy-from-class.ts:81`) заходит в прототип, только пока у того есть родитель, поэтому
-собственные члены `Object.prototype` не собираются вообще. У дубля выше три ключа.
+- Замоканный `toString` возвращает `undefined`, поэтому мок печатается как `undefined` в каждом
+  сообщении об ошибке, снапшоте и строке лога.
+- Замоканный `hasOwnProperty` возвращает `undefined`. Любой код с проверкой `obj.hasOwnProperty(key)`,
+  ваш или библиотечный, уходит в ложную ветку, даже если ключ есть.
+- `vi.clearAllMocks()` между тестами чистит ещё по десять лишних моков на каждый объект.
 
-## `Mock` утверждает, что вызвать можно любой член {#mock-says-every-member-is-callable}
+`createSpyFromClass` никогда не ставит спаи на члены `Object.prototype`. У спая для класса выше три
+ключа.
+
+## `Mock` утверждает, что вызвать можно любой член {#mock-t-says-every-member-is-callable}
 
 ```ts
 // types/testing-library-angular-vitest-utils.d.ts:4
@@ -214,103 +313,42 @@ type Mock<T> = T & {
 };
 ```
 
-Каждый член `T` пересекается с `Mock` из Vitest — включая те, которые рантайм-фабрика никогда не
-присваивала: поля-данные, геттеры, всё, у чьего дескриптора нет функции в `value`. Тип обещает, что
-`session.isLoggedIn.mockReturnValue(false)` скомпилируется, — и оно компилируется, и падает в рантайме
-на `undefined`. Два дефекта складываются: аксессора нет, а тип — причина, по которой вы узнаёте об
-этом только на прогоне.
+Каждый член `T` типизирован как `Mock` из Vitest — включая те, которые `createMock` не создал: поля,
+геттеры, всё, что не метод. Поэтому `session.isLoggedIn.mockReturnValue(false)` компилируется, а в
+рантайме падает на `undefined`. Два дефекта складываются: геттера нет, а тип прячет это до запуска
+теста.
 
-[`Spy<T>`](/ru/core/spy-typing) отображает каждый член по тому, чем он является на самом деле: метод
-становится спаем с хелперами, которые заслужил его возвращаемый тип, поле-данные остаётся
-полем-данными, а до аксессора добираются через `accessorSpies` — вместо того чтобы типизировать его
-вызываемым и не создавать вовсе.
+[`Spy<T>`](/ru/core/spy-typing) типизирует каждый член по тому, чем он является. Метод становится
+спаем с хелперами, которые подходят к его возвращаемому типу. Поле остаётся полем. До геттера или
+сеттера добираются через `accessorSpies`.
 
 ## Жадно, и выхода нет {#eager-with-no-way-out}
 
-`createMock` строит каждый метод сразу; опции для этого нет, потому что опций нет вообще. На широком
-Angular-сервисе это реальная цена, и она [измерена](/ru/core/performance): на классе из 40 методов,
-где спека вызывает три, ленивая сборка дубля стоит **6,04 мкс** против **11,50 мкс** у жадной.
-Ленивая здесь по умолчанию — заглушки-аксессоры до 8 методов, `Proxy` от 8, — а `{ lazySpies: false }`
-отключает её.
-
-Вторая половина этого — память, а не время, и именно она решает судьбу большой сюиты: важно, сколько
-_удерживает_ нетронутый дубль, а не сколько стоит его собрать. См.
-[Производительность](/ru/core/performance).
-
-## Чему здесь нет пары — и не должно быть {#what-has-no-twin-here-and-should-not}
-
-- **`render`, `screen`, запросы, `fireEvent`, `rerender`, `navigate`.** Этот пакет ставит спаи на
-  классы; он не рендерит компоненты так, как их видит пользователь. Оставьте их.
-  [`renderShallow`](/ru/adapters/angular#shallow-component-rendering) — не замена: это поверхностный
-  хелпер над `TestBed` для другого вопроса, «что делает этот компонент», тогда как
-  `@testing-library/angular` отвечает на «что видит пользователь».
-- **`@testing-library/dom` и `@testing-library/user-event`.** Не тронуты.
-- **`aliasedInput`, `configure`, `getConfig`, привязки `componentInputs` / `on`.** Это настройка
-  рендеринга; здесь с ней ничто не конкурирует.
-- **Точка входа `jest-utils`.** Точки входа для Jest здесь сегодня нет: ядро не зависит от раннера и
-  прячется за внутренним `MockAdapter`, адаптеры для Vitest, `bun:test` и `node:test` поставляются, —
-  но `registerMockAdapter` не экспортируется ни из одной публичной точки входа, так что у проекта на
-  Jest нет поддерживаемого способа подключить свой. Если сюита на Jest и остаётся на Jest,
-  `@testing-library/angular/jest-utils` сохраняет оба своих дефекта, а этот переезд вам недоступен.
-
-## Zoneless — где он впереди поля {#zoneless-—-where-it-is-ahead-of-the-field}
-
-`@testing-library/angular` — единственная сторонняя библиотека на странице [сравнения](/ru/comparison)
-с историей про zoneless, и история настоящая: точка входа `./zoneless`, отсутствующая в карте
-`exports` версии 19.1.1 и присутствующая в 19.2.0, опубликованной **2026-03-17**. Обе карты прочитаны
-из опубликованных тарболов.
-
-Прежде чем строить на этом планы, стоит знать, что это за точка входа. `render` там — урезанная
-версия основного: его результат — `{ fixture, container, debug }` плюс связанные запросы, а опции —
-`queries`, `configureTestBed`, `imports`, `providers`, `bindings`, `importOverrides`, `wrapper`,
-`wrapperProperties`, `skipDetectChanges` и `waitForStableOnRender`. Из zoneless-точки входа, по
-сравнению с основной, пропали `rerender`, `detectChanges`, `navigate`, `autoDetectChanges`, `routes`,
-`componentProperties` и обёртка `fireEvent`, которая перезапускала обнаружение изменений после
-каждого события. Zoneless-спека, написанная под неё, гоняет обнаружение изменений сама.
-
-Спай-путь этого пакета `NgZone` тоже нигде не трогает, так что оба сосуществуют без выбора:
-[приложения с `provideZonelessChangeDetection`](/ru/adapters/angular#zoneless-waiting) здесь режим по
-умолчанию, а `fakeAsync` — которому по-прежнему нужен zone.js — живёт за
-[`vitest-auto-spy/zone`](/ru/utilities/zone). Zoneless — не повод оставлять `/vitest-utils`.
-
-## Что вы выигрываете {#what-you-gain}
-
-- **Аксессоры существуют.** `gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors` и мешок
-  `accessorSpies`, на котором можно проверять, — против фабрики, которая их пропускает, и типа,
-  который утверждает обратное.
-- **`Object.prototype` на дубль не попадает.** Никакого замоканного `toString`, никакого замоканного
-  `hasOwnProperty`, три ключа вместо тринадцати.
-- **Тип, который совпадает с объектом.** [`Spy<T>`](/ru/core/spy-typing) по каждому члену вместо
-  `T[K] & Mock` подряд.
-- **Хелперы, знающие возвращаемый тип** — `resolveWith` / `rejectWith` у метода с `Promise`,
-  `nextWith` / `throwWith` у метода с `Observable`, `calledWith(…)` для разбора по аргументам,
-  `mustBeCalledWith`, чтобы падать на несовпадении, а не отвечать на него.
-- **[`strict: true`](/ru/core/strict-mode)**, чтобы метод, который никто не настроил, падал на
-  вызове, а не возвращал `undefined` в чью-то чужую проверку.
-- **Мок по одному типу.** [`createAutoMock<T>()`](/ru/core/auto-mock-by-type) для интерфейса или
-  токена внедрения — то, чего фабрика, читающая `type.prototype`, не может структурно.
-- **Лениво по умолчанию** — `Proxy` от 8 методов, заглушки-аксессоры ниже, — и `lazySpies: false`,
-  чтобы отключить.
-- **[`injectSpy`, который сообщает о забытом провайдере](/ru/adapters/angular#injectspy-says-when-it-got-the-real-thing)**,
-  а не типизирует настоящий сервис как дубль.
-- **То же API вне Angular** — [`bun:test`](/ru/runtimes/bun), [`node:test`](/ru/runtimes/node),
-  NestJS, React, Vue, Svelte, а `TestBed` из Angular — [под `bun test`](/ru/runtimes/bun-angular).
-- **[Пятьдесят одно правило линтера](/ru/utilities/eslint-plugin)**, версионируемое вместе с тем API,
-  который оно советует.
+`createMock` сразу создаёт мок на каждый метод, и опций, чтобы это изменить, у него нет. На широком
+Angular-сервисе это стоит времени и памяти. Здесь спаи по умолчанию ленивые: спай метода создаётся,
+когда тест впервые к нему обращается. `{ lazySpies: false }` это отключает. Цифры — и время сборки, и
+память, которую держит нетронутый спай, — на странице [Производительность](/ru/core/performance).
 
 ## Версии, по которым это писалось {#versions-this-was-written-against}
 
-`@testing-library/angular` **19.4.2**, опубликована **2026-08-07** — `latest` на 2026-09-04. Точка
-входа `./zoneless` появилась в **19.2.0**, опубликованной **2026-03-17**. Всё написанное выше
-прочитано из этих опубликованных тарболов, а вывод `createMock` получен запуском опубликованного
-модуля, а не предсказан.
+`@testing-library/angular` **19.4.2**, опубликована **2026-08-07**, `latest` на 2026-09-04. Точка
+входа `./zoneless` появилась в **19.2.0**, опубликованной **2026-03-17**.
+
+Как это проверялось:
+
+- `npm pack @testing-library/angular@19.4.2`, затем чтение распакованных
+  `fesm2022/testing-library-angular-vitest-utils.mjs` и его `.d.ts`;
+- `npm view … time` для дат публикации;
+- карты `exports` версий 19.1.1 и 19.2.0 рядом — ради точки входа `./zoneless`;
+- вывод `createMock` выше получен импортом опубликованного модуля и печатью результата, а не
+  предсказан по коду.
 
 ## Смотрите также {#see-also}
 
-- [Сравнение → Angular](/ru/comparison#angular) — эта библиотека рядом с ng-mocks и Spectator, с
-  датами последних релизов по всему полю.
-- [Angular-адаптер](/ru/adapters/angular) — `provideAutoSpy`, `injectSpy`, ожидание в zoneless,
+- [Сравнение → Angular](/ru/comparison#angular): эта библиотека рядом с ng-mocks и Spectator, с
+  датами последних релизов.
+- [Адаптер Angular](/ru/adapters/angular): `provideAutoSpy`, `injectSpy`, ожидание в zoneless,
   ресурсы.
 - [`createSpyFromClass`](/ru/core/create-spy-from-class) и
-  [`createAutoMock`](/ru/core/auto-mock-by-type) — две фабрики, на которые указывает таблица выше.
-- [Миграция с @ngneat/spectator](/ru/migrating-spectator) — если сюита тащит ещё и его.
+  [`createAutoMock`](/ru/core/auto-mock-by-type): две фабрики, на которые указывает таблица выше.
+- [Миграция с @ngneat/spectator](/ru/migrating-spectator), если ваши тесты используют и его.
