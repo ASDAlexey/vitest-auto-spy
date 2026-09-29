@@ -25,10 +25,23 @@ wait then runs to the runner's own test timeout, which is the trade. The source 
 `subscribe` takes a bare callback) and hand-rolled subscribables all work — and every helper infers
 the emitted type, so `expectEmission(of(1))` is a `Promise<number>`.
 
+`expectNoEmissionSync(source$, { skip, until, advance, label })` (root and `/angular`) is the same
+assertion for a spec with no `await`: it subscribes, runs `advance`, unsubscribes, and throws at the
+call if anything past `skip` / `until` arrived. It proves silence only for what runs synchronously —
+a stream that emits on a timer needs the async `expectNoEmission`.
+
+```ts
+store.dispatch(noop());
+expectNoEmissionSync(store.saved$, { skip: 1 }); // skip the replayed value
+```
+
+A failure that counts emissions also shows the first five values, then `… N more`:
+`the stream completed after 7 emissions (1, 2, 3, 4, 5, … 2 more), expected 9`,
+`did not complete within 20 ms (3 emissions received: 1, 2, 3)`.
+
 **A `void` stream calls its listener with one argument, `undefined`.** `output<void>().emit()` and
 `Subject<void>.next()` both do, so a `vi.fn()` subscribed to one records `[undefined]`, and
-`expect(listener).toHaveBeenCalledExactlyOnceWith()` fails on `[] vs [undefined]` — the form a
-`prefer-called-with` autofix used to write. The assertion is the emission itself:
+`expect(listener).toHaveBeenCalledExactlyOnceWith()` fails on `[] vs [undefined]`. The assertion is the emission itself:
 `await expect(expectEmission(component.closed)).resolves.toBeUndefined()`, or
 `subscribeSpyTo(subject$).getValuesLength()` to count. A listener kept anyway is typed
 `vi.fn<() => void>()` (`(value: void) => void` trips `no-invalid-void-type`) and asserted
@@ -59,6 +72,15 @@ expect(next).toHaveBeenCalledWith(1000);
 reach for when a preset bans `vi.spyOn` outright (`no-restricted-properties`): the emission still
 reaches subscribers, because the real `next` runs.
 
+**Did the component unsubscribe?** `x$.subscriberCount()` on an `observablePropsToSpyOn` spy is the
+number of subscriptions open now (type `ObservablePropSpyMethods` from `/rxjs`); one stops counting
+when it unsubscribes, or when the stream completes or errors.
+
+```ts
+fixture.destroy();
+expect(store.items$.subscriberCount()).toBe(0);
+```
+
 `Spy<T>` types an Observable property as `AddObservableSpyMethods<O> & T[K]`, so `next` is there on
 the type either way — which is exactly why this is worth saying: the code compiles against the spy
 surface and asserts nothing.
@@ -87,8 +109,8 @@ await expect(expectEmission(currentParams$, { until: (p) => p.channelId === expe
 
 Both say in the assertion what `source$.pipe(skip(1))` / `pipe(filter(…))` say in the source, and
 they keep the diagnosis: emissions that do not match are still counted, so a failure reads
-`4 emission(s) received` rather than `0` and tells "the wrong thing fired" apart from "nothing
-fired".
+`4 emissions received: …` (with the values) rather than `0` and tells "the wrong thing fired" apart
+from "nothing fired".
 
 **`advance` closes the window between subscribing and awaiting.** A stream driven by a
 `debounceTime`, a retry or a poll needs the clock moved _after_ something is listening, and `await`
@@ -120,10 +142,8 @@ satisfy, and the message names `expectNoEmission` instead. A suite that wrote
 **The watchdog runs on real time, on purpose — even under fake timers, and even under zone.js.** A
 virtual one would race the timers the spec advances: `expectEmission(source$, { timeout: 200 })`
 followed by `vi.advanceTimersByTime(5_000)` would fire at 200 virtual ms and reject the stream the
-spec was about to advance into. Inside `fakeAsync` that used to happen anyway, because zone.js
-patches the global `setTimeout` and the watchdog was scheduled onto the virtual queue: a
-`tick(1_500)` towards a `debounceTime(2_000)` rejected the wait it was advancing. The timer is taken
-from `__zone_symbol__setTimeout` now, so it is outside the zone and `tick()` cannot reach it.
+spec was about to advance into. Inside `fakeAsync` the timer comes from
+`__zone_symbol__setTimeout`, outside the zone, so `tick()` cannot reach it either.
 
 The cost is that in a suite with global fake timers a _failing_ assertion spends a real second. Do
 **not** answer that with `{ timeout: 0 }` at every call site — that disables the watchdog, and the

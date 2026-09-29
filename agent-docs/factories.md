@@ -9,8 +9,8 @@ Do you have a real class at runtime?
 ├── yes → createSpyFromClass(Class, config?)          → Spy<T>
 │         (an `abstract class` DI token counts — see below)
 └── no  → Is the double CALLED by the code under test?
-         ├── yes, and it is INJECTED (DI, a field)  → createAutoMock<T>(overrides?)  → Spy<T>
-         ├── yes, and it is an ARGUMENT of the function under test, asserted on
+         ├── yes, and a DI container INJECTS it     → createAutoMock<T>(overrides?)  → Spy<T>
+         ├── yes, and the spec PASSES it (an argument, `new X(double)`), asserted on
          │                                          → autoMocked<T>(overrides?)      → T & Spy<T>
          ├── yes, and reads chain (a.b.c())         → mockDeep<T>(overrides?)        → DeepMockProxy<T>
          ├── yes, and CALLS chain (a.b().c())       → mockDeep<T>({}, { selfReturning: true })
@@ -25,6 +25,18 @@ Code under test does `new Foo()`? → a real class?  createSpyClass(Foo)
                                   → only a shape?  mockConstructor<T>(() => instance)
                                   → on a global?   stubConstructor(globalThis, 'Image', factory)
                                     (a vi.fn() rejects `new` — see §12)
+```
+
+Every factory in the tree is imported from the runner's entry (`vitest-auto-spy` on Vitest), and
+the `Spy`, `AutoMocked` and `DeepMockProxy` types come from the same line:
+
+```ts
+import { type AutoMocked, type Spy, asInstance, autoMocked, createSpyFromClass } from 'vitest-auto-spy';
+
+const repo: Spy<InvoiceRepository> = createSpyFromClass(InvoiceRepository); // a real class
+const logger: AutoMocked<Logger> = autoMocked<Logger>(); // an interface, passed as an argument
+
+const service = new InvoiceService(asInstance(repo), logger); // Spy<T> needs asInstance; AutoMocked<T> is already a T
 ```
 
 `createAutoMock` and `autoMocked` build the same object; they differ only in the type you get back,
@@ -178,15 +190,9 @@ fallback; use `mustBeCalledWith` for "other arguments fail". For a callback API 
 `method.mockImplementation((run) => run(asInstance(mock)))`; there is no option for it.
 `vi.spyOn(mock.repo, 'find')` works on a member nobody has read and returns the node's own spy.
 
-`asInstance` did not take a deep mock before 3.5.0, which left it with nowhere to go: this tree
-sends you to `mockDeep` when the calls chain, and the result then fitted nothing that expected `T`.
-
-**A deep node asks what the spy surface is on every read**, rather than remembering the answer from
-the first deep mock of the worker. That matters under `isolate: false`, where the surface grows
-mid-run: `import 'vitest-auto-spy/rxjs'` in a later file adds `nextWith` and friends, and
-`setSpyEngine` swaps the whole prototype. With the answer cached, `deep.feed.items.nextWith(1)` in
-every double built after that resolved to a **child node** — callable, recorded, emitting nothing —
-while the spec waited on a stream that was never fed.
+**A deep node asks what the spy surface is on every read**, so under `isolate: false` a later
+`import 'vitest-auto-spy/rxjs'` or `setSpyEngine` reaches doubles built earlier:
+`deep.feed.items.nextWith(1)` emits.
 
 **`selfReturning: true` chains a factory, not a `return this` builder**, and the difference decides
 where the calls are recorded. A called node answers _itself_, not the object the method was read
@@ -211,7 +217,7 @@ standard Angular DI-token idiom, and `provideAutoSpy(LocalStorage)` / `createSpy
 take it — type and runtime both. Abstract members are erased before they reach a prototype, so there
 is nothing to read there; when discovery comes back empty the factory hands back the `createAutoMock`
 proxy instead of an empty object, and every method answers. Nothing to configure, and no reason to
-reach for `{ provide: X, useValue: createAutoMock<X>() }` by hand any more.
+reach for `{ provide: X, useValue: createAutoMock<X>() }` by hand.
 
 That holds while the class is **fully** abstract. One concrete member — a helper, a getter — and
 discovery is no longer empty, the fallback does not fire, and every `abstract` member is missing
@@ -239,14 +245,7 @@ redundant.
 while the double is assembled, so it runs at every read, with the double as `this` — and a seed
 written to **throw** ("this global is missing on this platform") fails where the code under test
 reads the member, not where the provider literal is evaluated. A `{ set }` seed is kept the same way
-and takes the write. Both used to be flattened as the double was built, which turned a throwing
-seed into a failure during `TestBed.configureTestingModule`, three frames from the branch under test.
-
-A **registration** is no exception, and it was the half that stayed broken one release longer: the
-merge that puts `registerAutoSpyDefaults` under a call site copied both sides with a spread, so a
-seeded getter was flattened on any class or token the registry knows — whether or not the
-registration names that key — while the same seed stayed live on one it does not. The merge copies
-descriptors now, and the seed behaves the same either way.
+and takes the write. The same holds for a seed that comes through `registerAutoSpyDefaults`.
 
 **On `createSpyFromClass` / `provideAutoSpy`, a function in `overrides` for a method stays a spy.**
 `provideAutoSpy(DomSanitizer, { overrides: { sanitize: (_c, v) => String(v) } })` makes `sanitize` a
@@ -255,23 +254,19 @@ and `calledWith` all work, and the function runs (with the double as `this`) unt
 the spy. It counts as configured under `strict`, `resetAutoSpy` brings the function back, and it wins
 over `returns` / `selfReturning` for the same method. Kept exactly as seeded: a value, a getter, a
 function on a non-method field, a class, and a callable with its own API — a `vi.fn()` keeps its
-identity. Before this, the function was stored as written, so the assertion compiled and threw
-`[Function sanitize] is not a spy`. `createAutoMock` / `provideAutoSpyForToken` still store a seed
+identity. `createAutoMock` / `provideAutoSpyForToken` still store a seed
 verbatim: there, name the method in `returns` to keep it assertable.
 
 ### What a Proxy-backed double cannot do
 
 `createAutoMock` and `mockDeep` build a Proxy, not an object, and there is one place where the
-difference shows: a Proxy answers only the operations its handler traps. Three of them used to be
-missing, and each produced a _silent_ wrong answer rather than an error — the worst failure mode
-this library can have, because a checking test becomes a non-checking one and only the proxy's
-source says so. Two are fixed; the third cannot be:
+difference shows: a Proxy answers only the operations its handler traps.
 
-| Operation | Before 3.5.0 | Now |
-| --- | --- | --- |
-| `mockValueProp` & the other three | patch landed on the target; the double ignored it | works, and `restoreMockedProps()` undoes it |
-| `delete mock.optionalMethod` | deleted nothing; the next read remade the spy | the member is absent, until something writes to it again |
-| `Object.assign(real, mock)` | copies only the keys already **read** | still does — see below |
+| Operation | Result |
+| --- | --- |
+| `mockValueProp` & the other three | works, and `restoreMockedProps()` undoes it |
+| `delete mock.optionalMethod` | the member is absent, until something writes to it again |
+| `Object.assign(real, mock)` | copies only the keys already **read**, silently (below) |
 
 `ownKeys` cannot be completed: a type has no key list at runtime, which is the whole premise of
 these two factories. So a spec that installs a double by **copying it onto a real instance** —
@@ -295,7 +290,7 @@ every symbol, which always were:
 | `@@observable` | `isInteropObservable` in `innerFrom` | an interop stream |
 | `getReader` | `isReadableStreamLike` in `innerFrom` | a ReadableStream |
 
-The one that cost an afternoon reads like nothing at all:
+The one that is hardest to spot:
 
 ```ts
 of(autoMocked<AnimationItem>()); // an Observable that never emits
@@ -305,12 +300,12 @@ of(autoMocked<AnimationItem>()); // an Observable that never emits
 the whole double was eaten as one, `of()` was left with an empty argument list, and the emission was
 scheduled onto a spy that does nothing. The component under test kept its `null`, and what failed
 was an assertion about an unrelated `emit()` three concerns away — nothing in the failure mentions
-`of`. The workaround people find is `from([double])`; it is not needed any more.
+`of`. The workaround `from([double])` is not needed.
 
 **`subscribe` is deliberately not on that list.** It is an ordinary method name — a store, an
 Angular `OutputEmitterRef`, an event bus — and `expect(store.subscribe).toHaveBeenCalledWith(cb)` is
 a real assertion. Denying `lift` and `@@observable` already breaks the impersonation, so `subscribe`
-on its own fools nothing: `from(double)` now fails with rxjs's own _"You provided an invalid object
+on its own fools nothing: `from(double)` fails with rxjs's own _"You provided an invalid object
 where a stream was expected"_, loudly and in the right file.
 
 If your type genuinely has one of the four, say so once and it comes back — the list is consulted
@@ -319,6 +314,10 @@ after the seed store:
 ```ts
 createAutoMock<TaskScheduler>({ schedule: vi.fn() });
 ```
+
+`toString` and `valueOf` answer `Object.prototype`'s own members instead of a fresh spy, so printing
+or interpolating the double adds no keys to it and reads `'[object Object]'`, not `'undefined'`. Seed
+or assign either to mock it; `returns: { toString }` is reported.
 
 That is the trade the deny-list makes: without a seed the member is absent and the failure is an
 immediate `TypeError: … is not a function` at the call site, instead of a silent one in another
@@ -343,40 +342,23 @@ xhr.send.mockImplementation(() => respond(asInstance(xhr)));
 
 ### Cost, so it stops being a question
 
-Building a spy is not a thing to optimise. On a ten-method class, `npm run bench` on Node v24.19.0
-and Vitest 4.1.11, measured 2026-09-04: `createSpyFromClass` plus two methods called **2.25 µs**,
-plus all ten 5.83 µs, `createAutoMock` plus four members 1.79 µs, a `calledWith` lookup 0.21 µs —
-five providers across two thousand tests is about two hundredths of a second. Call the factory in
-`beforeEach` and look at `TestBed` instead. The only two settings that cost:
-`{ lazySpies: false }` gives up the laziness `provideAutoSpy` defaults to, and
-`autoSpyAccessors: true` walks the prototype chain uncached on every call — name the accessors
-instead.
+Building a spy is not a thing to optimise: it costs microseconds, so call the factory in
+`beforeEach` and look at `TestBed` instead. Two settings do cost:
 
-Memory used to be the exception, and it no longer is for the default. `lazySpies: true` still
-defines one property per method, but the accessor pair behind it is now **shared by method name**
-across every double in the process, so the placeholder is no longer what an untouched double
-retains: an untouched 100-method double holds **215 B** where it held 25 593, and a 300-method one
-284 B where it held 70 165 (`npm run bench:memory`, 2026-09-17, Node 24). The price is paid at
-construction on very wide classes — building a 300-method double costs about 28 % more — and
-materialising every method of one is about 26 % cheaper in exchange.
+- `{ lazySpies: false }` gives up the laziness `provideAutoSpy` defaults to.
+- `autoSpyAccessors: true` spies every accessor the chain declares on every double. Discovery is
+  cached per class, but each accessor still costs a spy; name the ones the spec reads instead.
 
-The first materialisation is where the accessor path pays: it drops the double into a property
-dictionary as wide as the class. So since 2026-09-27 an unset `lazySpies` depends on width: a class of
-8 methods or more gets `'proxy'`, which defines nothing per method and never enters dictionary mode —
-21–68 % lighter once touched, 2–6× faster to build — for ~20 ns on every read and ~100 B more on an
-untouched double. A narrower class keeps the accessor placeholders. A spec on a wide class that needs a
-plain object (`util.types.isProxy`, `console.log` of an unread double, `vi.spyOn` wrapping an unread
-method) passes `lazySpies: true`.
+An unset `lazySpies` depends on width: below 8 methods, accessor placeholders; from 8, `'proxy'`
+(lighter once touched, faster to build). A spec on a wide class that needs a plain object
+(`util.types.isProxy`, `console.log` of an unread double, `vi.spyOn` wrapping an unread method)
+passes `lazySpies: true`. Numbers: <https://asdalexey.github.io/vitest-auto-spy/core/performance>.
 
-A frozen or sealed double is fine now. `Object.freeze(spy)` — a deep-freeze fixture helper, a
-dev-mode state guard — used to make the first read of any method throw `Cannot redefine property`
-from inside the placeholder's getter; the spy is kept beside the double instead, so the read answers
-a stable mock and `mockReturnValue` on it works. On a merely sealed double an assignment still
+A frozen or sealed double works. After `Object.freeze(spy)` (a deep-freeze fixture helper, a
+dev-mode state guard) a read answers a stable mock and `mockReturnValue` on it works. On a merely sealed double an assignment still
 reaches the member.
 
-`vi.spyOn(double, 'load')` on a method nobody has read yet works again. Vitest reads an accessor by
-calling its getter with no receiver, and 5.19.0's shared getter answered that with
-`TypeError: Invalid value used as weak map key`. The call now wraps a forwarder: a configured
+`vi.spyOn(double, 'load')` on a method nobody has read yet wraps a forwarder: a configured
 `mockReturnValue` answers, an unconfigured call reaches the double's own spy (strict guard included),
 and `mockRestore()` / `vi.restoreAllMocks()` hand back that same spy with the calls it recorded. It
 is still redundant — the member already is a spy, so `double.load.mockReturnValue(…)` is the line to

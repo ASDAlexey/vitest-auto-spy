@@ -19,11 +19,8 @@ restoreMockedProps(); // put every patch back; each helper also returns its own 
 properties. Never use bare `Object.defineProperty` in a spec: nothing restores the original
 descriptor, and under `isolate: false` the patch leaks into the next file.
 
-**They work on `createAutoMock` and `mockDeep` doubles too** — which they did not until 3.5.0.
-Both are Proxies, all four helpers are built on `Object.defineProperty`, and neither Proxy trapped
-it: the patch landed on the Proxy's own target, the `get` trap never looked there, nothing threw,
-and the test carried on reading the old value. If you have seen a spec build a double by hand —
-real getters plus a `createFunctionSpy` per method — this is usually why.
+**They work on `createAutoMock` and `mockDeep` doubles too.** A hand-built double (real getters
+plus a `createFunctionSpy` per method) written to work around Proxies is no longer needed.
 
 **The second overload is a normal tool, not a last resort.** Each helper has a checked overload
 (`K extends keyof T`) and a `(object, property: PropertyKey, value: unknown)` one behind it, and

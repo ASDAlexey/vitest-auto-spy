@@ -9,7 +9,7 @@ Every spied method is a real runner mock, so `mockReturnValue`, `mockImplementat
 
 | Return type | Helpers added |
 | --- | --- |
-| anything | `calledWith(...args)` → `.mockReturnValue(v)` / `.returnValue(v)` / `.failWith(err)`, `mustBeCalledWith(...args)` → same, `failWith(err)`. On a `Promise` or `Observable` method the handle carries that row's helpers instead — `calledWith(id).nextWith(v)`, `.resolveWith(v)`; `.mockReturnValue` there is a `TS2339` |
+| anything | `calledWith(...args)` → `.mockReturnValue(v)` / `.returnValue(v)` / `.failWith(err)`, `mustBeCalledWith(...args)` → same, `failWith(err)`; `.once()` / `.times(n)` before any of the three limits it to the next n matching calls. On a `Promise` or `Observable` method the handle carries that row's helpers instead — `calledWith(id).nextWith(v)`, `.resolveWith(v)`; `.mockReturnValue` there is a `TS2339` |
 | `Promise<T>` | `resolveWith(v)`, `rejectWith(v)`, `resolveWithPerCall([{ value }, …])` |
 | `Observable<T>` | `nextWith(v)`, `nextOneTimeWith(v)`, `nextWithValues(configs)`, `nextWithPerCall(configs)`, `throwWith(v)`, `complete()`, `returnSubject()` |
 
@@ -19,12 +19,10 @@ Every spied method is a real runner mock, so `mockReturnValue`, `mockImplementat
 `overrides: { isActive$: new BehaviorSubject(false) }` — and drive it with `.next()`; the same holds
 for a stream the test pushes into itself.
 
-**What counts as an `Observable` is structural, and no declaration names rxjs (4.0.0).** A member
-earns the observable bundle when its type satisfies the exported `ObservableLike<T>` — `subscribe`
-plus a promise-returning `forEach(next)`:
-rxjs's `Observable`, every `Subject`, Angular's `EventEmitter` — and, new in 4.0.0, an `Observable`
-from a _second copy_ of rxjs in the tree, which used to fall through to the plain-spy branch and
-produce `nextWith is not a function` with nothing pointing at the duplicate. `Promise`, arrays,
+**What counts as an `Observable` is structural.** A member earns the observable bundle when its
+type satisfies the exported `ObservableLike<T>` (`subscribe` plus a promise-returning
+`forEach(next)`): rxjs's `Observable`, every `Subject`, Angular's `EventEmitter`, and an `Observable`
+from a second copy of rxjs in the tree. `Promise`, arrays,
 `Signal` and Angular's `OutputEmitterRef` are not observables and do not earn it.
 
 `returnSubject()` and `nextWithPerCall()` return `SubjectOf<T>` — rxjs's own `Subject<T>` wherever
@@ -36,10 +34,7 @@ augment it yourself only to plug in a different subject type. If
 program the specs are checked in — usually a Vitest `setupFiles` entry that no `tsconfig`
 `include` covers, or, from `@angular/build:unit-test` 22.2.0, a plain `.ts` that only the spec
 `tsconfig`'s `include` lists: that builder's program is the specs, the setup files and the `.d.ts`
-files (angular-cli#34134), so put the import in one of those. That is the _only_ breaking change in
-4.0.0; the reason for it is that `dist/types-*.d.ts` used to open with
-`import { Observable, Subject } from 'rxjs'` and load 189 rxjs `.d.ts` files into every consumer's
-program (303 files against 114 without it), `import type` included — TypeScript resolves a type-only import the same way.
+files (angular-cli#34134), so put the import in one of those.
 
 Called only to open the stream — a strict double whose prop must be configured before the code
 subscribes — `spy.items$.returnSubject();` as a bare statement trips `rxjs-x/no-floating-observables`:
@@ -124,6 +119,29 @@ users.load.calledWith(2).mockReturnValue(undefined);
 found.mockReturnValue({ id: 1 }); // configures 1, not 2
 ```
 
+`.once()` / `.times(n)` limit a sync answer to the next matching calls. It stacks over what those
+arguments answered before; stacked answers are used last-configured first, then the call falls back
+to the answer below, then to the spy's default:
+
+```ts
+users.load.calledWith(1).mockReturnValue(cached);
+users.load.calledWith(1).once().mockReturnValue(fresh);
+
+users.load(1); // fresh
+users.load(1); // cached
+```
+
+The limited handle carries only `mockReturnValue`, `returnValue` and `failWith`. The same arguments
+configured again without a limit replace the whole stack; under `mustBeCalledWith` a call past the
+count throws like any miss; `times` takes a positive whole number (`RangeError` otherwise).
+
+**A lenient miss is hinted once.** When a `calledWith` misses a call with the same number of
+arguments as one of its configs, on a spy with no default, the library prints (never throws) one
+warning per test file naming the call and the configs:
+`load('1') matched none of its calledWith() configs ([1]) and answered undefined`. A default
+(`mockReturnValue`, `resolveWith`, `failWith`, `returns`) silences it; `mustBeCalledWith` is the
+form for a miss that is the bug.
+
 `new` on a method spy works: `new sdk.Client()` — the shape `createAutoMock<{ Client: typeof Client }>()`
 and `mockDeep` produce — hands back the instance, or the object a `calledWith(...).mockReturnValue(...)`
 configured for those arguments.
@@ -170,8 +188,8 @@ for every call, which is `mockReturnValue` spelled less clearly, and `calledWith
 method's own parameters so it will not compile anyway.
 
 **The observable helpers are backed by a `ReplaySubject(1)` that belongs to the spy, and it is
-configuration — so it must be reset with the rest of it.** Two failures used to come out of that
-buffer outliving the test that filled it, and both were silent:
+configuration, and it is reset with the rest of it.** Without that, two silent failures follow when
+the buffer outlives the test that filled it:
 
 ```ts
 // test 1
@@ -181,11 +199,10 @@ service.createTransition.nextWith(uri); // buffered
 service.createTransition.throwWith(error); // subscriber gets `uri` FIRST, then the error
 ```
 
-The code under test therefore ran the **success** branch on stale data, and the error branch arrived
-one emission late. The second: `error()` and `complete()` close a Subject permanently, so a later
-`nextWith` on that spy pushed into a dead subject and emitted nothing at all. Both are fixed —
-`resetAutoSpy(spy)` now drops the subject, and a terminated one is replaced on the next
-configuration. That holds for a subject a spec closed **itself**, too:
+The code under test would run the **success** branch on stale data, and the error branch arrived
+one emission late. Second: `error()` and `complete()` close a Subject permanently, so a later
+`nextWith` on that spy would push into a dead subject. So `resetAutoSpy(spy)` drops the subject,
+and a terminated one is replaced on the next configuration. That holds for a subject a spec closed **itself**, too:
 `spy.items$.returnSubject().complete()` marks the stream closed, so the next `nextWith` opens a new
 one rather than disappearing.
 

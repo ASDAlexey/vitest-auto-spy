@@ -50,7 +50,10 @@ Four places where that surface now matches jasmine's rather than approximating i
 - **`jasmine.clock().install()` leaves `Date` real**, exactly as jasmine's does — the timers are
   faked, the clock is not. `jasmine.clock().mockDate()` is what takes `Date` over, and because that
   re-installs the fake clock it reports when callbacks were already scheduled and have just been
-  dropped. Call `mockDate()` right after `install()`, before anything schedules a timer.
+  dropped. Call `mockDate()` right after `install()`, before anything schedules a timer. Without
+  `install()` jasmine throws; the bridge still mocks `Date`, warns once (a throw under
+  `misconfiguration: 'throw'`) and will throw in the next major — use `mockSystemTime()` when only
+  the date should be fake.
 - **`jasmine.createSpyObj`'s third argument builds spied accessors**, reachable through
   `Object.getOwnPropertyDescriptor(obj, name).get`. Reading still answers the seed, so nothing about
   a migrated spec changes; what is gained is moving the value mid-test and asserting that the code
@@ -74,6 +77,7 @@ Four places where that surface now matches jasmine's rather than approximating i
 | `jasmine.any(X)` / `objectContaining({…})` | `expect.any(X)` / `expect.objectContaining({…})` |
 | `jasmine.clock().tick(n)` | `vi.advanceTimersByTime(n)` — or `await advanceTimers(n)` |
 | `jasmine.SpyObj<T>` / `jasmine.Spy` | `Spy<T>` from this package / `Mock` from `vitest` |
+| a helper typed on `withArgs(…).and` | `JasmineWithArgsStrategies<Method>` from `/jasmine` or `/jasmine-compat` |
 | `expect(x).toBeTrue()` / `toHaveSize(n)` | `.toBe(true)` / `.toHaveLength(n)` |
 | `expect(spy).toHaveBeenCalledOnceWith(a)` | `.toHaveBeenCalledExactlyOnceWith(a)` |
 | `fail(msg)` | `expect.fail(msg)` — there is no `vi.fail` |
@@ -108,7 +112,7 @@ once naming both rather than silently swallowing the write.
 shape, not a name. Use `async` + `await`; `no-done-callback` reports the parameter and any
 `done.fail(…)`. It reports the parameter that is _called_, handed on as an argument, or never used —
 not every named first parameter: `it('x', (ctx) => ctx.skip())` is Vitest's own `TestContext` read
-without destructuring, which is legal, and used to be reported as a `done` callback.
+without destructuring, which is legal and not reported.
 
 On Bun and `node:test` the entry cannot be imported (it registers the Vitest adapter, which means
 importing `vitest`). Call `enableJasmineCompat()` from `vitest-auto-spy/jasmine-compat` once, in a
@@ -138,6 +142,9 @@ hands back its live array) and is typed `T[]` (upstream: `any[]`); `getFirstValu
 and an **unexpected** error is thrown by the value readers, carrying the original as `cause`, rather
 than rethrown out of the observer — under rxjs 7 that rethrow goes through `reportUnhandledError`
 and never reaches the subscribing line. `{ expectErrors: true }` keeps the readers open, as upstream.
+`await spy.onComplete({ timeout: 1_000 })` / `spy.onError({ timeout })` reject after `timeout` real
+ms (fake timers and `fakeAsync` cannot reach the watchdog) instead of hanging on a stream that never
+ends; no timeout by default, as upstream.
 
 `autoUnsubscribe()`, `queueForAutoUnsubscribe()` and `fakeTime()` are **not implemented**. Use
 `using spy = subscribeSpyTo(source$)` — `SubscriberSpy` is disposable — and `setupFakeTimers()` with

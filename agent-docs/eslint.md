@@ -67,22 +67,23 @@ export default [
 | `no-floating-assertion` | `error` | — | `expect()` in a `.then()` nobody awaits → `expect(await promise)` |
 | `no-bare-called-with` | `error` | — | `spy.m.calledWith(1);` as a statement — a stub nobody continued, asserting nothing; chai's `expect(fn).to.have.been.calledWith()` exempt |
 | `no-overridden-provider` | `error` | suggest | two providers for one token in one array, or one a `TestBed.overrideProvider` in the same hook replaces → the earlier one never runs; the exact duplicate can be deleted |
-| `no-inject-before-override` | `error` | — | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*` |
+| `no-inject-before-override` | `error` | — | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*` or `overrideComponentProvider`; an `injectSpy` / `TestBed.inject` above an override in the same `beforeCreate` |
 | `no-private-member-access` | `error` | — | `instance['privateMember']`, `(instance as any).privateMember` (and `as unknown as`, and a decoy type), `vi.spyOn(Object.getPrototypeOf(x), 'm')` → drive the member through the public API. **Type-aware**: silent without `parserOptions.project`, and silent on an index signature |
 | `no-reflect-member-access` | `error` | on a double | `Reflect.get(component, 'privateField')` / `Reflect.set(service, 'x', v)` on a subject the test holds — the second door out of `no-private-member-access`, and the one no compiler stands in: the key is an ordinary string argument, so a rename leaves the spec reading a property that is no longer there and `Reflect.set` writing a dead one nothing reads. `window` / `globalThis` (or a name declared as `Window` / `typeof globalThis`) and a computed key are never reported; a write onto a double this library built is reported apart and suggests `mockValueProp` |
 | `no-dead-schemas` | `error` | — | `schemas` on a testing module with no `declarations` — the schema applies to nothing; the file decides, so a `declarations` in another `configureTestingModule` call silences it |
 | `no-import-time-spread` | `error` | suggest | `export const x = [...Imported]` at module scope → a `TypeError`, or a silently empty object, while the bundle loads |
-| `no-unregistered-inject-spy` | `error` | — | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler |
-| `no-real-component-provider` | `error` | — | `fixture.debugElement.injector.get(X)` for a component-level provider nothing in the file replaced → the real store under a component spec; `overrideComponentProvider(Cmp, X)`; `{ ignoreTokens }` for an intended integration test |
-| `prefer-render-shallow` | `warn` | suggest | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children |
+| `no-unregistered-inject-spy` | `error` | — | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler. A `providers` value is read when it is an array literal or a never-mutated `const` holding one (`{ providers }`, a quoted `'providers':` key too); anything else makes the file unreadable and silent |
+| `no-real-component-provider` | `error` | — | `fixture.debugElement.injector.get(X)` for a component-level provider nothing in the file replaced → the real store under a component spec; `overrideComponentProvider(CartComponent, X)` — the fix names the class `By.directive(…)` found or the one class the file creates, `Component` when there are several; `{ ignoreTokens }` for an intended integration test; `{ childInjectors: true }` also reads `query(…)`, `queryAll(…)[i]` and `children[i]` injectors, leaving classes named in `By.directive(…)` alone |
+| `prefer-render-shallow` | `warn` | suggest | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children. Under `{ templates: 'never' }` also every DOM read (`nativeElement`, any `By.*`, the global `document`, `inject(DOCUMENT)`…, once per statement), a `@Component` with markup declared in the spec and a `template:` handed to `renderShallow` / `prepareShallow`; a file that calls or imports `createDirectiveHost` is exempt |
 | `prefer-set-inputs` | `warn` | suggest | a run of `fixture.componentRef.setInput('title', v)` on one fixture → `await setInputs(fixture, { title: v })` — the name is resolved against the compiled definition before the first write (an undeclared one is an `NG0303` and no change) and the value is typed. The run collapses into one call and a `detectChanges()` under it goes; offered, not applied, because `stable()` ticks and a zone.js suite answers that with `NG0101` |
 | `prefer-to-have-signal-value` | `warn` | `--fix` | `expect(component.total()).toBe(3)` / `toEqual(…)` → `expect(component.total).toHaveSignalValue(3)`, `toStrictEqual` → `{ strict: true }`, `toBeNull()` / `toBeUndefined()` → `toHaveSignalValue(null)` / `(undefined)`; the matcher names the signal in the failure and refuses a value that is not one. **Type-aware**: the signal is recognised by Angular's brand on its type, so methods, functions and getters are never reported, and without `parserOptions.project` it reports nothing. A `toBe` against an object-typed signal (`expect(list.items()).toBe(items)`) is an identity check the deep matcher would lose, so it is reported only when the expected value is a primitive literal or the signal's type is primitive |
 | `prefer-spy-on-own-method` | `warn` | `--fix` / suggest | `createSpyFromInstance(x, { onlyMethodsToSpyOn: ['m'], passthrough: true })` read for `m` alone — `.m` on the call, `const { m } = …`, a bare statement, or a name read only as `v.m` → `spyOnOwnMethod(x, 'm')`; the same whitelist with `returns: { m: undefined }` → `spyOnVoidMethod(x, 'm')`. Both fix, import and all; a `Spy<X>` annotation becomes `Spy<X>['m']` in a suggestion. A bare `returns: { m: undefined }` seed is a suggestion, offered only on a real event or element — `new MouseEvent(…)`, `document.createElement(…)`, `fixture.nativeElement` — never on a double |
 | `prefer-observer-stub` | `error` | — | a hand-rolled observer global → `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()`; the manual save-and-restore goes too, `restoreMockedProps()` runs the undo |
-| `no-hand-assigned-global` | `error` | `--fix` | a double assigned to a global (`global.fetch = vi.fn()`, `window.matchMedia = vi.fn()`, `window.localStorage = { getItem: vi.fn() }`) with no restore in `afterEach` / `afterAll` / `onTestFinished` → `mockValueProp(globalThis, name, value)` or `vi.stubGlobal` + `unstubGlobals`; `blockNetwork()` for network globals, `stubWebStorage()` for the storages, `stubWorker({ respond })` for `Worker`; the three observers stay with `prefer-observer-stub`; any value written into an imported object (`environment.production = true`) → `mockValueProp(environment, 'production', true)`, fixed in a test or `beforeEach` |
+| `no-hand-assigned-global` | `error` | `--fix` | a double assigned to a global (`global.fetch = vi.fn()`, `window.matchMedia = vi.fn()`, `window.localStorage = { getItem: vi.fn() }`) with no restore in `afterEach` / `afterAll` / `onTestFinished` → `mockValueProp(globalThis, name, value)` or `vi.stubGlobal` + `unstubGlobals`; for `fetch`, `mockValueProp(globalThis, 'fetch', vi.fn(async () => stubResponse({ body })))`; `blockNetwork()` for the other network globals, `stubWebStorage()` for the storages, `stubWorker({ respond })` for `Worker`; the three observers stay with `prefer-observer-stub`; any value written into an imported object (`environment.production = true`) → `mockValueProp(environment, 'production', true)`, fixed in a test or `beforeEach` |
 | `prefer-stub-response` | `error` | — | an object literal cast to `Response` (`as Response`, `as unknown as Response`, `<Response>{ … }`) or `createMock<Response>(…)` / `createAutoMock<Response>(…)` → `stubResponse({ body })` from `/setup`; the literal answers `undefined` for every member it does not list (`status`, `headers`, `text()`) and the cast is what makes that compile. `Response` must resolve to the **global**, so an Express handler's or a generated client's `Response` is never reported |
 | `prefer-provide-activated-route` | `error` | — | a hand-built `ActivatedRoute` — any `useValue` / `useClass` / `useFactory` / `useExisting`, and `provideAutoSpy(ActivatedRoute)` too → `provideActivatedRoute({ … })`; the double knows either the streams or the snapshot, never both, and `injectActivatedRoute().setParams(…)` moves them together mid-test |
 | `no-passthrough-console-spy` | `error` | suggest | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints → `installConsoleSpies()` + `consoleXSpy`, or `.mockImplementation(() => undefined)` |
+| `no-unasserted-console-spy` | `warn` | — | a console spy the file only resets or configures, never asserts — a `/console` spy (imported, or destructured from `useConsoleSpies()` / `installConsoleSpies()`) whose every mention is `mockClear` / `mockReset` / `mockRestore` / `mockImplementation` / `mockReturnValue` / `mockName`, or a `vi.spyOn(console, m)` given an implementation and held nowhere a test reads it → assert it (`expect(consoleErrorSpy).not.toHaveBeenCalled()` at least), or delete it — `useConsoleSpies()` already silences. A spy that calls through is `no-passthrough-console-spy`'s; a file reading `consoleOutput()`, `consoleLines()`, `expect(console.error)` is left alone |
 | `no-console-in-spec` | `error` | — | a spec calling `console.x(…)` itself, or `console.x = …`, which nothing restores → absorb the code's output through `vitest-auto-spy/console` |
 | `no-import-time-console-spies` | `error` | — | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()` or `useConsoleSpies()` — the import installs once per worker and silences every later file → `installConsoleSpies()` in `beforeEach`, `restoreConsole()` in `afterEach` |
 | `no-mistyped-use-value` | `error` | — | `{ provide: TOKEN, useValue }` whose value is not assignable to the primitive `T` of `InjectionToken<T>` (string, number, boolean, bigint, enum, their literals, `null`, `undefined`) — `useValue` is `any`, so `{}` for a `boolean` token compiles and is truthy. **Type-aware**: silent without `parserOptions.project`; object-typed tokens are `no-unknown-use-value-key`'s |
@@ -96,6 +97,10 @@ export default [
 | `prefer-settle-dynamic-import` | `error` | suggest | `await import('./thing')` and `import('./thing').then(…)` inside an `it` / `test` body or a `beforeEach` / `beforeAll` / `afterEach` / `afterAll` hook (the `.only`, `.skip` and `.each` spellings included) → `await settleDynamicImport(() => import('./thing'))`, which is the same load plus `flushEventLoop(1)` and returns the namespace, so the destructured form keeps reading the same way. The bare `await` waits for the **module** and not for the continuation of the code that was loading it, so the assertion runs a turn early and the test is green only while that continuation is short. Syntax only. Silent wherever a function of its own sits between the runner's callback and the import — a `vi.mock` factory, a lazy route's `loadComponent` / `loadChildren`, a callback handed to production code, `settleDynamicImport`'s own `() => import(…)` — and, by the same reading, silent on a spec-local `const load = async () => { await import('…') }`, which is written identically whether the spec calls it or the code under test does |
 | `prefer-create-mock` | `warn` | suggest | an object literal under `as SomeType` — `{ id: '1', isOffline: false } as Device`, `<Device>{ … }` too → `createMock<Device>({ … })`. A cast asks whether the two types overlap rather than whether the value is one of them, so it passes a key the type does not declare (the excess-property check is skipped) **and** a required field the fixture never sets; both type gates stay silent, and the same object is then spread into the expected payload of a call assertion. Where the literal already sits in a typed slot the first repair is to delete the cast. Silent on `as const`, `as unknown` / `as any` and the double cast built from them, on a cast of anything but a literal, and on a literal inside one of this library's own factories. `warn`, because accepting the suggestion makes a drifted fixture red on the next type-check — the finding, and a migration taken file by file |
 | `no-mock-cast` | `error` | suggest | a cast to Vitest's `Mock` / `MockInstance` over a **member access** — `TestBed.inject(S).m as Mock` → `injectSpy(S).m`, which the suggestion writes whenever the token is in view (directly, or through a `const` the file settled with a `TestBed.inject`). `Mock` with no parameters is `Mock<any>`: `mockReturnValue` takes anything and `toHaveBeenCalledWith` stops comparing arguments. `(spy.m.mockReturnValue as Mock)(…)` gets its own message — the cast is on the member that installs the answer, so neither the value nor the method's return type is checked. The name must resolve to an import from `vitest` / `@rstest/core` / `bun:test` / `jest`, or to nothing at all, so a domain `Mock` is left alone |
+| `no-outer-binding-in-mock-factory` | `error` | — | a `vi.mock(path, factory)` factory reading a top-level `const` / `let` / `var` / `class` declared outside `vi.hoisted` — the factory is hoisted above it, so the read is `Cannot access 'x' before initialization` → `const { user } = vi.hoisted(() => ({ user: … }))`. Only reads made while the factory runs count; function declarations, imports, type positions and `vi.doMock` are not reported |
+| `no-relative-mock-under-builder` | `error` | — | `vi.mock` / `doMock` / `importMock` / `unmock` / `doUnmock` with a specifier starting `.` or `/` in a spec `@angular/build:unit-test` runs — the builder throws on it → `provideAutoSpy(X)`, or `overrideComponentProvider` for a component's own provider. **Silent until** an `@angular/build:unit-test` / `@nx/angular:unit-test` target serving the file is found (the `no-redundant-mock-reset` search) or `{ builder: 'unit-test' }` says so; a tsconfig path alias slips past both the builder and the rule |
+| `no-real-wait-in-test` | `warn` | — | a sleep on the real clock — `new Promise((r) => setTimeout(r, N))` in any spelling where `resolve` reaches the timer, `setTimeout(N)` from `node:timers/promises`; a `sleep(ms)` helper once, at its definition; a missing or `0` delay is left alone → `setupFakeTimers()` + `await advanceTimers(N)`, or wait for the outcome (`vi.waitFor`, `fixture.whenStable()`) |
+| `no-disabled-testbed-teardown` | `error` | — | `destroyAfterEach: false`, in `initTestEnvironment` or one `configureTestingModule` — every fixture outlives its test, `ngOnDestroy` never runs → delete it (Angular's default since v13) and fix the test that then fails. A config scoped to `**/*.spec.ts` must add the setup file to `files` |
 | `no-redundant-mock-reset` | `error` | `--fix` / suggest | a mock reset the runner already performs between tests — `vi.clearAllMocks()` / `resetAllMocks()` / `restoreAllMocks()`, `x.mockClear()` / `mockReset()` / `mockRestore()` — standing where nothing the file wrote ran since the runner's own: the first statement of a `beforeEach` no other `beforeEach` precedes, or a clear as the last statement of an `afterEach` → delete it, and the hook with it where that is all it held. A restore or reset in `afterEach` / `afterAll` is never reported: after the last test it is what takes a spy off before the `afterAll` hooks. **Silent** until the flags are known: options `{ clearMocks, restoreMocks, mockReset }` (or `{ configFile }` naming the runner config) first, then a `vitest.config.*` / `vite.config.*` searched upwards from the file and read as text; a config that leaves `clearMocks` out counts it on from Vitest 5 (its default). Where an `@angular/build:unit-test` / `@nx/angular:unit-test` target (found in `angular.json` / `project.json` above the file) also serves the spec, a config flag counts only if that target's `runnerConfig` applies it too — without `runnerConfig` the builder runs Vitest's defaults, so `restoreMocks` / `mockReset` from `vitest.config.ts` do not make a reset dead there, while a clear stays reported on Vitest 5; the rule's inline flags are not narrowed. A config built by a factory or `mergeConfig` from another module is not read through — name its flags as `{ configFile, configFlags: { clearMocks: true } }`, read as if the file set them, so the builder narrowing still applies (`configFlags` needs `configFile`; `doctor` notes the case as `mock-reset-config-unread`). `setupAutoSpy({ restoreMocks: true })` is not the runner's `restoreMocks` (it restores in an `afterEach`, after the test) — never pass the rule a flag only the setup file sets. Flag matches call, never family — `restoreMocks` walks only the spies `vi.spyOn` installed. `--fix` only in a file whose only before-hook it is; a suggestion otherwise; never inside a test body |
 | `no-unasserted-argument` | `warn` | — | a bare `expect(spy).toHaveBeenCalled()` on evidence from the file: the same subject asserted with `toHaveBeenCalledWith(…)` in another test, or a title containing `with` over a body whose every assertion is a bare call → `toHaveBeenCalledWith(…)` / `mustBeCalledWith(…)`. `not.toHaveBeenCalled()` and the counting matchers are never reported |
 | `no-compile-components` | `error` | suggest | `compileComponents()` under a builder that inlines `templateUrl` / `styleUrls` — a promise already settled → delete it, and the `async` of a hook that awaits nothing else. **Silent until** `['error', { builder: 'inline-resources' }]`: under a JIT setup that loads resources at run time the call is load-bearing. **Keep the call for a component whose template holds a `@defer` block** — that ships async class metadata, which `TestBed` resolves in this very call whatever the builder did, and dropping it fails the test with `has unresolved metadata`; the rule cannot see another file's template, so list those classes in `{ ignoreComponents: ['CardComponent'] }` (a spec naming one is left alone) or keep a `// eslint-disable-next-line vitest-auto-spy/no-compile-components -- @defer: async class metadata` |
@@ -103,41 +108,26 @@ export default [
 | `jasmine-namespace-without-entry` | `error` | — | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compat layer nowhere — option: `{ setupModules: […] }` |
 | `no-jasmine-globals` | `error` | — | `jasmine.*`, bare `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(` |
 | `no-save-arguments-by-value` | `error` | — | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state |
-| `prefer-native-spy-api` | `error` | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — turn it on for the last mile off the jasmine shim |
+| `prefer-native-spy-api` | `error` | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — turn it on for the last mile off the jasmine shim. The fix renames only the member (`and.returnValue` → `mockReturnValue`, `withArgs` → `calledWith`), so comments stay; a rewrite that would drop one is a suggestion |
 
-Fifty-one rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`,
+Fifty-six rules, **every one an `error` except `prefer-render-shallow`,
 `no-stub-class-double`, `no-structural-double`, `prefer-create-mock`, `no-instance-lifecycle-spy`,
-`prefer-set-inputs`, `no-unasserted-argument`, `prefer-spy-on-own-method` and `prefer-to-have-signal-value`**; eight fix on their own, nineteen offer suggestions. Forty-seven are syntactic; `no-private-member-access`, `no-mistyped-use-value`,
+`prefer-set-inputs`, `no-unasserted-argument`, `prefer-spy-on-own-method`, `prefer-to-have-signal-value`,
+`no-unasserted-console-spy` and `no-real-wait-in-test`**; eight fix on their own, nineteen offer suggestions. Fifty-two are syntactic; `no-private-member-access`, `no-mistyped-use-value`,
 `no-unknown-use-value-key` and `prefer-to-have-signal-value` read types, and all four report nothing at all without `parserOptions.project` / `projectService`
 rather than guessing. `no-compile-components` waits the same way for a fact no file holds — which
-builder the project has — and reports nothing until `{ builder: 'inline-resources' }` states it. The config used to be a graded mix of `error` / `warn` / `off`, which decided for the
-consumer how much each finding mattered — a `warn` nothing reads is `off` with extra output. The
-nine `warn`s left are not judgements about how much a finding matters. `prefer-render-shallow` is
-about the _kind_ of finding: every other rule names something wrong or dead, while this one names a
-file that could render more cheaply, and `renderShallow` is a migration a suite either takes or does
-not. At `error` the plugin would gate that migration — 491 findings across 398 of one consumer's
-1759 spec files — so `recommended` would exist to be overridden. `no-stub-class-double` and
-`no-structural-double` (5.5.0) are about the _evidence_: both report the same drift
-`prefer-create-spy-from-class` reports at `error`, but neither has a `provide:` beside it to settle
-the question, so each decides on a heuristic — and a project that disagrees with the reading has to
-be able to switch it off without losing the rule that reads a count. The counts are not the argument
-and moved a long way inside the release: measured on the same 1759 files, the two started at 12
-reports in 8 files and 115 in 74, and are 10 in 7 and 5 in 4 once `prefer-provide-auto-spy` learnt to
-follow a name into a `useValue` — 112 of those doubles are handed to Angular DI one name away, where
-a `provide:` settles it. That rule reports **154 times across 87 files** on the same suite, all at
-`error`. `no-instance-lifecycle-spy` is on the evidence too: Angular never calls an instance spy on a
-hook it read off the prototype, but a spec that calls `component.ngOnInit()` itself does, and so does
-the injector for a service's `ngOnDestroy`. `prefer-create-mock` (5.23.0) is graded on what its
-repair _costs_: the evidence is exact — the literal and the type it claims are written on the same
-line — but accepting the suggestion hands that literal to the compiler, and on a 2 032-file consumer
-that is 1 200 findings in 327 files going red on one day. `no-unasserted-argument` (5.23.0) is graded on what its
-repair _needs_ rather than on its evidence: both of its readings are facts out of the file — a
-subject some other test in the same file pins with `toHaveBeenCalledWith`, a title saying `with` over
-a body whose every assertion is a bare call — but the repair is the argument list the test should
-have named, which is the one thing the rule cannot supply. Every `error` here names an edit or names
-a helper; this one names a question for the author. `prefer-spy-on-own-method` names a shorter spelling of a correct call — the
-`createSpyFromInstance` it reports does exactly what the helper does — and its exact shapes carry a fix. Set any of the eight `warn`s to `'error'` once the batch is done. Three of
-them can report on a _correct_ project, and only one has an option:
+builder the project has — and reports nothing until `{ builder: 'inline-resources' }` states it;
+`no-relative-mock-under-builder` waits for a builder target serving the file, or `{ builder: 'unit-test' }`.
+
+The eleven `warn`s do not rank findings by importance. Each names something other than a defect: a
+cheaper render (`prefer-render-shallow`), a heuristic reading with no `provide:` to settle it
+(`no-stub-class-double`, `no-structural-double`, `no-instance-lifecycle-spy`), a repair that turns
+many files red at once (`prefer-create-mock`), a question only the author can answer
+(`no-unasserted-argument`, `no-unasserted-console-spy`, `no-real-wait-in-test`), or a preferred spelling
+of working code (`prefer-spy-on-own-method`, `prefer-set-inputs`, `prefer-to-have-signal-value`). Set
+any of the `warn`s to `'error'` once the batch is done.
+
+Three rules can report on a _correct_ project, and only one has an option:
 `jasmine-namespace-without-entry` takes `['error', { setupModules: ['./test-setup'] }]`, naming the
 file where `enableJasmineCompat()` is called; `prefer-native-spy-api` goes `'off'` for as long as a
 suite is still running on the jasmine bridge it reports; and `no-unregistered-inject-spy` has no
@@ -206,8 +196,7 @@ subscription is the last thing the test does (invert it into `await firstValueFr
 after it is what makes the stream emit (hold the promise — `const p = expectEmission(src$)`, fire
 the trigger, `await p` — because inverting deadlocks); or the assertion is in the `error` branch
 (`await expect(firstValueFrom(src$)).rejects.toMatchObject(…)`). It also counts assertions the
-callback reaches through a helper it calls, which used to make `subscribe((d) => assertShape(d))`
-invisible. `prefer-provide-auto-spy` reads `useFactory` as well as `useValue`, through the function
+callback reaches through a helper it calls, so `subscribe((d) => assertShape(d))` counts. `prefer-provide-auto-spy` reads `useFactory` as well as `useValue`, through the function
 in the first case and not in the second — a factory's body is what DI ends up holding, while a
 function inside a `useValue` is a lazily-built double, i.e. the fix. Three rules change behaviour
 when applied — whether `injectSpy(X)` finds a spy is decided by a `provideAutoSpy(X)` usually
@@ -235,8 +224,8 @@ it('maps the products', async () => {
 
 That template was 111 of 133 violations in one migration batch. The suggestion appears only for the
 exact frame above — one `subscribe` statement in the executor, one block-bodied callback, `done()`
-mentioned once and standing last — and the report itself now counts assertions per `subscribe`
-rather than one message per `expect`, which used to double the apparent size of the job.
+mentioned once and standing last — and the report counts assertions per `subscribe` rather than
+one message per `expect`.
 
 `prefer-inject-spy` reads both spellings of the same mistake, which is the point of the second one:
 
@@ -260,11 +249,13 @@ impossible or self-defeating — `{ provide: DestroyRef, useValue }` is silently
 five rather than replacing them.
 
 `no-inject-before-override` catches the trap this plugin's own advice sets. `TestBed.inject()` in a
-`beforeEach` — the line you write once `provideAutoSpy(X)` has taken away the literal you used to
-configure — instantiates the module, and every `TestBed.override*` afterwards throws, including one
+`beforeEach` — the line you write once `provideAutoSpy(X)` has replaced the literal you configured — instantiates the module, and every `TestBed.override*` afterwards throws, including one
 written above it inside a `createComponent` helper. Configure the double after the overrides
 (`injectSpy(X)` in the test), or keep the access lazy: `const api = () => injectSpy(Api)`. The check
-is order-free by design, since a helper declared above the hook still runs after it.
+is order-free by design, since a helper declared above the hook still runs after it. `overrideComponentProvider`
+counts as an override too, and inside `renderShallow`'s `beforeCreate` the order is lexical — the hook runs top
+to bottom before the component exists, so an `injectSpy` above an override there is reported with its own
+message; an override inside the render's own `beforeCreate` runs before the render instantiates anything.
 
 `no-ts-expect-error-on-double` reports the suppression, not the reason written after it. On one
 1759-file suite it reports 34 directives in 15 files and **every one carries a reason** — so an
@@ -278,13 +269,8 @@ directive. The report sits on the directive's line so that comment reaches it. `
 `failWith` and `throwWith` are not read: their parameter is `unknown`, so a directive there
 suppresses something other than the stub.
 
-**What the plugin costs is bounded by the file, not by what is in it.** Three rules used to re-read
-the file per finding-site rather than once: over this repository's 173 spec files the whole plugin
-takes **56 ms** where it took 93, and on a single 1.7 MB spec **68 ms** where it took 3 263. The
-rules answer the same way they did — the ordering rules (`no-inject-before-override`,
-`no-overridden-provider`) collect the `override*` and `resetTestingModule` positions in one pass and
-decide by range, `prefer-render-shallow` asks the template-read question once per file, and
-`no-redundant-smoke-test` indexes identifiers only where a smoke test exists to judge.
+**What the plugin costs is bounded by the file, not by what is in it:** every rule reads a file
+once, not once per finding (numbers: `/core/performance`).
 
 **A rule message names what it found and one repair, and ends in `Docs: <url>`** — the rule's own
 section of the rules page (`utilities/eslint-rules#<rule-name>`), which is also its `meta.docs.url`.

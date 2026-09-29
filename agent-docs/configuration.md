@@ -18,6 +18,7 @@ createSpyFromClass(MyService, {
   lazySpies: true, // unset: true below 8 methods, 'proxy' from 8; false = eager
   returns: { getProducts: of([]) }, // what a spied METHOD answers
   selfReturning: ['where'], // a method that answers the double itself, for a chained call
+  returnsUndefined: ['clear'], // methods that answer undefined, counted as configured under strict
   overrides: { products$: subject }, // a member that is not a method result
 });
 ```
@@ -34,10 +35,12 @@ createSpyFromClass(MyService, {
 | `returns` | What a spied **method** answers. The member stays a spy (`toHaveBeenCalled` works); a default that `calledWith` / `mockReturnValue` / `resolveWith` replace. A key that is not a spied method is reported. |
 | `overrides` | Replaces **any member** with the value as written — a field, a signal, an `Observable` property. The member is no longer a spy, except a plain function seeded on a method (class factories only), which becomes its spy. Named in both, `overrides` wins. |
 | `selfReturning` | The named methods answer the double itself — a default like `returns`; a name in both answers `returns`. |
+| `returnsUndefined` | The list form of `returns: { m: undefined }` — `provideAutoSpy(CartStore, { strict: true, returnsUndefined: ['add', 'remove', 'clear'] })`; a name also in `returns` answers that. `createAutoMock`, `provideAutoSpyForToken` and `registerAutoSpyDefaults` take it too. |
 
-**`instanceMethodsToSpyOn` is not an edge case — it is a top-5 option** (103 of ~370 spec files in
-the reference suite). Method discovery walks the _prototype chain_; a callable assigned to an
-**instance field** is invisible to it:
+### `instanceMethodsToSpyOn` for members discovery cannot see
+
+Name every callable that lives on an **instance field**: method discovery walks the _prototype
+chain_, so it never sees them. You need it for:
 
 - an Angular `signal()` / `computed()` field — the dominant case in a signals codebase
 - an arrow-function property — `readonly reload = (): void => {}`
@@ -59,13 +62,8 @@ the next line reads `undefined` and configuring it throws:
 TypeError: Cannot read properties of undefined (reading 'mockReturnValue')
 ```
 
-There is no better message to be had at runtime, and it is worth saying why rather than leaving it
-looking like an oversight. Instance fields do not exist until a constructor has run, and this
-library never constructs the class — that is what makes a spy safe to build from a service whose
-constructor talks to the network. The only alternative would be to answer an unknown member with
-_something_, and that something would be truthy: `if (service.optionalThing)` in the code under test
-would then take the wrong branch, silently, which is the exact failure mode the protocol deny-list
-in §2 exists to remove. A loud `TypeError` on the spec's own line is the better of the two.
+Fix: add the member to `instanceMethodsToSpyOn`. The library never runs the constructor, so
+instance fields do not exist on the double until you name them.
 
 For an ngrx `signalStore()` class, list nothing: a class built on the `SignalStore` base ngrx
 generates gets `fillMissing: true` by default, so every instance member answers with a spy.
@@ -85,12 +83,18 @@ A name with nothing close gets `instanceMethodsToSpyOn: ['x']` as the fix instea
 
 Also true, and worth not re-deriving:
 
-- **Inherited methods are spied** — discovery walks the whole chain (`Object.prototype` excluded).
+- **Inherited methods are spied** — discovery walks the whole chain (`Object.prototype` excluded),
+  and **stops at a built-in base**: `class AppError extends Error` gets spies for its own methods, not
+  `toString`; the same for `extends Array`, `EventTarget`, `HTMLElement`. Name a built-in method in
+  `methodsToSpyOn` to spy it; `createSpyFromClass(WebSocket)` itself is still discovered whole.
+- **A `then()` method is left out**, with one warning per class: a spy there makes the double a
+  thenable that never settles, so `await double` (or returning it from an `async` function) hangs.
+  `methodsToSpyOn: ['then']` brings it back.
 - **Constructor bodies never run.** The spy is assembled from the prototype.
 - **Abstract classes are accepted**, type and runtime both — `ClassType<T>` carries an abstract
   construct signature, and when the prototype turns out to be empty (abstract members are erased
   before emit) the factory hands back the `createAutoMock` proxy instead of an empty object. Do
-  **not** pass a concrete subclass instead; this file used to say so, and it was wrong twice over.
+  **not** pass a concrete subclass instead.
 - **An overloaded method is not collapsed.** The worry that `Spy<T>` types every generated
   `api-gateway` client against its last signature does not hold: a four-overload
   `ContentApiService.getItemsBySlug` types as it should, and hand-written `{ m: vi.fn() }` doubles
@@ -248,7 +252,8 @@ Precedence, first one set wins: the double's `onUnstubbedCall` → the double's 
   `calledWith` after a `mockReturnValue` is dead on arrival. Neither fails on its own — the spec goes
   green on a branch nobody configured — so the library says so as a misconfiguration (warn, or throw
   under the `strict` preset). The whole family replaces: `mockImplementation`, `mockReturnValue`,
-  `mockReturnThis`, `mockThrow`, `mockResolvedValue`, `mockRejectedValue`. When both a fallback and a
+  `mockReturnThis`, `mockThrow`, `mockResolvedValue`, `mockRejectedValue` — and `withImplementation`
+  for its callback, which is reported too, as is a chain configured inside that callback. When both a fallback and a
   per-argument value are wanted, the fallback goes in the spy's container — `returns:` where the
   double is built, or `resolveWith` / `nextWith` / `failWith` — which a `calledWith` still wins over.
   The report is this library's own spy engine's, so Vitest and Rstest have it; Bun, `node:test` and
@@ -303,15 +308,15 @@ expect(settings.accessorSpies.setters.theme).toHaveBeenCalledWith('light');
 **Naming one half gets you the pair, when the class declares a pair.** `gettersToSpyOn: ['theme']`
 on a class with both a getter and a setter installs both spies — mirroring reads the prototype
 descriptor, so it only ever adds what the class already has, and a read-only member stays read-only.
-Before 3.5.0 the assignment landed on the no-op setter the scaffolding installs: the write vanished,
-`accessorSpies.setters.theme` was `undefined`, and the failure read
-`Cannot read properties of undefined` three steps from the configuration behind it.
 
 The bag is typed over every key of `T` unless the lists are repeated in the options type argument —
 `createSpyFromClass<Settings, { gettersToSpyOn: ['theme'] }>(Settings, { gettersToSpyOn: ['theme'] })`
 keys both halves by exactly the configured names, so `accessorSpies.setters.other` is a compile error
 instead of an `undefined` at run time. Use it when a spec reaches into the bag by name; a
 non-literal `string[]` falls back to the every-key bag.
+
+The bag is a **non-enumerable** own property: absent from `Object.keys`, spreads, `toEqual` and
+snapshots of the double, while `spy.accessorSpies` reads as always.
 
 Only spy a getter when the spec asserts that it was **read**. To make one _answer_ something, on a
 spy that already exists, the pair above is one line — and it needs no `gettersToSpyOn` at the

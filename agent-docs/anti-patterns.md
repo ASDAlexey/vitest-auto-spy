@@ -29,7 +29,7 @@ Part of the agent reference [`AGENTS.md`](../AGENTS.md), which maps every sectio
 | a local `injectSpy` wrapper with `as never` + `as Spy<T>` | the library's — it also takes an `InjectionToken` |
 | a hand-written double for a token with `Observable` members | `provideAutoSpyForToken(T, undefined, { observablePropsToSpyOn: […] })` |
 | `mockDeep<T>() as unknown as T` to satisfy an API typed against `T` | `asInstance(mockDeep<T>())` |
-| `from([double])` to stop `of(double)` swallowing the double | `of(double)` — `schedule` is no longer answered (§2) |
+| `from([double])` to stop `of(double)` swallowing the double | `of(double)` — a double does not answer `schedule` (§2) |
 | `spy.instanceField.mockReturnValue(…)` on a member Angular moved | `provideAutoSpy(X, { instanceMethodsToSpyOn: ['…'] })` (§5) |
 | `expect(component.total).toBeTruthy()` (a signal) | `expect(component.total).toHaveSignalValue(3)` |
 | `fixture.detectChanges()` then assert signal state | `await stable(fixture)` then assert |

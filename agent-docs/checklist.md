@@ -25,8 +25,9 @@ suite that runs green but does not type-check is not done.
 
 `doctor` is read-only and finds what a green run cannot: a `tsconfig` `include` pattern that
 matches no file (so it type-checks nothing while `tsc --noEmit` still reports success), a
-production module importing a `*.spec.ts`, a spec importing another spec, a `@jest-environment`
-pragma the runner never reads, configuration left behind for a runner that is gone, and a setup
+production module importing a `*.spec.ts`, a spec importing another spec, a Jest pragma left behind (`@jest-config` and a bare
+`@jest-environment` as warnings — no runner here reads them; `@jest-environment <name>`, which Vitest
+5 and Rstest do read, as info with the `@vitest-` spelling as the fix), configuration left behind for a runner that is gone, and a setup
 file an Angular or Nx unit-test target never runs because the target does not name it. Three of
 its checks are about coverage, where the run is green and the report is simply not the one the
 config describes — `coverage.all` on a Vitest that stopped reading the key, a source-only
@@ -68,16 +69,34 @@ without `errorOnUnknownElements` / `errorOnUnknownProperties`, which the builder
 `@Injectable` constructor parameters without a token (NG0202). `mock-reset-config-unread` notes a
 `no-redundant-mock-reset` whose `configFile` names a config built by a factory or `mergeConfig`,
 with no flag beside it: the rule cannot see the flags that call sets.
+Nine more are Vitest 5 migration traps: `vitest-5-bundled-package` (an import or `declare module` of
+`@vitest/expect` / `@vitest/runner`, which 5 bundles — import from `vitest`), `vitest-5-matchers-augmentation`
+(a one-parameter `Matchers<T = any>` or `jest.Matchers`; write `interface Matchers<R, T>`),
+`vitest-5-nested-hoist` (`vi.mock` / `vi.hoisted` inside a block, which 5 throws on),
+`vitest-5-empty-throw-message` (`.toThrow('')` now matches every message), `vitest-5-prune-mock-registry`
+(a no-op there), `vitest-5-project-own-server` and `vitest-5-extends-restated` (inline projects),
+`vitest-5-report-path` (json / junit without `outputFile` write under `.vitest/`, blobs moved from
+`.vitest-reports` to `.vitest/blob`) and `vitest-5-vite-peer` (a Yarn repository with no direct `vite`).
+The installed version is read from the nearest `node_modules` up the tree, and the runner counts as
+declared at a workspace root, so `doctor` works inside a workspace package. `vitest-entry-without-vitest`
+(error) names a Vitest-only entry imported where `vitest` is not installed — the one case a run
+cannot name, since ESM fails to link first — with the runner's entry to use. Four more are about
+Angular suites: `angular-testbed-split` (an Analog config without `server.deps.inline: ['vitest-auto-spy']`,
+which gives `/angular` a second `TestBed`), `angular-cache-off-in-ci` (the builder cache never reaches
+CI: +33 % per run on a 700-file suite), `shared-env-without-restore` (a shared environment without
+the `setupAutoSpy` restore options) and `mock-registry-capture-drops-sentinel` (a hand-rolled registry
+pruner that can drop the `clearAllMocks` sweep). The `tsconfig` checks do not judge a `../` entry,
+a missing generated `.d.ts` in `files`, or `include` on a scan that hit its cap, and the import graph
+ignores specifiers in comments and strings and follows tsconfig `paths` / `baseUrl` through `extends`.
 It is worth one run after any large edit to a test suite — especially after a codemod, which is where
 the eaten glob below came from.
 
 Two of its checks are about this package's own names. `helper-from-wrong-entry` catches a named
 import taken from an entry that does not export it — `provideAutoSpy` from the root rather than
 `/angular` or `/nestjs`, `expectRequest` from anywhere but `/angular-http`. It reads both directions
-of the 5.21.0 Angular split — one of the thirty-two moved names still taken from `/angular`, and a
-core name taken from `/angular/diagnostics`, `/angular/doubles` or `/angular/matchers`, which export
-none of them — which makes it what fails that upgrade rather than a compiler: a repository green on
-5.20.0 exits 1 here with no test run, and the fix line names the companion to move to.
+of the Angular companion entries: a name that lives in `/angular/diagnostics`, `/angular/doubles` or
+`/angular/matchers` still taken from `/angular`, and a core name taken from one of those companions,
+which export none. The fix line names the entry to move to.
 It names only entries the install resolved from the file publishes, so a newer CLI run against an
 older install of the same major stays silent instead of pointing at an entry that is not there.
 `no-unawaited-helper`
@@ -92,9 +111,8 @@ Full reference: <https://asdalexey.github.io/vitest-auto-spy/utilities/cli>.
 
 **Three things about the CLI that decide whether its answer means anything:**
 
-- **An unknown flag is refused, exit 2, nothing runs.** `init --dryrun` used to write the files and
-  `perf --gat` used to pass with no gate at all — a typo in CI that read as a clean result. The two
-  stderr lines name the flag and list what the command accepts; `--cwd`, `--help` and `--version`
+- **An unknown flag is refused, exit 2, nothing runs**, so a typo in CI (`init --dryrun`,
+  `perf --gat`) cannot read as a clean result. The two stderr lines name the flag and list what the command accepts; `--cwd`, `--help` and `--version`
   work everywhere.
 - **The scan does not descend into a nested repository or a git worktree.** A tree carrying
   worktrees under it listed every file twice, so `doctor` reported each import graph in duplicate and
@@ -129,10 +147,16 @@ merge request note or a job summary, not for parsing.
 
 **`doctor --ignore <check,…>`** leaves the named checks out of the report, the tally, the exit code
 and the `--code-quality` file. Use it only for a finding the repository has answered in a way
-`doctor` cannot see — `no-agent-instructions` in CI where the instruction files are kept out of git,
-`angular-build-splitting-off` under a patched builder. An id `doctor` has no check for is exit 2,
+`doctor` cannot see — `angular-build-splitting-off` under a patched builder. (`no-agent-instructions`
+stays quiet on its own under `CI` when `.gitignore` keeps every instruction file out of git.) An id `doctor` has no check for is exit 2,
 with the closest id suggested. `--min-severity` hides findings from the text
 only; `--ignore` removes them.
+
+**`--fail-on <error|warning|info>`**, on `doctor` and `perf`, is the quietest finding that fails the run
+(exit 1). `doctor` defaults to `warning`; `info` fails on a note too. `perf` without it fails only on
+its gate; with it, a finding at or above the threshold exits 1 as well. `--ignore` removes a check
+before it counts. It replaces a wrapper that adds up `errors + warnings + notes`; an unknown value is
+exit 2.
 
 ### If you were asked why a suite is slow
 
@@ -169,14 +193,11 @@ raises peak memory.
 
 Two more findings are about settings rather than files. `perf-environment-engine` fires when
 `environment` dominates and a `vite(st).config.*` names `jsdom` while nothing in those configs
-mentions `happy-dom`: measured on this package's own 117-file Angular suite, `happy-dom` is 23.2 s of
-user CPU against jsdom's 26.5 s, and on a spec that builds a DOM and does nothing else the gap is
-253 ms against 119 ms per file. It is a swap, not a flag — `happy-dom` implements less of the
+mentions `happy-dom`, which is measurably cheaper in CPU (numbers: `/core/performance`). It is a swap, not a flag — `happy-dom` implements less of the
 platform — so take one project at a time; the finding names the config that sets `jsdom`, and the
 numbers stay in the docs section. `perf-workers` fires on a run over a minute of summed CPU
 that declares no `maxWorkers`, and it is the one finding here about **memory**: one worker per core
-is the default, resident memory measured at 1.42 GB plus ~155 MB per worker, and a cap of four costs
-about 2.8 % of wall clock. The finding itself counts this machine's cores
+is the default, each worker adds its own resident memory, and a cap of four costs little wall clock. The finding itself counts this machine's cores
 (`os.availableParallelism()`) and suggests half of them as `maxWorkers` in the config it names; the
 figures above are in the docs section, not in the message. Do not quote a worker count as
 universally right — it is a property of the machine.
@@ -259,7 +280,18 @@ reports what to do instead, rather than guessing.
 `--verify` matches the **result** against the patterns the codemod removes, so it also catches what
 the transforms declined to enter (a template literal, an unbalanced bracket) and a file somebody
 migrated by hand. Run it after `--write`, and again after any manual clean-up. `--only` / `--skip`
-select transforms by id, `--list` prints them. Full reference:
+select transforms by id, `--list` prints them. `--write` writes each file through a temporary file and a
+rename, so an interrupted run leaves every file as it was or fully migrated; a file the codemod throws
+on (`codemod-file-failed`) or cannot write (`codemod-write-failed`) is left unchanged and the run goes
+on. `--format json` prints one document — `schema`, `command`, `version`, `cwd`, `run` (`dry-run` /
+`write` / `verify`), `exitCode`, `tally`, per-file `changed`, `edits`, `fired`, `imports`, `diff`, and
+`findings`; `--format markdown` is exit 2 here. Four warnings to read rather than skip:
+`overlapping-edit` (two rewrites claimed one span; the one named was not applied — check the line),
+`name-declared-locally` (the rewrite needs a name the file declares itself, so no import was added —
+rename the local binding), `fake-timers-option` (Jest's `advanceTimers` / `doNotFake` /
+`legacyFakeTimers` / `timerLimit`, which `vi.useFakeTimers` ignores — `shouldAdvanceTime`, `toFake`,
+none, `loopLimit`) and `vi-without-globals` (a bare `vi` with `globals` off, which throws
+`vi is not defined`; import `vi`, `describe`, `it`, `expect` from `vitest`). Full reference:
 <https://asdalexey.github.io/vitest-auto-spy/utilities/codemod>.
 
 **Every rewrite is parsed before it is written.** The result goes through the project's own

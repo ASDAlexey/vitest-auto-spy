@@ -93,7 +93,7 @@ state no browser produces, and a player listening for `pause` was never told.
 
 `currentTime` is a get/set pair, so a player restarting itself with `video.currentTime = 0` reaches
 the record and fires `timeupdate` too — `media.set()` is not the only way in, and the component's own
-handler runs where it used to stay unrun while the assertion read the new value.
+handler runs.
 
 ### `localStorage` and `sessionStorage`
 
@@ -157,7 +157,7 @@ per `flush()`; `frames.flushAll()` runs such a chain until nothing is pending (a
 rounds, on a loop that never stops). A `cancelAnimationFrame` for a handle the stub did not issue — a
 native frame requested before it was installed, such as zoneless Angular's scheduler frame — is
 passed on to the real `cancelAnimationFrame`, so installing the stub after the render leaks no timer.
-The stub's own handles start above 2^30 (since 5.40.0), so assert a cancel against the handle it
+The stub's own handles start above 2^30, so assert a cancel against the handle it
 issued — `expect(frames.cancelAnimationFrame).toHaveBeenLastCalledWith(frames.lastHandle)`, or the
 value `requestAnimationFrame` returned — never against a literal such as `1`. A callback that throws stops `flush()` (or propagates out of `requestAnimationFrame`
 in `'immediate'` mode); pass `onError: (error) => { … }` to intercept it instead — rethrow from
@@ -167,6 +167,49 @@ inside to keep the default for an error you did not mean to swallow. `stubElemen
 undo. The box is the spy's creation implementation, so `vi.resetAllMocks()` / `mockReset()` mid-test
 keeps it on both spy engines; Bun's `mockReset()` drops it (re-stub after a reset there). Both go through `mockValueProp`, so `restoreMockedProps()` (and `setupAutoSpy()` between tests)
 takes them off; `frames.restore()` does it sooner.
+
+### An element for `ElementRef` — `createElementStub`
+
+A directive or a DOM-touching service is tested through calls on a stub element, with no rendered
+host. The spies keep state: `contains` answers what `add` put in, `getAttribute` what `setAttribute`
+wrote, and `dispatchEvent` reaches the listeners.
+
+```ts
+import { createElementStub } from 'vitest-auto-spy/dom-stubs';
+
+const host = createElementStub({ classes: ['card'] }); // also tagName, attributes, style, overrides
+
+TestBed.configureTestingModule({ providers: [{ provide: ElementRef, useValue: new ElementRef(host.element) }] });
+const directive = TestBed.runInInjectionContext(() => new HighlightDirective());
+
+directive.onEnter();
+
+expect(host.classList.add).toHaveBeenCalledWith('highlighted');
+expect(host.classes()).toEqual(['card', 'highlighted']); // attributes(), styles(), listenerCount(type) too
+host.emit('mouseleave'); // fires the listeners; records nothing on dispatchEvent
+```
+
+Reading an `HTMLElement` member the stub does not implement throws with the member's name — pass it
+in `overrides: { offsetWidth: 120, querySelector: vi.fn() }`. Nothing is patched, so there is nothing
+to restore.
+
+### The members the DOM environment leaves out — `fillMissingDomApis`
+
+Once in the setup file, before `setupAutoSpy()`: it fills `PointerEvent`, a no-op `ResizeObserver`,
+no-op `scrollTo` / `scrollBy` / `scrollIntoView` on elements and `window` (jsdom's own only log
+"Not implemented") and `document.doctype` — only what is missing, safe to run twice, and it returns
+the names it filled. `{ cheapComputedStyle: true }` replaces `getComputedStyle` with one that answers
+the inline style only: fast, and silent for a pseudo-element. Filled before the snapshot, these
+globals are never blamed on a test by the global-patch guard.
+
+```ts
+// vitest.setup.ts
+import { fillMissingDomApis } from 'vitest-auto-spy/dom-stubs';
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
+fillMissingDomApis();
+setupAutoSpy();
+```
 
 ### A module mock that did nothing
 
@@ -191,8 +234,7 @@ vi.mock('shaka-player', () => moduleNamespace({ Player: mockConstructor(() => pl
 ```
 
 A factory that spells out its own `default` **keeps it** — `moduleNamespace({ default: dayjsStub, utc })`
-gives the probing dependency `dayjsStub`, where it used to be replaced by the namespace itself and
-the default export silently became the wrong object. Only a factory without one gets
+gives the probing dependency `dayjsStub`. Only a factory without one gets
 `default: <the namespace>`, which is the interop shape it was there for; the return type follows.
 
 A factory's `vi.fn()` comes back typed as the real function, without `calledWith` or `resolveWith`.
@@ -208,7 +250,8 @@ adoptMock(loadUser).calledWith(7).resolveWith({ id: 7, name: 'Ada' });
 
 To keep the real module and configure one case, spy it through:
 `vi.mock('./api', async (importOriginal) => moduleNamespace(await importOriginal(), { passthrough: true }))`.
-Every function export runs for real and is recorded until configured; classes and values stay real;
+Every function export runs for real — with the call's receiver as `this`, here and in `adoptMock`'s
+fall-through — and is recorded until configured; classes and values stay real;
 calls one export makes to another inside the module are not recorded. A `vi.spyOn` / `{ spy: true }`
 mock calls an original it does not report, so adopting it makes an unconfigured call answer
 `undefined`; `node:test`'s `mock.fn()` is refused.
