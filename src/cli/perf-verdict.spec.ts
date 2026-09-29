@@ -34,9 +34,13 @@ describe('formatVerdict', () => {
   it('paints what fails the run red and the rest dim, and says "fails" for one', () => {
     const [title, , confirmed, notReproduced] = formatVerdict(rows.slice(0, 2), TERMINAL);
 
-    expect(title).toBe('perf gate verdict — 2 judged, 1 fails the run');
+    expect(title).toBe(TERMINAL.red('perf gate verdict — 2 judged, 1 fails the run'));
     expect(confirmed).toContain(TERMINAL.red('confirmed     '));
     expect(notReproduced).toContain(TERMINAL.dim('not reproduced'));
+  });
+
+  it('leaves the title plain when nothing fails the run', () => {
+    expect(formatVerdict(rows.slice(1, 2), TERMINAL)[0]).toBe('perf gate verdict — 1 judged, 0 fail the run');
   });
 
   it('prints nothing for no candidates', () => {

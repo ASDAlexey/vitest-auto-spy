@@ -54,5 +54,7 @@ export function formatVerdict(rows: readonly GateRow[], paint: Painter): string[
     paint,
   );
 
-  return [`perf gate verdict — ${rows.length} judged, ${failing} ${failing === 1 ? 'fails' : 'fail'} the run`, ...table];
+  const title = `perf gate verdict — ${rows.length} judged, ${failing} ${failing === 1 ? 'fails' : 'fail'} the run`;
+
+  return [failing > 0 ? paint.red(title) : title, ...table];
 }
