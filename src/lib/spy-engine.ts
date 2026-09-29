@@ -25,9 +25,20 @@ function engineHolder(): { engine: SpyEngine } {
   return (sharedEngine ??= globalThis.__vitestAutoSpyEngine__ ??= { engine: 'auto-spy' });
 }
 
-/** Build every method spy from `engine` from here on. Doubles already built keep the engine they were built with. */
-export function setSpyEngine(next: SpyEngine): void {
-  engineHolder().engine = next;
+/**
+ * Build every method spy from `engine` from here on. Doubles already built keep the engine they were
+ * built with. The engine is worker-wide, so under `isolate: false` it outlives the file that set it:
+ * call the returned function in an `afterAll` / `afterEach` to put the previous engine back.
+ */
+export function setSpyEngine(next: SpyEngine): () => void {
+  const holder = engineHolder();
+  const previous = holder.engine;
+
+  holder.engine = next;
+
+  return (): void => {
+    holder.engine = previous;
+  };
 }
 
 /** The engine every double built from here on will use. */
