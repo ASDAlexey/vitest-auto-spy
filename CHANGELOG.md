@@ -10,6 +10,509 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Changed
+
+What a suite can notice on upgrade comes first; each item says what to do about it.
+
+- **`expectRequest(url, { tick: false }).flush()` and `.error()` answer synchronously and return
+  `undefined`.** They used to return a promise that ran two microtask rounds before settling. An
+  `HttpClient` subscriber is answered synchronously either way, so it sees no difference; a spec that
+  read an `httpResource()` right after `await …flush(x)` now gets one microtask (`await undefined`)
+  instead of two. `await` on them still works, but `@typescript-eslint/await-thenable` now reports
+  it: drop the `await`. The overload returns `RequestExpectation<void>` when the options are typed
+  `{ tick: false }`; without the option nothing changed.
+- **`setSpyEngine()` returns an undo.** Vitest runs a function returned from a hook callback as that
+  hook's teardown, so `beforeEach(() => setSpyEngine('runner'))`, written as an expression-bodied
+  arrow, now puts the previous engine back after every test. That is usually what was meant; to keep
+  the switch for the whole file, call it in a block body or in the setup file, where the return
+  value is ignored as before.
+- **`setupAutoSpy({ cleanTestBed })` is `'warn'` by default** (`'throw'` under `preset: 'strict'`,
+  `'off'` to skip). Once `vitest-auto-spy/angular` is loaded, the end of every spec file checks the
+  `TestBed`, and a file that leaves a testing module instantiated, a fixture alive or a runner spy on
+  a `TestBed` method now prints one warning naming the file, then resets what it found. A suite whose
+  runner has no global `afterEach` (so Angular never registered its own reset) sees one per file:
+  that is the leak it reports. Set `cleanTestBed: 'off'` to silence it while you fix the setup.
+- **A lenient `calledWith` that misses prints a one-time hint.** When a `calledWith` chain misses a
+  call with the same number of arguments as one of its configurations, on a spy that has no default
+  answer, the library warns once per test file (once per worker under `isolate: false`), naming the
+  call and up to three configurations and linking the control-helpers page. It is never thrown, not
+  even under `misconfiguration: 'throw'`, and `strayConsole` does not count it. A spec that asserts
+  `console.warn` was never called can see it in the first test that misses; give the spy a default,
+  or use `mustBeCalledWith` when the miss is the bug.
+- **`accessorSpies` is a non-enumerable property of a double.** It is still an own property and
+  `spy.accessorSpies.getters.x` works as before, but it no longer appears in `Object.keys`, object
+  spreads, `toEqual` comparisons or snapshots of a double. A snapshot that recorded the bag changes
+  once; an assertion that listed `'accessorSpies'` among a double's keys has to drop it.
+- **The prop-mock journal lives under `globalThis.__vitestAutoSpyPropJournal__`**, not
+  `__vitestAutoSpyPatchedProps__`. Its shape changed (slots that are emptied on undo, not an array
+  of patches), and the new key keeps a second copy of the library from reading one shape as the
+  other. Only code that read the old global by name is affected.
+- **A class double leaves out `then()`.** A spy there made the double a thenable whose `then` never
+  called back, so `await double` — or returning the double from an `async` function — hung the test
+  until its timeout. Discovery now skips it and warns once per class; name it in
+  `methodsToSpyOn: ['then']` (or `onlyMethodsToSpyOn` / `instanceMethodsToSpyOn`) when the spec
+  really drives `then`, or seed it through `overrides`. `createSpyFromInstance` is unchanged.
+- **Discovery stops at a built-in base class.** `class AppError extends Error`, `extends Array`,
+  `extends EventTarget` or `extends HTMLElement` get spies for their own members only, not for
+  `toString`, `push` or `addEventListener` inherited from the platform. Name a built-in method in
+  `methodsToSpyOn` to keep spying it. A built-in doubled directly (`createSpyFromClass(WebSocket)`)
+  is still discovered whole.
+- **`trackInjections` / `createWithAutoSpies` doubles take the width-based `lazySpies` default.**
+  `createSpyForToken` forced `lazySpies: true`; it is now a plain `createSpyFromClass(token)`, so a
+  token class of eight methods or more gets the lighter `'proxy'` double like everything else.
+- **`prefer-render-shallow` under `{ templates: 'never' }` reports more.** Besides
+  `TestBed.createComponent` and `keepTemplate: true`, the policy now reports every DOM read in the
+  spec (`nativeElement`, `debugElement`, any `By.*`, the global `document`, `inject(DOCUMENT)`, …,
+  once per statement), a `@Component` declared in the spec with a `template` or `templateUrl`, and a
+  `template:` handed to `renderShallow` / `prepareShallow`. A file that calls or imports
+  `createDirectiveHost` stays exempt. Suites without the option see no change.
+- **Five new rules are in `recommended`**: `no-outer-binding-in-mock-factory`,
+  `no-relative-mock-under-builder` and `no-disabled-testbed-teardown` as `error`,
+  `no-unasserted-console-spy` and `no-real-wait-in-test` as `warn`. `no-relative-mock-under-builder`
+  is silent until an `@angular/build:unit-test` target serves the file or its `builder` option says
+  so. The plugin now ships fifty-six rules, eleven of them `warn`.
+- **`@angular/compiler` (`>=20.0.0`) and `@rstest/core` (`>=0.11.0`) are declared as optional peer
+  dependencies.** `/angular/matchers`, `/bun-angular` and `/rstest` already imported them, and a
+  strict installer such as pnpm refused to resolve an import nothing declared. Nothing new is
+  installed for anyone.
+- **The shared declaration chunk is `dist/core.d.ts`, not `dist/bun.d.ts`.** Go-to-definition from
+  the root lands in a file named for the core; `dist/bun.d.ts` is now a 3 kB file of re-exports. A
+  path mapping or a `/// <reference>` pointing at `dist/bun.d.ts` for the core types should point at
+  the entry instead.
+- **`/node`, `/bun`, `/bun-angular`, `/rstest` and `/jasmine-compat` declare no `vitest` type.**
+  `Spy<T>` takes its mock type from the entries in the program: Vitest's own `Mock` wherever an
+  entry that loads Vitest is imported, a structural `Mock` with the members of `@vitest/spy` 5's
+  otherwise. A project without Vitest installed type-checks with `skipLibCheck: false` (TS2307 /
+  TS2882 before), and Vitest consumers keep the real Vitest types.
+- **`provideAutoSpy()` throws on a component or directive class.** Angular declares or imports a
+  declaration and never injects one, so the provider was dead; the message points at
+  `createComponentStub`, `renderShallow` or creating the component through `TestBed`.
+- **`trackMockRegistry()` (and `setupAutoSpy({ pruneMockRegistry: true })`) captures the registry
+  where it is called, in the setup file,** instead of in every file's `beforeAll`. On Vitest 5,
+  where there is nothing to capture, it registers no hook at all and costs nothing per test — which
+  also means `keepMockRegistered` implementations are no longer re-installed before each test there.
+  `doctor` already says to delete the call after the Vitest 5 upgrade.
+- **`vitest-auto-spy/console` and `vitest-auto-spy/nestjs` no longer import `vitest`.** They load on
+  `node:test`, Bun and Rstest and build that runner's mocks; `useConsoleSpies()` registers its hooks
+  on the runner whose entry was imported (Vitest's everywhere before). Imported before any runtime
+  entry, `/console` builds its spies on the first `installConsoleSpies()` / `useConsoleSpies()`
+  instead of failing, and the exported `consoleErrorSpy` & co. are live bindings that pick them up.
+  On Vitest, importing either entry alone still registers the default adapter. The 5.19.0 entry
+  said a Nest unit on `bun:test` or `node:test` needed a runner-agnostic entry; this is it.
+- **`jasmine.clock().mockDate()` without `install()` warns once.** jasmine throws there
+  (`Mock clock is not installed`); the bridge still mocks `Date`, and throws under
+  `misconfiguration: 'throw'`. The next major throws unconditionally; call `install()` first, or use
+  `mockSystemTime()` when only the date should be fake.
+- **Emission failures show the values that arrived**, the first five and then `… N more`, not only
+  how many: `the stream completed after 2 emissions (1, 2), expected 3`,
+  `did not complete within 20 ms (3 emissions received: 1, 2, 3)`. A test that matched the old
+  message text exactly needs the new one.
+- **`toHaveSignalValue`'s "received a spy" error names the case `mockSignalProp()` cannot fix**: a
+  component that copied the signal into a field of its own when it was built. The fix it shows is
+  seeding the signal before render, `provideAutoSpy(Store, { overrides: { count: signal(3) } })`.
+- **`injectSpy()` and `renderShallow()` name the likely cause of "Need to call
+  TestBed.initTestEnvironment() first"** (or `reading 'ngModule'`) when the setup file does
+  initialise the TestBed: Vitest externalised the package, and it talks to a second copy of
+  `@angular/core/testing`. The message shows `test.server.deps.inline: ['vitest-auto-spy']`, with
+  Angular's error as `cause`. `renderShallow()` after the testing module was instantiated names
+  `renderShallow` and `beforeCreate` instead of Angular's bare "already been instantiated".
+- **`no-unregistered-inject-spy` reads every `providers` value it can and trusts the rest.** An array
+  literal, a `const` declared with one (shorthand `{ providers }` and a quoted `'providers':` key
+  included) is read; an import, a factory call, a pushed-to array or a `let` written twice makes the
+  file opaque, and nothing in it is reported. `providers: someName` used to be ignored, which
+  reported tokens it did register.
+- **`doctor`'s `foreign-runner-pragma` reports `@jest-environment <name>` and
+  `@jest-environment-options` as `info`**, not a warning: Vitest 5 and Rstest read them. The check
+  still suggests the `@vitest-` spelling; `@jest-config` and a bare `@jest-environment` stay warnings.
+- **`no-hand-assigned-global` suggests `stubResponse({ body })` for a hand-assigned `fetch`**
+  (`mockValueProp(globalThis, 'fetch', vi.fn(async () => stubResponse({ body })))`) instead of a cast
+  `Response`.
+- **`perf-isolation` no longer implies `isolate: false` will be faster.** On a suite whose overhead
+  read over 30 %, `isolate: false` measured 0 % faster, because the work moved into the files; the
+  finding now says so and points at `perf --ab-isolate`.
+- **A `perf` run that did not finish is never recorded into or compared with a baseline**, including
+  one Vitest reports as interrupted; `--update-baseline` on one exits 2. The perf report format is
+  version 5; versions 1–5 are read.
+- **`codemod --write` writes each file atomically** (a temporary file and a rename) and writes only
+  the files it changed. A file the codemod throws on, or cannot write, is reported
+  (`codemod-file-failed`, `codemod-write-failed`) and left as it was, and the run goes on.
+- **`init` writes all or nothing.** If one write fails, the files already written are put back, the
+  failing one is listed as `failed` with the OS reason, and the command exits 1 — no stack trace. A
+  managed block edited by hand (its body no longer matches the `sha=` in its marker) is reported as
+  `edited` and left alone, and `--check` fails on it; a second block in one file is removed.
+- **`npx vitest-auto-spy --version`, `doctor` and `init` no longer load the codemod.** It moved into
+  a chunk (`dist/cli-*.js`) only `codemod` imports; `dist/cli.js` measured 370 → 291 kB at the
+  split.
+
+### Added
+
+- **`returnsUndefined: ['add', 'remove', 'clear']`** on `createSpyFromClass`,
+  `createSpyFromInstance`, `provideAutoSpy`, `createAutoMock`, `provideAutoSpyForToken` and
+  `registerAutoSpyDefaults`: the list form of `returns: { m: undefined }`, counted as configured
+  under `strict`, so a strict double of a store with several `void` commands is one line. A method
+  also named in `returns` answers that value.
+- **`calledWith(…).once()` and `.times(n)`** limit a sync answer (`mockReturnValue`, `returnValue`,
+  `failWith`) to the next matching calls. A limited answer stacks over what the same arguments
+  already answered and is used last-configured first; when the stack runs out the call falls back to
+  the answer below it, then to the spy's default. Under `mustBeCalledWith` a call past the count
+  throws like any miss; `times(0)` and other non-positive or fractional counts throw a `RangeError`.
+- **`withFakeTimers(fn, config?)` from `vitest-auto-spy/setup`** runs one body under fake timers and
+  restores real timers however it ends — returned, thrown or rejected, sync or async — and returns
+  what `fn` returns. Inside `setupFakeTimers()` / `globalFakeTimers` it runs on the installed fakes
+  and leaves them on (a `config` there throws, because the installed clock could not be put back);
+  over `mockSystemTime()` it starts at the mocked time.
+- **`expectNoEmissionSync(source$, options?)`** from the root and `/angular`: the no-emission
+  assertion for a spec with no `await`. It subscribes, runs `advance`, unsubscribes and throws at the
+  call if anything past `skip` / `until` arrived; it proves silence only for what runs synchronously.
+- **`x$.subscriberCount()` on an observable property spy** (`observablePropsToSpyOn`): the
+  subscriptions open right now. `expect(store.items$.subscriberCount()).toBe(0)` after
+  `fixture.destroy()` catches a component that never unsubscribed. The type is
+  `ObservablePropSpyMethods` from `/rxjs`.
+- **`ObserverSpy.onComplete({ timeout })` / `onError({ timeout })`** reject after `timeout` real
+  milliseconds instead of hanging until the file timeout, fake timers and `fakeAsync` included. No
+  timeout by default, as upstream.
+- **`expectRequest(url, { tick: false })` is typed to answer synchronously**: `flush()` and
+  `error()` return `void` (`RequestExpectation<void>`).
+- **`consoleLines()` from `vitest-auto-spy/console`**: everything the console spies recorded as one
+  list in call order across channels, `[['warn', 'deprecated'], ['info', 'done']]` (`ConsoleLine`
+  type). `consoleOutput()` groups per channel and cannot say which came first. A call a
+  `mockImplementation` / `mockReturnValue` on a console spy answered cannot be ordered, and
+  `consoleLines()` throws rather than guess.
+- **`createNestUnit` from `vitest-auto-spy/node` and `vitest-auto-spy/bun`**, with its types: a Nest
+  suite on `node --test` or `bun test` builds its unit with one import and no Vitest installed.
+- **`prepareShallow(...).create({ extraProviders, extraImports })`** adds to the prepared providers
+  and imports, after them, so the per-test provider wins for the same token; `providers` / `imports`
+  still replace (`ShallowOverrides<T>`).
+- **`renderShallow(..., { testBed })`** passes the rest of `configureTestingModule`'s metadata
+  through — `deferBlockBehavior`, `errorOnUnknownElements`, `errorOnUnknownProperties`,
+  `teardown`; `schemas` are added to the `NO_ERRORS_SCHEMA` a `standalone: false` host gets.
+- **`setupAutoSpy({ cleanTestBed })`** — the end-of-file TestBed check described under Changed, with
+  its repair: the module reset, live fixtures destroyed, a spy on a `TestBed` method restored, and
+  `enableAngularDiagnostics`' per-file state dropped, so under `isolate: false` the next file starts
+  clean.
+- **`mockSignalProps(store, { items: [], total: 0 })` from `vitest-auto-spy/angular`**: several
+  signals in one call, a writable handle per key, each key and value checked against the store.
+- **`providePlatform('browser' | 'server', { isBrowser, isServer })`** from `/angular/doubles`:
+  `PLATFORM_ID` and the app's own platform tokens, always agreeing.
+- **`createDomSanitizerDouble()` / `provideDomSanitizerDouble()`**: every method a spy; the bypass
+  spies return Angular's real safe values, so a template still renders them, and `sanitize` unwraps
+  them and throws Angular's own error on a wrong context. A plain string comes back unchanged.
+- **`createChangeDetectorRefDouble()` / `provideChangeDetectorRefDouble()`**: `markForCheck`,
+  `detach`, `detectChanges` and `reattach` as spies answering `undefined`, safe under `strict`. The
+  provider reaches what an environment injector builds; a component the template instantiates
+  always gets its detector from its view.
+- **`createOverlayDouble()` / `provideOverlayDouble()` / `injectOverlayDouble()`**: a CDK `Overlay`
+  double with no dependency on `@angular/cdk` — pass your own `Overlay` class. One ref double per
+  `create()` (`refs`, `lastRef()`), a `position()` chain that records its calls, the four scroll
+  strategies, and backdrop, keydown and outside-pointer streams that stay silent until the spec
+  fires them.
+- **`createElementStub()` from `vitest-auto-spy/dom-stubs`**: a typed `HTMLElement` for
+  `ElementRef`, with `classList`, `style`, attributes and listeners on spies that keep state
+  (`contains` answers what `add` put in, `dispatchEvent` reaches the listeners). Reading a member it
+  does not implement throws by name and shows the `overrides` fix. Nothing is patched.
+- **`fillMissingDomApis()` from `vitest-auto-spy/dom-stubs`**, for the setup file: `PointerEvent`, a
+  no-op `ResizeObserver`, no-op scrolling on elements and `window` (jsdom's own only log "Not
+  implemented") and `document.doctype`, each only where it is missing; it returns the names it
+  filled. `{ cheapComputedStyle: true }` swaps `getComputedStyle` for one that answers the inline
+  style. Installed before `setupAutoSpy()`, none of these is reported against a test.
+- **`RouteResources`** is exported from `vitest-auto-spy/angular-router`, and
+  **`JasmineWithArgsStrategies`** from `vitest-auto-spy/jasmine` and `/jasmine-compat`.
+- **Five ESLint rules**, all in `recommended` (grades under Changed):
+  - `no-unasserted-console-spy` — a console spy the file installs and only resets or configures,
+    never asserts; `useConsoleSpies()` already silences.
+  - `no-outer-binding-in-mock-factory` — a `vi.mock` factory reading a top-level binding not
+    declared through `vi.hoisted` (`Cannot access 'x' before initialization`).
+  - `no-relative-mock-under-builder` — `vi.mock('./x')` (and `doMock`, `importMock`, `unmock`,
+    `doUnmock`) in a spec `@angular/build:unit-test` runs, where the builder throws; it also reports
+    a tsconfig `paths` alias for a workspace file (`vi.mock('@app/cart.service')`), which the
+    builder bundles before Vitest could replace it, so the mock is silently not applied.
+  - `no-real-wait-in-test` — `new Promise((r) => setTimeout(r, N))` and `setTimeout(N)` from
+    `node:timers/promises`: a sleep on the real clock.
+  - `no-disabled-testbed-teardown` — `destroyAfterEach: false`, which lets every fixture outlive its
+    test.
+- **`no-real-component-provider` takes `{ childInjectors: true }`**, which also reads
+  `debugElement.query(…).injector.get(X)`, `queryAll(…)[i]` and `children[i]` injectors; a class
+  named in `By.directive(…)` counts as rendered.
+- **`no-inject-before-override` knows `overrideComponentProvider`**: it counts as an override
+  everywhere, and an `injectSpy` / `TestBed.inject` above an override in the same `beforeCreate` is
+  reported with its own message.
+- **`doctor` and `perf` take `--fail-on <error|warning|info>`**, the quietest finding that fails the
+  run (`doctor` defaults to `warning`; `perf` adds it on top of its gate). A CI job that must fail on
+  notes no longer adds up the tally itself.
+- **`doctor` knows nine Vitest 5 migration traps**: imports and augmentations of `@vitest/expect` /
+  `@vitest/runner` (`vitest-5-bundled-package`), a one-parameter `Matchers<T>` or a `jest.Matchers`
+  augmentation, a nested `vi.mock` / `vi.hoisted` (which now throws), `.toThrow('')` (which now
+  matches any message), a no-op `pruneMockRegistry`, an inline project that loses the shared Vite
+  server, a restated `extends: true`, json / junit reports and `.vitest-reports` paths that moved
+  under `.vitest/`, and a Yarn repository with no direct `vite`.
+- **`doctor` reports a Vitest entry imported where `vitest` is not installed**
+  (`vitest-entry-without-vitest`, with the runner's entry to use), an Analog config that splits
+  `TestBed` in two (`angular-testbed-split`), an Angular build cache that never reaches CI
+  (`angular-cache-off-in-ci`, +2.91 s, +33 % per CI run on a 700-file suite), a shared-environment
+  Angular suite without the `setupAutoSpy` restore options (`shared-env-without-restore`), and a
+  hand-rolled mock-registry pruner that drops the `clearAllMocks` sweep
+  (`mock-registry-capture-drops-sentinel`).
+- **`perf --ab-isolate`** runs the suite a second time with `isolate` flipped — the reporter sets it
+  on every project before the pool starts, so it works under `--command` too — and reports both wall
+  clocks as `perf-isolation-ab`. On a 30-file jsdom project it measured 1.13 s → 583 ms.
+- **`perf --profile-dir <dir>`** keeps each CPU profile the gate's confirmation pass records as a
+  `.cpuprofile`.
+- **Three `perf` checks**: `perf-pool` (on Vitest 5, a DOM suite on the default `forks` pool is told
+  to try `pool: 'vmThreads'`; 1.4–1.85 s → 0.83–0.88 s measured on 30 jsdom files),
+  `perf-coverage` (coverage time after the last test file, which no phase counts) and `perf-hung`
+  (a run whose process Vitest had to force out after `teardownTimeout`).
+- **More in a `perf` report**: `perf-heap` names the test whose heap growth survives the next test;
+  the text prints how long the measured command took end to end and how much of it was outside the
+  run Vitest timed (the `ng test` build, bundling, start-up); `setupAutoSpy()` times its own per-test
+  hooks during a `perf` run, and `perf` prints their share of the tests phase (outside a `perf` run
+  it adds nothing); the gate's evidence card lists the setup files' imports and each import's self
+  time; `perf-environment` counts the specs splitting the DOM half of a setup file would free, and
+  the environment time that is.
+- **`codemod --format json`** prints the run as one JSON document — per-file edits, resulting
+  imports, diff and every finding — for CI to read; `--format markdown` is refused with exit 2.
+- **`codemod` warns** when `vi.useFakeTimers` gets a Jest-only option Vitest ignores
+  (`advanceTimers`, `doNotFake`, `legacyFakeTimers`, `timerLimit`, each with the Vitest equivalent),
+  and when a migrated file uses `vi` bare while the Vitest config leaves `globals` off.
+- **A warning when something removes the library's sweep mock from Vitest's registry.** With
+  `trackMockRegistry()` / `pruneMockRegistry: true` in the run, a hand-written pruner that drops it
+  no longer makes `vi.clearAllMocks()` and `clearMocks: true` silently stop clearing auto-spies: it
+  is put back, and one warning per worker names `Symbol.for('vitest-auto-spy.sweepSentinel')`, the
+  entry to keep.
+
+### Fixed
+
+- **`expectUnhandledObservableErrors` accepts `HttpErrorResponse`** and any other error class that
+  does not extend `Error`; its `{ message }` form matches any object with a string `message`.
+- **`adoptMock` and `moduleNamespace(…, { passthrough: true })` call the real function with the
+  receiver of the call.** They read it from the runner's recorded contexts, which gave `undefined`
+  on `node:test`; the dispatch now hands `this` over itself, on every runner. The passthrough call
+  also costs about half (66.6 → 28.3 µs per 1 000 calls), because reading `mock.contexts` no longer
+  takes the fast engine's call record live.
+- **`withImplementation` reports a `calledWith` chain it disables**, and one configured inside its
+  callback, like `mockImplementation` does. When the report throws, the callback does not run and
+  the spy is left as it was.
+- **`mockReset()` drops a name set with `mockName()`**, as Vitest's does; a bare spy goes back to
+  `vi.fn()`, a method spy the library named keeps the method's name.
+- **A fast spy's `length` matches its implementation's**, as `vi.fn(impl).length` does.
+- **Printing or interpolating a `createAutoMock` double no longer adds `toString` / `valueOf` spies**
+  to its keys and snapshots; they answer `Object.prototype`'s, and `` `${mock}` `` reads
+  `[object Object]` instead of `'undefined'`. Seed or assign either one to mock it.
+- **`explainSpy(undefined)` / `explainSpy(null)` print their report** instead of throwing a
+  `TypeError`; the signature takes `object | null | undefined`.
+- **A `mock*Prop` patch undone through its own restore function no longer keeps the patched object
+  and its original descriptor alive** for the rest of the worker; `countMockedProps()` is
+  constant-time.
+- **`keepMockRegistered` no longer keeps the mock**, and every call it recorded, alive; it defeated
+  Vitest 5's weak mock registry.
+- **`extendWithAutoSpies` builds a double only when a test or a provider injects it**, as documented;
+  every declared entry was built in every test.
+- **`renderShallow(..., { keepChildren })` on a `standalone: false` component kept nothing.** A
+  standalone child is now imported into the testing module and a `standalone: false` one declared.
+- **On `node:test`, `resetAutoSpy()` kept an implementation a test installed with
+  `mock.mockImplementation()`**, spied getters included, because the adapter's reset cleared only
+  the calls; it now puts the spy's own implementation back, as on Vitest and Bun.
+  `resetConsoleSpies()` on Bun no longer leaves the console spies without their implementation.
+- **The published types no longer need `@types/node` or `lib: ["esnext.disposable"]`.** `Spy<T>` is
+  keyed by `Symbol.dispose` where it is declared and by a key of its own where it is not, instead of
+  failing with TS2550.
+- **`/angular` no longer needs Angular to export `ɵSIGNAL` by name.** `runEffect()`,
+  `mockSignalProp`, the signal matchers, `/signal-forms` and the internals canary look the signal
+  symbol up at run time; `provideDomSanitizerDouble()` reads Angular's private sanitization exports
+  when the double is built, so an Angular without them fails that one spec, with the version named,
+  instead of every file that imports `/angular/doubles`.
+- **`doctor` compares the installed major against the CLI that is running**, not the release before
+  it; the published CLI carried the previous version, which would have misread the first release of
+  a new major.
+- **`tsconfig-glob-matches-nothing` and `tsconfig-file-missing`** no longer report `../` entries,
+  missing generated `.d.ts` files in `files`, directories of `.vue` / `.svelte` components, or
+  patterns on a scan that stopped at its cap.
+- **Run inside a workspace package, `doctor` finds the hoisted Vitest and the root's declaration**,
+  so the Vitest 5 checks no longer skip silently.
+- **`no-agent-instructions` stays quiet in CI** when `.gitignore` keeps every instruction file out of
+  the checkout.
+- **`doctor`'s import graph ignores specifiers in comments and strings** (no more
+  `spec-imported-by-non-spec` for a commented-out import) and follows tsconfig `paths` / `baseUrl`
+  through `extends`.
+- **tsconfig parsing no longer strips `,]` or `,}` inside string values**, and runs in linear time.
+- **`init` handles its markers strictly**: an end marker before the block no longer duplicates text,
+  and a hand-edited block is reported rather than overwritten.
+- **`perf --out <directory>` no longer crashes with EISDIR** (a directory gets `perf-report.json`),
+  and a relative `--out` is resolved against `--cwd`, so a harness in another directory and `perf`
+  read and write the same file.
+- **`perf` environment candidates**: a spec that already declares `@jest-environment` is no longer
+  proposed for the `node` environment.
+- **`codemod`**: an edit dropped because another overlapped it is no longer counted, and the report
+  names it (`overlapping-edit`); a name the file declares itself (`const asSpy = …`) is not imported
+  again (`name-declared-locally`); removing two or more orphaned names from one import removes all
+  of them; `jest.` inside a template literal nested in a `${}` is left alone and reported; `{ a: 1 } / 2`
+  on one line no longer hides the code after it; splitting a legacy import with a comment above its
+  first specifier no longer produces an unparseable import; removing an import in a CRLF file no
+  longer leaves a bare `\n`.
+- **`no-real-component-provider` names the component in its fix**
+  (`overrideComponentProvider(CartComponent, CartStore)`) instead of a literal `Component`.
+- **`prefer-native-spy-api --fix` no longer deletes comments** inside the rewritten call: it renames
+  only the member, and where a comment would still be lost it offers a suggestion instead.
+- **Rule false positives**: `no-object-define-property` on an object the spec built itself (a
+  literal, `new X()`, a local class or function, `vi.fn()`); `jasmine-namespace-without-entry` on a
+  relative `./jasmine` re-export; `prefer-settle-dynamic-import` on `await import(…)` right after
+  `vi.resetModules()`, `vi.doMock()` or `vi.doUnmock()`; `no-unregistered-inject-spy` on the Nest
+  form `injectSpy(moduleRef, Token)` and on a cast token; `no-done-callback` on a `TestContext` read
+  through a member and also handed to a helper; `no-unasserted-console-spy` on a spy whose
+  `mockImplementation` records the logged message for a later assertion.
+- **`setupAutoSpy()` in a setup file no longer fails every test of a spec that uses `test.extend`
+  fixtures**, `extendWithAutoSpies` included, with Vitest's `FixtureParseError`.
+- **`fillMissingDomApis()` replaces jsdom's `window.scroll`, `scrollTo` and `scrollBy` under the
+  `threads` and `forks` pools too**, so "Not implemented: Window's scrollTo() method" stops printing
+  there.
+- **`createSpyFromClass` of a class that extends `EventTarget`, `HTMLElement` or another host class
+  no longer spies the host's methods** under the `threads` and `forks` pools.
+- **`restoreConsole()` after `stopGuardingConsole()` puts the real console methods back**, not the
+  stopped guard's wrappers.
+- **A setup file that calls `setupAutoSpy()` for only some spec files no longer gets the "evaluated
+  once per worker" warning** under `isolate: false`. The check now tells a setup module that ran for
+  the file without the call from one the runner never evaluated again.
+- **"Angular answered … (reading 'ngModule')" names a module reset when that is the cause.** Once
+  `vi.resetModules()` has evaluated a second `@angular/core/testing` in the worker, the message says
+  so and says to initialize the TestBed again when `getTestBed().platform` is `null`, instead of
+  blaming two copies of Angular and pointing at `server.deps.inline`.
+- **`provideHttpTesting()`'s and `/angular/diagnostics`' reset snapshot comes back after a spec
+  deletes the TestBed's own `resetTestingModule`.** It used to stay off for the rest of the worker,
+  so open requests a reset took away went unreported.
+- **`installProxyZonePatch({ scope: 'callback' })` takes effect.** Importing `vitest-auto-spy/zone`
+  had already installed `'shared'`, and the explicit call kept it, so `test.concurrent` specs still
+  shared one proxy zone. The call now switches the installed patch (its undo switches back), and a
+  later import of the entry leaves an explicit scope alone.
+- **`vitest-auto-spy/angular-router` no longer imports `vitest`.** `collectRouterEvents()` ends its
+  recording through the runner's own per-test teardown (Vitest's or Bun's `onTestFinished`), so the
+  router doubles work under `bun test`; on `node:test` the recording lives as long as the double.
+- **`vitest-auto-spy/angular-router` and `vitest-auto-spy/console` type-check without Vitest
+  installed.** Their declarations still imported `vitest`, so a Bun or `node:test` project with
+  `skipLibCheck: false` got `TS2307: Cannot find module 'vitest'`. They now declare the same
+  Vitest-free spy types as `/bun` and `/node`.
+- **`vitest-auto-spy/nestjs`, `/observer-spy` and `/rxjs` type-check without Vitest installed.** None
+  of them loads Vitest, but their declarations imported it, so a Bun or `node:test` project with
+  `skipLibCheck: false` got `TS2307: Cannot find module 'vitest'`. A Vitest project mixing them with
+  the root still gets one `Spy<T>` on Vitest's `MockInstance`. On Bun and `node:test`,
+  `returnSubject()` now returns rxjs's `Subject` once `/rxjs` is imported; it was the structural
+  `SubjectLike` there.
+
+### Size and memory
+
+- **A called method spy holds less memory.** `mock.settledResults` and `mock.instances` are derived
+  on first read (or on the first returned `Promise`) instead of recorded per call, and the call-state
+  arrays grow 4 → 8 → 17 instead of 4 → 17. Bytes per fast spy, nothing read: 890 → 696 at one
+  call (−22 %), 2 057 → 1 208 at five (−41 %), 2 465 → 1 495 at eight (−39 %), −28…−30 % from nine
+  on. `bench:memory` "all called": the default `'proxy'` double 11 369 → 9 449 B at 10 methods and
+  110 848 → 91 631 B at 100 (−17 %), −16…−17 % in every arm; untouched doubles unchanged. Create
+  plus one call measured ~147 → ~115 ns, never slower in any run.
+- **A recorded call holds 28 % less until something reads `mock`.** `mock.results` entries are
+  built on first read too: until then a call keeps its returned value (or thrown error) bare, with
+  no `{ type, value }` object around it. 200 000 calls on one method spy: 142 → 102 B per call
+  (`vi.fn()` holds 206). `bench:memory` "all called": the default double 9 446 → 9 037 B at 10
+  methods and 91 638 → 87 638 B at 100 (−4.3 %), the same −4…−5 % in every arm; untouched doubles
+  unchanged. Once read, `mock.results` is the runner's shape exactly, `incomplete` entries of a
+  running call included. Calls also got faster: create plus three calls −2…−5 %, a throwing call
+  −6…−17 %, and a call on a spy that was already read within ±3 %.
+- **`doctor` reads each source file once for all its checks, and keeps at most about 8M characters
+  of source in memory.** On a synthetic 15 002-file repository (176 MB of source): 2.0–2.2 s and
+  405 MB peak → 1.1–1.3 s and 148 MB; with Vitest 5 installed, so more checks apply, 3.4–3.5 s and
+  408 MB → 1.4–1.5 s and 150 MB. The import graph itself retains 17 MB instead of 206 MB.
+- **`codemod` is several times faster on large files**: a 700 KB spec 5.8 s → 0.3 s, 500 files of
+  ~11 KB 0.88 → 0.34 s, `--verify` over the same 500 files 1.8 s → 0.08 s.
+- **Summarising the gate's CPU profiles** is 2–5× faster (8 191 nodes 48.9 → 9.4 ms, 55 987 nodes
+  199 → 54 ms) and holds one profile in memory at a time.
+- **Entry sizes, min+gzip, against 5.49.0.** The core every factory entry carries grew by class
+  discovery's `then()` and built-in-base rules and `returnsUndefined`, `calledWith(…).once()` /
+  `.times(n)` with the lenient-miss hint, the derived call state, `expectNoEmissionSync` and the
+  values in emission failures, and the prop-mock journal: the root entry 27 827 → 29 546 B
+  (+1.7 kB, +6.2 %), and the same on `/rstest`, `/react`, `/vue` and `/svelte` (+1.7 kB each).
+- `/node` 26 122 → 29 064 B (+2.9 kB, +11.3 %) and `/bun` 25 881 → 28 795 B (+2.9 kB, +11.3 %): the
+  core above plus `createNestUnit`. `/bun-angular` 33 199 → 37 794 B (+4.6 kB, +13.8 %): the same
+  plus the Angular additions below.
+- `/angular` 34 482 → 37 814 B (+3.3 kB, +9.7 %): the core above, the end-of-file TestBed check,
+  `renderShallow`'s `testBed` / `keepChildren` / `extraProviders` and its messages, the two-copies
+  explanation, the `provideAutoSpy` declaration guard and the run-time signal-symbol lookup.
+  `/angular/diagnostics` 6 405 → 7 299 B (+0.9 kB): the file-end state drop and the symbol lookup.
+  `/angular/matchers` 2 968 → 3 191 B (+223 B): the lookup and the copied-field message.
+  `/angular-router` 10 500 → 11 138 B (+638 B): `calledWith(…).once()` / `.times(n)`.
+  `/angular-http` +101 B and `/signal-forms` +104 B: the lookup.
+- **`/angular/doubles` 10 915 → 20 856 B (+9.9 kB, +91 %).** The `DomSanitizer` and
+  `ChangeDetectorRef` doubles are built with `createSpyFromClass`, so `injectSpy()` works on them,
+  and that brings the class-double engine into an entry that did not carry it; the overlay double is
+  about 2.8 kB of minified code on top. Importing the entry is three modules more (14 → 17). A spec
+  that imports `/angular` already loads that engine.
+- `/dom-stubs` 9 308 → 11 840 B (+2.5 kB, +27 %): `createElementStub` and `fillMissingDomApis`.
+  `/console` 10 243 → 11 713 B (+1.5 kB, +14.4 %): `consoleLines()`, the runner-hook lookup and the
+  runner-agnostic adapter, plus the spy engine's growth. `/nestjs` 18 048 → 19 385 B (+1.3 kB,
+  +7.4 %): the core above, less the Vitest adapter it no longer loads. `/jasmine` 19 203 → 20 725 B
+  (+1.5 kB, +7.9 %): the core above and the `mockDate()` warning. `/observer-spy` 1 386 → 1 699 B
+  (+313 B): the `onComplete` / `onError` watchdog on the real clock. `/setup` 29 518 → 30 771 B
+  (+1.3 kB, +4.2 %): `withFakeTimers`, the TestBed sweep slot, the `perf` hook timing, the
+  sweep-mock reinstatement and the prop-mock journal.
+- `/eslint-plugin` 44 970 → 50 962 B (+6.0 kB, +13.3 %): five rules, the template-free policy, the
+  tsconfig `paths` resolver and JSONC reader behind `no-relative-mock-under-builder` (about 1.4 kB),
+  and the rule fixes. `/perf-reporter` 1 978 → 2 775 B (+0.8 kB, +40 %): the coverage, hang, heap
+  step, setup-import and isolate-flip hooks, and an atomic report write. `/rxjs` +42 B; the other
+  entries are within a few bytes.
+- **All entries together 439.2 → 488.7 kB min+gzip.** The package grows 3.78 → 4.01 MB unpacked,
+  115 → 124 files, mostly the new doubles.
+
+### Documentation
+
+- **The README on npmjs.com ends on a whole section**: install, the quick start and every "How to
+  mock" recipe, then a pointer to the documentation site. It used to stop mid-paragraph at npm's
+  limit (65 536 code points); the full table of contents now sits below that part on GitHub, and the
+  gate checks where the cut lands.
+- **The bundle-size table on the Performance page had drifted from the measured baseline**
+  (`/angular/matchers` read 1.8 kB against 3.0 kB, `/setup` 27.4 against 29.5 kB, and the table
+  mixed kB and KiB). It is refreshed in kB, and the gate now holds it to `size-entries.json`.
+- **A CI sharding recipe for plain Vitest**: `--shard` with `--reporter=blob`, and `--merge-reports`
+  in one job that owns the coverage thresholds, with the five ways it goes wrong.
+- **`BLOCKED_FETCH_MESSAGE` and `BLOCKED_XHR_MESSAGE`** from `vitest-auto-spy/setup` are documented:
+  the stable markers a refused request starts with, to match on in a spec or a reporter.
+- **Two guides**: "Testing without the DOM", the page the `templates: 'never'` messages link to, and
+  "Angular Material idioms" (`ScrollStrategy`, `MAT_ICON_LOCATION`, `MATERIAL_ANIMATIONS`,
+  `ScrollDispatcher`, a partial double of a real service).
+- **The Angular page** covers two copies of `@angular/core/testing` (`server.deps.inline`), "a
+  component is not a provider", the platform / sanitizer / change detector / overlay doubles, and
+  says `flushEffects()` and `stable()` each run a full change-detection pass. The Node, Bun and
+  Rstest pages say what loads beside the entry with no Vitest installed.
+- **A page for `createElementStub` and `fillMissingDomApis`**, and every new option, check, rule and
+  message above in the docs site (EN and RU), `agent-docs/` and the README.
+
+### Internal
+
+- **The repository lints its own specs with the shipped `recommended` config**, loaded from
+  `src/eslint-plugin.ts`, so a rule change is enforced here before release; 90 hand-rolled console
+  spies and 8 fake-timer pairs moved to `useConsoleSpies()` / `withFakeTimers`.
+- **Every mock adapter runs one shared contract suite** (`describeMockAdapterContract`) in each
+  runner's lane, on the real registered adapter.
+- **`npm run typecheck` runs on TypeScript 7**, about 6× faster (3.8–4.1 s → 0.6 s); the build,
+  ESLint, the Angular compiler, the type tests and the type budget stay on TypeScript 6.
+- **`check-dist` fails when a runner-free entry's declarations reach `vitest`**, and when a bare
+  import is not a declared peer; it compiles two type fixtures (`types: []`, no Vitest; no
+  disposable lib) against a copy of the package.
+- **The Angular benchmark baseline is re-taken** (2026-09-29, the median of four five-pass runs).
+  `bench.yml` still compares against it report-only: the runs agree with each other well inside the
+  limit, but CI hardware puts `renderShallow` at up to 1.75× the laptop's ratio, so `--strict` waits
+  for a baseline measured on the runner. That measurement was blocked: since 2026-09-19 every
+  `bench.yml` run died out of heap in the head-to-head's `calledWith` dispatch case, before either
+  gate ran. The workflow now runs both gates even when the head-to-head fails.
+- **The head-to-head no longer runs out of heap.** Its `calledWith` dispatch case keeps three
+  doubles for the whole file, and every call they record stayed in memory: about 5 GB at
+  `--precise` scale, which `bench.yml` switched to on 2026-09-19. No library change caused it; the
+  bytes a recorded call retains were 206 from 09-18 to 5.50.0 and are 142 now. The case now calls
+  `vi.clearAllMocks()` every 10 000 iterations in its untimed `afterEach`, on every arm alike.
+  `bench:vs:precise` completes on a 4 GB heap (seven passes, 3.1 GB peak RSS).
+- **`bench:check` can leave an arm out of the gate.** A case in a baseline may list arms under
+  `ungated`: they are printed and never judged, and `--update` keeps the list. The Angular baseline
+  ungates `resetTestingModule()` and `resetTestingModule() + configureTestingModule()`, which cost
+  under 0.1 % of a cycle and moved +24 % and +35 % between identical CI runs. `--update` also stores
+  ratios below 1 to four significant digits instead of four decimals.
+- **Prettier no longer moves side-effect imports inside Markdown code blocks.** The import sorter
+  put `import 'vitest-auto-spy/zone'` above `import 'zone.js'` in the docs, an order that throws
+  when copied into a setup file.
+
 ## [5.50.0] - 2026-09-29
 
 ### Changed

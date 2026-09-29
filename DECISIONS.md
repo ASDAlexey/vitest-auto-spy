@@ -8,6 +8,153 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## The `IDEAS.md` round, 2026-09-29
+
+- **Coverage stays on istanbul under Vitest 5.0.2.** Re-measured on 326 spec files, 3 runs each, M4
+  Max under load 10–35. istanbul: 100 % on all four metrics in every run, parallel 21.3–22.9 s
+  (11.9–14.6 GB peak RSS), serial 47.8–57.4 s (4.8–6.0 GB). `v8`: parallel 17.4–25.3 s but branches
+  99.48–99.77 %, a different number each run — the same dropped-blocks-on-merge defect as on 4.x —
+  and serial ran out of heap after ~200 s (6.9 GB). A provider that reports a different coverage
+  per run cannot hold a 100 % gate, so the ~20 % parallel speed-up does not buy anything.
+- **`jasmine.clock().mockDate()` without `install()` — warn in 5.x, throw in 6.0.** jasmine throws
+  `Mock clock is not installed` there. The bridge mocked `Date` anyway (`vi.setSystemTime` with real
+  timers), which hid a missing `install()` in a migrated suite and made a spec behave differently
+  under the bridge than under jasmine. Throwing right away would break suites that pass today, so
+  the call warns once through `reportMisconfiguration` (and throws under
+  `misconfiguration: 'throw'`); the next major throws unconditionally, with the same message.
+  `mockSystemTime()` is the replacement when only the date should be fake.
+- **`prepareShallow().create({ providers })` keeps replace semantics; adding is `extraProviders`.**
+  `create()` replacing a key outright is documented ("`providers` for a one-off case"), and a spec
+  can rely on it to drop a shared double and get the real service. Concatenating would change that
+  silently, so `create()` takes `ShallowOverrides<T>`: `extraProviders` / `extraImports` append after
+  the prepared lists (the later provider wins in Angular). The extras live on `create()` only, not on
+  `renderShallow`, which has nothing prepared to add to.
+- [~] **A `doctor` check for `VITEST_POOL_ID` becoming 1-based in Vitest 5.** The premise is false:
+  Vitest 4.1.11 and 5.0.2 both hand out 1…`maxWorkers` in the node pools
+  (`workerIds = new Map(… [i + 1, true])` in both). The only new thing in 5 is a stable slot in
+  browser mode (`getConcurrencyId`), exposed as `workerId`. A check would flag correct code.
+- [~] **A named error for a Vitest entry imported without `vitest` installed.** Every Vitest entry
+  reaches `vitest` through a static ESM `import`, and ESM links the whole graph before any module
+  body runs, so the failure is `ERR_MODULE_NOT_FOUND` before library code can throw. A dynamic
+  import would need top-level await, which esbuild refuses when `async-await` is downlevelled for
+  zone.js; reading `vi` from a global is a rewrite of every Vitest-only module. What shipped instead:
+  `/console` and `/nestjs` stopped importing `vitest`, `doctor` reports the case
+  (`vitest-entry-without-vitest`), and `agent-docs/errors.md` is keyed on the raw Node message.
+- **The lenient `calledWith` miss hint goes through `libraryWarn`, not `reportMisconfiguration`.**
+  Under `preset: 'strict'` (and `misconfiguration: 'throw'`) a misconfiguration throws, which would
+  make every lenient miss an error and `calledWith` strict — breaking suites that miss on purpose,
+  which is what `calledWith` promises to allow. It prints once per module instance, stays quiet once
+  the spy has a default, when the arity differs, and when a `once()` / `times()` answer ran out.
+- **The `then()` warning on a class double goes through `libraryWarn` too.** Leaving `then` out is
+  the correct default, nothing is misconfigured, so a throw grade must not fail the spec. `returns:
+{ then }` without naming it in `methodsToSpyOn` is a misconfiguration and reported as one.
+- **`once()` / `times(n)` stack, last-configured first, and an unlimited answer replaces the
+  stack.** The same order `vi.when` uses; re-registering an argument list without a limit has always
+  replaced what was there. The limited handle carries only the sync helpers (`mockReturnValue`,
+  `returnValue`, `failWith`); a spy that never limits an answer pays one `undefined` check per
+  matched call.
+- **`expectNoEmissionSync` is a name of its own, not an overload of `expectNoEmission`.** A sync /
+  async overload needs a sentinel option to pick the return type, and the library already pairs sync
+  and async helpers by name (`mockSystemTime` / `withSystemTime`).
+- [~] **A `toHaveNoActiveSubscriptions()` matcher.** `x$.subscriberCount()` shipped alone:
+  `expect(x$.subscriberCount()).toBe(0)` already prints the number on failure, and a matcher costs an
+  `expect.extend` registration. It can wrap the count later.
+- **`createNestUnit` is re-exported from `/node` and `/bun`; Nest's `provideAutoSpy` / `injectSpy`
+  are not.** In `/bun` they would sit under the generic names the Angular helpers also use
+  (`/bun-angular` shadows them), and `/nestjs` itself now serves them on every runner.
+- **`codemod` notes a bare `vi` under `globals: false`; it does not add `import { vi }`.** With
+  globals off, `describe` / `it` / `expect` are missing too, so importing only `vi` would still leave a
+  broken suite. `profile.ts` does not read `globals`; the reader lives in `codemod/globals.ts`.
+- **Template-free specs are an option of `prefer-render-shallow`, not a rule of their own**, per "No
+  second rule for the strict reading": it widens `{ templates: 'never' }` and inherits its `warn`.
+  `createDirectiveHost` stays legal — a directive attaches to an element and something must render
+  it, so banning its harness would ban directive tests.
+- **Grades of the five new rules.** `no-outer-binding-in-mock-factory` (a TDZ error is a fact),
+  `no-relative-mock-under-builder` (the builder throws; silent until a builder target serves the
+  file) and `no-disabled-testbed-teardown` (one line, usually in the setup file) are `error`.
+  `no-unasserted-console-spy` and `no-real-wait-in-test` are `warn`: the evidence is exact, but the
+  repair is a question for the author, or a move onto fake timers taken file by file.
+- **`Spy<T>` picks its `Mock` from a global registry, not from `vitest` and not from a copy.** The
+  shared chunk reads `VitestAutoSpyMockTypes<T>` (`src/lib/mock-types.ts`); the entries that load
+  Vitest (`index`, `/angular`, `/angular-doubles`, `/dom-stubs`, `/jasmine`, `/react`, `/setup`,
+  `/svelte`, `/vue`) carry `export type {} from './lib/vitest-mock-types'`, which merges Vitest's
+  `Mock` / `MockInstance` into it. Without one of them in the program the structural shapes apply.
+  A copy of the chunks under `dist/portable/` came first and could not cover `/nestjs`,
+  `/observer-spy` or `/rxjs`: its `Spy<T>` and the root's were not assignable either way, and those
+  entries are mixed with the root. The registry is global because `/rxjs` must merge without
+  loading the root; the build points `/rxjs`'s `declare module 'vitest-auto-spy'` at the chunk
+  (`scripts/portable-dts.mjs`). Accepted cost: a Vitest suite importing only runner-free entries
+  (no root, no Vitest entry) gets the structural `Mock`, which lacks `mockThrow` and is not
+  assignable to a Vitest `MockInstance` annotation; `import type {} from 'vitest-auto-spy'` in any
+  file of the program restores Vitest's. No type-level signal lets a declaration find Vitest
+  without naming it, and naming it is the TS2307.
+- **`setupAutoSpy({ cleanTestBed })` does not reset the `enableTestBedDiagnostics` counters.** That
+  module reports them in its own `afterAll`, whose order relative to `setupAutoSpy`'s depends on the
+  order of the two calls in the setup file (hooks run as a stack); resetting them at file end would
+  zero the report whenever `setupAutoSpy()` is called second. They are reset in its own `beforeAll`.
+- **`typecheck` runs on TypeScript 7; `types:budget` stays on 6.** TypeScript 7's instantiation
+  counts are not comparable (536 985 on 6 against 726 635–726 665 on 7 for `tsconfig.json`) and vary
+  between runs with its parallel checker, which breaks the budget's deterministic-count premise.
+  Diagnostics were byte-identical on three probe programs; only the exit code differs (2 on 6, 1 on
+  7), and the gate tests `code !== 0`.
+- **`mock.results` is derived too, after M3.** An unread state keeps the bare returned value (a
+  `Thrown` wrapper for a throw, a shared marker while the call runs), and `goLive()` builds the
+  `{ type, value }` entries in place: 142 → 102 B per recorded call, −4 % on `bench:memory` "all
+  called". The live path is a separate `invokeLive` / `recordLive`: with one shared path, feedback
+  from unread spies slowed read spies by ~4 ns (+12 %). Under Vitest's module transform an imported
+  `const` is a getter call (+4.5 ns per call for `INCOMPLETE`), so the marker stays module-local.
+
+## Rationale moved off the docs pages, 2026-09-29
+
+The docs rewrite took design arguments out of the reference pages. The ones that record a decision,
+rather than explain behaviour, live here.
+
+- [~] **An overload hint inside the `TS2345` message.** Tried before the `spy-typing` overload section
+  was written. Naming the payload so the compiler prints the name does work:
+  `nextWith(value?: OverloadCollapsed_UseSpyOverloadOption<HttpEvent<Page>>)`, because a type alias
+  whose body builds a union keeps its name in a `TS2345`, where a pass-through alias is erased. It was
+  dropped for three measured reasons. It costs the whole type budget: the flag has to be decided per
+  member, which stops the payload bundles being shared between members, and a flag whose body is the
+  constant `false` already takes `types:budget` from a delta of 9 665 to 11 769 against a ceiling of
+  11 000, before any overload detection (~840 more). It misfires: on a four-overload `api-gateway`
+  client, where `'last'` is already the right signature, an honestly wrong stub then reads
+  `OverloadCollapsed_UseSpyOverloadOption<Movie[]>` and points at an option that would change
+  nothing. And it misses the path that needs it most: `mockReturnValue` is typed by
+  `MockInstance<Method>`, the runner's own type, which nothing this package wraps can reach.
+- **Why eleven ESLint rules are `warn` and the rest `error`.** The config used to be a graded mix of
+  `error` / `warn` / `off`, which decided for the consumer how much each finding mattered, and a
+  `warn` nothing reads is `off` with extra output. So the eleven `warn`s are not about how much a
+  finding matters; each is graded on something else:
+  - _the kind of finding_ — `prefer-render-shallow` names a file that could render more cheaply, not
+    something wrong or dead. At `error` it would gate a migration (491 findings across 398 of one
+    consumer's 1759 spec files), so `recommended` would exist to be overridden;
+  - _the evidence_ — `no-stub-class-double` and `no-structural-double` report the drift
+    `prefer-create-spy-from-class` reports at `error`, but with no `provide:` beside them to settle it,
+    so each decides on a heuristic a project must be able to switch off. On the same 1759 files they
+    started at 12 reports in 8 files and 115 in 74, and are 10 in 7 and 5 in 4 once
+    `prefer-provide-auto-spy` follows a name into a `useValue` (112 of those doubles reach DI one name
+    away; that rule reports 154 times across 87 files, at `error`). `no-instance-lifecycle-spy` is
+    graded on evidence too: Angular never calls an instance spy on a hook it read off the prototype,
+    but a spec that calls `ngOnInit()` itself does, and so does the injector for `ngOnDestroy`;
+  - _what the repair costs_ — `prefer-create-mock`: the evidence is exact, but accepting the
+    suggestion hands the literal to the compiler, and on a 2 032-file consumer that is 1 200 findings
+    in 327 files going red in one day;
+  - _what the repair needs_ — `no-unasserted-argument` names a question for the author (the argument
+    list the test should have named), not an edit; `no-unasserted-console-spy` and
+    `no-real-wait-in-test` report a fact whose repair is the author's call;
+  - _a spelling, not a defect_ — `prefer-spy-on-own-method` names a shorter form of a correct call.
+    `prefer-set-inputs` (graded on what adoption costs, entry below) and `prefer-to-have-signal-value`
+    complete the eleven.
+- **`node:test` spies are named at creation, not by redefining `name`.** The shape recorded under
+  "The `node:test` adapter and the name it prints" changed: the adapter now names the method's
+  _implementation_ when it builds it (a function expression under a computed key, which the language
+  names and which stays constructable for `mockConstructor`), and `mock.fn()` carries that name onto
+  the mock. Redefining `name` with `Object.defineProperty` moves the function out of V8's fast map:
+  over 200 000 mocks on Node 24.19.0 it costs **+206 B** per mock against **+65 B** for naming at
+  creation. `displayName` is still defined on the mock.
+- **`consoleOutput()` stays a function**, recorded under the `IDEAS.md` round above (`toHaveLogged()`
+  rejected: +184 B against +340 B, and an `expect.extend` on every import).
+
 ## Consumer asks after 5.43.0, 2026-09-27
 
 - **A function in `overrides` on a method becomes a spy; the type was not narrowed instead.** Two ways
@@ -249,9 +396,18 @@ four-slot PACKED arrays (`[x, x, x, x]` then three `pop()`s — `length = 1` ent
 `[]` by `push`, which lands on V8's own 17-slot growth, so a spy never holds more than it did with
 `[]`. Any accessor read sets `handedOut`, after which the arrays are only ever pushed to — identity is
 never traded for bytes. Rejected: `[x]` literal (−46 % at one call, +5 % at 2–16), fixed capacity 4
-(+13 % at 5–17 calls), `new Array(4)` (HOLEY). Not done yet: a 4 → 8 → 17 cascade (~−20 % more at
-5–8 calls, one more hot-path branch). Measured bytes per spy: 1 634 → 1 018 at one call, 2 041 →
-1 425 at four, +8 B (the flag) from five on.
+(+13 % at 5–17 calls), `new Array(4)` (HOLEY). Measured bytes per spy: 1 634 → 1 018 at one call,
+2 041 → 1 425 at four, +8 B (the flag) from five on.
+
+2026-09-29: the cascade is in — the fifth call copies into an eight-slot PACKED literal (`doubled`),
+the ninth rebuilds into `[]`: 1 503 → 1 208 B at five calls, 1 793 → 1 495 B at eight, neutral from
+nine on; one more length compare on the growth path only. Same day, M3: `settledResults` and
+`instances` are derived on the first read (or the first returned `Promise`) instead of recorded —
+a spy called once 890 → 696 B, a `bench:memory` "all called" double −16…−17 % in every arm,
+untouched doubles unchanged. The two sweep counters became one stamp plus `lastResetSweep` so the
+config absorbed `originalName` (reset restores the creation-time name) at zero bytes; with the
+counters left apart it cost +8 B per materialised method (42 668 → 43 471 B for 100 untouched
+methods under `lazySpies: false`).
 
 ## Gate: parallel waves, local caches, no `fastCompile`, 2026-09-26
 
@@ -811,6 +967,67 @@ The gate's own cost barely moved: 1.0 → 1.1 s wall for the whole check.
   at a time from a scratch copy of the script. The budget is a tripwire against degeneration, not
   an accounting system; a member heavy enough to matter drags its declaring type's instantiation
   count up with it.
+
+## `perf` and `doctor` — what the research round ruled out, 2026-09-17
+
+The research round behind the `perf` / `doctor` rework (competitors, methodology, visualisation, a
+native engine, cross-test interference, test smells) closed these; they stay closed until the
+condition named in the entry changes.
+
+- [~] **A native profile analyser (Rust, napi or WASM).** The slow part was not JavaScript but the
+  algorithm: three string functions in `summariseProfile` recomputed on every frame of every stack,
+  ~75–90 % of the time. On a heavy profile (51 603 nodes, 13 MB) the fixed JS parses and aggregates in
+  ~57 ms against ~53 ms for Rust with serde_json, ~41 ms with simd-json and ~54 ms for WASM; the
+  unfixed JS took ~195 ms. After the fix native would save 0–15 ms per file, 0.5–0.8 s over 50 heavy
+  files, inside a confirmation pass that spends seconds per file. The bill: 8–26 platform packages in
+  `optionalDependencies` and a CI matrix for them, the end of zero runtime dependencies, Bun as best
+  effort, npm's known lockfile bugs with optional binaries, and code outside coverage. Reopen only if
+  analysis grows past ~10 % of the confirmation run, and try worker threads first.
+- [~] **speedscope, d3 or a CDN inside the HTML report.** The report is one self-contained file: SVG
+  assembled as strings in Node plus a little plain JS. Instead of an embedded flame graph it draws its
+  own icicle and leaves the `.cpuprofile` next to it, which DevTools and speedscope already open.
+- [~] **SARIF by default.** On private GitHub repositories code scanning is a paid feature, and it
+  lands in the security tab, which is not where a slow test belongs. Findings are one JSON structure
+  first; the terminal, annotations, GitLab Code Quality (`--code-quality`) and step summaries are views
+  of it, so a SARIF view stays possible on request without becoming the default.
+- [~] **A heap snapshot by default.** Writing one doubles the heap of the process that takes it — the
+  process whose memory is being measured. Memory is reported from cheaper signals (heap after `gc()`,
+  detached contexts, GC pauses, `v8.queryObjects` over a short list of classes).
+- [~] **Change-point detection over a timing history.** A consumer has tens of history points, not
+  the hundreds the method needs; a regression is `k ×` the mean **and** above the main-branch maximum.
+- [~] **Braille charts.** Eighth-block bars with an ASCII fallback render in every terminal a CI log
+  reaches; braille depends on the font.
+- [~] **Fixing someone else's flaky test automatically**, in the manner of iFixFlakies. The tool
+  names the polluter, the key and the victim; the edit is the author's.
+- [~] **A test-smell catalogue in `doctor`** (Assertion Roulette, Magic Number, Duplicate Assert…).
+  Detector classifications are wrong in more than 70 % of cases in Panichella et al. 2022, enough to
+  discredit every other finding in the report. What one file shows belongs to the ESLint plugin;
+  `doctor` keeps what needs several files and suite-wide counts.
+- [~] **Choosing `pool` / `isolate` / environment on Vitest ≥ 5.** `vitest doctor` does it by
+  actually re-running the suite; on 5.x the advice points there, on 4.x ours stays because nothing
+  else gives it.
+- [~] **Blind bisection as the first way to find a polluter.** The `/setup` guards already see the
+  leak; recorded into the file's meta, the polluter → key → victim graph comes out of CI reports
+  without a single re-run. Bisection is the fallback for leaks a snapshot cannot see — module mocks,
+  singletons.
+
+## The `TestBed.createComponent` wrapper is permanent, 2026-09-17
+
+`overrideComponentProvider` checks the next fixture through `onComponentCreated`, the shared seam in
+`testbed-diagnostics.ts`. The seam wraps `createComponent` once, on the `TestBed` instance, and the
+wrapper stays until `disableTestBedDiagnostics()`; what fires once and gets out of the way is the
+inspector the override registers, not the wrapper.
+
+- [~] **Installing and removing a wrapper of its own on every override.** That was the first shape,
+  and it was kept on 2026-09-10 as cheap (one closure and two `Reflect.set` per override). It went
+  because two independent wrappers on one method run in whichever order they were installed, so the
+  override check and the diagnostics disagreed about which saw the fixture first, and
+  `getTestBed().createComponent(X)` reached neither of them.
+- [~] **Unwrapping by writing the original back.** The method lives on the prototype and the wrapper
+  is an own property; `Reflect.set(original)` would leave an own copy behind, which the next
+  `instrumentTestBed()` would take for the original and wrap a second time. It is deleted instead.
+- [~] **Leaving the override's inspector registered.** It would run against a later spec's unrelated
+  component; it drops itself, and its queue, after the fixture it was queued for.
 
 ## Three trades the audit round settled, 2026-09-17
 
