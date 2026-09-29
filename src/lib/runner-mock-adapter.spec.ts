@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { describeMockAdapterContract } from './mock-adapter-contract';
 import { type RunnerMock, createRunnerMockAdapter } from './runner-mock-adapter';
 import type { Func } from './types';
 
@@ -16,6 +17,12 @@ function makeRunner(): { fn: (implementation?: Func) => RunnerMock; created: Run
 
   return { fn, created };
 }
+
+describeMockAdapterContract({ describe, it }, { name: 'shared runner adapter', adapter: () => createRunnerMockAdapter(makeRunner()) });
+describeMockAdapterContract(
+  { describe, it },
+  { name: "shared runner adapter, 'runner' engine", adapter: () => createRunnerMockAdapter(makeRunner()), engine: 'runner' },
+);
 
 describe('createRunnerMockAdapter', () => {
   it('builds no runner mock until the first spy, so importing a runner entry has no side effect', () => {
