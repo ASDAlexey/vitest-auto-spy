@@ -6,12 +6,14 @@
  * ```
  *
  * This entry is dependency-free: `@nestjs/common` / `@nestjs/testing` are
- * optional peers and are never imported. The core (`vitest-auto-spy`) stays
- * framework-agnostic and never references NestJS.
+ * optional peers and are never imported, and neither is `vitest` — on
+ * `node:test`, Bun or Rstest it uses the adapter that runner's entry registered.
+ * The core (`vitest-auto-spy`) stays framework-agnostic and never references NestJS.
  */
-import { useVitestAdapter } from './lib/use-vitest-adapter';
+import { useRunnerAdapter } from './lib/vitest-runner-adapter';
 
-useVitestAdapter();
+// Never `useVitestAdapter()`: that imports `vitest`, and a Nest suite on `node --test` has none.
+useRunnerAdapter();
 
 export { injectSpy, provideAutoSpy, type NestModuleRef, type NestValueProvider } from './lib/nestjs';
 
