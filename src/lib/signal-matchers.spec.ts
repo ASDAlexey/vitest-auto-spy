@@ -9,6 +9,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createFunctionSpy } from './function-spy';
 import { registerMockAdapter } from './mock-adapter';
 import { registerSignalMatchers } from './signal-matchers';
+import { HOLEY_PAIR } from './signal-matchers.mock';
 import { vitestMockAdapter } from './vitest-adapter';
 
 beforeAll(() => {
@@ -35,7 +36,7 @@ describe('toHaveSignalValue', () => {
 
     holey[1] = 1;
 
-    expect(signal(holey)).not.toHaveSignalValue([undefined, 1], { strict: true });
+    expect(signal(holey)).not.toHaveSignalValue(HOLEY_PAIR, { strict: true });
     expect(signal(new Point(1))).toHaveSignalValue({ x: 1 });
     expect(signal(new Point(1))).not.toHaveSignalValue({ x: 1 }, { strict: true });
     expect(signal(new Point(1))).toHaveSignalValue(new Point(1), { strict: true });
@@ -63,8 +64,8 @@ describe('toHaveSignalValue', () => {
 
     holey[1] = 1;
 
-    expect(signal(new Set([holey]))).toHaveSignalValue(new Set([[undefined, 1]]));
-    expect(signal(new Set([holey]))).not.toHaveSignalValue(new Set([[undefined, 1]]), { strict: true });
+    expect(signal(new Set([holey]))).toHaveSignalValue(new Set([HOLEY_PAIR]));
+    expect(signal(new Set([holey]))).not.toHaveSignalValue(new Set([HOLEY_PAIR]), { strict: true });
     expect(signal(new Uint8Array([1]).buffer)).not.toHaveSignalValue(new Uint8Array([2]).buffer, { strict: true });
     expect(signal(new Uint8Array([1]).buffer)).not.toHaveSignalValue(new Uint8Array([1, 2]).buffer, { strict: true });
     expect(signal(new Uint8Array([1]).buffer)).toHaveSignalValue(new Uint8Array([1]).buffer, { strict: true });

@@ -11,6 +11,7 @@ import { types } from 'node:util';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { PROXY_MIN_METHODS, createSpyFromClass } from './create-spy-from-class';
+import { WIDE_METHOD_NAMES } from './lazy-spy-proxy.mock';
 import { registerMockAdapter } from './mock-adapter';
 import { resetAutoSpy } from './reset-auto-spy';
 import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
@@ -73,7 +74,7 @@ describe('lazySpies: "proxy"', () => {
 
   it('enumerates exactly what the accessor path enumerates, in the same order', () => {
     expect(Object.keys(proxySpy())).toEqual(Object.keys(accessorSpy()));
-    expect(Object.keys(proxySpy())).toEqual(['first', 'second', 'third']);
+    expect(Object.keys(proxySpy())).toEqual(WIDE_METHOD_NAMES);
     expect(Object.getOwnPropertyNames(proxySpy())).toEqual(Object.getOwnPropertyNames(accessorSpy()));
     expect(Object.getOwnPropertyNames(proxySpy())[0]).toBe('accessorSpies');
   });
@@ -84,7 +85,7 @@ describe('lazySpies: "proxy"', () => {
     void spy['third'];
     void spy['first'];
 
-    expect(Object.keys(spy)).toEqual(['first', 'second', 'third']);
+    expect(Object.keys(spy)).toEqual(WIDE_METHOD_NAMES);
   });
 
   it('answers `in` and `hasOwnProperty` for an untouched method', () => {
@@ -128,7 +129,7 @@ describe('lazySpies: "proxy"', () => {
     spy['first'] = replacement;
 
     expect(spy['first']).toBe(replacement);
-    expect(Object.keys(spy)).toEqual(['first', 'second', 'third']);
+    expect(Object.keys(spy)).toEqual(WIDE_METHOD_NAMES);
   });
 
   it('accepts an assignment to a name the class never had, and reports it last', () => {
@@ -163,7 +164,7 @@ describe('lazySpies: "proxy"', () => {
     expect(delete spy['accessorSpies']).toBe(true);
     expect('accessorSpies' in spy).toBe(false);
     expect(Object.getOwnPropertySymbols(spy)).toEqual([]);
-    expect(Object.keys(spy)).toEqual(['first', 'second', 'third']);
+    expect(Object.keys(spy)).toEqual(WIDE_METHOD_NAMES);
   });
 
   it('freezes a double that has already materialised part of itself', () => {
@@ -173,7 +174,7 @@ describe('lazySpies: "proxy"', () => {
     Object.freeze(spy);
 
     expect(spy['first']).toBe(first);
-    expect(Object.keys(spy)).toEqual(['first', 'second', 'third']);
+    expect(Object.keys(spy)).toEqual(WIDE_METHOD_NAMES);
   });
 
   it('accepts a redefinition through `Object.defineProperty`', () => {
@@ -194,7 +195,7 @@ describe('lazySpies: "proxy"', () => {
     Object.freeze(spy);
 
     expect(Object.isFrozen(spy)).toBe(true);
-    expect(Object.keys(spy)).toEqual(['first', 'second', 'third']);
+    expect(Object.keys(spy)).toEqual(WIDE_METHOD_NAMES);
     expect(vi.isMockFunction(spy['third'])).toBe(true);
   });
 

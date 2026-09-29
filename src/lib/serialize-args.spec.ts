@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { isDeepValue, serializePrimitive, serializeValue } from './serialize-args';
+import { ASCENDING_PAIR } from './serialize-args.mock';
 
 describe('serializeValue', () => {
   it('renders primitives the way arg-matching keys expect', () => {
@@ -59,12 +60,12 @@ describe('serializeValue', () => {
   });
 
   it('leaves array order alone — there the order is the value', () => {
-    expect(serializeValue([1, 2])).not.toBe(serializeValue([2, 1]));
+    expect(serializeValue(ASCENDING_PAIR)).not.toBe(serializeValue([2, 1]));
   });
 
   it('renders Map and Set distinctly (no `{}` collision)', () => {
     expect(serializeValue(new Map([['k', 'v']]))).toBe("new Map([['k','v']])");
-    expect(serializeValue(new Set([1, 2]))).toBe('new Set([1,2])');
+    expect(serializeValue(new Set(ASCENDING_PAIR))).toBe('new Set([1,2])');
     // A Map and a Set must not collapse to the same key.
     expect(serializeValue(new Map())).not.toBe(serializeValue(new Set()));
   });
@@ -198,7 +199,7 @@ describe('serializeValue', () => {
   });
 
   it('keys a Map and a Set by content rather than by insertion order', () => {
-    expect(serializeValue(new Set([2, 1]))).toBe(serializeValue(new Set([1, 2])));
+    expect(serializeValue(new Set([2, 1]))).toBe(serializeValue(new Set(ASCENDING_PAIR)));
     expect(
       serializeValue(
         new Map([

@@ -10,6 +10,7 @@ import { type Spy, clearAutoSpy, createSpyFromClass, resetAutoSpy } from '../ind
 import { createFunctionSpy } from './function-spy';
 import { type MockAdapter, getMockAdapter, hasMockAdapter, registerMockAdapter, resetMockAdapter } from './mock-adapter';
 import { installSettledResultsPolyfill } from './settled-results';
+import { INCOMPLETE_RESULT } from './settled-results.mock';
 
 /** A host mock whose `.mock` state has no native `settledResults` (Bun / node:test shape). */
 function makeStubMock(): { mock: Record<string, unknown> } {
@@ -40,7 +41,7 @@ describe('installSettledResultsPolyfill', () => {
     const promise = Promise.resolve('ok');
 
     recorder.record?.(promise);
-    expect(stub.mock['settledResults']).toEqual([{ type: 'incomplete', value: undefined }]);
+    expect(stub.mock['settledResults']).toEqual([INCOMPLETE_RESULT]);
 
     await promise;
     await Promise.resolve();
@@ -64,10 +65,7 @@ describe('installSettledResultsPolyfill', () => {
 
     recorder.record?.('a');
     recorder.record?.(Promise.resolve('b'));
-    expect(stub.mock['settledResults']).toEqual([
-      { type: 'fulfilled', value: 'a' },
-      { type: 'incomplete', value: undefined },
-    ]);
+    expect(stub.mock['settledResults']).toEqual([{ type: 'fulfilled', value: 'a' }, INCOMPLETE_RESULT]);
 
     recorder.clear();
     expect(stub.mock['settledResults']).toEqual([]);
@@ -133,7 +131,7 @@ describe('the recorder inside a function spy on a runtime without settledResults
 
     const returned: unknown = spy(1);
 
-    expect(spy.mock.settledResults).toEqual([{ type: 'incomplete', value: undefined }]);
+    expect(spy.mock.settledResults).toEqual([INCOMPLETE_RESULT]);
 
     await returned;
 

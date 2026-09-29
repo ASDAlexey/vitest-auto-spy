@@ -7,13 +7,14 @@
 import { describe, expect, it } from 'vitest';
 
 import { ARGS_MAP_BRAND, ArgsMap, isArgsMap } from './args-map';
+import { NUMBER_AND_STRING_ARGS } from './args-map.mock';
 
 describe('ArgsMap', () => {
   it('stores and retrieves by exact primitive args (fast path)', () => {
     const map = new ArgsMap();
-    map.set([1, 'a'], 'v');
+    map.set(NUMBER_AND_STRING_ARGS, 'v');
 
-    expect(map.get([1, 'a'])).toBe('v');
+    expect(map.get(NUMBER_AND_STRING_ARGS)).toBe('v');
     expect(map.get([1, 'b'])).toBeUndefined();
   });
 
@@ -320,7 +321,7 @@ describe('ArgsMap', () => {
 
   it('skips the exact map for a call holding an object where no config of that arity does', () => {
     const map = new ArgsMap();
-    map.set([1, 'a'], 'exact');
+    map.set(NUMBER_AND_STRING_ARGS, 'exact');
 
     const unserializable = {
       get boom(): never {
@@ -452,7 +453,7 @@ describe('ArgsMap', () => {
     expect(entries.map((entry) => entry.matches([1]))).toEqual([true, false]);
     expect(entries.map((entry) => entry.matches(['x']))).toEqual([false, true]);
     expect(entries.map((entry) => entry.matches([2]))).toEqual([false, false]);
-    expect(entries.map((entry) => entry.matches([1, 'a']))).toEqual([false, false]);
+    expect(entries.map((entry) => entry.matches(NUMBER_AND_STRING_ARGS))).toEqual([false, false]);
   });
 
   it('has no entries before anything is configured', () => {

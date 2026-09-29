@@ -6,6 +6,7 @@ import '../angular';
 import { injectSpy, provideAutoSpy } from './angular';
 import { restoreMockedProps } from './prop-mock';
 import { type ResourceDoubleSnapshot, mockResourceProp } from './resource-prop';
+import { PRODUCTS_AB } from './resource-prop.mock';
 import { registerSignalMatchers } from './signal-matchers';
 
 beforeAll(() => registerSignalMatchers());
@@ -128,12 +129,12 @@ describe('mockResourceProp', () => {
     const service = new ProductService();
     const products = mockResourceProp(service, 'products', ['a']);
 
-    products.set(['a', 'b']);
+    products.set(PRODUCTS_AB);
     products.fail('offline');
     products.loading();
 
     // `fail()` and `loading()` leave the value alone; only `idle()` goes back to the initial one.
-    expect(service.products.value).toHaveSignalValue(['a', 'b']);
+    expect(service.products.value).toHaveSignalValue(PRODUCTS_AB);
   });
 
   it('answers reload() the way Angular does: false while there is nothing to re-issue', () => {
@@ -181,7 +182,7 @@ describe('mockResourceProp', () => {
 
     expect(label).toHaveSignalValue('loading');
 
-    products.set(['a', 'b']);
+    products.set(PRODUCTS_AB);
 
     expect(label).toHaveSignalValue('2 products');
   });
@@ -286,7 +287,7 @@ describe('mockResourceProp', () => {
       products.loading();
       service.products.update((current) => [...current, 'b']);
 
-      expect(service.products.value).toHaveSignalValue(['a', 'b']);
+      expect(service.products.value).toHaveSignalValue(PRODUCTS_AB);
       expect(service.products.status).toHaveSignalValue('local');
     });
 

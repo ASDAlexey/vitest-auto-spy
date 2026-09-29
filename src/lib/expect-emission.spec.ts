@@ -13,6 +13,7 @@ import {
   expectNoEmission,
   setEmissionTimeout,
 } from './expect-emission';
+import { THREE_VALUES, TWO_VALUES } from './expect-emission.mock';
 import { setupFakeTimers, withFakeTimers } from './fake-timers';
 
 /** Emit `value` on the next macrotask, the shape of a stream fed by an async source. */
@@ -80,7 +81,7 @@ describe('expectEmissions', () => {
       source$.next(3);
     }, 1);
 
-    await expect(expectEmissions(source$, 2, { timeout: 50 })).resolves.toEqual([1, 2]);
+    await expect(expectEmissions(source$, 2, { timeout: 50 })).resolves.toEqual(TWO_VALUES);
   });
 
   it('rejects when the stream completes early, reporting how many arrived', async () => {
@@ -186,7 +187,7 @@ describe('expectNoEmission', () => {
 
 describe('expectAllEmissions', () => {
   it('resolves every value once the stream completes, however many there were', async () => {
-    await expect(expectAllEmissions(of(1, 2, 3))).resolves.toEqual([1, 2, 3]);
+    await expect(expectAllEmissions(of(1, 2, 3))).resolves.toEqual(THREE_VALUES);
     await expect(expectAllEmissions(EMPTY)).resolves.toEqual([]);
   });
 
@@ -253,7 +254,7 @@ describe('the emitted type is inferred, not widened to `unknown`', () => {
     const account: { id: number } = await expectEmission(of({ id: 7 }));
 
     await expect(first).resolves.toBe(1);
-    await expect(many).resolves.toEqual([1, 2]);
+    await expect(many).resolves.toEqual(TWO_VALUES);
     expect(account.id).toBe(7);
   });
 
@@ -685,7 +686,7 @@ describe('a source that cannot be subscribed to', () => {
   });
 
   it('reports the value a spec passed instead of the stream', async () => {
-    await expect(expectNoEmission(notASource([1, 2]))).rejects.toThrow(
+    await expect(expectNoEmission(notASource(TWO_VALUES))).rejects.toThrow(
       /expectNoEmission\(source\$\): the source is not subscribable \(\[1,2\]\)\. Pass the observable itself, not the value it emits/,
     );
   });
@@ -720,13 +721,13 @@ describe('a synchronous source is stopped at the value that settles the wait', (
   it('keeps taking values from a synchronous source until the count is reached', async () => {
     const seen: number[] = [];
 
-    await expect(expectEmissions(from([1, 2, 3, 4, 5]).pipe(tap((value) => seen.push(value))), 3)).resolves.toEqual([1, 2, 3]);
+    await expect(expectEmissions(from([1, 2, 3, 4, 5]).pipe(tap((value) => seen.push(value))), 3)).resolves.toEqual(THREE_VALUES);
 
-    expect(seen).toEqual([1, 2, 3]);
+    expect(seen).toEqual(THREE_VALUES);
   });
 
   it('lets a source that closes the subscriber itself finish normally', async () => {
-    await expect(expectEmissions(of(1, 2), 2)).resolves.toEqual([1, 2]);
+    await expect(expectEmissions(of(1, 2), 2)).resolves.toEqual(TWO_VALUES);
   });
 });
 
@@ -1080,7 +1081,7 @@ describe('expectNoEmissionSync', () => {
 });
 
 function notSubscribable(): SubscribableLike<number> {
-  const value: unknown = [1, 2];
+  const value: unknown = TWO_VALUES;
 
   return value as SubscribableLike<number>;
 }

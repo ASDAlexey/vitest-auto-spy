@@ -20,6 +20,7 @@ import { By } from '@angular/platform-browser';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createComponentStub } from './component-stub';
+import { SERIES } from './component-stub.mock';
 import { useConsoleSpies } from './console-spy';
 import { registerMockAdapter } from './mock-adapter';
 import { mockValueProp } from './prop-mock';
@@ -87,7 +88,7 @@ class ShoutPipe implements PipeTransform {
   `,
 })
 class DashboardComponent {
-  series = [1, 2, 3];
+  series = SERIES;
   zoom = signal(2);
   selected: number | undefined;
   legend: boolean | undefined;
@@ -141,7 +142,7 @@ describe('createComponentStub', () => {
     const { fixture, ChartStub } = renderWithStubs();
     const chart = fixture.debugElement.query(By.directive(ChartStub)).componentInstance;
 
-    expect(chart.series()).toEqual([1, 2, 3]);
+    expect(chart.series()).toEqual(SERIES);
     expect(chart.zoom()).toBe(2);
     expect(chart.label).toBe('Sales');
     expect(chart.compact).toBe(true);
@@ -237,7 +238,7 @@ describe('createComponentStub', () => {
     const ChartStub = createComponentStub(ChartComponent);
     const { fixture } = renderShallow(DashboardComponent, { keepTemplate: true, keepChildren: [ChartStub] });
 
-    expect(fixture.debugElement.query(By.directive(ChartStub)).componentInstance.series()).toEqual([1, 2, 3]);
+    expect(fixture.debugElement.query(By.directive(ChartStub)).componentInstance.series()).toEqual(SERIES);
     expect(fixture.debugElement.query(By.directive(ChartComponent))).toBeNull();
   });
 

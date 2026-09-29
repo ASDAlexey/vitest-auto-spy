@@ -29,6 +29,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { injectSpy, provideAutoSpy } from '../angular';
 import { disableAngularDiagnostics, enableAngularDiagnostics } from '../angular-diagnostics';
 import { prepareShallow, renderShallow } from './render-shallow';
+import { createKeepModuleOptions } from './render-shallow.mock';
 import { registerSignalMatchers } from './signal-matchers';
 
 beforeAll(() => {
@@ -432,7 +433,7 @@ describe('a template dependency an NgModule declares', () => {
     const restore = forceFlattenedScope(WithModulePipeComponent, [WhisperPipe]);
 
     try {
-      const { fixture } = renderShallow(WithModulePipeComponent, { keepTemplate: true, keepModules: [WhisperModule] });
+      const { fixture } = renderShallow(WithModulePipeComponent, createKeepModuleOptions(WhisperModule));
 
       expect(fixture.nativeElement.textContent).toBe('hello');
     } finally {
@@ -459,7 +460,7 @@ describe('a template dependency an NgModule declares', () => {
     withExports(
       () => [WhisperPipe],
       () => {
-        const { fixture } = renderShallow(WithModulePipeComponent, { keepTemplate: true, keepModules: [WhisperModule] });
+        const { fixture } = renderShallow(WithModulePipeComponent, createKeepModuleOptions(WhisperModule));
 
         expect(fixture.nativeElement.textContent).toBe('hello');
       },
@@ -468,7 +469,7 @@ describe('a template dependency an NgModule declares', () => {
 
   it('puts back only what a named module exports', () => {
     withExports(undefined, () => {
-      expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true, keepModules: [WhisperModule] })).toThrow(/WhisperPipe/);
+      expect(() => renderShallow(WithModulePipeComponent, createKeepModuleOptions(WhisperModule))).toThrow(/WhisperPipe/);
     });
   });
 

@@ -15,6 +15,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { expectEmission, injectSpy, provideAutoSpy } from '../angular';
 import { createMatDialogRef, injectMatDialogRef, provideMatDialogData, provideMatDialogRef } from './dialog-doubles';
+import { EDIT_USER_DATA } from './dialog-doubles.mock';
 import { registerSignalMatchers } from './signal-matchers';
 
 beforeAll(() => {
@@ -159,7 +160,7 @@ class UserListComponent {
 
   edit(): void {
     this.dialog
-      .open<EditUserDialog, string>(EditUserDialog, { data: { id: 7, name: 'Ada' } })
+      .open<EditUserDialog, string>(EditUserDialog, { data: EDIT_USER_DATA })
       .afterClosed()
       .pipe(filter((result): result is string => result !== undefined))
       .subscribe((result) => this.outcome.set(result));
@@ -198,7 +199,7 @@ class RenameComponent {
 
 function renderDialog(): EditUserDialog {
   TestBed.configureTestingModule({
-    providers: [provideMatDialogData(MAT_DIALOG_DATA, { id: 7, name: 'Ada' }), provideMatDialogRef(MatDialogRef)],
+    providers: [provideMatDialogData(MAT_DIALOG_DATA, EDIT_USER_DATA), provideMatDialogRef(MatDialogRef)],
   });
 
   const fixture = TestBed.createComponent(EditUserDialog);
@@ -211,14 +212,14 @@ function renderDialog(): EditUserDialog {
 describe('provideMatDialogData', () => {
   it('hands the component the data it was given, under the application token', () => {
     TestBed.configureTestingModule({
-      providers: [provideMatDialogData(MAT_DIALOG_DATA, { id: 7, name: 'Ada' }), provideMatDialogRef(MatDialogRef)],
+      providers: [provideMatDialogData(MAT_DIALOG_DATA, EDIT_USER_DATA), provideMatDialogRef(MatDialogRef)],
     });
 
     const fixture = TestBed.createComponent(EditUserDialog);
 
     fixture.detectChanges();
 
-    expect(fixture.componentInstance.data).toEqual({ id: 7, name: 'Ada' });
+    expect(fixture.componentInstance.data).toEqual(EDIT_USER_DATA);
     expect(fixture.nativeElement.textContent).toContain('Ada');
   });
 });
@@ -274,10 +275,7 @@ describe('provideMatDialogRef — the dialog component side', () => {
 
   it('carries disableClose and lets the component write it', () => {
     TestBed.configureTestingModule({
-      providers: [
-        provideMatDialogData(MAT_DIALOG_DATA, { id: 7, name: 'Ada' }),
-        provideMatDialogRef(MatDialogRef, { disableClose: false }),
-      ],
+      providers: [provideMatDialogData(MAT_DIALOG_DATA, EDIT_USER_DATA), provideMatDialogRef(MatDialogRef, { disableClose: false })],
     });
 
     const component = TestBed.createComponent(EditUserDialog).componentInstance;
@@ -370,7 +368,7 @@ describe('the ref a spied MatDialog.open answers with', () => {
     fixture.componentInstance.edit();
 
     expect(fixture.componentInstance.outcome).toHaveSignalValue('saved');
-    expect(injectSpy(MatDialog).open).toHaveBeenCalledWith(EditUserDialog, { data: { id: 7, name: 'Ada' } });
+    expect(injectSpy(MatDialog).open).toHaveBeenCalledWith(EditUserDialog, { data: EDIT_USER_DATA });
   });
 
   it('seeds the result without recording a close nobody called', () => {

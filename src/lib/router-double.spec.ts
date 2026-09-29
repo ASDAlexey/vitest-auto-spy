@@ -26,6 +26,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import '../angular';
 import { provideActivatedRoute } from './angular-router';
 import { collectRouterEvents, createRouterDouble, injectRouterDouble, provideRouterDouble } from './router-double';
+import { NAVIGATION_END_CHECKOUT, REPORT_MAP_OUTLETS, SCROLL_ORIGIN } from './router-double.mock';
 import { registerSignalMatchers } from './signal-matchers';
 
 beforeAll(() => {
@@ -95,13 +96,13 @@ describe('createRouterDouble — where the router starts', () => {
     });
     const outlets = (): string[] => (router.routerState.root.children[0]?.children ?? []).map((child) => child.outlet);
 
-    expect(outlets()).toEqual(['report', 'map']);
+    expect(outlets()).toEqual(REPORT_MAP_OUTLETS);
     expect(router.routerState.root.firstChild?.routeConfig?.path).toBe('cards');
-    expect(router.routerState.snapshot.root.children[0]?.children.map((child) => child.outlet)).toEqual(['report', 'map']);
+    expect(router.routerState.snapshot.root.children[0]?.children.map((child) => child.outlet)).toEqual(REPORT_MAP_OUTLETS);
 
     setUrl('/cards/8?tab=a');
 
-    expect(outlets()).toEqual(['report', 'map']);
+    expect(outlets()).toEqual(REPORT_MAP_OUTLETS);
     expect(router.routerState.snapshot.root.queryParams).toEqual({ tab: 'a' });
     expect(router.routerState.snapshot.root.children).toHaveLength(1);
   });
@@ -255,9 +256,9 @@ describe('collectRouterEvents', () => {
 
     await emitNavigation(new NavigationStart(2, '/checkout'));
     await emitNavigation(new NavigationEnd(2, '/checkout', '/checkout'));
-    emitNavigation(new Scroll(new NavigationEnd(2, '/checkout', '/checkout'), [0, 0], null));
+    emitNavigation(new Scroll(new NavigationEnd(2, '/checkout', '/checkout'), SCROLL_ORIGIN, null));
 
-    events.expect([[NavigationStart, '/checkout'], [NavigationEnd, '/checkout'], [Scroll]]);
+    events.expect([[NavigationStart, '/checkout'], NAVIGATION_END_CHECKOUT, [Scroll]]);
   });
 
   it('names a recording that disagrees with the expectation', async () => {
@@ -266,15 +267,10 @@ describe('collectRouterEvents', () => {
 
     await emitNavigation(new NavigationStart(2, '/checkout'));
 
-    expect(() =>
-      events.expect([
-        [NavigationStart, '/checkout'],
-        [NavigationEnd, '/checkout'],
-      ]),
-    ).toThrow(
+    expect(() => events.expect([[NavigationStart, '/checkout'], NAVIGATION_END_CHECKOUT])).toThrow(
       /^\[vitest-auto-spy\] collectRouterEvents\(\)\.expect\(\): #2 NavigationEnd \/checkout never came — 1 event recorded, 2 expected\.\nExpected: NavigationStart \/checkout, NavigationEnd \/checkout\nRecorded: NavigationStart \/checkout\nDocs: /,
     );
-    expect(() => events.expect([[NavigationEnd, '/checkout']])).toThrow(
+    expect(() => events.expect([NAVIGATION_END_CHECKOUT])).toThrow(
       /the events differ at #1: expected NavigationEnd \/checkout, got NavigationStart \/checkout\./,
     );
     expect(() => events.expect([[NavigationStart, '/wrong']])).toThrow(/expected NavigationStart \/wrong, got NavigationStart \/checkout/);
@@ -286,7 +282,7 @@ describe('collectRouterEvents', () => {
 
     const scrolls = collectRouterEvents(router.events);
 
-    emitNavigation(new Scroll(new NavigationEnd(3, '/x', '/x'), [0, 0], null));
+    emitNavigation(new Scroll(new NavigationEnd(3, '/x', '/x'), SCROLL_ORIGIN, null));
 
     expect(() => scrolls.expect([])).toThrow(/#1 Scroll was not expected/);
   });
@@ -490,7 +486,7 @@ describe('the navigation in flight', () => {
     const { router, emitNavigation, setCurrentNavigation } = createRouterDouble({ url: '/products/7' });
 
     setCurrentNavigation({ extras: { state: { from: 'the card' } } });
-    emitNavigation(new Scroll(new NavigationEnd(5, '/products/9', '/products/9'), [0, 0], null));
+    emitNavigation(new Scroll(new NavigationEnd(5, '/products/9', '/products/9'), SCROLL_ORIGIN, null));
 
     expect(router.currentNavigation()?.extras.state).toEqual({ from: 'the card' });
     expect(router.url).toBe('/products/7');

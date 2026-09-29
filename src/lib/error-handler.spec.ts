@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ArgsMap } from './args-map';
 import { errorHandler, splitRenderedArgs } from './error-handler';
+import { FAST_CALL } from './error-handler.mock';
 
 /** The message of whatever `throwArgumentsError` threw — it always throws, so a miss is a failure. */
 function messageOf(actualArgs: unknown[], functionName: string, configured?: ArgsMap, className?: string): string {
@@ -25,7 +26,7 @@ function messageOf(actualArgs: unknown[], functionName: string, configured?: Arg
 describe('errorHandler.throwArgumentsError', () => {
   it('prints the one configured call next to the one that arrived', () => {
     const configured = new ArgsMap();
-    configured.set([1, 'fast'], { value: 'ok' });
+    configured.set(FAST_CALL, { value: 'ok' });
 
     expect(messageOf([1, 'slow'], 'load', configured, 'Loader')).toBe(
       "[vitest-auto-spy] Loader.load is set up with mustBeCalledWith, and this call matches none of its configs — argument 2: expected 'fast', got 'slow'.\n" +
@@ -38,7 +39,7 @@ describe('errorHandler.throwArgumentsError', () => {
 
   it('lists every configured call when there is more than one, matchers included', () => {
     const configured = new ArgsMap();
-    configured.set([1, 'fast'], { value: 'ok' });
+    configured.set(FAST_CALL, { value: 'ok' });
     configured.set([expect.any(Number), expect.stringContaining('a')], { value: 'ok' });
 
     expect(messageOf([9, 'zzz'], 'load', configured)).toContain(
@@ -64,7 +65,7 @@ describe('errorHandler.throwArgumentsError', () => {
 
   it('says how many arguments were wanted when the count differs', () => {
     const configured = new ArgsMap();
-    configured.set([1, 'fast'], { value: 'ok' });
+    configured.set(FAST_CALL, { value: 'ok' });
 
     expect(messageOf([1], 'load', configured)).toContain('matches none of its configs — expected 2 argument(s), got 1.');
   });

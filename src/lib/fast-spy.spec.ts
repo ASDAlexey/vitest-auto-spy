@@ -12,6 +12,7 @@
 import { type Mock, type MockInstance, describe, expect, it, vi } from 'vitest';
 
 import { type FastSpy, clearAllFastSpies, createFastSpy, resetAllFastSpies } from './fast-spy';
+import { INCOMPLETE_RESULT } from './fast-spy.mock';
 import { isFastSpy } from './spy-probe';
 
 /**
@@ -654,7 +655,7 @@ describe('the two arrays derived until the state is read', () => {
       theirs(call).catch(() => undefined);
     }
 
-    expect(ours.mock.settledResults[1]).toEqual({ type: 'incomplete', value: undefined });
+    expect(ours.mock.settledResults[1]).toEqual(INCOMPLETE_RESULT);
 
     await Promise.resolve();
 
@@ -678,13 +679,7 @@ describe('the two arrays derived until the state is read', () => {
     spy('first');
 
     expect(() => spy('throw')).toThrow(fail);
-    expect(seen).toEqual([
-      [{ type: 'incomplete', value: undefined }],
-      [
-        { type: 'fulfilled', value: 'first' },
-        { type: 'incomplete', value: undefined },
-      ],
-    ]);
+    expect(seen).toEqual([[INCOMPLETE_RESULT], [{ type: 'fulfilled', value: 'first' }, INCOMPLETE_RESULT]]);
     expect(spy.mock.settledResults).toEqual([
       { type: 'fulfilled', value: 'first' },
       { type: 'rejected', value: fail },
@@ -799,7 +794,7 @@ describe('the two arrays derived until the state is read', () => {
     theirs(2);
 
     expect(oursSeen).toEqual(theirsSeen);
-    expect(oursSeen[0]).toContainEqual({ type: 'incomplete', value: undefined });
+    expect(oursSeen[0]).toContainEqual(INCOMPLETE_RESULT);
     expect(oursHeld[0]).toBe(ours.mock.results[0]);
     expect(ours.mock.results).toEqual(theirs.mock.results);
     expect(ours.mock.settledResults).toEqual(theirs.mock.settledResults);
@@ -815,7 +810,7 @@ describe('the two arrays derived until the state is read', () => {
     });
 
     expect(() => spy()).toThrow(fail);
-    expect(seen).toEqual([[{ type: 'incomplete', value: undefined }]]);
+    expect(seen).toEqual([[INCOMPLETE_RESULT]]);
     expect(spy.mock.results).toEqual([{ type: 'throw', value: fail }]);
     expect(spy.mock.settledResults).toEqual([{ type: 'rejected', value: fail }]);
   });

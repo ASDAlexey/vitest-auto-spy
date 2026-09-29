@@ -16,6 +16,7 @@ import { registerPackageCopy, resetPackageCopies } from './package-identity';
 import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
 import { snapshotPrototypes } from './prototype-guard';
 import { applyPreset, describeAbandonedWaits, reportStrayTimers, setupAutoSpy, warnAboutSuppressedLeaks } from './setup-auto-spy';
+import { NO_RESTORE_PROPS } from './setup-auto-spy.mock';
 import {
   annotateFrozenClockTimeouts,
   annotateTimedOutHooks,
@@ -114,7 +115,7 @@ describe('duplicate installs', () => {
 
   it('says nothing when the check is off, or when the tree is clean', () => {
     registerPackageCopy(DUPLICATE);
-    setupAutoSpy({ duplicateCopies: 'off', restoreProps: false });
+    setupAutoSpy(NO_RESTORE_PROPS);
 
     resetPackageCopies();
     registerPackageCopy(DUPLICATE);
@@ -140,7 +141,7 @@ describe('property restoration (default)', () => {
 });
 
 describe('property restoration (opted out)', () => {
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false });
+  setupAutoSpy(NO_RESTORE_PROPS);
 
   afterAll(restoreMockedProps);
 
@@ -264,7 +265,7 @@ describe('network blocking, narrowed to one channel', () => {
 });
 
 describe('timer globals (on by default)', () => {
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false });
+  setupAutoSpy(NO_RESTORE_PROPS);
 
   it('puts back a timer global that went missing during the previous test', () => {
     // Standing in for what happy-dom's realm does when the fakes come off: the global is gone,
@@ -716,7 +717,7 @@ describe('console-spy clearing (on by default)', () => {
     resetCalls += 1;
   });
 
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false });
+  setupAutoSpy(NO_RESTORE_PROPS);
 
   const registered = globalThis.__vitestAutoSpyResetConsoleSpies__;
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { compareTestRuns, formatTestRunComparison, summarizeTestRun } from './compare-runs';
+import { A_ONE_TEST, CART_ADDS_TEST, CART_HANDLES_ERROR_TEST } from './compare-runs.mock';
 
 /** A JSON report, in the shape `--reporter=json` writes. */
 function report(...files: { name: string; tests: { fullName: string; status: string }[] }[]): {
@@ -11,7 +12,7 @@ function report(...files: { name: string; tests: { fullName: string; status: str
 
 describe('compareTestRuns', () => {
   const baseline = report(
-    { name: '/repo/src/cart.spec.ts', tests: [{ fullName: 'Cart > adds', status: 'passed' }] },
+    { name: '/repo/src/cart.spec.ts', tests: [CART_ADDS_TEST] },
     {
       name: '/repo/src/user.spec.ts',
       tests: [
@@ -43,12 +44,9 @@ describe('compareTestRuns', () => {
   it('sees one of two same-named tests disappear', () => {
     const twice = report({
       name: '/repo/src/cart.spec.ts',
-      tests: [
-        { fullName: 'Cart > handles error', status: 'passed' },
-        { fullName: 'Cart > handles error', status: 'passed' },
-      ],
+      tests: [CART_HANDLES_ERROR_TEST, CART_HANDLES_ERROR_TEST],
     });
-    const once = report({ name: '/repo/src/cart.spec.ts', tests: [{ fullName: 'Cart > handles error', status: 'passed' }] });
+    const once = report({ name: '/repo/src/cart.spec.ts', tests: [CART_HANDLES_ERROR_TEST] });
 
     // A set of names answers "nothing was lost" here, which is the one question this function is
     // for — and two identically named tests in one file is what copy-paste produces.
@@ -60,31 +58,24 @@ describe('compareTestRuns', () => {
   });
 
   it('reports a name that ran more often than before as added', () => {
-    const once = report({ name: 'a.spec.ts', tests: [{ fullName: 'A > one', status: 'passed' }] });
+    const once = report({ name: 'a.spec.ts', tests: [A_ONE_TEST] });
     const twice = report({
       name: 'a.spec.ts',
-      tests: [
-        { fullName: 'A > one', status: 'passed' },
-        { fullName: 'A > one', status: 'passed' },
-      ],
+      tests: [A_ONE_TEST, A_ONE_TEST],
     });
 
     expect(compareTestRuns(once, twice).added).toEqual(['a.spec.ts::A > one (×2 → ×1)']);
   });
 
   it('leaves a path alone when the root is not in it', () => {
-    const summary = summarizeTestRun(report({ name: '/elsewhere/a.spec.ts', tests: [{ fullName: 'A > one', status: 'passed' }] }), '/src/');
+    const summary = summarizeTestRun(report({ name: '/elsewhere/a.spec.ts', tests: [A_ONE_TEST] }), '/src/');
 
     expect([...summary.names]).toEqual(['/elsewhere/a.spec.ts::A > one']);
   });
 
   it('compares two checkouts by cutting everything above a shared root', () => {
-    const current = report({ name: '/ci/workspace/src/cart.spec.ts', tests: [{ fullName: 'Cart > adds', status: 'passed' }] });
-    const diff = compareTestRuns(
-      report({ name: '/laptop/src/cart.spec.ts', tests: [{ fullName: 'Cart > adds', status: 'passed' }] }),
-      current,
-      '/src/',
-    );
+    const current = report({ name: '/ci/workspace/src/cart.spec.ts', tests: [CART_ADDS_TEST] });
+    const diff = compareTestRuns(report({ name: '/laptop/src/cart.spec.ts', tests: [CART_ADDS_TEST] }), current, '/src/');
 
     expect(diff.missing).toEqual([]);
     expect(diff.added).toEqual([]);
@@ -114,7 +105,7 @@ describe('compareTestRuns', () => {
 describe('formatTestRunComparison', () => {
   it('leads with the counters and then names what changed', () => {
     const diff = compareTestRuns(
-      report({ name: 'a.spec.ts', tests: [{ fullName: 'A > one', status: 'passed' }] }),
+      report({ name: 'a.spec.ts', tests: [A_ONE_TEST] }),
       report({ name: 'a.spec.ts', tests: [{ fullName: 'A > two', status: 'failed' }] }),
     );
 

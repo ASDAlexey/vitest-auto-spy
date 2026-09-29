@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { jasmine, resetTimeoutIntervalWarning } from './jasmine-global';
 import { registerJasmineMatchers, resetJasmineMatchers } from './jasmine-matchers';
+import { A_TO_ONE, A_TO_SET_OF_ONE, LETTERS_AB } from './jasmine-matchers.mock';
 
 describe('jasmine matchers', () => {
   beforeAll(() => {
@@ -86,8 +87,8 @@ describe('jasmine matchers', () => {
     });
 
     it('compares a Set or a Map nested in a value by its contents', () => {
-      expect(new Map([['a', new Set([1])]])).jasmineMapContaining(new Map([['a', new Set([1])]]));
-      expect(new Map([['a', new Set([1])]])).not.jasmineMapContaining(new Map([['a', new Set([2])]]));
+      expect(new Map(A_TO_SET_OF_ONE)).jasmineMapContaining(new Map(A_TO_SET_OF_ONE));
+      expect(new Map(A_TO_SET_OF_ONE)).not.jasmineMapContaining(new Map([['a', new Set([2])]]));
       expect(new Set([new Map([['k', 1]])])).not.jasmineSetContaining(new Set([new Map([['k', 2]])]));
       expect([new Set([1])]).not.jasmineArrayWithExactContents([new Set([2])]);
     });
@@ -106,13 +107,13 @@ describe('jasmine matchers', () => {
     });
 
     it('rejects a value that is not a Map or a Set at all', () => {
-      expect({ a: 1 }).not.jasmineMapContaining(new Map([['a', 1]]));
+      expect({ a: 1 }).not.jasmineMapContaining(new Map(A_TO_ONE));
       expect([1]).not.jasmineSetContaining(new Set([1]));
     });
 
     it('reads as an asymmetric matcher inside another expectation', () => {
-      expect({ index: new Map([['a', 1]]), seen: new Set([1]) }).toEqual({
-        index: jasmine.mapContaining(new Map([['a', 1]])),
+      expect({ index: new Map(A_TO_ONE), seen: new Set([1]) }).toEqual({
+        index: jasmine.mapContaining(new Map(A_TO_ONE)),
         seen: jasmine.setContaining(new Set([1])),
       });
     });
@@ -120,16 +121,16 @@ describe('jasmine matchers', () => {
 
   describe('arrayWithExactContents', () => {
     it('ignores order but not multiplicity', () => {
-      expect(['a', 'b']).jasmineArrayWithExactContents(['b', 'a']);
+      expect(LETTERS_AB).jasmineArrayWithExactContents(['b', 'a']);
       expect([{ id: 1 }, { id: 2 }]).jasmineArrayWithExactContents([{ id: 2 }, { id: 1 }]);
 
-      expect(['a', 'b']).not.jasmineArrayWithExactContents(['a']);
-      expect(['a', 'a']).not.jasmineArrayWithExactContents(['a', 'b']);
-      expect('ab').not.jasmineArrayWithExactContents(['a', 'b']);
+      expect(LETTERS_AB).not.jasmineArrayWithExactContents(['a']);
+      expect(['a', 'a']).not.jasmineArrayWithExactContents(LETTERS_AB);
+      expect('ab').not.jasmineArrayWithExactContents(LETTERS_AB);
     });
 
     it('reads as an asymmetric matcher inside another expectation', () => {
-      expect({ tags: ['b', 'a'] }).toEqual({ tags: jasmine.arrayWithExactContents(['a', 'b']) });
+      expect({ tags: ['b', 'a'] }).toEqual({ tags: jasmine.arrayWithExactContents(LETTERS_AB) });
     });
   });
 
@@ -141,7 +142,7 @@ describe('jasmine matchers', () => {
       expect(() => expect([1]).jasmineEmpty()).toThrow('to be empty');
       expect(() => expect([]).jasmineNotEmpty()).toThrow('to be non-empty');
       expect(() => expect({}).jasmineIs({})).toThrow('to be the same reference as');
-      expect(() => expect(new Map()).jasmineMapContaining(new Map([['a', 1]]))).toThrow('to be a Map containing');
+      expect(() => expect(new Map()).jasmineMapContaining(new Map(A_TO_ONE))).toThrow('to be a Map containing');
       expect(() => expect(new Set()).jasmineSetContaining(new Set([1]))).toThrow('to be a Set containing');
       expect(() => expect([]).jasmineArrayWithExactContents(['a'])).toThrow('to hold exactly the members of');
       expect(() =>
@@ -153,19 +154,19 @@ describe('jasmine matchers', () => {
         ),
       ).toThrow(/, missing [\s\S]*Map \{[\s\S]*"a" => 1,[\s\S]*"b" => 2/);
       expect(() => expect(new Set([1])).jasmineSetContaining(new Set([1, 2]))).toThrow(/, missing [\s\S]*Set \{[\s\S]*2/);
-      expect(() => expect(['a', 'x']).jasmineArrayWithExactContents(['a', 'b'])).toThrow(/, missing [\s\S]*"b"[\s\S]*, extra [\s\S]*"x"/);
-      expect(() => expect('nope').jasmineMapContaining(new Map([['a', 1]]))).toThrow(/^(?![\s\S]*missing)/);
+      expect(() => expect(['a', 'x']).jasmineArrayWithExactContents(LETTERS_AB)).toThrow(/, missing [\s\S]*"b"[\s\S]*, extra [\s\S]*"x"/);
+      expect(() => expect('nope').jasmineMapContaining(new Map(A_TO_ONE))).toThrow(/^(?![\s\S]*missing)/);
       expect(() => expect('nope').jasmineSetContaining(new Set([1]))).toThrow(/^(?![\s\S]*missing)/);
       expect(() => expect('nope').jasmineArrayWithExactContents(['a'])).toThrow(/^(?![\s\S]*(missing|extra))/);
     });
 
     it('negates cleanly too, for the matchers that take an argument', () => {
       const shared = { id: 1 };
-      const map = new Map([['a', 1]]);
+      const map = new Map(A_TO_ONE);
       const set = new Set([1]);
 
       expect(() => expect(shared).not.jasmineIs(shared)).toThrow('not to be the same reference as');
-      expect(() => expect(map).not.jasmineMapContaining(new Map([['a', 1]]))).toThrow('not to be a Map containing');
+      expect(() => expect(map).not.jasmineMapContaining(new Map(A_TO_ONE))).toThrow('not to be a Map containing');
       expect(() => expect(set).not.jasmineSetContaining(new Set([1]))).toThrow('not to be a Set containing');
       expect(() => expect(['a']).not.jasmineArrayWithExactContents(['a'])).toThrow('not to hold exactly the members of');
     });

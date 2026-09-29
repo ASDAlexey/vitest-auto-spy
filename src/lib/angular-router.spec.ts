@@ -30,6 +30,7 @@ import {
   readTitleKey,
   withTitle,
 } from './angular-router';
+import { MULTI_VALUED_PARAM } from './angular-router.mock';
 import { mockResourceProp } from './resource-prop';
 
 function current<T>(source: Observable<T>): Promise<T> {
@@ -169,8 +170,8 @@ describe('createActivatedRoute — one source of truth', () => {
   });
 
   it('reads multi-valued parameters through the ParamMap Angular builds', () => {
-    expect(createActivatedRoute({ params: { a: ['1', '2'] } }).route.snapshot.paramMap.getAll('a')).toEqual(
-      convertToParamMap({ a: ['1', '2'] }).getAll('a'),
+    expect(createActivatedRoute({ params: { a: MULTI_VALUED_PARAM } }).route.snapshot.paramMap.getAll('a')).toEqual(
+      convertToParamMap({ a: MULTI_VALUED_PARAM }).getAll('a'),
     );
   });
 
@@ -251,7 +252,7 @@ describe('createActivatedRoute — emits only what changed', () => {
   it('says nothing for a value equal to the current one, as the router does', () => {
     const tags = Symbol('tags');
     const segments = [new UrlSegment('products', {})];
-    const double = createActivatedRoute({ params: { ids: ['1', '2'] }, data: { [tags]: 1 }, url: segments, fragment: 'f' });
+    const double = createActivatedRoute({ params: { ids: MULTI_VALUED_PARAM }, data: { [tags]: 1 }, url: segments, fragment: 'f' });
     const emitted: string[] = [];
 
     record(double.route.params, emitted, 'params');
@@ -273,7 +274,7 @@ describe('createActivatedRoute — emits only what changed', () => {
     record(double.route.data, emitted, 'data');
     record(double.route.url, emitted, 'url');
 
-    double.setParams({ ids: ['1', '2'] });
+    double.setParams({ ids: MULTI_VALUED_PARAM });
     double.setParams({ ids: ['1', '3'] });
     double.setParams({ ids: ['1', '3'], page: '2' });
     double.setData({ [tags]: 2 });

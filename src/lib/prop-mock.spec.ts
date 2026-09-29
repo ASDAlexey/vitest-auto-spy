@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { useConsoleSpies } from './console-spy';
 import { registerMockAdapter } from './mock-adapter';
 import { beginPropEpoch, countMockedProps, mockValueProp, reportPropsOutsideHooks, restoreMockedProps } from './prop-mock';
+import { SEALED_VALUE_DESCRIPTOR } from './prop-mock.mock';
 import { vitestMockAdapter } from './vitest-adapter';
 
 registerMockAdapter(vitestMockAdapter);
@@ -30,7 +31,7 @@ describe('restoreMockedProps, when a patch cannot be undone', () => {
     mockValueProp(sealed, 'value', 'patched');
     // What `guardGlobals` exists to catch: a redefinition that seals a property the library still
     // holds the original descriptor for, so nothing can ever put that descriptor back.
-    Object.defineProperty(sealed, 'value', { value: 'sealed', configurable: false });
+    Object.defineProperty(sealed, 'value', SEALED_VALUE_DESCRIPTOR);
 
     expect(() => restoreMockedProps()).toThrow(
       /could not put 1 patched property back; every other patch was restored:\n {2}- 'value' on an object: TypeError[\s\S]*Docs: .*#_7-naming/,
@@ -49,8 +50,8 @@ describe('restoreMockedProps, when a patch cannot be undone', () => {
 
     mockValueProp(first, 'value', 'patched');
     mockValueProp(second, 'value', 'patched');
-    Object.defineProperty(first, 'value', { value: 'sealed', configurable: false });
-    Object.defineProperty(second, 'value', { value: 'sealed', configurable: false });
+    Object.defineProperty(first, 'value', SEALED_VALUE_DESCRIPTOR);
+    Object.defineProperty(second, 'value', SEALED_VALUE_DESCRIPTOR);
 
     expect(() => restoreMockedProps()).toThrow(/could not put 2 patched properties back/);
   });

@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { createDirectiveHost } from './directive-host';
 import { registerDirectiveMatchers } from './directive-matchers';
+import { highlightHostConfig } from './directive-matchers.mock';
 
 @Directive({ selector: '[appHighlight]', standalone: false })
 class HighlightDirective {}
@@ -30,7 +31,7 @@ beforeAll(registerDirectiveMatchers);
 
 describe('toHaveDirectiveApplied', () => {
   it('passes when the directive is on the element', () => {
-    const Host = createDirectiveHost({ template: '<div appHighlight></div>', scope: [HighlightModule] });
+    const Host = createDirectiveHost(highlightHostConfig([HighlightModule]));
 
     TestBed.configureTestingModule({ imports: [Host] });
 
@@ -71,7 +72,7 @@ describe('toHaveDirectiveApplied', () => {
   });
 
   it('separates "no such element" from "no such directive"', () => {
-    const Host = createDirectiveHost({ template: '<div appHighlight></div>', scope: [HighlightModule] });
+    const Host = createDirectiveHost(highlightHostConfig([HighlightModule]));
 
     TestBed.configureTestingModule({ imports: [Host] });
 
@@ -110,7 +111,7 @@ describe('toHaveDirectiveApplied', () => {
   });
 
   it('reports the negated case when the directive is there', () => {
-    const Host = createDirectiveHost({ template: '<div appHighlight></div>', scope: [HighlightModule] });
+    const Host = createDirectiveHost(highlightHostConfig([HighlightModule]));
 
     TestBed.configureTestingModule({ imports: [Host] });
 

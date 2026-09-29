@@ -15,6 +15,7 @@ import {
   guardGlobalPatches,
   snapshotWatchedGlobals,
 } from './global-patch-guard';
+import { RESTORABLE_VALUE_DESCRIPTOR } from './global-patch-guard.mock';
 import { registerMockAdapter } from './mock-adapter';
 import { mockValueProp } from './prop-mock';
 import { vitestMockAdapter } from './vitest-adapter';
@@ -86,7 +87,7 @@ describe('guardGlobalPatches', () => {
   it('has nothing to report about a property added and taken off again within one test', () => {
     const snapshot = watchedObject();
 
-    Object.defineProperty(snapshot.object, SEALED, { value: 'a=1', configurable: true });
+    Object.defineProperty(snapshot.object, SEALED, RESTORABLE_VALUE_DESCRIPTOR);
     Reflect.deleteProperty(snapshot.object, SEALED);
 
     expect(() => checkSealedAdditions([snapshot], 'throw')).not.toThrow();
@@ -100,7 +101,7 @@ describe('guardGlobalPatches', () => {
     // One name gone and another arrived: the counts alone cannot tell that apart from "nothing
     // happened", which is the case the baseline has to be rebuilt for.
     Reflect.deleteProperty(object, 'legacy');
-    Object.defineProperty(object, SEALED, { value: 'a=1', configurable: true });
+    Object.defineProperty(object, SEALED, RESTORABLE_VALUE_DESCRIPTOR);
 
     expect(() => checkSealedAdditions([snapshot], 'throw')).not.toThrow();
     expect([...snapshot.names]).toEqual([SEALED]);
@@ -118,7 +119,7 @@ describe('guardGlobalPatches', () => {
   it('ignores a property that can be put back', () => {
     const snapshot = watchedObject();
 
-    Object.defineProperty(snapshot.object, SEALED, { value: 'a=1', configurable: true });
+    Object.defineProperty(snapshot.object, SEALED, RESTORABLE_VALUE_DESCRIPTOR);
 
     expect(() => checkSealedAdditions([snapshot], 'throw')).not.toThrow();
   });
@@ -216,7 +217,7 @@ describe('createGlobalPatchWatch', () => {
     const watch = watchOver(target);
 
     watch.openFile();
-    Object.defineProperty(target, SEALED, { value: 'a=1', configurable: true });
+    Object.defineProperty(target, SEALED, RESTORABLE_VALUE_DESCRIPTOR);
     Object.defineProperty({}, SEALED, { value: 'a=1' });
     Reflect.defineProperty({}, SEALED, { value: 'a=1' });
 
