@@ -90,6 +90,26 @@ Checked against 5.49.0 on 2026-09-29.
       later call, −12…−19 % per double. `fast-mock-state.ts` still pushes both on every call.
 - [x] **`createSpyForToken` forces `lazySpies: true`** (`track-injections.ts:37`), so wide token classes
       never get the `'proxy'` default.
+- [ ] **`createAutoMock` cannot take a config without a placeholder first argument.** The only
+      signature is `createAutoMock<T, Options extends SpyOptions = SpyOptions>(overrides?:
+    DeepPartial<T>, config?: AutoMockConfiguration<T>)` (`auto-mock.ts:76`), so a spec that seeds
+      nothing but wants `returnsUndefined` — added in 5.51.0 — has to spell
+      `createAutoMock<EventSource>(undefined, { returnsUndefined: ['close'] })`: the bag alone binds
+      to `overrides` and is stored as a seed instead of being read as configuration. A config-only
+      overload `createAutoMock<T>(config?: AutoMockConfiguration<T>)` is safe to add, because a
+      literal whose keys are `returnsUndefined` / `selfReturning` / `strict` fails `DeepPartial<T>`
+      for any `T` without those members and falls through to it. The other factories that gained
+      `returnsUndefined` take a required first argument (`createSpyFromClass(Store, { … })`), so
+      the placeholder is `createAutoMock`'s alone. One call site in a consumer suite
+      (2026-09-29, 5.51.0).
+- [ ] **A one-call shape for "this factory method returns a double of that class".** Today the
+      pattern is two statements: build what the method returns with `createSpyFromClass(Inner)`,
+      then thread it into the outer double's config as `provideAutoSpy(Outer, { returns: { factory:
+    asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config's type. A
+      helper or option that takes the class and does both — say `returnsClass: { factory: Inner }`
+      beside `returns`, or a `spyOf(Inner)` value `returns` accepts — would state the intent once
+      and keep the inner double's construction out of the spec. Seen exactly once in a consumer
+      suite, so a convenience, not a pattern (2026-09-29, 5.51.0).
 
 ## Angular helpers
 
@@ -208,6 +228,18 @@ Checked against 5.49.0 on 2026-09-29.
 - [x] **Two skill trigger strings match no emitted message**: "not on the class prototype" and "strict
       mode is on". Fix both, and a script that checks every trigger is a substring of a literal in
       `src/lib`. The skill description also lacks `adoptMock`, `stubResponse`, `passthrough`.
+- [ ] **`no-real-component-provider` under `{ childInjectors: true }` has no notion of a class the
+      spec declares itself.** Every exemption is a name set — `replaced`, framework imports, and
+      `rendered`, which counts any `By.directive(X)` argument (`real-component-provider.ts:213-217`)
+      — so a double component declared in the spec and read through a child injector is safe only
+      when the identifier at `.injector.get(…)` is also a `By.directive(…)` argument. A consumer
+      suite reads its spec-declared footer doubles through one
+      `query(By.directive(child)).injector.get(child)` helper; the same read by position —
+      `query(By.css(…)).children[0].injector.get(Token)` — finds no `By.directive` name to match and
+      reports a class the spec itself declared, a test double rather than the production service the
+      rule exists to catch. The report follows from the exemption sets, not a shape seen yet. Collect
+      the file's own `ClassDeclaration` names as one more set: name-level like the rest, no type
+      information needed (2026-09-29, 5.51.0).
 
 ## CLI: codemod
 
@@ -263,6 +295,19 @@ Checked against 5.49.0 on 2026-09-29.
       consumer where `AGENTS.md` / `GEMINI.md` sit in `.git/info/exclude` and `.claude/` in a global
       excludes file, a stamp refresh leaves `git diff` empty and reads as "nothing changed". Mark such
       rows `updated (not tracked by git)` via `git check-ignore`; `src/cli` has no ignore lookup for `init`.
+- [ ] **`shared-env-without-restore` judges the raw text of each `setupAutoSpy(…)` call.** The check
+      slices the characters between the parentheses (`shared-env-restore.ts:53-72`) and regexes them
+      for the literals (`turnsOn`, `:74-79`), so a setup module that exports its options —
+      `setupAutoSpy(OPTIONS)` — or spreads them (`setupAutoSpy({ ...OPTIONS, blockNetwork: false })`)
+      is told every restore switch is off though the exported object turns them on. A consumer suite
+      duplicates the four literals at its call site only to keep this check quiet, and a trailing
+      spread the runtime lets override them makes the duplicated literal a value the check reads but
+      the suite never runs. The verdict is also a union over every call in the repository (`:107`):
+      one call anywhere with the literals silences the finding for all setup files, a second setup
+      file that genuinely leaves a switch off is masked, and the finding names only the first call's
+      file. Resolve at least an identifier declared in the same file — the pass visits every file's
+      text already — follow the import graph the scan builds to the exporting module, and judge each
+      setup file on its own calls (2026-09-29, 5.51.0).
 
 ## CLI: perf
 
