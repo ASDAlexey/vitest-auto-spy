@@ -41,7 +41,8 @@
  * — or `ns = await import(…)` — as the **first** statement of a test or a hook is the spec fetching
  * a module to read it: a barrel's exports, the handle on a `vi.mock`ed package a `beforeEach`
  * spies on. Nothing in that callback has run yet whose continuation could be pending, and the
- * repair is a static `import * as ns`, not a turn of the event loop.
+ * repair is a static `import * as ns`, not a turn of the event loop. The same holds right after
+ * `vi.resetModules()` / `vi.doMock(…)` / `vi.doUnmock(…)`: the import loads a copy nothing else holds.
  */
 import { PACKAGE, bindingState, importNamed } from './bindings';
 import { defineRule } from './define-rule';
@@ -60,6 +61,7 @@ import {
   isExpressionStatement,
   isIdentifier,
   isMemberExpression,
+  isRunnerCall,
   isVariableDeclarator,
   memberName,
 } from './rule-types';
@@ -137,12 +139,36 @@ function bindingStatement(awaited: EsNode): EsNode | undefined {
   return isAssignmentExpression(holder) && isExpressionStatement(holder.parent) ? holder.parent : undefined;
 }
 
-/** A namespace bound as the first thing a test or a hook does: read, not waited on. */
-function takesTheNamespaceFirst(node: EsNode): boolean {
+/** Calls that swap the module registry, after which the next `import()` loads a copy nothing else holds. */
+const REGISTRY_RESETS = new Set(['doMock', 'doUnmock', 'resetModules']);
+
+/** Whether a statement is `vi.resetModules()` / `vi.doMock(…)` / `vi.doUnmock(…)`. */
+function resetsRegistry(statement: EsNode): boolean {
+  return isExpressionStatement(statement) && isRunnerCall(statement.expression, REGISTRY_RESETS);
+}
+
+/**
+ * A namespace bound as the first thing a test or a hook does, or right after the spec swapped the
+ * module registry: a fresh copy nothing else is loading, so it is read, not waited on. Namespaces
+ * bound one after another (`bound`, filled in source order) count as one read.
+ */
+function takesTheNamespaceFirst(node: EsNode, bound: Set<EsNode>): boolean {
   const statement = bindingStatement(node.parent);
   const callback = enclosingFunction(node);
 
-  return statement !== undefined && callback !== undefined && isBlockStatement(callback.body) && callback.body.body[0] === statement;
+  if (statement === undefined || callback === undefined || !isBlockStatement(statement.parent)) {
+    return false;
+  }
+
+  bound.add(statement);
+
+  const siblings = statement.parent.body;
+  const before = siblings
+    .slice(0, siblings.indexOf(statement))
+    .reverse()
+    .find((sibling) => !bound.has(sibling));
+
+  return before === undefined ? statement.parent === callback.body : resetsRegistry(before);
 }
 
 /** `import(x)` → `settleDynamicImport(() => import(x))`, importing the helper when the name is free. */
@@ -180,19 +206,23 @@ export const preferSettleDynamicImport: RuleModule = defineRule({
     awaitedDynamicImport: `\`await {{load}}\` waits for the module, not for the code under test that was loading it: its continuation after its own \`await\` has not run yet, so the assertions below read the state one turn early. ${REPAIR}`,
     thenedDynamicImport: `\`{{load}}.then(…)\` waits for the module, not for the code under test that was loading it, and its callback runs later still, after the test ends if nothing awaits it. ${REPAIR}`,
   },
-  create: (context) => ({
-    ImportExpression: (node: EsNode): void => {
-      const consumption = consumptionOf(node);
+  create: (context) => {
+    const bound = new Set<EsNode>();
 
-      if (consumption === undefined || !insideRunnerCallback(node) || (consumption === 'await' && takesTheNamespaceFirst(node))) {
-        return;
-      }
+    return {
+      ImportExpression: (node: EsNode): void => {
+        const consumption = consumptionOf(node);
 
-      const messageId = consumption === 'await' ? 'awaitedDynamicImport' : 'thenedDynamicImport';
-      const suggestion = wrap(context, node);
-      const report = { node, messageId, data: { load: excerpt(context, node) } };
+        if (consumption === undefined || !insideRunnerCallback(node) || (consumption === 'await' && takesTheNamespaceFirst(node, bound))) {
+          return;
+        }
 
-      context.report(suggestion ? { ...report, suggest: [suggestion] } : report);
-    },
-  }),
+        const messageId = consumption === 'await' ? 'awaitedDynamicImport' : 'thenedDynamicImport';
+        const suggestion = wrap(context, node);
+        const report = { node, messageId, data: { load: excerpt(context, node) } };
+
+        context.report(suggestion ? { ...report, suggest: [suggestion] } : report);
+      },
+    };
+  },
 });

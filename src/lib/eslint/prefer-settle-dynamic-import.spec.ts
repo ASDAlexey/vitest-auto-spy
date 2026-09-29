@@ -65,6 +65,24 @@ describe('prefer-settle-dynamic-import', () => {
     expect(count(`it('x', async () => await import('./modal'));`)).toBe(1);
   });
 
+  it('leaves a namespace taken right after the spec swapped the module registry — a copy nothing else loads', () => {
+    expect(count(`it('x', async () => { setUp(); vi.resetModules(); const fresh = await import('./engine'); });`)).toBe(0);
+    expect(count(`it('x', async () => { vi.doMock('./api', factory); const api = await import('./api'); });`)).toBe(0);
+    expect(count(`it('x', async () => { jest.doUnmock('./api'); api = await import('./api'); });`)).toBe(0);
+    expect(count(`it('x', async () => { try { vi.resetModules(); const fresh = await import('./engine'); } finally { done(); } });`)).toBe(
+      0,
+    );
+    // Two namespaces bound one after the other are one read, whether they open the callback or follow a reset.
+    expect(count(`it('x', async () => { vi.resetModules(); const one = await import('./a'); const two = await import('./b'); });`)).toBe(0);
+    expect(count(`it('x', async () => { const one = await import('./a'); const two = await import('./b'); });`)).toBe(0);
+    // Anything else in between still leaves a continuation that may be pending.
+    expect(count(`it('x', async () => { vi.resetModules(); button.click(); const modal = await import('./modal'); });`)).toBe(1);
+    expect(count(`it('x', async () => { vi.clearAllMocks(); const modal = await import('./modal'); });`)).toBe(1);
+    expect(count(`it('x', async () => { button.click(); const one = await import('./a'); const two = await import('./b'); });`)).toBe(2);
+    expect(count(`it('x', async () => { try { const fresh = await import('./engine'); } finally { done(); } });`)).toBe(1);
+    expect(count(`it('x', async () => { vi.resetModules(); await import('./engine'); });`)).toBe(1);
+  });
+
   it('names the second failure mode of the then form rather than repeating the first', () => {
     const code = `it('x', () => { import('./modal').then((m) => expect(m.Modal).toBeDefined()); });`;
 
