@@ -92,7 +92,7 @@ describe('Spy<T> return-type helpers', () => {
     config.dispose.mockReturnValue();
     config.dispose();
 
-    expect(config.dispose).toHaveBeenCalled();
+    expect(config.dispose).toHaveBeenCalledWith();
   });
 
   it('still picks the promise and observable bundles', async () => {

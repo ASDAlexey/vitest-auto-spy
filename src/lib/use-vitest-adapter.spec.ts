@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type MockAdapter, getMockAdapter, hasMockAdapter, registerMockAdapter, resetMockAdapter } from './mock-adapter';
 import { useVitestAdapter } from './use-vitest-adapter';
-import { vitestMockAdapter } from './vitest-adapter';
+import { vitestMockAdapter, vitestRunnerHooks } from './vitest-adapter';
 
 const standIn: MockAdapter = {
   createMockFn: () => () => undefined,
@@ -42,6 +42,7 @@ describe('useVitestAdapter', () => {
 
     expect(hasMockAdapter()).toBe(true);
     expect(getMockAdapter()).toBe(vitestMockAdapter);
+    expect(globalThis.__vitestAutoSpyRunnerHooks__).toBe(vitestRunnerHooks);
   });
 
   it('keeps the adapter a runtime entry installed first', () => {

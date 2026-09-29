@@ -5,7 +5,7 @@
  * to a method spy based on its return type, how accessor spies are exposed, and
  * what the configuration object accepts.
  */
-import type { Mock, MockInstance } from 'vitest';
+import type { Mock, MockInstance } from './mock-types';
 
 // ---------------------------------------------------------------------------
 // The rxjs seam
@@ -234,6 +234,15 @@ export interface AddObservableSpyMethods<T> {
   returnSubject(): SubjectOf<T>;
 }
 
+/** What an observable *property* spy adds on top of {@link AddObservableSpyMethods}. */
+export interface ObservablePropSpyMethods {
+  /**
+   * How many subscriptions to this property are open right now — taken, and neither unsubscribed
+   * nor ended by the stream. `0` after `fixture.destroy()` is the assertion that a component let go.
+   */
+  subscriberCount(): number;
+}
+
 /** Helpers attached to a `Promise`-returning spy. */
 export interface AddPromiseSpyMethods<T> {
   resolveWith(value?: T): void;
@@ -249,6 +258,13 @@ export interface AddPromiseSpyMethods<T> {
 export type WithMockReturnValue<Method extends Func> = AddThrowHelper & {
   mockReturnValue: (value: ReturnType<Method>) => void;
   returnValue: (value: ReturnType<Method>) => void;
+  /**
+   * Answer the next matching call only; later ones fall back to what these arguments answered
+   * before, or to the spy's default. Stacked answers are consumed last-configured first.
+   */
+  once(): Omit<WithMockReturnValue<Method>, 'once' | 'times'>;
+  /** {@link once} for the next `count` matching calls; `count` is a positive whole number. */
+  times(count: number): Omit<WithMockReturnValue<Method>, 'once' | 'times'>;
 };
 
 /** Argument-matching helpers attached to a plain (sync) spy. */
@@ -515,9 +531,9 @@ type SelectOverload<Method extends Func, Options extends SpyOptions, Key extends
  *
  * Declared here rather than referenced as the global `Disposable`, for the same reason Vitest
  * declares its own: `Disposable` lives in `lib.esnext.disposable`, and a consumer whose `lib` stops
- * at ES2022 and who has no `@types/node` would see the published `.d.ts` fail on the name. A
- * structural declaration needs only `Symbol.dispose` to be typed, which is what a runtime capable of
- * `using` guarantees — and `Spy<T>` stays assignable to `Disposable` wherever that type does exist.
+ * at ES2022 and who has no `@types/node` would see the published `.d.ts` fail on the name. Keyed by
+ * {@link DisposeKey}, so it compiles where `Symbol.dispose` is untyped too — and `Spy<T>` stays
+ * assignable to `Disposable` wherever that type does exist.
  *
  * A type alias rather than an interface, deliberately: an interface has no implicit index
  * signature, and `Spy<T>` picking one up in its intersection would stop it being assignable to
@@ -529,8 +545,17 @@ type SelectOverload<Method extends Func, Options extends SpyOptions, Key extends
  * is lost.
  */
 export type SpyDisposable = {
-  [Symbol.dispose](): void;
+  [Key in DisposeKey]: () => void;
 };
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- a `unique symbol` type needs a declaration to hang off; it has no value.
+declare const DISPOSE_SHIM: unique symbol;
+
+/**
+ * `typeof Symbol.dispose` where the consumer's `lib` or `@types/node` declares it, and a key of this
+ * package's own where neither does — naming `Symbol.dispose` there is TS2550 in the shipped `.d.ts`.
+ */
+type DisposeKey = SymbolConstructor extends { readonly dispose: infer Key extends symbol } ? Key : typeof DISPOSE_SHIM;
 
 /**
  * One configured accessor list off `Spy<T>`'s options, or `undefined` for a list the options never
@@ -651,7 +676,7 @@ export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<
     [K in keyof T]: Required<T>[K] extends Func
       ? AddSpyMethodsByReturnTypes<SelectOverload<Required<T>[K], Options, K>>
       : T[K] extends ObservableLike<infer O>
-        ? AddObservableSpyMethods<O> & T[K]
+        ? AddObservableSpyMethods<O> & ObservablePropSpyMethods & T[K]
         : T[K];
   };
 
@@ -1047,6 +1072,18 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
    * `mockDeep`'s boolean `selfReturning` is the same idea for every node of a deep double.
    */
   selfReturning?: OnlyMethodKeysOf<T>[];
+  /**
+   * Methods whose answer is `undefined` — `returns: { m: undefined }` for a list of names, which is
+   * what a `strict` double of a store with a handful of `void` commands otherwise spells out entry by
+   * entry.
+   *
+   * ```ts
+   * provideAutoSpy(CartStore, { strict: true, returnsUndefined: ['add', 'remove', 'clear'] });
+   * ```
+   *
+   * Counts as configured under `strict`; a method also named in `returns` answers that value.
+   */
+  returnsUndefined?: OnlyMethodKeysOf<T>[];
   /**
    * Values for members that are **not** method results — an Observable property the code under test
    * subscribes to, a plain field, a signal.

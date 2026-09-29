@@ -19,11 +19,20 @@ import { attachHelpers } from './spy-decoration';
 import type { Func } from './types';
 import { vitestMockAdapter } from './vitest-adapter';
 
+const SHARED_HELPERS = Symbol.for('vitest-auto-spy.sharedHelpers');
+
 /** A prototype indistinguishable from the one `fast-spy` installs, except in identity. */
 function foreignPrototype(): object {
   const real: object = Object.getPrototypeOf(createFastSpy());
+  const descriptors: Record<PropertyKey, PropertyDescriptor> = Object.getOwnPropertyDescriptors(real);
+  const shared: unknown = Reflect.get(real, SHARED_HELPERS);
 
-  return Object.create(Function.prototype, Object.getOwnPropertyDescriptors(real));
+  // A second copy starts with a record of its own and none of the bundles an earlier file shared here.
+  for (const key of [SHARED_HELPERS, ...(shared instanceof Map ? shared.keys() : [])]) {
+    Reflect.deleteProperty(descriptors, key);
+  }
+
+  return Object.create(Function.prototype, descriptors);
 }
 
 /** A fast spy re-parented onto `prototype`, standing in for one another copy of `fast-spy` built. */
@@ -155,6 +164,7 @@ describe('attachHelpers', () => {
     // has already claimed that property on.
     const prototype = foreignPrototype();
 
+    // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- a fresh fixture prototype, discarded with the test
     Object.defineProperty(prototype, Symbol.for('vitest-auto-spy.sharedHelpers'), { value: 'not a record', configurable: true });
 
     const spy = foreignSpy(prototype);

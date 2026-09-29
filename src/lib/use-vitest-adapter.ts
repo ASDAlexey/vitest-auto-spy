@@ -18,7 +18,8 @@
  * replace it.
  */
 import { hasMockAdapter, registerMockAdapter } from './mock-adapter';
-import { vitestMockAdapter } from './vitest-adapter';
+import { registerRunnerHooks } from './runner-hooks';
+import { vitestMockAdapter, vitestRunnerHooks } from './vitest-adapter';
 
 export function useVitestAdapter(): void {
   if (hasMockAdapter()) {
@@ -26,4 +27,5 @@ export function useVitestAdapter(): void {
   }
 
   registerMockAdapter(vitestMockAdapter);
+  registerRunnerHooks(vitestRunnerHooks);
 }
