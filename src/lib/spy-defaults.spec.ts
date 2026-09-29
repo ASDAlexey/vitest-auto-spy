@@ -6,32 +6,15 @@
  * The registry is process-wide, so every test clears it — a registration that outlives its test is
  * exactly the silent cross-file effect this API exists to remove.
  */
-import { Observable, of } from 'rxjs';
+import { of } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import '../index';
 import '../rxjs';
 import { createSpyFromClass } from './create-spy-from-class';
 import { clearAutoSpyDefaults, mergeAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
+import { ACCOUNT_PING_ENTRY, AccountLike, ROUTER_REGISTRATION, RouterLike } from './spy-defaults.mock';
 import type { ClassSpyConfiguration } from './types';
-
-class RouterLike {
-  events: Observable<string> = of('start');
-
-  private currentUrl = '/home';
-
-  navigate(): boolean {
-    return true;
-  }
-
-  reload(): void {
-    /* real */
-  }
-
-  get url(): string {
-    return this.currentUrl;
-  }
-}
 
 function overridesOf(
   merged: ReturnType<typeof mergeAutoSpyDefaults<RouterLike>>,
@@ -41,16 +24,6 @@ function overridesOf(
   }
 
   return merged.overrides ?? {};
-}
-
-class AccountLike {
-  ping(): void {
-    /* real */
-  }
-
-  get isGuest(): boolean {
-    return true;
-  }
 }
 
 afterEach(() => {
@@ -84,7 +57,7 @@ describe('the registry on globalThis', () => {
 
 describe('registerAutoSpyDefaults', () => {
   it('composes a double from the registration alone', () => {
-    registerAutoSpyDefaults(RouterLike, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] });
+    registerAutoSpyDefaults(RouterLike, ROUTER_REGISTRATION);
 
     const router = createSpyFromClass(RouterLike);
 
@@ -131,10 +104,7 @@ describe('registerAutoSpyDefaults', () => {
   });
 
   it('composes a double from the table form alone', () => {
-    registerAutoSpyDefaults([
-      [RouterLike, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] }],
-      [AccountLike, { instanceMethodsToSpyOn: ['ping'] }],
-    ]);
+    registerAutoSpyDefaults([[RouterLike, ROUTER_REGISTRATION], ACCOUNT_PING_ENTRY]);
 
     const router = createSpyFromClass(RouterLike);
     const account = createSpyFromClass(AccountLike);
@@ -149,12 +119,9 @@ describe('registerAutoSpyDefaults', () => {
   });
 
   it('registers every row of the table form against its own class', () => {
-    registerAutoSpyDefaults([
-      [RouterLike, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] }],
-      [AccountLike, { instanceMethodsToSpyOn: ['ping'] }],
-    ]);
+    registerAutoSpyDefaults([[RouterLike, ROUTER_REGISTRATION], ACCOUNT_PING_ENTRY]);
 
-    expect(mergeAutoSpyDefaults(RouterLike, undefined)).toEqual({ observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] });
+    expect(mergeAutoSpyDefaults(RouterLike, undefined)).toEqual(ROUTER_REGISTRATION);
     expect(mergeAutoSpyDefaults(AccountLike, undefined)).toEqual({ instanceMethodsToSpyOn: ['ping'] });
   });
 
@@ -174,7 +141,7 @@ describe('registerAutoSpyDefaults', () => {
   });
 
   it('mixes the table form and the per-class form over one registry', () => {
-    registerAutoSpyDefaults([[AccountLike, { instanceMethodsToSpyOn: ['ping'] }]]);
+    registerAutoSpyDefaults([ACCOUNT_PING_ENTRY]);
     registerAutoSpyDefaults(RouterLike, { gettersToSpyOn: ['url'] });
 
     expect(mergeAutoSpyDefaults(AccountLike, undefined)).toEqual({ instanceMethodsToSpyOn: ['ping'] });
