@@ -142,12 +142,18 @@ describe.concurrent('the net under test.concurrent', () => {
     expect([...closed].sort((a, b) => a - b)).toEqual([1, 2]);
   });
 
+  let finishFirst: () => void = () => undefined;
+  const firstFinished = new Promise<void>((resolve) => {
+    finishFirst = resolve;
+  });
+
   it('holds its check open past the other test', async () => {
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await firstFinished;
     expect(opened).toBe(2);
   });
 
   it('finishes first', () => {
     expect(opened).toBeGreaterThan(0);
+    finishFirst();
   });
 });

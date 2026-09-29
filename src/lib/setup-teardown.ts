@@ -7,6 +7,7 @@
  */
 import * as vitest from 'vitest';
 
+import { aroundContextHook, contextHook } from './context-hook';
 import * as DOCS_LINKS from './docs-links';
 import type { DocumentWatch } from './document-guard';
 import { libraryWarn } from './guard-reaction';
@@ -109,22 +110,26 @@ export function installTeardown(registry: GuardRegistry, documents?: DocumentWat
     }
   });
 
-  around?.(async (runTest, context) => {
-    try {
-      await runTest();
-    } finally {
-      settle(context);
-    }
-  });
+  around?.(
+    aroundContextHook(async (runTest, context) => {
+      try {
+        await runTest();
+      } finally {
+        settle(context);
+      }
+    }),
+  );
 
-  vitest.afterEach((context) => {
-    try {
-      runTeardown(registry.teardown, context);
-    } finally {
-      // The restores have run by now even if a check threw; the net is for the hook that never started.
-      ledger.done(context);
-    }
-  });
+  vitest.afterEach(
+    contextHook((context) => {
+      try {
+        runTeardown(registry.teardown, context);
+      } finally {
+        // The restores have run by now even if a check threw; the net is for the hook that never started.
+        ledger.done(context);
+      }
+    }),
+  );
 }
 
 /** The task a hook's context belongs to, or `undefined` where the runner hands one this package cannot read. */
