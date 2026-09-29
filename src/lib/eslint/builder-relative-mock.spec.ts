@@ -98,6 +98,52 @@ describe('no-relative-mock-under-builder', () => {
     expect(lint("vi.mock('@app/cart.service');", { filename: join(directory, 'src', 'other.spec.ts') })).toHaveLength(1);
   });
 
+  function externalsWorkspace(name: string, architect: object): string {
+    const directory = join(root, name);
+
+    mkdirSync(join(directory, 'src'), { recursive: true });
+    writeFileSync(
+      join(directory, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { paths: { '@app/*': ['src/app/*'], '@env': ['src/env.ts'], '@lib/*': ['src/lib/*'] } } }),
+    );
+    writeFileSync(join(directory, 'angular.json'), JSON.stringify({ projects: { shop: { root: '', architect } } }));
+
+    return join(directory, 'src', 'page.spec.ts');
+  }
+
+  it('leaves an alias alone that the buildTarget configuration keeps external', () => {
+    const filename = externalsWorkspace('externals', {
+      build: {
+        options: { externalDependencies: ['@app/order.service'] },
+        configurations: { test: { externalDependencies: ['@app/cart.service', '@env', '@lib/*.util'] } },
+      },
+      test: { builder: '@angular/build:unit-test', options: { buildTarget: 'shop:build:test' } },
+    });
+    const code = [
+      "vi.mock('@app/cart.service');",
+      "vi.mock('@env');",
+      "vi.mock('@lib/date.util');",
+      "vi.mock('@app/order.service');",
+      "vi.mock('@lib/date.helper');",
+    ].join('\n');
+
+    expect(lint(code, { filename }).map((message) => message.line)).toEqual([4, 5]);
+    expect(lint("vi.mock('./cart.service');", { filename })).toHaveLength(1);
+  });
+
+  it('reports an external alias when one configuration of the test target builds without it', () => {
+    const filename = externalsWorkspace('externals-partial', {
+      build: { configurations: { test: { externalDependencies: ['@app'] }, ci: {} } },
+      test: {
+        builder: '@angular/build:unit-test',
+        options: { buildTarget: 'shop:build:test' },
+        configurations: { ci: { buildTarget: 'shop:build:ci' } },
+      },
+    });
+
+    expect(lint("vi.mock('@app/cart.service');", { filename })).toHaveLength(1);
+  });
+
   it('reads no alias where no tsconfig above the spec declares paths', () => {
     const filename = workspace('no-paths', '@angular/build:unit-test');
 
