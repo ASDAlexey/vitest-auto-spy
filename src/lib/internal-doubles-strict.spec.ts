@@ -61,6 +61,7 @@ describe('the package’s own stand-ins under a suite-wide strict default', () =
     installConsoleSpies();
 
     try {
+      // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- the call is what the console spy under test absorbs
       expect(() => console.warn('absorbed')).not.toThrow();
     } finally {
       restoreConsole();
