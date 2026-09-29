@@ -92,7 +92,7 @@ Checked against 5.49.0 on 2026-09-29.
       never get the `'proxy'` default.
 - [ ] **`createAutoMock` cannot take a config without a placeholder first argument.** The only
       signature is `createAutoMock<T, Options extends SpyOptions = SpyOptions>(overrides?:
-    DeepPartial<T>, config?: AutoMockConfiguration<T>)` (`auto-mock.ts:76`), so a spec that seeds
+  DeepPartial<T>, config?: AutoMockConfiguration<T>)` (`auto-mock.ts:76`), so a spec that seeds
       nothing but wants `returnsUndefined` — added in 5.51.0 — has to spell
       `createAutoMock<EventSource>(undefined, { returnsUndefined: ['close'] })`: the bag alone binds
       to `overrides` and is stored as a seed instead of being read as configuration. A config-only
@@ -105,7 +105,7 @@ Checked against 5.49.0 on 2026-09-29.
 - [ ] **A one-call shape for "this factory method returns a double of that class".** Today the
       pattern is two statements: build what the method returns with `createSpyFromClass(Inner)`,
       then thread it into the outer double's config as `provideAutoSpy(Outer, { returns: { factory:
-    asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config's type. A
+  asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config's type. A
       helper or option that takes the class and does both — say `returnsClass: { factory: Inner }`
       beside `returns`, or a `spyOf(Inner)` value `returns` accepts — would state the intent once
       and keep the inner double's construction out of the spec. Seen exactly once in a consumer
