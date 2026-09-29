@@ -46,6 +46,7 @@ export default defineConfig({
         'src/setup.ts',
         'src/eslint-plugin.ts',
       ],
+      exclude: ['**/*.mock.ts'],
       thresholds: {
         lines: 100,
         functions: 100,
