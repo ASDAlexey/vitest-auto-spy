@@ -189,6 +189,13 @@ describe('explainSpy', () => {
     expect(explainSpy({ plain: 1 })).toContain('nothing to explain');
   });
 
+  it('reports null, undefined and a primitive instead of throwing, with or without a member name', () => {
+    expect(explainSpy(undefined)).toContain('nothing to explain: this value is undefined and holds no spy created by vitest-auto-spy.');
+    expect(explainSpy(null, 'load')).toContain('nothing to explain: this value is null');
+    expect(explainSpy(7 as unknown as object, 'load')).toContain('this value is number 7');
+    expect(explainSpy('text' as unknown as object)).toContain("this value is string 'text'");
+  });
+
   it('walks a mockDeep tree: the node, the named child and the leaf', () => {
     const api = mockDeep<{ repo: { find(id: number): string } }>();
     api.repo.find.calledWith(1).mockReturnValue('one');

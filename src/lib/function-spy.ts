@@ -7,6 +7,7 @@
 import { ArgsMap } from './args-map';
 import * as DOCS_LINKS from './docs-links';
 import { errorHandler } from './error-handler';
+import { libraryWarn } from './guard-reaction';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
 import { getJasmineSupport } from './jasmine-support';
 import { withDocs } from './message-link';
@@ -89,9 +90,11 @@ const NO_MATCH = Symbol('vitest-auto-spy.noMatch');
  */
 export interface UnstubbedGuard {
   className: string | undefined;
-  handle: UnstubbedCallHandler;
+  handle: (call: UnstubbedCall, receiver?: unknown) => unknown;
   /** The handler is the member's own implementation (a seeded method), so it runs for framework hooks too. */
   implementation?: boolean;
+  /** Hand the handler the call's `this`; a user's `onUnstubbedCall` is only ever told the call. */
+  receiver?: boolean;
 }
 
 /** `UserService.load` — or just `load` on a type-driven double, which has no class to name. */
@@ -296,11 +299,12 @@ export function resolveUnstubbedGuard(className: string | undefined, config: Str
  * the dispatch, so a spy configured that way never reaches this code.
  */
 function isUnconfigured(state: SpyState): boolean {
-  const container = state.valueContainer;
+  return state.calledWith === undefined && state.mustBeCalledWith === undefined && isUnconfiguredDefault(state.valueContainer);
+}
 
+/** Whether the spy's own container answers nothing but `undefined`. */
+function isUnconfiguredDefault(container: ReturnValueContainer): boolean {
   return (
-    state.calledWith === undefined &&
-    state.mustBeCalledWith === undefined &&
     container.value === undefined &&
     !container._isRejectedPromise &&
     !container._isThrown &&
@@ -309,11 +313,74 @@ function isUnconfigured(state: SpyState): boolean {
   );
 }
 
-/** The configured value for these args, unwrapped — or {@link NO_MATCH}. */
+/** Returned by {@link lookupConfigured} when the arguments matched but every `once()` / `times(n)` answer is used up. */
+const EXHAUSTED = Symbol('vitest-auto-spy.exhausted');
+
+/** The first answer in a `once()` / `times(n)` stack that still covers a call, consuming one use of it. */
+function takeLimited(container: ReturnValueContainer): ReturnValueContainer | undefined {
+  let current: ReturnValueContainer | undefined = container;
+
+  while (current?.remaining === 0) {
+    current = current.fallback;
+  }
+
+  if (current?.remaining !== undefined) {
+    current.remaining -= 1;
+  }
+
+  return current;
+}
+
+/** The configured value for these args, unwrapped — or {@link NO_MATCH}, or {@link EXHAUSTED}. */
 function lookupConfigured(calledWithObject: CalledWithObject, actualArgs: unknown[]): unknown {
   const configured = calledWithObject.argsToValuesMap.get(actualArgs);
 
-  return isReturnValueContainer(configured) ? unwrapContainer(configured) : NO_MATCH;
+  if (!isReturnValueContainer(configured)) {
+    return NO_MATCH;
+  }
+
+  if (configured.remaining === undefined) {
+    return unwrapContainer(configured);
+  }
+
+  const live = takeLimited(configured);
+
+  return live === undefined ? EXHAUSTED : unwrapContainer(live);
+}
+
+let lenientMissHinted = false;
+
+/** Arm the one-time lenient-miss hint again — for the specs that pin it. */
+export function resetLenientMissHint(): void {
+  lenientMissHinted = false;
+}
+
+const HINTED_CONFIGS = 3;
+
+/**
+ * A lenient `calledWith` that missed a call of an arity it was configured for, on a spy with no
+ * default: the likeliest wrong expectation there is, and one that answers `undefined` in silence.
+ * A hint rather than a misconfiguration: under `setupAutoSpy` those throw, and a deliberate miss is
+ * what `calledWith` promises to allow.
+ */
+function hintLenientMiss(state: SpyState, chain: CalledWithObject, actualArgs: unknown[], name: string): void {
+  if (lenientMissHinted || !isUnconfiguredDefault(state.valueContainer) || !chain.argsToValuesMap.hasArity(actualArgs.length)) {
+    return;
+  }
+
+  lenientMissHinted = true;
+
+  const configured = chain.argsToValuesMap.configured();
+  const listed = configured.slice(0, HINTED_CONFIGS).join(', ') + (configured.length > HINTED_CONFIGS ? ', …' : '');
+
+  libraryWarn(
+    withDocs(
+      `[vitest-auto-spy] ${name}(${actualArgs.map(renderArgument).join(', ')}) matched none of its calledWith() configs (${listed}) ` +
+        'and answered undefined. calledWith() lets a miss through silently: use mustBeCalledWith() to fail on one, or give the ' +
+        "spy a default (mockReturnValue, resolveWith, the 'returns' option) to make it deliberate. Shown once.",
+      DOCS_LINKS.lenientCalledWithMiss,
+    ),
+  );
 }
 
 /**
@@ -339,28 +406,44 @@ const FRAMEWORK_HOOKS: ReadonlySet<string> = new Set([
   'ngOnInit',
 ]);
 
-function returnTheCorrectFakeValue(state: SpyState, actualArgs: unknown[], functionName: string, unstubbed?: UnstubbedGuard): unknown {
+function returnTheCorrectFakeValue(
+  state: SpyState,
+  actualArgs: unknown[],
+  functionName: string,
+  unstubbed: UnstubbedGuard | undefined,
+  receiver: unknown,
+): unknown {
   if (unstubbed && isUnconfigured(state) && (unstubbed.implementation === true || !FRAMEWORK_HOOKS.has(functionName))) {
-    return unstubbed.handle({ className: unstubbed.className, method: functionName, args: actualArgs });
+    const call: UnstubbedCall = { className: unstubbed.className, method: functionName, args: actualArgs };
+
+    return unstubbed.receiver === true ? unstubbed.handle(call, receiver) : unstubbed.handle(call);
   }
+
+  let lenientMiss: CalledWithObject | undefined;
 
   if (state.calledWith) {
     const match = lookupConfigured(state.calledWith, actualArgs);
 
-    if (match !== NO_MATCH) {
+    if (match !== NO_MATCH && match !== EXHAUSTED) {
       return match;
     }
+
+    lenientMiss = match === NO_MATCH ? state.calledWith : undefined;
   }
 
   if (state.mustBeCalledWith) {
     const match = lookupConfigured(state.mustBeCalledWith, actualArgs);
 
-    if (match !== NO_MATCH) {
+    if (match !== NO_MATCH && match !== EXHAUSTED) {
       return match;
     }
 
     // The map goes along so the failure can print what was wanted next to what arrived.
     errorHandler.throwArgumentsError(actualArgs, functionName, state.mustBeCalledWith.argsToValuesMap, unstubbed?.className);
+  }
+
+  if (lenientMiss) {
+    hintLenientMiss(state, lenientMiss, actualArgs, functionName);
   }
 
   return unwrapContainer(state.valueContainer);
@@ -443,11 +526,43 @@ function addMethodsToCalledWith(chain: CalledWithObject, calledWithArgs: unknown
     failWith: (error?: unknown): void => {
       calledWith.argsToValuesMap.set(calledWithArgs, { value: error, _isThrown: true });
     },
+    once: (): CalledWithObject => limitedHandle(chain.argsToValuesMap, calledWithArgs, 1),
+    times: (count: number): CalledWithObject => limitedHandle(chain.argsToValuesMap, calledWithArgs, count),
   });
   addPromiseHelpersToCalledWithObject(calledWith, calledWithArgs);
   getObservableSupport()?.addToCalledWithObject(calledWith, calledWithArgs);
 
   return calledWith;
+}
+
+/**
+ * The handle `calledWith(…).once()` / `.times(n)` hands back: the sync helpers, each stacking an
+ * answer for `count` calls over whatever these arguments answered before.
+ */
+function limitedHandle(argsToValuesMap: ArgsMap, calledWithArgs: unknown[], count: number): CalledWithObject {
+  if (!Number.isInteger(count) || count < 1) {
+    throw new RangeError(`[vitest-auto-spy] calledWith(…).times() takes a positive whole number of calls, got ${String(count)}.`);
+  }
+
+  const stack = (container: ReturnValueContainer): void => {
+    const previous = argsToValuesMap.configuredFor(calledWithArgs);
+
+    container.remaining = count;
+    container.fallback = isReturnValueContainer(previous) ? previous : undefined;
+    argsToValuesMap.set(calledWithArgs, container);
+  };
+  const setReturnValue = (value: unknown): void => {
+    stack({ value });
+  };
+
+  return {
+    argsToValuesMap,
+    mockReturnValue: setReturnValue,
+    returnValue: setReturnValue,
+    failWith: (error?: unknown): void => {
+      stack({ value: error, _isThrown: true });
+    },
+  };
 }
 
 /** The spy's `calledWith` / `mustBeCalledWith` chain, built on the first call that needs it. */
@@ -728,8 +843,8 @@ function buildFunctionSpy<FunctionType extends Func>(
   // file's own source and naming neither the method nor the mistake. Constructed, the configured
   // value is the instance when it is an object, and the fresh instance otherwise — the language's
   // own rule for what a constructor returns, so there is nothing to decide here.
-  const dispatch = function dispatch(...actualArgs: unknown[]): unknown {
-    const returned = returnTheCorrectFakeValue(internals, actualArgs, internals.name, internals.unstubbed);
+  const dispatch = function dispatch(this: unknown, ...actualArgs: unknown[]): unknown {
+    const returned = returnTheCorrectFakeValue(internals, actualArgs, internals.name, internals.unstubbed, this);
     // Still unset while an adapter warms the implementation during `createMockFn`.
     const recorder: SettledResultsRecorder | undefined = internals.recorder;
     const record = recorder?.record;

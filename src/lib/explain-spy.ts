@@ -62,7 +62,7 @@ function notADouble(method: string, value: unknown): string {
   return `${method} is ${describeValue(value)}, not a spy created by vitest-auto-spy, so it has no configured arguments to read. ${nextStep(value, method)}`;
 }
 
-function nothingFound(spy: object): string {
+function nothingFound(spy: unknown): string {
   return `nothing to explain: this value is ${describeValue(spy)} and holds no spy created by vitest-auto-spy. ${nextStep(spy, 'mock')}`;
 }
 
@@ -270,7 +270,12 @@ function membersNamed(spy: object, property: string): SpiedMember[] {
   return isMarkedMock(value) ? [{ name: property, property, mock: value }] : [];
 }
 
-function sections(spy: object, method: string | undefined): string[] {
+function sections(spy: object | null | undefined, method: string | undefined): string[] {
+  // A spec that is already red usually hands over a double that was never wired up.
+  if (!isObject(spy) && typeof spy !== 'function') {
+    return [nothingFound(spy)];
+  }
+
   const members = method === undefined ? collectMembers(spy) : membersNamed(spy, method);
 
   if (members.length > 0) {
@@ -310,10 +315,10 @@ function sections(spy: object, method: string | undefined): string[] {
  * //     #1 load(2) -> no configured arguments matched; the default value was used
  * ```
  *
- * @param spy A double, or a single function spy off one.
+ * @param spy A double, or a single function spy off one. `null`, `undefined` or a primitive is reported, not thrown on.
  * @param method Restrict the report to one member.
  * @returns A human-readable report; never throws, whatever it was handed.
  */
-export function explainSpy(spy: object, method?: string): string {
+export function explainSpy(spy: object | null | undefined, method?: string): string {
   return `${HEADER}\n\n${sections(spy, method).join('\n\n')}`;
 }

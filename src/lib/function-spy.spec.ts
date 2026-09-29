@@ -16,16 +16,18 @@ import type { Func, UnstubbedCall } from './types';
 import { vitestMockAdapter } from './vitest-adapter';
 
 /** An adapter that warms the implementation while the mock is being created. */
-const warmingAdapter: MockAdapter = {
-  ...vitestMockAdapter,
-  createMockFn(implementation?: Func, name?: string): MockFn {
-    const mock = vitestMockAdapter.createMockFn(implementation, name);
+function warmingAdapter(): MockAdapter {
+  return {
+    ...vitestMockAdapter,
+    createMockFn(implementation?: Func, name?: string): MockFn {
+      const mock = vitestMockAdapter.createMockFn(implementation, name);
 
-    implementation?.();
+      implementation?.();
 
-    return mock;
-  },
-};
+      return mock;
+    },
+  };
+}
 
 afterEach(() => {
   registerMockAdapter(vitestMockAdapter);
@@ -33,7 +35,7 @@ afterEach(() => {
 
 describe('createFunctionSpy', () => {
   it('survives an adapter that calls the implementation while the mock is still being created', () => {
-    registerMockAdapter(warmingAdapter);
+    registerMockAdapter(warmingAdapter());
 
     const load = createFunctionSpy<() => string>('load');
 
@@ -63,6 +65,21 @@ describe('createFunctionSpy — strict mode', () => {
       }),
     };
   }
+
+  it('tells a handler the receiver only when it asks for it', () => {
+    const told = vi.fn();
+    const plain = createFunctionSpy('load', { className: 'Repo', handle: told });
+    const through = createFunctionSpy('save', { className: 'Repo', receiver: true, handle: told });
+    const owner = { plain, through };
+
+    owner.plain(1);
+    owner.through(2);
+
+    expect(told.mock.calls).toEqual([
+      [{ className: 'Repo', method: 'load', args: [1] }],
+      [{ className: 'Repo', method: 'save', args: [2] }, owner],
+    ]);
+  });
 
   it('fires only while the spy carries no configuration of any kind', async () => {
     const { calls, spy } = strictSpy();
@@ -513,7 +530,102 @@ describe('createFunctionSpy — a wrapper that delegates to the dispatch', () =>
 
     disposed.mockReturnValue('flat');
 
+    expect(warnings.filter((warning) => warning.includes('replaced the dispatch'))).toHaveLength(1);
+  });
+});
+
+describe('createFunctionSpy — withImplementation over a configured chain', () => {
+  const warnings: string[] = [];
+  let warn: MockInstance<typeof console.warn>;
+
+  beforeEach(() => {
+    warnings.length = 0;
+    warn = vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
+      warnings.push(String(message));
+    });
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+    setMisconfigurationReaction(undefined);
+  });
+
+  it('reports the chain it disables for the callback, and hands the dispatch back after', async () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+    const mock = load as unknown as FastSpy;
+
+    load.calledWith(1).mockReturnValue('chain');
+    mock.withImplementation(
+      () => 'swapped',
+      () => {
+        expect(load(1)).toBe('swapped');
+      },
+    );
+
     expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("withImplementation() replaced the dispatch of 'load' after calledWith() was configured on it");
+
+    load.calledWith(2).mockReturnValue('late');
+    await mock.withImplementation(
+      () => 'async',
+      async () => {
+        await Promise.resolve();
+      },
+    );
+
+    expect(warnings).toHaveLength(2);
+    expect([load(1), load(2)]).toEqual(['chain', 'late']);
+  });
+
+  it('reports a chain configured inside the callback', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+    const mock = load as unknown as FastSpy;
+
+    mock.withImplementation(
+      () => 'swapped',
+      () => {
+        load.calledWith(1).mockReturnValue('chain');
+      },
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("calledWith() was configured on 'load' after withImplementation() had replaced its dispatch");
+    expect(load(1)).toBe('chain');
+  });
+
+  it('puts back an earlier replacement, so a chain configured after the callback is still reported', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+    const mock = load as unknown as FastSpy;
+
+    mock.mockReturnValue('flat');
+    mock.withImplementation(
+      () => 'swapped',
+      () => undefined,
+    );
+    load.calledWith(1).mockReturnValue('chain');
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('after mockReturnValue() had replaced its dispatch');
+    expect(load(1)).toBe('flat');
+  });
+
+  it('leaves the spy as it was when the report throws', () => {
+    setMisconfigurationReaction('throw');
+
+    const load = createFunctionSpy<(id: number) => string>('load');
+    const mock = load as unknown as FastSpy;
+    const callback = vi.fn();
+
+    load.calledWith(1).mockReturnValue('chain');
+
+    expect(() => mock.withImplementation(() => 'swapped', callback)).toThrow('withImplementation() replaced the dispatch');
+    expect(callback).not.toHaveBeenCalled();
+
+    setMisconfigurationReaction(undefined);
+    load.calledWith(2).mockReturnValue('late');
+
+    expect(warnings).toEqual([]);
+    expect(load(1)).toBe('chain');
   });
 });
 
@@ -550,9 +662,13 @@ describe('createFunctionSpy — calledWith hands back a handle per call', () => 
 
   it('shares one argument map between the handles of a chain', () => {
     const load = createFunctionSpy<(id: number) => string>('load');
-    const mapOf = (handle: object): unknown => Reflect.get(handle, 'argsToValuesMap');
+    const older = load.calledWith(1);
 
-    expect(mapOf(load.calledWith(1))).toBe(mapOf(load.calledWith(2)));
+    load.calledWith(1).mockReturnValue('newer');
+    older.mockReturnValue('older');
+
+    // One map: the older handle's write replaces the newer one's entry for the same arguments.
+    expect(load(1)).toBe('older');
   });
 
   it('keeps mustBeCalledWith handles apart the same way', () => {
