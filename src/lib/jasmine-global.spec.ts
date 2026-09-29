@@ -7,14 +7,24 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { useConsoleSpies } from '../console';
 import { enableJasmineCompat } from './enable-jasmine';
 import { jasmine, resetTimeoutIntervalWarning } from './jasmine-global';
 import { resetJasmineMatchers } from './jasmine-matchers';
 import { resetJasmineSupport } from './jasmine-support';
+import { setMisconfigurationReaction } from './misconfiguration';
 import { registerMockAdapter } from './mock-adapter';
 import { vitestMockAdapter } from './vitest-adapter';
 
+/** The write under test: jasmine's setter warns, or throws, and keeps the value it had. */
+function writeTimeoutInterval(value: number): void {
+  // eslint-disable-next-line vitest-auto-spy/no-hand-assigned-global -- the setter's reaction to this write is what the tests assert
+  jasmine.DEFAULT_TIMEOUT_INTERVAL = value;
+}
+
 describe('the jasmine namespace', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   beforeAll(() => {
     registerMockAdapter(vitestMockAdapter);
     enableJasmineCompat();
@@ -82,40 +92,64 @@ describe('the jasmine namespace', () => {
     });
 
     it('says so when taking Date over drops callbacks that were already scheduled', () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
       jasmine.clock().install();
       setTimeout(() => undefined, 100);
       jasmine.clock().mockDate(new Date('2020-01-01T00:00:00.000Z'));
 
-      expect(warn).toHaveBeenCalledWith(
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
         expect.stringMatching(/took Date over after \d+ callbacks? had already been scheduled[\s\S]*#clock-install-leaves-date-real$/),
       );
 
       jasmine.clock().uninstall();
-      warn.mockRestore();
     });
 
     it('counts the dropped callbacks', () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
       jasmine.clock().install();
       setTimeout(() => undefined, 100);
       setTimeout(() => undefined, 200);
       jasmine.clock().mockDate(new Date('2020-01-01T00:00:00.000Z'));
 
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('took Date over after 2 callbacks had already been scheduled'));
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('took Date over after 2 callbacks had already been scheduled'));
       jasmine.clock().uninstall();
-      warn.mockRestore();
     });
 
-    it('mocks the date on its own, with no clock installed at all', () => {
+    it('mocks the date on its own, with no clock installed at all, warning once where jasmine would throw', () => {
+      resetTimeoutIntervalWarning();
       jasmine.clock().mockDate(new Date('2021-02-03T00:00:00.000Z'));
 
       expect(new Date().toISOString()).toBe('2021-02-03T00:00:00.000Z');
       expect(vi.isFakeTimers()).toBe(false);
 
       vi.useRealTimers();
+      jasmine.clock().mockDate(new Date('2021-02-04T00:00:00.000Z'));
+      vi.useRealTimers();
+
+      expect(consoleWarnSpy).toHaveBeenCalledOnce();
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /mockDate\(\) ran with no clock installed[\s\S]*will throw in the next major[\s\S]*#clock-install-leaves-date-real$/,
+        ),
+      );
+    });
+
+    it('fails at the call under the throw grade, every time', () => {
+      setMisconfigurationReaction('throw');
+
+      try {
+        expect(() => jasmine.clock().mockDate()).toThrow(/ran with no clock installed/);
+        expect(() => jasmine.clock().mockDate()).toThrow(/ran with no clock installed/);
+      } finally {
+        setMisconfigurationReaction(undefined);
+      }
+    });
+
+    it('stays quiet when a clock is installed', () => {
+      resetTimeoutIntervalWarning();
+      jasmine.clock().install();
+      jasmine.clock().mockDate(new Date('2021-02-03T00:00:00.000Z'));
+      jasmine.clock().uninstall();
+
+      expect(consoleWarnSpy).not.toHaveBeenCalled();
     });
 
     it('defaults mockDate to now, and returns the same handle from install so a call can be chained', () => {
@@ -206,15 +240,13 @@ describe('the jasmine namespace', () => {
 
   describe('DEFAULT_TIMEOUT_INTERVAL', () => {
     it('reads jasmine’s default and warns once when written, naming both Vitest settings', () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
       expect(jasmine.DEFAULT_TIMEOUT_INTERVAL).toBe(5000);
 
-      jasmine.DEFAULT_TIMEOUT_INTERVAL = 30000;
-      jasmine.DEFAULT_TIMEOUT_INTERVAL = 40000;
+      writeTimeoutInterval(30000);
+      writeTimeoutInterval(40000);
 
-      expect(warn).toHaveBeenCalledOnce();
-      expect(warn.mock.calls[0]?.[0]).toContain(
+      expect(consoleWarnSpy).toHaveBeenCalledOnce();
+      expect(consoleWarnSpy.mock.calls[0]?.[0]).toContain(
         'jasmine.DEFAULT_TIMEOUT_INTERVAL = 30000 has no runtime equivalent under Vitest and was ignored: Vitest reads its timeouts from config, once. Set `test.testTimeout: 30000` and `test.hookTimeout: 30000`',
       );
       // The write is ignored, which is exactly what the warning says.
@@ -222,21 +254,17 @@ describe('the jasmine namespace', () => {
     });
 
     it('fails every write under misconfiguration: throw, the latch notwithstanding', () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
       // The test above has already tripped the latch the printed grade stops at.
-      jasmine.DEFAULT_TIMEOUT_INTERVAL = 30000;
+      writeTimeoutInterval(30000);
       globalThis.__vitestAutoSpyMisconfiguration__ = 'throw';
 
       try {
-        expect(() => {
-          jasmine.DEFAULT_TIMEOUT_INTERVAL = 40000;
-        }).toThrow(/has no runtime equivalent/);
+        expect(() => writeTimeoutInterval(40000)).toThrow(/has no runtime equivalent/);
       } finally {
         globalThis.__vitestAutoSpyMisconfiguration__ = undefined;
       }
 
-      expect(warn).not.toHaveBeenCalled();
+      expect(consoleWarnSpy).not.toHaveBeenCalled();
     });
   });
 });

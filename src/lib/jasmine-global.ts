@@ -88,6 +88,10 @@ const clockHandle: JasmineClock = {
     vi.advanceTimersByTime(ms);
   },
   mockDate(date?: Date): void {
+    if (!vi.isFakeTimers()) {
+      warnAboutMockDateWithoutInstall();
+    }
+
     mockTheDate();
     vi.setSystemTime(date ?? new Date());
   },
@@ -136,6 +140,25 @@ function mockTheDate(): void {
 }
 
 let warnedAboutTimeout = false;
+let warnedAboutMockDate = false;
+
+/** jasmine throws `Mock clock is not installed` here; this bridge mocks `Date` anyway, and says so once. */
+function warnAboutMockDateWithoutInstall(): void {
+  if (warnedAboutMockDate && !misconfigurationThrows()) {
+    return;
+  }
+
+  warnedAboutMockDate = true;
+
+  reportMisconfiguration(
+    withDocs(
+      '[vitest-auto-spy] jasmine.clock().mockDate() ran with no clock installed. jasmine throws here ' +
+        '("Mock clock is not installed"); this bridge mocked Date anyway, and will throw in the next major. ' +
+        'Call jasmine.clock().install() first, or use mockSystemTime() when only the date should be fake.',
+      DOCS_LINKS.jasmineClock,
+    ),
+  );
+}
 
 /**
  * `jasmine.DEFAULT_TIMEOUT_INTERVAL` — readable, and writable with a warning.
@@ -164,9 +187,10 @@ function warnAboutTimeoutInterval(value: unknown): void {
   );
 }
 
-/** Reset the warn-once latch. Internal — for the spec that proves it latches. */
+/** Reset the warn-once latches. Internal — for the specs that prove they latch. */
 export function resetTimeoutIntervalWarning(): void {
   warnedAboutTimeout = false;
+  warnedAboutMockDate = false;
 }
 
 /** jasmine's default, reported unchanged so a spec that reads it still reads a number. */

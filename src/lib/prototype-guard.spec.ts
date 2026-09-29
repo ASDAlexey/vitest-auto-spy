@@ -4,10 +4,16 @@
  * for a second reason — a key on the real `Object.prototype` is exactly what stops a worker from
  * collecting, and a suite proving that must not be the one that causes it.
  */
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
+import { useConsoleSpies } from './console-spy';
+import { registerMockAdapter } from './mock-adapter';
 import { mockValueProp } from './prop-mock';
 import { type PrototypeSnapshot, checkPrototypePollution, guardPrototypePollution, snapshotPrototypes } from './prototype-guard';
+import { vitestMockAdapter } from './vitest-adapter';
+
+// At load, not in `beforeAll`: `useConsoleSpies()` builds its spies while the describes are collected.
+registerMockAdapter(vitestMockAdapter);
 
 const LEAKED = 'ngOnDestroy';
 
@@ -19,6 +25,8 @@ function watchedPrototype(): PrototypeSnapshot {
 }
 
 describe('guardPrototypePollution', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   it('names the file, the prototype and the key that broke collection', () => {
     const snapshot = watchedPrototype();
 
@@ -68,6 +76,7 @@ describe('guardPrototypePollution', () => {
 
     // Non-configurable, so `delete` fails: the leftover has to join the baseline instead, or every
     // test after this one would report it again and bury the file that is to blame.
+    // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- the property shape on a throwaway object is what the guard is tested against
     Object.defineProperty(snapshot.object, LEAKED, { value: () => undefined, enumerable: true });
 
     expect(() => checkPrototypePollution([snapshot], 'throw')).toThrow(/"ngOnDestroy" could not be taken off, being non-configurable/);
@@ -78,6 +87,7 @@ describe('guardPrototypePollution', () => {
     const snapshot = watchedPrototype();
 
     Object.assign(snapshot.object, { a: 1, b: 'x', c: [1], d: null, e: undefined, f: {} });
+    // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- the property shape on a throwaway object is what the guard is tested against
     Object.defineProperty(snapshot.object, 'g', { get: () => 1, enumerable: true, configurable: true });
 
     expect(() => checkPrototypePollution([snapshot], 'throw')).toThrow(
@@ -100,22 +110,20 @@ describe('guardPrototypePollution', () => {
     const snapshot = watchedPrototype();
 
     // `for…in` never sees it, so the runner keeps working and this is not the guard's business.
+    // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- the property shape on a throwaway object is what the guard is tested against
     Object.defineProperty(snapshot.object, LEAKED, { value: () => undefined, configurable: true });
 
     expect(() => checkPrototypePollution([snapshot], 'throw')).not.toThrow();
   });
 
   it('reports without failing the run when asked to warn', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const snapshot = watchedPrototype();
 
     Object.assign(snapshot.object, { [LEAKED]: () => undefined });
     checkPrototypePollution([snapshot], 'warn');
 
-    expect(warn).toHaveBeenCalledTimes(1);
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
     expect(Object.keys(snapshot.object)).toEqual([]);
-
-    warn.mockRestore();
   });
 
   it('says "this file" when the runner reports no path', () => {
@@ -156,6 +164,9 @@ describe('guardPrototypePollution', () => {
 });
 
 describe('guardPrototypePollution, wired into the run', () => {
+  // Before the guard: after-hooks run in reverse, so the guard reports while the spy is still on console.
+  const { consoleWarnSpy } = useConsoleSpies();
+
   guardPrototypePollution('warn');
 
   const warnings: unknown[][] = [];
@@ -165,9 +176,8 @@ describe('guardPrototypePollution, wired into the run', () => {
   });
 
   it('sweeps a real leak before the next test sees it', () => {
-    // The spy outlives the test on purpose: the guard reports from an `afterEach`. The calls are
-    // collected outside the spy because Vitest 5 clears `mock.calls` before the next test starts.
-    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+    // The guard reports from an `afterEach`, and the console spies are cleared before the next test starts.
+    consoleWarnSpy.mockImplementation((...args: unknown[]) => {
       warnings.push(args);
     });
 
@@ -175,8 +185,7 @@ describe('guardPrototypePollution, wired into the run', () => {
   });
 
   it('starts from a prototype the previous test left clean', () => {
-    vi.mocked(console.warn).mockRestore();
-
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
     expect(Object.keys(Object.prototype)).toEqual([]);
     expect(warnings).toHaveLength(1);
     expect(String(warnings[0]?.[0])).toMatch(/left "ngOnDestroy" \(a function\) on Object\.prototype/);
@@ -184,6 +193,8 @@ describe('guardPrototypePollution, wired into the run', () => {
 });
 
 describe('guardPrototypePollution, against a write made in beforeAll', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   guardPrototypePollution('warn');
 
   const warnings: unknown[][] = [];
@@ -195,14 +206,13 @@ describe('guardPrototypePollution, against a write made in beforeAll', () => {
   });
 
   it('reports it against the first test of the file', () => {
-    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+    consoleWarnSpy.mockImplementation((...args: unknown[]) => {
       warnings.push(args);
     });
   });
 
   it('has taken the key off again', () => {
-    vi.mocked(console.warn).mockRestore();
-
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
     expect(Object.keys(Object.prototype)).toEqual([]);
     expect(String(warnings[0]?.[0])).toMatch(/left "ngOnDestroy" \(a function\) on Object\.prototype/);
   });

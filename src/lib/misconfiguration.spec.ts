@@ -1,20 +1,20 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
+import { useConsoleSpies } from '../console';
 import { misconfigurationThrows, reportMisconfiguration, setMisconfigurationReaction } from './misconfiguration';
 
 describe('the misconfiguration grade', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   afterEach(() => {
     setMisconfigurationReaction(undefined);
   });
 
   it('prints by default', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     reportMisconfiguration('a typo');
 
     expect(misconfigurationThrows()).toBe(false);
-    expect(warn).toHaveBeenCalledWith('a typo');
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledWith('a typo');
   });
 
   it('fails at the call site when set to throw, for every bundle in the process', () => {
