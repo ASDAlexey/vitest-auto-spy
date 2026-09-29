@@ -16568,7 +16568,9 @@ does not report it.
 ::: details How it decides
 The factory runs as soon as the first import reaches the mocked module. Only reads that happen while
 the factory runs count. A read inside a function the factory returns happens later, in a test, and is
-fine. Function declarations and imports are not reported, and type positions are not reads.
+fine. So is an instance field initialiser (`class { listen = mockListen; }`): it runs when a test
+constructs the class. A static field still runs with the factory. Function declarations and imports
+are not reported, and type positions are not reads.
 
 **Why it is recommended.** The factory reads the binding before it exists. For a `const`, `let` or
 `class` that is a `ReferenceError`. For a `var` it is a silent `undefined`, which the mocked module
@@ -17245,10 +17247,8 @@ are never reported:
 - the return value of a `vi.mock` factory;
 - a literal that holds a function, such as a hand-written double.
 
-**Repeats** are compared by source text with whitespace ignored. A repeated literal needs at least
-`minValues` values, one of them a string, number or boolean. So `[node]`, `{ property }` and
-`{ method: 'GET' }` are not reported. A repeated literal is reported once, not once more for each
-repeated piece inside it.
+**Repeats** are compared by source text with whitespace ignored. Copies count only when the literal holds at least `minValues` values, and at least one of them is a string, number or boolean. So `[node]`, `{ property }` and
+`{ method: 'GET' }` are not reported. When a repeated literal contains other repeated literals, only the outer one is reported.
 
 **Mock files are skipped:** `*.mock.ts`, `*.mocks.ts`, `*.fixture.ts`, `*.fixtures.ts` and files
 under `__mocks__/`.
@@ -19316,8 +19316,18 @@ rule does not report it.
 `targetDefaults`, whose project contains the linted file. Where it finds none, it reports nothing.
 Where the search cannot see your workspace, set `{ builder: 'unit-test' }`.
 
-**Limits.** A tsconfig path alias (`@app/cart`) slips past the builder's check: no throw, and the mock
-is silently ignored. It slips past this rule too, which does not read `paths`.
+**Path aliases.** A mock of a tsconfig path alias (`@app/cart.service`) does not throw under the
+builder, but it does nothing: the builder bundles the file, and the real module runs. The rule reports
+it. To make the mock work, list the alias in `externalDependencies` of the target that the test
+target's `buildTarget` points at. The builder then leaves it out of the bundle, and the rule stays
+silent:
+
+```json
+"build": { "options": { "externalDependencies": ["@app/cart.service"] } },
+"test": { "builder": "@angular/build:unit-test", "options": { "buildTarget": "shop:build" } }
+```
+
+A configuration named in `buildTarget` (`shop:build:development`) that sets its own `externalDependencies` replaces the list in `options`, so add the alias there as well. The same goes for a test configuration that points `buildTarget` at another target.
 
 **Why it is recommended.** The line throws when the file is collected, and nothing lifts the guard.
 

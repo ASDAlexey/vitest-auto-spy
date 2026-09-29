@@ -10,6 +10,16 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`no-inline-test-data`, in `recommended` as `warn`**: a data literal longer than 20 lines, or
+  the same literal written three times in one spec, belongs in a `*.mock.ts` file next to the spec.
+  `maxLines`, `repeats` and `minValues` tune it. Module wiring (`providers`, `imports`…), `it.each`
+  tables, `vi.mock` factories, literals holding a function and the mock files themselves are never
+  reported. On an 886-file Angular suite it flags 215 files at the defaults.
+  `/eslint-plugin` grows by 1.51 kB (50.96 → 52.48 kB, +3.0 %): 1.08 kB for this rule, the rest for
+  reading `externalDependencies` below.
+
 ### Fixed
 
 - **`no-relative-mock-under-builder` reads `externalDependencies` of the target's `buildTarget`.** The
@@ -28,12 +38,6 @@ The latest released version here must always match the one published on
 
 ### Added
 
-- **`no-inline-test-data`, in `recommended` as `warn`**: a data literal longer than 20 lines, or
-  the same literal written three times in one spec, belongs in a `*.mock.ts` file next to the spec.
-  `maxLines`, `repeats` and `minValues` tune it. Module wiring (`providers`, `imports`…), `it.each`
-  tables, `vi.mock` factories, literals holding a function and the mock files themselves are never
-  reported. On an 886-file Angular suite it flags 215 files at the defaults.
-  `/eslint-plugin` grows by 1.08 kB (50.96 → 52.04 kB, +2.1 %) for the rule itself.
 - **`init` says when git will not show what it wrote.** A created or updated file that is ignored
   and not tracked (`.git/info/exclude`, a global excludes file) ends its row with _not tracked by
   git, so `git diff` will not show this change_, and an empty `git diff` no longer reads as "nothing
