@@ -19,13 +19,14 @@
  * The entry is narrow on purpose: this is the only file of the package that reaches
  * `@angular/forms`, which stays an optional peer paid for by the suites that import it.
  */
-import { Injector, type WritableSignal, isSignal, signal, ɵSIGNAL } from '@angular/core';
+import { Injector, type WritableSignal, isSignal, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { type FieldTree, type SchemaOrSchemaFn, form, isFieldTree } from '@angular/forms/signals';
 import { expect } from 'vitest';
 
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
+import { readSignalSymbol } from './signal-symbol';
 
 /** Where a form is built, when the `TestBed`'s own injector is not the one the spec wants. */
 export interface CreateFormOptions {
@@ -67,7 +68,7 @@ declare global {
 
 /** Which kind of read-only signal was handed in, read off its reactive node. */
 function describeReadOnly(source: object): string {
-  const node: object = Object(Reflect.get(source, ɵSIGNAL));
+  const node: object = Object(readSignalSymbol(source));
 
   if ('computation' in node) {
     return 'a computed(), which cannot be written';

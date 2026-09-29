@@ -36,13 +36,14 @@
  * patched before anything reads them, and the helper says so rather than letting the spec find out
  * three assertions later.
  */
-import { type Signal, type WritableSignal, isSignal, signal, ɵSIGNAL } from '@angular/core';
+import { type Signal, type WritableSignal, isSignal, signal } from '@angular/core';
 import { type SignalNode, signalGetFn, signalSetFn, signalUpdateFn } from '@angular/core/primitives/signals';
 
 import { assertAngularInternals } from './angular-internals';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { mockReadonlyProp } from './prop-mock';
+import { readSignalSymbol, signalSymbol } from './signal-symbol';
 import type { NotAPublicKey } from './types';
 
 /** The three members of Angular's reactive node this helper reads, all optional across versions. */
@@ -64,7 +65,7 @@ function isWritableMember<TValue>(candidate: unknown): candidate is WritableSign
 
 /** `Object()` rather than a shape check: a version that moved the node lands on an empty one. */
 function readNode(candidate: Signal<unknown>): ReactiveNode {
-  const node: ReactiveNode = Object(Reflect.get(candidate, ɵSIGNAL));
+  const node: ReactiveNode = Object(readSignalSymbol(candidate));
 
   return node;
 }
@@ -118,7 +119,9 @@ type WritableView<TValue> = Signal<TValue> & {
  * member, which is what the service exposes anyway.
  */
 function writableView<TValue>(existing: Signal<unknown>, node: SignalNode<TValue>): WritableSignal<TValue> {
-  const read: Signal<TValue> = Object.assign((): TValue => signalGetFn(node), { [ɵSIGNAL]: node });
+  const getter: object = Object.assign((): TValue => signalGetFn(node), { [signalSymbol()]: node });
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the node sits under Angular's own symbol, found at run time rather than imported, so the brand cannot be spelled here.
+  const read = getter as Signal<TValue>;
   const view: WritableView<TValue> = Object.assign(read, {
     asReadonly: (): Signal<unknown> => existing,
     set: (value: TValue): void => signalSetFn(node, value),
@@ -227,4 +230,39 @@ export function mockSignalProp<TValue>(object: unknown, property: PropertyKey, i
   mockReadonlyProp(object, property, writable);
 
   return writable;
+}
+
+type SignalValue<V> = V extends Signal<infer TValue> ? TValue : never;
+
+/** The value per key {@link mockSignalProps} takes — each checked against the signal it drives. */
+export type SignalPropValues<T, K extends keyof T> = { [P in K]: SignalValue<T[P]> };
+
+/** The handle per key {@link mockSignalProps} returns. */
+export type SignalPropHandles<T, K extends keyof T> = { [P in K]: WritableSignal<SignalValue<T[P]>> };
+
+/**
+ * {@link mockSignalProp} for several members at once — the shape a `signalStore` double wants, where a
+ * component reads five signals off one store.
+ *
+ * ```ts
+ * const store = injectSpy(CartStore);
+ * const { items, total } = mockSignalProps(store, { items: [], total: 0, loading: false });
+ *
+ * items.set([book]);
+ * ```
+ *
+ * Each key goes through `mockSignalProp`, with the same rules: written through where there is a node,
+ * replaced where there is not, and the same errors for an `input()` or a live `computed()`.
+ */
+export function mockSignalProps<T, K extends keyof T>(object: T, values: SignalPropValues<T, K>): SignalPropHandles<T, K> {
+  const holder: Record<PropertyKey, Signal<unknown>> = Object(object);
+  const source: Record<PropertyKey, unknown> = values;
+  const handles: Record<PropertyKey, WritableSignal<unknown>> = {};
+
+  for (const key of Reflect.ownKeys(source)) {
+    handles[key] = mockSignalProp(holder, key, source[key]);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- built key by key from `values`, each entry the handle `mockSignalProp` returned for that key's own value type.
+  return handles as SignalPropHandles<T, K>;
 }

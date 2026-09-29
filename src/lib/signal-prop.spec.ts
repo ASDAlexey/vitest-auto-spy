@@ -13,13 +13,16 @@ import {
   signal,
 } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import '../angular';
 import { injectSpy, provideAutoSpy } from './angular';
 import { restoreMockedProps } from './prop-mock';
-import { mockSignalProp } from './signal-prop';
+import { registerSignalMatchers } from './signal-matchers';
+import { mockSignalProp, mockSignalProps } from './signal-prop';
 import { stable } from './zoneless';
+
+beforeAll(() => registerSignalMatchers());
 
 @Injectable({ providedIn: 'root' })
 class CounterService {
@@ -105,11 +108,11 @@ describe('mockSignalProp', () => {
     const service = injectSpy(CounterService);
     const count = mockSignalProp(service, 'count', 7);
 
-    expect(service.count()).toBe(7);
+    expect(service.count).toHaveSignalValue(7);
 
     count.set(42);
 
-    expect(service.count()).toBe(42);
+    expect(service.count).toHaveSignalValue(42);
   });
 
   it('stays reactive, so a computed downstream recomputes', () => {
@@ -119,11 +122,11 @@ describe('mockSignalProp', () => {
     const count = mockSignalProp(service, 'count', 1);
     const label = computed(() => `${service.count()} items`);
 
-    expect(label()).toBe('1 items');
+    expect(label).toHaveSignalValue('1 items');
 
     count.update((value) => value + 1);
 
-    expect(label()).toBe('2 items');
+    expect(label).toHaveSignalValue('2 items');
   });
 
   it('reaches a computed that read the member first', () => {
@@ -131,16 +134,16 @@ describe('mockSignalProp', () => {
     const label = computed(() => `${service.count()} items`);
 
     // The read that fixes the link: from here the computed is wired to the signal, not to the property.
-    expect(label()).toBe('0 items');
+    expect(label).toHaveSignalValue('0 items');
 
     const count = mockSignalProp(service, 'count', 5);
 
-    expect(label()).toBe('5 items');
+    expect(label).toHaveSignalValue('5 items');
 
     count.set(9);
 
-    expect(label()).toBe('9 items');
-    expect(service.count()).toBe(9);
+    expect(label).toHaveSignalValue('9 items');
+    expect(service.count).toHaveSignalValue(9);
   });
 
   it('reaches a template and an effect that rendered before the call', async () => {
@@ -176,23 +179,23 @@ describe('mockSignalProp', () => {
     draft.set('edited');
 
     expect(emitted).toEqual(['filled', 'edited']);
-    expect(component.draft()).toBe('edited');
+    expect(component.draft).toHaveSignalValue('edited');
   });
 
   it('writes through a linkedSignal without cutting it off its source', () => {
     const source = signal(1);
     const holder = { doubled: linkedSignal(() => source() * 2) };
 
-    expect(holder.doubled()).toBe(2);
+    expect(holder.doubled).toHaveSignalValue(2);
 
     const doubled = mockSignalProp(holder, 'doubled', 100);
 
-    expect(holder.doubled()).toBe(100);
+    expect(holder.doubled).toHaveSignalValue(100);
 
     doubled.set(50);
     source.set(3);
 
-    expect(holder.doubled()).toBe(6);
+    expect(holder.doubled).toHaveSignalValue(6);
   });
 
   it('refuses an input, and names setInput as the way to drive one', () => {
@@ -207,6 +210,7 @@ describe('mockSignalProp', () => {
 
     expect(() => mockSignalProp(fixture.componentInstance, 'mode', 'patched')).toThrow(/input\(\) signal/);
 
+    // eslint-disable-next-line vitest-auto-spy/prefer-set-inputs -- setInput itself is what the refusal must leave working
     fixture.componentRef.setInput('mode', 'from-parent');
     await stable(fixture);
 
@@ -244,16 +248,16 @@ describe('mockSignalProp', () => {
     const service = { count: signal(0).asReadonly() };
     const label = computed(() => `${service.count()} items`);
 
-    expect(label()).toBe('0 items');
+    expect(label).toHaveSignalValue('0 items');
 
     const count = mockSignalProp(service, 'count', 5);
 
-    expect(label()).toBe('5 items');
-    expect(service.count()).toBe(5);
+    expect(label).toHaveSignalValue('5 items');
+    expect(service.count).toHaveSignalValue(5);
 
     count.set(7);
 
-    expect(label()).toBe('7 items');
+    expect(label).toHaveSignalValue('7 items');
     expect(service.count).toBe(count.asReadonly());
   });
 
@@ -264,7 +268,7 @@ describe('mockSignalProp', () => {
 
     count.update((value) => value + 3);
 
-    expect(count()).toBe(5);
+    expect(count).toHaveSignalValue(5);
     expect(service.count).toBe(published);
     expect(isSignal(count)).toBe(true);
   });
@@ -293,7 +297,7 @@ describe('mockSignalProp', () => {
 
     mockSignalProp(service, 'count', 5);
 
-    expect(service.count()).toBe(5);
+    expect(service.count).toHaveSignalValue(5);
 
     restoreMockedProps();
 
@@ -307,6 +311,39 @@ describe('mockSignalProp', () => {
     restoreMockedProps();
 
     // The signal is the service's own, so the value stays where the spec left it.
-    expect(service.count()).toBe(5);
+    expect(service.count).toHaveSignalValue(5);
+  });
+});
+
+describe('mockSignalProps', () => {
+  class CartStore {
+    readonly items: Signal<string[]> = signal([]);
+    readonly total = computed(() => this.items().length);
+    readonly loading: Signal<boolean> = signal(false).asReadonly();
+  }
+
+  it('drives several members at once, one handle per key', () => {
+    const store = new CartStore();
+    const { items, total, loading } = mockSignalProps(store, { items: ['book'], total: 3, loading: true });
+
+    expect(store.items).toHaveSignalValue(['book']);
+    expect(store.total).toHaveSignalValue(3);
+    expect(store.loading).toHaveSignalValue(true);
+
+    items.set(['book', 'pen']);
+    total.set(9);
+    loading.set(false);
+
+    expect(store.items).toHaveSignalValue(['book', 'pen']);
+    expect(store.total).toHaveSignalValue(9);
+    expect(store.loading).toHaveSignalValue(false);
+  });
+
+  it('touches only the keys it was given', () => {
+    const store = new CartStore();
+    const handles = mockSignalProps(store, { loading: true });
+
+    expect(Object.keys(handles)).toEqual(['loading']);
+    expect(store.items).toHaveSignalValue([]);
   });
 });

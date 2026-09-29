@@ -10,6 +10,7 @@ import { type SchemaOrSchemaFn, form, minLength, pattern, required, validate } f
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { createForm, registerFormMatchers } from './signal-forms';
+import { registerSignalMatchers } from './signal-matchers';
 
 interface Signup {
   email: string;
@@ -39,6 +40,7 @@ class SignupComponent {}
 
 beforeAll(() => {
   registerFormMatchers();
+  registerSignalMatchers();
 });
 
 describe('createForm', () => {
@@ -64,22 +66,22 @@ describe('createForm', () => {
     user.name().value.set('Ada');
 
     expect(model().name).toBe('Ada');
-    expect(user().value()).toEqual({ email: '', name: 'Ada', age: 0 });
+    expect(user().value).toHaveSignalValue({ email: '', name: 'Ada', age: 0 });
   });
 
   it('makes the model itself when handed a plain value', () => {
     const user = createForm(EMPTY, signupSchema);
 
-    expect(user().valid()).toBe(false);
+    expect(user().valid).toHaveSignalValue(false);
 
     user.email().value.set('ada@example.test');
 
-    expect(user().value()).toEqual({ email: 'ada@example.test', name: '', age: 0 });
-    expect(user().valid()).toBe(true);
+    expect(user().value).toHaveSignalValue({ email: 'ada@example.test', name: '', age: 0 });
+    expect(user().valid).toHaveSignalValue(true);
   });
 
   it('takes no schema at all', () => {
-    expect(createForm(EMPTY)().valid()).toBe(true);
+    expect(createForm(EMPTY)().valid).toHaveSignalValue(true);
   });
 
   it("runs in the injector it was given, so a validator reads a component's own providers", () => {
