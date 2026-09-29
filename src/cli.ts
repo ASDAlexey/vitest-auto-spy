@@ -13,7 +13,11 @@ for (const stream of [process.stdout, process.stderr]) {
   guardBrokenPipe(stream, () => process.exit(typeof process.exitCode === 'number' ? process.exitCode : 0));
 }
 
-process.exitCode = runCli(process.argv.slice(2), {
-  out: (line) => process.stdout.write(`${line}\n`),
-  err: (line) => process.stderr.write(`${line}\n`),
+void Promise.resolve(
+  runCli(process.argv.slice(2), {
+    out: (line) => process.stdout.write(`${line}\n`),
+    err: (line) => process.stderr.write(`${line}\n`),
+  }),
+).then((code) => {
+  process.exitCode = code;
 });
