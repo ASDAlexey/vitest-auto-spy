@@ -43,6 +43,11 @@ const ROOT = '/repo';
 
 const slowBody = (name: string, ms: number): PerfCase[] => [{ name, ms }];
 
+const wallGate = (): GateOptions => ({ ...GATE_DEFAULTS, maxWallMs: 10_000 });
+const NO_REMEASURE_GATE: GateRequest = { options: GATE_DEFAULTS, remeasure: undefined, trustSingle: false };
+const wallRun = (): PerfRun => run({ files: ordinary(ROOT), wall: 30_000 });
+const slowSubject = (): PerfFile => file(join(ROOT, 'src/slow.spec.ts'), { tests: 4_000, cases: slowBody('suite > waits', 3_500) });
+
 describe('measuredFiles', () => {
   it('keys by repository-relative path and drops anything outside the repository', () => {
     const measured = measuredFiles(run({ files: [file(join(ROOT, 'src/a.spec.ts')), file('/elsewhere/b.spec.ts'), file(ROOT)] }), ROOT);
@@ -106,7 +111,7 @@ describe('medianTestMs', () => {
 
 describe('gateCandidates', () => {
   it('finds a body over the budget and names the test rather than the file', () => {
-    const subject = file(join(ROOT, 'src/slow.spec.ts'), { tests: 4_000, cases: slowBody('suite > waits', 3_500) });
+    const subject = slowSubject();
     const [candidate, ...rest] = gateCandidates(run({ files: [...ordinary(ROOT), subject] }), ROOT, GATE_DEFAULTS);
 
     expect(rest).toEqual([]);
@@ -163,10 +168,10 @@ describe('gateCandidates', () => {
   });
 
   it('adds the whole-run budget only when one was asked for', () => {
-    const fast = run({ files: ordinary(ROOT), wall: 30_000 });
+    const fast = wallRun();
 
     expect(gateCandidates(fast, ROOT, GATE_DEFAULTS)).toEqual([]);
-    expect(gateCandidates(fast, ROOT, { ...GATE_DEFAULTS, maxWallMs: 10_000 })).toMatchObject([{ check: 'perf-gate-wall', ms: 30_000 }]);
+    expect(gateCandidates(fast, ROOT, wallGate())).toMatchObject([{ check: 'perf-gate-wall', ms: 30_000 }]);
     expect(gateCandidates(fast, ROOT, { ...GATE_DEFAULTS, maxWallMs: 40_000 })).toEqual([]);
   });
 });
@@ -182,7 +187,7 @@ describe('suspectFiles', () => {
         wall: 30_000,
       }),
       ROOT,
-      { ...GATE_DEFAULTS, maxWallMs: 10_000 },
+      wallGate(),
     );
 
     expect(suspectFiles(candidates)).toEqual(['src/a.spec.ts']);
@@ -194,7 +199,7 @@ describe('gateVerdict', () => {
     gateCandidates(run({ files: [...ordinary(ROOT), subject] }), ROOT, options);
 
   it('fails on a candidate the second measurement reproduces, and prints both numbers', () => {
-    const candidates = candidatesFor(file(join(ROOT, 'src/slow.spec.ts'), { tests: 4_000, cases: slowBody('suite > waits', 3_500) }));
+    const candidates = candidatesFor(slowSubject());
     const second = run({ files: [file(join(ROOT, 'src/slow.spec.ts'), { tests: 3_100, cases: slowBody('suite > waits', 3_000) })] });
     const verdict = gateVerdict(candidates, second, ROOT, false);
 
@@ -205,7 +210,7 @@ describe('gateVerdict', () => {
   });
 
   it('reports a candidate the second measurement does not reproduce as no defect at all', () => {
-    const candidates = candidatesFor(file(join(ROOT, 'src/slow.spec.ts'), { tests: 4_000, cases: slowBody('suite > waits', 3_500) }));
+    const candidates = candidatesFor(slowSubject());
     const verdict = gateVerdict(candidates, run({ files: [file(join(ROOT, 'src/slow.spec.ts'), { tests: 90, cases: [] })] }), ROOT, false);
 
     expect(verdict.failed).toBe(false);
@@ -232,7 +237,7 @@ describe('gateVerdict', () => {
   });
 
   it('fails the whole-run budget without a second measurement, and says why there is none', () => {
-    const candidates = gateCandidates(run({ files: ordinary(ROOT), wall: 30_000 }), ROOT, { ...GATE_DEFAULTS, maxWallMs: 10_000 });
+    const candidates = gateCandidates(wallRun(), ROOT, wallGate());
     const verdict = gateVerdict(candidates, undefined, ROOT, false);
 
     expect(verdict.failed).toBe(true);
@@ -266,7 +271,7 @@ describe('gateVerdict, the paths the confirmation pass takes', () => {
   });
 
   it('leaves the whole-run finding alone even when a second measurement exists', () => {
-    const candidates = gateCandidates(run({ files: ordinary(ROOT), wall: 30_000 }), ROOT, { ...GATE_DEFAULTS, maxWallMs: 10_000 });
+    const candidates = gateCandidates(wallRun(), ROOT, wallGate());
     const verdict = gateVerdict(candidates, run({ files: ordinary(ROOT), wall: 100 }), ROOT, false);
 
     expect(verdict.failed).toBe(true);
@@ -276,7 +281,7 @@ describe('gateVerdict, the paths the confirmation pass takes', () => {
 
 describe('gateVerdict, the wording of a candidate that did not reproduce', () => {
   it('prints the second reading plainly when the report still carried the body', () => {
-    const subject = file(join(ROOT, 'src/slow.spec.ts'), { tests: 4_000, cases: slowBody('suite > waits', 3_500) });
+    const subject = slowSubject();
     const candidates = gateCandidates(run({ files: [...ordinary(ROOT), subject] }), ROOT, GATE_DEFAULTS);
     const verdict = gateVerdict(
       candidates,
@@ -365,6 +370,8 @@ describe('renderPerf --gate', () => {
 
   const spec = (root: string, name: string, over: Partial<PerfFile>): PerfFile => file(join(root, name), over);
 
+  const sourceOf = (root: string, slow: PerfFile): PerfSource => ({ ok: true, run: gateRun(root, [slow]), runFailed: false });
+
   it('says so and exits 0 when nothing is over budget', () => {
     const root = cleanRepo(1);
     const io = recorder();
@@ -378,7 +385,7 @@ describe('renderPerf --gate', () => {
     const root = cleanRepo(1);
     const io = recorder();
     const slow = spec(root, 'src/case-0.spec.ts', { tests: 4_000, testCount: 3, cases: [{ name: 'suite > waits', ms: 3_900 }] });
-    const source: PerfSource = { ok: true, run: gateRun(root, [slow]), runFailed: false };
+    const source: PerfSource = sourceOf(root, slow);
     const remeasure = (): PerfSource => ({
       ok: true,
       run: run({ root, files: [spec(root, 'src/case-0.spec.ts', { tests: 3_800, cases: [{ name: 'suite > waits', ms: 3_700 }] })] }),
@@ -399,7 +406,7 @@ describe('renderPerf --gate', () => {
     const root = cleanRepo(1);
     const io = recorder();
     const slow = spec(root, 'src/case-0.spec.ts', { tests: 4_000, cases: [{ name: 'suite > unlucky', ms: 3_900 }] });
-    const source: PerfSource = { ok: true, run: gateRun(root, [slow]), runFailed: false };
+    const source: PerfSource = sourceOf(root, slow);
     const remeasure = (): PerfSource => ({
       ok: true,
       run: run({ root, files: [spec(root, 'src/case-0.spec.ts', { tests: 120, cases: [] })] }),
@@ -418,7 +425,7 @@ describe('renderPerf --gate', () => {
   it('warns rather than fails when there was no way to confirm, unless --no-confirm said to trust it', () => {
     const root = cleanRepo(1);
     const slow = spec(root, 'src/case-0.spec.ts', { tests: 9_000, testCount: 4 });
-    const source: PerfSource = { ok: true, run: gateRun(root, [slow]), runFailed: false };
+    const source: PerfSource = sourceOf(root, slow);
     const warned = recorder();
     const trusted = recorder();
 
@@ -435,7 +442,7 @@ describe('renderPerf --gate', () => {
     const root = cleanRepo(1);
     const io = recorder();
     const slow = spec(root, 'src/case-0.spec.ts', { tests: 9_000 });
-    const source: PerfSource = { ok: true, run: gateRun(root, [slow]), runFailed: false };
+    const source: PerfSource = sourceOf(root, slow);
     const broken = (): PerfSource => ({ ok: false, error: 'no vitest here' });
 
     expect(renderPerf(source, readProfile(root), io, { gate: gateOf({ remeasure: broken }) })).toBe(0);
@@ -447,7 +454,7 @@ describe('renderPerf --gate', () => {
     const root = cleanRepo(1);
     const io = recorder();
     const slow = spec(root, 'src/case-0.spec.ts', { tests: 9_000 });
-    const source: PerfSource = { ok: true, run: gateRun(root, [slow]), runFailed: false };
+    const source: PerfSource = sourceOf(root, slow);
     const red = (): PerfSource => ({
       ok: true,
       run: run({ root, files: [spec(root, 'src/case-0.spec.ts', { tests: 10 })] }),
@@ -497,7 +504,7 @@ describe('renderPerf, the wording of the two plurals', () => {
 
     expect(
       renderPerf(source, readProfile(root), io, {
-        gate: { options: { ...GATE_DEFAULTS, maxWallMs: 10_000 }, remeasure, trustSingle: false },
+        gate: { options: wallGate(), remeasure, trustSingle: false },
       }),
     ).toBe(1);
     expect(io.stdout.join('\n')).not.toContain('re-measuring');
@@ -528,9 +535,7 @@ describe('renderPerf, a report measured somewhere else', () => {
     const io = recorder();
     const source: PerfSource = { ok: true, run: elsewhere('/builds/group/project'), runFailed: false };
 
-    expect(renderPerf(source, readProfile(root), io, { gate: { options: GATE_DEFAULTS, remeasure: undefined, trustSingle: false } })).toBe(
-      0,
-    );
+    expect(renderPerf(source, readProfile(root), io, { gate: NO_REMEASURE_GATE })).toBe(0);
     expect(io.stdout.join('\n')).toContain('perf gate: nothing over budget');
   });
 
@@ -541,7 +546,7 @@ describe('renderPerf, a report measured somewhere else', () => {
 
     expect(
       renderPerf({ ok: true, run: orphan, runFailed: false }, readProfile(root), io, {
-        gate: { options: GATE_DEFAULTS, remeasure: undefined, trustSingle: false },
+        gate: NO_REMEASURE_GATE,
       }),
     ).toBe(2);
     expect(io.stderr.join('\n')).toContain('None of the 1 measured files is inside');
@@ -595,9 +600,7 @@ describe('renderPerf, the nothing-over-budget line', () => {
     expect(renderPerf(quick, readProfile(root), plain)).toBe(0);
     expect(plain.stdout.join('\n')).toContain('Nothing over budget: no file over its budget and no test body over 1.00s');
 
-    expect(
-      renderPerf(quick, readProfile(root), gated, { gate: { options: GATE_DEFAULTS, remeasure: undefined, trustSingle: false } }),
-    ).toBe(0);
+    expect(renderPerf(quick, readProfile(root), gated, { gate: NO_REMEASURE_GATE })).toBe(0);
     expect(gated.stdout.join('\n')).not.toContain('Nothing over budget:');
     expect(gated.stdout.join('\n')).toContain('perf gate: nothing over budget');
   });

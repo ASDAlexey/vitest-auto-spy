@@ -15,6 +15,7 @@ import { readTextFile } from './fs-scan';
 import { PERF_OUTPUT_ENV, PERF_PROFILE_ENV, parsePerfRun } from './perf-data';
 import type { PerfProject, PerfTestModule, PerfVitest } from './perf-reporter';
 import PerfReporter, { PARTIAL_WRITE_MS } from './perf-reporter';
+import { vitestInit } from './perf-reporter.mock';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
 afterEach(() => {
@@ -44,7 +45,7 @@ describe('PerfReporter, a profiled pass', () => {
 
     const projects = [project(), project()];
 
-    new PerfReporter().onInit({ config: { root: '/repo' }, state: { transformTime: 0 }, projects });
+    new PerfReporter().onInit(vitestInit(projects));
 
     for (const each of projects) {
       expect(each.config.setupFiles).toHaveLength(2);
@@ -59,7 +60,7 @@ describe('PerfReporter, a profiled pass', () => {
     const unset: PerfProject = { config: { setupFiles: [], experimental: { importDurations: {} } } };
     const projects = [project(0), project(500), project(), unset];
 
-    new PerfReporter().onInit({ config: { root: '/repo' }, state: { transformTime: 0 }, projects });
+    new PerfReporter().onInit(vitestInit(projects));
 
     expect(projects.map((each) => each.config.experimental?.importDurations?.limit)).toEqual([200, 500, undefined, 200]);
   });
@@ -111,9 +112,9 @@ describe('PerfReporter, an ordinary run', () => {
 
     vi.stubEnv(PERF_OUTPUT_ENV, undefined);
     vi.stubEnv(PERF_PROFILE_ENV, undefined);
-    new PerfReporter().onInit({ config: { root: '/repo' }, state: { transformTime: 0 }, projects });
+    new PerfReporter().onInit(vitestInit(projects));
     vi.stubEnv(PERF_PROFILE_ENV, '');
-    new PerfReporter().onInit({ config: { root: '/repo' }, state: { transformTime: 0 }, projects });
+    new PerfReporter().onInit(vitestInit(projects));
 
     expect(projects[0]?.config.setupFiles).toEqual(['/repo/setup.ts']);
     expect(projects[0]?.config.experimental?.importDurations?.limit).toBe(0);
@@ -247,7 +248,7 @@ describe('PerfReporter, a measured run', () => {
     const unset: PerfProject = { config: { setupFiles: [], experimental: { importDurations: {} } } };
     const projects = [project(0), project(5), project(), unset];
 
-    new PerfReporter().onInit({ config: { root: '/repo' }, state: { transformTime: 0 }, projects });
+    new PerfReporter().onInit(vitestInit(projects));
 
     expect(projects.map((each) => each.config.experimental?.importDurations?.limit)).toEqual([10, 5, undefined, 10]);
     expect(projects[0]?.config.setupFiles).toEqual(['/repo/setup.ts']);

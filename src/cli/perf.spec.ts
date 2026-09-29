@@ -48,6 +48,7 @@ import {
   spawnToStderr,
   withPaths,
 } from './perf-run';
+import { BARREL_REPO, CASE_SPECS, HEAVY_ENVIRONMENT_FILE } from './perf.mock';
 import { readProfile } from './profile';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
@@ -599,32 +600,6 @@ describe('isBarrel', () => {
   });
 });
 
-/**
- * One repository for every ordering the report has to be stable under: barrels of different width,
- * two of the same width, one spec importing two of them, and a module two barrels share.
- */
-const BARREL_REPO: Readonly<Record<string, string>> = {
-  'package.json': JSON.stringify({ devDependencies: { vitest: '^4' } }),
-  'src/index.ts': "export * from './a';\nexport * from './b';\n",
-  'src/a.ts': "export * from './shared';\nexport const a = 1;\n",
-  'src/b.ts': "export * from './shared';\nexport const b = 2;\n",
-  'src/shared.ts': 'export const shared = 3;\n',
-  'src/other/index.ts': "export * from './x';\nexport * from './y';\n",
-  'src/other/x.ts': 'export const x = 1;\n',
-  'src/other/y.ts': 'export const y = 2;\n',
-  'src/p/index.ts': "export * from './m';\nexport * from './n';\n",
-  'src/p/m.ts': 'export const m = 1;\n',
-  'src/p/n.ts': 'export const n = 2;\n',
-  'src/q/index.ts': "export * from './r';\nexport * from './s';\n",
-  'src/q/r.ts': 'export const r = 1;\n',
-  'src/q/s.ts': 'export const s = 2;\n',
-  'src/one.spec.ts': "import { a } from './index';\n",
-  'src/two.spec.ts': "import { x } from './other/index';\n",
-  'src/both.spec.ts': "import { m } from './p/index';\nimport { r } from './q/index';\n",
-  'src/direct.spec.ts': "import { shared } from './shared';\n",
-  'src/not-a-spec.ts': "import { a } from './index';\n",
-};
-
 describe('findBarrelImports', () => {
   it('names the spec, the barrel and how much the barrel drags in behind it', () => {
     const graph = buildGraph(readProfile(createTempRepo(BARREL_REPO)));
@@ -669,11 +644,11 @@ describe('analysePerf', () => {
 
   it('names every DOM-free spec when environment setup dominates', () => {
     const root = cleanRepo(2);
-    const analysis = analysePerf(heavyRun(root, ['src/case-0.spec.ts', 'src/case-1.spec.ts'], 4_000), readProfile(root));
+    const analysis = analysePerf(heavyRun(root, CASE_SPECS, 4_000), readProfile(root));
     const environment = analysis.findings.filter((finding) => finding.check === 'perf-environment-node-candidate');
 
     expect(checks(analysis.findings)).toContain('perf-environment');
-    expect(environment.map((finding) => finding.file)).toEqual(['src/case-0.spec.ts', 'src/case-1.spec.ts']);
+    expect(environment.map((finding) => finding.file)).toEqual(CASE_SPECS);
     expect(analysis.findings[0]?.message).toContain('2 spec files reach no DOM');
     expect(analysis.findings[0]?.fix).toBe('Move the files listed below to the `node` environment.');
     expect(analysis.findings.every((finding) => finding.severity === 'info')).toBe(true);
@@ -687,10 +662,7 @@ describe('analysePerf', () => {
       root,
       transform: 100,
       wall: 1_000,
-      files: [
-        file(join(root, 'src/case-0.spec.ts'), { environment: 9_000, tests: 10 }),
-        file(join(root, 'src/dom.spec.ts'), { environment: 9_000, tests: 10 }),
-      ],
+      files: [file(join(root, 'src/case-0.spec.ts'), HEAVY_ENVIRONMENT_FILE), file(join(root, 'src/dom.spec.ts'), HEAVY_ENVIRONMENT_FILE)],
     });
     const analysis = analysePerf(shared, readProfile(root));
 
@@ -708,14 +680,14 @@ describe('analysePerf', () => {
       transform: 100,
       wall: 1_000,
       files: [
-        file(join(root, 'src/case-1.spec.ts'), { environment: 9_000, tests: 10 }),
-        file(join(root, 'src/case-0.spec.ts'), { environment: 9_000, tests: 10 }),
+        file(join(root, 'src/case-1.spec.ts'), HEAVY_ENVIRONMENT_FILE),
+        file(join(root, 'src/case-0.spec.ts'), HEAVY_ENVIRONMENT_FILE),
       ],
     });
     const analysis = analysePerf(shared, readProfile(root));
     const environment = analysis.findings.filter((finding) => finding.check === 'perf-environment-node-candidate');
 
-    expect(environment.map((finding) => finding.file)).toEqual(['src/case-0.spec.ts', 'src/case-1.spec.ts']);
+    expect(environment.map((finding) => finding.file)).toEqual(CASE_SPECS);
     expect(analysis.findings[0]?.message).toContain('2 spec files reach no DOM');
     expect(analysis.findings[0]?.message).toContain('moving them frees');
   });
