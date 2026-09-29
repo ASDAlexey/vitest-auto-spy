@@ -60,6 +60,8 @@ export default defineConfig([
     'coverage',
     '.cache',
     '.claude',
+    '.stryker-tmp',
+    'reports',
     'alias',
     'bench',
     '**/*.cjs',

@@ -25,3 +25,9 @@ PRIORITIES.md
 bench-results.json
 bench-results.*.json
 
+
+# Local mutation-testing pilot: Stryker sandbox, report and its configs.
+.stryker-tmp/
+reports/mutation/
+stryker.config.mjs
+vitest.mutation.config.mts

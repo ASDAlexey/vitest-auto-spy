@@ -1,0 +1,76 @@
+name: Mutation testing
+
+# 100 % line and branch coverage says every line of the spy core ran, not that a test would notice
+# it breaking. Stryker changes the code one mutant at a time and checks that some test fails; the
+# modules it mutates are listed in `stryker.config.mjs`.
+#
+# Not in `npm run check` and not on every pull request: a full run is about 20 minutes on a laptop and
+# over an hour here. The incremental file carried in the cache is what keeps the runs after the first
+# one short — only mutants in changed code, or covered by changed tests, run again.
+on:
+  workflow_dispatch:
+  # Not on the hour: GitHub delays scheduled runs under load at the top of every hour.
+  schedule:
+    - cron: '41 3 * * 1'
+  push:
+    branches: [master, main]
+    paths:
+      - 'src/lib/**'
+      - 'stryker.config.mjs'
+      - 'vitest.mutation.config.mts'
+      - 'vitest.config.mts'
+      - 'scripts/stryker-vitest-runner.mjs'
+      - 'package-lock.json'
+      - '.github/workflows/mutation.yml'
+  pull_request:
+    paths:
+      - 'src/lib/**'
+      - 'stryker.config.mjs'
+      - 'vitest.mutation.config.mts'
+      - 'vitest.config.mts'
+      - 'scripts/stryker-vitest-runner.mjs'
+      - 'package-lock.json'
+      - '.github/workflows/mutation.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation:
+    name: Mutation testing (spy core)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # Node 24 bundles npm 11, the version the lockfile is generated with.
+      - run: npm ci --no-audit --no-fund
+
+      # Keyed by commit and restored by prefix: a pull request starts from the newest result on the
+      # default branch, and every run saves its own for the next one.
+      - name: Restore the incremental result
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reports/mutation/stryker-incremental.json
+          key: stryker-incremental-${{ github.sha }}
+          restore-keys: stryker-incremental-
+
+      - name: Run Stryker
+        run: npm run test:mutation
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: mutation-report
+          path: |
+            reports/mutation/index.html
+            reports/mutation/mutation.json
+          retention-days: 30

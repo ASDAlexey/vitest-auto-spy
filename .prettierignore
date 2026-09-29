@@ -15,3 +15,5 @@ tasks
 # would put back. `agents:sync:check` is their format check.
 AGENTS.md
 agent-docs
+.stryker-tmp/
+reports/
