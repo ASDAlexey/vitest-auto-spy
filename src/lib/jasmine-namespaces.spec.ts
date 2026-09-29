@@ -1,3 +1,4 @@
+/* eslint-disable vitest-auto-spy/prefer-native-spy-api -- the jasmine spelling is the compatibility contract this file pins */
 /**
  * The `.and` / `.calls` / `.withArgs` namespaces exist so a `jasmine-auto-spies` suite runs before
  * it is rewritten, which makes their contract a compatibility one: every assertion here is written
@@ -204,6 +205,7 @@ describe('jasmine namespaces', () => {
       const load = asJasmine<AccountService['load']>(service.load);
 
       service.load(1);
+      // eslint-disable-next-line vitest-auto-spy/no-save-arguments-by-value -- the no-op has to stay callable, which is the case under test
       load.calls.saveArgumentsByValue();
       load.calls.reset();
 
