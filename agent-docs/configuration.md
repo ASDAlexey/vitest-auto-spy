@@ -31,6 +31,8 @@ createSpyFromClass(MyService, {
 | `lazySpies` | Unset: `true` (accessor placeholders) below 8 methods, `'proxy'` (a `Proxy`, lighter once touched) from 8, counting the methods the double spies (after `onlyMethodsToSpyOn` / `methodsToSpyOn`). Explicit `true` / `false` / `'proxy'` apply at any width. Calls, `Object.keys`, spread and snapshots behave the same in every mode. |
 | `strict` | Throw on a method nobody configured, instead of answering `undefined` (below). |
 | `onUnstubbedCall` | The general form of `strict`; its return value becomes the call's return value. |
+| `returns` | What a spied **method** answers. The member stays a spy (`toHaveBeenCalled` works); a default that `calledWith` / `mockReturnValue` / `resolveWith` replace. A key that is not a spied method is reported. |
+| `overrides` | Replaces **any member** with the value as written — a field, a signal, an `Observable` property. The member is no longer a spy, except a plain function seeded on a method (class factories only), which becomes its spy. Named in both, `overrides` wins. |
 | `selfReturning` | The named methods answer the double itself — a default like `returns`; a name in both answers `returns`. |
 
 **`instanceMethodsToSpyOn` is not an edge case — it is a top-5 option** (103 of ~370 spec files in

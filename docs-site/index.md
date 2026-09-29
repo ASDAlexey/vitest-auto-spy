@@ -29,6 +29,9 @@ features:
   - title: Spy defaults that live with the class
     details: 'registerAutoSpyDefaults(Router, config) once in a setup file and every provideAutoSpy or createSpyFromClass starts from it — merged with what the call site adds, not replaced. One Angular suite carried 23 different configurations of the same class across 109 spec files; a dozen classes go in as one table, each row checked against its own class, and an InjectionToken registers the same way from vitest-auto-spy/angular, clearAutoSpyDefaults taking one row back.'
     link: /core/create-spy-from-class
+  - title: returns or overrides, in one table
+    details: 'Both seed the double where it is built, and neither builds a second object. returns says what a spied method answers and leaves it a spy, so toHaveBeenCalled still works; overrides replaces a member with the value as written, which is no longer a spy. A method goes in returns; a signal, a stream, a field or a config object goes in overrides. A plain function seeded on a method stays a spy, and a member named in both keeps its overrides seed.'
+    link: /core/returns-vs-overrides
   - title: Vitest 5 on the same install
     details: 'One package spans Vitest 2.1 through 5.x — no second major, no version-split types, no edit to a spec. The same suite runs 7.7 % faster on Vitest 5, and the bundled spy engine adds another 8.1 % over vi.fn(). On Angular 22.2, whose unit-test builder is the first to run Vitest 5, a 700-file suite with v8 coverage goes from 16.50 s to 8.91 s — 46 % less time, 1.85× faster.'
     link: /runtimes/vitest#vitest-5

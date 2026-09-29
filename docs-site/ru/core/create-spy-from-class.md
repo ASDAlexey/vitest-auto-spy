@@ -679,6 +679,11 @@ providers: [{ provide: PaymentGateway, useValue: createSpyFromClass(StripeGatewa
 одному лишь типу, `mockDeep<T>()` делает это рекурсивно, а `createMock<T>()` возвращает обычный `T`
 без спаев — для формы данных, которую код только читает.
 
+## `returns` или `overrides` {#returns-or-overrides}
+
+`returns` задаёт ответ метода-спая и оставляет его спаем; `overrides` заменяет член значением, которое
+спаем уже не является. Полное сравнение — на [отдельной странице](./returns-vs-overrides).
+
 ## `returns` — значение прямо там, где строится спай {#returns-—-the-value-where-the-spy-is-built}
 
 ```ts

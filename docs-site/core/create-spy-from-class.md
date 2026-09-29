@@ -721,6 +721,11 @@ lacks is exactly what they are for.
 type alone, `mockDeep<T>()` does it recursively, and `createMock<T>()` returns a plain, spy-free `T`
 for a data shape the code only reads.
 
+## `returns` or `overrides` {#returns-or-overrides}
+
+`returns` says what a spied method answers and leaves it a spy; `overrides` replaces a member with a
+value that is no longer one. The full comparison has [a page of its own](./returns-vs-overrides).
+
 ## `returns` — the value, where the spy is built
 
 ```ts

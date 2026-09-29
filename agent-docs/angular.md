@@ -92,7 +92,7 @@ provideAutoSpyForToken(PRODUCTS, undefined, { returns: { getProducts: of([]), ge
 ```
 
 A seeded `overrides` value is stored verbatim and is **no longer a spy**, so seed data there and
-name methods in `returns` when they must stay assertable. On `provideAutoSpy` a plain function
+name methods in `returns` when they must stay assertable (the two compared in §5, [`configuration.md`](./configuration.md)). On `provideAutoSpy` a plain function
 seeded on a method is the exception: it becomes that method's spy, running the function until the
 test configures it, so `toHaveBeenCalled` works on it; a `vi.fn()` is kept as it is
 (`provideAutoSpyForToken` still stores every seed verbatim). The reason to prefer this over a second

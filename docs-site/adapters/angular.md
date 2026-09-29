@@ -205,7 +205,8 @@ Until 3.5.0 the two helpers had one half each — `provideAutoSpyForToken` took 
 and finished in another, in a `beforeEach` below it.
 
 A seeded `overrides` member is stored **verbatim and is no longer a spy**, which is the line between
-the two: seed data there, and name a method in `returns` when it must stay assertable. The reason to
+the two: seed data there, and name a method in `returns` when it must stay assertable. The two are compared
+side by side on [their own page](../core/returns-vs-overrides). The reason to
 prefer either over a second statement is not brevity — the shortcut people take instead is an
 exported `const` provider carrying the values, and under `isolate: false` that is one set of spies
 shared by every file that imports it.
