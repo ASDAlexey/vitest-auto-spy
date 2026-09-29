@@ -17,6 +17,7 @@ import type { CliIo } from '../main';
 import { createTempRepo, removeTempRepos } from '../temp-repo';
 import { TRANSFORMS, residueOf, resolveFrom, runTransforms, selectTransforms } from './codemod';
 import { listing, listingDocument, readAll, selectFiles } from './run';
+import { JASMINE, LEGACY, REPO } from './run.mock';
 import { jestNamespace } from './transforms-jest';
 
 afterEach(() => {
@@ -35,57 +36,7 @@ function recorder(): Recorder {
   return { stdout, stderr, out: (line) => stdout.push(line), err: (line) => stderr.push(line) };
 }
 
-const LEGACY = [
-  "import { createSpyFromClass, provideAutoSpy, Spy } from 'jest-auto-spies';",
-  '',
-  "import { Service } from './service';",
-  '',
-  'describe("Service", () => {',
-  '  let service: Spy<Service>;',
-  '  let hook: jest.Mock<void, [Service]>;',
-  '',
-  '  beforeEach(() => {',
-  '    service = TestBed.inject(Service) as Spy<Service>;',
-  '    jest.spyOn(service, "load").mockImplementation();',
-  '    hook = jest.fn();',
-  '  });',
-  '});',
-  '',
-].join('\n');
-
-/**
- * The same suite as it was written under jasmine: the upstream package, the `.and` namespace over
- * both APIs at once, a bare `spyOn`, and the two globals nothing imports.
- */
-const JASMINE = [
-  "import { createSpyFromClass, provideAutoSpy, Spy } from 'jasmine-auto-spies';",
-  '',
-  "import { Service } from './service';",
-  '',
-  'describe("Service", () => {',
-  '  let service: Spy<Service>;',
-  '',
-  '  beforeEach(() => {',
-  '    jasmine.clock().install();',
-  '    service = createSpyFromClass(Service);',
-  "    spyOn(service, 'reset');",
-  '    service.load.and.nextWith(1);',
-  '    service.save.and.returnValue(2);',
-  '  });',
-  '',
-  '  it("loads", () => {',
-  '    expect(service.ready).toBeTrue();',
-  '  });',
-  '});',
-  '',
-].join('\n');
-
-const REPO = {
-  'package.json': JSON.stringify({ scripts: { test: 'vitest run' }, devDependencies: { vitest: '^4', '@angular/core': '^20' } }),
-  'src/app/service.spec.ts': LEGACY,
-  'src/app/service.ts': 'export class Service {}\n',
-  'vitest.config.ts': 'export default { test: { globals: true } };\n',
-};
+const cwdArgs = (root: string, ...flags: string[]): string[] => ['codemod', '--cwd', root, ...flags];
 
 describe('selectFiles', () => {
   const files = ['src/a.spec.ts', 'src/a.ts', 'src/b.test.tsx', 'src/legacy.spec.js', 'src/types.d.ts', 'tools/c.spec.ts'];
@@ -176,7 +127,7 @@ describe('codemod', () => {
   it('writes nothing by default, prints the diff, and prints the resulting imports in full', async () => {
     const root = createTempRepo(REPO);
     const io = recorder();
-    const code = await runCli(['codemod', '--cwd', root], io);
+    const code = await runCli(cwdArgs(root), io);
     const output = io.stdout.join('\n');
 
     expect(code).toBe(0);
@@ -197,7 +148,7 @@ describe('codemod', () => {
     process.env[SCAN_CAP_ENV] = '1';
 
     try {
-      await runCli(['codemod', '--cwd', root, '--verify'], io);
+      await runCli(cwdArgs(root, '--verify'), io);
     } finally {
       delete process.env[SCAN_CAP_ENV];
     }
@@ -211,14 +162,14 @@ describe('codemod', () => {
   it('applies the edits under --write, and then has nothing left to verify', async () => {
     const root = createTempRepo(REPO);
 
-    expect(await runCli(['codemod', '--cwd', root, '--write'], recorder())).toBe(0);
+    expect(await runCli(cwdArgs(root, '--write'), recorder())).toBe(0);
 
     const written = readTextFile(`${root}/src/app/service.spec.ts`) ?? '';
     const verify = recorder();
 
     expect(written).toContain("import type { Mock } from 'vitest';");
     expect(written).not.toContain('jest-auto-spies');
-    expect(await runCli(['codemod', '--cwd', root, '--verify'], verify)).toBe(0);
+    expect(await runCli(cwdArgs(root, '--verify'), verify)).toBe(0);
     expect(verify.stdout.join('\n')).toContain('Nothing left to migrate.');
   });
 
@@ -226,7 +177,7 @@ describe('codemod', () => {
     const root = createTempRepo(REPO);
     const io = recorder();
 
-    expect(await runCli(['codemod', '--cwd', root, '--verify'], io)).toBe(1);
+    expect(await runCli(cwdArgs(root, '--verify'), io)).toBe(1);
     expect(io.stdout.join('\n')).toContain('residue/auto-spies-import');
     expect(io.stdout.join('\n')).toContain('residue/inject-cast');
   });
@@ -235,7 +186,7 @@ describe('codemod', () => {
     const root = createTempRepo({ ...REPO, 'src/app/service.spec.ts': 'jest.requireMock("x");\n' });
     const io = recorder();
 
-    expect(await runCli(['codemod', '--cwd', root], io)).toBe(1);
+    expect(await runCli(cwdArgs(root), io)).toBe(1);
     expect(io.stdout.join('\n')).toContain('no-vi-twin');
   });
 
@@ -296,7 +247,7 @@ describe('codemod', () => {
     const root = createTempRepo({ ...REPO, 'src/app/service.spec.ts': 'const help = `run xit(name) under jest`;\n' });
     const io = recorder();
 
-    expect(await runCli(['codemod', '--cwd', root], io)).toBe(1);
+    expect(await runCli(cwdArgs(root), io)).toBe(1);
     expect(io.stdout.join('\n')).toContain('residue/jasmine-aliases');
   });
 
@@ -304,7 +255,7 @@ describe('codemod', () => {
     const root = createTempRepo({ ...REPO, 'src/app/service.spec.ts': 'describe("a", () => {});\n' });
     const io = recorder();
 
-    expect(await runCli(['codemod', '--cwd', root], io)).toBe(0);
+    expect(await runCli(cwdArgs(root), io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('0 files would change, 0 edits');
   });
 
@@ -333,7 +284,7 @@ describe('codemod', () => {
   it('reaches the same result with no --from at all, because the file says which dialect it is', async () => {
     const root = createTempRepo({ ...REPO, 'src/app/service.spec.ts': JASMINE });
 
-    expect(await runCli(['codemod', '--cwd', root, '--write'], recorder())).toBe(0);
+    expect(await runCli(cwdArgs(root, '--write'), recorder())).toBe(0);
     expect(readTextFile(`${root}/src/app/service.spec.ts`) ?? '').toContain('service.load.nextWith(1);');
   });
 
@@ -446,7 +397,7 @@ describe('codemod', () => {
     const root = createTempRepo({ ...REPO, 'vitest.config.ts': 'export default { test: {} };\n' });
     const io = recorder();
 
-    expect(await runCli(['codemod', '--cwd', root], io)).toBe(1);
+    expect(await runCli(cwdArgs(root), io)).toBe(1);
     expect(io.stdout.join('\n')).toContain('vi-without-globals');
   });
 
@@ -457,7 +408,7 @@ describe('codemod', () => {
     chmodSync(join(root, 'src/locked'), 0o555);
 
     try {
-      expect(await runCli(['codemod', '--cwd', root, '--write'], io)).toBe(1);
+      expect(await runCli(cwdArgs(root, '--write'), io)).toBe(1);
     } finally {
       chmodSync(join(root, 'src/locked'), 0o755);
     }

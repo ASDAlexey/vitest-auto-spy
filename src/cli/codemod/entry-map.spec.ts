@@ -16,7 +16,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createTempRepo, removeTempRepos } from '../temp-repo';
 import type { FileHint } from './entry-hint';
 import { NO_HINT } from './entry-hint';
-import type { EntryMap } from './entry-map';
 import {
   buildEntryMap,
   chooseEntry,
@@ -27,6 +26,7 @@ import {
   pickTarget,
   resolveTarget,
 } from './entry-map';
+import { SAMPLE_ENTRY_MAP } from './entry-map.mock';
 
 afterEach(() => {
   removeTempRepos();
@@ -172,28 +172,7 @@ describe('findPackageRoot', () => {
 });
 
 describe('chooseEntry', () => {
-  const map: EntryMap = {
-    source: 'test',
-    byName: new Map([
-      ['Spy', ['vitest-auto-spy']],
-      ['expectEmission', ['vitest-auto-spy/rxjs', 'vitest-auto-spy']],
-      ['mockSignalProp', ['vitest-auto-spy/angular']],
-      // The real shapes, read off the installed package: several entries, and no root among them.
-      [
-        'provideAutoSpy',
-        [
-          'vitest-auto-spy/bun-angular',
-          'vitest-auto-spy/jasmine',
-          'vitest-auto-spy/angular',
-          'vitest-auto-spy/nestjs',
-          'vitest-auto-spy/vue',
-        ],
-      ],
-      ['injectSpy', ['vitest-auto-spy/bun-angular', 'vitest-auto-spy/angular', 'vitest-auto-spy/nestjs']],
-      ['shared', ['vitest-auto-spy/vue', 'vitest-auto-spy/svelte']],
-      ['tick', ['vitest-auto-spy/node', 'vitest-auto-spy/console']],
-    ]),
-  };
+  const map = SAMPLE_ENTRY_MAP;
 
   const hint = (over: Partial<FileHint>): FileHint => ({ ...NO_HINT, ...over });
 

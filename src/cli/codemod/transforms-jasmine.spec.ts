@@ -16,6 +16,7 @@ import { maskCode } from './mask';
 import type { TransformContext, TransformSpec } from './transform-context';
 import { jasmineAndHelpers, jasmineSpyOn, jasmineStrategies } from './transforms-jasmine';
 import { jasmineGlobals, jasmineMatchers, jasmineTypes } from './transforms-jasmine-globals';
+import { BOTH_JASMINE_TRANSFORM_IDS } from './transforms-jasmine.mock';
 
 const ENTRIES: EntryMap = {
   source: 'test',
@@ -298,10 +299,10 @@ describe('transformsFor', () => {
     transformsFor(mode, [jasmineGlobals, jasmineAndHelpers], source).map((transform) => transform.id);
 
   it('runs the jasmine set only where the file says it is one, under auto', () => {
-    expect(ids('auto', 'jasmine.clock().install();')).toEqual(['jasmine-globals', 'jasmine-and-helpers']);
-    expect(ids('auto', 'spy.load.and.nextWith(1);')).toEqual(['jasmine-globals', 'jasmine-and-helpers']);
-    expect(ids('auto', "import { Spy } from 'jasmine-auto-spies';")).toEqual(['jasmine-globals', 'jasmine-and-helpers']);
-    expect(ids('auto', "import { Spy } from 'vitest-auto-spy/jasmine';")).toEqual(['jasmine-globals', 'jasmine-and-helpers']);
+    expect(ids('auto', 'jasmine.clock().install();')).toEqual(BOTH_JASMINE_TRANSFORM_IDS);
+    expect(ids('auto', 'spy.load.and.nextWith(1);')).toEqual(BOTH_JASMINE_TRANSFORM_IDS);
+    expect(ids('auto', "import { Spy } from 'jasmine-auto-spies';")).toEqual(BOTH_JASMINE_TRANSFORM_IDS);
+    expect(ids('auto', "import { Spy } from 'vitest-auto-spy/jasmine';")).toEqual(BOTH_JASMINE_TRANSFORM_IDS);
   });
 
   it('does not read a bare spyOn as a marker — that is the guess the whole transform exists to refuse', () => {
@@ -310,7 +311,7 @@ describe('transformsFor', () => {
   });
 
   it('honours a dialect that was named out loud, in both directions', () => {
-    expect(ids('jasmine', "spyOn(service, 'load');")).toEqual(['jasmine-globals', 'jasmine-and-helpers']);
+    expect(ids('jasmine', "spyOn(service, 'load');")).toEqual(BOTH_JASMINE_TRANSFORM_IDS);
     expect(ids('jest', 'jasmine.clock().install();')).toEqual([]);
   });
 });
