@@ -1,77 +1,306 @@
 ---
 title: RxJS
-description: Подключаемый слой observable — nextWith, nextWithValues, nextWithPerCall, returnSubject, как ведут себя задержки и почему ни одна декларация не называет rxjs.
+description: Спай метода или свойства возвращает Observable, которым управляет тест - nextWith, nextWithValues, nextWithPerCall, returnSubject, задержки и сброс.
 ---
 
 # RxJS
 
-Слежение за observable живёт за подпутём `vitest-auto-spy/rxjs`, чтобы `rxjs` не попадал в рантайм-бандл
-проектов, которые им не пользуются. Импортируйте его **один раз** (например, в настройке тестов), чтобы
-включить observable-хелперы:
+Точка входа `vitest-auto-spy/rxjs` даёт спаю возвращать `Observable`, которым управляет тест. Она
+нужна, когда проверяемый код подписывается на метод сервиса или на свойство с `$`.
+
+Импортируйте её один раз в setup-файле и укажите этот файл в конфиге Vitest:
 
 ```ts
+// vitest.setup.ts
 import 'vitest-auto-spy/rxjs';
 ```
 
-Одну и ту же управляющую поверхность получают и подменённые **методы**, возвращающие `Observable`, и
-подменённые **свойства** типа `Observable`:
-
 ```ts
-myService.getProducts$.nextWith([{ name: 'Product 1' }]); // выдать значение, поток остаётся открытым
-myService.getProducts$.nextOneTimeWith([{ name: 'X' }]); // выдать одно значение и завершить
-myService.getProducts$.throwWith('FAKE ERROR'); // уронить поток ошибкой
-myService.getProducts$.complete(); // завершить поток
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
 
-// выдать точную последовательность — значения, ошибки, завершение, необязательные задержки
-myService.getProducts$.nextWithValues([{ value: [{ name: 'Product 1' }] }, { errorValue: 'FAKE ERROR' }, { complete: true }]);
-
-// свежий поток на каждый вызов
-myService.getProducts$.nextWithPerCall([{ value: ['a'] }, { value: ['b'] }]);
-
-// забрать нижележащий Subject для полного ручного управления
-const subject = myService.getProducts$.returnSubject();
+export default defineConfig({
+  test: { setupFiles: ['./vitest.setup.ts'] },
+});
 ```
 
-Использование observable-спая без импорта `vitest-auto-spy/rxjs` бросает внятную подсказку с требованием
-добавить импорт. С **4.0.0** то же верно и для _типов_: ни одна декларация ядра не называет ни одного типа
-rxjs, поэтому проект без rxjs его никогда не загружает — см.
-[rxjs в типах](#rxjs-in-the-types) ниже.
+Дальше спека создаёт спай, передаёт его проверяемому классу и задаёт, что выдаст поток:
+
+```ts
+// product-list.spec.ts
+import { expect, it } from 'vitest';
+import { type Spy, createSpyFromClass } from 'vitest-auto-spy';
+
+import { ProductList } from './product-list';
+// в load() вызывает products.getProducts().subscribe(...)
+import { ProductService } from './product.service';
+
+// getProducts(): Observable<Product[]>
+
+it('shows the products the service returns', () => {
+  const products: Spy<ProductService> = createSpyFromClass(ProductService);
+  const list = new ProductList(products);
+
+  products.getProducts.nextWith([{ name: 'Tea' }]);
+  list.load();
+
+  expect(list.names).toEqual(['Tea']);
+});
+```
+
+Если импорта в setup-файле нет, первый же observable-хелпер бросает ошибку
+`Observable spies require rxjs` и называет нужный импорт. Остальная библиотека rxjs не импортирует,
+так что проектам без rxjs ставить его не нужно.
+
+## Observable-свойства {#observable-properties}
+
+Свойство вроде `items$` — не метод, поэтому его перечисляют в `observablePropsToSpyOn`. После этого у
+него те же хелперы, что у метода.
+
+```ts
+const store = createSpyFromClass(CartStore, { observablePropsToSpyOn: ['items$'] });
+
+store.items$.nextWith([{ id: 1 }]);
+```
+
+## Хелперы {#helpers}
+
+Эти хелперы есть у каждого метода-спая, который возвращает `Observable`, и у каждого свойства из
+`observablePropsToSpyOn`.
+
+| Хелпер                    | Что делает                                                        |
+| ------------------------- | ----------------------------------------------------------------- |
+| `nextWith(value)`         | выдаёт `value`; поток остаётся открытым                           |
+| `nextOneTimeWith(value)`  | выдаёт `value` и завершает поток                                  |
+| `throwWith(error)`        | завершает поток ошибкой                                           |
+| `complete()`              | завершает поток                                                   |
+| `nextWithValues(configs)` | выдаёт последовательность: значения, ошибку, завершение, задержки |
+| `nextWithPerCall(list)`   | даёт каждому вызову свой поток; возвращает их subject'ы           |
+| `returnSubject()`         | возвращает `Subject` за спаем — для полного ручного управления    |
+| `subscriberCount()`       | число открытых подписок (только у свойств)                        |
+
+```ts
+products.getProducts.nextWith([{ name: 'Tea' }]); // значение, поток открыт
+products.getProducts.nextOneTimeWith([{ name: 'Tea' }]); // одно значение, затем завершение
+products.getProducts.throwWith(new Error('offline')); // ошибка в потоке
+products.getProducts.complete(); // завершение
+
+// точная последовательность
+products.getProducts.nextWithValues([{ value: [{ name: 'Tea' }] }, { errorValue: 'offline' }, { complete: true }]);
+
+// свой поток на каждый вызов: первый вызов получит ['a'], второй — ['b']
+products.getProducts.nextWithPerCall([{ value: ['a'] }, { value: ['b'] }]);
+
+// сам Subject
+const subject = products.getProducts.returnSubject();
+subject.next([{ name: 'Coffee' }]);
+```
+
+Элементы списков для двух хелперов:
+
+| Тип                                      | Форма                                                                                   |
+| ---------------------------------------- | --------------------------------------------------------------------------------------- |
+| `ValueConfig` (для `nextWithValues`)     | `{ value, delay? }`, `{ errorValue, delay? }` или `{ complete?, delay? }`               |
+| `ValueConfigPerCall` (`nextWithPerCall`) | `{ value, delay?, doNotComplete? }`; каждый поток завершается, если нет `doNotComplete` |
+
+## `nextWith` пишет в общий subject; `nextWithValues` публикует новый {#nextwith-pushes-nextwithvalues-republishes}
+
+С виду они взаимозаменяемы. На observable-**свойстве** — нет. На спае **метода** они ведут себя
+одинаково: каждый вызов читает текущий поток.
+
+| Хелпер                                                    | Что делает с потоком                 | Подписчик, который уже на нём |
+| --------------------------------------------------------- | ------------------------------------ | ----------------------------- |
+| `nextWith` / `nextOneTimeWith` / `throwWith` / `complete` | пишет в subject, общий для всех      | получает значение             |
+| `nextWithValues` (на свойстве-спае)                       | подменяет свойство **новым** потоком | остаётся на старом            |
+
+Компонент обычно подписывается на свойство один раз, в `ngOnInit`, и держит поток, полученный тогда.
+Если вызвать `nextWithValues` после этого, компонент значений не увидит. Библиотека один раз
+предупредит:
+
+```text
+[vitest-auto-spy] Feed.items$.nextWithValues() ran after something subscribed to Feed.items$, and it
+publishes a new stream that subscriber never sees — these values will not reach it. Call
+nextWithValues() before the code under test subscribes, or push into the stream it holds with nextWith().
+Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#nextwith-pushes-nextwithvalues-republishes
+```
+
+Починить можно двумя способами:
+
+- Вызвать `nextWithValues` на этапе подготовки, до создания компонента.
+- Или писать в живой поток:
+
+```ts
+service.items$.nextWith(['a']); // дойдёт до компонента, подписанного в ngOnInit
+service.items$.returnSubject().error(new Error('offline')); // это тоже
+```
+
+## Как читать последовательность как marble-диаграмму {#reading-a-sequence-as-a-marble}
+
+`nextWithValues` выдаёт элементы по порядку. Время между ними задаёт только `delay`. В комментариях
+каждый пример записан marble-диаграммой (`|` — завершение, `#` — ошибка).
+
+```ts
+products.getProducts.nextWithValues([{ value: 'a' }, { value: 'b' }, { complete: true }]);
+// (ab|)   оба значения сразу, затем завершение
+```
+
+```ts
+products.getProducts.nextWithValues([{ value: 'a' }, { value: 'b', delay: 20 }, { complete: true, delay: 10 }]);
+// a 20ms b 10ms |
+```
+
+```ts
+products.getProducts.nextWithValues([{ value: 'a' }, { errorValue: 'boom', delay: 20 }]);
+// a 20ms #
+```
+
+- `{ complete: false }` ничего не выдаёт и оставляет поток открытым.
+- Всё после первого `{ complete: true }` отбрасывается.
+
+## Тайминги {#timing}
+
+- **`delay` — в миллисекундах реального времени.** Для значений и завершения работает `delay()` из
+  RxJS, для ошибок — `timer()`. Виртуального планировщика нет.
+- **Без задержки значение приходит синхронно**, в том же тике.
+- **Поздний подписчик тоже получит последнее значение.** За спаем стоит `ReplaySubject(1)`. Поэтому
+  `nextWith(v)` работает, подписался ли проверяемый код до вызова или после.
+- **С фейковыми таймерами задержку нужно промотать.** Используйте
+  [`advanceTimers(ms)`](/ru/utilities/fake-timers): он ещё и выполняет отложенные колбэки промисов.
+  Голый `vi.advanceTimersByTime()` этого не делает, и проверка может сработать слишком рано.
+
+```ts
+import { expect, it } from 'vitest';
+import { advanceTimers, setupFakeTimers } from 'vitest-auto-spy/setup';
+
+setupFakeTimers();
+
+it('emits after 100 ms', async () => {
+  products.getProducts.nextWithValues([{ value: 'a', delay: 100 }]);
+
+  const seen: string[] = [];
+  products.getProducts().subscribe((value) => seen.push(value));
+
+  await advanceTimers(100);
+
+  expect(seen).toEqual(['a']);
+});
+```
+
+## Отдельный конструктор observable {#standalone-observable-builder}
+
+`createObservableWithValues` строит такой же поток без спая. Элементы — те же, что у
+`nextWithValues`.
+
+```ts
+import { createObservableWithValues } from 'vitest-auto-spy/rxjs';
+
+const fake$ = createObservableWithValues([{ value: 1 }, { value: 2 }, { complete: true }]);
+
+// вместе с Subject
+const { values$, subject } = createObservableWithValues([{ value: 1 }], { returnSubject: true });
+```
+
+## Проверить, что никто не забыл отписаться: `subscriberCount()` {#check-for-a-missing-unsubscribe-subscribercount}
+
+`items$.subscriberCount()` возвращает, сколько подписок на свойство-спай открыто сейчас. Подписка
+перестаёт считаться, когда от неё отписались или когда поток завершился либо упал с ошибкой.
+Проверьте `0` после уничтожения компонента — так ловится утечка подписки:
+
+```ts
+fixture.destroy();
+expect(store.items$.subscriberCount()).toBe(0);
+```
+
+## Сбрасывать потоки между тестами {#reset-streams-between-tests}
+
+У каждого члена-спая один `ReplaySubject(1)`. Сохранённое в нём значение — это настройка, как правило
+`calledWith` (ответ, заданный для конкретных аргументов). Если спай живёт дольше одного теста,
+сбрасывайте его, иначе следующий тест первым получит старое значение.
+
+```ts
+import { beforeEach } from 'vitest';
+import { resetAutoSpy } from 'vitest-auto-spy';
+
+beforeEach(() => {
+  resetAutoSpy(service); // TestBed собран в beforeAll, спай общий
+});
+```
+
+- **`vi.clearAllMocks()` и `clearMocks: true` поток не сбрасывают.** Поток — состояние библиотеки, а не
+  часть мока раннера. Вызывайте `resetAutoSpy(spy)`.
+- **Завершённый поток заменяется.** Поток завершён после `throwWith()` или `complete()` на спае либо
+  после `complete()` или `error()` на subject из `returnSubject()`. Тогда следующий `nextWith` начинает
+  новый поток:
+
+```ts
+const subject = service.load$.returnSubject();
+
+subject.complete(); // спека закрывает его руками
+
+service.load$.nextWith(page); // новый поток, а не значение, которое никто не получит
+```
+
+- **В одном тесте вызовы складываются.** `nextWith(a)`, затем `throwWith(e)` — это «выдать `a`, потом
+  упасть». Поток, который падает сразу при подписке, что бы ни было до этого, даёт
+  `nextWithValues([{ errorValue: e }])`. На свойстве-спае вызывайте его до подписки: см.
+  [`nextWith` пишет в общий subject; `nextWithValues` публикует новый](#nextwith-pushes-nextwithvalues-republishes).
+
+## Проверять вместо того, чтобы подписываться {#asserting-instead-of-subscribing}
+
+Чтобы проверить, что выдаёт поток («выдаёт», «выдаёт эти три», «молчит»), используйте
+[проверки observable](/ru/core/observable-assertions). Они работают с любым объектом, у которого есть
+`subscribe`, и rxjs им не нужен:
+
+```ts
+import { expectEmission } from 'vitest-auto-spy';
+
+const emitted = expectEmission(products.getProducts());
+
+products.getProducts.nextWith(['x']);
+
+expect(await emitted).toEqual(['x']);
+```
 
 ## rxjs в типах {#rxjs-in-the-types}
 
-До 4.0.0 инвариант этой страницы — «rxjs живёт за `/rxjs`» — держался в рантайме и нарушался на уровне
-типов. `dist/types-*.d.ts` открывался строкой `import { Observable, Subject } from 'rxjs'`, а это не
-чинится через `import type`: TypeScript резолвит импорт только типов ровно так же, как импорт значений.
-Замерено на опубликованном пакете, на потребителе, который использует из библиотеки один
-`createSpyFromClass`:
+Объявления типов ядра не импортируют rxjs. Проекты на React, Vue, Svelte и Node без rxjs проходят
+проверку типов с `skipLibCheck: false` и не загружают ни одного `.d.ts` из rxjs. rxjs упоминают только
+объявления `vitest-auto-spy/rxjs` и `vitest-auto-spy/observer-spy`.
 
-|                                                              |                   3.18 |     4.0 |
-| ------------------------------------------------------------ | ---------------------: | ------: |
-| файлов в программе TypeScript у потребителя                  |                    303 | **114** |
-| из них файлов `.d.ts` от rxjs                                |                    189 |   **0** |
-| `TS2307` при `skipLibCheck: false` и без установленного rxjs | да, в `types-*.d.ts:1` |     нет |
+Ни одна из этих двух не упоминает `vitest`, поэтому проект на Bun или `node:test` проходит с ними
+проверку типов при `skipLibCheck: false` и без установленного Vitest. На Bun и `node:test`
+`returnSubject()` получает тип `Subject` из rxjs, как только эта точка входа импортирована, — так же,
+как на Vitest.
 
-Первый столбец оплачивал каждый потребитель на React, Vue, Svelte и Node. Теперь `scripts/check-dist.mjs`
-роняет сборку, если rxjs снова назван в любой декларации, кроме `dist/rxjs.d.ts` и
-`dist/observer-spy.d.ts`.
+Observable-хелперы получает любой `Observable` или `Subject` из rxjs, а также `EventEmitter` из
+Angular. Как определяется тип — в разделе [Подробнее](#in-depth).
 
-### Чем это заменили {#what-replaced-it}
+### Как назвать тип subject {#naming-the-subject-type}
 
-**Определение стало структурным.** Метод или свойство считается observable, если у его типа есть и
-`subscribe`, и `forEach(next)`, возвращающий промис, — а это верно для `Observable` из rxjs, для любого
-`Subject` и для `EventEmitter` из Angular, и неверно для `Promise`, массивов, `Signal` и
-`OutputEmitterRef` из Angular. Тип элемента снимается именно с `forEach`, а не с `subscribe`, и это
-сделано намеренно: при выводе TypeScript берёт **последнюю** сигнатуру перегруженного метода, а последняя
-перегрузка `subscribe` в rxjs 7 — устаревшая позиционная, через которую `T` выводится как `unknown`.
+`returnSubject()` возвращает `SubjectOf<T>`:
 
-Теперь совпадает одна вещь, которая раньше не совпадала: `Observable` из **второй копии rxjs** в дереве.
-`Subject` номинален (у него есть приватное поле), поэтому дублированный rxjs раньше проваливался в ветку
-обычного спая, и ничто не объясняло, куда делся `nextWith`.
+- собственный `Subject<T>` из rxjs, если `vitest-auto-spy/rxjs` импортирован там, где его видит ваша
+  программа TypeScript;
+- иначе `SubjectLike<T>` — обычный интерфейс со всем, для чего нужен хелпер.
 
-**`returnSubject()` следует за вашим импортом.** Он типизирован как `SubjectOf<T>`, который резолвится в
-родной `Subject<T>` из rxjs, как только `vitest-auto-spy/rxjs` попадает в вашу программу TypeScript, и в
-структурный `SubjectLike<T>` — всё, ради чего хелпер используется, — когда не попадает. Все четыре типа
-экспортируются из ядра, так что спека может назвать любой из них:
+```ts
+import type { Subject } from 'rxjs';
+
+import 'vitest-auto-spy/rxjs';
+
+const subject: Subject<Product[]> = products.getProducts.returnSubject(); // ✔ компилируется
+```
+
+**Частая ошибка:** аннотация выше перестаёт компилироваться, потому что единственный
+`import 'vitest-auto-spy/rxjs'` лежит в setup-файле, которого нет в `tsconfig` спек. Положите импорт
+в файл, который проверяет компилятор:
+
+- работает: спека, файл из `setupFiles`, файл `.d.ts`, а с `@angular/build:unit-test` — ещё и
+  `providersFile`;
+- не работает: обычный `.ts`, который только указан в `include` файла `tsconfig.spec.json`. Это
+  касается `@angular/build:unit-test` 22.2 и новее.
+
+Все четыре типа экспортируются из ядра, спека может назвать любой:
 
 ```ts
 interface ObservableLike<T> {
@@ -88,14 +317,14 @@ interface SubjectLike<T> extends ObservableLike<T> {
   readonly closed: boolean;
 }
 
-// шов: здесь пустой, заполняется из `vitest-auto-spy/rxjs`
+// здесь пустой, заполняется из `vitest-auto-spy/rxjs`
 interface AutoSpyRxjsTypes<T> {}
 
 type SubjectOf<T> = AutoSpyRxjsTypes<T> extends { subject: infer S } ? S : SubjectLike<T>;
 ```
 
-`AutoSpyRxjsTypes<T>` — обычный расширяемый интерфейс, поэтому проект со своей реализацией `Subject`
-может направить `SubjectOf` на неё:
+Если в проекте свой класс `Subject`, направьте на него `SubjectOf` расширением типов
+(`declare module`):
 
 ```ts
 declare module 'vitest-auto-spy' {
@@ -105,187 +334,14 @@ declare module 'vitest-auto-spy' {
 }
 ```
 
-Под `@angular/build:unit-test` начиная с 22.2.0 держите это объявление в `.d.ts` (с `import` или
-`export {}`, чтобы оно оставалось аугментацией), в спеке или в файле настройки: обычный `.ts`, который
-только перечислен в `include` у `tsconfig.spec.json`, билдер больше не компилирует.
-
-Тот единственный импорт, из-за которого хелперы _существуют_, — тот же самый, что даёт им типы
-rxjs, так что разъехаться эти две вещи не могут.
-
-```ts
-import type { Subject } from 'rxjs';
-import 'vitest-auto-spy/rxjs';
-
-const subject: Subject<Product[]> = myService.getProducts$.returnSubject(); // ✔ компилируется
-```
-
-Подвох, о котором стоит знать: тип следует за **импортом**, а не за установленным пакетом. Если
-единственный `import 'vitest-auto-spy/rxjs'` лежит в setup-файле вне того `tsconfig`, которым проверяются
-ваши спеки, вы получите обратно `SubjectLike<T>`, и аннотация вроде приведённой выше перестанет
-компилироваться. Перенесите импорт туда, где его видит компилятор, — в то же место, где он обязан быть,
-чтобы хелперы зарегистрировались в рантайме. Под `@angular/build:unit-test` начиная с 22.2.0
-компилятор видит только спеки, `providersFile`, `setupFiles` и `.d.ts`-файлы; обычного `.ts`,
-перечисленного в `include`, мало.
-
-## Подлежащий subject и как долго он живёт {#the-backing-subject-and-how-long-it-lives}
-
-Каждый observable-хелпер пишет в один `ReplaySubject(1)` на подменённый член. Его буфер — это
-**конфигурация**, ровно в том же смысле, что и цепочка `calledWith`, и до 3.5.0 он переживал заполнивший
-его тест. Из этого выросли два молчаливых отказа.
-
-```ts
-// тест 1
-service.createTransition.nextWith(uri); // положено в буфер
-
-// тест 2 — этот тест как раз про путь с ошибкой
-service.createTransition.throwWith(error); // подписчик получает СНАЧАЛА `uri`, потом ошибку
-```
-
-Тестируемый код выполнял **успешную** ветку на данных предыдущего теста, а ветка, ради которой тест и
-писался, приходила на одну эмиссию позже — и ничто в падении на это не указывало. Второй отказ ещё тише:
-`error()` и `complete()` закрывают Subject навсегда, поэтому каждый последующий `nextWith` на этом спае
-писал в мёртвый subject и не выдавал ничего.
-
-Оба случая исправлены: `resetAutoSpy(spy)` выбрасывает subject, а завершённый заменяется при следующей
-настройке. Отсюда следуют две вещи, о которых стоит знать.
-
-**`vi.clearAllMocks()` и `clearMocks: true` до него по-прежнему не дотягиваются.** Это не упущение — это
-та же граница, что не даёт им сбросить цепочку `calledWith`: состояние живёт в замыканиях этой
-библиотеки, а не на объекте мока раннера. Когда спай переживает тест, сбрасывайте его сами:
-
-```ts
-beforeEach(() => {
-  resetAutoSpy(service); // TestBed собирается в beforeAll, поэтому спай общий
-});
-```
-
-**Внутри одного теста ничего не изменилось.** `nextWith(a)`, за которым идёт `throwWith(e)`, по-прежнему
-означает «выдай a, потом упади»: оба вызова — части одной истории, и новую начинает только сброс или
-терминальный вызов. `nextWithValues([{ errorValue: e }])` остаётся способом собрать поток, который падает
-при подписке независимо от того, что было до него.
-
-## `nextWith` пишет в общий subject; `nextWithValues` публикует новый {#nextwith-pushes-nextwithvalues-republishes}
-
-Оба выглядят взаимозаменяемыми, но это не так, и разница видна только на observable-**свойстве** — на
-том, на которое компонент подписывается один раз, в `ngOnInit`.
-
-| Хелпер                                                    | Что делает с потоком                      | Подписчик, который уже на нём |
-| --------------------------------------------------------- | ----------------------------------------- | ----------------------------- |
-| `nextWith` / `nextOneTimeWith` / `throwWith` / `complete` | кладёт в subject, общий для всех          | получает значение             |
-| `nextWithValues`                                          | публикует **новый** поток поверх свойства | остаётся на старом            |
-
-Поток свойства читается в момент подписки, поэтому компонент, подписавшийся в `ngOnInit`, держит
-поток, опубликованный в тот момент. `nextWithValues` после этого строит свою последовательность
-рядом с ним, а не в него — ни ошибки, ни таймаута, вообще ничего, если спека заодно не ждёт эмиссию.
-Вместо этого свойство один раз сообщает об этом:
-
-```
-[vitest-auto-spy] Feed.items$.nextWithValues() ran after something subscribed to Feed.items$, and it
-publishes a new stream that subscriber never sees — these values will not reach it. Call
-nextWithValues() before the code under test subscribes, or push into the stream it holds with nextWith().
-Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#nextwith-pushes-nextwithvalues-republishes
-```
-
-Обе починки — по одной строке. Настройте свойство на шаге arrange, до сборки фикстуры — именно это
-большинство спек и имело в виду, — или ведите живой поток:
-
-```ts
-service.items$.nextWith(['a']); // доходит до компонента, подписавшегося в ngOnInit
-service.items$.returnSubject().error(new Error('offline')); // и это тоже
-```
-
-У спая метода такой проблемы нет: его поток читается на каждый вызов, поэтому следующий вызов
-получает новый.
-
-## Отдельный конструктор observable {#standalone-observable-builder}
-
-```ts
-import { createObservableWithValues } from 'vitest-auto-spy/rxjs';
-
-const fake$ = createObservableWithValues([{ value: 1 }, { value: 2 }, { complete: true }]);
-
-// или заодно получить subject
-const { values$, subject } = createObservableWithValues([{ value: 1 }], { returnSubject: true });
-```
-
-`ValueConfig` (для `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` | `{ complete?, delay? }`.
-
-`ValueConfigPerCall` (для `nextWithPerCall`) — это `{ value, delay?, doNotComplete? }`.
-
-## Как читать последовательность как marble-диаграмму {#reading-a-sequence-as-a-marble}
-
-`nextWithValues` выдаёт свои записи по порядку, поэтому список конфигураций один в один ложится на
-marble-диаграмму — расстояние между кадрами задаёт только `delay`.
-
-```ts
-myService.getProducts$.nextWithValues([{ value: 'a' }, { value: 'b' }, { complete: true }]);
-// (ab|)   — оба значения синхронно, затем завершение
-```
-
-```ts
-myService.getProducts$.nextWithValues([{ value: 'a' }, { value: 'b', delay: 20 }, { complete: true, delay: 10 }]);
-// a 20ms b 10ms |
-```
-
-```ts
-myService.getProducts$.nextWithValues([{ value: 'a' }, { errorValue: 'boom', delay: 20 }]);
-// a 20ms #
-```
-
-Запись `{ complete: false }` ничего не выдаёт и не останавливает поток — это форма «оставить открытым».
-Всё, что идёт после первого `{ complete: true }`, отбрасывается.
-
-## Тайминги {#timing}
-
-- **`delay` — в миллисекундах**, применяется через родные `delay()` (значения, завершение) и `timer()`
-  (ошибки) из RxJS. Это реальное время, а не виртуальный планировщик.
-- **Без задержки эмиссия синхронна.** `nextWith` кладёт значение в `ReplaySubject` немедленно, поэтому
-  уже отработавший подписчик видит его в том же тике.
-- **Подлежащий subject — это `ReplaySubject`**, поэтому подписчик, пришедший _после_ эмиссии, всё равно
-  её получит. Именно это заставляет `spy.thing$.nextWith(v)` работать независимо от того, подписался
-  тестируемый код раньше или нет.
-- **Под фейковыми таймерами** записи с задержкой требуют прокрутить часы.
-  [`advanceTimers(ms)`](/ru/utilities/fake-timers) прокручивает **и** дочищает микрозадачи, которые
-  ставит эмиссия, — голый `vi.advanceTimersByTime()` оставляет продолжение `await` висеть, и проверка
-  тогда читает состояние, каким оно было до завершения колбэка.
-
-```ts
-import { advanceTimers, setupFakeTimers } from 'vitest-auto-spy/setup';
-
-setupFakeTimers();
-
-myService.getProducts$.nextWithValues([{ value: 'a', delay: 100 }]);
-
-const seen: string[] = [];
-myService.getProducts$.subscribe((value) => seen.push(value));
-
-await advanceTimers(100);
-
-expect(seen).toEqual(['a']);
-```
-
-## Проверять вместо того, чтобы подписываться {#asserting-instead-of-subscribing}
-
-Для проверяющей стороны потока — «оно что-то выдаёт», «оно выдаёт вот эти три», «оно молчит» — берите
-[проверки для observable](/ru/core/observable-assertions). Они работают по утиной типизации, поэтому
-годятся для любого подписываемого объекта и не тянут за собой rxjs:
-
-```ts
-import { expectEmission, expectNoEmission } from 'vitest-auto-spy';
-
-const emitted = expectEmission(myService.getProducts$);
-
-myService.getProducts$.nextWith(['x']);
-
-expect(await emitted).toEqual(['x']);
-```
+Положите его в файл `.d.ts` (с `import` или `export {}`, чтобы он остался расширением), в спеку или в
+setup-файл. Правило то же, что выше. Обычный `.ts`, указанный только в `include`, не работает с
+`@angular/build:unit-test` 22.2 и новее.
 
 ## `subscribeSpyTo` — для набора, пришедшего с observer-spy {#subscribespyto-for-a-suite-arriving-with-observer-spy}
 
-`@hirez_io/observer-spy` стоит рядом с `jasmine-auto-spies` почти в каждом наборе, где есть второй, — тот
-же автор, и по загрузкам он больше, — а последний раз публиковался в 2022 году. Эта точка входа
-поставляет его поверхность, чтобы переезжающий набор запускался до того, как его проверки потоков будут
-переписаны:
+`vitest-auto-spy/observer-spy` повторяет API пакета `@hirez_io/observer-spy`. Он нужен при переезде
+тестов, которые уже на нём: они запускаются до того, как вы перепишете проверки потоков.
 
 ```ts
 import { subscribeSpyTo } from 'vitest-auto-spy/observer-spy';
@@ -296,28 +352,42 @@ expect(spy.getValues()).toEqual(['a', 'b']);
 expect(spy.receivedComplete()).toBe(true);
 ```
 
-**Это мост, а пункт назначения — проверки, описанные выше.** `subscribeSpyTo` — синхронный осмотр:
-подписаться, дать чему-то произойти, потом прочитать спай. Его способ ломаться — молчание: поток, который
-ничего не выдал, даёт `getValues() === []`, спека что-то про это проверяет, и тест проходит, ничего не
-увидев. `expectEmission` делает саму проверку ожиданием, поэтому молчание превращается в таймаут,
-называющий поток.
+Это мост. В новых тестах используйте [`expectEmission`](/ru/core/observable-assertions) и соседние
+проверки. С `subscribeSpyTo` поток, который ничего не выдал, даёт `getValues() === []`, и тест может
+пройти, ничего не увидев. `expectEmission` ждёт значение, и молчание превращается в таймаут с именем
+потока.
 
-Четыре вещи ведут себя здесь лучше, чем в оригинале, и переехавшая спека заметит последнюю:
-`getValues()` возвращает копию, а не собственный живой массив спая, и типизирован как `T[]`, а не
-`any[]`; `getFirstValue()` и `getValueAt(i)` бросают исключение, вместо того чтобы отвечать `undefined`
-из сигнатуры, обещавшей `T`; а неожиданная ошибка бросается тем читателем значения, который её запросил,
-и несёт исходную в `cause`, а не перебрасывается из наблюдателя. Последнее — не вкусовщина: перебрасывание
-в оригинале перестало работать, когда rxjs 7 начал прогонять всё брошенное из колбэка наблюдателя через
-`reportUnhandledError`, который сообщает об ошибке асинхронно, так что до строки с подпиской она не
-доходит. Передавайте `{ expectErrors: true }` (или вызывайте `.expectErrors()`), когда ошибка и есть
-смысл теста, и читайте `getError()`.
+Отличия от `@hirez_io/observer-spy`:
 
-`SubscriberSpy` — disposable, поэтому подписку можно ограничить её блоком, а не глобальным `afterEach`:
+- `getValues()` возвращает копию с типом `T[]`, а не `any[]`.
+- `getFirstValue()` и `getValueAt(i)` бросают ошибку, если значения нет, а не возвращают `undefined`.
+- Неожиданную ошибку потока бросает следующий читатель значений (`getValues()` и другие), исходная
+  ошибка лежит в `cause`. Если ошибка и есть предмет теста, передайте `{ expectErrors: true }` (или
+  вызовите `.expectErrors()`) и читайте `getError()`.
+- `await onComplete()` отклоняется, если поток упал с ошибкой, а `await onError()` — если поток
+  завершился. Иначе тест висел бы до таймаута файла. Не важно, завершился поток до вызова `onComplete()` / `onError()` или после. Форма с колбэком
+  (`onComplete(() => …)`) работает как в оригинале: колбэк просто не вызывается.
+
+```text
+[vitest-auto-spy] this spy's observable errored (Error: offline), so the promise from onComplete() can never resolve:
+completion is not coming. Read receivedComplete() / receivedError(), or await
+`expectCompletion(source$)` / `expectError(source$)`, which fail with a message naming the stream.
+Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
+```
+
+`SubscriberSpy` поддерживает `using`, так что подписку можно ограничить блоком, а не общим
+`afterEach`:
 
 ```ts
 using spy = subscribeSpyTo(service.load());
 ```
 
-Аналога `fakeTime()` здесь нет — он построен на виртуальном времени `TestScheduler` из rxjs и на
-протоколе колбэка `done`. Используйте [фейковые таймеры](/ru/utilities/fake-timers) или напрямую
-`TestScheduler`.
+`fakeTime()` нет: он построен на `TestScheduler` из rxjs и колбэке `done`. Используйте
+[фейковые таймеры](/ru/utilities/fake-timers) или `TestScheduler` напрямую.
+
+## Подробнее {#in-depth}
+
+Член класса считается observable, если в его типе есть `subscribe` и `forEach(next)`, возвращающий
+промис. Подходят `Observable` из rxjs, любой `Subject` и `EventEmitter` из Angular. Не подходят
+`Promise`, массивы, `Signal` и `OutputEmitterRef` из Angular. `Observable` из второй копии rxjs в
+`node_modules` тоже подходит и получает `nextWith`.

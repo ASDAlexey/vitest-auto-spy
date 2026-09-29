@@ -1,154 +1,175 @@
 ---
 title: Angular на Bun
-description: Как запускать TestBed из Angular под bun test — DOM, JIT-шаблоны и zoneless-обнаружение изменений из одного preload.
+description: Как запускать спеки TestBed из Angular под bun test одной строкой preload - DOM, встроенные шаблоны и zoneless TestBed.
 ---
 
 # Angular на Bun (`bun:test`)
 
-У Angular нет собственной интеграции с `bun test`. Не хватает двух вещей, и каждая из них фатальна сама
-по себе:
-
-1. **Нет DOM.** Bun его не поставляет, а всё, начиная с `platformBrowserTesting()`, читает `document`.
-2. **Не разрешаются шаблоны.** `@Component({ templateUrl: './x.html' })` — это не импорт, ничто в графе
-   модулей не указывает на HTML-файл, — поэтому JIT-компилятор Angular отказывается собирать компонент
-   (_«Component X is not resolved»_). Под Vitest `@analogjs/vite-plugin-angular` подставляет шаблон на
-   этапе трансформации. У Bun такой трансформации нет.
-
-`vitest-auto-spy/bun-angular` закрывает обе дыры и всю обвязку вокруг них из одного preload.
-
-## Настройка {#setup}
-
-```toml
-# bunfig.toml
-[test]
-preload = ["vitest-auto-spy/bun-angular"]
-```
-
-```bash
-bun add -d @happy-dom/global-registrator   # или: bun add -d jsdom
-```
-
-Это вся конфигурация. При загрузке точка входа:
-
-1. ставит DOM — `@happy-dom/global-registrator`, если он есть, иначе `jsdom`, и вообще ничего, если DOM
-   уже на месте;
-2. регистрирует хук `onLoad` через `Bun.plugin`, который встраивает `templateUrl` / `styleUrl` /
-   `styleUrls` прямо в исходник компонента;
-3. поднимает **zoneless**-окружение `TestBed` и сбрасывает тестовый модуль после каждого теста;
-4. регистрирует mock-адаптер Bun, так что каждый хелпер спая — уже от Bun.
-
-::: warning Это обязательно preload
-Хук `Bun.plugin` видит только модули, загруженные **после** его регистрации. Импортировать эту точку входа
-изнутри спеки поздно для тестируемого компонента: его шаблон не будет встроен. Импортировать её из спеки
-**дополнительно** — нормально: модуль кешируется, и каждый шаг защищён проверкой.
-:::
-
-## Как писать спеку {#writing-a-spec}
-
-Дальше спека читается ровно так же, как её аналог на Vitest.
+`vitest-auto-spy/bun-angular` позволяет запускать спеки Angular с `TestBed` через `bun test`. Она
+нужна, если ваш раннер тестов — Bun, а у компонентов есть `templateUrl`. Вы добавляете одну строку
+preload, и спека компонента работает так же, как на Vitest.
 
 ```ts
-// greeting.test.ts
+// profile.component.test.ts (у ProfileComponent есть templateUrl; шаблон выводит "Hello, {{ name }}!")
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'bun:test';
 import { injectSpy, provideAutoSpy, stable } from 'vitest-auto-spy/bun-angular';
 
-import { GreetingComponent } from './greeting.component';
-// объявлен через templateUrl
-import { GreetingService } from './greeting.service';
+import { ProfileComponent } from './profile.component';
+import { UserService } from './user.service';
 
-describe('GreetingComponent', () => {
+describe('ProfileComponent', () => {
   it('renders the name the service returns', async () => {
-    TestBed.configureTestingModule({ providers: [provideAutoSpy(GreetingService)] });
+    TestBed.configureTestingModule({
+      imports: [ProfileComponent],
+      providers: [provideAutoSpy(UserService)],
+    });
+    injectSpy(UserService).currentName.mockReturnValue('Ada');
 
-    injectSpy(GreetingService).currentName.mockReturnValue('external user');
+    const fixture = TestBed.createComponent(ProfileComponent);
+    await stable(fixture); // ждёт, пока компонент отрисуется
 
-    const fixture = TestBed.createComponent(GreetingComponent);
-
-    await stable(fixture);
-
-    expect(fixture.nativeElement.textContent).toContain('Hello, external user!');
+    expect(fixture.nativeElement.textContent).toContain('Hello, Ada!');
   });
 });
 ```
 
+Нужны Angular 20 или новее с `@angular/platform-browser` (он есть в любом приложении Angular CLI) и
+пакет с DOM ([почему Angular 20](/ru/core/compatibility#angular-20)). Настройка — два шага.
+
+## Настройка {#setup}
+
+1. Поставьте библиотеку и DOM. В Bun нет DOM, а тестовой платформе Angular нужен `document`.
+
+   ```bash
+   bun add -d vitest-auto-spy @happy-dom/global-registrator   # или jsdom вместо happy-dom
+   ```
+
+   Чтобы редактор знал типы `bun:test`, добавьте `@types/bun`, если его ещё нет. Настройки декораторов Bun берёт из вашего `tsconfig.json`, так что проекту Angular CLI ничего менять не нужно.
+
+2. Добавьте точку входа как **preload** в `bunfig.toml` в корне проекта. Preload — файл, который Bun
+   выполняет до всех файлов тестов.
+
+   ```toml
+   # bunfig.toml
+   [test]
+   preload = ["vitest-auto-spy/bun-angular"]
+   ```
+
+Это вся конфигурация. При запуске preload:
+
+1. поднимает DOM (`window`, `document` и другие глобальные объекты браузера) через
+   `@happy-dom/global-registrator`, а если его нет — через `jsdom`. Если DOM уже есть, шаг
+   пропускается;
+2. встраивает `templateUrl`, `styleUrl` и `styleUrls` каждого компонента прямо в его исходник, чтобы
+   Angular мог скомпилировать компонент во время теста;
+3. настраивает **zoneless** `TestBed` (Angular без zone.js; обнаружение изменений работает на сигналах);
+4. вызывает `TestBed.resetTestingModule()` после каждого теста. Свой `afterEach` для `TestBed` и спаев
+   из `provideAutoSpy` не нужен;
+5. делает каждый спай функцией `mock()` из Bun. У неё те же методы, что у `vi.fn()` в Vitest: `mockReturnValue`, `mockResolvedValue` и другие.
+
+::: warning Это обязательно preload
+Не заменяйте строку в `bunfig.toml` импортом в спеке. Встраивание шаблонов должно начаться раньше, чем
+Bun загрузит первый файл тестов, а так рано выполняется только preload.
+:::
+
+**Частая ошибка:** не поставлен пакет с DOM. Запуск останавливается с
+`registerDomGlobals: no DOM could be installed, so Angular's TestBed cannot run.` Поставьте один из двух
+пакетов из шага 1.
+
+## Как писать спеку {#writing-a-spec}
+
+Спека выглядит так же, как на Vitest, только `describe`, `it` и `expect` берутся из `bun:test`. Пример
+в начале страницы — полная спека:
+
+- standalone-компонент кладётся в `imports`, компонент из NgModule — в `declarations`;
+- `injectSpy(UserService)` возвращает спай, который внедряет `TestBed`. Задайте его ответы до
+  `createComponent`;
+- `bun test` находит файлы `*.test.ts` и `*.spec.ts`.
+
+Запустите её командой `bun test`. Если спеки проходят по одной, но падают вместе, добавьте `--isolate`:
+тогда каждый файл тестов получает свежие глобальные объекты.
+
 ```bash
-bun test              # добавьте --isolate, чтобы получить свежий глобальный объект на файл
+bun test
 ```
+
+**Частая ошибка:** если входы компонента объявлены через сигнальный `input()`, спека под Bun не сможет
+их задать. См. [О чём стоит знать](#limits-worth-knowing).
 
 ## Что вы получаете {#what-you-get}
 
-| Хелпер                                    | Работает на Bun | Примечания                                                     |
-| ----------------------------------------- | :-------------: | -------------------------------------------------------------- |
-| `provideAutoSpy` / `injectSpy`            |       ✅        | идентично точке входа Vitest, спаи по умолчанию ленивые        |
-| `renderShallow`                           |       ✅        | настоящий `ComponentFixture`, поддерево потомков отброшено     |
-| `createWithAutoSpies`                     |       ✅        | собирает класс через DI Angular со всеми зависимостями в спаях |
-| `hostElement` / `queryElement`            |       ✅        | типизированные элементы фикстуры, проверенные `instanceof`     |
-| `stable` / `flushEffects`                 |       ✅        | ожидание в zoneless-режиме                                     |
-| всё ядро (`createSpyFromClass`, …)        |       ✅        | реэкспортируется из этой точки входа                           |
-| `registerSignalMatchers`                  |       ❌        | нужен `expect.extend` раннера — только Vitest                  |
-| `registerDirectiveMatchers`               |       ❌        | нужен `expect.extend` раннера — только Vitest                  |
-| `registerResourceMatchers`                |       ❌        | нужен `expect.extend` раннера — только Vitest                  |
-| диагностика TestBed (`instrumentTestBed`) |       ❌        | нужны хуки раннера уровня набора — только Vitest               |
-| остальное из `/angular`                   |       ❌        | в Bun не проброшено — см. ниже                                 |
+| Хелпер                                                                               | Работает на Bun | Примечания                                                           |
+| ------------------------------------------------------------------------------------ | :-------------: | -------------------------------------------------------------------- |
+| `provideAutoSpy` / `injectSpy`                                                       |       ✅        | как на Vitest                                                        |
+| `renderShallow` / `prepareShallow`                                                   |       ✅        | настоящий `ComponentFixture` без дочерних компонентов                |
+| `createWithAutoSpies`                                                                |       ✅        | создаёт класс через DI Angular, все зависимости — спаи               |
+| `hostElement` / `queryElement`                                                       |       ✅        | типизированные элементы фикстуры, проверенные `instanceof`           |
+| `stable`                                                                             |       ✅        | ждёт, пока компонент отрисуется                                      |
+| `flushEffects`                                                                       |       ✅        | выполняет ожидающие эффекты сигналов                                 |
+| `runEffect`, `setInputs`, `settleResource`, `trackEffectRuns`, `trackRecomputations` |       ✅        | как на Vitest (`setInputs` не задаёт сигнальный `input()`, см. ниже) |
+| основной API библиотеки (`createSpyFromClass`, `createAutoMock`, …)                  |       ✅        | тоже экспортируется из этой точки входа                              |
+| `registerSignalMatchers`                                                             |       ❌        | нужен `expect.extend` из Vitest                                      |
+| `registerDirectiveMatchers`                                                          |       ❌        | нужен `expect.extend` из Vitest                                      |
+| `registerResourceMatchers`                                                           |       ❌        | нужен `expect.extend` из Vitest                                      |
+| диагностика TestBed (`instrumentTestBed`)                                            |       ❌        | нужны хуки Vitest на уровне файла                                    |
+| остальное из `/angular`                                                              |       ❌        | только Vitest, список ниже                                           |
 
-«Остальное» — это хирургия над TestBed, которую несут на Vitest ангуляровские точки входа — сам
-`vitest-auto-spy/angular` плюс его спутники `/angular/diagnostics` и `/angular/doubles`: проверки
-переопределений и диагностики, `extendWithAutoSpies`, `provideAutoSpyForToken` с дефолтами по токену,
-`trackInjections`, `setupAngularTestEnv`, фабрики заглушек, дубли свойств ресурса и сигнала, дубли
-платформы и диалогов. Ничего из этого эта точка входа не экспортирует.
+«Остальное из `/angular`» — всё из `vitest-auto-spy/angular`, `vitest-auto-spy/angular/diagnostics` и
+`vitest-auto-spy/angular/doubles`, чего нет в таблице. Эта точка входа ничего из этого не экспортирует:
+
+- проверки переопределений и диагностики;
+- `extendWithAutoSpies`;
+- `provideAutoSpyForToken` и его значения по умолчанию для токенов;
+- `trackInjections` и `setupAngularTestEnv`;
+- фабрики заглушек;
+- подмены для ресурсов, сигнальных свойств, платформы и диалогов.
 
 ## Стили {#stylesheets}
 
-У тест-раннера нет CSS-препроцессора, и ни одна спека не проверяет стили. Поэтому `.css` встраивается как
-есть, а всё остальное (`.scss`, `.less`, `.styl`) превращается в **пустую** таблицу стилей — компонент
-всё равно компилируется и рендерится. Переопределите это, если текст стилей вам действительно нужен:
+Тесты не проверяют стили, а у Bun нет CSS-препроцессора. Поэтому preload встраивает `.css` как есть, а
+`.scss`, `.less` и `.styl` превращает в **пустую** таблицу стилей. Компонент всё равно компилируется и
+рендерится.
+
+Если нужен текст других стилей, соберите свой preload (см.
+[Как собрать собственный preload](#building-your-own-preload)). В его хуке `Bun.plugin` `onLoad`
+вызовите `inlineAngularResources` с текстом и путём файла и перечислите расширения в
+`inlineStyleExtensions`:
 
 ```ts
 inlineAngularResources(source, path, { inlineStyleExtensions: ['.css', '.scss'] });
 ```
 
+| Опция                   | Тип                 | По умолчанию | Смысл                                            |
+| ----------------------- | ------------------- | ------------ | ------------------------------------------------ |
+| `inlineStyleExtensions` | `readonly string[]` | `['.css']`   | эти стили встраиваются текстом, остальные пустые |
+
 ### Шаблон или стили, которые не читаются {#a-template-or-stylesheet-that-cannot-be-read}
 
-`templateUrl` и `styleUrl` разрешаются относительно файла компонента. Когда чтение не удалось,
-preload называет URL, компонент, собственный код файловой системы (`ENOENT`, `EACCES`) и путь, по
-которому искал:
+Путь в `templateUrl` и `styleUrl` отсчитывается от файла компонента. Если файл не читается, preload
+называет URL, компонент, код ошибки файловой системы (`ENOENT`, `EACCES`) и полный путь, по которому
+искал:
 
 ```text
-[vitest-auto-spy] cannot read "./greeting.component.html" referenced by src/app/greeting.component.ts: ENOENT at /project/src/app/greeting.component.html.
+[vitest-auto-spy] cannot read "./profile.component.html" referenced by src/app/profile.component.ts: ENOENT at /project/src/app/profile.component.html.
 The path resolves relative to the component file, not the project root; fix the templateUrl or styleUrl.
 ```
 
-## Как собрать собственный preload {#building-your-own-preload}
+## Что preload сбрасывает, а что оставляет вам {#what-the-preload-resets-and-what-it-leaves-to-you}
 
-Экспортируется каждая деталь, поэтому проект со своим preload может собрать их сам, а не брать значения по
-умолчанию:
+Спаям из `provideAutoSpy` ничего дополнительно не нужно. Каждый `TestBed` создаёт новые, а сброс после
+теста их выбрасывает.
 
-```ts
-// bun-preload.ts
-import { createJsdomRegistrar, inlineAngularResources, registerDomGlobals } from 'vitest-auto-spy/bun-angular';
+Preload сбрасывает тестовый модуль после каждого теста, и больше ничего. `bun:test` тоже ничего не
+восстанавливает. Это важно, если в спеках есть:
 
-await registerDomGlobals({
-  registrars: [createJsdomRegistrar({ load: () => import('jsdom'), target: globalThis, url: 'https://app.test/' })],
-});
-```
+- `spyOn` из Bun;
+- `mockValueProp` из библиотеки — он подменяет значение свойства. Отменяет его `restoreMockedProps()`.
 
-`registerDomGlobals` возвращает имя регистратора, который поставил DOM, либо `undefined`, если DOM уже
-был, и бросает ошибку со списком всех попыток, если не сработал ни один.
-
-Лежащий под ним шаг копирования, `copyWindowGlobals`, **называет тот обязательный глобальный объект,
-который хост отказался переопределить** — `document` и остальные четыре, без которых DOM бесполезен, — с
-исходной ошибкой рядом, вместо того чтобы дать прогону упасть позже с `document is not defined` в спеке,
-где не упомянут ни хелпер, ни свойство. Отказ по ключу вне этой пятёрки проходит молча: встроенный объект
-хоста, сохранивший свою реализацию, — задокументированный исход, а не проблема.
-
-### Что preload сбрасывает, а что оставляет вам {#what-the-preload-resets-and-what-it-leaves-to-you}
-
-Энтрипойнт сбрасывает тестовый модуль после каждого теста — и больше ничего. `bun:test` сам тоже ничего
-не восстанавливает: `spyOn` и патч `mockValueProp` переживают свой тест, а `setupAutoSpy()` работает
-только на Vitest (см. [Bun → Между тестами ничего не восстанавливается](/ru/runtimes/bun#nothing-is-restored-between-tests)).
-Тот же preload — место и для восстановления, и для любого `mock.module()`, который должен примениться
-до импорта кода под тестом:
+На Vitest всё это после каждого теста восстанавливает `setupAutoSpy()` из библиотеки. На Bun он не
+работает (см. [Bun → Между тестами ничего не восстанавливается](/ru/runtimes/bun#nothing-is-restored-between-tests)),
+поэтому добавьте второй файл preload с `afterEach`. Туда же кладите `mock.module()`: мок модуля должен
+примениться до импорта тестируемого кода. Путь в `mock.module()` считается от файла `bun-test-setup.ts`, как в обычном импорте.
 
 ```toml
 # bunfig.toml
@@ -169,22 +190,62 @@ afterEach(() => {
 });
 ```
 
-Спаям из `provideAutoSpy` ничего из этого не нужно: они строятся на каждый `TestBed`, и сброс после
-каждого теста их выбрасывает.
+## Как собрать собственный preload {#building-your-own-preload}
+
+Если в проекте уже есть свой preload, настройку можно собрать из экспортируемых частей вместо точки
+входа. Этот пример ставит только DOM:
+
+```ts
+// bun-preload.ts
+import { createJsdomRegistrar, inlineAngularResources, registerDomGlobals } from 'vitest-auto-spy/bun-angular';
+
+await registerDomGlobals({
+  registrars: [createJsdomRegistrar({ load: () => import('jsdom'), target: globalThis, url: 'https://app.test/' })],
+});
+```
+
+| Экспорт                                            | Что делает                                                                       |
+| -------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `registerDomGlobals({ registrars, hasDom })`       | пробует регистраторы по порядку и возвращает имя сработавшего (подробности ниже) |
+| `createJsdomRegistrar({ load, target, url })`      | регистратор на `jsdom`; `url` по умолчанию `http://localhost/`                   |
+| `createGlobalRegistratorRegistrar({ name, load })` | регистратор на `@happy-dom/global-registrator`                                   |
+| `copyWindowGlobals(source, target)`                | копирует глобальные объекты окна в `target`                                      |
+| `inlineAngularResources(source, path, options)`    | встраивает `templateUrl` / `styleUrl` / `styleUrls`; см. [Стили](#stylesheets)   |
+
+`registerDomGlobals` возвращает `undefined`, если DOM уже есть. Это решает `hasDom`; по умолчанию он
+проверяет `globalThis.document`. Если не сработал ни один регистратор, функция бросает ошибку со списком
+всех попыток.
+
+::: details Только для своего preload: что делает copyWindowGlobals
+`copyWindowGlobals` всегда перезаписывает пять глобальных объектов: `window`, `document`, `navigator`,
+`location` и `history`. Остальные копируются, только если в `target` их ещё нет. Если среда выполнения
+не даёт переопределить один из пяти, вы получите предупреждение с его именем и исходной ошибкой. Без
+предупреждения прогон упал бы позже с `document is not defined`. Если вы видите это предупреждение, поставьте preload, который поднимает DOM, первым в списке `preload`. Если среда не даёт переопределить другой глобальный объект, копирование молча его пропускает, и остаётся версия самой среды.
+:::
 
 ## О чём стоит знать {#limits-worth-knowing}
 
-- **Сигнальный `input()` не привязывается.** Bun компилирует компонент JIT-компилятором, а тот
-  заполняет `ɵcmp.inputs` только из `@Input()` — поля `input()` и `model()` туда не попадают, поэтому
-  `componentRef.setInput('step', 5)`, как и `inputs` у `renderShallow`, печатают `NG0303` и ничего не
-  устанавливают. Объявляйте вход, которым управляет спека под `bun:test`, через `@Input()` — или
-  оставьте такую спеку на точке входа Vitest, где Angular-плагин сборки компилирует компонент
-  заранее. `setInputs()` хотя бы падает с понятным сообщением, а не оставляет значение прежним.
-- **Подстановка текстовая, а не разбор кода.** Она пропускает комментарии и строковые литералы —
-  `templateUrl`, упомянутый в прозе, остаётся нетронутым, — но не отслеживает интерполяцию `${…}` и
-  регулярные литералы.
-- **Номера строк сохраняются.** Каждое встроенное значение — однострочный литерал, поэтому стек упавшей
-  спеки по-прежнему указывает на нужную строку самого компонента.
+- **Сигнальный `input()` не привязывается.** Под Bun Angular компилирует компоненты во время теста
+  (JIT), а этот компилятор регистрирует только поля с `@Input()`. Поэтому `componentRef.setInput('step', 5)`
+  и `inputs` у `renderShallow` печатают `NG0303` (ошибка Angular «не удалось привязать») и ничего не устанавливают в поле `input()` или
+  `model()`. Объявите такой вход через `@Input()` или оставьте эту спеку на Vitest: там плагин сборки
+  Angular компилирует компонент заранее. Хелпер библиотеки `setInputs()` упирается в то же ограничение, но бросает ошибку с именем входа, а не молчит.
+- **Встраивание — замена текста, а не разбор кода.** `templateUrl`, который стоит внутри комментария или внутри другой строки, остаётся как есть. Интерполяция `${…}` или литерал регулярного выражения может сбить эту замену. Если шаблон не загрузился, поищите их рядом с декоратором `@Component`.
+- **Номера строк не меняются.** Каждое встроенное значение — однострочный литерал, поэтому стек ошибки
+  указывает на нужную строку компонента.
 - **`node_modules` пропускается.** Опубликованные Angular-библиотеки уже скомпилированы.
-- **Эта точка входа — только ESM.** Она ждёт свой регистратор DOM на верхнем уровне, а у этого нет формы
-  для CommonJS. Bun выполняет ESM нативно, так что ничего не теряется.
+- **Точка входа — только ESM.** Она ждёт DOM через `await` на верхнем уровне, а в CommonJS так нельзя.
+  Bun выполняет ESM напрямую, так что вы ничего не теряете.
+
+## Подробнее {#in-depth}
+
+### Зачем Angular на Bun нужен preload {#why-bun-needs-a-preload-for-angular}
+
+У Angular нет интеграции с `bun test`. Не хватает двух вещей, и любая из них ломает каждую спеку
+компонента:
+
+1. **Нет DOM.** В Bun его нет, а всё, начиная с `platformBrowserTesting()`, читает `document`.
+2. **Шаблоны не загружаются.** `@Component({ templateUrl: './x.html' })` — не импорт, поэтому HTML-файл
+   никто не загружает. Тогда компилятор Angular отказывается собирать компонент
+   (_«Component X is not resolved»_). На Vitest `@analogjs/vite-plugin-angular` встраивает шаблон, пока
+   преобразует файл. У Bun такого шага нет, поэтому это делает preload.
