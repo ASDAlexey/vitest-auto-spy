@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PerfFile, PerfRun } from '../perf-data';
 import { GATE_DEFAULTS } from '../perf-gate';
 import { bodiesOverBudget, filesOverBudget, formatHotspots, nothingOverBudgetNote } from './perf-hotspots';
+import { SIX_SECONDS_TWO_TESTS } from './perf-hotspots.mock';
 
 const ROOT = '/repo';
 
@@ -95,9 +96,9 @@ describe('filesOverBudget', () => {
   it('breaks a tie on the path, and leaves out a file outside the repository or one the gate does not judge', () => {
     const mixed = run([
       ...ordinary(),
-      file('libs/b.spec.ts', { tests: 6_000, testCount: 2 }),
-      file('libs/a.spec.ts', { tests: 6_000, testCount: 2 }),
-      file('apps/c.spec.ts', { tests: 6_000, testCount: 2 }),
+      file('libs/b.spec.ts', SIX_SECONDS_TWO_TESTS),
+      file('libs/a.spec.ts', SIX_SECONDS_TWO_TESTS),
+      file('apps/c.spec.ts', SIX_SECONDS_TWO_TESTS),
       { ...file('ignored'), file: '/elsewhere/other.spec.ts', tests: 9_000, testCount: 3 },
     ]);
 
