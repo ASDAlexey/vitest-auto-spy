@@ -24,7 +24,7 @@ function nodeMock(spy: unknown): NodeMockContext {
 }
 
 function displayNameOf(spy: unknown): unknown {
-  return Reflect.get(Object(spy), 'displayName');
+  return (spy as { displayName?: unknown }).displayName;
 }
 
 function messageOf(assertion: () => void): string {

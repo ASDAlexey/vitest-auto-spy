@@ -19,13 +19,24 @@
  * long after the adapter was built — see {@link createSwappableNodeTracker}.
  * Nothing changes until a suite asks for it.
  */
-import { afterEach, mock } from 'node:test';
+import { afterEach, beforeEach, mock } from 'node:test';
 
 import { registerMockAdapter } from './lib/mock-adapter';
 import { createNodeMockAdapter } from './lib/node-adapter';
 import { createSwappableNodeTracker } from './lib/node-mock-tracker';
+import { registerRunnerHooks } from './lib/runner-hooks';
 
 registerMockAdapter(createNodeMockAdapter(createSwappableNodeTracker({ mock, afterEach })));
+registerRunnerHooks({ beforeEach, afterEach });
 
 export * from './auto-spy';
 export { countNodeMocks, pruneNodeMocks, trackNodeMocks, type StopTrackingNodeMocks } from './lib/node-mock-tracker';
+// `/nestjs` loads here too; this spares a Nest suite on `node --test` the second import.
+export {
+  createNestUnit,
+  type CreateNestUnitOptions,
+  type NestUnit,
+  type NestUnitClass,
+  type NestUnitProvider,
+  type NestUnitSpies,
+} from './lib/nest-unit';
