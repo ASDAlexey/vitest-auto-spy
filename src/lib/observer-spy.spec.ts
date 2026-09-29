@@ -11,6 +11,7 @@
 import { EMPTY, Subject, of, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 
+import { advanceTimers, withFakeTimers } from './fake-timers';
 import { ObserverSpy, subscribeSpyTo } from './observer-spy';
 
 describe('subscribeSpyTo', () => {
@@ -175,6 +176,57 @@ describe('subscribeSpyTo', () => {
       );
       await expect(spy.onError()).rejects.toThrow(/can never resolve/);
     });
+
+    it('rejects an awaited onComplete after its timeout, naming expectCompletion', async () => {
+      const source$ = new Subject<number>();
+      const spy = subscribeSpyTo(source$);
+      const pending = spy.onComplete({ timeout: 5 });
+
+      source$.next(1);
+
+      await expect(pending).rejects.toThrow(
+        /onComplete\(\{ timeout: 5 \}\): the observable has not ended within 5 ms \(1 value\(s\) received\)[\s\S]*expectCompletion\(source\$\)/,
+      );
+
+      const later = spy.onComplete();
+
+      source$.complete();
+      await expect(later).resolves.toBeUndefined();
+    });
+
+    it('rejects an awaited onError after its timeout, naming expectError', async () => {
+      const spy = subscribeSpyTo(new Subject<number>());
+
+      await expect(spy.onError({ timeout: 5 })).rejects.toThrow(/onError\(\{ timeout: 5 \}\)[\s\S]*expectError\(source\$\)/);
+    });
+
+    it('clears the timeout once the stream ends either way', async () => {
+      const completing$ = new Subject<number>();
+      const completed = subscribeSpyTo(completing$);
+      const done = completed.onComplete({ timeout: 10_000 });
+      const erroring$ = new Subject<number>();
+      const errored = subscribeSpyTo(erroring$, { expectErrors: true });
+      const wrongWay = errored.onComplete({ timeout: 10_000 });
+
+      completing$.complete();
+      erroring$.error(new Error('boom'));
+
+      await expect(done).resolves.toBeUndefined();
+      await expect(wrongWay).rejects.toThrow(/can never resolve/);
+    });
+
+    it('waits for good on a timeout of 0 or Infinity', () =>
+      withFakeTimers(async () => {
+        const source$ = new Subject<number>();
+        const spy = subscribeSpyTo(source$);
+        const zero = spy.onComplete({ timeout: 0 });
+        const forever = spy.onComplete({ timeout: Infinity });
+
+        await advanceTimers(60_000);
+        source$.complete();
+
+        await expect(Promise.all([zero, forever])).resolves.toStrictEqual([undefined, undefined]);
+      }));
 
     it('leaves a callback alone, as upstream does', () => {
       const source$ = new Subject<number>();

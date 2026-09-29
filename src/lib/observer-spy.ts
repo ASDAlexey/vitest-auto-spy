@@ -30,6 +30,7 @@ import type { Observable, Subscription } from 'rxjs';
 
 import { DISPOSE } from './dispose-symbol';
 import { DOCS_RXJS, withDocs } from './message-link';
+import { unpatchedClearTimeout as clearTimer, unpatchedSetTimeout as setTimer } from './unpatched-timers';
 
 /** Upstream's one configuration flag. */
 export interface ObserverSpyConfig {
@@ -40,6 +41,15 @@ export interface ObserverSpyConfig {
    * it, at the line that asked. See the note on {@link ObserverSpy.error}.
    */
   expectErrors: boolean;
+}
+
+/** Options for the promise forms of {@link ObserverSpy.onComplete} and {@link ObserverSpy.onError}. */
+export interface ObserverSpyWaitOptions {
+  /**
+   * Real milliseconds to wait before rejecting, so a stream that never ends fails the test instead
+   * of hanging it. `0` or `Infinity` waits for good, as upstream does. Default: no timeout.
+   */
+  timeout?: number;
 }
 
 /**
@@ -67,6 +77,19 @@ function endedOtherwise(waitedFor: 'an error' | 'completion', happened: string):
       `[vitest-auto-spy] this spy's observable ${happened}, so the promise from ${waitedFor === 'completion' ? 'onComplete()' : 'onError()'} ` +
         `can never resolve: ${waitedFor} is not coming. Read receivedComplete() / receivedError(), or await ` +
         '`expectCompletion(source$)` / `expectError(source$)`, which fail with a message naming the stream.',
+      DOCS_RXJS,
+    ),
+  );
+}
+
+function notEndedInTime(waitedFor: 'an error' | 'completion', timeout: number, emitted: number): Error {
+  const [call, helper] = waitedFor === 'completion' ? ['onComplete', 'expectCompletion'] : ['onError', 'expectError'];
+
+  return new Error(
+    withDocs(
+      `[vitest-auto-spy] ${call}({ timeout: ${timeout} }): the observable has not ended within ${timeout} ms ` +
+        `(${emitted} value(s) received), and ${waitedFor} never came. End it upstream (\`take\` / \`takeUntil\`), or await ` +
+        `\`${helper}(source$)\`, which waits the same way and names the stream.`,
       DOCS_RXJS,
     ),
   );
@@ -166,21 +189,22 @@ export class ObserverSpy<T> {
    * Resolves (or invokes `callback`) when the stream completes — immediately if it already has.
    *
    * The promise form **rejects** on a stream that errored instead: the completion it is waiting for
-   * is not coming, and a promise that can only hang reports the file rather than the stream.
+   * is not coming, and a promise that can only hang reports the file rather than the stream. Pass
+   * `{ timeout }` to reject a stream that never ends at all.
    */
-  onComplete(): Promise<void>;
+  onComplete(options?: ObserverSpyWaitOptions): Promise<void>;
   onComplete(callback: () => void): void;
-  onComplete(callback?: () => void): Promise<void> | void {
-    return this.#settle(this.#receivedComplete, this.#onCompleteCallbacks, callback, () =>
+  onComplete(callbackOrOptions?: ObserverSpyWaitOptions | (() => void)): Promise<void> | void {
+    return this.#settle(this.#receivedComplete, this.#onCompleteCallbacks, callbackOrOptions, 'completion', () =>
       this.#receivedError ? endedOtherwise('completion', this.#errored()) : undefined,
     );
   }
 
-  /** Resolves when the stream errors — immediately if it already has; rejects once it completes instead. */
-  onError(): Promise<void>;
+  /** Resolves when the stream errors — immediately if it already has; rejects once it completes instead, or after `{ timeout }`. */
+  onError(options?: ObserverSpyWaitOptions): Promise<void>;
   onError(callback: () => void): void;
-  onError(callback?: () => void): Promise<void> | void {
-    return this.#settle(this.#receivedError, this.#onErrorCallbacks, callback, () =>
+  onError(callbackOrOptions?: ObserverSpyWaitOptions | (() => void)): Promise<void> | void {
+    return this.#settle(this.#receivedError, this.#onErrorCallbacks, callbackOrOptions, 'an error', () =>
       this.#receivedComplete ? endedOtherwise('an error', this.#completed()) : undefined,
     );
   }
@@ -189,10 +213,13 @@ export class ObserverSpy<T> {
   #settle(
     alreadyHappened: boolean,
     queue: Waiter[],
-    callback: (() => void) | undefined,
+    callbackOrOptions: ObserverSpyWaitOptions | (() => void) | undefined,
+    waitedFor: 'an error' | 'completion',
     endedOtherWay: () => Error | undefined,
   ): Promise<void> | void {
-    if (callback) {
+    if (typeof callbackOrOptions === 'function') {
+      const callback = callbackOrOptions;
+
       if (alreadyHappened) {
         callback();
       } else {
@@ -208,11 +235,35 @@ export class ObserverSpy<T> {
 
     const missed = endedOtherWay();
 
-    return missed
-      ? Promise.reject(missed)
-      : new Promise<void>((resolve, reject) => {
-          queue.push({ settle: resolve, fail: reject });
-        });
+    if (missed) {
+      return Promise.reject(missed);
+    }
+
+    const timeout = callbackOrOptions?.timeout ?? 0;
+
+    return new Promise<void>((resolve, reject) => {
+      const waiter: Waiter = { settle: resolve, fail: reject };
+
+      queue.push(waiter);
+
+      if (!Number.isFinite(timeout) || timeout <= 0) {
+        return;
+      }
+
+      const timer = setTimer(() => {
+        queue.splice(queue.indexOf(waiter), 1);
+        reject(notEndedInTime(waitedFor, timeout, this.#values.length));
+      }, timeout);
+
+      waiter.settle = (): void => {
+        clearTimer(timer);
+        resolve();
+      };
+      waiter.fail = (error): void => {
+        clearTimer(timer);
+        reject(error);
+      };
+    });
   }
 
   getValuesLength(): number {
