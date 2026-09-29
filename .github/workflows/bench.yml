@@ -63,6 +63,7 @@ jobs:
       # A minute here rather than ten below: if the harness itself is broken, every measurement step
       # after this one is broken too, and this says so with a message about the harness.
       - name: Smoke-test the benchmark harness
+        id: smoke
         run: npm run bench:smoke
 
       # The competitors declare `vitest` as a peer, and `bench/.npmrc` is what stops npm installing a
@@ -95,25 +96,34 @@ jobs:
       # p75 here swings tens of percent between runs of identical code. `bench:check` compares each
       # arm against a reference arm measured in the same run, which cancels the machine out. The
       # committed baseline covers the self-comparison cases, so this needs its own measurement pass —
-      # it is the cheap one, and it needs no competitor install.
+      # it is the cheap one, and it needs no competitor install. The gates run even when the head-to-head
+      # fails: from 2026-09-19 on it ran out of heap every run and took both gates down with it.
       - name: Run the self-comparison benchmark
+        if: ${{ !cancelled() && steps.smoke.outcome == 'success' }}
         run: npm run bench -- --json bench-results.self.json --no-memory
 
       # Report-only on purpose: the first runs are calibrating the baseline rather than catching
       # regressions, and this must not turn the workflow red until those ratios have settled. Add
       # `--strict` once they have.
       - name: Compare against the committed baseline
+        if: ${{ !cancelled() && steps.smoke.outcome == 'success' }}
         run: npm run bench:check -- bench-results.self.json >> "$GITHUB_STEP_SUMMARY"
 
       - name: Type-check the Angular benchmark
+        if: ${{ !cancelled() && steps.smoke.outcome == 'success' }}
         run: npm run typecheck:bench-angular
 
       # Five passes, not one: a single pass of this benchmark flaps by 20-30 % and produces false
-      # failures. Report-only, like the self-comparison gate above.
+      # failures.
       - name: Run the Angular render benchmark
+        if: ${{ !cancelled() && steps.smoke.outcome == 'success' }}
         run: npm run bench:angular -- --repeat 5 --json bench-results.angular.json
 
+      # Report-only, and not for noise: run to run on one machine stays well inside the limit. The
+      # baseline is measured on a laptop, and this runner's ratios differ by up to 1.75x at 400
+      # children, so `--strict` here would fail every run. See bench-angular/README.md, "The gate".
       - name: Compare against the Angular baseline
+        if: ${{ !cancelled() && steps.smoke.outcome == 'success' }}
         run: npm run bench:check -- bench-results.angular.json --baseline bench-angular/baseline.json >> "$GITHUB_STEP_SUMMARY"
 
       # `always()`: a mid-run failure still leaves the passes that did complete, and those

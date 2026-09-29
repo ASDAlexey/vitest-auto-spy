@@ -38,20 +38,17 @@
  *   created the mocks, which is the honest place for it — and it is charged identically to every
  *   contender, since they all build their doubles out of the runner's mock.
  */
-import { createRequire } from 'node:module';
-
-import { test, vi } from 'vitest';
-
 import { createSpyFromClass as hirezCreateSpyFromClass } from '@bugsplat/vitest-auto-spies';
 import { createMock as golevelupCreateMock } from '@golevelup/ts-vitest';
+import { createRequire } from 'node:module';
+import { test, vi } from 'vitest';
 import { mock as vmxMock, mockDeep as vmxMockDeep } from 'vitest-mock-extended';
-
-import { installRunnerGlobals } from './runner-globals';
 
 // The public entry, not `src/lib/*` — so the default Vitest mock adapter registers as a side
 // effect, exactly as it does for a consumer.
 import { createAutoMock, createSpyFromClass, mockDeep } from '../src/index';
 import { captureMockRegistry, pruneMockRegistry } from '../src/setup';
+import { installRunnerGlobals } from './runner-globals';
 
 // Captured once at module scope: the capture patches `Set.prototype.forEach` for the length of one
 // `vi.clearAllMocks()`, far too expensive to repeat per iteration.
@@ -410,6 +407,30 @@ test('any size — configure a return + 3 calls, double from a type', async ({ b
 // nothing here allocates a mock and there is nothing to prune — the number is pure dispatch.
 // Two configured argument sets and one miss, which is the shape a real spec produces.
 // ---------------------------------------------------------------------------------------------
+
+/**
+ * {@link DRAIN}, plus `vi.clearAllMocks()` every `every` iterations.
+ *
+ * The doubles below live for the whole file, so every call they record stays: at `--precise`
+ * scale the three arms hold about 5 GB and the run dies on a 4 GB heap. The clear runs in the
+ * same untimed `afterEach`, on every arm alike, and keeps the `calledWith` configuration.
+ */
+function clearEvery(every: number): () => Promise<void> | undefined {
+  let seen = 0;
+
+  return () => {
+    seen += 1;
+
+    if (seen % every === 0) {
+      vi.clearAllMocks();
+    }
+
+    return DRAIN.afterEach();
+  };
+}
+
+const DISPATCH_DRAIN = { afterEach: clearEvery(10_000) };
+
 const ours = createSpyFromClass(DISPATCH);
 ours.m2.calledWith(1).mockReturnValue(11);
 ours.m2.calledWith(2).mockReturnValue(22);
@@ -424,17 +445,17 @@ vmx.m2.calledWith(2).mockReturnValue(22);
 
 test('any size — calledWith dispatch, 2 configured, 1 miss', async ({ bench }) => {
   await bench.compare(
-    bench('vitest-auto-spy', DRAIN, () => {
+    bench('vitest-auto-spy', DISPATCH_DRAIN, () => {
       ours.m2(1);
       ours.m2(2);
       ours.m2(3);
     }),
-    bench('@bugsplat/vitest-auto-spies', DRAIN, () => {
+    bench('@bugsplat/vitest-auto-spies', DISPATCH_DRAIN, () => {
       hirez.m2(1);
       hirez.m2(2);
       hirez.m2(3);
     }),
-    bench('vitest-mock-extended', DRAIN, () => {
+    bench('vitest-mock-extended', DISPATCH_DRAIN, () => {
       vmx.m2(1);
       vmx.m2(2);
       vmx.m2(3);

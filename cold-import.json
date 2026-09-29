@@ -1,120 +1,116 @@
 {
-  "measuredOn": "2026-09-28",
-  "node": "v24.19.0",
-  "tolerance": {
-    "ratio": 0.02,
-    "minModuleSlack": 1
-  },
   "entries": {
     ".": {
       "modules": 2,
-      "bytes": 184777
+      "bytes": 198982
     },
     "./angular": {
       "modules": 3,
-      "bytes": 245031
+      "bytes": 269473
     },
     "./angular-http": {
-      "modules": 8,
-      "bytes": 32656
+      "modules": 10,
+      "bytes": 34939
     },
     "./angular-router": {
-      "modules": 9,
-      "bytes": 88221
+      "modules": 10,
+      "bytes": 94085
     },
     "./angular/diagnostics": {
-      "modules": 14,
-      "bytes": 144585
+      "modules": 15,
+      "bytes": 161014
     },
     "./angular/doubles": {
-      "modules": 14,
-      "bytes": 97408
+      "modules": 18,
+      "bytes": 163419
     },
     "./angular/matchers": {
-      "modules": 5,
-      "bytes": 23960
+      "modules": 6,
+      "bytes": 25933
     },
     "./bun": {
-      "modules": 15,
-      "bytes": 177220
+      "modules": 18,
+      "bytes": 197540
     },
     "./bun-angular": {
-      "modules": 19,
-      "bytes": 215448
+      "modules": 22,
+      "bytes": 243186
     },
     "./console": {
-      "modules": 13,
-      "bytes": 93970
+      "modules": 14,
+      "bytes": 106747
     },
     "./diagnostics": {
       "modules": 2,
-      "bytes": 23704
+      "bytes": 23793
     },
     "./dom-stubs": {
       "modules": 2,
-      "bytes": 56332
+      "bytes": 73802
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 260521
+      "bytes": 295436
     },
     "./jasmine": {
-      "modules": 16,
-      "bytes": 150096
+      "modules": 18,
+      "bytes": 165440
     },
     "./jasmine-compat": {
       "modules": 5,
-      "bytes": 23068
+      "bytes": 23991
     },
     "./nestjs": {
-      "modules": 15,
-      "bytes": 139980
+      "modules": 16,
+      "bytes": 154002
     },
     "./node": {
       "modules": 2,
-      "bytes": 167649
+      "bytes": 183744
     },
     "./observer-spy": {
-      "modules": 3,
-      "bytes": 8278
+      "modules": 4,
+      "bytes": 10115
     },
     "./perf-reporter": {
       "modules": 1,
-      "bytes": 9967
+      "bytes": 14507
     },
     "./react": {
       "modules": 3,
-      "bytes": 185871
+      "bytes": 200098
     },
     "./rstest": {
-      "modules": 15,
-      "bytes": 194007
+      "modules": 17,
+      "bytes": 210120
     },
     "./rxjs": {
       "modules": 6,
-      "bytes": 30331
+      "bytes": 31469
     },
     "./setup": {
       "modules": 2,
-      "bytes": 167218
+      "bytes": 178869
     },
     "./signal-forms": {
-      "modules": 3,
-      "bytes": 13555
+      "modules": 4,
+      "bytes": 15236
     },
     "./svelte": {
       "modules": 3,
-      "bytes": 185872
+      "bytes": 200099
     },
     "./vue": {
       "modules": 3,
-      "bytes": 186087
+      "bytes": 200314
     },
     "./zone": {
       "modules": 3,
-      "bytes": 13802
+      "bytes": 15138
     }
   },
+  "measuredOn": "2026-09-29",
+  "node": "v24.19.0",
   "released": {
     "version": "5.50.0",
     "entries": {
@@ -227,5 +223,9 @@
         "bytes": 13802
       }
     }
+  },
+  "tolerance": {
+    "ratio": 0.02,
+    "minModuleSlack": 1
   }
 }
