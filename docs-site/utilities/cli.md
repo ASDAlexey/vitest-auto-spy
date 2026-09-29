@@ -680,6 +680,11 @@ vitest-auto-spy` in its frontmatter is an old copy of the shipped skill. `init` 
 `unchanged` under `--check` and `updated` under `--dry-run`, with the note _only the version stamp
 differs_. A plain `init` refreshes the stamp the next time it has another reason to write.
 
+**Files git ignores.** If a file `init` created or updated is ignored and not tracked (listed in
+`.git/info/exclude` or a global excludes file, say), its row ends with _not tracked by git, so
+`git diff` will not show this change_. Without that note an empty `git diff` reads as "nothing
+changed".
+
 **All or nothing.** Each file is written to a temporary file and renamed into place. If one write
 fails, the files already written are put back (or removed, if `init` created them). The failed file is
 listed as `failed`, the others as `skipped` (`rolled back — <path> could not be written`), and `init`
