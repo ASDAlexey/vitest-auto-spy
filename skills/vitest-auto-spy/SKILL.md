@@ -501,7 +501,7 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The fifty-six rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The fifty-seven rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —
@@ -540,6 +540,8 @@ with `createMock<…>()`. A value outside the declared type on purpose keeps the
 `// eslint-disable-next-line vitest-auto-spy/no-ts-expect-error-on-double -- <why>`.
 `no-constant-expect` reports `expect(true).toBe(true)` and its relatives — assert on what the code
 produced, or `expect.fail(…)` for a branch the test must not reach.
+`no-inline-test-data` (`warn`) reports a data literal over 20 lines, or the same literal three times
+in one spec — export it once from `<name>.mock.ts` next to the spec and import it there.
 `no-redundant-smoke-test` reports the generated `it('should create', () => expect(x).toBeTruthy())`
 where the block — its nested `describe`s counted — already has tests that run the same `beforeEach`:
 they fail first on a subject that came back nullish, and say what they were doing. Delete it; keep it

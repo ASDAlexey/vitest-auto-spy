@@ -1,6 +1,6 @@
 ---
 title: ESLint-плагин
-description: Пятьдесят шесть правил линтера для спек-файлов. Они ловят тесты, которые проходят, ничего не проверяя, подмены, которые отстают от настоящего класса, и настройку, которая утекает между тестами. Flat config, входит в пакет.
+description: Пятьдесят семь правил линтера для спек-файлов. Они ловят тесты, которые проходят, ничего не проверяя, подмены, которые отстают от настоящего класса, и настройку, которая утекает между тестами. Flat config, входит в пакет.
 ---
 
 # ESLint-плагин
@@ -48,8 +48,8 @@ export default [
 
 | Конфиг                | Что включает                                     | Когда брать                                                                                                   |
 | --------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `configs.recommended` | все 56 правил: 45 на `error`, 11 на `warn`       | вы начинаете работать с плагином; это вариант по умолчанию                                                    |
-| `configs.strict`      | все 56 правил на `error`                         | ваши спеки чисты, и любая находка должна останавливать сборку                                                 |
+| `configs.recommended` | все 57 правил: 45 на `error`, 12 на `warn`       | вы начинаете работать с плагином; это вариант по умолчанию                                                    |
+| `configs.strict`      | все 57 правил на `error`                         | ваши спеки чисты, и любая находка должна останавливать сборку                                                 |
 | `configs.typeErrors`  | `prefer-as-spy` и `no-mocked-for-spy` на `error` | вместе с `recommended`, в [рецепте для большого проекта](#land-it-on-a-large-existing-suite-without-a-red-ci) |
 
 Оба правила из `typeErrors` уже стоят на `error` в `recommended`. `typeErrors` нужен только в рецепте,
@@ -113,7 +113,7 @@ languageOptions: {
 На существующем проекте первый прогон, скорее всего, будет красным. Сорок пять правил стоят на
 `error`, и так задумано.
 
-Одиннадцать правил стоят на `warn`. Они попадают в вывод, но не валят сборку:
+Двенадцать правил стоят на `warn`. Они попадают в вывод, но не валят сборку:
 
 - **Цена, а не дефект:** [`prefer-render-shallow`](/ru/utilities/eslint-rules#prefer-render-shallow).
 - **Правило судит по догадке из одного файла:**
@@ -124,7 +124,8 @@ languageOptions: {
   [`prefer-create-mock`](/ru/utilities/eslint-rules#prefer-create-mock),
   [`prefer-set-inputs`](/ru/utilities/eslint-rules#prefer-set-inputs),
   [`no-unasserted-argument`](/ru/utilities/eslint-rules#no-unasserted-argument),
-  [`no-real-wait-in-test`](/ru/utilities/eslint-rules#no-real-wait-in-test).
+  [`no-real-wait-in-test`](/ru/utilities/eslint-rules#no-real-wait-in-test),
+  [`no-inline-test-data`](/ru/utilities/eslint-rules#no-inline-test-data).
 - **Более короткое или понятное написание корректного кода:**
   [`prefer-spy-on-own-method`](/ru/utilities/eslint-rules#prefer-spy-on-own-method),
   [`prefer-to-have-signal-value`](/ru/utilities/eslint-rules#prefer-to-have-signal-value).
@@ -156,7 +157,7 @@ npx eslint . --format stylish | tail -30   # в сводке видно, как�
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | пишете на Vitest, никогда не трогали Jasmine или Jest | работают 52 основных правила; четыре правила про Jasmine никогда не срабатывают                          |
 | переезжаете с `jest-auto-spies` / Jest                | работу делают основные правила; больше всего ловят `no-done-callback` и `prefer-as-spy`                  |
-| переезжаете с `jasmine-auto-spies`                    | все 56 правил; поставьте `prefer-native-spy-api` в `'off'`, пока не уберёте слой совместимости с Jasmine |
+| переезжаете с `jasmine-auto-spies`                    | все 57 правил; поставьте `prefer-native-spy-api` в `'off'`, пока не уберёте слой совместимости с Jasmine |
 
 ### Если вы никогда не пользовались Jasmine {#if-you-never-used-jasmine}
 
@@ -218,7 +219,7 @@ export default [
 
 ### Если вы приходите из Jasmine {#if-you-are-coming-from-jasmine}
 
-Касаются все 56 правил, а четыре правила про Jasmine написаны прямо для вас:
+Касаются все 57 правил, а четыре правила про Jasmine написаны прямо для вас:
 
 - `no-jasmine-globals` и `no-save-arguments-by-value` сообщают о поведении, которое молча меняется
   после переименования.
@@ -281,7 +282,7 @@ export default [
 
 Прежде чем понижать всё, посмотрите, что на самом деле в первом прогоне:
 
-- Одиннадцать правил на `warn` и так дают предупреждения. На проекте с компонентами
+- Двенадцать правил на `warn` и так дают предупреждения. На проекте с компонентами
   `prefer-render-shallow` часто самое громкое правило, так что проверьте, какую часть первого
   прогона даёт оно.
 - `no-compile-components`, `no-redundant-mock-reset` и `no-relative-mock-under-builder` молчат, пока
@@ -520,6 +521,7 @@ export default [
 | [`no-redundant-smoke-test`](/ru/utilities/eslint-rules#no-redundant-smoke-test)           | `it('should create', () => expect(pipe).toBeTruthy())` рядом с тестами, которые уже создают субъект → удалить            | `error`      | подсказка |  зелено  |
 | [`prefer-settle-dynamic-import`](/ru/utilities/eslint-rules#prefer-settle-dynamic-import) | `await import('./thing')` в теле теста → `await settleDynamicImport(() => import('./thing'))`                            | `error`      | подсказка |  зелено  |
 | [`no-real-wait-in-test`](/ru/utilities/eslint-rules#no-real-wait-in-test)                 | `await new Promise((r) => setTimeout(r, 300))`: настоящий сон → `advanceTimers(300)` или `vi.waitFor(…)`                 | `warn`       | —         |  зелено  |
+| [`no-inline-test-data`](/ru/utilities/eslint-rules#no-inline-test-data)                   | фикстура на 20 строк или один объект три раза в спеке → экспорт из файла `*.mock.ts`                                     | `warn`       | —         |    —     |
 | [`no-self-called-spy`](/ru/utilities/eslint-rules#no-self-called-spy)                     | тест сам вызывает метод под спаем, а потом проверяет, что его вызвали → вызовите настоящий триггер                       | `error`      | —         |  зелено  |
 | [`no-unasserted-argument`](/ru/utilities/eslint-rules#no-unasserted-argument)             | голый `toHaveBeenCalled()` там, где по файлу видно, что важны аргументы → `toHaveBeenCalledWith(…)`                      | `warn`       | —         |    —     |
 
@@ -618,7 +620,7 @@ export default [
 
 ## Какие правила чинят и почему их так мало {#which-rules-fix-and-why-so-few}
 
-Восемь из 56 правил переписывают код под `--fix`. Девятнадцать предлагают правку как подсказку в
+Восемь из 57 правил переписывают код под `--fix`. Девятнадцать предлагают правку как подсказку в
 редакторе, которую вы принимаете вручную: у четырёх из них для некоторых форм есть и `--fix` (в
 таблице ниже), а пятнадцать предлагают только подсказку. Граница зависит от того, чего стоит ошибочная догадка, а не
 от того, насколько сложна правка.
@@ -690,7 +692,7 @@ export default [
 ошибки компиляции.
 
 Эта колонка — доказательство, а не уровень серьёзности. Конфиг не выводит из неё серьёзность: насколько
-громкой должна быть находка, решает ваш проект. Одиннадцать правил на `warn` выбраны по другим
+громкой должна быть находка, решает ваш проект. Двенадцать правил на `warn` выбраны по другим
 признакам, перечисленным в разделе [Как выглядит первый прогон](#_4-what-the-first-run-looks-like).
 
 Четыре правила про Jasmine так не проверяли: их предмет — миграция, а не поведение раннера. Два из них

@@ -123,7 +123,7 @@ rather than explain behaviour, live here.
   `MockInstance<Method>`, the runner's own type, which nothing this package wraps can reach.
 - **Why eleven ESLint rules are `warn` and the rest `error`.** The config used to be a graded mix of
   `error` / `warn` / `off`, which decided for the consumer how much each finding mattered, and a
-  `warn` nothing reads is `off` with extra output. So the eleven `warn`s are not about how much a
+  `warn` nothing reads is `off` with extra output. So the twelve `warn`s are not about how much a
   finding matters; each is graded on something else:
   - _the kind of finding_ — `prefer-render-shallow` names a file that could render more cheaply, not
     something wrong or dead. At `error` it would gate a migration (491 findings across 398 of one

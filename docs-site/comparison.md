@@ -663,7 +663,7 @@ it:
   keeps only mocks that outlive a file. Under `isolate: false` that `Set` makes `clearMocks` slower
   with every test. It also keeps a whole run's recorded arguments, and the component trees behind
   them, alive in one worker.
-- [Fifty-six ESLint rules](/utilities/eslint-plugin), versioned together with the API they
+- [Fifty-seven ESLint rules](/utilities/eslint-plugin), versioned together with the API they
   recommend, and [`setupAutoSpy()`](/utilities/setup) for the cleanup a shared test environment
   needs.
 - [Per-file `TestBed` diagnostics](/adapters/angular#where-a-spec-spends-its-time): which specs

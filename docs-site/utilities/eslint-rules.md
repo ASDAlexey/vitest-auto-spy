@@ -36,7 +36,7 @@ Each section below follows the same order:
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## The fifty-six rules {#the-twenty-five-rules}
+## The fifty-seven rules {#the-twenty-five-rules}
 
 The rules are grouped by subject, as on the [plugin page](/utilities/eslint-plugin#rules). Every
 rule is `error` except eleven.
@@ -54,6 +54,7 @@ rule is `error` except eleven.
 | [`prefer-to-have-signal-value`](#prefer-to-have-signal-value)           | `warn`  | `expect(signal()).toBe(…)` — the value read inline, the signal's name lost from the failure                                                                |
 | [`prefer-settle-dynamic-import`](#prefer-settle-dynamic-import)         | `error` | `await import('…')` in a test body — it waits for the module, not for the code under test                                                                  |
 | [`no-real-wait-in-test`](#no-real-wait-in-test)                         | `warn`  | `new Promise((r) => setTimeout(r, N))` — a sleep on the real clock                                                                                         |
+| [`no-inline-test-data`](#no-inline-test-data)                           | `warn`  | a data literal over 20 lines, or the same literal written three times in one file                                                                          |
 | [`no-unasserted-argument`](#no-unasserted-argument)                     | `warn`  | a bare `toHaveBeenCalled()` where the file itself shows the arguments are what the test is about                                                           |
 | [`prefer-create-mock`](#prefer-create-mock)                             | `warn`  | an object literal under `as SomeType` — a cast passes an excess key and a missing one                                                                      |
 | [`no-mock-cast`](#no-mock-cast)                                         | `error` | `TestBed.inject(S).m as Mock` — `Mock` is `Mock<any>`, so the arguments stop being compared                                                                |
@@ -1904,6 +1905,72 @@ once, where it is defined.
 **Severity.** `warn`, graded on the fix, not the finding. The sleep on the real clock is exact. But
 the fix is a move onto fake timers, which changes every timer the test runs. That is a migration you
 take file by file, like [`prefer-set-inputs`](#prefer-set-inputs).
+:::
+
+## no-inline-test-data
+
+**`warn`** · no fix · syntax only
+
+Reports test data written inline in a spec: one literal longer than 20 lines, or the same literal
+written three times or more. Move it to a `*.mock.ts` file next to the spec and import it. The test
+then shows what it checks, and one edit updates every test that uses the value.
+
+```ts
+// order.service.spec.ts
+service.save({ id: 1, status: 'paid' });
+expect(api.post).toHaveBeenCalledWith({ id: 1, status: 'paid' });
+expect(store.last()).toEqual({ id: 1, status: 'paid' }); // ❌ the third copy of the same order
+```
+
+```ts
+// order.mock.ts
+export const PAID_ORDER: Order = { id: 1, status: 'paid' };
+
+// order.service.spec.ts
+import { PAID_ORDER } from './order.mock';
+
+service.save(PAID_ORDER);
+expect(api.post).toHaveBeenCalledWith(PAID_ORDER); // ✅ one value, one place to change it
+```
+
+**Options.**
+
+| Option      | Type     | Default | Meaning                                                                         |
+| ----------- | -------- | ------- | ------------------------------------------------------------------------------- |
+| `maxLines`  | `number` | `20`    | a data literal longer than this is reported, repeated or not                    |
+| `repeats`   | `number` | `3`     | how many copies of the same literal in one file are reported                    |
+| `minValues` | `number` | `2`     | how many values a literal needs before its copies count; `1` counts `{ id: 1 }` |
+
+```js
+'vitest-auto-spy/no-inline-test-data': ['warn', { maxLines: 10, repeats: 2 }],
+```
+
+**How to fix.** Export the value from `<name>.mock.ts` next to the spec. If tests need variations,
+export a factory such as `createOrder(overrides)` instead of several copies.
+
+**When to disable.** The rule is `warn`: a line count says where data should live, not that the test
+is wrong. Move the data file by file, then raise the rule to `error`.
+
+::: details How it decides
+**What counts as data:** an object or array literal with no functions in it. These are not data and
+are never reported:
+
+- a testing module's wiring: `providers`, `imports`, `declarations` and the other module keys, and
+  an object that holds one of them, such as the argument of `configureTestingModule`;
+- a case table passed to `it.each` / `describe.each`;
+- the return value of a `vi.mock` factory;
+- a literal that holds a function, such as a hand-written double.
+
+**Repeats** are compared by source text with whitespace ignored. A repeated literal needs at least
+`minValues` values, one of them a string, number or boolean. So `[node]`, `{ property }` and
+`{ method: 'GET' }` are not reported. A repeated literal is reported once, not once more for each
+repeated piece inside it.
+
+**Mock files are skipped:** `*.mock.ts`, `*.mocks.ts`, `*.fixture.ts`, `*.fixtures.ts` and files
+under `__mocks__/`.
+
+**Severity.** `warn`, graded on the evidence: size and repeat count suggest a move, and only the
+author can name the value and pick the file.
 :::
 
 ## prefer-create-mock

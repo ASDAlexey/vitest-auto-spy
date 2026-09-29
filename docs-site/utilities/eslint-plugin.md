@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Fifty-six lint rules for spec files. They catch tests that pass without checking anything, doubles that drift from the real class, and setup that leaks between tests. Flat config, part of the package.
+description: Fifty-seven lint rules for spec files. They catch tests that pass without checking anything, doubles that drift from the real class, and setup that leaks between tests. Flat config, part of the package.
 ---
 
 # ESLint plugin
@@ -48,8 +48,8 @@ brings both keys with it.
 
 | Config                | What it turns on                                   | Use it when                                                                                                     |
 | --------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `configs.recommended` | all 56 rules: 45 at `error`, 11 at `warn`          | you start with the plugin; this is the default                                                                  |
-| `configs.strict`      | all 56 rules at `error`                            | your specs are clean, and every finding should stop the build                                                   |
+| `configs.recommended` | all 57 rules: 45 at `error`, 12 at `warn`          | you start with the plugin; this is the default                                                                  |
+| `configs.strict`      | all 57 rules at `error`                            | your specs are clean, and every finding should stop the build                                                   |
 | `configs.typeErrors`  | `prefer-as-spy` and `no-mocked-for-spy` at `error` | together with `recommended`, in the [large-project recipe](#land-it-on-a-large-existing-suite-without-a-red-ci) |
 
 Both `typeErrors` rules are already `error` in `recommended`. You need `typeErrors` only in the
@@ -125,7 +125,8 @@ Eleven rules are `warn`. They show up in the output but do not fail the build:
   [`prefer-create-mock`](/utilities/eslint-rules#prefer-create-mock),
   [`prefer-set-inputs`](/utilities/eslint-rules#prefer-set-inputs),
   [`no-unasserted-argument`](/utilities/eslint-rules#no-unasserted-argument),
-  [`no-real-wait-in-test`](/utilities/eslint-rules#no-real-wait-in-test).
+  [`no-real-wait-in-test`](/utilities/eslint-rules#no-real-wait-in-test),
+  [`no-inline-test-data`](/utilities/eslint-rules#no-inline-test-data).
 - **A shorter or clearer spelling of correct code:**
   [`prefer-spy-on-own-method`](/utilities/eslint-rules#prefer-spy-on-own-method),
   [`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value).
@@ -156,7 +157,7 @@ leave them on.
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the 52 core rules work; the four Jasmine rules never fire                                          |
 | moving off `jest-auto-spies` / Jest        | the core rules do the work; `no-done-callback` and `prefer-as-spy` catch the most                  |
-| moving off `jasmine-auto-spies`            | all 56 rules; set `prefer-native-spy-api` to `'off'` until the Jasmine compatibility layer is gone |
+| moving off `jasmine-auto-spies`            | all 57 rules; set `prefer-native-spy-api` to `'off'` until the Jasmine compatibility layer is gone |
 
 ### If you never used Jasmine
 
@@ -216,7 +217,7 @@ For the bulk edit, run the codemod instead of a lint pass: `npx vitest-auto-spy 
 
 ### If you are coming from Jasmine
 
-All 56 rules apply, and the four Jasmine rules are written for you:
+All 57 rules apply, and the four Jasmine rules are written for you:
 
 - `no-jasmine-globals` and `no-save-arguments-by-value` report behaviour that silently changes after
   a rename.
@@ -276,7 +277,7 @@ last spread, as in the example, or the spreads overwrite them.
 
 Before you downgrade everything, look at what the first run really contains:
 
-- The eleven `warn` rules are already warnings. `prefer-render-shallow` is often the loudest rule on
+- The twelve `warn` rules are already warnings. `prefer-render-shallow` is often the loudest rule on
   a component project, so check how much of the first run it accounts for.
 - `no-compile-components`, `no-redundant-mock-reset` and `no-relative-mock-under-builder` stay
   silent until their option (or, for the last two, your config or a builder target) tells them how
@@ -511,6 +512,7 @@ stayed silent, or nobody awaited the promise.
 | [`no-redundant-smoke-test`](/utilities/eslint-rules#no-redundant-smoke-test)           | `it('should create', () => expect(pipe).toBeTruthy())` next to tests that already build the subject → delete it | `error` | suggestion |   green    |
 | [`prefer-settle-dynamic-import`](/utilities/eslint-rules#prefer-settle-dynamic-import) | `await import('./thing')` in a test body → `await settleDynamicImport(() => import('./thing'))`                 | `error` | suggestion |   green    |
 | [`no-real-wait-in-test`](/utilities/eslint-rules#no-real-wait-in-test)                 | `await new Promise((r) => setTimeout(r, 300))`: a real sleep → `advanceTimers(300)` or `vi.waitFor(…)`          | `warn`  | —          |   green    |
+| [`no-inline-test-data`](/utilities/eslint-rules#no-inline-test-data)                   | a 20-line fixture or the same object three times in a spec → export it from a `*.mock.ts` file                  | `warn`  | —          |     —      |
 | [`no-self-called-spy`](/utilities/eslint-rules#no-self-called-spy)                     | the test calls the spied method itself, then asserts it was called → call the real trigger                      | `error` | —          |   green    |
 | [`no-unasserted-argument`](/utilities/eslint-rules#no-unasserted-argument)             | a bare `toHaveBeenCalled()` where the file shows the arguments matter → `toHaveBeenCalledWith(…)`               | `warn`  | —          |     —      |
 
@@ -609,7 +611,7 @@ still contains Jasmine code. **They never fire in a suite that never used Jasmin
 
 ## Which rules fix, and why so few
 
-Eight of the 56 rules rewrite code under `--fix`. Nineteen offer the rewrite as an editor suggestion
+Eight of the 57 rules rewrite code under `--fix`. Nineteen offer the rewrite as an editor suggestion
 that you accept by hand: four of them also have `--fix` for some shapes (in the table below), and
 fifteen offer only a suggestion. The split depends on what a wrong guess costs, not on how hard the rewrite
 is.
@@ -682,7 +684,7 @@ failure on its own. Four guard against a red test whose message is already clear
 compile error.
 
 This column is evidence, not severity. The config does not set severity from it; how loud a
-finding is belongs to your project. The eleven `warn` rules are graded on other grounds, listed in
+finding is belongs to your project. The twelve `warn` rules are graded on other grounds, listed in
 [What the first run looks like](#_4-what-the-first-run-looks-like).
 
 The four Jasmine rules were not probed this way, because their subject is a migration, not runner
