@@ -10,6 +10,18 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`init` says when git will not show what it wrote.** A created or updated file that is ignored
+  and not tracked (`.git/info/exclude`, a global excludes file) ends its row with _not tracked by
+  git, so `git diff` will not show this change_, and an empty `git diff` no longer reads as "nothing
+  changed".
+
+### Documentation
+
+- **When `prepareShallow` pays off**: only when the tests share non-empty `providers` or `imports`.
+  With a different `inputs` per call, or none, it only renames `renderShallow`.
+
 ## [5.51.0] - 2026-09-29
 
 ### Changed
@@ -148,10 +160,6 @@ What a suite can notice on upgrade comes first; each item says what to do about 
 
 ### Added
 
-- **`init` says when git will not show what it wrote.** A created or updated file that is ignored
-  and not tracked (`.git/info/exclude`, a global excludes file) ends its row with _not tracked by
-  git, so `git diff` will not show this change_, so an empty `git diff` no longer reads as "nothing
-  changed".
 - **`returnsUndefined: ['add', 'remove', 'clear']`** on `createSpyFromClass`,
   `createSpyFromInstance`, `provideAutoSpy`, `createAutoMock`, `provideAutoSpyForToken` and
   `registerAutoSpyDefaults`: the list form of `returns: { m: undefined }`, counted as configured
@@ -465,8 +473,6 @@ What a suite can notice on upgrade comes first; each item says what to do about 
 
 ### Documentation
 
-- **When `prepareShallow` pays off**: only when the tests share non-empty `providers` or `imports`.
-  With a different `inputs` per call, or none, it only renames `renderShallow`.
 - **The README on npmjs.com ends on a whole section**: install, the quick start and every "How to
   mock" recipe, then a pointer to the documentation site. It used to stop mid-paragraph at npm's
   limit (65 536 code points); the full table of contents now sits below that part on GitHub, and the

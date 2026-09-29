@@ -606,8 +606,8 @@ it.each([{ filter: 'open' }, { filter: 'done' }])('renders the $filter tasks', (
 });
 ```
 
-A key passed to `create()` replaces the prepared one: `create({ providers: [...] })` drops the
-prepared providers. To add to them, pass `extraProviders` or `extraImports`. They go after the
+A key passed to `create()` replaces the prepared one whole; lists are not merged.
+`create({ providers: [...] })` drops the prepared providers. To add to them, pass `extraProviders` or `extraImports`. They go after the
 prepared lists, so the per-test provider wins for the same token:
 
 ```ts

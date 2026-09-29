@@ -676,9 +676,8 @@ vitest-auto-spy` in its frontmatter is an old copy of the shipped skill. `init` 
   and asks you to delete it and run `init` again; `init --check` exits 1 on it.
 
 **`--check` compares the block, not the version stamp.** An upgrade that changes the advice fails
-`--check`; an upgrade that changes only the `v=` in the marker does not. Such a file shows as
-`unchanged` under `--check` and `updated` under `--dry-run`, with the note _only the version stamp
-differs_. A plain `init` refreshes the stamp the next time it has another reason to write.
+`--check`; an upgrade that changes only the `v=` in the marker does not. `--check` shows such a file
+as `unchanged`. `--dry-run` shows it as `updated`, with the note _only the version stamp differs_. A plain `init` refreshes the stamp the next time it has another reason to write.
 
 **Files git ignores.** If a file `init` created or updated is ignored and not tracked (listed in
 `.git/info/exclude` or a global excludes file, say), its row ends with _not tracked by git, so
