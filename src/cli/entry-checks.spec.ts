@@ -7,7 +7,15 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { entryExports, findEntryImports, installedVersion, isAwaitableHelper, ownersOf, tableApplies } from './checks/entry-imports';
+import {
+  entryExports,
+  findEntryImports,
+  installedVersion,
+  isAwaitableHelper,
+  ownersOf,
+  tableApplies,
+  tableVersion,
+} from './checks/entry-imports';
 import { ENTRY_SPECIFIERS, EXPORT_MAP_VERSION } from './checks/export-map.generated';
 import { buildGraph } from './checks/graph';
 import { checkHelperEntry } from './checks/helper-entry';
@@ -217,6 +225,27 @@ describe('tableApplies', () => {
 
   it('falls back to applying when the installed version cannot be read as one', () => {
     expect(tableApplies(withVersion('next'))).toBe(true);
+  });
+
+  it('compares against the running package, not the generated constant', () => {
+    expect(tableApplies(withVersion('6.0.0'), '6.0.0')).toBe(true);
+    expect(tableApplies(withVersion('5.49.0'), '6.0.0')).toBe(false);
+  });
+});
+
+describe('tableVersion', () => {
+  it("reads the version from the package's own manifest", () => {
+    const root = createTempRepo({ 'package.json': JSON.stringify({ name: 'vitest-auto-spy', version: '6.0.0' }) });
+
+    expect(tableVersion(() => root)).toBe('6.0.0');
+  });
+
+  it('falls back to the generated version when the package root cannot be found', () => {
+    expect(tableVersion(() => undefined)).toBe(EXPORT_MAP_VERSION);
+  });
+
+  it('finds this repository by default', () => {
+    expect(tableVersion()).toMatch(/^\d+\.\d+\.\d+/);
   });
 });
 
