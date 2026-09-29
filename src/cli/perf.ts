@@ -10,32 +10,44 @@
 import { relative } from 'node:path';
 
 import { findBarrelImports } from './checks/barrels';
-import { findDomFreeSpecs } from './checks/dom-free';
 import type { SourceGraph } from './checks/graph';
 import { buildGraph } from './checks/graph';
 import { flakyFindings, heapFindings } from './checks/perf-flaky';
 import { budgetLine, formatHotspots, nothingOverBudgetNote } from './checks/perf-hotspots';
 import { writeCodeQuality } from './code-quality';
 import { BARE_RUN_DOCS, NOTHING_TO_READ_DOCS } from './docs';
+import { failsOn } from './fail-on';
 import { toPosix } from './fs-scan';
 import type { CliIo } from './main';
 import { MONOCHROME, type Painter, outputWidth, painterFor, wrapText } from './paint';
+import type { IsolateRun } from './perf-ab';
+import { abIsolateFindings } from './perf-ab';
 import type { BaselineOptions } from './perf-baseline';
 import type { PerfContext } from './perf-builder';
 import { builderImport, perfContext } from './perf-builder';
-import { DOMINATES, domEngineFindings, isolationFindings, transformFindings, vitestDoctorFindings, workerFindings } from './perf-config';
-import type { PerfFile, PerfRun, Phase } from './perf-data';
-import { formatMs, formatShare, measuredNothing, phasesOf, shareOf, testsRunOf, totalOf } from './perf-data';
+import {
+  DOMINATES,
+  domEngineFindings,
+  isolationFindings,
+  poolFindings,
+  transformFindings,
+  vitestDoctorFindings,
+  workerFindings,
+} from './perf-config';
+import type { PerfFile, PerfImport, PerfRun, Phase } from './perf-data';
+import { CASES_PER_FILE, formatMs, formatShare, measuredNothing, phasesOf, shareOf, testsRunOf, totalOf } from './perf-data';
+import { LIST_LIMIT, environmentFindings, remainder } from './perf-environment';
 import { formatEvidence } from './perf-evidence';
 import type { GateCandidate, GateOptions, GateRow } from './perf-gate';
 import { gateCandidates, gateVerdict, isJudged, measuredFiles, medianFileMs, medianTestMs, suspectFiles } from './perf-gate';
 import type { LaneSummary } from './perf-lanes';
 import { formatLanes, lanesOf, longPoleFindings } from './perf-lanes';
-import type { CpuProfile } from './perf-profile';
-import { packageOf, summariseProfile } from './perf-profile';
+import type { ProfileSummary } from './perf-profile';
+import { packageOf } from './perf-profile';
 import type { Collected } from './perf-report';
 import { baselineCandidates, budgetsOf, perfJson, recordBaseline, tableBaseline } from './perf-report';
 import type { PerfMeasured, PerfSource, Remeasure } from './perf-run';
+import { coverageFindings, heapStepFindings, hungFindings, libraryHooksLine, outsideLine } from './perf-run-signals';
 import { formatVerdict, shortName } from './perf-verdict';
 import type { Profile } from './profile';
 import { type Finding, type Severity, formatFindings, summarize } from './report';
@@ -44,12 +56,6 @@ import { bar, drawTable } from './table';
 
 /** A whole run cheaper than this has nothing in it worth anybody's afternoon. */
 const QUIET_MS = 5_000;
-
-/** How many files one finding names before it stops and counts the rest. */
-const LIST_LIMIT = 12;
-
-/** Below this, a file's environment time is measurement noise rather than a cost worth moving. */
-const FILE_FLOOR_MS = 1;
 
 export { declaresNoIsolation } from './perf-config';
 
@@ -63,96 +69,10 @@ export interface PerfAnalysis {
   readonly lanes?: LaneSummary;
 }
 
-interface EnvironmentCandidate {
-  readonly spec: string;
-  readonly ms: number;
-}
-
 interface BarrelCandidate {
   readonly spec: string;
   readonly barrel: string;
   readonly reach: number;
-}
-
-function remainder(total: number): string {
-  return total > LIST_LIMIT ? ` The ${total - LIST_LIMIT} not listed below are in the same set.` : '';
-}
-
-function nodeCandidates(specs: readonly string[], measured: ReadonlyMap<string, PerfFile>): EnvironmentCandidate[] {
-  return specs
-    .map((spec) => ({ spec, ms: measured.get(spec)?.environment ?? 0 }))
-    .filter((entry) => entry.ms > FILE_FLOOR_MS)
-    .sort((a, b) => b.ms - a.ms || a.spec.localeCompare(b.spec));
-}
-
-/**
- * What moving these specs to `node` would actually free. An environment belongs to a worker, not to
- * a file, so it is only saved when **every** file that worker ran is DOM-free; a single DOM-using
- * file left behind rebuilds it and the move buys nothing. Files of one worker carry the identical
- * `environment` value, and on Vitest 5 the same lane too, which splits two workers that collide.
- * Vitest 5.0's `workerId` cannot group them: measured, it is new for every file, even on a reused worker.
- */
-function movableEnvironment(measured: ReadonlyMap<string, PerfFile>, domFree: ReadonlySet<string>): number {
-  const workers = new Map<string, { ms: number; files: number; free: number }>();
-
-  for (const [spec, file] of measured) {
-    const key = `${String(file.lane)}:${file.environment}`;
-    const worker = workers.get(key) ?? { ms: file.environment, files: 0, free: 0 };
-
-    workers.set(key, { ms: worker.ms, files: worker.files + 1, free: worker.free + (domFree.has(spec) ? 1 : 0) });
-  }
-
-  return [...workers.values()].reduce((total, worker) => (worker.files === worker.free ? total + worker.ms : total), 0);
-}
-
-function environmentFix(movable: number, setupFiles: readonly string[]): string {
-  if (movable > 0) {
-    return 'Move the files listed below to the `node` environment.';
-  }
-
-  return setupFiles.length === 0
-    ? 'Nothing can move until a spec is proved DOM-free; the docs say what the rule reads.'
-    : `Nothing can move while every spec loads ${setupFiles.map((file) => `\`${file.replace(/^\.\//, '')}\``).join(', ')}: a setup file that mentions a DOM name keeps every spec on the DOM. Move the DOM part of it into a setup file only the DOM specs load.`;
-}
-
-function environmentFindings(
-  phases: readonly Phase[],
-  profile: Profile,
-  graph: SourceGraph,
-  measured: ReadonlyMap<string, PerfFile>,
-): Finding[] {
-  if (shareOf(phases, 'environment') < DOMINATES) {
-    return [];
-  }
-
-  const domFree = findDomFreeSpecs(profile, graph);
-  const undecided = domFree.undecided;
-  const ranked = nodeCandidates(domFree.specs, measured);
-  const movable = movableEnvironment(measured, new Set(domFree.specs));
-  const saving =
-    movable === 0
-      ? 'none of them shares a worker only with other DOM-free files, so moving them alone frees no environment'
-      : `moving them frees ${formatMs(movable)}`;
-  const summary =
-    ranked.length === 0
-      ? `No spec file could be proved DOM-free, so this names none; ${undecided} were left undecided.`
-      : `${ranked.length} spec files reach no DOM, and ${saving}.${remainder(ranked.length)} ${undecided} more were left undecided.`;
-
-  return [
-    {
-      check: 'perf-environment',
-      severity: 'info',
-      message: `Environment setup is ${formatShare(shareOf(phases, 'environment'))} of the measured CPU time, against ${formatShare(shareOf(phases, 'tests'))} in the test bodies. ${summary}`,
-      fix: environmentFix(ranked.length, profile.setupFiles),
-    },
-    ...ranked.slice(0, LIST_LIMIT).map((entry): Finding => ({
-      check: 'perf-environment-node-candidate',
-      severity: 'info',
-      file: entry.spec,
-      message: `Mentions no DOM name and imports no package off the DOM-free list; the worker that ran it spent ${formatMs(entry.ms)} building the environment it shares with the rest of that worker's files.`,
-      fix: 'Put `// @vitest-environment node` in a docblock at the top of the file, or group these specs into a project whose `environment` is `node`.',
-    })),
-  ];
 }
 
 /** The widest barrel each spec imports; a spec importing three of them has one problem, not three. */
@@ -215,7 +135,13 @@ export function analysePerf(
   const measured = measuredFiles(run, profile.cwd);
   const lanes = lanesOf(measured);
   const base = { phases, total, fileCount: run.files.length, ...(lanes === undefined ? {} : { lanes }) };
-  const always = [...flakyFindings(measured, failOnFlaky), ...heapFindings(measured, run.config?.isolate === false, profile.cwd)];
+  const always = [
+    ...hungFindings(run),
+    ...flakyFindings(measured, failOnFlaky),
+    ...heapFindings(measured, run.config?.isolate === false, profile.cwd),
+    ...heapStepFindings(measured),
+    ...coverageFindings(run),
+  ];
 
   if (total < QUIET_MS) {
     return { ...base, findings: always };
@@ -228,6 +154,7 @@ export function analysePerf(
     ...transformFindings(phases, graph, run, context),
     ...importFindings(phases, graph, run, context),
     ...isolationFindings(phases, graph, profile, run, undefined, context),
+    ...poolFindings(phases, graph, run, context),
     ...workerFindings(total, graph, run, undefined, context),
   ];
 
@@ -322,8 +249,12 @@ export interface PerfOptions {
   readonly failOnFlaky?: boolean;
   /** `--fail-on-red`: a run whose suite failed exits 1, so `perf --command` can stand in for the test step. */
   readonly failOnRed?: boolean;
+  /** `--fail-on`: a finding this loud or louder exits 1 like a gate finding. */
+  readonly failOn?: Severity;
   /** `--format json` or `markdown`: one document on stdout instead of the text report. */
   readonly format?: OutputFormat;
+  /** `--ab-isolate`: how to run the suite again with `isolate` flipped, or `undefined` inside when this source cannot. */
+  readonly abIsolate?: { readonly rerun: IsolateRun | undefined };
 }
 
 export type OutputFormat = 'json' | 'markdown' | 'text';
@@ -437,13 +368,8 @@ function withEvidence(
     .sort((a, b) => b.ms - a.ms || a.name.localeCompare(b.name))
     .slice(0, 5)
     .map((entry) => ({ name: shortName(entry.name), ms: entry.ms }));
-  const profile = [...(second?.profiles ?? new Map<string, CpuProfile>())].find(([path]) => toPosix(relative(cwd, path)) === spec);
-  const imports = (after.slowImports ?? []).flatMap((entry) => {
-    const named = packageOf(entry.module) ?? toPosix(relative(cwd, entry.module));
-    const name = context.builder === undefined ? named : builderImport(toPosix(entry.module), spec, named);
-
-    return name === undefined ? [] : [{ name, ms: entry.ms }];
-  });
+  const profile = [...(second?.profiles ?? new Map<string, ProfileSummary>())].find(([path]) => toPosix(relative(cwd, path)) === spec);
+  const imports = evidenceImports(after, spec, cwd, context);
   const details = formatEvidence(
     {
       ms: row.ms,
@@ -453,13 +379,39 @@ function withEvidence(
       medianTest,
       slowest,
       maxTestMs: options.maxTestMs,
-      summary: profile === undefined ? undefined : summariseProfile(profile[1], profile[0], cwd),
+      summary: profile?.[1],
       imports,
     },
     painterFor(undefined),
   );
 
   return { ...finding, details };
+}
+
+/** What a reader needs beside an import's total: that a setup file made it, and how much of it is its own evaluation. */
+function importNote(entry: PerfImport, setup: boolean): string {
+  const notes = [
+    ...(setup ? ['setup file'] : []),
+    ...(entry.self === undefined || entry.self >= entry.ms ? [] : [`self ${formatMs(entry.self)}`]),
+  ];
+
+  return notes.length === 0 ? '' : ` · ${notes.join(', ')}`;
+}
+
+/** The spec's own imports and its setup files' chain together, heaviest first: both are paid inside this file. */
+function evidenceImports(after: PerfFile, spec: string, cwd: string, context: PerfContext): { name: string; ms: number }[] {
+  return [
+    ...(after.slowImports ?? []).map((entry) => ({ entry, setup: false })),
+    ...(after.setupImports ?? []).map((entry) => ({ entry, setup: true })),
+  ]
+    .sort((a, b) => b.entry.ms - a.entry.ms || a.entry.module.localeCompare(b.entry.module))
+    .slice(0, CASES_PER_FILE)
+    .flatMap(({ entry, setup }) => {
+      const named = packageOf(entry.module) ?? toPosix(relative(cwd, entry.module));
+      const name = context.builder === undefined ? named : builderImport(toPosix(entry.module), spec, named);
+
+      return name === undefined ? [] : [{ name: `${name}${importNote(entry, setup)}`, ms: entry.ms }];
+    });
 }
 
 /** The `--gate-only` entries that matched no measured file. A list that matches nothing judges nothing. */
@@ -551,7 +503,8 @@ export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, opti
   const text: CliIo = document ? { out: () => undefined, err: io.err } : io;
   const collected: Collected = { findings: [], rows: [] };
   const rendered = renderInto(source, profile, text, options, collected);
-  const code = rendered === 0 && options.failOnRed === true && source.ok && source.runFailed ? PERF_GATE_FAILED : rendered;
+  const failedOn = options.failOn !== undefined && failsOn(collected.findings, options.failOn);
+  const code = rendered === 0 && ((options.failOnRed === true && source.ok && source.runFailed) || failedOn) ? PERF_GATE_FAILED : rendered;
 
   if (document) {
     const report = perfJson(source, profile, options, collected, code);
@@ -583,7 +536,7 @@ function renderInto(source: PerfSource, profile: Profile, io: CliIo, options: Pe
 
   if (source.run.partial === true) {
     io.err(
-      `warning  The run did not finish: this report was written before its end and holds the ${count(source.run.files.length, 'file')} that completed. The timings below are what those files measured.\n`,
+      `warning  The run ${source.run.end === 'interrupted' ? 'was interrupted — Ctrl-C, a signal or `--bail` —' : 'did not finish'}: this report was written before its end and holds the ${count(source.run.files.length, 'file')} that completed. The timings below are what those files measured.\n`,
     );
   } else if (source.runFailed) {
     io.err('warning  The suite did not pass. The timings below are still what the run measured.\n');
@@ -602,7 +555,7 @@ function renderInto(source: PerfSource, profile: Profile, io: CliIo, options: Pe
 
 function reportMeasured(source: PerfMeasured, profile: Profile, io: CliIo, options: PerfOptions, collected: Collected): number {
   const context = perfContext(profile, source.command);
-  const analysis = analysePerf(source.run, profile, options.failOnFlaky === true, context);
+  const analysis = withAbIsolate(analysePerf(source.run, profile, options.failOnFlaky === true, context), source, options, io);
   const measured = [...measuredFiles(source.run, profile.cwd).values()];
 
   collected.analysis = analysis;
@@ -616,11 +569,23 @@ function reportMeasured(source: PerfMeasured, profile: Profile, io: CliIo, optio
 
   io.out(`median test ${formatMs(medianTestMs(measured))}, median file ${formatMs(medianFileMs(measured))}${lanes}\n`);
 
+  const outside = outsideLine(source);
+
+  if (outside !== undefined) {
+    io.out(`${outside}\n`);
+  }
+
   if (source.note !== undefined) {
     io.out(`${source.note}\n`);
   }
 
   io.out(formatPhases(analysis.phases, painterFor(undefined)));
+
+  const hooks = libraryHooksLine(measured);
+
+  if (hooks !== undefined) {
+    io.out(hooks);
+  }
 
   reportFindings(analysis, io, options.minSeverity);
   reportHotspots(source, profile.cwd, options, io);
@@ -630,6 +595,19 @@ function reportMeasured(source: PerfMeasured, profile: Profile, io: CliIo, optio
   return code === 0 && analysis.findings.some((finding) => finding.check === 'perf-flaky' && finding.severity === 'error')
     ? PERF_GATE_FAILED
     : code;
+}
+
+/** The measured A/B replaces the predicted `perf-isolation`, which could not say which way the clock would move. */
+function withAbIsolate(analysis: PerfAnalysis, source: PerfMeasured, options: PerfOptions, io: CliIo): PerfAnalysis {
+  if (options.abIsolate === undefined) {
+    return analysis;
+  }
+
+  const measured = abIsolateFindings(source, options.abIsolate.rerun, io);
+
+  return measured.length === 0
+    ? analysis
+    : { ...analysis, findings: [...analysis.findings.filter((finding) => finding.check !== 'perf-isolation'), ...measured] };
 }
 
 function judgeMeasured(
@@ -642,13 +620,22 @@ function judgeMeasured(
 ): number {
   const gate = options.gate;
 
-  if (options.baseline?.update === true) {
+  if (options.baseline !== undefined && source.run.partial === true) {
+    io.err(
+      `\nwarning  The baseline is ${options.baseline.update ? 'not recorded from' : 'not compared with'} a run that did not finish: the files it never reached would read as removed, and the median every share is measured against would be the median of part of the suite.`,
+    );
+
+    if (options.baseline.update) {
+      return PERF_NO_MEASUREMENT;
+    }
+  } else if (options.baseline?.update === true) {
     recordBaseline(source.run, profile.cwd, options.baseline.path, io);
 
     return 0;
   }
 
-  const regressions = options.baseline === undefined ? [] : baselineCandidates(source.run, profile.cwd, options.baseline, io);
+  const regressions =
+    options.baseline === undefined || source.run.partial === true ? [] : baselineCandidates(source.run, profile.cwd, options.baseline, io);
 
   if (gate === undefined) {
     const findings = gateVerdict(regressions, undefined, profile.cwd, false).findings;

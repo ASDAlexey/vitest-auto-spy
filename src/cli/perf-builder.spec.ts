@@ -231,7 +231,9 @@ describe('the settings findings under the builder', () => {
     const isolated = onFive({ config: { isolate: true, pool: 'forks', provided: ['isolate', 'environment'] } });
     const [finding] = isolationFindings(overhead, graphOf(root), readProfile(root), isolated, 8, contextOf(root));
 
-    expect(finding?.fix).toMatch(/^Try `isolate: false` in vitest-base\.config\.ts and keep it only if/);
+    expect(finding?.fix).toMatch(
+      /^Measure it first with `perf --ab-isolate`, which runs the suite both ways. Try `isolate: false` in vitest-base\.config\.ts and keep it only if/,
+    );
     expect(isolationFindings(overhead, graphOf(root), readProfile(root), isolated, 8)).toEqual([]);
   });
 
@@ -240,7 +242,9 @@ describe('the settings findings under the builder', () => {
     const isolated = onFive({ config: { isolate: true, provided: ['isolate'] } });
     const [finding] = isolationFindings(overhead, graphOf(root), readProfile(root), isolated, 8, contextOf(root));
 
-    expect(finding?.fix).toMatch(/^Try `"isolate": false` on `app:test` in angular\.json and keep it only if/);
+    expect(finding?.fix).toMatch(
+      /^Measure it first with `perf --ab-isolate`, which runs the suite both ways. Try `"isolate": false` on `app:test` in angular\.json and keep it only if/,
+    );
     expect(
       isolationFindings(overhead, graphOf(root), readProfile(root), isolated, 8, contextOf(root, 'npx ng test --runner-config=x.ts')),
     ).toEqual([expect.objectContaining({ check: 'perf-isolation' })]);

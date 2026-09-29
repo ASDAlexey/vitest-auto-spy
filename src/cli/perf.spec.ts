@@ -118,7 +118,7 @@ describe('parsePerfRun', () => {
   it('refuses anything that is not a report of the version it understands', () => {
     expect(parsePerfRun('not json')).toBeUndefined();
     expect(parsePerfRun('[]')).toBeUndefined();
-    expect(parsePerfRun('{"version":5,"files":[]}')).toBeUndefined();
+    expect(parsePerfRun('{"version":6,"files":[]}')).toBeUndefined();
     expect(parsePerfRun('{"version":1}')).toBeUndefined();
     expect(parsePerfRun('{"version":"1","files":[]}')).toBeUndefined();
     expect(parsePerfRun('{"version":1e999,"files":[]}')).toBeUndefined();
@@ -548,6 +548,7 @@ describe('findDomFreeSpecs', () => {
   it('leaves a spec that already declares its environment alone, and survives a cycle', () => {
     const repo = cleanRepo(0, {
       'src/declared.spec.ts': `// @vitest-environment node\nimport { it } from 'vitest';\n\nit('x', () => {\n  expect(1).toBe(1);\n});\n`,
+      'src/jest-declared.spec.ts': `// @jest${'-environment'} node\nimport { it } from 'vitest';\n\nit('x', () => {\n  expect(1).toBe(1);\n});\n`,
       'src/cycle.spec.ts': `import { it } from 'vitest';\nimport { a } from './a';\n\nit('x', () => {\n  a();\n});\n`,
       'src/a.ts': `import { b } from './b';\n\nexport function a(): number {\n  return b();\n}\n`,
       'src/b.ts': `import { a } from './a';\n\nexport function b(): number {\n  return a === undefined ? 1 : 2;\n}\n`,
@@ -745,7 +746,7 @@ describe('analysePerf', () => {
     const analysis = analysePerf(heavyRun(root, ['src/case-0.spec.ts'], 9_000), readProfile(root));
 
     expect(analysis.findings[0]?.fix).toBe(
-      'Nothing can move while every spec loads `src/test-setup.ts`: a setup file that mentions a DOM name keeps every spec on the DOM. Move the DOM part of it into a setup file only the DOM specs load.',
+      'Nothing can move while every spec loads `src/test-setup.ts`: a setup file that mentions a DOM name keeps every spec on the DOM. Move the DOM part of it into a setup file only the DOM specs load. With the DOM part moved out, 1 spec file reaches no DOM and could move to `node`, freeing 9.00s of environment.',
     );
   });
 
@@ -858,7 +859,7 @@ describe('analysePerf', () => {
 
     expect(checks(analysis.findings)).toEqual(['perf-isolation']);
     expect(analysis.findings[0]?.fix).toBe(
-      'Try `isolate: false` in your Vitest config and keep it only if peak memory stays acceptable: without isolation, every double a file creates lives until its worker ends.',
+      'Measure it first with `perf --ab-isolate`, which runs the suite both ways. Try `isolate: false` in your Vitest config and keep it only if peak memory stays acceptable: without isolation, every double a file creates lives until its worker ends.',
     );
     expect(checks(taken.findings)).toEqual([]);
   });
@@ -1129,13 +1130,13 @@ describe('readPerfRun, the two shapes a handed-over report can have', () => {
     const several = readPerfRun(options(root, { json: 'reports' }));
 
     expect(single.ok ? '' : single.error.split('\n')[0]).toBe(
-      'Cannot read the perf report: reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3, 4.',
+      'Cannot read the perf report: reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3, 4, 5.',
     );
     expect(several.ok ? '' : several.error.split('\n')).toEqual([
       'Cannot read any of the 3 perf reports:',
       '  reports/a.json is not valid JSON',
       '  reports/b.json is JSON, but not a perf report: it has no `files` list',
-      '  reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3, 4',
+      '  reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3, 4, 5',
       'Point --json at the file `perf --out` or the perf reporter wrote.',
       'Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#when-there-is-nothing-to-read',
     ]);
