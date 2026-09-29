@@ -19,6 +19,7 @@ const original = STORAGE_KEYS.map((key) => ({ key, descriptor: Object.getOwnProp
 function restoreGlobals(): void {
   for (const { key, descriptor } of original) {
     if (descriptor) {
+      // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- puts back the exact descriptor captured before this file broke it
       Object.defineProperty(globalThis, key, descriptor);
     } else {
       Reflect.deleteProperty(globalThis, key);
@@ -28,6 +29,7 @@ function restoreGlobals(): void {
 
 /** Replace one storage slot on one host, the way a broken runtime leaves it. */
 function put(host: object, key: (typeof STORAGE_KEYS)[number], value: unknown): void {
+  // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- a break outside prop-mock's journal, whose counts this file asserts
   Object.defineProperty(host, key, { value, writable: true, configurable: true });
 }
 
