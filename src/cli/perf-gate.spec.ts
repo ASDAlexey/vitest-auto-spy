@@ -11,7 +11,7 @@
  * lines, the confirmation pass faked — which is what a CI job actually runs.
  */
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type GateRequest, renderPerf } from './perf';
 import type { PerfCase, PerfFile, PerfRun } from './perf-data';
@@ -29,6 +29,15 @@ import {
 } from './perf-gate';
 import type { PerfSource } from './perf-run';
 import { readProfile } from './profile';
+
+// Golden text: color is off here whatever terminal or CI runs the suite.
+beforeEach(() => {
+  vi.stubEnv('NO_COLOR', '1');
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 const ROOT = '/repo';
 

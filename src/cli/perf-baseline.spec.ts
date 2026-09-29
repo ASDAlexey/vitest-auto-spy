@@ -12,7 +12,7 @@
  * exit code and the lines a CI job reads.
  */
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pathExists } from './fs-scan';
 import { renderPerf } from './perf';
@@ -35,7 +35,13 @@ import type { PerfSource } from './perf-run';
 import { readProfile } from './profile';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
+// Golden text: color is off here whatever terminal or CI runs the suite.
+beforeEach(() => {
+  vi.stubEnv('NO_COLOR', '1');
+});
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   removeTempRepos();
 });
 

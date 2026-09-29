@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { readTextFile, writeTextFile } from './fs-scan';
 import type { CliIo } from './main';
@@ -22,7 +22,13 @@ import type { PerfSource } from './perf-run';
 import { readProfile } from './profile';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
+// Golden text: color is off here whatever terminal or CI runs the suite.
+beforeEach(() => {
+  vi.stubEnv('NO_COLOR', '1');
+});
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   removeTempRepos();
 });
 
