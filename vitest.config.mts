@@ -18,14 +18,12 @@ export default defineConfig({
     // Per-file isolation is the default run, but nothing in the suite depends on it any more: the
     // two specs that exercise an empty registry (`core-standalone`, `mock-adapter`) now empty and
     // restore it themselves. `npm run test:shared-env` proves that by running everything with
-    // `isolate: false` in a single worker — the mode `setupAutoSpy()` exists for.
+    // `isolate: false` on `threads`, several workers, `setupAutoSpy()` in the setup file and a
+    // shuffled file order — the mode `setupAutoSpy()` exists for.
     isolate: true,
     coverage: {
-      // Istanbul, not v8: the v8 provider merges the workers' raw script coverages, and the more
-      // payloads it merges the more covered blocks it drops — 18 branches at 113 spec files, with
-      // every spec green and a different set of lines blamed on every run. Istanbul instruments the
-      // source and sums counters, so the same suite reports 100 % in every mode, run after run.
-      // Measured both ways in tasks/2026-09-06-session/coverage-flake.md; it costs ~0.5 s a run.
+      // Istanbul, not v8: re-measured on Vitest 5.0.2, v8 still drops merged blocks (a different
+      // branch % every run) and runs out of heap serially. Numbers in DECISIONS.md, 2026-09-29.
       provider: 'istanbul' as const,
       reportsDirectory: 'coverage',
       reporter: ['text', 'html', 'lcov'],

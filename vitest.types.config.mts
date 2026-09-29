@@ -14,6 +14,8 @@ export default defineConfig({
     include: [],
     typecheck: {
       enabled: true,
+      // Pinned: `typescript` (6) and `typescript-7` both ship a `tsc` bin, and `.bin/tsc` follows install order.
+      checker: 'node_modules/typescript/bin/tsc',
       only: true,
       include: ['src/type-tests/**/*.test-d.ts'],
       tsconfig: 'tsconfig.types.json',
