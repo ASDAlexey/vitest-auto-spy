@@ -3,12 +3,13 @@
  * has to keep its dependencies, its signals, its `ɵprov` and its teardown, or "observe without
  * replacing" is only true outside the framework it is for.
  */
-import { Component, Injectable, type OnDestroy, inject, signal } from '@angular/core';
+import { Component, Injectable, type OnDestroy, inject, signal, ɵgetInjectableDef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createSpyFromInstance, restoreSpiedInstance } from '../index';
 import { setDefaultStrictMode } from './function-spy';
+import { registerSignalMatchers } from './signal-matchers';
 
 const destroyed: string[] = [];
 
@@ -55,6 +56,10 @@ class CartComponent {
   }
 }
 
+beforeAll(() => {
+  registerSignalMatchers();
+});
+
 // A suite-wide strict default, as `setupAutoSpy({ strict: true })` installs it: passthrough has to win over it.
 beforeAll(() => {
   setDefaultStrictMode({ strict: true, onUnstubbedCall: undefined });
@@ -85,7 +90,7 @@ describe('createSpyFromInstance passthrough on a TestBed service', () => {
     expect(fixture.nativeElement.textContent).toContain('EUR 5');
     expect(cart.add).toHaveBeenCalledWith(5);
     expect(cart.total).toHaveBeenCalledTimes(1);
-    expect(cart.prices()).toEqual([5]);
+    expect(cart.prices).toHaveSignalValue([5]);
   });
 
   it('replaces only the method the test configured', async () => {
@@ -98,10 +103,10 @@ describe('createSpyFromInstance passthrough on a TestBed service', () => {
   });
 
   it('leaves the class, its ɵprov and the next injector untouched', () => {
-    const provider: unknown = Reflect.get(CartService, 'ɵprov');
+    const provider = ɵgetInjectableDef(CartService);
     const cart = createSpyFromInstance(spiedCart(), { passthrough: true });
 
-    expect(Reflect.get(CartService, 'ɵprov')).toBe(provider);
+    expect(ɵgetInjectableDef(CartService)).toBe(provider);
     expect(TestBed.inject(CartService)).toBe(cart);
     expect(Object.prototype.hasOwnProperty.call(CartService.prototype.add, 'mock')).toBe(false);
 

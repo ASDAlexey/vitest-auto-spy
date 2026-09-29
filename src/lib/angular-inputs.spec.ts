@@ -8,11 +8,17 @@
  */
 import { Component, Directive, type Type, input } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { inputNames, resolveInputs } from './angular-inputs';
+import { mockValueProp } from './prop-mock';
 import { renderShallow } from './render-shallow';
 import { setInputs } from './set-inputs';
+import { registerSignalMatchers } from './signal-matchers';
+
+beforeAll(() => {
+  registerSignalMatchers();
+});
 
 @Directive({ selector: '[appTooltip]' })
 class TooltipDirective {
@@ -32,7 +38,7 @@ class ButtonComponent {
 function fake(definition: object, key: 'ɵcmp' | 'ɵdir' | 'ɵpipe' = 'ɵcmp'): Type<unknown> {
   const Fake = class {};
 
-  Object.defineProperty(Fake, key, { value: definition });
+  mockValueProp(Fake, key, definition);
 
   return Fake;
 }
@@ -48,7 +54,7 @@ describe('input names, from a real definition', () => {
     // @ts-expect-error — `tip` belongs to the host directive, so it is not a member of the component's type
     await setInputs(fixture, { tip: 'saved' });
 
-    expect(fixture.debugElement.injector.get(TooltipDirective).text()).toBe('saved');
+    expect(fixture.debugElement.injector.get(TooltipDirective).text).toHaveSignalValue('saved');
   });
 
   it('lists the host-directive name among the ones it declares', () => {
@@ -140,8 +146,8 @@ describe('resolveInputs', () => {
     const esbuilt = fake({ name: 'upper' }, 'ɵpipe');
     const rolled = class {};
 
-    Object.defineProperty(esbuilt, 'name', { value: '_UpperPipe' });
-    Object.defineProperty(rolled, 'name', { value: 'PlainWidget$1' });
+    mockValueProp(esbuilt, 'name', '_UpperPipe');
+    mockValueProp(rolled, 'name', 'PlainWidget$1');
 
     expect(() => inputNames('setInputs', esbuilt)).toThrow(/: UpperPipe is a @Pipe/);
     expect(() => inputNames('setInputs', rolled)).toThrow(/: PlainWidget carries no ɵcmp/);

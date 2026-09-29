@@ -11,10 +11,15 @@
 import { Component, EventEmitter, InjectionToken, type Type, inject, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { type Observable, filter, map } from 'rxjs';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 import { expectEmission, injectSpy, provideAutoSpy } from '../angular';
 import { createMatDialogRef, injectMatDialogRef, provideMatDialogData, provideMatDialogRef } from './dialog-doubles';
+import { registerSignalMatchers } from './signal-matchers';
+
+beforeAll(() => {
+  registerSignalMatchers();
+});
 
 interface DialogPosition {
   top?: string;
@@ -236,11 +241,11 @@ describe('provideMatDialogRef — the dialog component side', () => {
 
     fixture.detectChanges();
 
-    expect(fixture.componentInstance.outcome()).toBe('open');
+    expect(fixture.componentInstance.outcome).toHaveSignalValue('open');
 
     fixture.componentInstance.discard();
 
-    expect(fixture.componentInstance.outcome()).toBe('discarded');
+    expect(fixture.componentInstance.outcome).toHaveSignalValue('discarded');
   });
 
   it('answers beforeClosed with the stream afterClosed answers with', async () => {
@@ -309,6 +314,7 @@ describe('the members the double does not have', () => {
   it('reads as undefined for a name the real ref does not declare either', () => {
     const { ref } = createMatDialogRef(MatDialogRef);
 
+    // eslint-disable-next-line vitest-auto-spy/no-reflect-member-access -- a name the ref's type does not declare is what this test reads
     expect(Reflect.get(ref, 'openedFromTheLeft')).toBeUndefined();
     expect(Reflect.get(ref, Symbol.iterator)).toBeUndefined();
   });
@@ -338,8 +344,8 @@ describe('the dialog component the ref was opened for', () => {
     fixture.componentInstance.rename();
     save.emit('Grace');
 
-    expect(fixture.componentInstance.saved()).toBe('Grace');
-    expect(isSaving()).toBe(true);
+    expect(fixture.componentInstance.saved).toHaveSignalValue('Grace');
+    expect(isSaving).toHaveSignalValue(true);
     expect(dialog.close).toHaveBeenCalledWith('Grace');
   });
 
@@ -363,7 +369,7 @@ describe('the ref a spied MatDialog.open answers with', () => {
 
     fixture.componentInstance.edit();
 
-    expect(fixture.componentInstance.outcome()).toBe('saved');
+    expect(fixture.componentInstance.outcome).toHaveSignalValue('saved');
     expect(injectSpy(MatDialog).open).toHaveBeenCalledWith(EditUserDialog, { data: { id: 7, name: 'Ada' } });
   });
 

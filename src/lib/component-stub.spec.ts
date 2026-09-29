@@ -7,6 +7,8 @@ import {
   Pipe,
   type PipeTransform,
   booleanAttribute,
+  ɵgetComponentDef as getComponentDef,
+  ɵgetDirectiveDef as getDirectiveDef,
   input,
   model,
   output,
@@ -15,10 +17,22 @@ import {
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createComponentStub } from './component-stub';
+import { useConsoleSpies } from './console-spy';
+import { registerMockAdapter } from './mock-adapter';
+import { mockValueProp } from './prop-mock';
 import { renderShallow } from './render-shallow';
+import { registerSignalMatchers } from './signal-matchers';
+import { vitestMockAdapter } from './vitest-adapter';
+
+// At load, not in `beforeAll`: `useConsoleSpies()` builds its spies while the describes are collected.
+registerMockAdapter(vitestMockAdapter);
+
+beforeAll(() => {
+  registerSignalMatchers();
+});
 
 @Component({
   selector: 'app-chart',
@@ -110,6 +124,8 @@ function renderWithStubs(overrides: { chart?: object } = {}) {
 }
 
 describe('createComponentStub', () => {
+  const { consoleWarnSpy: warn } = useConsoleSpies();
+
   it('stands in for a component: the real template never renders, projected content does', () => {
     const { fixture, ChartStub } = renderWithStubs();
     const host: HTMLElement = fixture.nativeElement;
@@ -142,7 +158,7 @@ describe('createComponentStub', () => {
 
     expect(dashboard.selected).toBe(3);
     expect(dashboard.legend).toBe(false);
-    expect(dashboard.zoom()).toBe(5);
+    expect(dashboard.zoom).toHaveSignalValue(5);
   });
 
   it('answers the parent template reference through exportAs', () => {
@@ -189,6 +205,7 @@ describe('createComponentStub', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.textContent).toBe('hey!');
+    // eslint-disable-next-line vitest-auto-spy/no-reflect-member-access -- Angular has no public reader for a compiled pipe definition
     expect(Reflect.get(ShoutStub, 'ɵpipe')).toMatchObject({ name: 'shout', pure: false });
   });
 
@@ -225,28 +242,25 @@ describe('createComponentStub', () => {
   });
 
   it('never shares a component ID with the real one or with another stub of it', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     [ManySelectorsComponent, createComponentStub(ManySelectorsComponent), createComponentStub(ManySelectorsComponent)].forEach((type) =>
-      Reflect.get(type, 'ɵcmp'),
+      getComponentDef(type),
     );
 
     expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
   });
 
   describe('the selector', () => {
     it('compiles back to the real one, for a component', () => {
       const Stub = createComponentStub(ManySelectorsComponent);
 
-      expect(Reflect.get(Stub, 'ɵcmp').selectors).toEqual(Reflect.get(ManySelectorsComponent, 'ɵcmp').selectors);
+      expect(getComponentDef(Stub)?.selectors).toEqual(getComponentDef(ManySelectorsComponent)?.selectors);
       expect(reflectComponentType(Stub)?.selector).toBe(reflectComponentType(ManySelectorsComponent)?.selector);
     });
 
     it('compiles back to the real one, for a directive', () => {
       const Stub = createComponentStub(MaskDirective);
 
-      expect(Reflect.get(Stub, 'ɵdir').selectors).toEqual(Reflect.get(MaskDirective, 'ɵdir').selectors);
+      expect(getDirectiveDef(Stub)?.selectors).toEqual(getDirectiveDef(MaskDirective)?.selectors);
     });
   });
 
@@ -258,7 +272,7 @@ describe('createComponentStub', () => {
     it('names the class as the source spells it, not as a bundler renamed it', () => {
       const Renamed = class {};
 
-      Object.defineProperty(Renamed, 'name', { value: '_ReportCardComponent' });
+      mockValueProp(Renamed, 'name', '_ReportCardComponent');
 
       expect(() => createComponentStub(Renamed)).toThrow(/createComponentStub\(\): ReportCardComponent carries no ɵcmp/);
     });
@@ -274,9 +288,7 @@ describe('createComponentStub', () => {
     it('a definition whose inputs are not tuples, naming the Angular version', () => {
       const Renamed = class {};
 
-      Object.defineProperty(Renamed, 'ɵdir', {
-        value: { selectors: [['x']], inputs: { heading: 'heading' }, outputs: {}, exportAs: null },
-      });
+      mockValueProp(Renamed, 'ɵdir', { selectors: [['x']], inputs: { heading: 'heading' }, outputs: {}, exportAs: null });
 
       // Destructured, a string entry would give `'h'` as the property: a stub with an input nobody
       // can bind to, and nothing at all to say so.
