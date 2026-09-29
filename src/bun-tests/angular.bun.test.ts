@@ -95,6 +95,7 @@ describe('Angular rendering on bun:test', () => {
     injectSpy(GreetingService).currentName.mockReturnValue('shallow user');
     component.reveal();
 
+    // eslint-disable-next-line vitest-auto-spy/prefer-to-have-signal-value -- the matcher registrars are not published on Bun
     expect(component.label()).toBe('shallow user');
   });
 });

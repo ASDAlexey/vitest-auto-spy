@@ -4,7 +4,7 @@
  */
 import { describe, expect, it, mock } from 'bun:test';
 
-import { adoptMock, resetAutoSpy } from '../bun';
+import { adoptMock, moduleNamespace, resetAutoSpy } from '../bun';
 
 describe('adoptMock on bun:test', () => {
   it('takes over a mock in place, keeping its calls and its implementation', () => {
@@ -33,5 +33,27 @@ describe('adoptMock on bun:test', () => {
     resetAutoSpy(load);
 
     expect(load(5)).toBe('real 5');
+  });
+
+  it('runs the kept implementation and a passthrough export with the receiver of the call', () => {
+    const label = mock(function label(this: { name: string }): string {
+      return this.name;
+    });
+
+    adoptMock(label);
+
+    const namespace = moduleNamespace(
+      {
+        shout(this: { name: string }): string {
+          return this.name.toUpperCase();
+        },
+      },
+      { passthrough: true },
+    );
+
+    const ada = { name: 'ada', label };
+
+    expect(ada.label()).toBe('ada');
+    expect(namespace.shout.call({ name: 'ada' })).toBe('ADA');
   });
 });

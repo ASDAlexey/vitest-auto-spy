@@ -20,10 +20,15 @@ const notImportedHere: Readonly<Record<string, string>> = {
   './package.json': 'not a module',
 };
 
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null;
+}
+
 function entryPath(subpath: string): string {
-  const target: unknown = Reflect.get(pkg.exports, subpath);
-  const conditions = typeof target === 'object' && target !== null ? Reflect.get(target, 'import') : undefined;
-  const file: unknown = typeof conditions === 'object' && conditions !== null ? Reflect.get(conditions, 'default') : conditions;
+  const exportMap: Readonly<Record<string, unknown>> = pkg.exports;
+  const target = exportMap[subpath];
+  const conditions = isRecord(target) ? target['import'] : undefined;
+  const file = isRecord(conditions) ? conditions['default'] : conditions;
 
   if (typeof file !== 'string') {
     throw new TypeError(`No import target for ${subpath}`);
@@ -61,6 +66,7 @@ describe(`public entries on Bun (${fromDist ? 'dist' : 'source'})`, () => {
     const spies = consoleEntry.installConsoleSpies();
 
     try {
+      // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- the call is what the console spy under test records
       console.error('boom', 1);
 
       expect(spies.consoleErrorSpy).toHaveBeenCalledWith('boom', 1);
@@ -77,6 +83,7 @@ describe('/console useConsoleSpies on Bun', () => {
   const spies = consoleEntry.useConsoleSpies();
 
   it('has the spies on console inside the block', () => {
+    // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- the call is what the console spy under test records
     console.warn('late');
 
     expect(console.warn).toBe(spies.consoleWarnSpy);

@@ -7,6 +7,7 @@
  * written against the `MockAdapter`, so the same `.and` / `.calls` / `.withArgs` a Vitest suite gets
  * are the ones Bun's `mock()` gets.
  */
+/* eslint-disable vitest-auto-spy/prefer-native-spy-api -- this file proves the jasmine spelling works on Bun */
 import { describe, expect, it } from 'bun:test';
 
 import { createSpyFromClass } from '../bun';

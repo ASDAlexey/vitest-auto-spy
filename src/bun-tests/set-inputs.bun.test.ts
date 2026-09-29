@@ -28,6 +28,7 @@ describe('setInputs on bun:test', () => {
 
     await setInputs(fixture, { step: 4 });
 
+    // eslint-disable-next-line vitest-auto-spy/prefer-to-have-signal-value -- the matcher registers on Vitest's expect, which /bun-angular does not publish
     expect(component.seen()).toEqual([4]);
   });
 

@@ -12,7 +12,15 @@ import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { describe, expect, it } from 'bun:test';
 import { filter, map } from 'rxjs';
 
-import { injectActivatedRoute, injectRouterDouble, provideActivatedRoute, provideRouterDouble } from '../angular-router';
+import {
+  type RouterDouble,
+  collectRouterEvents,
+  createRouterDouble,
+  injectActivatedRoute,
+  injectRouterDouble,
+  provideActivatedRoute,
+  provideRouterDouble,
+} from '../angular-router';
 
 @Component({ selector: 'app-product', template: '<b>product {{ id() }}</b>' })
 class ProductComponent {
@@ -68,5 +76,25 @@ describe('the Router double on bun:test', () => {
 
     expect(fixture.nativeElement.textContent).toContain('/checkout');
     expect(router.router.url).toBe('/checkout');
+  });
+});
+
+describe('collectRouterEvents on bun:test', () => {
+  let double: RouterDouble;
+  let recording: ReturnType<typeof collectRouterEvents>;
+
+  it('records while the test that started it runs', async () => {
+    double = createRouterDouble();
+    recording = collectRouterEvents(double.router.events);
+
+    await double.emitNavigation('/checkout');
+
+    recording.expect([[NavigationEnd, '/checkout']]);
+  });
+
+  it("stops recording once that test has finished, through Bun's onTestFinished", async () => {
+    await double.emitNavigation('/cart');
+
+    recording.expect([[NavigationEnd, '/checkout']]);
   });
 });
