@@ -49,7 +49,9 @@ describe('no-outer-binding-in-mock-factory', () => {
     const declare = 'const config = { on: true };\nconst listen = vi.fn();\n';
 
     expect(
-      lint(`${declare}vi.mock('./api', () => ({ Client: class { config = config.on ? {} : undefined; listen = listen; accessor x = config; } }));`),
+      lint(
+        `${declare}vi.mock('./api', () => ({ Client: class { config = config.on ? {} : undefined; listen = listen; accessor x = config; } }));`,
+      ),
     ).toEqual([]);
     expect(lint(`${declare}vi.mock('./api', () => ({ Client: class { static config = config; } }));`)).toEqual([
       'vitest-auto-spy/no-outer-binding-in-mock-factory',
