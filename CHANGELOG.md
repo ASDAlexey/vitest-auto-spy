@@ -20,6 +20,13 @@ The latest released version here must always match the one published on
   is a pipe, so the CLI now paints when `GITLAB_CI` or `GITHUB_ACTIONS` is set; `NO_COLOR`,
   `FORCE_COLOR=0` and `TERM=dumb` still turn it off.
 
+### Documentation
+
+- **`returns` vs `overrides` has a page of its own**, with a landing card and a sidebar entry: one
+  table of what each seeds, whether the member stays a spy, how it behaves under `strict` and which
+  wins when a member is named in both. `agent-docs/configuration.md` gains the two rows its option
+  table was missing.
+
 ## [5.49.0] - 2026-09-28
 
 ### Added
