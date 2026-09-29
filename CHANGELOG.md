@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.50.0] - 2026-09-29
+
 ### Changed
 
 - **`doctor` and `perf` color their findings by severity** — the `error` label red, `warn` yellow,
@@ -9342,7 +9344,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.49.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.50.0...HEAD
+[5.50.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.49.0...v5.50.0
 [5.49.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.48.0...v5.49.0
 [5.48.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.47.0...v5.48.0
 [5.47.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.46.0...v5.47.0
