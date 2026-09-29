@@ -56,6 +56,12 @@ class FakeTracker implements NodeTestApi {
 }
 
 /** The host the `/node` entry builds from `node:test`, with hooks recorded rather than registered. */
+/** A tracker whose own `constructor` is not the class it was built from, the shape the fallbacks guard. */
+function shadowConstructor(runtime: FakeTracker, descriptor: PropertyDescriptor): void {
+  // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- a tracker built in the test; the shadowing descriptor is the case under test
+  Object.defineProperty(runtime, 'constructor', descriptor);
+}
+
 function makeHost(mock: NodeTestApi = new FakeTracker()): NodeTestHost & { hooks: (() => void)[] } {
   const hooks: (() => void)[] = [];
 
@@ -166,7 +172,7 @@ describe('trackNodeMocks', () => {
 
   it('falls back to the runtime tracker when the constructor is not a function', () => {
     const runtime = new FakeTracker();
-    Object.defineProperty(runtime, 'constructor', { value: 'MockTracker', configurable: true });
+    shadowConstructor(runtime, { value: 'MockTracker', configurable: true });
     const tracker = createSwappableNodeTracker(makeHost(runtime));
 
     trackNodeMocks();
@@ -178,7 +184,7 @@ describe('trackNodeMocks', () => {
 
   it('falls back when constructing the tracker throws', () => {
     const runtime = new FakeTracker();
-    Object.defineProperty(runtime, 'constructor', {
+    shadowConstructor(runtime, {
       value: class Hostile {
         constructor() {
           throw new Error('private');
@@ -196,7 +202,7 @@ describe('trackNodeMocks', () => {
 
   it('falls back when the constructed tracker has no fn()', () => {
     const runtime = new FakeTracker();
-    Object.defineProperty(runtime, 'constructor', { value: class Empty {}, configurable: true });
+    shadowConstructor(runtime, { value: class Empty {}, configurable: true });
     const tracker = createSwappableNodeTracker(makeHost(runtime));
 
     trackNodeMocks();
@@ -207,7 +213,7 @@ describe('trackNodeMocks', () => {
 
   it('falls back when fn() does not hand back something callable', () => {
     const runtime = new FakeTracker();
-    Object.defineProperty(runtime, 'constructor', {
+    shadowConstructor(runtime, {
       value: class NotCallable {
         fn(): unknown {
           return { mock: { calls: [] } };
@@ -225,7 +231,7 @@ describe('trackNodeMocks', () => {
 
   it('falls back when the probe mock does not record the call', () => {
     const runtime = new FakeTracker();
-    Object.defineProperty(runtime, 'constructor', {
+    shadowConstructor(runtime, {
       value: class NotRecording {
         fn(): unknown {
           return Object.assign((): void => undefined, { mock: { calls: [] } });
@@ -286,7 +292,7 @@ describe('pruneNodeMocks', () => {
 
     // Poison the route to the class only after tracking started, so the swap — not the start — is
     // the step that fails; a tracker that grows still beats spies falling back to the global one.
-    Object.defineProperty(runtime, 'constructor', {
+    shadowConstructor(runtime, {
       get: (): never => {
         throw new Error('gone');
       },
