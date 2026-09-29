@@ -1,179 +1,42 @@
 ---
 title: Строгий режим
-description: strict и onUnstubbedCall — падать на методе, который никто не настроил, называя класс, метод и аргументы вместо возврата undefined.
+description: strict и onUnstubbedCall - метод спая, который никто не настроил, бросает ошибку с именем класса, метода и аргументами вместо того, чтобы вернуть undefined.
 ---
 
 # Строгий режим
 
-Дубль отвечает на каждый свой метод. Метод, который никто не настроил, отвечает `undefined` — а это
-допустимое значение, поэтому в этом месте ничего не падает. Падает там, где `undefined` в конце концов
-используют, — а на широком коллабораторе это несколько кадров стека спустя и в другом файле:
+С `strict: true` метод спая, который тест не настроил, при вызове бросает ошибку, а не возвращает
+`undefined`. Включайте его, когда тест падает далеко от настоящей причины или проходит на пустом
+ответе.
 
 ```ts
-const users = createSpyFromClass(UserService); // 40 методов
+import { createSpyFromClass } from 'vitest-auto-spy';
 
-users.load.resolveWith([]); // настроили один
-// … а компонент под тестом ещё зовёт users.currentTenant()
-// TypeError: Cannot read properties of undefined (reading 'id')   ← в продакшен-коде
-```
-
-Единственным инструментом на этот случай раньше был
-[`onlyMethodsToSpyOn`](/ru/core/create-spy-from-class#configuration), а он отвечает на другой вопрос:
-он _убирает_ все методы, которых нет в списке, поэтому падение читается как
-`users.currentTenant is not a function` и винит спай, а не спеку. Строгий режим оставляет метод на месте
-и заставляет пропуск сказать о себе:
-
-```ts
 const users = createSpyFromClass(UserService, { strict: true });
 
-users.load.resolveWith([]);
-users.currentTenant(); // бросает — прямо на строке вызова
+users.load.resolveWith([]); // настроен
+users.currentTenant(); // throws: UserService.currentTenant() was called; this strict double has nothing configured for it.
 ```
 
-## Сообщение {#the-message}
+Без `strict` вызов `users.currentTenant()` вернёт `undefined`. Код под тестом упадёт через несколько
+вызовов, в другом файле: `TypeError: Cannot read properties of undefined (reading 'id')`. Строгий режим
+переносит падение на строку с вызовом и называет метод, который вы забыли настроить.
 
-Дословно, от `Cart`, у которого `checkout(id, when)` никто не настроил, при вызове из `cart.component.ts`:
+«Настроен» значит, что тест сказал методу, что отвечать: `resolveWith`, `calledWith`, опция `returns` и
+так далее. Полный список — в разделе [Что считается настройкой](#what-counts-as-configured).
 
-```
-[vitest-auto-spy] Cart.checkout(1, 'now') was called; this strict double has nothing configured for it.
-Called from src/app/cart.component.ts:41:12
-Configure it in the test: cart.checkout.calledWith(1, 'now').mockReturnValue(…) for these arguments, or .mockReturnValue(…) for any — .resolveWith(…) / .nextWith(…) when it returns a Promise / Observable.
-Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#the-message
-```
+| Опция                  | Где                           | Тип                                               | По умолчанию                                | Смысл                                                              |
+| ---------------------- | ----------------------------- | ------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------ |
+| `strict`               | любая фабрика, `setupAutoSpy` | `boolean` (`setupAutoSpy` принимает и `'survey'`) | `false`                                     | ненастроенный вызов бросает ошибку                                 |
+| `onUnstubbedCall`      | любая фабрика, `setupAutoSpy` | `({ className, method, args }) => unknown`        | нет                                         | вызывается вместо возврата `undefined`; его результат и есть ответ |
+| `name`                 | `createAutoMock`              | `string`                                          | нет                                         | имя в сообщении для спая, построенного по типу                     |
+| `swallowedStrictCalls` | `setupAutoSpy`                | `'throw' \| 'warn' \| 'off'`                      | `'throw'` при `strict: true`, иначе `'off'` | валить тест, если код под тестом поймал строгую ошибку             |
+| `unconfiguredReads`    | `setupAutoSpy`                | `'off' \| 'warn' \| 'throw'`                      | `'off'`                                     | сообщать о прочитанных геттерах и потоках без значений             |
+| `onUnstubbedRead`      | любая фабрика, `setupAutoSpy` | `({ className, member, kind, count }) => void`    | нет                                         | получать эти чтения вместо отчёта                                  |
 
-Печатается сам вызов, а не только имя, потому что на широком сервисе один и тот же метод зовут несколько
-раз с разными аргументами, и _какой именно_ вызов — это половина диагноза. `Called from` — первый кадр
-вызывающего кода, мимо дубля, самой библиотеки и всего, что лежит в `node_modules`, с путём от корня
-проекта; если такого кадра в стеке нет, строки нет. Предложенный `calledWith(…)` повторяет аргументы
-вызова, так что его можно вставить как есть; для вызова без аргументов предлагается только
-`.mockReturnValue(…)`. Имя перед ним (`cart`) — имя класса в lower camel case, догадка о переменной, в
-которой спека держит дубль; дубль, чьё имя не идентификатор, получает `double`.
+## Как включить на весь набор тестов {#turning-it-on-for-a-whole-suite}
 
-Простые данные печатаются целиком, до 200 символов на аргумент; экземпляр класса или DOM-узел — только
-именем класса, `[HTMLDivElement]`, `[Session]`: полная отрисовка обходит всё, до чего такой объект
-дотягивается, и прогон с сотнями строгих падений мог исчерпать кучу воркера одними строками сообщений.
-
-**У дубля, построенного из типа, класса для имени нет**, поэтому его называет строка, где он построен, —
-`createAutoMock(users.spec.ts:12).getName(1) was called`, — и так два безымянных дубля одного файла не
-путаются. Имя заменяет это: `createAutoMock<T>(undefined, { strict: true, name: 'USERS' })`, а
-`provideAutoSpyForToken` сам передаёт описание токена (`InjectionToken CAROUSEL_RESIZE_OBSERVER.observe(…)
-was called`). Запасной путь для **полностью абстрактного класса** в `createSpyFromClass`, который
-возвращает тот же прокси, когда прототип не назвал ничего, уносит в него имя класса — `Storage.read('k')
-was called` — и строгий режим: DI-токен, у которого все члены `abstract`, и есть ровно тот широкий
-коллаборатор, ради которого всё это существует.
-
-## Что считается настройкой {#what-counts-as-configured}
-
-Всё, что настраивает метод **хоть как-нибудь**. Охранник задаёт вопрос про _метод_, один раз на вызов и
-до всякого сопоставления аргументов:
-
-| Чем настроено                                                                | Доходит до охранника |
-| ---------------------------------------------------------------------------- | -------------------- |
-| `calledWith(…)` / `mustBeCalledWith(…)` — **любая** цепочка, любые аргументы | нет                  |
-| `resolveWith` / `rejectWith` / `resolveWithPerCall`                          | нет                  |
-| `nextWith` / `throwWith` / `complete` / `returnSubject`                      | нет                  |
-| опция `returns:` — значение по умолчанию в контейнере самого спая            | нет                  |
-| `mockReturnValue` / `mockImplementation` — собственные средства раннера      | никогда — см. ниже   |
-| `overrides` у `createAutoMock` — затравка, уже не спай                       | никогда — см. ниже   |
-| функция в `overrides` для метода `createSpyFromClass` — спай её выполняет    | нет                  |
-| ничем                                                                        | **да**               |
-
-Неочевидная половина — пятая и шестая строки. `mockReturnValue` и `mockImplementation` не
-_регистрируют_ настройку — они **подменяют диспетчеризацию библиотеки** на моке раннера. Спай,
-настроенный так, вообще не выполняет код, в котором живёт охранник, — так что дело не в том, что строгий
-режим делает для них исключение; делать исключение попросту не в чем. Заодно это значит, что
-`calledWith`, добавленный после них, никогда не читается.
-
-`vi.when` (Vitest 5) — исключение, которое исключением не является. Он читает реализацию спая и
-оборачивает её: вызовы, для которых у него есть строка, получают его ответ, остальные доходят до
-диспетчеризации библиотеки, поэтому `calledWith` на том же методе продолжает решать — в любом порядке
-и без предупреждения. После `vi.when(spy)[Symbol.dispose]()` или `mockReset()` снова отвечает одна
-диспетчеризация. `vi.when` поверх `mockReturnValue` по-прежнему сообщается: `mockReturnValue` уже
-заменил диспетчеризацию. `vi.when(spy, { onUnmatched: 'throw' })` — аналог `strict: true` для одного метода.
-
-Один видимый край у этого есть. `mockReturnValueOnce` ставит одноразовую реализацию, которую _снимают с
-очереди_, и, когда очередь пустеет, Vitest откатывается к постоянной реализации — то есть к
-диспетчеризации библиотеки. Поэтому вызов после последнего `Once` доходит до охранника и объявляется
-ненастроенным:
-
-```ts
-const cart = createSpyFromClass(Cart, { strict: true });
-
-cart.total.mockReturnValueOnce(5);
-cart.total(); // 5
-cart.total(); // бросает: Cart.total() was called; this strict double has nothing configured for it.
-```
-
-Задавайте заодно и постоянное значение (`cart.total.mockReturnValue(0)`), когда последовательность `Once`
-по замыслу должна исчерпаться.
-
-С `returns:` иначе — он больше так не делает: значение становится ответом спая по умолчанию, поэтому
-`calledWith`, настроенный позже, побеждает для своих аргументов, `resolveWith` или `failWith` позже
-заменяют его, а `returns: { save: undefined }` — это способ объявить `void`-вызов ожидаемым.
-
-Сброс возвращает метод в ненастроенное состояние, поэтому охранник снова срабатывает после
-`resetAutoSpy(users)` или в конце [блока `using`](./create-spy-from-class#using) — и это верный ответ,
-а не шероховатость: настройки действительно больше нет.
-
-## Чего он намеренно не делает {#what-it-deliberately-does-not-do}
-
-**Цепочка `calledWith`, настроенная на другие аргументы, его не поднимает.**
-
-```ts
-const cart = createSpyFromClass(Cart, { strict: true });
-
-cart.checkout.calledWith(1, 'now').mockReturnValue('one');
-
-cart.checkout(9, 'later'); // undefined — без исключения
-```
-
-`calledWith(1, 'now')` — это заявление, что метод застаблен. У строгости на уровне аргументов уже есть
-своё имя — [`mustBeCalledWith`](./control-helpers#what-a-mustbecalledwith-failure-prints), который бросает
-исключение, печатая ожидаемое рядом с фактическим. Если бы `strict` бросал при несовпадении аргументов,
-это молча переквалифицировало бы каждый существующий в сюите `calledWith` в `mustBeCalledWith` — и
-печатало бы сообщение хуже, чем инструмент, который эту работу уже делает. Строгий режим отвечает на
-_«этот метод никто не настроил»_ и никогда — на _«этот вызов никто не настроил»_.
-
-**Хуки жизненного цикла Angular его не задевают.** `ngOnDestroy`, `ngOnInit`, `ngOnChanges`, `ngDoCheck`
-и четыре хука `ngAfter…` на строгом дубле отвечают `undefined`, настроены они или нет. Angular сам
-вызывает `ngOnDestroy` у каждого предоставленного значения, у которого он есть, когда разбирает
-тестовый модуль, — у прокси `createAutoMock` есть любой член, так что у дубля токена он есть всегда, —
-и ни одна спека этого вызова не просила. Бросок в этом месте ломал разборку, пропускал все
-последующие `afterEach` и валил тесты после него; под `strict: true` на всю сюиту это были сотни
-падений из одного источника. Вызовы по-прежнему записываются: `expect(double.ngOnDestroy).toHaveBeenCalled()`
-работает.
-
-## `onUnstubbedCall` — общая форма {#onunstubbedcall-—-the-general-form}
-
-`strict: true` — это сахар над обработчиком, который бросает исключение. Опцией является сам обработчик,
-и всё, что он вернёт, становится возвращаемым значением вызова:
-
-```ts
-type UnstubbedCallHandler = (call: { className: string | undefined; method: string; args: unknown[] }) => unknown;
-```
-
-Оправданных применений два. **Записывать, а не падать** — чтобы понять размер дыры до того, как включать
-исключения на всю сюиту:
-
-```ts
-const unstubbed: string[] = [];
-
-const users = createSpyFromClass(UserService, {
-  onUnstubbedCall: ({ className, method }) => void unstubbed.push(`${className}.${method}`),
-});
-```
-
-И **общее значение по умолчанию** — то же, что `fallbackMockImplementation` у `vitest-mock-extended`,
-только под другим именем:
-
-```ts
-createAutoMock<Api>(undefined, { onUnstubbedCall: () => null }); // никогда не undefined и никогда не исключение
-```
-
-`className` на дубле, построенном от типа, равен `undefined` по той же причине, по которой сообщение там
-короче: класса никто не читал, и написать туда правду нечего.
-
-## Как включить его на всю сюиту {#turning-it-on-for-a-whole-suite}
+Добавьте одну строку в setup-файл. Каждый спай, созданный после неё, строгий.
 
 ```ts
 // vitest.setup.ts
@@ -182,89 +45,266 @@ import { setupAutoSpy } from 'vitest-auto-spy/setup';
 setupAutoSpy({ strict: true });
 ```
 
-Любой дубль, собранный после этого, строгий, так что переход — одна строка, а не правка на каждый вызов
-фабрики. Значение по умолчанию взводится, только если опцию действительно передали, и снимается в
-`afterAll` того файла, который его взвёл: при `isolate: false` модуль, где оно лежит, общий для всех
-файлов воркера, и оставленное взведённым умолчание завалило бы спеку, которая ни на что не
-подписывалась. См. [Гигиена тестового прогона → строгие дубли](/ru/utilities/setup#_10-strict-doubles-for-the-whole-suite).
+Setup-файл — тот, что указан в `test.setupFiles` в `vitest.config.ts`; см.
+[Установку](./installation).
 
-### Бросок, который не дошёл до теста {#a-throw-that-never-reached-the-test}
+- **Сначала попробуйте.** `setupAutoSpy({ strict: 'survey' })` ничего не бросает. Он считает каждый
+  вызов, который строгий режим отверг бы, и в конце каждого файла печатает список. Для одного прогона
+  без правки файла задайте `VITEST_AUTO_SPY_STRICT=survey` (работают и `true`/`1`, `false`/`0`).
+- **Исключить один спай** можно через `strict: false` на нём: `createSpyFromClass(Cart, { strict: false })`.
+- **Настройка не выходит за свой файл.** `setupAutoSpy` включает умолчание, только если опция
+  передана, и выключает его в `afterAll` того файла, который его включил. С `isolate: false` несколько
+  файлов делят один модуль, и забытое умолчание уронило бы спеку, которая его не просила.
 
-Строгий бросок громок ровно настолько, насколько позволяет код между ним и тестом. `try`/`catch` в
-тестируемом коде превращает его в ветку ошибки этого кода; оператор RxJS без обработчика ошибок
-перебрасывает его через `setTimeout`, который фейковые часы так и не запускают. В обоих случаях тест идёт
-дальше без ответа, от которого зависел, и вполне может пройти.
+Другие переключатели: [Гигиена прогона → строгие спаи](/ru/utilities/setup#_10-strict-doubles-for-the-whole-suite).
 
-Поэтому `setupAutoSpy({ strict: true })` ещё и записывает каждый строгий бросок и после каждого теста
-валит тест теми из них, о которых раннер так и не узнал (`swallowedStrictCalls`: по умолчанию `'throw'`
-при `strict: true` и строгом пресете, `'warn'`, `'off'`). Тест, который вызывает такой бросок нарочно,
-забирает его — это заодно и проверка:
+### Ошибка, которая не дошла до теста {#a-throw-that-never-reached-the-test}
+
+Код под тестом может проглотить строгую ошибку. `try`/`catch` превращает её в ветку обработки ошибки.
+Оператор RxJS без обработчика ошибок пробрасывает её в `setTimeout`. Под фейковыми часами этот таймер
+не срабатывает, и ошибка теряется. Тест идёт дальше без нужного ответа и может пройти.
+
+Поэтому `setupAutoSpy({ strict: true })` запоминает каждую строгую ошибку. После каждого теста он
+валит тест теми ошибками, которые раннер так и не увидел. Опция — `swallowedStrictCalls`: `'throw'`
+(по умолчанию при `strict: true` и строгом пресете), `'warn'` или `'off'`.
+
+Если тест вызывает строгую ошибку намеренно, заберите её через `takeStrictViolations()`. Это заодно и
+проверка:
 
 ```ts
+import { takeStrictViolations } from 'vitest-auto-spy/setup';
+
 expect(() => cart.total()).toThrow('Cart.total() was called');
-expect(takeStrictViolations()).toHaveLength(1); // из 'vitest-auto-spy/setup'
+expect(takeStrictViolations()).toHaveLength(1);
 ```
 
 ### Приоритет {#precedence}
 
-Сначала самое частное, и разбор останавливается на первом, что задано:
+Побеждает самая точная настройка. Библиотека проверяет их в этом порядке и останавливается на первой
+заданной:
 
-1. собственный `onUnstubbedCall` дубля
-2. явный **`strict: false`** дубля — единственный способ вывести одного коллаборатора из-под
-   общесюитного умолчания, будь то `strict: true` или обработчик
+1. собственный `onUnstubbedCall` спая
+2. собственный `strict: false` спая (единственный способ исключить один спай из общего умолчания)
 3. глобальный `onUnstubbedCall` из `setupAutoSpy`
-4. собственный `strict: true` дубля
+4. собственный `strict: true` спая
 5. глобальный `strict`
 
 ```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
 setupAutoSpy({ strict: true });
 
-createSpyFromClass(Cart).total(); // бросает
-createSpyFromClass(Cart, { strict: false }).total(); // undefined — отключили явно
+createSpyFromClass(Cart).total(); // throws
+createSpyFromClass(Cart, { strict: false }).total(); // undefined: этот спай отказался
 ```
 
-Обработчик побеждает `strict: true` на любом уровне, поэтому `{ strict: true, onUnstubbedCall: record }`
-на одном дубле записывает и не бросает; `strict: false` побеждает любой обработчик, кроме собственного.
+Коротко: обработчик, глобальный или собственный, всегда сильнее `strict: true`. Поэтому
+`{ strict: true, onUnstubbedCall: record }` на одном спае записывает вызов и не бросает. А собственный
+`strict: false` спая сильнее глобального обработчика.
 
 ### `passthrough` стоит выше всех пяти {#passthrough}
 
 [`createSpyFromInstance(obj, { passthrough: true })`](./create-spy-from-class#passthrough) даёт
-ненастроенному вызову третий ответ: выполнить настоящий метод. Для каждого члена, у которого настоящий
-метод есть, он побеждает весь список выше — общесюитный `strict: true`, глобальный обработчик,
-строгую регистрацию `registerAutoSpyDefaults` для класса. Иначе сюита, включившая строгий режим, молча
-превратила бы каждый passthrough-дубль в бросающий.
+ненастроенному вызову третий ответ: вызвать настоящий метод. Для каждого члена с настоящим методом
+`passthrough` побеждает весь список выше: общий `strict: true`, глобальный обработчик и строгий
+`registerAutoSpyDefaults` для класса. Иначе строгий режим на весь набор тестов молча превратил бы
+каждый passthrough-спай в бросающий.
 
 ```ts
+import { createSpyFromInstance } from 'vitest-auto-spy';
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
 setupAutoSpy({ strict: true });
 
 createSpyFromInstance(new Cart(), { passthrough: true }).total(); // настоящий total
-createSpyFromInstance(new Cart()).total(); // бросает: Cart.total() was called; …
+createSpyFromInstance(new Cart()).total(); // throws: Cart.total() was called; …
 ```
 
-Молча ничего не перебивается, и держится это на двух правилах:
+Два правила делают это явным:
 
-- **Оба на одном вызове — ошибка.** `{ passthrough: true, strict: true }` и
-  `{ passthrough: true, onUnstubbedCall }` отклоняются при сборке дубля: каждый решает, что делает
-  ненастроенный вызов, и одна из настроек оказалась бы мёртвой. `strict: false` рядом с ним допустим —
-  он говорит то же самое.
-- **Член, за которым нет ничего настоящего, остаётся под списком.** Имени из `methodsToSpyOn`, которого
-  у объекта нет, нечего выполнять, поэтому общесюитный `strict` для него по-прежнему бросает.
+- **Нельзя указать оба в одном вызове.** `{ passthrough: true, strict: true }` и
+  `{ passthrough: true, onUnstubbedCall }` бросают ошибку при создании спая. Оба решают, что делает
+  ненастроенный вызов, и один из них никогда бы не сработал. `strict: false` рядом с `passthrough`
+  допустим: он говорит то же самое.
+- **Член без настоящего метода остаётся строгим.** Имя из `methodsToSpyOn`, которого у объекта нет,
+  вызвать нечем, поэтому общий `strict` для него по-прежнему бросает.
+
+## Сообщение {#the-message}
+
+Вот точный текст для `Cart`, у которого никто не настроил `checkout(id, when)`, вызванный из
+`cart.component.ts`:
+
+```
+[vitest-auto-spy] Cart.checkout(1, 'now') was called; this strict double has nothing configured for it.
+Called from src/app/cart.component.ts:41:12
+Configure it in the test: cart.checkout.calledWith(1, 'now').mockReturnValue(…) for these arguments, or .mockReturnValue(…) for any — .resolveWith(…) / .nextWith(…) when it returns a Promise / Observable.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#the-message
+```
+
+Как его читать:
+
+- **Первая строка показывает весь вызов с аргументами.** Сервис часто вызывает один метод несколько
+  раз, и по аргументам видно, какого именно вызова не хватает.
+- **`Called from`** — первая строка вашего кода в стеке. Спай, библиотека и `node_modules` пропускаются,
+  путь — относительно корня проекта. Если такой строки нет, сообщение её не печатает.
+- **Предложенный `calledWith(…)` повторяет аргументы вызова**, его можно вставить как есть. Для вызова
+  без аргументов предлагается только `.mockReturnValue(…)`.
+- **`cart` — догадка об имени вашей переменной**: имя класса в lowerCamelCase. Если имя класса не
+  годится как идентификатор, в сообщении будет `double`.
+
+Простые данные печатаются целиком, до 200 символов на аргумент. Экземпляр класса или DOM-узел
+печатается как имя класса: `[HTMLDivElement]`, `[Session]`. Полная печать таких объектов могла бы
+исчерпать память воркера, если в прогоне сотни строгих падений.
+
+**У спая, построенного по типу, нет имени класса.** Его называют по строке, где он создан:
+`createAutoMock(users.spec.ts:12).getName(1) was called`. Так два безымянных спая в одном файле не
+путаются. Чтобы задать имя самому, передайте `name`:
+
+```ts
+import { createAutoMock } from 'vitest-auto-spy';
+
+const users = createAutoMock<UserApi>(undefined, { strict: true, name: 'USERS' });
+```
+
+`provideAutoSpyForToken` сам берёт описание токена:
+`InjectionToken CAROUSEL_RESIZE_OBSERVER.observe(…) was called`.
+
+`createSpyFromClass` для **полностью абстрактного класса** (все члены `abstract`) строит спай по типу.
+Имя класса он всё равно печатает, `Storage.read('k') was called`, и строгий режим тоже работает.
+
+## Что считается настройкой {#what-counts-as-configured}
+
+Метод считается настроенным, если тест настроил его **хоть как-то**. Проверка спрашивает про метод, а
+не про аргументы, и срабатывает до сравнения аргументов.
+
+| Чем настроен                                                                   | Проверка ненастроенного вызова |
+| ------------------------------------------------------------------------------ | ------------------------------ |
+| `calledWith(…)` / `mustBeCalledWith(…)`: **любая** цепочка, любые аргументы    | не срабатывает                 |
+| `resolveWith` / `rejectWith` / `resolveWithPerCall`                            | не срабатывает                 |
+| `nextWith` / `throwWith` / `complete` / `returnSubject`                        | не срабатывает                 |
+| опция `returns:` (значение по умолчанию внутри спая)                           | не срабатывает                 |
+| списки `selfReturning:` / `returnsUndefined:` (такое же значение по умолчанию) | не срабатывает                 |
+| `mockReturnValue` / `mockImplementation` вашего раннера                        | не срабатывает (см. ниже)      |
+| `overrides` в `createAutoMock` (член — обычное значение, не спай)              | не срабатывает (см. ниже)      |
+| функция в `overrides` для метода `createSpyFromClass` (спай её вызывает)       | не срабатывает                 |
+| ничего                                                                         | **срабатывает**                |
+
+**`mockReturnValue` и `mockImplementation` заменяют собственную обработку вызова библиотекой.**
+Проверка живёт в этой обработке, поэтому для такого метода строгий режим не срабатывает. `calledWith`,
+добавленный к тому же методу позже, тоже игнорируется.
+
+**`vi.when` (Vitest 5) работает вместе с библиотекой.** Он оборачивает реализацию спая: вызовы,
+подходящие под строку `vi.when`, получают её ответ, остальные доходят до библиотеки. Поэтому
+`calledWith` на том же методе продолжает работать, в любом порядке и без предупреждений. После
+`vi.when(spy)[Symbol.dispose]()` или `mockReset()` снова отвечает только библиотека. `vi.when` поверх
+`mockReturnValue` всё равно попадает в отчёт: `mockReturnValue` уже заменил обработку библиотеки.
+`vi.when(spy, { onUnmatched: 'throw' })` — вариант `strict: true` для одного метода.
+
+**Частая ошибка:** закончилась последовательность `mockReturnValueOnce`. Каждое `Once`-значение
+используется один раз. Когда очередь пуста, следующий вызов доходит до проверки и бросает:
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+const cart = createSpyFromClass(Cart, { strict: true });
+
+cart.total.mockReturnValueOnce(5);
+cart.total(); // 5
+cart.total(); // throws: Cart.total() was called; this strict double has nothing configured for it.
+```
+
+Если последовательность должна закончиться, задайте и постоянное значение: `cart.total.mockReturnValue(0)`.
+
+`returns:` задаёт значение по умолчанию. Более поздний `calledWith` побеждает для своих аргументов, а
+более поздний `resolveWith` или `failWith` заменяет значение по умолчанию. Чтобы сказать, что вызов
+`void` ожидается, напишите `returns: { save: undefined }`.
+
+Бывает, что у кода под тестом есть защитная ветка для `undefined`, например
+`camera.translate(…) ?? of(null)`, а метод по типу возвращает `Observable`. Там
+`mockReturnValue(undefined)` — ошибка типов. Используйте `returns: { translate: undefined }` или после
+создания `camera.translate.mockReturnValue(outOfType(undefined))`: так видно, что значение вне типа
+намеренно. Оба варианта считаются настройкой, и спай может оставаться строгим.
+
+Сброс снова делает метод ненастроенным. После `resetAutoSpy(users)` или в конце
+[блока `using`](./create-spy-from-class#using) проверка снова срабатывает, потому что настройки
+действительно больше нет.
+
+## Чего он намеренно не делает {#what-it-deliberately-does-not-do}
+
+**`calledWith` для других аргументов не приводит к ошибке.**
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+const cart = createSpyFromClass(Cart, { strict: true });
+
+cart.checkout.calledWith(1, 'now').mockReturnValue('one');
+
+cart.checkout(9, 'later'); // undefined, без ошибки
+```
+
+Строгий режим отвечает на «этот метод никто не настроил», а не на «этот вызов никто не настроил».
+Чтобы падать на неожиданных аргументах, используйте
+[`mustBeCalledWith`](./control-helpers#what-a-mustbecalledwith-failure-prints): он бросает ошибку и
+печатает ожидаемые аргументы рядом с фактическими.
+
+**Хуки жизненного цикла Angular никогда не бросают.** `ngOnInit`, `ngOnChanges`, `ngDoCheck`,
+`ngOnDestroy` и четыре хука `ngAfter…` отвечают `undefined` на строгом спае, настроены они или нет.
+Angular сам вызывает `ngOnDestroy` у каждого предоставленного значения, когда `TestBed` разбирается, и
+ни один тест этого вызова не просил. Ошибка там сломала бы разборку и уронила бы следующие тесты.
+Вызовы при этом записываются: `expect(spy.ngOnDestroy).toHaveBeenCalled()` работает.
+
+## `onUnstubbedCall` — общая форма {#onunstubbedcall-—-the-general-form}
+
+`strict: true` — сокращение для обработчика, который бросает ошибку. С `onUnstubbedCall` вы пишете
+обработчик сами. То, что он вернёт, станет результатом вызова.
+
+```ts
+type UnstubbedCallHandler = (call: { className: string | undefined; method: string; args: unknown[] }) => unknown;
+```
+
+**Записывать вместо того, чтобы падать.** Так можно узнать, сколько вызовов не настроено, прежде чем
+включать строгий режим на весь набор тестов:
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+const unstubbed: string[] = [];
+
+const users = createSpyFromClass(UserService, {
+  onUnstubbedCall: ({ className, method }) => void unstubbed.push(`${className}.${method}`),
+});
+```
+
+**Одно запасное значение для всех ненастроенных вызовов** (та же идея, что
+`fallbackMockImplementation` в `vitest-mock-extended`):
+
+```ts
+import { createAutoMock } from 'vitest-auto-spy';
+
+createAutoMock<Api>(undefined, { onUnstubbedCall: () => null }); // никогда не undefined и не ошибка
+```
+
+У спая, построенного по типу, `className` — то же имя, что печатает сообщение: его `name` или
+`createAutoMock(file:line)`, если имени нет.
 
 ## Чтения, которые никто не настроил {#reads-nobody-configured}
 
-Охранник выше срабатывает на **вызове**. Шпионский геттер строгого дубля, который никто не настроил,
-по-прежнему отвечает `undefined`, а observable-свойство, которое никто не накормил, — поток, который
-ничего не присылает. Класс ошибки тот же, ради которого строгий режим и существует: код под тестом
-уходит в ветку «данных нет», а тест остаётся зелёным. Регистрация делает это массовым:
-`registerAutoSpyDefaults(Router, { gettersToSpyOn: ['url'], observablePropsToSpyOn: ['events'] })`
-кладёт оба члена на каждый дубль `Router` в сюите, и в сюите одного потребителя (~1 760 спек-файлов) из
-119 файлов с дублем `Router` 77 ни разу не настроили `url`, а 100 ни разу не накормили `events`.
+Проверка выше срабатывает на **вызове**. Два вида членов строгого спая — не вызовы:
 
-Бросать на чтении нельзя: когда дубль попадает в дифф упавшей проверки, его читает форматтер, и бросок
-сломал бы то самое сообщение, частью которого он стал. Поэтому чтения считаются, пока идёт тест, а
-отчёт выходит после него:
+- геттер-спай (из `gettersToSpyOn`), который никто не настроил, по-прежнему отвечает `undefined`;
+- observable-свойство (из `observablePropsToSpyOn`), в которое ничего не подали, — поток, который
+  никогда не эмитит.
+
+В обоих случаях код под тестом уходит в ветку «данных нет», а тест остаётся зелёным. Чтение не может
+бросить ошибку на месте: когда спай попадает в дифф падения, дифф читает его геттеры, и ошибка там
+сломала бы сообщение. Поэтому `setupAutoSpy` считает такие чтения во время теста и сообщает о них
+после:
 
 ```ts
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
 setupAutoSpy({ strict: true, unconfiguredReads: 'throw' }); // 'off' (по умолчанию) | 'warn' | 'throw'
 ```
 
@@ -276,19 +316,30 @@ Feed it in the test: events.nextWith(…), or seed overrides: { events: new Subj
 Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#reads-nobody-configured
 ```
 
-- **Что считается.** Чтение геттера из `gettersToSpyOn` / `settersToSpyOn` / `autoSpyAccessors`,
-  дошедшее до заглушки, которую никто не заменил, и подписка на поток из `observablePropsToSpyOn`,
-  который никто не накормил **к концу теста**: подписаться в `beforeEach` и вызвать `nextWith` в тесте —
-  обычный способ вести поток, и находкой это не считается. Чтение геттера судится в момент чтения:
-  настроить геттер после того, как код под тестом его прочитал, чтение не отменяет.
-- **Когда.** От `beforeEach` из `setupAutoSpy`, который идёт раньше любого хука спек-файла, до его
-  `afterEach`, который идёт после них. Собственный `beforeEach` спеки внутри намеренно — именно там
-  большинство сюит запускает код под тестом; сбор, `beforeAll` и `afterAll` — снаружи.
-- **Под `test.concurrent`.** У каждого concurrent-теста своё окно, поэтому стартующий сосед больше
-  не стирает то, что прочёл другой. Чтение не несёт ничего, что говорило бы, какой тест его сделал:
-  сделанное, пока в полёте был один тест, записывается на него, а сделанное, пока их было несколько,
-  ждёт последнего из них, оценивается один раз — поток, который кто-то из них к тому времени
-  накормил, находкой не считается — и называет всех:
+Подробности:
+
+- **Что считается.** Чтение геттера из `gettersToSpyOn`, `settersToSpyOn` или `autoSpyAccessors`,
+  который никто не настроил. Подписка на поток из `observablePropsToSpyOn`, в который ничего не подали
+  **к концу теста**. Подписаться в `beforeEach` и вызвать `nextWith` в тесте — обычный способ, он не
+  считается находкой. Чтение геттера оценивается в момент чтения: если настроить геттер после того,
+  как код его прочитал, чтение не отменится.
+- **Когда.** От `beforeEach` из `setupAutoSpy`, который запускается раньше хуков спеки, до его
+  `afterEach`, который запускается после них. Собственный `beforeEach` спеки входит в окно: многие
+  тесты запускают код под тестом именно там. Сбор тестов, `beforeAll` и `afterAll` в окно не входят.
+- **Как настроить геттер:** `accessorSpies.getters.x.mockReturnValue(…)` или `mockImplementation(…)`,
+  `overrides: { x: … }` (в вызове или в записи `registerAutoSpyDefaults`), либо
+  `mockReadonlyProp(spy, 'x', …)`. `mockReturnValueOnce` считается, пока не кончится очередь. Если
+  `undefined` — задуманный ответ, скажите это явно: `accessorSpies.getters.x.mockReturnValue(undefined)`.
+- **Как подать значения в поток:** `nextWith`, `nextOneTimeWith`, `nextWithValues` хотя бы с одним
+  значением, `throwWith`, `complete`, `returnSubject` или настоящий поток в `overrides`. Само имя в
+  списке зарегистрированных умолчаний ничего не настраивает.
+- **Какие спаи.** Строгие (`strict: true` на спае или на весь набор тестов), созданные через
+  `createSpyFromClass`, `provideAutoSpy`, `createSpyFromInstance`, а для observable-свойств — ещё
+  `createAutoMock` и `provideAutoSpyForToken`. `strict: false` на спае его исключает. Узлы `mockDeep`
+  не охвачены ([Куда он не дотягивается](#where-it-does-not-reach)).
+- **Под `test.concurrent`.** У каждого параллельного теста своё окно. По чтению не видно, какой тест
+  его сделал. Чтение, сделанное, пока шёл один тест, достаётся этому тесту. Чтение, сделанное, пока
+  шли несколько, ждёт последнего из них, оценивается один раз и называет их всех:
 
   ```text
   [vitest-auto-spy] Router.url was read 1 time on a strict double and nothing configured it, so the code under test got undefined.
@@ -296,25 +347,20 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#reads-nobody-
   It happened while 2 concurrent tests were in flight ("Cart > loads", "Cart > saves"), and a read does not say which test made it; it is reported once, as the last of them finishes.
   ```
 
-  При `'throw'` падает последний из них.
+  С `'throw'` падает тот из них, который закончился последним.
 
-- **Настраивают** `accessorSpies.getters.x.mockReturnValue(…)` / `mockImplementation(…)`
-  (`mockReturnValueOnce` считается, пока не кончится его очередь, как у метода), `overrides: { x: … }` —
-  на месте вызова или в строке `registerAutoSpyDefaults` — и `mockReadonlyProp(double, 'x', …)`; поток —
-  `nextWith`, `nextOneTimeWith`, `nextWithValues` хотя бы с одной записью, `throwWith`, `complete`,
-  `returnSubject` или настоящий поток, засеянный через `overrides`. Один только зарегистрированный
-  _список_ ничего не настраивает. Если `undefined` и есть задуманный ответ, это говорится вслух, как
-  `returns: { save: undefined }` у метода: `accessorSpies.getters.x.mockReturnValue(undefined)`.
-- **Какие дубли.** Строгие — `strict: true` на дубле или на всю сюиту — от `createSpyFromClass`,
-  `provideAutoSpy`, `createSpyFromInstance`, а также `createAutoMock` / `provideAutoSpyForToken` для их
-  observable-свойств. `strict: false` на дубле выводит его из-под отчёта. Узлы `mockDeep` не
-  охвачены — по причине, описанной [ниже](#where-it-does-not-reach).
-- **Не входит в `preset: 'strict'`.** Это продолжение `strict` — решения о том, как сюита пишет дубли, —
-  а не степень реакции на то, что уже сломано; включение на существующей сюите начинается с обследования.
+- **Не входит в `preset: 'strict'`.** Это расширение самого `strict`, и на существующем наборе тестов
+  сначала стоит провести обследование (следующий раздел).
 
 ### Сначала обследовать — `onUnstubbedRead` {#surveying-first-—-onunstubbedread}
 
+`onUnstubbedRead` получает те же находки, что напечатал бы отчёт, вместо отчёта. Он видит каждый спай,
+созданный не с `strict: false`, строгий или нет, поэтому цифры заранее показывают, что уронит отчёт,
+когда вы его включите.
+
 ```ts
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
 const unread = new Map<string, number>();
 
 setupAutoSpy({
@@ -326,42 +372,53 @@ setupAutoSpy({
 });
 ```
 
-Обработчик получает ровно то, что напечатал бы отчёт, от **каждого** дубля, собранного не со
-`strict: false`, — строгого или нет, — поэтому его числа предсказывают, что уронит включённый отчёт. Он
-вызывается после каждого теста, по разу на член, и забирает эти находки вместо отчёта. У дубля может
-быть свой: `createSpyFromClass(X, { onUnstubbedRead })`. Приоритет повторяет `onUnstubbedCall`:
-собственный обработчик дубля, его `strict: false`, общесюитный обработчик, затем `strict`. Обоим
-обработчикам нужен `setupAutoSpy` в setup-файле — границы теста размечает именно он, — а само чтение
-по-прежнему отвечает `undefined`.
+- Вызывается после каждого теста, по разу на член. Само чтение по-прежнему отвечает `undefined`.
+- У одного спая может быть свой обработчик: `createSpyFromClass(X, { onUnstubbedRead })`.
+- Порядок тот же, что у `onUnstubbedCall`: обработчик спая, `strict: false` спая, общий обработчик,
+  затем `strict`.
+- Обоим обработчикам нужен `setupAutoSpy` в setup-файле: он отмечает, где начинается и кончается
+  каждый тест.
 
 ## Куда он не дотягивается {#where-it-does-not-reach}
 
-Охранника несут на себе спаи-функции, которые строят две фабрики — от класса и от типа, — и получают
-они его в момент сборки. Всё перечисленное ниже строит свои спаи иначе и строгим не бывает **никогда**,
-что бы ни настроили:
+Проверка ненастроенного вызова живёт в спаях методов, которые строят `createSpyFromClass` и
+`createAutoMock`. Спаи, созданные в другом месте, **никогда** не строгие, что бы вы ни настроили:
 
-| Дубль                                                 | Почему                                                                                     |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| **спаи на аксессорах** (`gettersToSpyOn`, …)          | чтение не может бросать — вместо этого отчёт после теста, [выше](#reads-nobody-configured) |
-| **спаи на observable-свойствах**                      | то же — подписка, которую никто не накормил, попадает в отчёт после теста                  |
-| **узлы `mockDeep<T>()`**                              | `mockDeep` вообще не принимает настройки строгого режима                                   |
-| **`console-spy`** и **`reload` у `mockResourceProp`** | внутренние спаи, а не дубли вашего коллаборатора                                           |
-| **отдельный `createFunctionSpy(name)`**               | охранник — его необязательный второй аргумент, и никто из вызывающих его не передаёт       |
+| Спай                                                  | Почему                                                                                       |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| **спаи аксессоров** (`gettersToSpyOn`, …)             | чтение не может бросить ошибку; о нём сообщают после теста, [выше](#reads-nobody-configured) |
+| **спаи observable-свойств**                           | то же: о подписке без значений сообщают после теста                                          |
+| **узлы `mockDeep<T>()`**                              | `mockDeep` вообще не принимает опцию strict                                                  |
+| **`console-spy`** и **`reload` у `mockResourceProp`** | собственные спаи библиотеки, а не спаи вашей зависимости                                     |
+| **отдельный `createFunctionSpy(name)`**               | проверка — его необязательный второй аргумент, и его никто не передаёт                       |
 
-Члены от `fillMissing` — то исключение, которое пришлось закрыть, а не описать: член, которого прототип
-никогда не называл, по определению никем и не настроен, так что оставить его снисходительным значило бы
-простить ровно тот случай, ради которого строгий режим и существует. Охранник туда протянут, и
-`createSpyFromClass(X, { strict: true, fillMissing: true })` бросает на дозаполненном члене ровно так же,
-как бросает на объявленном.
+**Члены `fillMissing` строгие.** Член, который класс не объявил, по определению никто не настроил.
+Поэтому `createSpyFromClass(X, { strict: true, fillMissing: true })` бросает для добавленного члена так
+же, как для объявленного.
 
-Первые две строки стоит сказать дважды, потому что они сидят на дубле, который _и есть_ строгий:
+**Первые две строки действуют и на строгом спае.**
 `createSpyFromClass(X, { strict: true, gettersToSpyOn: ['theme'], observablePropsToSpyOn: ['items$'] })`
-бросает на ненастроенном **методе** и по-прежнему отвечает `undefined` на ненастроенные `theme` или
-`items$` — о чём `setupAutoSpy({ unconfiguredReads })` сообщает, когда тест закончится.
+бросает для ненастроенного **метода**, но для `theme` и `items$` по-прежнему отвечает `undefined`.
+`setupAutoSpy({ unconfiguredReads })` сообщит о них после теста.
 
-## Как это сделано у других {#prior-art}
+## Подробнее {#in-depth}
 
-У `vitest-mock-extended` есть `fallbackMockImplementation`, у `@golevelup` — `{ strict: true }`, а
-testdouble строгий по умолчанию. Здесь режим по умолчанию выключен: сюита, уже написанная под дубли,
-возвращающие `undefined`, повалилась бы целиком в день обновления, а метод часто не настроен ровно
-потому, что ничего под тестом его не зовёт.
+### Почему не `onlyMethodsToSpyOn` {#why-not-onlymethodstospyon}
+
+[`onlyMethodsToSpyOn`](/ru/core/create-spy-from-class#configuration) отвечает на другой вопрос. Он
+_убирает_ все методы не из списка, и падение выглядит как `users.currentTenant is not a function` —
+виноватым кажется спай, а не тест. Строгий режим оставляет метод и говорит, что его никто не настроил.
+
+### Почему чтения важны {#why-reads-matter}
+
+Зарегистрированное умолчание делает ненастроенные чтения частыми. `registerAutoSpyDefaults(Router, {
+gettersToSpyOn: ['url'], observablePropsToSpyOn: ['events'] })` добавляет оба члена в каждый спай
+`Router` в наборе тестов. В одном реальном наборе примерно из 1 760 спек 77 из 119 файлов, где был спай
+`Router`, ни разу не настроили `url`, а 100 не подали ни одного значения в `events`.
+
+### Как это сделано у других {#prior-art}
+
+В `vitest-mock-extended` есть `fallbackMockImplementation`, в `@golevelup` — `{ strict: true }`, а
+testdouble строгий по умолчанию. Здесь строгий режим по умолчанию выключен. Набор тестов, написанный под
+спаи, возвращающие `undefined`, упал бы целиком в день обновления, а метод часто не настроен просто
+потому, что код под тестом его не вызывает.

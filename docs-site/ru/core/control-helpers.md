@@ -1,91 +1,142 @@
 ---
 title: Управляющие хелперы
-description: calledWith, mustBeCalledWith, resolveWith, nextWith и остальные — хелперы, которые каждый метод-спай получает по своему типу возврата.
+description: calledWith, mustBeCalledWith, resolveWith, nextWith и другие хелперы, которые говорят методу спая, что отвечать; набор зависит от типа возврата.
 ---
 
 # Управляющие хелперы
 
-Каждый метод-спай получает хелперы, выбранные по типу возвращаемого значения. `calledWith` /
-`mustBeCalledWith` разводят вызовы по аргументам, а хелперы под конкретный тип настраивают результат.
+У каждого метода спая есть хелперы, которые говорят ему, что отвечать. Набор зависит от типа
+возврата: метод с `Promise` получает `resolveWith`, метод с `Observable` — `nextWith`, а любой метод —
+`calledWith`, чтобы отвечать только на определённые аргументы.
 
-::: tip Порядок ключей не важен
-Аргументы сопоставляются по сериализованному ключу, а ключи объектов перед его сборкой сортируются —
-поэтому `calledWith({ id: 1, name: 'a' })` совпадёт с вызовом, сделанным как `{ name: 'a', id: 1 }`.
-Это один и тот же аргумент, а порядок, в котором литерал случайно записали, — не то, от чего должен
-зависеть тест.
-:::
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+import 'vitest-auto-spy/rxjs';
+
+// один раз на проект, для хелперов Observable
+
+const users = createSpyFromClass(UserService);
+
+users.isAdmin.calledWith(7).mockReturnValue(true); // boolean isAdmin(id): true для 7, undefined для остальных
+users.save.resolveWith(undefined); // Promise<void> save(user)
+users.load.nextWith({ id: 7, name: 'Ann' }); // Observable<User> load(id)
+```
+
+| Метод возвращает | Хелперы                                                                                                      | Раздел                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| что угодно       | `calledWith`, `mustBeCalledWith`, `failWith` и собственные `mockReturnValue` и др. раннера                   | [Синхронные методы](#synchronous-methods)                      |
+| значение         | `returnValue`, `once()`, `times(n)` на цепочке `calledWith`                                                  | [Один вызов или n](#one-call-or-n-—-once-times)                |
+| `Promise`        | `resolveWith`, `rejectWith`, `resolveWithPerCall`                                                            | [Методы с Promise](#promise-returning-methods-—-resolvewith)   |
+| `Observable`     | `nextWith`, `nextOneTimeWith`, `nextWithValues`, `nextWithPerCall`, `throwWith`, `complete`, `returnSubject` | [Observable-методы](#observable-methods-properties-—-nextwith) |
+
+Как сбросить всё, что настроил тест, — в разделе [`clearAutoSpy` / `resetAutoSpy`](#resetting-spies-—-clearautospy-resetautospy).
 
 ## Синхронные методы {#synchronous-methods}
 
+API раннера работает как обычно. `calledWith(...args)` отвечает только на эти аргументы, на остальные
+вызовы — `undefined`. `mustBeCalledWith(...args)` на любые другие аргументы бросает ошибку.
+
 ```ts
-// стандартный API vi.fn() работает как есть
-myService.getName.mockReturnValue('Fake Name');
+import { createSpyFromClass } from 'vitest-auto-spy';
 
-// вернуть значение только для конкретных аргументов
-myService.getName.calledWith(1).mockReturnValue('Fake Name');
-expect(myService.getName(1)).toBe('Fake Name');
-expect(myService.getName(2)).toBeUndefined();
+const users = createSpyFromClass(UserService);
 
-// бросить исключение, если вызвали с «неправильными» аргументами
-myService.getName.mustBeCalledWith(1).mockReturnValue('Fake Name');
-expect(() => myService.getName(2)).toThrow();
+// API раннера: любой вызов отвечает 'Ann'
+users.getName.mockReturnValue('Ann');
+
+// только для этих аргументов
+users.getName.calledWith(1).mockReturnValue('Ann');
+expect(users.getName(1)).toBe('Ann');
+expect(users.getName(2)).toBeUndefined();
+
+// ошибка на любые другие аргументы
+users.getName.mustBeCalledWith(1).mockReturnValue('Ann');
+expect(() => users.getName(2)).toThrow();
 ```
 
-::: warning Первая строка и вторая не складываются — выигрывает та, что написана позже
-`mockReturnValue` и его семейство (`mockImplementation`, `mockResolvedValue`, `mockRejectedValue`,
-`mockThrow`, `mockReturnThis`) ставят на мок хоста свою реализацию, а диспетчер, который читает
-цепочку `calledWith`, **и есть** та реализация, которую они заменяют. Поэтому `mockReturnValue`,
-написанный после цепочки, превращает любой вызов в это одно значение, а цепочка, открытая после
-`mockReturnValue`, не читается вообще. Ни то, ни другое не падает — спека остаётся зелёной на ветке,
-которую никто не настраивал, — поэтому оба порядка сообщаются как misconfiguration: предупреждением
-или исключением под [`setupAutoSpy({ misconfiguration: 'throw' })`](/ru/utilities/setup) и пресетом
-`strict`. Не сообщается обёртка, которая делегирует, — `vi.when(spy)` (Vitest 5) или
-`mockImplementation`, построенный из `spy.getMockImplementation()`: цепочка по-прежнему отвечает на
-каждый вызов, который та пропускает дальше.
+Аргументы сравниваются по значению, а не по ссылке. Порядок ключей объекта не важен:
+`calledWith({ id: 1, name: 'a' })` совпадёт с вызовом `{ name: 'a', id: 1 }`. Порядок элементов в `Map`
+и `Set` тоже не важен. Подробнее — [Что считается тем же аргументом](#what-counts-as-the-same-argument).
 
-Когда нужны оба — одно значение на эти аргументы и другое на всё остальное, — запасное значение
-кладётся в собственный контейнер спая, который цепочка по-прежнему перекрывает: опция
-[`returns`](/ru/core/create-spy-from-class#returns-—-the-value-where-the-spy-is-built) там, где
-собирается дубль, либо `resolveWith` / `nextWith` / `failWith` для промиса, потока или исключения.
-`mockReturnValue` уместен тогда, когда он и должен быть всем ответом.
+**Частая ошибка:** смешивать `mockReturnValue` и цепочку `calledWith` на одном методе. Целиком
+побеждает то, что написано последним. `mockReturnValue` после цепочки отвечает на все вызовы.
+`mockReturnValue` до цепочки делает цепочку бесполезной. Библиотека сообщает об этом как об ошибке настройки
+(предупреждение или исключение под [`setupAutoSpy({ misconfiguration: 'throw' })`](/ru/utilities/setup)
+и строгим пресетом). Если нужно «это значение для этих аргументов, другое — для всех остальных»,
+положите запасное значение в
+[`returns`](/ru/core/create-spy-from-class#returns-—-the-value-where-the-spy-is-built) или используйте
+`resolveWith` / `nextWith` / `failWith`. Цепочка `calledWith` сильнее них:
 
 ```ts
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+
 provideAutoSpy(ProductsService, { returns: { find: FALLBACK } });
-injectSpy(ProductsService).find.calledWith(7).mockReturnValue(SPECIFIC); // живут оба
+injectSpy(ProductsService).find.calledWith(7).mockReturnValue(SPECIFIC); // работают оба
 ```
 
-Сообщение приходит из собственного движка спаев, поэтому оно есть на Vitest и Rstest и его нет под
-`setSpyEngine('runner')`, на Bun и на `node:test` — там реализация ставится внутри рантайма, куда
-библиотеке не видно. Семейство `Once` не сообщается никогда: его очередь опустошается обратно в
-диспетчер, то есть приостанавливает цепочку на один вызов, а не забирает её.
-:::
+`mockReturnValue` уместен, только когда это весь ответ целиком. Смешением не считаются:
+
+- обёртка, которая передаёт вызов дальше в цепочку: `vi.when(spy)` (Vitest 5) или `mockImplementation`,
+  собранный из `spy.getMockImplementation()`;
+- семейство `Once` (`mockReturnValueOnce` …): его очередь кончается, и цепочка снова отвечает.
+
+Сообщение приходит от собственного движка спаев библиотеки. Оно есть на Vitest и Rstest, но не под
+`setSpyEngine('runner')`, не на Bun и не на `node:test`: там раннер ставит реализацию туда, где
+библиотека её не видит.
 
 ### Цепочка, сохранённая в переменную {#a-chain-kept-in-a-variable}
 
-`calledWith` / `mustBeCalledWith` возвращают рукоятку на **те самые** аргументы, поэтому цепочка,
-сохранённая в переменную, остаётся привязанной к списку, для которого её взяли, — сколько бы цепочек
-ни открыли после:
+`calledWith` и `mustBeCalledWith` возвращают объект для **этих** аргументов. Сохранённый в переменную,
+он остаётся привязан к своим аргументам, сколько бы цепочек вы ни открыли потом:
 
 ```ts
-const one = myService.getName.calledWith(1);
-const two = myService.getName.calledWith(2);
+const one = users.getName.calledWith(1);
+const two = users.getName.calledWith(2);
 
 one.mockReturnValue('first');
 two.mockReturnValue('second');
 
-expect(myService.getName(1)).toBe('first');
-expect(myService.getName(2)).toBe('second');
+expect(users.getName(1)).toBe('first');
+expect(users.getName(2)).toBe('second');
 ```
 
-Такая форма и нужна, когда один список аргументов настраивается в двух местах — умолчание в
-`beforeEach`, а исход в самом тесте, — или когда хелпер открывает цепочку и отдаёт её наружу. Все
-рукоятки одного спая пишут в одну и ту же карту аргументов, поэтому настроить сохранённую рукоятку и
-снова назвать те же аргументы — одна и та же запись, и побеждает, как всегда, та, что позже.
+Это удобно, когда один набор аргументов настраивается в двух местах: значение по умолчанию в
+`beforeEach` и результат в тесте. Или когда цепочку открывает вспомогательная функция и возвращает её.
+Повторный вызов `users.getName.calledWith(1)` возвращает объект для той же записи, что и `one`, поэтому
+побеждает тот из двух, который вы настроили последним.
+
+### Один вызов или n — `once` / `times` {#one-call-or-n-—-once-times}
+
+`once()` и `times(n)` ограничивают ответ ближайшими подходящими вызовами. `returnValue(x)` на цепочке —
+то же, что `mockReturnValue(x)`. Когда они израсходованы,
+вызов получает предыдущий ответ для этих аргументов, а затем значение спая по умолчанию:
+
+```ts
+users.load.calledWith(1).mockReturnValue(cached);
+users.load.calledWith(1).once().mockReturnValue(fresh);
+
+users.load(1); // fresh
+users.load(1); // cached
+```
+
+| Правило                         | Поведение                                                        |
+| ------------------------------- | ---------------------------------------------------------------- |
+| Несколько ограниченных ответов  | складываются в стопку; первым используется последний настроенный |
+| Хелперы на ограниченном объекте | только `mockReturnValue`, `returnValue` и `failWith`             |
+| Те же аргументы без ограничения | заменяют всю стопку                                              |
+| Под `mustBeCalledWith`          | вызов сверх счёта бросает, как любое другое несовпадение         |
+| `times(n)`                      | `n` — целое положительное число, иначе `RangeError`              |
 
 ### Заставить вызов бросить исключение — `failWith` {#making-a-call-throw-—-failwith}
 
+`failWith(error)` заставляет метод бросать ошибку. Работает на спае с **любым** типом возврата и на
+цепочке `calledWith` / `mustBeCalledWith`.
+
 ```ts
-// бросает любой вызов
+import { HttpErrorResponse } from '@angular/common/http';
+
+// каждый вызов бросает
 cart.checkout.failWith(new HttpErrorResponse({ status: 500 }));
 expect(() => cart.checkout(1)).toThrow();
 
@@ -94,28 +145,16 @@ cart.checkout.calledWith(BAD_ID).failWith(new Error('unknown cart'));
 cart.checkout.calledWith(GOOD_ID).mockReturnValue(receipt);
 ```
 
-`failWith` доступен на спае с **любым** типом возврата, а также в цепочке `calledWith` /
-`mustBeCalledWith`. Он перекрывает `resolveWith`, `nextWith` или пакет значений по вызовам, настроенные
-до него, и сам перекрывается тем, что настроили после, — так что поведение вызова никогда не зависит от
-порядка, в котором случайно написана спека. `resetAutoSpy` снимает его, как любую другую настройку.
+Побеждает последний настроенный ответ: `failWith` заменяет более ранние `resolveWith`, `nextWith` или
+список на каждый вызов, а более поздний из них заменяет `failWith`. `resetAutoSpy` убирает его, как
+любую другую настройку.
 
-::: tip Почему не `throwWith`
-`throwWith` уже означает _завершить поток ошибкой_ на спае-observable. В рантайме каждый спай несёт все
-наборы хелперов сразу — различает их только тип возврата в `Spy<T>`, — поэтому общее имя означало бы, что
-молча побеждает набор, прицепленный последним, и так на каждом спае за весь прогон.
-:::
-
-::: info В сравнении с раннерами
-Vitest 4.1 добавил `mockThrow` / `mockThrowOnce` — это половина задачи, та, что на уровне спая. В Bun и
-`node:test` нет и её, поэтому именно `failWith` позволяет одной и той же спеке идти на всех трёх. А аналога
-второго примера выше нет ни в одном рантайме: `mockImplementation` подменяет диспетчеризацию целиком, что
-прямо противоположно настройке одного набора аргументов.
-:::
+Чтобы `Promise` отклонился, используйте `rejectWith`. Чтобы `Observable` завершился ошибкой —
+`throwWith`.
 
 ### Что печатает упавший `mustBeCalledWith` {#what-a-mustbecalledwith-failure-prints}
 
-Первая строка говорит, какой аргумент сломал совпадение; под ней обе стороны сразу, как их печатают
-`td.explain` и sinon, — потому что диагноз и есть сравнение, а не одна из его половин:
+Первая строка говорит, какой аргумент не совпал. Ниже — ожидаемый и фактический вызов рядом:
 
 ```
 [vitest-auto-spy] getName is set up with mustBeCalledWith, and this call matches none of its configs — argument 1: expected 1, got 2.
@@ -125,9 +164,8 @@ Fix the value the code under test passes, or configure this call too.
 Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#what-a-mustbecalledwith-failure-prints
 ```
 
-Когда настроен не один вызов, печатаются все, вместе с матчерами, — так конфиг, который ни разу не совпал,
-виден глазами, а не выводится по догадке; первая строка тогда останавливается на диагнозе, потому что
-сравнивать не с чем:
+Если настроенных вызовов несколько, перечисляются все, с матчерами, — так видно настройку, которая
+ни разу не совпала. Первая строка тогда обходится без части «expected 1, got 2»: сравнивать не с чем:
 
 ```
 Wanted (3 configured):
@@ -137,190 +175,146 @@ Wanted (3 configured):
 Actual: getName(9,'zzz')
 ```
 
+Матчер внутри объекта печатается на своём месте, `save({id:Any<Number>,name:'a'})`, и строка выглядит
+так, как вы написали настройку.
+
 ### Асимметричные матчеры в `calledWith` {#asymmetric-matchers-in-calledwith}
 
-`calledWith` / `mustBeCalledWith` принимают те же асимметричные матчеры, что и `expect`
-(`expect.any`, `expect.objectContaining`, `expect.stringMatching`, …). Конфиг, в котором есть хотя бы
-один матчер, сохраняется как предикат и сверяется с фактическими аргументами в момент вызова, а не
-по точной сериализации.
+`calledWith` и `mustBeCalledWith` принимают те же асимметричные матчеры, что и `expect`: `expect.any`,
+`expect.objectContaining`, `expect.stringMatching` и другие. Они работают **на любой глубине**: внутри
+объекта, внутри массива, как ключ или значение `Map` или `Set`.
 
 ```ts
-myService.getName.calledWith(expect.any(Number)).mockReturnValue('Fake Name');
-expect(myService.getName(1)).toBe('Fake Name');
-expect(myService.getName(2)).toBe('Fake Name');
+users.getName.calledWith(expect.any(Number)).mockReturnValue('Ann');
+expect(users.getName(1)).toBe('Ann');
+expect(users.getName(2)).toBe('Ann');
 
-myService.save.calledWith(expect.objectContaining({ id: 1 })).mockReturnValue(true);
-expect(myService.save({ id: 1, name: 'x' })).toBe(true);
+users.save.calledWith(expect.objectContaining({ id: 1 })).mockReturnValue(true);
+expect(users.save({ id: 1, name: 'x' })).toBe(true);
+
+// матчер уровнем ниже
+users.save.calledWith({ id: expect.any(Number), name: 'x' }).mockReturnValue(true);
+users.saveAll.calledWith([expect.any(String)]).mockReturnValue(true);
+users.index.calledWith(new Map([['id', expect.any(Number)]])).mockReturnValue(true);
 ```
 
-Точный список аргументов проверяется раньше любого из них, а конфиги с матчерами перебираются в порядке
-регистрации — узкий конфиг, записанный раньше широкого, сохраняет свои вызовы.
-
-Повторная регистрация **того же** списка аргументов заменяет прежний ответ ровно так же, как это
-происходит для точных аргументов:
+- Точный список аргументов проверяется раньше любого матчера.
+- Настройки с матчерами проверяются в порядке регистрации, поэтому узкую ставьте перед широкой.
+- Повторная регистрация **тех же** аргументов заменяет прежний ответ, как и для точных аргументов:
 
 ```ts
-myService.getName.calledWith(expect.anything()).mockReturnValue('first');
-myService.getName.calledWith(expect.anything()).mockReturnValue('second');
-expect(myService.getName(1)).toBe('second');
+users.getName.calledWith(expect.anything()).mockReturnValue('first');
+users.getName.calledWith(expect.anything()).mockReturnValue('second');
+expect(users.getName(1)).toBe('second');
 ```
 
-Каждый вызов `expect.anything()` создаёт новый объект, поэтому «тот же аргумент» не может означать тот же
-экземпляр: два матчера одинаковы, когда принимают одни и те же значения, — тот же класс матчера, тот же
-образец, та же инверсия. Исключение — самодельный объект `{ asymmetricMatch }`. Его вердикт живёт в
-замыкании, куда не заглянет никакое сравнение, поэтому два таких объекта — всегда два конфига, и перекрыть
-может только тот же самый экземпляр, зарегистрированный повторно.
+Два матчера считаются одинаковыми, если принимают одни и те же значения: тот же матчер с тем же
+аргументом, и оба с отрицанием или оба без (`expect.not.…`). Для вложенных матчеров это тоже верно: второй `calledWith({ id: expect.any(Number) })`
+заменяет первый. Исключение — самописный объект `{ asymmetricMatch }`: его логика спрятана в функции,
+поэтому два таких объекта — всегда две разные настройки. Заменить ответ может только тот же экземпляр,
+зарегистрированный повторно.
 
 ### Что считается тем же аргументом {#what-counts-as-the-same-argument}
 
-Всё, что не решил матчер, сравнивается так, как сравнивает это собственный `equals` раннера, — и в
-конфиге-предикате, и в сериализованном ключе:
+Всё, что не решает матчер, сравнивается так же, как это делает `equals` самого раннера:
 
-| Аргумент      | Как сравнивается                                                                        |
-| ------------- | --------------------------------------------------------------------------------------- |
-| `Map`, `Set`  | по содержимому, в любом порядке                                                         |
-| `Date`        | по моменту времени                                                                      |
-| `RegExp`      | по источнику и флагам                                                                   |
-| `Error`       | по имени и сообщению плюс собственные перечислимые поля, добавленные подклассом         |
-| функция       | по идентичности — тот же объект функции, но никогда то же имя                           |
-| всё остальное | по собственным перечислимым записям, включая символьные ключи; прототип не сравнивается |
+| Аргумент      | Сравнивается по                                                                      |
+| ------------- | ------------------------------------------------------------------------------------ |
+| `Map`, `Set`  | содержимому, в любом порядке                                                         |
+| `Date`        | времени                                                                              |
+| `RegExp`      | исходнику и флагам                                                                   |
+| `Error`       | имени и сообщению, плюс собственным перечислимым полям, которые добавляет подкласс   |
+| функция       | идентичности: тот же объект функции, а не просто то же имя                           |
+| всё остальное | собственным перечислимым записям, включая символьные ключи; прототип не сравнивается |
 
-Экземпляр, всё состояние которого сидит за аксессорами или приватными полями, — `URL`,
-`ArrayBuffer`, компонент, — не имеет записей, по которым его сравнить, поэтому от класса другого он
-отличается, а от другого экземпляра того же класса — нет. Настраивайте такой аргумент матчером
-(`expect.any(URL)`) или полем, которое в коде под тестом действительно меняется.
-
-::: warning Два аргумента, которые раньше делили один ключ
-Каждое из этого было одним ключом `calledWith`: две разные функции с одним именем (включая два
-анонимных колбэка), две `Error`, различающиеся только сообщением, объект, чей ключ записан так,
-чтобы сойти за структуру (`{ 'a:1,b': 2 }` против `{ a: 1, b: 2 }`), поле под символьным ключом и
-`Set`, собранный в другом порядке. Спека, которая на это полагалась, — один анонимный колбэк собирал
-значение, настроенное для другого, — была зелёной для сравнения, которого никогда не происходило, а
-теперь падает. В сообщении о падении печатаются оба списка аргументов, поэтому чинить надо конфиг, а
-не хелпер.
-:::
-
-## Причина и следствие: почему `calledWith`, а не `mockReturnValue` {#cause-and-effect-why-calledwith-and-not-mockreturnvalue}
-
-Заглушка — это утверждение о причине и следствии: _на такой вход коллаборатор отвечает вот так_.
-`mockReturnValue` оставляет следствие и выбрасывает причину — ответ приходит, что бы код ни отправил, —
-и именно так тест проходит там, где не должен:
-
-```ts
-function priceIn(rates: Rates, amount: number, currency: string): number {
-  return amount * rates.rateFor('EUR'); // баг: `currency` игнорируется
-}
-
-rates.rateFor.mockReturnValue(2);
-expect(priceIn(rates, 10, 'USD')).toBe(20); // зелёный
-```
-
-Обычная починка — `toHaveBeenCalledWith('USD')` в конце теста. Она работает, но разносит причину и
-следствие по двум местам: ответ настроен наверху, условие, от которого он зависел, проверяется внизу,
-и ничто их не связывает. Хвостовая проверка, которую не написали или написали не на том спае,
-оставляет тест ровно таким же зелёным.
-
-`calledWith` держит обе половины в одной строке. Ответ существует только для того входа, которому
-принадлежит, поэтому неверный вход не получает ответа, и тест падает на том поведении, которое он и
-проверял:
-
-```ts
-rates.rateFor.calledWith('USD').mockReturnValue(2);
-expect(priceIn(rates, 10, 'USD')).toBe(20); // падает: rateFor('EUR') ответил undefined, цена — NaN
-```
-
-Это ещё и **более слабая** связанность из двух — то, что обычно удивляет. Проверка вызова фиксирует,
-как код разговаривает с коллаборатором: сколько раз, в каком порядке, с какими точно аргументами.
-Ответ, отфильтрованный по аргументам, говорит только, что результат зависит от входа: код может
-позвать один раз или три, закэшировать, поменять порядок, — тесту всё равно, пока правильный вход
-даёт правильный выход. Рефакторинг, сохраняющий поведение, сохраняет и зелёный тест.
-
-Когда вызов с любыми другими аргументами — сам по себе баг, скажите это через `mustBeCalledWith`.
-Тогда падение называет расхождение на самом вызове, а не всплывает где-то ниже как `NaN`:
-
-```text
-[vitest-auto-spy] rateFor is set up with mustBeCalledWith, and this call matches none of its configs — argument 1: expected 'USD', got 'EUR'.
-Wanted: rateFor('USD')
-Actual: rateFor('EUR')
-```
-
-Безусловный ответ по-прежнему правильный инструмент там, где причины, к которой его привязать, нет:
-метод без аргументов или метод, чьи аргументы тесту действительно безразличны. И `toHaveBeenCalledWith`
-по-прежнему правильная проверка там, где вызов _и есть_ поведение: отправленная команда,
-залогированное событие, запрос, ответ на который никто не читает.
+**Частая ошибка:** настраивать аргумент со скрытым состоянием — `URL`, `ArrayBuffer`, компонент. Сравнивать
+у него нечего, поэтому два экземпляра одного класса выглядят равными. Используйте матчер
+(`expect.any(URL)`) или поле, которое код под тестом действительно меняет.
 
 ## Методы, возвращающие Promise, — `resolveWith` {#promise-returning-methods-—-resolvewith}
 
+`resolveWith(value)` заставляет метод вернуть выполненный `Promise`, `rejectWith(error)` — отклонённый.
+`resolveWithPerCall` даёт каждому вызову своё значение.
+
 ```ts
-myService.getProducts.resolveWith([{ name: 'Product 1' }]);
-await expect(myService.getProducts()).resolves.toEqual([{ name: 'Product 1' }]);
+import { createSpyFromClass } from 'vitest-auto-spy';
 
-myService.getProducts.rejectWith('FAKE ERROR');
+const products = createSpyFromClass(ProductsService);
 
-// значения по вызовам и ответ в зависимости от аргументов
-myService.getProducts.resolveWithPerCall([{ value: ['a'] }, { value: ['b'] }]);
-myService.getProducts.calledWith(1).resolveWith(['one']);
+products.getProducts.resolveWith([{ name: 'Product 1' }]);
+await expect(products.getProducts()).resolves.toEqual([{ name: 'Product 1' }]);
+
+products.getProducts.rejectWith('FAKE ERROR');
+
+// своё значение на каждый вызов и значение только для определённых аргументов
+products.getProducts.resolveWithPerCall([{ value: ['a'] }, { value: ['b'] }]);
+products.getProducts.calledWith(1).resolveWith(['one']);
 ```
+
+| Хелпер                     | Аргумент                     | Результат                       |
+| -------------------------- | ---------------------------- | ------------------------------- |
+| `resolveWith(value?)`      | значение, которым выполнится | каждый вызов выполняется с ним  |
+| `rejectWith(error?)`       | причина отклонения           | каждый вызов отклоняется с ней  |
+| `resolveWithPerCall(list)` | `{ value, delay? }[]`        | вызов n выполняется с записью n |
+
+**Частая ошибка:** `mockResolvedValue` после цепочки `calledWith`. Он заменяет цепочку, как
+`mockReturnValue` (см. [Синхронные методы](#synchronous-methods)). Для значения по умолчанию используйте
+`resolveWith`.
 
 ### Как посмотреть, чем кончились промисы, — `mock.settledResults` {#settled-results}
 
-У каждого метода-спая есть `mock.settledResults`: по одной записи на вызов, в том же порядке, и в
-записи — чем в итоге завершился промис, который этот вызов вернул. Vitest ведёт такой учёт сам; в
-Bun (`bun:test`) и `node:test` его даёт встроенный полифил, так что поверхность одинакова во всех
-трёх рантаймах.
+У каждого метода спая есть `mock.settledResults`: по записи на вызов, в порядке вызовов, о том, чем
+кончился промис этого вызова. Vitest ведёт это сам. На Bun (`bun:test`) и `node:test` это добавляет
+библиотека, поэтому на всех трёх раннерах всё одинаково.
 
 ```ts
-myService.getProducts.resolveWith([{ name: 'Product 1' }]);
-await myService.getProducts();
-expect(myService.getProducts.mock.settledResults).toEqual([{ type: 'fulfilled', value: [{ name: 'Product 1' }] }]);
+products.getProducts.resolveWith([{ name: 'Product 1' }]);
+await products.getProducts();
+expect(products.getProducts.mock.settledResults).toEqual([{ type: 'fulfilled', value: [{ name: 'Product 1' }] }]);
 
-myService.getProducts.rejectWith('FAKE ERROR');
-await myService.getProducts().catch(() => undefined);
-expect(myService.getProducts.mock.settledResults).toContainEqual({ type: 'rejected', value: 'FAKE ERROR' });
+products.getProducts.rejectWith('FAKE ERROR');
+await products.getProducts().catch(() => undefined);
+expect(products.getProducts.mock.settledResults).toContainEqual({ type: 'rejected', value: 'FAKE ERROR' });
 ```
 
-Каждая запись — это `{ type: 'fulfilled' | 'incomplete' | 'rejected', value }`. Вызов, чей промис
-ещё не завершился, записан как `incomplete` — до тех пор, пока не завершится.
-
-## Сброс спаев — `clearAutoSpy` / `resetAutoSpy` {#resetting-spies-—-clearautospy-resetautospy}
-
-Сбросить все спаи внутри собранного дубля одним вызовом, а не дёргать руками `mockClear` /
-`mockReset` на каждом методе. Оба работают и со спаями `createSpyFromClass`, и с прокси
-`createAutoMock`, и покрывают как спаи методов, так **и** спаи аксессоров.
-
-```ts
-import { clearAutoSpy, resetAutoSpy } from 'vitest-auto-spy';
-
-// чистит только записанные вызовы — настроенные ответы остаются
-clearAutoSpy(myService);
-
-// чистит вызовы И возвращает настройку к исходному состоянию
-resetAutoSpy(myService);
-```
-
-`resetAutoSpy` отменяет и конфигурацию библиотеки (`calledWith` / `resolveWith` / `nextWith` / …), **и**
-голое возвращаемое значение, выставленное прямо на спае (`myService.getName.mockReturnValue('x')`), —
-после сброса метод снова возвращает `undefined`, пока его не настроят заново.
+Каждая запись — `{ type: 'fulfilled' | 'incomplete' | 'rejected', value }`. Пока промис не выполнен,
+его запись — `incomplete`.
 
 ## Observable-методы и свойства — `nextWith` {#observable-methods-properties-—-nextwith}
 
-Включается однократным импортом rxjs-слоя (`import 'vitest-auto-spy/rxjs';`). См.
-[Рантаймы → RxJS](/ru/runtimes/rxjs).
+Этим хелперам нужен слой RxJS. Импортируйте его один раз, например в setup-файле:
+`import 'vitest-auto-spy/rxjs';`. См. [Рантаймы → RxJS](/ru/runtimes/rxjs).
 
 ```ts
-myService.getProducts$.nextWith([{ name: 'Product 1' }]); // отдать значение, поток остаётся открытым
-myService.getProducts$.nextOneTimeWith([{ name: 'X' }]); // отдать одно значение и завершить
-myService.getProducts$.throwWith('FAKE ERROR'); // завершить поток ошибкой
-myService.getProducts$.complete(); // завершить поток
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+import 'vitest-auto-spy/rxjs';
+
+const products = createSpyFromClass(ProductsService);
+
+products.getProducts$.nextWith([{ name: 'Product 1' }]); // выдать значение; поток остаётся открытым
+products.getProducts$.nextOneTimeWith([{ name: 'X' }]); // выдать один раз и завершить
+products.getProducts$.throwWith('FAKE ERROR'); // завершить поток ошибкой
+products.getProducts$.complete(); // завершить поток
+```
+
+Свойство из `observablePropsToSpyOn` ещё и считает свои открытые подписки: `x$.subscriberCount()`.
+Подписка перестаёт считаться, когда от неё отписались или когда поток завершился либо упал с ошибкой.
+Поэтому `0` после `fixture.destroy()` значит, что компонент отписался:
+
+```ts
+fixture.destroy();
+expect(store.items$.subscriberCount()).toBe(0);
 ```
 
 ### Точная последовательность — `nextWithValues` {#a-precise-sequence-—-nextwithvalues}
 
-`nextWithValues(configs)` отдаёт записи **по порядку** и останавливается на первой `{ complete: true }`.
-Всё, что положат в лежащий под спаем subject позже, подмешивается в поток, пока это завершение не наступит.
+`nextWithValues(configs)` выдаёт записи **по порядку** и останавливается на первом
+`{ complete: true }`. Значения, которые вы тем временем отправите в subject под спаем, подмешиваются,
+пока не придёт это завершение.
 
 ```ts
-myService.getProducts$.nextWithValues([
+products.getProducts$.nextWithValues([
   { value: [{ name: 'Product 1' }] },
   { value: [{ name: 'Product 2' }], delay: 100 },
   { complete: true },
@@ -329,52 +323,151 @@ myService.getProducts$.nextWithValues([
 
 #### `ValueConfig` {#valueconfig}
 
-| Форма                    | Что делает                                               |
-| ------------------------ | -------------------------------------------------------- |
-| `{ value, delay? }`      | отдать `value` (через `delay` мс, если задержка указана) |
-| `{ errorValue, delay? }` | завершить поток ошибкой `errorValue` (через `delay` мс)  |
-| `{ complete?, delay? }`  | завершить поток — `complete: false` не отдаёт ничего     |
+| Форма                    | Что делает                                              |
+| ------------------------ | ------------------------------------------------------- |
+| `{ value, delay? }`      | выдаёт `value` (через `delay` мс, если задано)          |
+| `{ errorValue, delay? }` | завершает поток ошибкой `errorValue` (через `delay` мс) |
+| `{ complete?, delay? }`  | завершает поток; `complete: false` ничего не выдаёт     |
 
-Запись выбирается по **ключу, который в ней есть**, а не по тому, истинно ли её значение: `{ value: false }`,
-`{ value: 0 }`, `{ value: '' }` и `{ value: null }` — отдают все, и ложный `errorValue` тоже срабатывает.
-До 3.12.1 сверху сидела проверка на истинность, из-за чего обычный поток булевых значений или счётчик не
-отдавал вообще ничего, — а симптом всплывал в другом месте: `expectEmission` по таймауту или компонент,
-всё ещё сидящий в начальном состоянии, при зелёной проверке на значение по умолчанию.
+Что делает запись, решает её **ключ**, а не истинность значения. `{ value: false }`, `{ value: 0 }`,
+`{ value: '' }` и `{ value: null }` выдаются, и ложный `errorValue` тоже срабатывает.
 
-`delay` считается в миллисекундах и применяется через собственные `delay()` / `timer()` из RxJS, поэтому
-на фейковых таймерах часы придётся двигать: [`advanceTimers(ms)`](/ru/utilities/fake-timers) делает это **и**
-дочищает микрозадачи, которые ставит в очередь эмиссия.
+**Частая ошибка:** `delay` на фейковых таймерах. `delay` работает через `delay()` / `timer()` из RxJS,
+поэтому значение не придёт, пока вы не сдвинете часы. [`advanceTimers(ms)`](/ru/utilities/fake-timers)
+сдвигает их **и** выполняет микрозадачи, которые ставит выдача значения.
 
 ### Свой поток на каждый вызов — `nextWithPerCall` {#a-fresh-stream-per-call-—-nextwithpercall}
 
-`nextWithPerCall(configs)` отдаёт **n-му вызову** n-ю запись и возвращает по одному `ReplaySubject`
-на запись, чтобы тест мог позже дослать значения в конкретный вызов.
+`nextWithPerCall(configs)` отдаёт **n-му вызову** n-ю запись. Он возвращает по `ReplaySubject` на
+запись, чтобы тест мог позже отправить новые значения в поток конкретного вызова.
 
 ```ts
-const [first$, second$] = myService.watch$.nextWithPerCall([{ value: 'a' }, { value: 'b', doNotComplete: true }]);
+import { firstValueFrom } from 'rxjs';
 
-expect(await firstValueFrom(myService.watch$())).toBe('a');
+const [first$, second$] = products.watch$.nextWithPerCall([{ value: 'a' }, { value: 'b', doNotComplete: true }]);
 
-// поток второго вызова остаётся открытым, его можно вести дальше
+expect(await firstValueFrom(products.watch$())).toBe('a');
+
+// поток второго вызова остаётся открытым, в него можно отправлять ещё
 second$.next('b2');
 ```
 
-Каждый поток на вызов **завершается после первого же значения**, если в записи не указано
-`doNotComplete: true`. `ValueConfigPerCall` — это `{ value, delay?, doNotComplete? }`.
+Каждый такой поток **завершается после первого значения**, если в записи нет `doNotComplete: true`.
+`ValueConfigPerCall` — это `{ value, delay?, doNotComplete? }`.
 
 ### Ручное управление — `returnSubject` {#manual-control-—-returnsubject}
 
-`returnSubject()` отдаёт `ReplaySubject`, который стоит за спаем, — для случаев, которые хелперы
-не покрывают:
+`returnSubject()` возвращает `ReplaySubject` под спаем — для случаев, которые другие хелперы не
+покрывают:
 
 ```ts
-const subject = myService.getProducts$.returnSubject();
+const subject = products.getProducts$.returnSubject();
 
 subject.next([{ name: 'Product 1' }]);
 subject.error(new Error('boom'));
 ```
 
-Это `ReplaySubject`, поэтому подписчик, пришедший с опозданием, всё равно увидит уже отданные значения.
+Это `ReplaySubject`, поэтому подписчик, пришедший поздно, всё равно увидит уже отправленные значения.
 
-Полный справочник и отдельный билдер `createObservableWithValues`:
+Полный справочник, включая отдельный конструктор `createObservableWithValues`:
 [Рантаймы → RxJS](/ru/runtimes/rxjs).
+
+## Сброс спаев — `clearAutoSpy` / `resetAutoSpy` {#resetting-spies-—-clearautospy-resetautospy}
+
+Сбрасывайте все методы спая одним вызовом, а не `mockClear` / `mockReset` на каждом методе. Оба
+работают со спаями из `createSpyFromClass` и `createAutoMock` и затрагивают спаи методов **и** спаи
+аксессоров (геттеров и сеттеров).
+
+```ts
+import { clearAutoSpy, resetAutoSpy } from 'vitest-auto-spy';
+
+clearAutoSpy(users); // забыть записанные вызовы; настроенные ответы остаются
+
+resetAutoSpy(users); // забыть вызовы И настроенные ответы
+```
+
+Вызывайте его в `afterEach`, если спай живёт между тестами, или создавайте спай в `beforeEach` и
+обходитесь без сброса. Спай, объявленный через `using`, сбрасывается сам
+([`using`](./create-spy-from-class#using)).
+
+После `resetAutoSpy` каждый метод снова отвечает `undefined`, пока вы его не настроите. Сброс убирает:
+
+- настройки библиотеки: `calledWith`, `resolveWith`, `nextWith` и остальные;
+- значение, заданное API раннера, например `users.getName.mockReturnValue('x')`;
+- значение в очереди `mockReturnValueOnce`;
+- то, что должен был отвечать спай аксессора (`accessorSpies.getters.theme.mockReturnValue('dark')`).
+
+Это то же, что делает `vi.resetAllMocks()`, но для одного спая.
+
+**Частая ошибка:** поставить `mockReturnValueOnce` в очередь до `resetAutoSpy` и ждать его после.
+Сброс его убирает — ставьте значение в очередь после сброса.
+
+## Причина и следствие: почему `calledWith`, а не `mockReturnValue` {#cause-and-effect-why-calledwith-and-not-mockreturnvalue}
+
+Заглушка говорит: «на этот вход зависимость отвечает вот так». `mockReturnValue` оставляет ответ и
+теряет вход: ответ приходит, что бы код ни передал. Так тест проходит, когда не должен:
+
+```ts
+function priceIn(rates: Rates, amount: number, currency: string): number {
+  return amount * rates.rateFor('EUR'); // ошибка: `currency` игнорируется
+}
+
+rates.rateFor.mockReturnValue(2);
+expect(priceIn(rates, 10, 'USD')).toBe(20); // зелёный
+```
+
+Обычно это чинят через `toHaveBeenCalledWith('USD')` в конце теста. Это работает, но ответ настроен
+вверху, а его условие проверяется внизу. Если последней проверки нет или она смотрит не на тот спай,
+тест остаётся зелёным.
+
+`calledWith` держит оба в одной строке. Ответ существует только для своего входа, поэтому неверный вход
+ответа не получает, и тест падает:
+
+```ts
+rates.rateFor.calledWith('USD').mockReturnValue(2);
+expect(priceIn(rates, 10, 'USD')).toBe(20); // падает: rateFor('EUR') ответил undefined, цена — NaN
+```
+
+Когда `calledWith` впервые промахивается мимо вызова с тем же числом аргументов, что у одной из
+настроек, на спае без значения по умолчанию, библиотека печатает подсказку с вызовом и настройками:
+
+```text
+[vitest-auto-spy] rateFor('EUR') matched none of its calledWith() configs (['USD']) and answered undefined. …
+```
+
+Она печатается один раз на файл теста, никогда не бросает и молчит, если у спая есть значение по
+умолчанию.
+
+`calledWith` к тому же даёт **более слабую** связь. Проверка вызова фиксирует, как код разговаривает с
+зависимостью: сколько раз, в каком порядке, с какими точными аргументами. Ответ, отфильтрованный по
+аргументам, говорит лишь, что результат зависит от входа. Код может вызвать один раз или три,
+закешировать или переставить вызовы — тест пройдёт, пока правильный вход даёт правильный результат.
+Рефакторинг, сохраняющий поведение, оставляет тест зелёным.
+
+Если вызов с любыми другими аргументами — сам по себе ошибка, используйте `mustBeCalledWith`. Тогда
+падение назовёт несовпадение прямо на вызове, а не проявится как `NaN` где-то дальше:
+
+```text
+[vitest-auto-spy] rateFor is set up with mustBeCalledWith, and this call matches none of its configs — argument 1: expected 'USD', got 'EUR'.
+Wanted: rateFor('USD')
+Actual: rateFor('EUR')
+```
+
+`mockReturnValue` по-прежнему уместен, когда ответ не к чему привязать: метод без аргументов или метод,
+чьи аргументы тесту безразличны. `toHaveBeenCalledWith` по-прежнему уместен, когда вызов и есть
+поведение: отправленная команда, записанное событие, запрос, ответ на который не читают.
+
+## Подробнее {#in-depth}
+
+### Почему `failWith`, а не `throwWith` {#why-failwith-and-not-throwwith}
+
+`throwWith` уже значит «завершить поток ошибкой» на спае с `Observable`. Во время выполнения у каждого
+спая есть все хелперы; какие из них покажет TypeScript, решает только тип возврата в `Spy<T>`. Общее
+имя означало бы, что молча побеждает набор хелперов, подключённый последним, — на каждом спае прогона.
+
+### Сравнение с раннерами {#compared-with-the-runners}
+
+В Vitest 4.1 появились `mockThrow` / `mockThrowOnce` — они покрывают случай «каждый вызов бросает». В
+Bun и `node:test` их нет, поэтому с `failWith` один и тот же тест работает на всех трёх. Аналога
+«бросать только для этих аргументов» нет ни в одном раннере: `mockImplementation` заменяет метод
+целиком, а это противоположно настройке одного набора аргументов.

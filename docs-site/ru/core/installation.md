@@ -1,121 +1,119 @@
 ---
 title: Установка
-description: Поставьте vitest-auto-spy, выберите точку входа под свой раннер и подключите её к Vitest, Bun, node:test или Rstest.
+description: Поставьте vitest-auto-spy, проверьте, что нужно проекту, и подключите библиотеку к Angular CLI, Vitest, Bun, node:test или Rstest.
 ---
 
 # Установка
+
+Поставьте пакет как dev-зависимость:
 
 ```bash
 npm i -D vitest-auto-spy
 ```
 
-::: tip Имя во множественном числе — это алиас
-[`vitest-auto-spies`](https://www.npmjs.com/package/vitest-auto-spies) — тонкий пакет-алиас, который
-реэкспортирует этот, точка входа в точку входа: опечатка ставит тот же самый код. Предпочитайте имя
-в единственном числе; алиас генерируется из него и всегда только следует за ним.
-:::
+На Vitest больше ничего не нужно: импортируйте `createSpyFromClass` в спеке, и всё работает. Своих
+рантайм-зависимостей у пакета нет. Первую спеку проще всего написать по странице
+[Начало работы](./introduction).
 
-Все peer-зависимости **предоставляет ваш проект**; `rxjs` и `@angular/core` **необязательны** —
-ставьте их только под соответствующую точку входа. У самого пакета **ноль рантайм-зависимостей**.
+## Что нужно проекту {#what-you-need}
 
-| Peer              | Нужен для                                                                               | Опционален? |
-| ----------------- | --------------------------------------------------------------------------------------- | ----------- |
-| `vitest`          | раннер по умолчанию                                                                     | нет         |
-| `rxjs`            | спаев за observable в `vitest-auto-spy/rxjs` — `>=7`, без верхней границы (rxjs 8 тоже) | да          |
-| `@angular/core`   | хелперов `vitest-auto-spy/angular` и `vitest-auto-spy/bun-angular`                      | да          |
-| `@angular/router` | только `vitest-auto-spy/angular-router` — `>=20`                                        | да          |
+Пакеты ниже даёт ваш проект. Все они необязательные: ставьте пакет, только если пользуетесь точкой
+входа, которой он нужен.
 
-| Инструмент | Минимум                                                                       |
-| ---------- | ----------------------------------------------------------------------------- |
-| Node.js    | ≥ 22 — у 18 и 20 закончилась поддержка; CI гоняет 22, 24 и 26                 |
-| Vitest     | ≥ 2.1                                                                         |
-| Bun        | ≥ 1.4 для `vitest-auto-spy/bun-angular`; для `/bun` — любой свежий Bun        |
-| TypeScript | ≥ 4.7 для типизированных хелперов (чистый JS тоже работает, просто без типов) |
+| Peer-зависимость            | Для чего                                                                       | Версия   |
+| --------------------------- | ------------------------------------------------------------------------------ | -------- |
+| `vitest`                    | точка входа по умолчанию `vitest-auto-spy` и все точки входа только под Vitest | `>=2.1`  |
+| `rxjs`                      | спаи для Observable из `vitest-auto-spy/rxjs`; rxjs 8 тоже подходит            | `>=7.2`  |
+| `@angular/core`             | `vitest-auto-spy/angular` и `vitest-auto-spy/bun-angular`                      | `>=20`   |
+| `@angular/common`           | только `vitest-auto-spy/angular-http`                                          | `>=20`   |
+| `@angular/router`           | только `vitest-auto-spy/angular-router`                                        | `>=20`   |
+| `@angular/forms`            | только `vitest-auto-spy/signal-forms` (сигнальные формы есть с Angular 22)     | `>=20`   |
+| `@angular/platform-browser` | матчеры директив из `vitest-auto-spy/angular/matchers` и preload для Bun       | `>=20`   |
+| `@angular/compiler`         | `vitest-auto-spy/angular/matchers` и preload `vitest-auto-spy/bun-angular`     | `>=20`   |
+| `@rstest/core`              | только `vitest-auto-spy/rstest`                                                | `>=0.11` |
 
-Vitest **≥ 2.1** — потому что типизированная поверхность `spy.method.mock.settledResults` это
-собственный тип `Mock` из Vitest, а `settledResults` появился в `@vitest/spy` только в 2.0, и 2.1 —
-та версия, на которой линейка 2.x реально стоит. Сами рантайм-хелперы по-прежнему работают и на более
-старом Vitest (`settledResults` библиотека полифиллит для `bun:test` и `node:test` в любом случае),
-но типы там уже не сходятся, поэтому диапазон перестал на них претендовать.
+| Инструмент | Минимум                                                               |
+| ---------- | --------------------------------------------------------------------- |
+| Node.js    | 22                                                                    |
+| Vitest     | 2.1                                                                   |
+| Angular    | 20 для точек входа Angular, 22 для `/signal-forms`                    |
+| Bun        | 1.4 для `vitest-auto-spy/bun-angular`; для `/bun` — любой свежий      |
+| TypeScript | 4.7 для типизированных хелперов; чистый JavaScript работает без типов |
 
-Node **≥ 22** — это нижняя граница. У Node 18 и 20 закончилась поддержка, и каждому раннеру из
-поддерживаемого диапазона уже нужно больше, чем любая из них: Vitest 4 объявляет
-`^20.0.0 || ^22.0.0 || >=24.0.0`, а Vite 7, который он за собой тянет, ещё строже —
-`^20.19.0 || >=22.12.0`; на Node 18 прогон падает с `TypeError: crypto.hash is not a function`,
-не успев загрузить ни одной спеки. Vitest 5 закручивает гайки дальше, до
-`^22.12.0 || ^24.0.0 || >=26.0.0`, а `@types/node` берёт в peer-зависимости как
-`^22.0.0 || >=24.0.0` — опционально, но с проверкой, если пакет установлен, так что рабочее
-пространство, оставшееся на `@types/node` 20, получит `ERESOLVE`. CI гоняет Node 22, 24 и 26; публикуемый вывод по-прежнему
-ES2022. Какую из трёх запускать на самом деле — и чего это стоит — измерено в
-[Производительности → Какая версия Node](./performance#which-node-version).
-
-Поставляется **как ESM с приложенными типами `.d.ts`**. Два подпути дополнительно везут сборку
-CommonJS — `vitest-auto-spy/node` (сюита `node --test`, написанная на CJS) и
-`vitest-auto-spy/eslint-plugin` (его подгружает CommonJS-конфиг `eslint.config.cjs`). Всё остальное
-только ESM, потому что `require()` там никогда бы и не заработал: Vitest сам отказывается быть
-затребованным (`Vitest cannot be imported in a CommonJS module using require()`), так что любая
-точка входа поверх Vitest падала на первой же строке собственного `.cjs`. Тест-раннеры грузят ESM
-нативно, так что ничего не потеряно, — а выброшенный недостижимый вывод сократил публикуемый пакет
-примерно вдвое.
-
-## Точки входа {#entry-points}
-
-Библиотека поставляет фреймворконезависимое ядро плюс слои под рантаймы и фреймворки, так что
-обычный проект на Node / Bun / React / Vue **не тянет в рантайм-бандл ни rxjs, ни Angular** — а
-начиная с 4.0.0 и в свою TypeScript-программу тоже:
-
-| Импорт                                | Даёт                                                                                                                                                                                                                                                                                           | Тянет за собой              |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| `vitest-auto-spy`                     | `createSpyFromClass`, `createAutoMock`, `mockDeep`, `createMock`, `createFixture` / `createFixtureFactory`, `createFunctionSpy`, хелперы `mock*Prop`, [проверки observable](./observable-assertions), [мосты типов](./spy-typing), `errorHandler`, типы                                        | `vitest`                    |
-| `vitest-auto-spy/bun`                 | то же ядро, но на моках `bun:test` из Bun                                                                                                                                                                                                                                                      | `bun:test`                  |
-| `vitest-auto-spy/bun-angular`         | ангуляровский `TestBed` под `bun test` — DOM, JIT-резолв `templateUrl` и zoneless-окружение из одного preload, плюс ядро и ангуляровские хелперы                                                                                                                                               | `bun:test`, `@angular/core` |
-| `vitest-auto-spy/node`                | то же ядро, но на `mock.fn()` из `node:test`                                                                                                                                                                                                                                                   | `node:test`                 |
-| `vitest-auto-spy/rstest`              | то же ядро, но на `rstest.fn()` / `rstest.spyOn()` из Rstest — [раннер Rstest](../runtimes/rstest)                                                                                                                                                                                             | `@rstest/core`              |
-| `vitest-auto-spy/rxjs`                | спаев за observable (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) и `createObservableWithValues`                                                                                                                                                                                 | `rxjs`                      |
-| `vitest-auto-spy/dom-stubs`           | глобальные объекты, которые компонент создаёт себе сам, — `stubIntersectionObserver`, `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `stubMediaElement`, `stubAbortController`, `stubAnimationFrame`, `stubElementRect` и билдеры записей. До 4.0.0 жили в корневой точке входа | —                           |
-| `vitest-auto-spy/diagnostics`         | `compareTestRuns` / `summarizeTestRun` / `formatTestRunComparison` и `diffByField` — два отчёта, которых счётчик не даст. До 4.0.0 жили в корневой точке входа; чистые функции, так что этот подпуть импортируется и из простого Node-скрипта                                                  | —                           |
-| `vitest-auto-spy/angular`             | `provideAutoSpy`, `injectSpy` и возвращаемый им тип `Spy<T>`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, хелперы `mock*Prop` — матчеры, диагностика и дубли уехали в 5.21.0 к спутникам ниже                                                                             |
-| `vitest-auto-spy/angular/diagnostics` | `enableAngularDiagnostics` и вся семья таймингов TestBed; спутник `/angular`, уехавший из него в 5.21.0                                                                                                                                                                                        |
-| `vitest-auto-spy/angular/doubles`     | Тройка диалога Material и дубли `Window`/`Document`; регистрирует мок-адаптер; спутник `/angular`                                                                                                                                                                                              |
-| `vitest-auto-spy/angular/matchers`    | `registerDirectiveMatchers`, `registerResourceMatchers`, `registerSignalMatchers` — по одному `expect.extend` из setup-файла                                                                                                                                                                   | `@angular/core`             |
-| `vitest-auto-spy/nestjs`              | `provideAutoSpy`, `injectSpy` для `Test.createTestingModule`                                                                                                                                                                                                                                   | — (ваш `@nestjs/*`)         |
-| `vitest-auto-spy/react`               | ядро, с естественным импортом для сюит на React Testing Library                                                                                                                                                                                                                                | — (ваш `react`)             |
-| `vitest-auto-spy/vue`                 | `provideAutoSpy` для `global.provide` плюс спаи на стор Pinia                                                                                                                                                                                                                                  | — (ваши `vue`/`pinia`)      |
-| `vitest-auto-spy/svelte`              | ядро, с естественным импортом для сюит на Svelte                                                                                                                                                                                                                                               | — (ваш `svelte`)            |
-| `vitest-auto-spy/console`             | [спаев за console](../utilities/console) — молчаливые типизированные спаи поверх глобального `console`                                                                                                                                                                                         | `vitest`                    |
-| `vitest-auto-spy/jasmine`             | [прямую замену для сюиты на `jasmine-auto-spies`](../migrating-jasmine) — `.and` / `.calls` / `.withArgs` на каждом спае, `createSpyObj`, неймспейс `jasmine`, `registerJasmineMatchers`                                                                                                       | `vitest`                    |
-| `vitest-auto-spy/setup`               | [`setupAutoSpy()`](../utilities/setup) и [`setupFakeTimers()`](../utilities/fake-timers)                                                                                                                                                                                                       | `vitest`                    |
-| `vitest-auto-spy/jasmine-compat`      | один только `enableJasmineCompat()` — тот же слой `.and` / `.calls`, но без регистрации адаптера, для `bun test` и `node --test`                                                                                                                                                               | — (ваш раннер)              |
-| `vitest-auto-spy/observer-spy`        | [`subscribeSpyTo`](../runtimes/rxjs#subscribespyto-for-a-suite-arriving-with-observer-spy) — поверхность `@hirez_io/observer-spy`                                                                                                                                                              | `rxjs`                      |
-| `vitest-auto-spy/zone`                | [патч зоны](../utilities/zone), благодаря которому ангуляровский `fakeAsync` работает под Vitest                                                                                                                                                                                               | `vitest`, `zone.js`         |
-| `vitest-auto-spy/eslint-plugin`       | [правила линтера](../utilities/eslint-plugin), которые направляют сюиту на эти хелперы                                                                                                                                                                                                         | — (ваш `eslint`)            |
-
-Каждая точка входа регистрирует свой мок-адаптер **при импорте**, поэтому импортируйте ту, что
-соответствует вашему тест-раннеру: если подмешать `vitest-auto-spy` в прогон `bun test`, останется
-установленным не тот адаптер.
-
-`vitest-auto-spy/jasmine` работает только на Vitest именно по этой причине — он регистрирует
-адаптер Vitest, а значит импортирует `vitest`. На `bun test` и `node --test` вместо этого один раз
-вызовите `enableJasmineCompat()` из `vitest-auto-spy/jasmine-compat` в файле настройки; он не
-регистрирует никакого адаптера, поэтому уживается с той рантайм-точкой входа, которую вы уже
-импортируете.
-
-Адаптер раннера регистрирует именно импорт точки входа. Спай, построенный раньше, падает с
-`No mock adapter registered`, и сообщение называет раннер, который распознало, — Vitest, `bun:test`,
-`node:test` или Rstest, — вместе с единственным импортом, который нужно добавить, и местом для него,
-со ссылкой на раздел ниже.
+Почему минимумы именно такие — на странице [Совместимость](./compatibility).
 
 ## Подключение {#wiring-it-up}
 
+Выберите раздел под то, чем вы запускаете тесты. В конце каждого — команда запуска.
+
+### Angular CLI (`ng test`) {#angular-cli-ng-test}
+
+Проекты на билдере `@angular/build:unit-test` запускают Vitest командой `ng test`. `TestBed` билдер
+настраивает сам, а `vitest` и `rxjs` в новом проекте Angular CLI уже есть. Setup-файл нужен только для
+двух необязательных возможностей:
+
+- **спаи для Observable**: `nextWith` и другие хелперы для методов, которые возвращают `Observable`;
+- **проверки между тестами**: `setupAutoSpy()` откатывает глобальные значения, которые подменил тест,
+  и сообщает, что тест не убрал за собой, например таймеры или вывод в консоль.
+
+1. Создайте setup-файл:
+
+   ```ts
+   // src/test-setup.ts
+   // спаи для Observable; уберите, если не нужны
+   import 'vitest-auto-spy/rxjs';
+
+   // проверки между тестами
+   import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
+   setupAutoSpy();
+   ```
+
+2. Укажите его в цели `test`:
+
+   ```jsonc
+   // angular.json → projects → <ваше-приложение> → architect → test
+   "test": {
+     "builder": "@angular/build:unit-test",
+     "options": {
+       // оставьте опции, которые тут уже есть, и добавьте эту строку
+       // путь — от корня воркспейса
+       "setupFiles": ["src/test-setup.ts"]
+     }
+   }
+   ```
+
+3. Запустите тесты:
+
+   ```bash
+   ng test
+   ```
+
+- Не вызывайте в этом файле `TestBed.initTestEnvironment()`: билдер уже сделал это, и второй вызов
+  бросит `Cannot set base providers because it has already been called`. (Редкий случай: если один
+  файл служит и `ng test`, и обычному `vitest`, оберните этот вызов в проверку
+  `isAngularUnitTestBuilder()` из `vitest-auto-spy/setup`.)
+- Держите `import 'vitest-auto-spy/rxjs'` в setup-файле, а не в другом `.ts`. С `@angular/build` 22.2 прочие
+  вспомогательные файлы билдер не компилирует, даже если они перечислены в `tsconfig.spec.json`.
+  В `tsconfig` setup-файл добавлять не нужно.
+
+Все проверки `setupAutoSpy()` и их значения по умолчанию — на странице
+[Гигиена тестового прогона](../utilities/setup). Чтобы убедиться, что всё работает, запустите спеку
+со страницы [Начало работы](./introduction). Как писать спеку с `provideAutoSpy` и
+`injectSpy` в `TestBed`, показывает следующая страница, [Angular](../adapters/angular).
+
 ### Vitest {#vitest}
 
-Никакой настройки: достаточно `import { createSpyFromClass } from 'vitest-auto-spy'` в спеке. Файл
-настройки нужен только для того, что глобально по своей природе, — для слоя rxjs и гигиены прогона:
+Настройка не нужна: достаточно `import { createSpyFromClass } from 'vitest-auto-spy'` в спеке.
+Setup-файл добавляйте только для того, что глобально по природе: спаев для Observable и проверок
+между тестами.
 
 ```ts
 // vitest.setup.ts
+// спаи для Observable, один раз на все спеки
 import 'vitest-auto-spy/rxjs';
-// один раз — включает спаев за observable везде
+
+// проверки между тестами
 import { setupAutoSpy } from 'vitest-auto-spy/setup';
 
 setupAutoSpy();
@@ -123,6 +121,8 @@ setupAutoSpy();
 
 ```ts
 // vitest.config.ts
+import { defineConfig } from 'vitest/config';
+
 export default defineConfig({
   test: {
     setupFiles: ['./vitest.setup.ts'],
@@ -130,9 +130,17 @@ export default defineConfig({
 });
 ```
 
-`setupAutoSpy()` важнее всего, когда сюита делит одно окружение (`isolate: false`), — там
-невосстановленный патч свойства переживает файл, который его поставил. См.
+```bash
+npx vitest
+```
+
+`setupAutoSpy()` важнее всего, когда файлы тестов делят одно окружение (`isolate: false`). Там
+глобальное значение, которое забыли вернуть, протекает в следующий файл. Подробнее —
 [Гигиена тестового прогона](../utilities/setup).
+
+Angular на Vitest без `ng test` (например, с Vite-плагином Analog) требует вашего обычного
+setup-файла для `TestBed`. Если после этого `injectSpy` говорит, что `TestBed` не инициализирован,
+см. [Две копии тестового модуля Angular](#two-copies-of-the-angular-testing-module).
 
 ### Bun {#bun}
 
@@ -146,7 +154,7 @@ import { createSpyFromClass } from 'vitest-auto-spy/bun';
 bun test
 ```
 
-Аналог файла настройки Vitest здесь — preload:
+Аналог setup-файла в Bun — preload:
 
 ```toml
 # bunfig.toml
@@ -154,15 +162,16 @@ bun test
 preload = ["./bun-setup.ts"]
 ```
 
-У Angular под `bun test` своя точка входа и свой preload — см.
-[Angular на Bun](/ru/runtimes/bun-angular). Флаги `--isolate`, `--parallel`, `--shard`, `--changed`
-и `--timings` из Bun 1.4 работают без изменений; что каждый из них означает для ваших спаев,
-разобрано в [Bun](/ru/runtimes/bun).
+У Angular под `bun test` своя точка входа и свой preload: см.
+[Angular на Bun](/ru/runtimes/bun-angular). Флаги Bun `--isolate`, `--parallel`, `--shard`,
+`--changed` и `--timings` работают без изменений; что каждый значит для ваших спаев, разобрано на
+странице [Bun](/ru/runtimes/bun).
 
 ### node:test {#node-test}
 
 ```ts
 // user.test.ts
+import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createSpyFromClass } from 'vitest-auto-spy/node';
 ```
@@ -171,8 +180,8 @@ import { createSpyFromClass } from 'vitest-auto-spy/node';
 node --test
 ```
 
-У `node:test` нет `expect`; берите к нему `node:assert` (или любую библиотеку проверок) — поверхность
-спая от этого не меняется.
+В `node:test` нет `expect`. Проверяйте через `node:assert`, как выше, или любую библиотеку проверок;
+спаи работают одинаково.
 
 ### Rstest {#rstest}
 
@@ -190,34 +199,113 @@ import { createSpyFromClass } from 'vitest-auto-spy/rstest';
 npx rstest run
 ```
 
-С `globals: true` в конфиге глобалы `rs` / `rstest` заменяют первую строку импорта. Нативная поверхность
-моков повторяет Vitest — `mock.calls` как голый массив, семейство `mockReturnValue`, — поэтому
-[управляющие хелперы](./control-helpers) читаются так же, как на Vitest. См. [Rstest](/ru/runtimes/rstest).
+С `globals: true` в конфиге глобалы `rs` / `rstest` заменяют первую строку импорта. Моки Rstest
+устроены как у Vitest (`mock.calls`, `mockReturnValue`), поэтому страница
+[Управляющие хелперы](./control-helpers) подходит без изменений. См. [Rstest](/ru/runtimes/rstest).
+
+## Точки входа {#entry-points}
+
+Точка входа — путь импорта под ваш раннер или фреймворк. Импорт заодно связывает библиотеку с
+мок-функцией этого раннера. Импортируйте ту, что подходит вашему раннеру: `vitest-auto-spy` в
+прогоне `bun test` подключит не ту мок-функцию.
+
+| Импорт                                | Что даёт                                                                                                                                                                                                                                                         | Что нужно                                                |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `vitest-auto-spy`                     | ядро: `createSpyFromClass`, `createAutoMock`, `mockDeep`, `createMock`, `createFixture` / `createFixtureFactory`, `createFunctionSpy`, хелперы `mock*Prop`, [проверки на Observable](./observable-assertions), [мосты типов](./spy-typing), `errorHandler`, типы | `vitest`                                                 |
+| `vitest-auto-spy/bun`                 | то же ядро на моках `bun:test`                                                                                                                                                                                                                                   | `bun:test`                                               |
+| `vitest-auto-spy/bun-angular`         | `TestBed` из Angular под `bun test`: DOM, загрузка `templateUrl` и zoneless-окружение из одного preload, плюс ядро и хелперы Angular                                                                                                                             | `bun:test`, `@angular/core`, `@angular/platform-browser` |
+| `vitest-auto-spy/node`                | то же ядро на `mock.fn()` из `node:test`                                                                                                                                                                                                                         | `node:test`                                              |
+| `vitest-auto-spy/rstest`              | то же ядро на `rstest.fn()` / `rstest.spyOn()` из Rstest; см. [Rstest](../runtimes/rstest)                                                                                                                                                                       | `@rstest/core`                                           |
+| `vitest-auto-spy/rxjs`                | спаи для Observable (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) и `createObservableWithValues`                                                                                                                                                   | `rxjs`                                                   |
+| `vitest-auto-spy/dom-stubs`           | заглушки браузерных глобалов, которые компонент создаёт сам: `stubIntersectionObserver`, `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `stubMediaElement`, `stubAbortController`, `stubAnimationFrame`, `stubElementRect` и билдеры записей      | —                                                        |
+| `vitest-auto-spy/diagnostics`         | `compareTestRuns`, `summarizeTestRun`, `formatTestRunComparison` и `diffByField`; обычные функции, работают и из Node-скрипта                                                                                                                                    | —                                                        |
+| `vitest-auto-spy/angular`             | `provideAutoSpy`, `injectSpy` и его тип `Spy<T>`, `renderShallow`, `createWithAutoSpies`, `stable` / `flushEffects`, хелперы `mock*Prop`                                                                                                                         | `@angular/core`                                          |
+| `vitest-auto-spy/angular/diagnostics` | `enableAngularDiagnostics` и хелперы для замера времени `TestBed`                                                                                                                                                                                                | `@angular/core`                                          |
+| `vitest-auto-spy/angular/doubles`     | подмены диалога Material и подмены `Window` / `Document`; при импорте подключает мок-функцию Vitest                                                                                                                                                              | `@angular/core`                                          |
+| `vitest-auto-spy/angular/matchers`    | `registerDirectiveMatchers`, `registerResourceMatchers`, `registerSignalMatchers`; каждый вызывается один раз из setup-файла                                                                                                                                     | `@angular/core`, `@angular/platform-browser`             |
+| `vitest-auto-spy/angular-http`        | [`httpResource()` и `HttpClient` в спеке](../adapters/angular-http): `provideHttpTesting`, `expectRequest`, `expectNoRequest`                                                                                                                                    | `@angular/common`, `@angular/core`                       |
+| `vitest-auto-spy/angular-router`      | [`ActivatedRoute` и `Router`, у которых значения согласованы](../adapters/angular-router): `provideActivatedRoute`, `injectActivatedRoute`, `provideRouterDouble`                                                                                                | `@angular/router`, `@angular/core`, `rxjs`               |
+| `vitest-auto-spy/signal-forms`        | [сигнальные формы Angular в спеке](../adapters/signal-forms): `createForm` и `registerFormMatchers()` для `toHaveFieldErrors`                                                                                                                                    | `@angular/forms`, `@angular/core`                        |
+| `vitest-auto-spy/nestjs`              | `provideAutoSpy`, `injectSpy` для `Test.createTestingModule`                                                                                                                                                                                                     | — (ваш `@nestjs/*`)                                      |
+| `vitest-auto-spy/react`               | ядро под именем, привычным для спек на React Testing Library                                                                                                                                                                                                     | — (ваш `react`)                                          |
+| `vitest-auto-spy/vue`                 | `provideAutoSpy` для `global.provide` плюс спаи для сторов Pinia                                                                                                                                                                                                 | — (ваши `vue` / `pinia`)                                 |
+| `vitest-auto-spy/svelte`              | ядро под именем, привычным для спек на Svelte                                                                                                                                                                                                                    | — (ваш `svelte`)                                         |
+| `vitest-auto-spy/console`             | [спаи консоли](../utilities/console): тихие типизированные спаи поверх глобального `console`                                                                                                                                                                     | `vitest`                                                 |
+| `vitest-auto-spy/jasmine`             | [API `jasmine-auto-spies`](../migrating-jasmine): `.and` / `.calls` / `.withArgs` на каждом спае, `createSpyObj`, пространство имён `jasmine`, `registerJasmineMatchers`                                                                                         | `vitest`                                                 |
+| `vitest-auto-spy/jasmine-compat`      | только `enableJasmineCompat()`: тот же слой `.and` / `.calls` для `bun test` и `node --test`                                                                                                                                                                     | — (ваш раннер)                                           |
+| `vitest-auto-spy/setup`               | [`setupAutoSpy()`](../utilities/setup) и [`setupFakeTimers()`](../utilities/fake-timers)                                                                                                                                                                         | `vitest`                                                 |
+| `vitest-auto-spy/observer-spy`        | [`subscribeSpyTo`](../runtimes/rxjs#subscribespyto-for-a-suite-arriving-with-observer-spy), API `@hirez_io/observer-spy`                                                                                                                                         | `rxjs`                                                   |
+| `vitest-auto-spy/zone`                | [патч зоны](../utilities/zone), с которым `fakeAsync` из Angular работает под Vitest                                                                                                                                                                             | `vitest`, `zone.js`                                      |
+| `vitest-auto-spy/eslint-plugin`       | [правила линтера](../utilities/eslint-plugin), которые подсказывают спекам эти хелперы                                                                                                                                                                           | — (ваш `eslint`)                                         |
+| `vitest-auto-spy/perf-reporter`       | репортер Vitest, которым пользуется [`npx vitest-auto-spy perf`](../utilities/cli), для списка `reporters`                                                                                                                                                       | `vitest`                                                 |
+
+Проект без Angular и rxjs не загружает ни того, ни другого: они приходят только с точками входа,
+которые их называют.
+
+`vitest-auto-spy/angular` дополняет корневую точку входа, а не заменяет её. Из корневых экспортов она
+повторяет только тип `Spy<T>`, хелперы `mock*Prop` вместе с `restoreMockedProps` и
+`countMockedProps`, семейство `expectEmission` и `registerAutoSpyDefaults` / `clearAutoSpyDefaults`.
+`createSpyFromClass`, `createMock`, `createAutoMock`, `asInstance` и остальное берутся из
+`vitest-auto-spy`. Поэтому Angular-спека, которой они нужны, импортирует из обеих:
+
+```ts
+import { createAutoMock } from 'vitest-auto-spy';
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+```
+
+`vitest-auto-spy/bun-angular` устроена иначе: это точка входа раннера, и она повторяет всё ядро.
+
+`vitest-auto-spy/jasmine` работает только на Vitest, потому что импортирует `vitest`. На `bun test` и
+`node --test` вместо него один раз вызовите `enableJasmineCompat()` из
+`vitest-auto-spy/jasmine-compat` в setup-файле. Он работает с той точкой входа раннера, которую вы
+уже импортируете.
+
+**Частая ошибка:** спай, созданный до импорта любой точки входа, падает с
+`No mock adapter registered`. Сообщение называет раннер, который библиотека распознала, и импорт,
+который нужно добавить.
 
 ## TypeScript {#typescript}
 
-Типизированным хелперам не нужно ничего сверх обычной настройки. С **4.0.0** это касается и rxjs: ни
-одно объявление, которое везёт этот пакет, не называет типов rxjs, поэтому проект без rxjs не ставит
-его и не грузит в TypeScript-программу — 189 файлов `.d.ts` из rxjs, которые раньше приезжали с
-каждым `import { createSpyFromClass }`. До 4.0.0 `rxjs` приходилось ставить для проверки типов даже
-в сюите, которая ни разу не трогала observable.
-
-Если вы _всё же_ пользуетесь слоем observable, `import 'vitest-auto-spy/rxjs'` должен стоять и в
-файле, который попадает в этот `tsconfig`, и в рантайм-настройке: именно этот импорт делает
-`returnSubject()` настоящим `Subject<T>` из rxjs, а не структурным `SubjectLike<T>`. См.
-[Переход на 4.0](/ru/upgrading-4). Под `@angular/build:unit-test` начиная с 22.2.0 одного
-упоминания в `include` мало: билдер компилирует только спеки, `providersFile`, `setupFiles` и
-`.d.ts`-файлы, так что импорт должен стоять в одном из них.
+Типизированным хелперам не нужно ничего особенного. В `tsconfig.json` нужен режим разрешения
+модулей, который понимает подпути вроде `vitest-auto-spy/angular`:
 
 ```jsonc
 {
   "compilerOptions": {
-    // "bundler" или "node16"/"nodenext" — что угодно, что понимает подпути в `exports`
+    // "bundler", "node16" или "nodenext"
     "moduleResolution": "bundler",
   },
 }
 ```
 
-`Spy<T>` — это **mapped type**: он отбрасывает члены `#private` и `private`, поэтому не присваивается
-к `T`. Объявляйте переменную как `Spy<T>`, а не как `T`, либо соединяйте одно с другим через
-[`asInstance` / `asSpy`](./spy-typing).
+Если вы подменяете Observable, TypeScript должен видеть файл с `import 'vitest-auto-spy/rxjs'`,
+иначе хелперы для Observable типизированы неточно. Setup-файл из раздела
+[Подключение](#wiring-it-up) уже подходит: его компилируют и `ng test`, и Vitest.
+
+`Spy<T>` нельзя передать туда, где ждут `T`, потому что в нём нет членов `private` и `#private`. Объявляйте
+переменную как `Spy<T>` или переводите одно в другое через [`asInstance` / `asSpy`](./spy-typing).
+
+## Если что-то не работает {#troubleshooting}
+
+### Две копии тестового модуля Angular {#two-copies-of-the-angular-testing-module}
+
+**Симптом:** `injectSpy` падает с `Need to call TestBed.initTestEnvironment() first`, хотя ваш
+setup-файл инициализирует `TestBed`. Другой вид той же ошибки —
+`Cannot read properties of null (reading 'ngModule')`.
+
+**Причина:** Vitest загрузил `vitest-auto-spy` из `node_modules` как есть, не обрабатывая. Тогда Node
+загрузила вторую копию `@angular/core/testing`, и пакет обращается к копии, которую никто не
+инициализировал. Чаще всего так бывает с Vite-плагином Analog, а не с `ng test`.
+
+**Что сделать:** попросите Vitest обрабатывать пакет вместе с вашим кодом, чтобы копия была одна:
+
+```ts
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({ test: { server: { deps: { inline: ['vitest-auto-spy'] } } } });
+```
+
+`injectSpy` и `renderShallow` пишут эту подсказку в своей ошибке.
+[`npx vitest-auto-spy doctor`](../utilities/cli#angular-testbed-split) находит такой конфиг ещё до
+запуска тестов.

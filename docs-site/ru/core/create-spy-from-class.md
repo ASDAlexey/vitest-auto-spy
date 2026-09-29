@@ -1,79 +1,117 @@
 ---
 title: createSpyFromClass
-description: Как собрать полностью типизированный Spy<T> из класса — настройки, форма Spy<T>, спаи на аксессорах и краевые случаи.
+description: Типизированный Spy<T> из класса - каждый метод становится спаем; опции, спаи аксессоров, спай на настоящем объекте и краевые случаи.
 ---
 
 # createSpyFromClass
 
-`createSpyFromClass(Class, methodsOrConfig?)` собирает из класса полностью типизированный `Spy<T>`,
-превращая каждый метод в мок с хелперами, подобранными по типу возвращаемого значения.
+`createSpyFromClass(Class, config?)` принимает класс и возвращает `Spy<T>`: объект с теми же методами,
+где каждый метод — спай с хелперами под его тип возврата. Используйте его, чтобы подменить зависимость-
+класс в тесте. Конструктор класса не вызывается.
+
+```ts
+import { of } from 'rxjs';
+import { asInstance, createSpyFromClass } from 'vitest-auto-spy';
+
+const users = createSpyFromClass(UserService, {
+  returns: { load: of({ id: 1, name: 'Ann' }) }, // load(): Observable<User>, задано заранее
+});
+users.save.resolveWith(undefined); // save(user): Promise<void>
+
+const profile = new ProfileStore(asInstance(users)); // код под тестом
+await profile.rename('Bob');
+
+expect(users.save).toHaveBeenCalledWith({ id: 1, name: 'Bob' });
+```
+
+`returns` задаёт ответ метода заранее, в момент создания спая, поэтому отдельная строка с
+`mockReturnValue` не нужна. `asInstance` передаёт спай туда, где ждут настоящий тип; см.
+[Мост между `Spy<T>` и `T`](./spy-typing). В Angular [`provideAutoSpy`](/ru/adapters/angular) принимает
+те же опции и кладёт спай в `TestBed`.
+
+Что можно делать с каждым методом потом (`calledWith`, `resolveWith`, `nextWith` …) — на странице
+[Управляющие хелперы](./control-helpers).
 
 ## Настройка {#configuration}
 
+Второй аргумент — объект опций. Все опции необязательны.
+
+| Опция                    | Тип                   | По умолчанию                            | Смысл                                                                                                                                             |
+| ------------------------ | --------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `returns`                | `{ метод: значение }` | нет                                     | что отвечает метод; он остаётся спаем ([подробнее](#returns-—-the-value-where-the-spy-is-built))                                                  |
+| `overrides`              | `{ член: значение }`  | нет                                     | заменить член значением ([подробнее](#returns-or-overrides))                                                                                      |
+| `returnsUndefined`       | имена методов         | `[]`                                    | эти методы отвечают `undefined` и считаются настроенными ([подробнее](#returns-undefined))                                                        |
+| `selfReturning`          | имена методов         | `[]`                                    | эти методы возвращают сам спай, для цепочек ([подробнее](#self-returning))                                                                        |
+| `strict`                 | `boolean`             | `false`                                 | ненастроенный метод бросает ошибку вместо `undefined` ([подробнее](#strict))                                                                      |
+| `onUnstubbedCall`        | `(call) => unknown`   | нет                                     | вызывается вместо возврата `undefined` ([Строгий режим](./strict-mode#onunstubbedcall-—-the-general-form))                                        |
+| `onUnstubbedRead`        | `(read) => void`      | нет                                     | получает ненастроенные чтения геттеров ([Строгий режим](./strict-mode#reads-nobody-configured))                                                   |
+| `methodsToSpyOn`         | имена методов         | `[]`                                    | спаить эти **в дополнение** к найденным методам                                                                                                   |
+| `onlyMethodsToSpyOn`     | имена методов         | нет                                     | спаить **только** эти; поиск методов пропускается                                                                                                 |
+| `instanceMethodsToSpyOn` | имена членов          | `[]`                                    | добавить функции, которые живут на экземпляре, а не на прототипе ([подробнее](#instancemethodstospyon-—-callables-that-are-not-on-the-prototype)) |
+| `fillMissing`            | `boolean`             | `false` (`true` для ngrx `signalStore`) | отвечать спаем на любой необъявленный член ([подробнее](#fill-missing))                                                                           |
+| `observablePropsToSpyOn` | имена свойств         | `[]`                                    | сделать эти свойства-`Observable` управляемыми через `nextWith` …                                                                                 |
+| `gettersToSpyOn`         | имена аксессоров      | `[]`                                    | спаить эти геттеры ([подробнее](#accessor-spies-—-accessorspies))                                                                                 |
+| `settersToSpyOn`         | имена аксессоров      | `[]`                                    | спаить эти сеттеры                                                                                                                                |
+| `autoSpyAccessors`       | `boolean`             | `false`                                 | спаить все геттеры и сеттеры в цепочке прототипов                                                                                                 |
+| `lazySpies`              | `boolean \| 'proxy'`  | по ширине класса                        | когда строится спай каждого метода ([подробнее](#lazy-spies-—-lazyspies))                                                                         |
+
+«Поиск методов» значит, что библиотека читает все методы на прототипе класса, включая базовые классы.
+Каждый найденный метод становится спаем.
+
 ```ts
-// 1. все методы (по умолчанию)
-createSpyFromClass(MyService);
+// 1. все найденные методы (по умолчанию)
+createSpyFromClass(UserService);
 
-// 2. найденные автоматически методы ПЛЮС эти имена
-createSpyFromClass(MyService, ['reload', 'count']);
+// 2. найденные методы ПЛЮС эти имена (то же, что methodsToSpyOn)
+createSpyFromClass(UserService, ['reload', 'count']);
 
-// 3. только эти методы, автопоиск пропускается
-createSpyFromClass(MyService, { onlyMethodsToSpyOn: ['getName', 'getAge'] });
+// 3. только эти методы, без поиска
+createSpyFromClass(UserService, { onlyMethodsToSpyOn: ['getName', 'getAge'] });
 
-// 4. полный объект настроек
-createSpyFromClass(MyService, {
+// 4. полный объект опций
+createSpyFromClass(UserService, {
   methodsToSpyOn: ['reload'],
-  observablePropsToSpyOn: ['products$'], // *свойства* типа Observable
+  observablePropsToSpyOn: ['users$'],
   gettersToSpyOn: ['userName'],
   settersToSpyOn: ['userName'],
-  autoSpyAccessors: true, // сам найти каждый геттер и сеттер по цепочке прототипов
-  lazySpies: true, // строить спай метода при первом чтении; без опции: true до 8 методов, 'proxy' от 8
-  strict: true, // метод, который никто не настроил, бросает исключение вместо undefined
+  strict: true,
 });
 ```
 
-Переданный массив **добавляет** перечисленные имена к тому, что нашлось само, — ровно как в
-`jest-auto-spies`. Автопоиск и так находит все методы прототипа, так что передавать стоит только те
-имена, которых он не видит. Чтобы ставить спаи _исключительно_ по списку, возьмите `onlyMethodsToSpyOn`,
-который автопоиск не запускает.
-
-Ключи `ClassSpyConfiguration` — это `methodsToSpyOn`, `onlyMethodsToSpyOn`,
-`instanceMethodsToSpyOn`, `observablePropsToSpyOn`, `gettersToSpyOn`, `settersToSpyOn`,
-`autoSpyAccessors`, `fillMissing`, `lazySpies`, `returns`, `selfReturning`, `overrides`, `strict`
-и `onUnstubbedCall`.
+**Частая ошибка:** передать массив, чтобы спаить _только_ эти методы. Массив **добавляет** имена к
+найденным (как в `jest-auto-spies`), а поиск и так находит все методы прототипа. Чтобы спаить только
+список, используйте `onlyMethodsToSpyOn`. Имя в `onlyMethodsToSpyOn`, которого нет в классе, вызывает
+предупреждение; добавляющие списки молчат, потому что называть члены, которых нет на прототипе, — их
+задача.
 
 ### `strict` — метод, который никто не настроил {#strict}
+
+С `strict: true` вызов метода, который тест не настроил, бросает ошибку вместо `undefined`. Ошибка
+называет класс, метод и аргументы:
 
 ```ts
 const users = createSpyFromClass(UserService, { strict: true });
 
 users.load.resolveWith([]);
-users.currentTenant(); // бросает: UserService.currentTenant() was called; this strict double has nothing configured for it.
+users.currentTenant(); // throws: UserService.currentTenant() was called; this strict double has nothing configured for it.
 ```
 
-По умолчанию выключено, поэтому ненастроенный метод возвращает `undefined` — а это вполне законное
-значение, и падение случается там, где этот `undefined` наконец кому-то понадобился, а не на вызове,
-который его породил. Раньше единственным инструментом здесь был `onlyMethodsToSpyOn`, но он отвечает
-на другой вопрос: он _удаляет_ метод, поэтому падение читается как `… is not a function` и обвиняет
-спая.
-
-`onUnstubbedCall` — общая форма того же: записать вместо падения или вернуть единый запасной ответ, —
-а `setupAutoSpy({ strict: true })` включает режим на всю сюиту, и `{ strict: false }` на конкретном
-дубле остаётся способом выйти. Что считается настроенным и куда защита не дотягивается, разобрано на
-странице [Строгий режим](./strict-mode).
+Без него `undefined` уходит дальше и падает позже, в другом месте. `setupAutoSpy({ strict: true })`
+включает режим на весь проект, а `{ strict: false }` на одном спае его исключает. Что считается
+настройкой и как записывать вызовы вместо падения через `onUnstubbedCall` — в разделе
+[Строгий режим](./strict-mode).
 
 ### `instanceMethodsToSpyOn` — вызываемое, чего нет на прототипе {#instancemethodstospyon-—-callables-that-are-not-on-the-prototype}
 
-Поиск методов идёт по **цепочке прототипов** — там, где живут методы `class`. Вызываемое, положенное
-в _поле экземпляра_, ему не видно: свойство со стрелочной функцией, поле `signal()` / `computed()` из
-Angular, метод ngrx-овского `signalStore()` (его по умолчанию покрывает [`fillMissing`](#fill-missing)).
-Остальные имена нужно назвать явно:
+Поиск читает **прототип**, где живут методы `class`. Функции в _полях экземпляра_ там нет: стрелочное
+свойство, поле Angular `signal()` / `computed()`, метод ngrx `signalStore()` (его по умолчанию покрывает
+[`fillMissing`](#fill-missing)). Такие члены называйте явно:
 
 ```ts
 class TaskStore {
-  readonly count = signal(0); // поле экземпляра, на прототипе его нет
-  readonly reload = (): void => {}; // стрелочное свойство, та же история
-  load(): void {} // обычный метод — найдётся сам
+  readonly count = signal(0); // поле экземпляра, не на прототипе
+  readonly reload = (): void => {}; // стрелочное свойство, то же самое
+  load(): void {} // обычный метод, находится сам
 }
 
 createSpyFromClass(TaskStore, {
@@ -81,14 +119,12 @@ createSpyFromClass(TaskStore, {
 });
 ```
 
-Этот список и `methodsToSpyOn` ведут себя одинаково — оба **добавляют** к тому, что нашёл автопоиск, —
-и различаются только тем, что их имена говорят читателю. В новом коде берите этот; `methodsToSpyOn`
-оставьте в спеках, перенесённых из `jest-auto-spies`. Ни один из них не предупреждает об имени,
-которого нет на прототипе: отсутствие на прототипе тут и есть смысл.
+`instanceMethodsToSpyOn` и `methodsToSpyOn` работают одинаково: оба **добавляют** к найденному. В новом
+коде берите `instanceMethodsToSpyOn` — имя объясняет, зачем член в списке. Ни один не предупреждает об
+имени, которого нет на прототипе.
 
-Собственные классы Angular попадают в этот же список. `Router.currentNavigation` в Angular 20 стал
-`currentNavigation = this.navigationTransitions.currentNavigation.asReadonly()`, поэтому один
-`provideAutoSpy(Router)` его не даёт:
+Классам самого Angular это тоже нужно. `Router.currentNavigation` с Angular 20 — поле экземпляра, поэтому
+одного `provideAutoSpy(Router)` мало:
 
 ```ts
 provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] });
@@ -100,375 +136,182 @@ provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] });
 TypeError: Cannot read properties of undefined (reading 'mockReturnValue')
 ```
 
-Члена на спае попросту нет, поэтому следующая строка читает `undefined`, и попытка его настроить
-падает. Лучшего сообщения в рантайме не получить, и причину стоит знать, чтобы это не выглядело
-недоработкой: поля экземпляра не существуют, пока не отработал конструктор, а фабрика класс никогда
-не конструирует — именно поэтому и безопасно строить спая из сервиса, чей конструктор открывает
-сокет. Единственная альтернатива — отвечать на неизвестный член _чем-нибудь_, и это что-нибудь было бы
-истинным, так что `if (service.optionalThing)` в тестируемом коде ушло бы не в ту ветку — молча и в
-другом файле. Ровно этот сценарий и убирает [чёрный список протокольных ключей](/ru/core/auto-mock-by-type),
-а громкий `TypeError` на собственной строке спеки — меньшее из двух зол.
+**Частая ошибка:** настраивать член из поля экземпляра, не перечислив его. Члена нет на спае, он читается
+как `undefined`, и настройка падает с ошибкой выше. Добавьте имя в `instanceMethodsToSpyOn`. (Почему
+библиотека не может угадать сама: конструктор не вызывается, и поля экземпляра не появляются. См.
+[Подробнее](#in-depth).)
 
 ### `fillMissing` — частично абстрактный класс {#fill-missing}
 
-**Полностью** абстрактному классу не нужно ничего: его прототип не называет вообще ничего, поэтому
-фабрика отдаёт [прокси, построенный по типу](/ru/core/auto-mock-by-type), и любой метод отвечает.
-Достаточно одного конкретного члена, чтобы с этого пути сойти, — а это и есть обычная форма
-DI-токена в Angular:
+`fillMissing: true` отвечает спаем на любой член, которого класс не объявил во время выполнения. Он нужен
+для абстрактного класса, у которого есть хотя бы один конкретный член, — обычная форма DI-токена в
+Angular:
 
 ```ts
 abstract class LocalStorage {
   abstract read(key: string): string | null;
-  clear(): void {} // один конкретный член — и автопоиск уже не пуст
+  clear(): void {} // один конкретный член
 }
 
 const storage = createSpyFromClass(LocalStorage);
-
 storage.clear; // спай
-storage.read; // undefined — `abstract read()` до прототипа не доехал
+storage.read; // undefined: `abstract read()` во время выполнения не существует
+
+createSpyFromClass(LocalStorage, { fillMissing: true }).read; // спай
+// в Angular: providers: [provideAutoSpy(LocalStorage, { fillMissing: true })]
 ```
 
-`Spy<T>` типизирует `read` как существующий, чтение даёт `undefined`, и падение всплывает как
-`storage.read is not a function` **внутри продакшен-кода**, причём на спеку ничто не указывает.
-`fillMissing` отвечает спаем на имя, которого прототип никогда не нёс:
+Без него `Spy<T>` типизирует `read` как существующий, но на деле он `undefined`, и рабочий код падает с
+`storage.read is not a function`.
+
+- **Полностью** абстрактному классу (без конкретных членов) ничего не нужно: фабрика тогда строит спай по
+  типу, как [`createAutoMock`](./auto-mock-by-type), и отвечает каждый метод.
+- По умолчанию выключено. TypeScript стирает `abstract` при компиляции, поэтому во время выполнения
+  частично абстрактный класс не отличить от конкретного. Заполнять любой неизвестный член по умолчанию
+  значило бы прятать настоящие опечатки. Для короткого списка альтернатива — `instanceMethodsToSpyOn`.
+- Класс на базе ngrx `signalStore()` получает `fillMissing: true` по умолчанию: его члены `withMethods` /
+  `withProps` живут на экземпляре. Библиотека узнаёт базу ngrx по имени `SignalStore` и по её `ɵprov`.
+  `fillMissing: false` это отключает.
+- Член, который у спая уже есть, читается как обычно.
+- Ключи, по которым другой код определяет, что за объект перед ним, никогда не заполняются: `then`,
+  `constructor`, `toJSON`, `asymmetricMatch`, `$$typeof`, `nodeType` и все символы. Спай на
+  `asymmetricMatch` превратил бы каждый `toEqual` со спаем в вызов матчера, а спай на `toJSON` изменил бы
+  каждый снимок.
+
+## `returns` — значение прямо там, где строится спай {#returns-—-the-value-where-the-spy-is-built}
+
+`returns` задаёт, что отвечает метод, в момент создания спая:
 
 ```ts
-createSpyFromClass(LocalStorage, { fillMissing: true });
-// или: providers: [provideAutoSpy(LocalStorage, { fillMissing: true })]
+import { of } from 'rxjs';
+import { provideAutoSpy } from 'vitest-auto-spy/angular';
+
+providers: [provideAutoSpy(ProductsService, { returns: { getProducts: of([]) } })];
 ```
 
-Это включается вручную, и иначе быть не может. TypeScript стирает `abstract` подчистую, поэтому в
-рантайме частично абстрактный класс и конкретный — один и тот же объект; заполнять любой неизвестный
-ключ по умолчанию значило бы заглушить настоящую опечатку на каждом классе в сюите, а именно это
-свойство и отличает библиотеку от прокси, которые мокают всё подряд. Перечислить членов в
-`instanceMethodsToSpyOn` остаётся альтернативой, когда список короткий и его не жалко выписать.
+Без него каждому тесту нужен `injectSpy(X).m.mockReturnValue(…)` в `beforeEach`. Не заменяйте это
+экспортированным `const`-провайдером с готовыми значениями: при `isolate: false` все файлы, которые его
+импортируют, делят один набор спаев.
 
-Единственное умолчание — класс, построенный на ngrx-овском `signalStore()`. Его члены `withMethods` /
-`withProps` живут на экземпляре, поэтому класс стора получает `fillMissing: true`, если вызов не задал
-опцию сам; базовый класс, который генерирует ngrx, узнаётся по имени `SignalStore` и собственному
-`ɵprov`. `fillMissing: false` умолчание выключает.
+Значение — это **значение метода по умолчанию**:
 
-Две вещи `fillMissing` не меняет. Член, который уже есть в записи, по-прежнему читается из записи,
-так что ленивая заглушка материализуется ровно так же, как и без обёртки. И протокольные ключи,
-которые окружающая машинерия щупает, чтобы понять, _что это вообще за объект_ — `then`, `constructor`,
-`toJSON`, `asymmetricMatch`, `$$typeof`, `nodeType` и все символы, — не заполняются никогда: спай на
-`asymmetricMatch` превращает каждый `toEqual` против дубля в вызов матчера, а спай на `toJSON`
-переписывает каждый его снапшот.
+- цепочка `calledWith(…)`, настроенная позже, всё равно решает ответ для своих аргументов;
+- более поздний `resolveWith` / `failWith` его заменяет;
+- `undefined` считается настройкой под `strict`;
+- `resetAutoSpy` его очищает.
 
-## `registerAutoSpyDefaults` — состав шпиона живёт при классе {#registerautospydefaults-—-the-composition-lives-with-the-class}
+**Частая ошибка:** ключ, который не является спаем метода. Его значение никогда не вернётся, поэтому о
+нём сообщается:
 
-Состав шпиона — факт о **классе**, а не о спеке: `Router` нужен со спаем на `events` как на
-Observable-свойстве и на `url` как на геттере везде, где его дублируют. Каждый файл, который это
-повторяет, — файл, который может ошибиться.
+- метод, который исключил `onlyMethodsToSpyOn`, так и называется;
+- для опечатки предлагается ближайший метод: `returns names 'lod', not a method of CartService — did you mean 'load'?`;
+- для имени без похожих вариантов сообщение указывает на `instanceMethodsToSpyOn`, куда относится функция,
+  которую присваивает конструктор.
+
+Об опечатке в `onlyMethodsToSpyOn` сообщается так же.
+
+## `returns` или `overrides` {#returns-or-overrides}
+
+`returns` говорит, что отвечает метод-спай, и оставляет его спаем. `overrides` заменяет член (поле,
+сигнал, поток) обычным значением, которое уже не спай. Полное сравнение — на странице
+[`returns` или `overrides`](./returns-vs-overrides).
+
+## Функция в `overrides` остаётся спаем {#overrides-function}
+
+Обычная функция в `overrides` для метода становится спаем этого метода, а функция — его реализацией.
+Используйте это, когда ответ зависит от аргументов:
 
 ```ts
-// vitest-setup.ts, один раз
-import { registerAutoSpyDefaults } from 'vitest-auto-spy';
+import { SecurityContext } from '@angular/core';
+import { DomSanitizer } from '@angular/platform-browser';
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
 
-registerAutoSpyDefaults(Router, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] });
-registerAutoSpyDefaults(AccountService, { gettersToSpyOn: ['isGuest', 'currentProfile'] });
+providers: [provideAutoSpy(DomSanitizer, { overrides: { sanitize: (_context, value) => String(value) } })];
+
+const sanitizer = injectSpy(DomSanitizer);
+
+sanitizer.sanitize(SecurityContext.URL, 'a'); // 'a': функция выполнилась
+expect(sanitizer.sanitize).toHaveBeenCalledOnce(); // и вызов записан
 ```
 
+- «Метод» здесь — метод прототипа, имя из `methodsToSpyOn`, `instanceMethodsToSpyOn` или
+  `onlyMethodsToSpyOn`, либо любой член запасного спая абстрактного класса или спая с `fillMissing`.
+- Каждый вызов записывается и выполняет функцию со спаем в качестве `this`, пока тест не настроит метод:
+  цепочка `calledWith(…)` решает для своих аргументов, `resolveWith` или `mockReturnValue` заменяют
+  функцию для всех вызовов, а `resetAutoSpy` возвращает функцию.
+- Под `strict` метод считается настроенным. Функция выполняется и для хука фреймворка вроде
+  `ngOnDestroy`.
+- Значение из `overrides` сильнее `returns` и `selfReturning` для того же метода.
+- Каждый спай получает свою функцию-спай, поэтому функция, зарегистрированная через
+  `registerAutoSpyDefaults`, не переносит вызовы из одного теста в другой.
+
+Как есть по-прежнему сохраняются:
+
+- значение, геттер и функция на члене, который не метод (поле-колбэк);
+- класс и любая функция со своим API: `vi.fn()`, спай этой библиотеки, сигнал. Ваш `vi.fn()` остаётся
+  тем же объектом, поэтому `toBe` на нём проходит.
+
+В `createAutoMock` и `provideAutoSpyForToken` функция в `overrides` сохраняется как написана и спаем не
+становится: тип не говорит, какие члены — методы.
+
+## `returnsUndefined` — список `void`-команд {#returns-undefined}
+
+Перечисленные методы отвечают `undefined` и считаются настроенными под `strict`. Это списочная форма
+`returns: { m: undefined }` — для стора с несколькими `void`-командами:
+
 ```ts
-// каждая спека, с этого момента
-provideAutoSpy(Router);
-provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] }); // добавляет, не заменяет
+provideAutoSpy(CartStore, { strict: true, returnsUndefined: ['add', 'remove', 'clear'] });
 ```
 
-**Почему это не только опрятность.** Замер на одной Angular-сюите: 739 вызовов `provideAutoSpy` из
-2228 несут конфигурацию, и один и тот же класс собирает несовместимые мнения —
+Работает для любого метода-спая, включая имена, добавленные через `instanceMethodsToSpyOn`. Метод,
+названный ещё и в `returns`, отвечает значением оттуда. Его принимают и `createSpyFromInstance`,
+`createAutoMock`, `provideAutoSpyForToken` и `registerAutoSpyDefaults`; регистрации объединяют его, как
+любой другой список.
 
-| класс                   | вызовов | файлов | с конфигом | **различных конфигураций** |
-| ----------------------- | ------: | -----: | ---------: | -------------------------: |
-| `Router`                |     122 |    109 |         60 |                     **23** |
-| `AccountService`        |      70 |     62 |         43 |                     **27** |
-| `CheckoutStateService`  |      53 |     52 |         42 |                     **25** |
-| `RemoteSettingsService` |      85 |     70 |         47 |                          8 |
+## `selfReturning` — метод, который отвечает самим двойником {#self-returning}
 
-— а семейство `*FlagsConfigService` это 205 вызовов, 120 из которых дословно повторяют
-`{ gettersToSpyOn: ['flagsConfig'] }`. Списочные опции
-[аддитивны и не жалуются на имя, которого не нашли](#configuration) — так задумано, они существуют
-ровно затем, чтобы называть члены, которых нет на прототипе, — поэтому 23 мнения о `Router` означают,
-что большинство этих файлов не спаят `events` вовсе, и в день, когда в проде появится подписка на
-него, не скажет ни один.
-
-### Как сливается {#the-merge}
-
-Регистрация — пол, вызов добавляет сверху. Три поведения, по одному на вид ключа:
-
-| ключ                                                         | как сливается                                 |
-| ------------------------------------------------------------ | --------------------------------------------- |
-| любой список (`gettersToSpyOn`, `observablePropsToSpyOn`, …) | объединение, регистрация первой, без повторов |
-| `returns`, `overrides`                                       | по ключам, вызов выигрывает                   |
-| любой скаляр (`lazySpies`, `strict`, `fillMissing`)          | вызов выигрывает, если назвал ключ            |
-
-Короткая форма-массив тоже принимается: `createSpyFromClass(X, ['reload'])` сливается как
-`{ methodsToSpyOn: ['reload'] }`.
-
-**По тождеству класса, не по наследованию.** Подкласс не получает от регистрации базового класса
-ничего. Это осторожная половина решения: обход цепочки прототипов позволил бы регистрации на широко
-наследуемой базе менять состав дублей в файлах, на которые никто не смотрел, — а это тот самый отказ,
-который здесь убирают, а не переносят.
-
-**`createSpyFromInstance` её тоже читает** — по классу, который называет `constructor` объекта, и
-сливает так же. Голый объектный литерал и словарь `Object.create(null)` регистрацию не находят: их
-конструктор — `Object` или ничего, и конфигурацию «на класс» для них никто не имеет в виду. Если
-вызов перечисляет `onlyMethodsToSpyOn`, остальной объект остаётся настоящим: регистрация тогда даёт
-только `strict`, `onUnstubbedCall`, `onUnstubbedRead` и записи `returns` / `selfReturning` для
-перечисленных методов — ни аксессоров, ни других методов, ни `overrides`. Поэтому `router.url`
-остаётся живым под `createSpyFromInstance(router, { onlyMethodsToSpyOn: ['navigateByUrl'] })`, что бы
-ни шпионила регистрация `Router`. Имя в `returns` или `selfReturning`, которое вызов сам написал для
-метода, оставленного настоящим, сообщается как ошибка конфигурации и пропускается.
-
-**Вторая регистрация того же класса заменяет первую.** Две регистрации одного класса в одной сюите —
-это тот разъезд, ради которого всё затевалось, и тихое их сложение его бы спрятало.
-
-`clearAutoSpyDefaults(Class)` снимает одну, `clearAutoSpyDefaults()` — все: для сюиты, которая
-регистрирует по проектам, а не по прогонам, и для спеки, которой надо доказать, что реестр пуст.
-
-### Много классов сразу {#many-at-once}
-
-Сетап-файл, регистрирующий десяток классов, — это десяток почти одинаковых вызовов. Те же самые
-регистрации записываются таблицей и говорят ровно то же:
+Перечисленные методы возвращают сам спай. Это нужно для цепочек вызовов вроде
+`query.where('a').orderBy('b').run()` или `inject(LOGGER).channel('auth').debug('…')`. Без него первое
+ненастроенное звено вернёт `undefined`, и следующий вызов упадёт — часто в конструкторе, ещё до первой
+строки теста.
 
 ```ts
-// vitest-setup.ts, один раз
-registerAutoSpyDefaults([
-  [Router, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] }],
-  [AccountService, { gettersToSpyOn: ['isGuest', 'currentProfile'] }],
-  [LocalStorage, { instanceMethodsToSpyOn: ['getItem', 'setItem'] }],
-]);
+provideAutoSpy(QueryBuilder, { selfReturning: ['where', 'orderBy'], returns: { run: [] } });
+provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] });
 ```
 
-**Каждая строка проверяется по своему классу.** Ради этого форма и типизирована именно так, а не как
-массив `[ClassType<unknown>, ClassSpyConfiguration<unknown>]`: конфигурация называет ключи _своего_
-класса, поэтому расширение строки до одного общего типа проверку попросту отменяет. Ключ, которого у
-класса строки нет, роняет сборку **на строке этой строки**, и в диагностике перечислены члены именно
-этого класса и ничьи больше:
+Через `returns` так не написать: когда вы пишете опции, спая ещё нет.
+
+- Это значение по умолчанию, как `returns`: считается настройкой под `strict`, а более поздние
+  `calledWith` / `mockReturnValue` всё равно побеждают.
+- Метод, названный в обоих, отвечает значением из `returns`. Так один тест убирает звено из цепочки,
+  которую задала [регистрация](#registerautospydefaults-—-the-composition-lives-with-the-class).
+- Его принимает каждая фабрика: `createSpyFromClass`, `createSpyFromInstance` (там ответ — сам
+  экземпляр), `createAutoMock`, `provideAutoSpy`, `provideAutoSpyForToken`. У `mockDeep` есть булев
+  `selfReturning` с той же идеей для каждого уровня.
+
+Член, заданный в `overrides`, сильнее обоих. Так одно зарегистрированное звено заменяют собственным
+спаем:
 
 ```ts
-registerAutoSpyDefaults([
-  // Type '"isGuest"' is not assignable to type '"navigate" | "navigateByUrl" | …' — методы самого
-  // Router, а не объединение с членами строки ниже
-  [Router, { instanceMethodsToSpyOn: ['isGuest'] }],
-  [AccountService, { gettersToSpyOn: ['isGuest'] }],
-]);
-```
-
-**Строки применяются по порядку**, поэтому более поздняя строка для класса, названного раньше,
-заменяет предыдущую — ровно то же делает второй вызов, и по той же причине. Обе формы работают с
-одним реестром: таблица и вызов на класс в одном сетап-файле — это одни и те же регистрации, кто бы
-их ни записал.
-
-`AutoSpyDefaultEntry<T>` — тип строки, экспортированный для случая, когда строку собирают вне
-литерала: хелпер, который её возвращает, или список, составленный по проектам.
-
-### Зависимость за `InjectionToken` {#token-defaults}
-
-Двойник токена собирают заново в каждом файле, который его регистрирует, — ровно как раньше класс, и
-принимает его тот же реестр: через `registerAutoSpyDefaults`, который экспортирует
-`vitest-auto-spy/angular`. Основная точка входа не может назвать ангуляровский `InjectionToken`,
-поэтому её сигнатура принимает только класс; версия из `/angular` добавляет перегрузку для токена
-над тем же самым реестром.
-
-```ts
-// vitest-setup.ts, один раз
-import { registerAutoSpyDefaults } from 'vitest-auto-spy/angular';
-
+// vitest-setup.ts
 registerAutoSpyDefaults(LOGGER, { returns: { info: undefined, err: undefined }, selfReturning: ['channel'] });
-registerAutoSpyDefaults(NAVIGATION, { overrides: { activeRow$: of({}) }, returns: { setFocus: undefined } });
 
-// в каждой спеке дальше
-providers: [provideAutoSpyForToken(LOGGER), provideAutoSpyForToken(NAVIGATION, { activeRow$: rows$ })];
+// одна спека, которая проверяет канал, а не родителя
+provideAutoSpyForToken(LOGGER, { channel: () => asInstance(channelLogger) });
 ```
 
-`provideAutoSpyForToken` читает регистрацию ровно так же, как `provideAutoSpy` читает регистрацию
-класса: его сиды (второй аргумент) и настройка (третий) сливаются поверх неё по правилам выше, а
-зарегистрированный `returns` остаётся умолчанием, которое более поздний `calledWith` или
-`resolveWith` перекрывает. Что может сказать строка токена — это `AutoSpyTokenDefaults<T>`: то, что
-принимает [`createAutoMock`](./auto-mock-by-type) (`returns`, `selfReturning`,
-`observablePropsToSpyOn`, `strict`, `name`), плюс `overrides`. Каждый ключ проверяется по `T`
-токена, а в одной таблице можно смешивать строки классов и строки токенов.
-
-Токен, переданный в экспорт **основной** точки входа, падает с `TS2345 … 'InjectionToken<AppLogger>'
-is not assignable to parameter of type 'ClassType<unknown>'`. Лечится импортом.
-
-## Ленивые спаи — `lazySpies` {#lazy-spies-—-lazyspies}
-
-**Что это.** Спай метода строится при **первом обращении** (`spy.method`) и дальше кэшируется, так что
-методы, которых тест не касается, не платят за построение спая. Как имя ждёт первого чтения, зависит от
-ширины класса, если `lazySpies` не задан: до 8 методов это `true`, заглушка-аксессор на каждый метод;
-от 8 методов — `'proxy'`, один объект-ловушка на весь класс, который ничего не определяет, пока метод
-не прочитан. `lazySpies: false` строит все спаи сразу — см. [Производительность](/ru/core/performance).
-
-При `lazySpies: true` заглушка метода — одна пара `get`/`set` на **имя** метода, общая для всех даблов
-с методом этого имени, поэтому нетронутый дубль держит пару сотен байт при любой ширине класса. Первое
-же чтение метода переводит дубль в словарь свойств шириной с класс — поэтому класс от 8 методов
-получает `'proxy'`. Разделение видно в одном месте: `Object.create(double).method` материализуется на
-наследнике, а не на дубле.
-
-**Зачем это нужно.** Построить спая не бесплатно: каждый метод получает мок раннера плюс набор
-хелперов `calledWith` / `resolveWith` / `nextWith`. На широком сервисе, где тест вызывает пару
-методов, жадная сборка всех остальных — почти целиком напрасная работа.
-
-```ts
-const spy = createSpyFromClass(WideService);
-spy.getName.mockReturnValue('Ada'); // getName строится здесь, при первом обращении
-// остальные 18 методов не строятся вообще — нечего конструировать, нечего сбрасывать
-```
-
-**Когда выключать.** `lazySpies: false` окупается только там, где спека перебирает сам объект спая,
-а не вызывает его методы, либо где один тест действительно трогает каждый метод небольшого класса.
-Точка пересечения замерена на странице [Производительность](/ru/core/performance).
-
-::: tip Так по умолчанию начиная с 2.0
-До 2.0 это включал только `provideAutoSpy` из ангуляровской точки входа, отчего ангуляровский путь
-был тихо быстрее обычного без единой видимой причины. См.
-[Адаптеры → Angular](/ru/adapters/angular#lazy-spies-by-default).
-:::
-
-**Поведение одинаково в обоих режимах.** `Object.keys`, `vi.isMockFunction`, `calledWith`,
-`resetAutoSpy` / `clearAutoSpy` и перебор ключей работают так же; лень меняет только _момент_ сборки
-спая, а не то, что он делает. Единственный нюанс: ленивый метод до первого касания остаётся
-аксессором, поэтому у ни разу не тронутого спая нет записанных вызовов (ровно поэтому
-`resetAutoSpy` может его пропустить).
-
-**`vi.spyOn` на методе, который ещё никто не читал.** На дубле с аксессорами (меньше 8 методов или
-`lazySpies: true`) Vitest читает аксессор, вызывая геттер без получателя, и общая заглушка не может
-найти дубль, поэтому отвечает пересыльщиком: настроенный `mockReturnValue` отвечает, ненастроенный
-вызов доходит до собственного спая дубля вместе со strict-проверкой, а `mockRestore()` возвращает этот
-спай с записанными вызовами. Вызванный вовсе без получателя, пересыльщик бросает
-`'total' was called off its double after vi.spyOn`. На прокси-дубле (8 методов и больше) он читает
-метод и получает собственный спай дубля, как для уже прочитанного метода: `mockRestore()` на нём
-сбрасывает этот спай, а отвязанный вызов работает. В обоих случаях вызов лишний: член уже спай, и
-`cart.total.mockReturnValue(3)` говорит то же одним шагом.
-
-### `lazySpies: 'proxy'` — один объект-ловушка вместо заглушки на каждый метод {#lazyspies-proxy-—-one-trap-object-instead-of-a-placeholder-per-method}
-
-`'proxy'` получает класс **от 8 методов**, если `lazySpies` не задан; на классе поуже его можно
-передать явно. Ширина — это число методов, которые дубль спаит: после того как `onlyMethodsToSpyOn` её
-сузит, а `methodsToSpyOn` / `instanceMethodsToSpyOn` добавят к ней. Пока метод никто не прочитал, на записи для него нет свойства, а ловушки отвечают на все
-имена методов из одного множества, общего для всех даблов класса.
-
-```ts
-// сгенерированный API-клиент: 400 операций, тест трогает две — прокси-дубль без всякой опции
-const api = createSpyFromClass(GeneratedVenuesClient);
-
-api.findById.resolveWith({ id: 1 }); // построен здесь, как любой ленивый спай
-```
-
-**Почему от 8 методов.** Начиная отсюда дубль, которого тест коснулся, на 21–68 % легче, чем с
-заглушками-аксессорами, и строится в 2–6 раз быстрее: на пути аксессоров первое чтение превращает дубль
-в словарь свойств шириной с класс, а прокси — никогда. Ниже 8 прокси тоже легче, на 11–19 %, но это не
-стоит дубля, который перестал быть обычным объектом. Таблица — в
-[Производительности](/ru/core/performance).
-
-**Чем прокси-дубль отличается, и `lazySpies: true`.** `Proxy` не может убрать себя, поэтому каждое
-чтение члена дубля проходит через ловушку, около 20 нс. Дубль, которого никто не тронул, держит на
-~100 Б больше. И спека может это заметить:
-
-- `util.types.isProxy(double)` — `true`, отладчик показывает `Proxy`;
-- `console.log(double)` / `util.inspect` показывают только уже прочитанные методы — Node печатает цель
-  прокси, минуя ловушки. Снапшоты Vitest, `toEqual`, `Object.keys` и спред не меняются;
-- `Object.getOwnPropertyDescriptor(double, 'method')` на непрочитанном методе на каждый вызов
-  возвращает новую пару `get`/`set`, а не одну общую;
-- `vi.spyOn(double, 'method')` возвращает собственный спай дубля (см. выше);
-- `Object.create(double).method` строит спай на дубле, а не на наследнике.
-
-Передайте `lazySpies: true` — или один раз `registerAutoSpyDefaults(Class, { lazySpies: true })`, —
-если что-то из этого важно спеке или горячий цикл читает один член дубля миллионы раз.
-
-**Это не какой-то другой дубль.** `Object.keys`, спред, `JSON.stringify`, `in`, `hasOwnProperty`,
-`Object.getOwnPropertyDescriptor` (та же форма аксессора, хоть и новая пара на каждый вызов), `delete`,
-`Object.freeze`, порядок ключей, `returns`, `overrides` и
-`fillMissing` ведут себя ровно так же, как на пути через аксессор, — `src/lib/lazy-spy-proxy.spec.ts`
-сверяет два режима друг с другом, а не с написанными от руки ожиданиями. Чтение дескриптора
-сознательно **не** строит спая — по той же причине, по которой `resetAutoSpy` может пропустить
-нетронутый метод: дескрипторы читают и `Object.keys`, и teardown, и материализация там вернула бы ту
-самую память, ради экономии которой режим и существует.
-
-## `using` — сброс в конце блока {#using}
-
-Каждый дубль этого пакета несёт `[Symbol.dispose]()`, который зовёт `resetAutoSpy(this)`, так что
-`afterEach`, существующий только ради сброса одного спая, можно выкинуть:
-
-```ts
-it('loads', () => {
-  using cart = createSpyFromClass(Cart); // сброс, когда блок кончится
-  cart.total.calledWith().mockReturnValue(42);
-
-  expect(cart.total()).toBe(42);
-});
-// и вызовы, и настройка исчезли — cart.total() снова undefined
-```
-
-Выполняется именно `resetAutoSpy`, то есть сброс полный: записанные вызовы, цепочки `calledWith` /
-`mustBeCalledWith`, значения `resolveWith` / `nextWith` и голый `mockReturnValue`, поставленный прямо
-на мок раннера. Его можно позвать и руками — `cart[Symbol.dispose]()`, — а сам ключ имеет
-**стабильную идентичность** между чтениями, на что рассчитывают и проверка на `Disposable`, и
-`DisposableStack`.
-
-**Метод наш, синтаксис — вашего тулчейна.** _Объявление_ `using` пониже уровнем разворачивают esbuild
-и `tsc` — поэтому спеки в этом репозитории им пользуются, пока CI гоняется на Node 22, 24 и 26. При
-нативном исполнении — нетранспилированный `.js` на Node 22 — это `SyntaxError`; Node 24 его уже
-выполняет. Если ваша сборка не транспилирует, зовите `[Symbol.dispose]()` или `resetAutoSpy()`
-напрямую; больше ничего не меняется.
-
-**На Node 22 пакет ставит `Symbol.dispose` за вас.** Развёрнутой форме нужно, чтобы символ
-существовал как _глобальный_: `__addDisposableResource` из `tslib` читает его с `Symbol` и бросает
-`TypeError: Symbol.dispose is not defined.` ещё до того, как посмотрит на дубль. В Node 24 он есть
-нативно в V8, в каждом реалме. В Node 22 — нет; она патчит символ сама, как
-`Symbol.for('nodejs.dispose')`, **только в главный реалм**, поэтому в окружении `jsdom` / `happy-dom`
-под Vitest, чьи глобалы приходят из голого `vm`-контекста, его просто нет, и `using` падает. Импорт
-этого пакета определяет символ там же и с тем же ключом из реестра — общим для всех реалмов процесса,
-так что ключ остаётся идентичным тому, который использует сама Node, — неперечислимым и
-`configurable`, и только там, где его не хватает: реалм, где `Symbol.dispose` уже есть, остаётся
-нетронутым.
-
-**Ключ неперечислимый**, поэтому в спред он не попадает. Именно это и пришлось защищать: `{ ...spy }`
-копирует перечислимые собственные _символьные_ свойства, так что перечислимый dispose уехал бы за
-дублем в каждый снапшот и в каждую копию в духе `withOverrides`. `Object.keys` и `JSON.stringify`
-символы игнорируют начисто и под угрозой не были никогда.
-
-**`[Symbol.asyncDispose]` сознательно нет.** `resetAutoSpy` синхронный, так что асинхронная половина
-добавила бы микротаск и обещала бы несуществующий teardown, — а `await using` и так откатывается на
-`@@dispose`, когда `@@asyncDispose` отсутствует, поэтому ничего не теряется.
-
-::: warning `createFunctionSpy` сюда не входит
-Отдельный `createFunctionSpy` — это мок раннера, а Vitest кладёт собственный `[Symbol.dispose]` на
-каждый созданный им мок: `() => mock.mockRestore()`, который **восстанавливает исходную реализацию**.
-Это другой контракт, нежели откат настройки дубля: цепочки `calledWith`, которые библиотека держит в
-замыкании, в него не входят. Поэтому `using` на одиночном спае функции означает то, что под этим
-понимает ваш раннер, а не то, что он означает на `Spy<T>`. Когда убрать надо именно настройку
-библиотеки, берите `resetAutoSpy(spy)`.
-:::
-
-## Форма `Spy` {#the-spy-shape}
-
-`Spy<T>` — это **отображённый тип** (mapped type) над `T`:
-
-- каждый **метод** становится моком, пересечённым с хелперами, которые заслужил его тип возврата:
-  `calledWith` / `mustBeCalledWith` всегда, плюс `resolveWith` / `rejectWith` для `Promise` и
-  `nextWith` / `throwWith` / … для `Observable`;
-- каждое **свойство типа `Observable`** получает observable-хелперы, сохраняя свой собственный тип;
-- всё остальное сохраняет объявленный тип;
-- сверху добавляется мешок `accessorSpies`.
-
-Поскольку это отображённый тип, `Spy<T>` **теряет члены `#private` и `private`** и потому не
-присваивается в `T`. Объявляйте переменную как `Spy<T>` или переходите границу явно, через
-[`asInstance` / `asSpy`](./spy-typing):
-
-```ts
-let users: Spy<UserService>; // ✅
-let users: UserService = createSpyFromClass(UserService); // ❌ приватных членов нет
-```
+В `createAutoMock` и `provideAutoSpyForToken` `returns` и `selfReturning` пропускают член, названный в
+`overrides`: значение, обычная функция и `vi.fn()` остаются ровно такими, как переданы.
 
 ## Спаи на аксессорах — `accessorSpies` {#accessor-spies-—-accessorspies}
 
-Геттеры и сеттеры — не методы, поэтому у них свой мешок. Перечислите их или включите
-`autoSpyAccessors`, чтобы найти каждый аксессор по цепочке прототипов:
+Геттеры и сеттеры — не методы, поэтому их спаи лежат в отдельном объекте `spy.accessorSpies`.
+Перечислите их или включите `autoSpyAccessors: true`, чтобы спаить все аксессоры в цепочке прототипов:
 
 ```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+
 const settings = createSpyFromClass(SettingsService, {
   gettersToSpyOn: ['theme'],
   settersToSpyOn: ['theme'],
@@ -481,26 +324,19 @@ settings.theme = 'light';
 expect(settings.accessorSpies.setters.theme).toHaveBeenCalledWith('light');
 ```
 
-Само свойство читается и пишется как обычно — мок живёт в `accessorSpies`, поэтому `settings.theme`
-остаётся типизированным как `string`, а не как мок.
+- Само свойство читается и пишется как обычно, поэтому `settings.theme` остаётся типа `string`.
+- `accessorSpies` неперечислим: его нет в `Object.keys`, spread, `toEqual` и снимках.
 
 ### Названная половина тянет за собой пару {#naming-one-half-gets-the-pair}
 
-`gettersToSpyOn: ['theme']` на классе, объявившем **обе** половины, ставит оба спая; в обратную
-сторону — так же. Зеркалирование читает дескриптор прототипа, поэтому добавляет только то, что у
-класса уже есть: член, доступный лишь на чтение, таким и остаётся.
+`gettersToSpyOn: ['theme']` на классе, где объявлены **и** геттер, и сеттер, спаит оба, и наоборот.
+Добавляется только то, что есть у класса, поэтому свойство только для чтения таким и остаётся.
 
-До 3.5.0 спай ставился только на названную половину, и дубль выходил беднее оригинала ровно там, где
-тестируемый код рассчитывает на симметрию. Присваивание `service.toggleSafeMode = false` попадало
-в пустой сеттер, который ставит обвязка спая, так что запись пропадала _и_ проверять было нечего:
-`accessorSpies.setters.toggleSafeMode` был `undefined`, а падение читалось как
-`Cannot read properties of undefined` в нескольких шагах от вызвавшей его настройки.
+### Как задать значение геттеру-спаю {#seeding-a-spied-getter}
 
-### Как задать значение шпионимому геттеру {#seeding-a-spied-getter}
-
-`overrides` на члене, который является **шпионимым геттером** — назван в `gettersToSpyOn`, найден
-`autoSpyAccessors` или взят под спай регистрацией `registerAutoSpyDefaults`, о которой место вызова не
-упоминает, — задаёт значение спаю геттера:
+Значение в `overrides` для **геттера-спая** задаёт, что этот геттер отвечает. Это работает, где бы геттер
+ни попал в спаи: через `gettersToSpyOn`, `autoSpyAccessors` или регистрацию
+[`registerAutoSpyDefaults`](#registerautospydefaults-—-the-composition-lives-with-the-class):
 
 ```ts
 registerAutoSpyDefaults([[FlagsConfigService, { gettersToSpyOn: ['flagsConfig'] }]]); // setup-файл
@@ -510,66 +346,307 @@ providers: [provideAutoSpy(FlagsConfigService, { overrides: { flagsConfig: { the
 injectSpy(FlagsConfigService).flagsConfig; // { theme: 'dark' }, и чтение записано
 ```
 
-До этого релиза значение присваивалось, присваивание попадало в сеттер шпионимого аксессора, а геттер
-продолжал отвечать `undefined` — при том что документация обещала, что заданные члены побеждают, и
-ничто не предупреждало. Геттер остаётся спаем, так что более поздний
-`accessorSpies.getters.flagsConfig.mockReturnValue(…)` по-прежнему перекрывает заданное значение.
-Значение для члена, у спая которого есть только сеттер, становится обычным значением, а не записью,
-которую геттер никогда не прочитает.
+- Геттер остаётся спаем, поэтому более поздний `accessorSpies.getters.flagsConfig.mockReturnValue(…)`
+  всё равно заменит значение.
+- Значение для члена, у которого есть только спай сеттера, становится обычным значением.
+- На спае по типу для полностью абстрактного класса такое значение не добавляет собственных
+  `accessorSpies` в `Reflect.ownKeys`, spread, снимки или `explainSpy`.
+
+## `gettersToSpyOn` принимает геттер, возвращающий сигнал {#getterstospyon-accepts-a-signal-valued-getter}
+
+```ts
+createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['isCompactMode', 'sectionsLoaded'] });
+```
+
+Геттер, который возвращает `Signal<T>`, можно указать, как любой другой. Принимается любой строковый
+ключ. Во время выполнения сообщается только об одном случае — если назвать **метод**: поверх него
+ставится аксессор-спай, и метод больше нельзя вызвать на спае.
+
+Для сигнала обычно лучше `mockSignalProp` из `vitest-auto-spy/angular`; см.
+[Angular](/ru/adapters/angular#patching-a-property-of-a-spy).
+
+## Ленивые спаи — `lazySpies` {#lazy-spies-—-lazyspies}
+
+Спай метода строится, когда тест **впервые его читает** (`spy.method`), и потом переиспользуется.
+Методы, которых тест не касается, ничего не стоят. Так по умолчанию, и поведение такое же, как у
+построенных сразу спаев: `Object.keys`, `vi.isMockFunction`, `calledWith`, `resetAutoSpy` /
+`clearAutoSpy` и перечисление работают одинаково.
+
+```ts
+const spy = createSpyFromClass(WideService);
+spy.getName.mockReturnValue('Ada'); // getName строится здесь, при первом чтении
+// остальные методы не строятся вовсе
+```
+
+| Значение  | Когда используется                        | Как метод ждёт                                             |
+| --------- | ----------------------------------------- | ---------------------------------------------------------- |
+| `true`    | по умолчанию для классов меньше 8 методов | заглушка `get`/`set` на каждый метод                       |
+| `'proxy'` | по умолчанию от 8 методов                 | один `Proxy` на весь класс; до чтения ничего не определено |
+| `false`   | только если передать                      | все спаи строятся сразу                                    |
+
+Ширина — число методов, которые покрывает спай, после `onlyMethodsToSpyOn`, `methodsToSpyOn` и
+`instanceMethodsToSpyOn`. `trackInjections` и `createWithAutoSpies` берут то же умолчание.
+
+**Частая ошибка:** отключать ленивость «на всякий случай». `lazySpies: false` нужен, только если тест
+перечисляет сам объект спая, а не вызывает его методы, или трогает каждый метод маленького класса.
+Цифры — в разделе [Производительность](/ru/core/performance).
+
+Что стоит знать:
+
+- **У ни разу не прочитанного метода нет записанных вызовов**, поэтому `resetAutoSpy` может его
+  пропустить.
+- **Замороженный или запечатанный спай работает.** `Object.freeze(cart)` не мешает
+  `cart.total.mockReturnValue(3)`: спай хранится рядом с объектом, и каждое чтение возвращает тот же спай.
+  Присваивание вроде `cart.total = vi.fn()` хранится так же. После одного `Object.preventExtensions` спай
+  ложится на объект как обычно.
+- **`vi.spyOn` на ещё не прочитанном методе работает, но не нужен**: член уже спай, и
+  `cart.total.mockReturnValue(3)` делает то же за один шаг. На спае с заглушками (меньше 8 методов или
+  `lazySpies: true`) `vi.spyOn` возвращает переадресацию: настроенный `mockReturnValue` отвечает,
+  ненастроенный вызов доходит до спая (с проверкой `strict`), а `mockRestore()` возвращает этот спай с
+  записанными вызовами. Вызов переадресации в отрыве от объекта бросает
+  `'total' was called off its double after vi.spyOn`. На proxy-спае (8 методов и больше) `vi.spyOn`
+  возвращает сам спай; `mockRestore()` его сбрасывает, и вызов в отрыве работает.
+- `Object.create(spy).method` строит спай на новом объекте при `lazySpies: true` и на исходном спае при
+  `'proxy'`.
+
+### `lazySpies: 'proxy'` — один объект-ловушка вместо заглушки на каждый метод {#lazyspies-proxy-—-one-trap-object-instead-of-a-placeholder-per-method}
+
+`'proxy'` — умолчание от 8 методов. Передайте его явно, чтобы получить его на более узком классе. Он
+держит широкий спай лёгким: до чтения метода на объекте ничего не определено:
+
+```ts
+// сгенерированный API-клиент: 400 операций, тест трогает две
+const api = createSpyFromClass(GeneratedVenuesClient);
+
+api.findById.resolveWith({ id: 1 }); // строится здесь, как любой ленивый спай
+```
+
+Начиная с 8 методов proxy-спай занимает меньше памяти и строится быстрее заглушек; ниже 8 выигрыш
+слишком мал, чтобы жертвовать обычным объектом. Замеры — в разделе
+[Производительность](/ru/core/performance).
+
+Тест может заметить proxy-спай в таких местах:
+
+- `util.types.isProxy(spy)` — `true`, отладчик показывает `Proxy`;
+- `console.log(spy)` / `util.inspect` показывает только уже прочитанные методы (снимки Vitest,
+  `toEqual`, `Object.keys` и spread не меняются);
+- `Object.getOwnPropertyDescriptor(spy, 'method')` на непрочитанном методе каждый раз возвращает новую
+  пару `get`/`set`;
+- `vi.spyOn(spy, 'method')` возвращает собственный спай метода (см. выше);
+- каждое чтение члена идёт через proxy, что стоит немного времени в очень горячем цикле.
+
+В этих случаях передайте `lazySpies: true` или зарегистрируйте его один раз:
+`registerAutoSpyDefaults(Class, { lazySpies: true })`.
+
+Всё остальное ведёт себя так же, как с заглушками: `Object.keys`, spread, `JSON.stringify`, `in`,
+`hasOwnProperty`, `Object.getOwnPropertyDescriptor` (та же форма аксессора), `delete`, `Object.freeze`,
+порядок ключей, `returns`, `overrides` и `fillMissing`. Чтение дескриптора **не** строит спай: дескрипторы
+читают и `Object.keys`, и уборка. [Метод с символьным ключом](#edge-cases) и в этом режиме определяется
+на объекте.
+
+## `using` — сброс в конце блока {#using}
+
+У каждого спая этого пакета есть метод `[Symbol.dispose]()`, который вызывает `resetAutoSpy(this)`.
+Объявите спай через `using`, и `afterEach` только ради сброса не нужен:
+
+```ts
+it('loads', () => {
+  using cart = createSpyFromClass(Cart); // сбросится в конце блока
+  cart.total.calledWith().mockReturnValue(42);
+
+  expect(cart.total()).toBe(42);
+});
+// вызовы и настройки исчезли: cart.total() снова undefined
+```
+
+- Это полный `resetAutoSpy`: записанные вызовы, цепочки `calledWith` / `mustBeCalledWith`, значения
+  `resolveWith` / `nextWith`, обычный `mockReturnValue`, `mockReturnValueOnce` в очереди и настройки
+  спаев аксессоров.
+- Его можно вызвать вручную: `cart[Symbol.dispose]()`. Ключ при каждом чтении — один и тот же объект,
+  как ожидают проверки `Disposable` и `DisposableStack`.
+- Ключ неперечислим, поэтому не попадает в spread и снимки.
+- `[Symbol.asyncDispose]` нет: `resetAutoSpy` синхронный, а `await using` и так откатывается к
+  `Symbol.dispose`.
+
+**Синтаксис `using` должен поддерживать ваш инструментарий.** esbuild и `tsc` его компилируют. Node 24
+выполняет его сам; нескомпилированный `.js` на Node 22 падает с `SyntaxError`. Если ваша сборка его не
+компилирует, вызывайте `[Symbol.dispose]()` или `resetAutoSpy()` напрямую.
+
+- **Типы:** пакету не нужны ни `@types/node`, ни `lib: ["esnext.disposable"]`. Объявлению `using` в
+  вашем коде по-прежнему нужен `lib`, который его знает.
+- **Node 22:** пакет определяет `Symbol.dispose` там, где его нет (например, в окружении Vitest `jsdom`
+  или `happy-dom`), тем же символом `Symbol.for('nodejs.dispose')`, что и сам Node. Среду, где он уже
+  есть, пакет не трогает.
+
+::: warning `createFunctionSpy` сюда не входит
+Отдельный `createFunctionSpy` — мок раннера, и Vitest даёт каждому моку свой `[Symbol.dispose]`, который
+вызывает `mockRestore()` и **возвращает исходную реализацию**. Это не то же самое, что очистить настройки
+библиотеки: цепочки `calledWith` туда не входят. Для функции-спая `using` значит то, что под ним понимает
+ваш раннер. Чтобы очистить настройки библиотеки, вызовите `resetAutoSpy(spy)`.
+:::
+
+## `registerAutoSpyDefaults` — опции спая хранятся рядом с классом {#registerautospydefaults-—-the-composition-lives-with-the-class}
+
+Некоторые опции относятся к **классу**, а не к одному тесту: `Router` нужен `events` как свойство-
+`Observable` и `url` как геттер везде, где его спаят. Зарегистрируйте их один раз в setup-файле, и каждый
+спай этого класса их получит:
+
+```ts
+// vitest-setup.ts, один раз
+import { registerAutoSpyDefaults } from 'vitest-auto-spy';
+
+registerAutoSpyDefaults(Router, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] });
+registerAutoSpyDefaults(AccountService, { gettersToSpyOn: ['isGuest', 'currentProfile'] });
+```
+
+```ts
+// в каждой спеке дальше
+provideAutoSpy(Router);
+provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] }); // добавляет, а не заменяет
+```
+
+Без регистрации каждый файл пишет свои опции для одного и того же класса, и они расходятся. Опции-списки
+не жалуются на имя, которого не нашли, поэтому файл, забывший `events`, остаётся зелёным, пока рабочий
+код не начнёт им пользоваться. Насколько это часто — в разделе [Подробнее](#how-often-the-options-drift).
+
+| Вызов                                        | Что делает                                                                                           |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `registerAutoSpyDefaults(Class, cfg)`        | регистрирует опции одного класса; второй вызов заменяет первый                                       |
+| `registerAutoSpyDefaults([[Class, cfg], …])` | регистрирует много сразу ([ниже](#many-at-once))                                                     |
+| `clearAutoSpyDefaults(Class)`                | убирает одну регистрацию                                                                             |
+| `clearAutoSpyDefaults()`                     | убирает все — для проекта, который регистрирует по проектам, или теста, которому нужен пустой реестр |
+
+**Частая ошибка:** зарегистрировать базовый класс и ждать, что подклассы это получат. Регистрации
+совпадают по точному классу, а не по наследованию. Иначе одна регистрация на популярном базовом классе
+меняла бы спаи в файлах, на которые никто не смотрел.
+
+### Как сливается {#the-merge}
+
+Регистрация — основа; опции в вызове добавляются к ней:
+
+| Ключ                                                            | Как сливается                                   |
+| --------------------------------------------------------------- | ----------------------------------------------- |
+| любой список (`gettersToSpyOn`, `observablePropsToSpyOn`, …)    | объединяется, сначала регистрация, без повторов |
+| `returns`, `overrides`                                          | по ключам; побеждает вызов                      |
+| любое одиночное значение (`lazySpies`, `strict`, `fillMissing`) | побеждает вызов, если он задаёт ключ            |
+
+Сокращение-массив тоже сливается: `createSpyFromClass(X, ['reload'])` — как
+`{ methodsToSpyOn: ['reload'] }`.
+
+**`createSpyFromInstance` тоже читает регистрации**: по классу, который называет `constructor` объекта,
+и сливает так же.
+
+- Объектный литерал или словарь `Object.create(null)` регистрацию не находят.
+- Если вызов перечисляет `onlyMethodsToSpyOn`, остальной объект остаётся настоящим. Регистрация тогда
+  добавляет только `strict`, `onUnstubbedCall`, `onUnstubbedRead` и записи `returns` / `selfReturning`
+  для перечисленных методов — никогда аксессор, другой метод или значение `overrides`. Поэтому
+  `router.url` остаётся настоящим под `createSpyFromInstance(router, { onlyMethodsToSpyOn: ['navigateByUrl'] })`.
+- Имя в `returns` или `selfReturning` в вызове для метода, который вызов оставил настоящим, сообщается
+  как ошибка настройки и пропускается.
+
+### Много классов сразу {#many-at-once}
+
+Вместо дюжины вызовов передайте таблицу:
+
+```ts
+// vitest-setup.ts, один раз
+registerAutoSpyDefaults([
+  [Router, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] }],
+  [AccountService, { gettersToSpyOn: ['isGuest', 'currentProfile'] }],
+  [LocalStorage, { instanceMethodsToSpyOn: ['getItem', 'setItem'] }],
+]);
+```
+
+- **Каждая строка проверяется типами по своему классу.** Ключ, которого у класса нет, падает на строке
+  этого класса, и ошибка перечисляет только его члены:
+
+  ```ts
+  registerAutoSpyDefaults([
+    // Type '"isGuest"' is not assignable to type '"navigate" | "navigateByUrl" | …'
+    [Router, { instanceMethodsToSpyOn: ['isGuest'] }],
+    [AccountService, { gettersToSpyOn: ['isGuest'] }],
+  ]);
+  ```
+
+- **Строки применяются по порядку**, поэтому более поздняя строка для того же класса заменяет раннюю,
+  как второй вызов. Таблица и одиночные вызовы пишут в один реестр.
+- `AutoSpyDefaultEntry<T>` — тип строки, для строки, собранной вне литерала.
+
+### Зависимость за `InjectionToken` {#token-defaults}
+
+Токены тоже можно регистрировать, через `registerAutoSpyDefaults` из `vitest-auto-spy/angular`. Экспорт
+ядра принимает только классы: он не может сослаться на `InjectionToken` из Angular; экспорт `/angular`
+добавляет токены в тот же реестр.
+
+```ts
+// vitest-setup.ts, один раз
+import { registerAutoSpyDefaults } from 'vitest-auto-spy/angular';
+
+registerAutoSpyDefaults(LOGGER, { returns: { info: undefined, err: undefined }, selfReturning: ['channel'] });
+registerAutoSpyDefaults(NAVIGATION, { overrides: { activeRow$: of({}) }, returns: { setFocus: undefined } });
+
+// в каждой спеке дальше
+providers: [provideAutoSpyForToken(LOGGER), provideAutoSpyForToken(NAVIGATION, { activeRow$: rows$ })];
+```
+
+- `provideAutoSpyForToken` сливает свой второй аргумент (значения) и третий (опции) поверх регистрации по
+  правилам выше. Зарегистрированный `returns` остаётся значением по умолчанию, которое заменит более
+  поздний `calledWith` или `resolveWith`.
+- Строка токена принимает `AutoSpyTokenDefaults<T>`: опции [`createAutoMock`](./auto-mock-by-type)
+  (`returns`, `selfReturning`, `returnsUndefined`, `observablePropsToSpyOn`, `strict`, `name`) плюс
+  `overrides`. Каждый ключ проверяется по `T` токена, а в одной таблице можно смешивать строки классов и
+  токенов.
+
+**Частая ошибка:** импортировать `registerAutoSpyDefaults` из `vitest-auto-spy` для токена. Это падает с
+`TS2345 … 'InjectionToken<AppLogger>' is not assignable to parameter of type 'ClassType<unknown>'`.
+Импортируйте из `vitest-auto-spy/angular`.
 
 ## `passthrough` — наблюдать за настоящим объектом, не подменяя его {#passthrough}
 
-`createSpyFromInstance(obj)` патчит объект, который у теста уже есть, и по умолчанию каждый метод
-становится дублем, отвечающим `undefined`. `passthrough: true` оставляет объект рабочим: каждый вызов
-записывается, а ненастроенный метод выполняет настоящий.
+`createSpyFromInstance(obj)` превращает методы уже существующего объекта в спаи. По умолчанию каждый спай
+отвечает `undefined`. С `passthrough: true` объект продолжает работать: каждый вызов записывается, а
+ненастроенный метод вызывает настоящий.
 
 ```ts
 import { createSpyFromInstance } from 'vitest-auto-spy';
 
 const cart = createSpyFromInstance(new CartStore(), { passthrough: true });
 
-cart.add('apple'); // выполнился настоящий add — cart.items равен ['apple']
+cart.add('apple'); // выполнился настоящий add: cart.items — ['apple']
 expect(cart.add).toHaveBeenCalledWith('apple');
 
-cart.checkout.resolveWith('declined'); // с этого места дублем стал только checkout
+cart.checkout.resolveWith('declined'); // дальше подменён только checkout
 ```
 
-Это spy mode Vitest (`vi.mock(path, { spy: true })`) и `spy: true` из Storybook для одного объекта,
-на любом рантайме, и ответ на `vi.spyOn` по очереди на каждый метод — сразу для всего объекта. Опция
-есть только у `createSpyFromInstance`: фабрика по классу собирает дубль без экземпляра, и настоящего
-метода, который можно было бы выполнить, у неё нет.
+Это режим спаев Vitest (`vi.mock(path, { spy: true })`) для одного объекта, на любом раннере, и замена
+`vi.spyOn` на каждый метод по очереди. Есть только у `createSpyFromInstance`: у фабрики класса нет
+экземпляра, и настоящему методу выполняться не на чем.
 
 Правила:
 
-- **Настроенный метод отдаётся целиком.** `calledWith`, `mustBeCalledWith`, `resolveWith`,
-  `nextWith`, `failWith`, `mockReturnValue`, `mockImplementation`, `returns` и `selfReturning` —
-  любое из них снимает метод с настоящей реализации. Цепочка `calledWith(1)` отвечает `undefined` на
-  `load(2)`, как у любого другого дубля, и к настоящему `load` не откатывается.
-- **`resetAutoSpy` возвращает его обратно.** Сброс откатывает настройку, а ненастроенное состояние
-  passthrough-спая — это настоящий метод. `clearAutoSpy` настройку сохраняет, как и всегда. В
-  jasmine-слое `.and.callThrough()` снова запускает настоящий метод.
-- **Настоящий метод выполняется с экземпляром в качестве `this`,** поэтому его внутренние вызовы
-  проходят через спаи и тоже записываются: `cart.add`, вызывающий `this.count()`, виден на
-  `cart.count`.
-- **Некоторые члены остаются настоящими, а не спаями.** Хуки жизненного цикла Angular (`ngOnInit`,
-  `ngOnDestroy`, …) — их вызывает фреймворк, а не тест, и teardown должен выполниться. И найденный
-  при обходе вызываемый член со своим собственным API — поле Angular `signal()` с `set` и `update`,
-  мок, — потому что спай на его месте спрятал бы этот API от настоящего кода, который им пользуется.
-  Чтобы всё же поставить на него спай, назовите его в `methodsToSpyOn`. Найденный класс тоже
-  остаётся настоящим: passthrough не умеет его сконструировать; названный класс становится обычным
-  дублем.
-- **Названные вами аксессоры и observable-свойства остаются дублями.** `gettersToSpyOn`,
-  `settersToSpyOn` и `observablePropsToSpyOn` просят заменить член — и он заменяется.
-- **Названный член, которого у объекта нет,** выполнить нечем, и он отвечает как любой другой
-  дубль — `undefined` или то, что велит общесюитный строгий режим.
-- **`strict: true` или `onUnstubbedCall` в том же вызове отклоняются**, потому что оба решают, что
-  делает ненастроенный вызов. Общесюитный `setupAutoSpy({ strict: true })` или строгая регистрация
-  `registerAutoSpyDefaults` для класса уступают `passthrough`; см.
-  [Строгий режим](./strict-mode#passthrough).
+- **Настроенный метод перестаёт вызывать настоящий.** `calledWith`, `mustBeCalledWith`, `resolveWith`,
+  `nextWith`, `failWith`, `mockReturnValue`, `mockImplementation`, `returns` и `selfReturning` заменяют
+  настоящий метод. Цепочка `calledWith(1)` отвечает `undefined` на `load(2)`, как на любом спае; к
+  настоящему `load` она не откатывается.
+- **`resetAutoSpy` возвращает настоящий метод.** `clearAutoSpy`, как всегда, оставляет настройки. В слое
+  jasmine `.and.callThrough()` снова вызывает настоящий метод.
+- **Настоящий метод выполняется с объектом в качестве `this`**, поэтому его внутренние вызовы идут через
+  спаи и записываются: `cart.add`, вызвавший `this.count()`, виден на `cart.count`.
+- **Некоторые члены остаются настоящими.** Хуки жизненного цикла Angular (`ngOnInit`, `ngOnDestroy`, …):
+  их вызывает фреймворк, и уборка должна выполниться. Найденная функция со своим API (поле Angular
+  `signal()` с `set` и `update`, мок): спай спрятал бы этот API. Чтобы всё же спаить такой член, назовите
+  его в `methodsToSpyOn`. Найденный класс тоже остаётся настоящим; названный становится обычным спаем.
+- **Названные аксессоры и свойства-`Observable` заменяются.** `gettersToSpyOn`, `settersToSpyOn` и
+  `observablePropsToSpyOn` просят замену и получают её.
+- **Названный член, которого у объекта нет**, вызвать нечем, и он отвечает как любой спай: `undefined`
+  или то, что скажет общий строгий режим.
+- **`strict: true` или `onUnstubbedCall` в том же вызове отвергаются**: оба решают, что делает
+  ненастроенный вызов. Общий `setupAutoSpy({ strict: true })` или строгий `registerAutoSpyDefaults`
+  уступают `passthrough`; см. [Строгий режим](./strict-mode#passthrough).
 
-В Angular это та самая форма «проверить взаимодействие, не сломав сервис»: взять настоящий сервис из
-`TestBed.inject` и поставить на него спай на месте. Его зависимости, его сигналы и его `ɵprov`
-остаются настоящими, а teardown TestBed по-прежнему вызывает настоящий `ngOnDestroy`:
+В Angular это способ проверить взаимодействие, не ломая сервис: возьмите настоящий сервис из
+`TestBed.inject` и заспайте его на месте. Его зависимости, сигналы и `ɵprov` остаются настоящими, и
+уборка `TestBed` по-прежнему вызывает настоящий `ngOnDestroy`:
 
 ```ts
 const cart = createSpyFromInstance(TestBed.inject(CartService), { passthrough: true });
@@ -577,53 +654,53 @@ const fixture = TestBed.createComponent(CartComponent);
 
 fixture.componentInstance.addOne();
 
-expect(cart.add).toHaveBeenCalledWith(5); // выполнился настоящий CartService с настоящим PriceFormatter
+expect(cart.add).toHaveBeenCalledWith(5); // выполнился настоящий CartService со своим PriceFormatter
 ```
 
-`restoreSpiedInstance(obj)` — или `using` — возвращает настоящие члены на место, а `setupAutoSpy()`
-делает это после каждого теста.
+`restoreSpiedInstance(obj)` или `using` возвращают настоящие члены. `setupAutoSpy()` делает это после
+каждого теста.
 
 ### Один метод — `spyOnOwnMethod` {#spy-on-own-method}
 
-Самый частый случай во всём этом укладывается в одну строку: понаблюдать за **одним** методом
-объекта под тестом и дать ему работать. `spyOnOwnMethod(sut, 'method')` — этот сценарий
-в упакованном виде:
+`spyOnOwnMethod(sut, 'method')` следит за **одним** методом объекта под тестом и даёт ему выполниться:
 
 ```ts
 import { spyOnOwnMethod } from 'vitest-auto-spy';
 
 const seek = spyOnOwnMethod(player, 'seek');
 
-player.seek(1000); // настоящий seek выполнился
+player.seek(1000); // выполнился настоящий seek
 expect(seek).toHaveBeenCalledWith(1000);
 ```
 
-Это белый список `onlyMethodsToSpyOn` со сложенным внутрь `passthrough`: все остальные члены
-остаются настоящими, настоящий метод работает, пока тест не настроит спай, а `restoreSpiedInstance`
-/ `setupAutoSpy()` возвращают всё на место. Это же замена голому `vi.spyOn(component, 'method')`
-там, где пресет запрещает `vi.spyOn` через `no-restricted-properties`: та же семантика «записать
-и вызвать настоящий метод», на любом раннере.
+Это `onlyMethodsToSpyOn` плюс `passthrough` в одном вызове: все остальные члены остаются настоящими,
+настоящий метод выполняется, пока тест не настроит спай, а `restoreSpiedInstance` / `setupAutoSpy()`
+возвращают всё обратно. Он же заменяет обычный `vi.spyOn(component, 'method')` там, где пресет линтера
+запрещает `vi.spyOn`.
 
 ### Живой DOM-узел — не коллаборатор {#live-dom-node}
 
-`createSpyFromInstance(el)` обходит цепочку прототипов узла, а выше собственного класса компонента
-это цепочка самого DOM-движка. `Node.removeChild` в happy-dom вызывает внутренний метод под
-Symbol-ключом у ребёнка, которого снимает; после патча этот вызов становится вызовом спая, который
-никто не настраивал, — в строгой сюите узел вообще невозможно снять с `document.body`, и утечка
-валит последующие тесты файла далеко от настоящей причины. Теперь `createSpyFromInstance` сообщает
-об этом до того, как что-либо патчить: без `onlyMethodsToSpyOn` на живом `Node`, глобальном `window` или другой
-цели событий, которую даёт движок (`XMLHttpRequest`, `AbortSignal`, `MediaQueryList` из happy-dom; собственный класс, унаследованный
-от `EventTarget`, не в счёт), он предупреждает через обычный канал неверных конфигураций
-(`setMisconfigurationReaction('throw')` превращает это в падение прямо там, до касания узла).
-Короткая запись массивом это не глушит — `createSpyFromInstance(el, ['addEventListener'])`
-сливается как `methodsToSpyOn`, _аддитивный_ список (§ [Как сливается](#the-merge)), так что
-discovery всё равно обходит весь узел; пропускает его только
-`{ onlyMethodsToSpyOn: ['addEventListener'] }`. Для элемента, которому предстоит
-жить обычной DOM-жизнью, спайте одно свойство: `mockValueProp(el, 'addEventListener', vi.fn())`
-оставляет узел настоящим и снимаемым. А для нативного void-метода, который обработчик и должен
-вызвать (`preventDefault`, `stopPropagation`, `focus`), есть `spyOnVoidMethod(event,
-'preventDefault')` — белый список и сид `returns: { preventDefault: undefined }`, без которого
-строгая сюита бросает, упакованные в один вызов, где метод назван один раз, а не дважды:
+**Частая ошибка:** `createSpyFromInstance(el)` на живом DOM-узле. За пределами собственного класса
+компонента цепочка прототипов принадлежит DOM-движку. Например, `Node.removeChild` в happy-dom вызывает
+на дочернем узле внутренний метод с символьным ключом. Когда этот метод — спай, строгий набор тестов не
+может убрать узел из `document.body`, и оставшийся узел роняет последующие тесты в файле.
+
+Поэтому `createSpyFromInstance` предупреждает, ещё ничего не изменив, если получает живой `Node`,
+глобальный `window` или другую цель событий от движка (`XMLHttpRequest`, `AbortSignal`, `MediaQueryList`
+из happy-dom) без `onlyMethodsToSpyOn`. Ваш собственный класс, расширяющий `EventTarget`, не считается.
+`setupAutoSpy({ misconfiguration: 'throw' })` превращает предупреждение в падение до того, как узел
+тронут.
+
+Что делать вместо этого:
+
+- `{ onlyMethodsToSpyOn: ['addEventListener'] }` спаит только этот метод. Сокращение-массив
+  `createSpyFromInstance(el, ['addEventListener'])` **не** поможет: оно добавляет к поиску
+  ([Как сливается](#the-merge)), и весь узел всё равно обходится.
+- `mockValueProp(el, 'addEventListener', vi.fn())` заменяет одно свойство, остальной узел остаётся
+  настоящим.
+- Для встроенного `void`-метода, который должен вызвать обработчик (`preventDefault`, `stopPropagation`,
+  `focus`), используйте `spyOnVoidMethod`. Он объединяет `onlyMethodsToSpyOn` и
+  `returns: { preventDefault: undefined }`, которое иначе понадобилось бы строгому набору тестов:
 
 ```ts
 import { spyOnVoidMethod } from 'vitest-auto-spy';
@@ -637,8 +714,8 @@ expect(preventDefault).toHaveBeenCalledTimes(1);
 
 ## Одна функция — `createFunctionSpy` {#a-single-function-—-createfunctionspy}
 
-Когда класса нет вовсе, `createFunctionSpy<Fn>(name)` строит один спай с тем же набором хелперов,
-подобранных по типу возврата. `name` — то, что появится в сообщениях о падении.
+Когда класса нет совсем, `createFunctionSpy<Fn>(name)` строит один спай с теми же хелперами. `name`
+видно в сообщениях о падении.
 
 ```ts
 import { createFunctionSpy } from 'vitest-auto-spy';
@@ -650,158 +727,114 @@ load.calledWith(1).resolveWith('value');
 await expect(load(1)).resolves.toBe('value');
 ```
 
+## Форма `Spy` {#the-spy-t-shape}
+
+`Spy<T>` — **отображённый тип** над `T`:
+
+- каждый **метод** становится моком плюс хелперами, которые допускает его тип возврата: `calledWith` /
+  `mustBeCalledWith` всегда, `resolveWith` / `rejectWith` для `Promise`, `nextWith` / `throwWith` / … для
+  `Observable`;
+- каждое **свойство-`Observable`** получает хелперы Observable и сохраняет свой тип;
+- всё остальное сохраняет объявленный тип;
+- добавляется объект `accessorSpies`.
+
+Отображённый тип **теряет члены `#private` и `private`**, поэтому `Spy<T>` нельзя присвоить `T`.
+Объявляйте переменную как `Spy<T>` или переводите через [`asInstance` / `asSpy`](./spy-typing):
+
+```ts
+let users: Spy<UserService>; // ✅
+let users: UserService = createSpyFromClass(UserService); // ❌ нет приватных членов
+```
+
+## Метод, чей тип возврата — `never` {#a-method-whose-return-type-is-never}
+
+Обобщённый метод с условным типом возврата, например
+`get<K extends keyof T>(k: K): T[K] extends Stringified<infer R> ? R : never` (обычная форма
+типизированного сервиса конфигурации), получает рабочий спай. Его хелперы откатываются к синхронному
+набору (`mockReturnValue`, `calledWith`, …), и член не превращается в `never`.
+
 ## Краевые случаи {#edge-cases}
 
-**Унаследованные методы тоже подменяются спаями.** Поиск идёт по всей цепочке прототипов, поэтому метод,
-объявленный в базовом классе, подменяется спаем ровно как объявленный в наследнике. `Object.prototype` не
-включается.
+**Унаследованные методы спаятся.** Поиск читает всю цепочку прототипов, поэтому метод базового класса
+спаится так же, как собственный. `Object.prototype` не входит.
 
-**Абстрактные классы работают в рантайме**, потому что абстрактный класс — всё та же
-функция-конструктор с прототипом; отказывается типизировать его как `ClassType<T>` только TypeScript.
-Передайте в `createSpyFromClass` конкретного наследника, а абстрактный класс оставьте DI-токеном:
+**Цепочка, которая не кончается на `Object.prototype`, тоже читается.** Класс, у прототипа которого
+родитель `null`, и словарь `Object.create(null)`, переданный в `createSpyFromInstance` (реестр
+обработчиков, набор колбэков), обрабатываются как обычно. `Object.prototype` из другой среды
+распознаётся и пропускается так же, как свой.
+
+**Методы с символьными ключами спаятся.** Класс с `[SERIALIZE]()` или `[Symbol.for('app.render')]()`
+получает спай под этим ключом, с типами и настройкой, как у именованного:
+
+```ts
+const envelope = createSpyFromClass(Envelope);
+
+envelope[SERIALIZE].calledWith(payload).mockReturnValue('{}');
+```
+
+Собственные символы среды выполнения не трогаются: каждый символ на `Symbol` (`Symbol.iterator`,
+`Symbol.toPrimitive`, `Symbol.asyncIterator`, `Symbol.dispose`, …) плюс
+`Symbol.for('nodejs.util.inspect.custom')`. Спай там сломал бы объект: `[...spy]` перестал бы работать
+на итерируемом классе, приведение к строке вернуло бы `undefined`, а `Symbol.dispose` уже занят
+[`using`](#using). Список читается из `Symbol`, поэтому новые символы среды тоже учтены.
+
+**Абстрактные классы работают во время выполнения**: абстрактный класс — всё равно конструктор с
+прототипом. Только TypeScript не даёт типизировать его как `ClassType<T>`. Передайте конкретный подкласс,
+а абстрактный класс оставьте DI-токеном:
 
 ```ts
 providers: [{ provide: PaymentGateway, useValue: createSpyFromClass(StripeGateway) }];
 ```
 
-`injectSpy` уже принимает абстрактный конструктор как токен, так что прочитать значение обратно можно
-без всяких ухищрений.
+`injectSpy` принимает абстрактный класс как токен, так что получить спай обратно просто.
 
-**Тела конструкторов не выполняются никогда.** Спай собирается по прототипу, класс не
-инстанцируется — конструктор, открывающий сокет или читающий конфиг, проблемой не станет.
+**Метод `then()` пропускается.** Спай на нём сделал бы объект «thenable» с `then`, который никогда не
+отвечает, и `await spy` или возврат спая из `async`-функции повесил бы тест. Фабрика предупреждает один
+раз на класс. Назовите его в `methodsToSpyOn: ['then']`, если тест действительно управляет `then`;
+`returns: { then }` без этого сообщается как ошибка, потому что отвечать некому.
 
-**Предупреждает только ограничивающий список.** Имя в `onlyMethodsToSpyOn`, которого нет на
-прототипе, пишет предупреждение: там опечатка оставляет настоящий метод без спая, и тестируемый код
-зовёт то, чего нет. Дополняющие списки молчат — назвать вызываемое, которого прототип не несёт, это
-ровно их задача.
+**Поиск останавливается на встроенном базовом классе.** `class AppError extends Error` получает спаи
+только для своих методов, без `toString`. То же для `extends Array`, `extends EventTarget`,
+`extends HTMLElement`. Чтобы спаить встроенный метод, назовите его в `methodsToSpyOn`. Встроенный класс,
+переданный напрямую, например `createSpyFromClass(WebSocket)`, обходится целиком.
 
-**Нет класса — не беда.** [`createAutoMock<T>()`](./auto-mock-by-type) строит ту же поверхность по
-одному лишь типу, `mockDeep<T>()` делает это рекурсивно, а `createMock<T>()` возвращает обычный `T`
-без спаев — для формы данных, которую код только читает.
+**Конструктор не вызывается.** Спай строится из прототипа, поэтому конструктор, который открывает сокет
+или читает конфиг, не мешает.
 
-## `returns` или `overrides` {#returns-or-overrides}
+**Нет класса?** [`createAutoMock<T>()`](./auto-mock-by-type) строит такой же спай по типу, `mockDeep<T>()`
+делает это для вложенных объектов, а `createMock<T>()` возвращает обычный `T` для данных, которые код
+только читает.
 
-`returns` задаёт ответ метода-спая и оставляет его спаем; `overrides` заменяет член значением, которое
-спаем уже не является. Полное сравнение — на [отдельной странице](./returns-vs-overrides).
+## Подробнее {#in-depth}
 
-## `returns` — значение прямо там, где строится спай {#returns-—-the-value-where-the-spy-is-built}
+### Почему поле экземпляра не найти {#why-an-instance-field-cannot-be-found}
 
-```ts
-providers: [provideAutoSpy(ProductsService, { returns: { getProducts: of([]) } })];
-```
+Поля экземпляра появляются только после конструктора, а эта фабрика его не вызывает. Именно поэтому она
+безопасна для сервиса, чей конструктор открывает сокет. Единственная альтернатива — отвечать на любой
+неизвестный член _чем-нибудь_. Это «что-нибудь» было бы истинным, и `if (service.optionalThing)` в коде
+под тестом ушёл бы не в ту ветку — молча, в другом файле.
+[Список запретов для протокольных ключей](/ru/core/auto-mock-by-type#it-answers-everything-so-it-must-not-answer-these)
+существует ровно ради этого, и понятный `TypeError` на строке теста — лучший из двух вариантов.
 
-Альтернатива — второй оператор в каждом `beforeEach` (`injectSpy(X).m.mockReturnValue(…)`), а
-срезают путь обычно через экспортированный `const`-провайдер со значениями, что при `isolate: false`
-даёт один набор спаев на все импортирующие его файлы.
+### Как часто расходятся опции {#how-often-the-options-drift}
 
-Это **умолчание** метода, и хранится оно в собственном контейнере спая: цепочка `calledWith(…)`,
-настроенная после, по-прежнему решает значение для своих аргументов, более поздний `resolveWith` /
-`failWith` его заменяет, `undefined` под `strict` считается настройкой, а `resetAutoSpy` его
-сбрасывает.
+В одном Angular-проекте 739 из 2 228 вызовов `provideAutoSpy` передавали опции, и один и тот же класс
+собирал много разных наборов:
 
-Ключ, который не является спаем метода, отмечается предупреждением: его значение никогда не вернётся.
-Метод, который оставил снаружи `onlyMethodsToSpyOn`, так и называется; для опечатки подсказывается
-ближайший метод класса (`returns names 'lod', not a method of CartService — did you mean 'load'?`), а
-имя, на которое ничего не похоже, отсылает к `instanceMethodsToSpyOn` — туда относится то, что
-присваивает конструктор. Опечатка в `onlyMethodsToSpyOn` отмечается так же.
+| класс                   | вызовов | файлов | с опциями | **разных наборов опций** |
+| ----------------------- | ------: | -----: | --------: | -----------------------: |
+| `Router`                |     122 |    109 |        60 |                   **23** |
+| `AccountService`        |      70 |     62 |        43 |                   **27** |
+| `CheckoutStateService`  |      53 |     52 |        42 |                   **25** |
+| `RemoteSettingsService` |      85 |     70 |        47 |                        8 |
 
-## `selfReturning` — метод, который отвечает самим двойником {#self-returning}
+Семейство `*FlagsConfigService` — 205 вызовов, 120 из них слово в слово повторяли
+`{ gettersToSpyOn: ['flagsConfig'] }`. При 23 разных наборах опций для `Router` большинство файлов вовсе
+не спаили `events`, и ни один не заметил бы, когда рабочий код начал бы им пользоваться.
 
-```ts
-provideAutoSpy(QueryBuilder, { selfReturning: ['where', 'orderBy'], returns: { run: [] } });
-provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] });
-```
+### Как делятся заглушки {#how-the-placeholders-are-shared}
 
-Та запись `returns`, которую литералом не написать: когда пишется настройка, двойника ещё нет. Она
-нужна для вызова, от которого код под тестом строит цепочку, — `query.where('a').orderBy('b').run()`,
-`inject(LOGGER).channel('auth').debug('…')`, — где ненастроенное звено отвечает `undefined`, и
-следующий шаг падает, часто прямо в конструкторе, до первой строки спеки.
-
-Это то же умолчание, что ставит `returns`, поэтому под `strict` оно считается настройкой, а более
-поздние `calledWith` / `mockReturnValue` его перекрывают. Метод, названный и там и там, отвечает
-значением из `returns` — так спека вынимает одно звено из цепочки, заданной
-[регистрацией](#registerautospydefaults-—-the-composition-lives-with-the-class), ведь списки только
-объединяются. Принимают его все фабрики: `createSpyFromClass`, `createSpyFromInstance` (там ответ —
-сам экземпляр), `createAutoMock`, `provideAutoSpy`, `provideAutoSpyForToken`. Булев `selfReturning` у
-`mockDeep` — та же идея для каждого узла глубокого двойника.
-
-Член, который **засеяла** сама точка вызова, перекрывает и то и другое — так одно зарегистрированное
-звено заменяют своим двойником:
-
-```ts
-// vitest-setup.ts
-registerAutoSpyDefaults(LOGGER, { returns: { info: undefined, err: undefined }, selfReturning: ['channel'] });
-
-// одна спека, которой нужно проверять канал, а не родителя
-provideAutoSpyForToken(LOGGER, { channel: () => asInstance(channelLogger) });
-```
-
-В `createAutoMock` и `provideAutoSpyForToken` `overrides` хранится как есть и шпионом уже не
-является, поэтому `returns` и `selfReturning` такой член пропускают, а не настраивают: значение,
-обычная функция и `vi.fn()` остаются ровно тем, чем их засеяли. Раньше на такой форме провайдер падал
-с `TypeError: asVitestMock(...).mockImplementation is not a function` для обычной функции, а
-засеянный `vi.fn()` молча перезаписывался. В `createSpyFromClass` и `provideAutoSpy` засеянное тоже
-побеждает, но обычная функция, засеянная на метод, становится спаем этого метода — см. следующий
-раздел.
-
-## Функция в `overrides` остаётся спаем {#overrides-function}
-
-```ts
-providers: [provideAutoSpy(DomSanitizer, { overrides: { sanitize: (_context, value) => String(value) } })];
-
-const sanitizer = injectSpy(DomSanitizer);
-
-sanitizer.sanitize(SecurityContext.URL, 'a'); // 'a' — функция отработала
-expect(sanitizer.sanitize).toHaveBeenCalledOnce(); // и вызов записан
-```
-
-Обычная функция, засеянная на метод, становится спаем этого метода, а сама функция — его
-реализацией. Метод здесь — это метод прототипа, имя из `methodsToSpyOn`, `instanceMethodsToSpyOn` или
-`onlyMethodsToSpyOn`, а также любой член двойника абстрактного класса и двойника с `fillMissing`.
-Каждый вызов записывается и выполняет функцию с двойником в роли `this` — пока тест не настроит спай:
-цепочка `calledWith(…)` решает за свои аргументы, `resolveWith` или `mockReturnValue` заменяют
-функцию для всех вызовов, а `resetAutoSpy` возвращает функцию на место. Под `strict` такой метод
-считается настроенным, и функция выполняется даже для хука фреймворка вроде `ngOnDestroy`.
-
-До этого релиза функция хранилась как есть. `Spy<T>` типизировал член как спай, поэтому
-`expect(sanitizer.sanitize).toHaveBeenCalledOnce()` компилировался, а потом падал с
-`[Function sanitize] is not a spy`.
-
-Что по-прежнему хранится ровно так, как засеяно:
-
-- значение, геттер и функция на члене, который не метод (поле-колбэк);
-- класс и любое вызываемое со своим API: `vi.fn()`, спай этой библиотеки, сигнал. `vi.fn()`, который
-  у вас в руках, сохраняет идентичность, так что `toBe` на нём по-прежнему проходит.
-
-Засеянное по-прежнему побеждает `returns` и `selfReturning`, названные для того же метода. Каждый
-двойник получает свой спай, поэтому функция, зарегистрированная через `registerAutoSpyDefaults`, не
-переносит вызовы из одного теста в другой.
-
-## `gettersToSpyOn` принимает геттер, возвращающий сигнал {#getterstospyon-accepts-a-signal-valued-getter}
-
-```ts
-createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['isCompactMode', 'sectionsLoaded'] });
-```
-
-Является ли член геттером — факт о его **дескрипторе**, а не о типе возвращаемого значения; при этом
-геттер, отдающий `Signal<T>`, вызываемый, так что список, отфильтрованный по «не вызываемое»,
-отбрасывал ровно ту форму, из которой состоят ангуляровские сервисы на сигналах. У сервиса, чьё
-readonly-состояние целиком из сигналов, это не оставляло ни одного геттера, который можно было бы
-назвать, а падение читалось как `Type 'string' is not assignable to type 'never'` — и ни слова про
-сигналы.
-
-Теперь назвать можно любой строковый ключ. Проверяется вместо этого случай, который однозначно
-является ошибкой: назвав **метод**, вы ставите поверх него аксессор со спаями, метод перестаёт быть
-вызываемым на спае — и об этом сообщается в рантайме.
-
-Для сигнала лучше `mockSignalProp` (`/angular`), а не спай на геттере — см.
-[Angular](/ru/adapters/angular#patching-a-property-of-a-spy).
-
-## Метод, чей тип возврата — `never` {#a-method-whose-return-type-is-never}
-
-Обобщённый метод с условным типом возврата — `get<K extends keyof T>(k: K): T[K] extends
-Stringified<infer R> ? R : never`, форма любого типизированного сервиса конфигурации, — раньше
-превращал в `never` **весь** член спая, что сообщалось как `Property 'mockReturnValue' does not
-exist on type 'never'`, и ничто в сообщении не связывало это с породившим его методом. Починено в
-типе: набор хелперов откатывается на синхронный вместо того, чтобы аннигилировать член, а все
-сравнения типов возврата сделаны недистрибутивными.
+При `lazySpies: true` заглушка, за которой ждёт метод, — одна пара `get`/`set` на **имя** метода, общая
+для всех спаев с методом такого имени. Нетронутый спай остаётся маленьким при любой ширине класса. Первое
+чтение метода превращает спай в словарь свойств шириной с класс, поэтому широкие классы по умолчанию
+получают `'proxy'`.
