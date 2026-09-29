@@ -213,8 +213,10 @@ describe('stubObserver', () => {
       width = entries[0]?.contentRect.width ?? 0;
     });
 
-    observer.observe(document.createElement('div'));
-    observers.last.emit([{ contentRect: { width: 320 } } as ResizeObserverEntry]);
+    const target = document.createElement('div');
+
+    observer.observe(target);
+    observers.last.emit([resizeEntry(target, { width: 320 })]);
 
     expect(width).toBe(320);
   });
@@ -226,7 +228,9 @@ describe('stubObserver', () => {
     new MutationObserver((records) => {
       mutations += records.length;
     });
-    observers.last.emit([{} as MutationRecord, {} as MutationRecord]);
+    const host = document.createElement('div');
+
+    observers.last.emit([mutationRecord(host), mutationRecord(host)]);
 
     expect(mutations).toBe(2);
   });
