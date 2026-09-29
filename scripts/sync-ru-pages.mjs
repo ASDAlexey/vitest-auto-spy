@@ -105,9 +105,15 @@ function eachHeading(markdown, visit) {
     const text = match[2]
       .replace(/\{#[^}]+\}\s*$/, '')
       .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/<[^>]+>/g, '');
+      // Tags only outside code spans: `Spy<T>` keeps its `<T>` in VitePress's slug.
+      .split('`')
+      .map((part, i) => (i % 2 === 0 ? part.replace(/<[^>]+>/g, '') : part))
+      .join('`');
 
-    visit({ index, hashes: match[1], text: text.trim(), anchor: explicit ? explicit[1] : slugify(text), explicit: Boolean(explicit) }, lines);
+    visit(
+      { index, hashes: match[1], text: text.trim(), anchor: explicit ? explicit[1] : slugify(text), explicit: Boolean(explicit) },
+      lines,
+    );
   });
 
   return lines;
@@ -260,7 +266,9 @@ for (const page of pages) {
 
   const share = cyrillicShare(russian);
   if (share < MIN_CYRILLIC_SHARE) {
-    problems.push(`${relative} — prose is ${Math.round(share * 100)} % Cyrillic, below the ${Math.round(MIN_CYRILLIC_SHARE * 100)} % a finished translation reaches`);
+    problems.push(
+      `${relative} — prose is ${Math.round(share * 100)} % Cyrillic, below the ${Math.round(MIN_CYRILLIC_SHARE * 100)} % a finished translation reaches`,
+    );
   }
 
   const english = headings(fs.readFileSync(path.join(SRC_DIR, page), 'utf-8')).map((heading) => heading.anchor);
@@ -268,7 +276,9 @@ for (const page of pages) {
   const missing = english.filter((anchor) => !translated.some((heading) => heading.anchor === anchor));
 
   if (missing.length > 0) {
-    problems.push(`${relative} — headings lost the English anchors ${missing.map((anchor) => `#${anchor}`).join(', ')}; add \`{#anchor}\` to the translated heading`);
+    problems.push(
+      `${relative} — headings lost the English anchors ${missing.map((anchor) => `#${anchor}`).join(', ')}; add \`{#anchor}\` to the translated heading`,
+    );
   }
 
   const escaping = [...russian.matchAll(/\]\(\/(?!ru\/)([^)\s]*)/g)]

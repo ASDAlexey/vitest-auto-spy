@@ -26,7 +26,9 @@
 // Report-only is the default and always exits 0: for the first weeks this gate is calibrating itself
 // rather than catching regressions, and a gate that cries wolf gets switched off. `--strict` is the
 // opt-in that can fail a build. A case or arm the baseline knows and this run did not measure is
-// reported and never fails — arms get renamed, and a rename is not a regression.
+// reported and never fails — arms get renamed, and a rename is not a regression. Neither does an arm
+// a case lists under `ungated` in the baseline: it is printed, never judged, and `--update` keeps the
+// list. That is for arms whose run-to-run spread on the runner is wider than any tolerance worth having.
 //
 // `--update` rewrites what the run measured and keeps what the run cannot know. Out go the ratios,
 // the reference arms, the date and the Node version. `generated.command` and `generated.note` are
@@ -48,7 +50,6 @@
 //
 // The results file is what `npm run bench -- --json <path>` writes; the `bench-results.json` that
 // `bench:vs` writes has the same shape and works too. Default: bench-results.self.json.
-
 import { readFileSync, writeFileSync } from 'node:fs';
 import { argv, exit, stdout, version } from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -66,10 +67,17 @@ const KNOWN_FLAGS = new Set(['--strict', '--update', '--markdown', ...VALUE_FLAG
 function usage() {
   // The file's own header, so the help and the comment cannot drift apart. Read to the first line
   // that is not a comment rather than to a line number, so growing the header cannot truncate it.
-  const lines = readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1);
+  const lines = readFileSync(new URL(import.meta.url), 'utf8')
+    .split('\n')
+    .slice(1);
   const end = lines.findIndex((line) => !line.startsWith('//'));
 
-  stdout.write(lines.slice(0, end).join('\n').replace(/^\/\/ ?/gm, ''));
+  stdout.write(
+    lines
+      .slice(0, end)
+      .join('\n')
+      .replace(/^\/\/ ?/gm, ''),
+  );
   stdout.write('\n');
 }
 
@@ -126,10 +134,11 @@ function compare(groups, baseline) {
     // ratios are on another scale entirely and comparing the two numbers would be arithmetic, not
     // evidence. Report them, judge none of them.
     const rebased = resolvedBy === 'fallback';
+    const ungated = new Set(recorded?.ungated ?? []);
 
     const arms = group.arms.map((arm) => {
       const ratio = arm.microseconds / reference.microseconds;
-      const expected = rebased ? undefined : recorded?.ratios?.[arm.name];
+      const expected = rebased || ungated.has(arm.name) ? undefined : recorded?.ratios?.[arm.name];
       const tolerance = Math.max(FLOOR, (RME_FACTOR * arm.rme) / 100);
       const limit = expected === undefined ? undefined : expected * (1 + tolerance);
 
@@ -137,6 +146,7 @@ function compare(groups, baseline) {
         name: arm.name,
         isReference: arm === reference,
         rebased,
+        ungated: ungated.has(arm.name),
         ratio,
         rme: arm.rme,
         expected,
@@ -159,6 +169,10 @@ function compare(groups, baseline) {
 }
 
 function verdictFor(arm) {
+  if (arm.ungated) {
+    return { text: 'not gated', color: 'yellow' };
+  }
+
   if (arm.expected === undefined) {
     return { text: arm.rebased ? 'rebased' : 'new', color: 'yellow' };
   }
@@ -208,14 +222,18 @@ function buildBaseline(groups, previous, command) {
   const cases = {};
 
   for (const group of [...groups].sort((a, b) => a.title.localeCompare(b.title))) {
-    const { arm: reference } = referenceFor(group, previous.cases?.[group.title]?.reference);
+    const recorded = previous.cases?.[group.title];
+    const { arm: reference } = referenceFor(group, recorded?.reference);
     const ratios = {};
 
     for (const arm of [...group.arms].sort((a, b) => a.name.localeCompare(b.name))) {
-      ratios[arm.name] = Number((arm.microseconds / reference.microseconds).toFixed(4));
+      const ratio = arm.microseconds / reference.microseconds;
+
+      // Four significant digits below 1: four decimals keep one digit of a 0.0006 ratio, a 17 % step.
+      ratios[arm.name] = Number(ratio < 1 ? ratio.toPrecision(4) : ratio.toFixed(4));
     }
 
-    cases[group.title] = { reference: reference.name, ratios };
+    cases[group.title] = { reference: reference.name, ratios, ...(recorded?.ungated ? { ungated: recorded.ungated } : {}) };
   }
 
   const generated = {
@@ -311,7 +329,9 @@ function main() {
   const baseline = readJson(baselinePath);
   const entries = compare(groups, baseline);
   const violations = entries.flatMap((entry) => entry.arms.filter((arm) => arm.violated).map((arm) => `${entry.title} › ${arm.name}`));
-  const stale = baseline.generated ? `Baseline measured ${baseline.generated.date} on Node ${baseline.generated.node}.` : 'Baseline carries no provenance.';
+  const stale = baseline.generated
+    ? `Baseline measured ${baseline.generated.date} on Node ${baseline.generated.node}.`
+    : 'Baseline carries no provenance.';
 
   stdout.write(
     [
@@ -322,9 +342,7 @@ function main() {
       `Limit is the baseline ratio plus max(15%, 2 × rme) — over it is a regression.`,
       '',
       ...entries.flatMap((entry) => renderCase(entry, style)),
-      violations.length === 0
-        ? 'No arm is over its limit.'
-        : `${violations.length} arm(s) over the limit: ${violations.join('; ')}.`,
+      violations.length === 0 ? 'No arm is over its limit.' : `${violations.length} arm(s) over the limit: ${violations.join('; ')}.`,
       strict || violations.length === 0 ? '' : 'Report-only mode; run with --strict to fail on this.',
       '',
     ].join('\n'),

@@ -60,6 +60,7 @@ const WAVES = [
     lanes: [
       [stage('deps:check')],
       [stage('typecheck', cached(['--incremental', '--tsBuildInfoFile', join(cache ?? '', 'typecheck.tsbuildinfo')]))],
+      [stage('typecheck:configs')],
       [stage('lint', cached(['--cache', '--cache-strategy', 'content', '--cache-location', join(cache ?? '', 'eslint/')]))],
       [stage('format:check', cached(['--cache', '--cache-strategy', 'content', '--cache-location', join(cache ?? '', 'prettier')]))],
       [stage('agents:sync:check')],
@@ -70,6 +71,9 @@ const WAVES = [
       [stage('ru:check')],
       [stage('plugin:sync:check')],
       [stage('skill:check')],
+      [stage('skill:triggers')],
+      [stage('perf-size-table:check')],
+      [stage('readme:npm-cut:check')],
       [stage('alias:sync:check')],
       [stage('test:types')],
       [stage('types:budget')],

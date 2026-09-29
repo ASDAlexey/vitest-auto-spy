@@ -327,8 +327,9 @@ const CROSS_ENTRY = [
   {
     // Under the stray-console guard an import cannot scope a spy to a file, so it must install nothing.
     name: 'the console entry installs nothing on import while the stray-console guard owns the console',
-    entries: ['./console'],
+    entries: ['.', './console'],
     body: `
+      await import(INDEX);
       globalThis.__vitestAutoSpyStrayConsole__ = { host: console };
       const { consoleErrorSpy, installConsoleSpies } = await import(CONSOLE);
 
@@ -341,8 +342,9 @@ const CROSS_ENTRY = [
     // The other direction: spies an import installed before the guard armed are taken off by `./setup`,
     // which never imports `./console` and reaches them only through the slots the two bundles share.
     name: 'guardStrayConsole from ./setup takes off the spies the console entry installed on import',
-    entries: ['./console', './setup'],
+    entries: ['.', './console', './setup'],
     body: `
+      await import(INDEX);
       const { consoleErrorSpy } = await import(CONSOLE);
       const installed = console.error === consoleErrorSpy;
       const { guardStrayConsole } = await import(SETUP);
