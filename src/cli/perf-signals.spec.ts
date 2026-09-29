@@ -16,6 +16,7 @@ import { file, ordinary, recorder, run } from './perf-fixtures';
 import { GATE_DEFAULTS, gateCandidates, gateVerdict } from './perf-gate';
 import { formatLanes, lanesOf, longPoleFindings } from './perf-lanes';
 import type { PerfDocument } from './perf-report';
+import { LANE_ONE_FIRST, LANE_ONE_SECOND, LANE_TWO_FIRST } from './perf-signals.mock';
 import { readProfile } from './profile';
 import { perfMarkdown } from './report-markdown';
 import { createTempRepo, removeTempRepos } from './temp-repo';
@@ -291,9 +292,9 @@ describe('heapFindings per worker', () => {
   it('orders files that grew the heap by the same amount by path', () => {
     const [finding] = heapFindings(
       map([
-        ['b.spec.ts', { lane: 1, start: 0, heap: 0 }],
-        ['z.spec.ts', { lane: 1, start: 1, heap: 1_048_576 }],
-        ['c.spec.ts', { lane: 2, start: 0, heap: 0 }],
+        ['b.spec.ts', LANE_ONE_FIRST],
+        ['z.spec.ts', LANE_ONE_SECOND],
+        ['c.spec.ts', LANE_TWO_FIRST],
         ['y.spec.ts', { lane: 2, start: 1, heap: 1_048_576 }],
       ]),
       true,
@@ -306,7 +307,7 @@ describe('heapFindings per worker', () => {
     const shrinking = heapFindings(
       map([
         ['a.spec.ts', { lane: 1, start: 0, heap: 2_097_152 }],
-        ['b.spec.ts', { lane: 1, start: 1, heap: 1_048_576 }],
+        ['b.spec.ts', LANE_ONE_SECOND],
       ]),
       true,
     );
@@ -368,9 +369,9 @@ describe('heapFindings and the first load of a module', () => {
   it('names a repository module by its path, and ignores a first load too quick to matter', () => {
     const findings = heapFindings(
       map([
-        ['a.spec.ts', { lane: 1, start: 0, heap: 0 }],
+        ['a.spec.ts', LANE_ONE_FIRST],
         ['flag.spec.ts', { lane: 1, start: 1, heap: 10 * mb, firstLoads: [flags, { module: '/repo/libs/tiny.ts', ms: 3 }] }],
-        ['b.spec.ts', { lane: 2, start: 0, heap: 0 }],
+        ['b.spec.ts', LANE_TWO_FIRST],
         ['small.spec.ts', { lane: 2, start: 1, heap: 3 * mb, firstLoads: [{ module: '/repo/libs/tiny.ts', ms: 3 }] }],
       ]),
       true,
@@ -399,9 +400,9 @@ describe('heapFindings and the first load of a module', () => {
   it('takes the higher of two readings, so a collection that ran during one file does not make the other a leak', () => {
     const findings = heapFindings(
       map([
-        ['a.spec.ts', { lane: 1, start: 0, heap: 0 }],
+        ['a.spec.ts', LANE_ONE_FIRST],
         ['capture-a.spec.ts', { lane: 1, start: 1, heap: 2 * mb, firstLoads: [sentry] }],
-        ['b.spec.ts', { lane: 2, start: 0, heap: 0 }],
+        ['b.spec.ts', LANE_TWO_FIRST],
         ['capture-b.spec.ts', { lane: 2, start: 1, heap: 8 * mb, firstLoads: [sentry] }],
       ]),
       true,
@@ -415,7 +416,7 @@ describe('heapFindings and the first load of a module', () => {
   it('is read against the working directory from a report', () => {
     const root = repo();
     const files = [
-      file(join(root, 'src/a.spec.ts'), { lane: 1, start: 0, heap: 0 }),
+      file(join(root, 'src/a.spec.ts'), LANE_ONE_FIRST),
       file(join(root, 'src/b.spec.ts'), {
         lane: 1,
         start: 1,
@@ -522,10 +523,7 @@ describe('analysePerf and renderPerf on a Vitest 5 report', () => {
 
   it('reads heap growth per lane only when the resolved config shares workers', () => {
     const root = repo();
-    const files = [
-      file(join(root, 'src/a.spec.ts'), { lane: 1, start: 0, heap: 0 }),
-      file(join(root, 'src/b.spec.ts'), { lane: 1, start: 1, heap: 1_048_576 }),
-    ];
+    const files = [file(join(root, 'src/a.spec.ts'), LANE_ONE_FIRST), file(join(root, 'src/b.spec.ts'), LANE_ONE_SECOND)];
     const heap = (config?: PerfRun['config']): string | undefined =>
       analysePerf(onFive({ root, files, ...(config === undefined ? {} : { config }) }), readProfile(root)).findings.find(
         (finding) => finding.check === 'perf-heap',

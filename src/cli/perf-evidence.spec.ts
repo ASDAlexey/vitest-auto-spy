@@ -12,7 +12,10 @@ import { describe, expect, it } from 'vitest';
 import { ESC, MONOCHROME, TERMINAL, stripColor } from './paint';
 import type { Evidence } from './perf-evidence';
 import { formatEvidence, likelyCause } from './perf-evidence';
+import { DEFAULT_REPORT_LINES } from './perf-evidence.mock';
 import type { ProfileSummary } from './perf-profile';
+
+const WAITS_900 = { name: 'waits', ms: 900 };
 
 const summaryOf = (over: Partial<ProfileSummary> = {}): ProfileSummary => ({
   sampledMs: 738,
@@ -49,29 +52,7 @@ const evidenceOf = (over: Partial<Evidence> = {}): Evidence => ({
 
 describe('formatEvidence', () => {
   it('prints every section in its fixed order', () => {
-    expect(formatEvidence(evidenceOf(), MONOCHROME)).toEqual([
-      '',
-      `┌─ measurements ${'─'.repeat(48)}`,
-      '│ first run      1.80s   budget 462ms   3.9× over',
-      '│ on its own     889ms   still over budget',
-      '│ tests             38   47ms each   20× the median test',
-      `├─ slowest tests ${'─'.repeat(47)}`,
-      '│   79ms  focusables > have focusable elements',
-      '│   29ms  opened controls > sends UI event',
-      `├─ where the time went · CPU profile, 738ms sampled ${'─'.repeat(12)}`,
-      `│ hooks        ${'█'.repeat(11)}${'░'.repeat(9)} 54%   test bodies 46%`,
-      `│ by package   ${'█'.repeat(6)}${'░'.repeat(14)}  29%  jsdom`,
-      `│              ${'█'.repeat(5)}${'░'.repeat(15)}  24%  @angular/core`,
-      `│              ${'█'.repeat(2)}${'░'.repeat(18)}   9%  zone.js`,
-      '│ in the spec  setUpWith 39%  ·  assertFocus 8%',
-      '│ your code    removeAllRootElements 2%',
-      '│ hottest      (garbage collector) 3%',
-      `├─ likely cause ${'─'.repeat(48)}`,
-      '│ Most of the time is set-up that every test repeats: 54% is in hooks — setUpWith alone is 39%. Build what does not change once, in a beforeAll, or render less per test.',
-      '│ The largest single cost is jsdom (29%): rendering and change detection, which grow with the size of the tree each test builds.',
-      `└${'─'.repeat(63)}`,
-      '',
-    ]);
+    expect(formatEvidence(evidenceOf(), MONOCHROME)).toEqual(DEFAULT_REPORT_LINES);
   });
 
   it('never starts a line at the first column with anything but a box character', () => {
@@ -153,10 +134,7 @@ describe('likelyCause', () => {
   });
 
   it('names one dominating test only when the hooks rule did not fire', () => {
-    const slowest = [
-      { name: 'waits', ms: 900 },
-      { name: 'renders', ms: 300 },
-    ];
+    const slowest = [WAITS_900, { name: 'renders', ms: 300 }];
 
     expect(likelyCause(evidenceOf({ slowest, summary: undefined }))).toEqual([
       'One test dominates: "waits" takes 900ms, 3.0× the next one.',
@@ -164,10 +142,7 @@ describe('likelyCause', () => {
     expect(
       likelyCause(
         evidenceOf({
-          slowest: [
-            { name: 'waits', ms: 900 },
-            { name: 'renders', ms: 0 },
-          ],
+          slowest: [WAITS_900, { name: 'renders', ms: 0 }],
           summary: undefined,
         }),
       ),
@@ -176,15 +151,12 @@ describe('likelyCause', () => {
     expect(
       likelyCause(
         evidenceOf({
-          slowest: [
-            { name: 'waits', ms: 900 },
-            { name: 'renders', ms: 301 },
-          ],
+          slowest: [WAITS_900, { name: 'renders', ms: 301 }],
           summary: undefined,
         }),
       ),
     ).toEqual([]);
-    expect(likelyCause(evidenceOf({ slowest: [{ name: 'waits', ms: 900 }], summary: undefined }))).toEqual([]);
+    expect(likelyCause(evidenceOf({ slowest: [WAITS_900], summary: undefined }))).toEqual([]);
   });
 
   it('names a rendering package at 20 % or more, and no other package', () => {

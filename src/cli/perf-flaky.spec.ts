@@ -7,6 +7,7 @@ import { runCli } from './main';
 import { analysePerf, renderPerf } from './perf';
 import type { PerfFile, PerfRun } from './perf-data';
 import { parsePerfRun } from './perf-data';
+import { redSource, retriedDiagnostic } from './perf-flaky.mock';
 import { GATE_DEFAULTS } from './perf-gate';
 import type { PerfTestModule } from './perf-reporter';
 import PerfReporter from './perf-reporter';
@@ -63,9 +64,9 @@ describe('PerfReporter, flaky tests and heap', () => {
     diagnostic: () => ({ environmentSetupDuration: 0, prepareDuration: 0, collectDuration: 0, setupDuration: 0, duration: 10, heap }),
     children: {
       allTests: () => [
-        { fullName: 'b > retried', diagnostic: () => ({ duration: 5, flaky: true }) },
-        { fullName: 'a > retried', diagnostic: () => ({ duration: 5, flaky: true }) },
-        { fullName: 'a > retried', diagnostic: () => ({ duration: 5, flaky: true }) },
+        { fullName: 'b > retried', diagnostic: retriedDiagnostic },
+        { fullName: 'a > retried', diagnostic: retriedDiagnostic },
+        { fullName: 'a > retried', diagnostic: retriedDiagnostic },
         { fullName: 'steady', diagnostic: () => ({ duration: 5, flaky: false }) },
       ],
     },
@@ -175,7 +176,7 @@ describe('renderPerf --fail-on-flaky', () => {
     const red = run(root, [file(root, 'src/a.spec.ts', { flaky: ['a > retried'] })], { failed: 1 });
 
     expect(
-      renderPerf({ ok: true, run: red, runFailed: true }, readProfile(root), recorder(), {
+      renderPerf(redSource(red), readProfile(root), recorder(), {
         failOnFlaky: true,
         gate: { options: GATE_DEFAULTS, remeasure: undefined, trustSingle: false },
       }),
@@ -196,8 +197,8 @@ describe('renderPerf --fail-on-red', () => {
     const root = repo();
     const red = run(root, [file(root, 'src/a.spec.ts')], { failed: 1 });
 
-    expect(renderPerf({ ok: true, run: red, runFailed: true }, readProfile(root), recorder())).toBe(0);
-    expect(renderPerf({ ok: true, run: red, runFailed: true }, readProfile(root), recorder(), { failOnRed: true })).toBe(1);
+    expect(renderPerf(redSource(red), readProfile(root), recorder())).toBe(0);
+    expect(renderPerf(redSource(red), readProfile(root), recorder(), { failOnRed: true })).toBe(1);
     expect(renderPerf({ ok: true, run: red, runFailed: false }, readProfile(root), recorder(), { failOnRed: true })).toBe(0);
     expect(renderPerf({ ok: false, error: 'nothing' }, readProfile(root), recorder(), { failOnRed: true })).toBe(2);
   });
