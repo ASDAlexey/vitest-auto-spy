@@ -24,7 +24,7 @@ function fixFor(profile: Profile): string {
   const excluded = INSTRUCTION_FILES.filter((file) => ignored(file));
 
   if (excluded.length === INSTRUCTION_FILES.length) {
-    return 'Run `npx vitest-auto-spy init` on your machine. CI never sees these files, because .gitignore keeps them out of git: pass `--ignore no-agent-instructions` there.';
+    return 'Run `npx vitest-auto-spy init` on your machine. CI never sees these files, because .gitignore keeps them out of git, and under `CI` this note stays quiet.';
   }
 
   const tracked = INSTRUCTION_FILES.filter((file) => !ignored(file) && pathExists(join(profile.cwd, file)));
@@ -34,10 +34,18 @@ function fixFor(profile: Profile): string {
     : `Run \`npx vitest-auto-spy init --only ${[...new Set(tracked.map(onlyEntry))].join(',')}\` to point the tracked ones at \`node_modules/vitest-auto-spy/AGENTS.md\`.`;
 }
 
+/** CI's checkout never has a file git ignores, so there the note would only ever be noise. */
+function unreachableInCi(profile: Profile): boolean {
+  const ci = process.env['CI'];
+  const ignored = gitignoreFilter(profile.cwd);
+
+  return ci !== undefined && ci !== '' && ci !== 'false' && ci !== '0' && INSTRUCTION_FILES.every((file) => ignored(file));
+}
+
 export function checkAgentInstructions(profile: Profile): Finding[] {
   const mentioned = INSTRUCTION_FILES.some((file) => (readTextFile(join(profile.cwd, file)) ?? '').includes('vitest-auto-spy'));
 
-  if (mentioned) {
+  if (mentioned || unreachableInCi(profile)) {
     return [];
   }
 
