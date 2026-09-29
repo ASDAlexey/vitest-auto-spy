@@ -8,7 +8,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { applyImportPlan, boundNames, listImports, referencedOutsideImports } from './imports';
+import { applyImportPlan, boundNames, declaredNames, listImports, planImports, referencedOutsideImports } from './imports';
+import { maskCode } from './mask';
 
 const MOCK: [{ specifier: string; name: string; typeOnly: boolean }] = [{ specifier: 'vitest', name: 'Mock', typeOnly: true }];
 
@@ -162,7 +163,63 @@ describe('applyImportPlan', () => {
   });
 });
 
+describe('applyImportPlan — several names, line endings and local declarations', () => {
+  it('drops every orphaned name from one statement, adjacent or not', () => {
+    const source = "import { a, B, C, d, E } from 'x';\na(); d();\n";
+
+    expect(applyImportPlan(source, [], ['B', 'C', 'E'])).toBe("import { a, d } from 'x';\na(); d();\n");
+    expect(applyImportPlan(source, [], ['C', 'E'])).toBe("import { a, B, d } from 'x';\na(); d();\n");
+  });
+
+  it('removes the statement when every name in it was orphaned', () => {
+    expect(applyImportPlan("import { Spy, Mocked } from 'x';\nconst a = 1;\n", [], ['Spy', 'Mocked'])).toBe('const a = 1;\n');
+    expect(applyImportPlan("import { Spy, Mocked, } from 'x';\nconst a = 1;\n", [], ['Mocked', 'Spy'])).toBe('const a = 1;\n');
+  });
+
+  it('drops a run that ends the clause with the comma in front of it', () => {
+    expect(applyImportPlan("import { a, B, C } from 'x';\na();\n", [], ['B', 'C'])).toBe("import { a } from 'x';\na();\n");
+    expect(applyImportPlan("import { a, B, C, } from 'x';\na();\n", [], ['B', 'C'])).toBe("import { a, } from 'x';\na();\n");
+  });
+
+  it('leaves no bare line feed behind in a CRLF file', () => {
+    expect(applyImportPlan("import { Spy } from 'x';\r\nconst a = 1;\r\n", [], ['Spy'])).toBe('const a = 1;\r\n');
+
+    const commented = "import {\r\n  a,\r\n  Spy, // the double\r\n} from 'x';\r\na();\r\n";
+
+    expect(applyImportPlan(commented, [], ['Spy'])).toBe("import {\r\n  a,\r\n} from 'x';\r\na();\r\n");
+  });
+
+  it('removes a statement that ends the file without a line break', () => {
+    expect(applyImportPlan("const a = 1;\nimport { Spy } from 'x';", [], ['Spy'])).toBe('const a = 1;\n');
+  });
+
+  it('does not import a name the file declares itself, and says where it is declared', () => {
+    const need = { specifier: 'vitest-auto-spy', name: 'asSpy', typeOnly: false };
+    const source = "import { S } from 'x';\nconst asSpy = 1;\nasSpy;\n";
+    const plan = planImports(source, [need, MOCK[0]], []);
+
+    expect(plan.text).toBe("import { S } from 'x';\nimport type { Mock } from 'vitest';\nconst asSpy = 1;\nasSpy;\n");
+    expect(plan.shadowed).toEqual([{ need, at: source.indexOf('const') }]);
+  });
+});
+
+describe('declaredNames', () => {
+  it('finds each kind of declaration once, at its first place', () => {
+    const masked = maskCode(
+      'const a = 1; let b; var c; function* d() {} function e() {} class F {} enum G {} interface H {} type I = 1; namespace J {} const a2 = "let z";',
+    );
+
+    expect([...declaredNames(masked).keys()]).toEqual(['a', 'b', 'c', 'd', 'e', 'F', 'G', 'H', 'I', 'J', 'a2']);
+    expect(declaredNames(maskCode('let a; let a;')).get('a')).toBe(0);
+  });
+});
+
 describe('referencedOutsideImports', () => {
+  it('reads a name with a dollar sign as the whole name', () => {
+    expect(referencedOutsideImports('$spy();', [], '$spy')).toBe(true);
+    expect(referencedOutsideImports('a$spy();', [], '$spy')).toBe(false);
+  });
+
   it('does not count the import statement itself, or a mention inside a string', () => {
     const source = "import { Spy } from 'x';\nconst note = 'Spy';\n";
 

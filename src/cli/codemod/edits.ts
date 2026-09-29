@@ -56,27 +56,38 @@ export function note(input: {
   };
 }
 
+export interface Applied<E extends Edit = Edit> {
+  readonly text: string;
+  /** The edits that reached into a span already rewritten, or were inverted — not applied. */
+  readonly dropped: readonly E[];
+}
+
 /**
  * Applies the edits back to front, so an index computed against the original stays valid. An edit
  * reaching into a span already rewritten is dropped rather than merged — two transforms disagreeing
  * about one span is a bug in the tool, and dropping the earlier of the two is at least
- * deterministic. So is an inverted edit, which no transform should produce.
+ * deterministic. So is an inverted edit, which no transform should produce. Either one is handed
+ * back, so the report can say it happened instead of counting it as done.
  */
-export function applyEdits(source: string, edits: readonly Edit[]): string {
+export function applyEdits<E extends Edit>(source: string, edits: readonly E[]): Applied<E> {
   const ordered = [...edits].sort((a, b) => b.start - a.start || b.end - a.end);
-  let result = source;
+  const parts: string[] = [];
+  const dropped: E[] = [];
   let barrier = source.length;
 
   for (const edit of ordered) {
     if (edit.end > barrier || edit.start > edit.end) {
+      dropped.push(edit);
       continue;
     }
 
-    result = result.slice(0, edit.start) + edit.text + result.slice(edit.end);
+    parts.push(source.slice(edit.end, barrier), edit.text);
     barrier = edit.start;
   }
 
-  return result;
+  parts.push(source.slice(0, barrier));
+
+  return { text: parts.reverse().join(''), dropped };
 }
 
 /** Merges the outputs of several transforms into one. */

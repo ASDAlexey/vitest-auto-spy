@@ -80,6 +80,20 @@ describe('namesFromClause', () => {
 });
 
 describe('exportedNames', () => {
+  it('reads a module shared by two barrels once, through the cache the walk is given', () => {
+    const root = packageWith({
+      'src/index.ts': "export * from './left';\nexport * from './right';",
+      'src/left.ts': "export * from './shared';",
+      'src/right.ts': "export * from './shared';",
+      'src/shared.ts': 'export const shared = 1;',
+    });
+    const cache = new Map();
+
+    expect(exportedNames(`${root}/src/index.ts`, new Set(), 4, cache)).toEqual(['shared']);
+    expect(exportedNames(`${root}/src/right.ts`, new Set(), 4, cache)).toEqual(['shared']);
+    expect(cache.size).toBe(4);
+  });
+
   it('follows export * through the barrels and ignores what it cannot resolve', () => {
     const root = packageWith({
       'src/index.ts': [

@@ -140,45 +140,75 @@ function resolveRelative(fromFile: string, specifier: string): string | undefine
   return undefined;
 }
 
-/** Every name a module exports, following `export * from` through the barrels. */
-export function exportedNames(file: string, seen: Set<string> = new Set(), depth: number = REEXPORT_DEPTH): string[] {
-  const text = readTextFile(file);
+interface ModuleExports {
+  readonly names: readonly string[];
+  /** Resolved files behind its `export * from`, in order. */
+  readonly stars: readonly string[];
+}
 
-  if (text === undefined || seen.has(file) || depth === 0) {
+/** One module read and masked once, however many entry points walk through it. */
+function moduleExports(file: string, cache: Map<string, ModuleExports | undefined>): ModuleExports | undefined {
+  if (cache.has(file)) {
+    return cache.get(file);
+  }
+
+  const text = readTextFile(file);
+  let parsed: ModuleExports | undefined;
+
+  if (text !== undefined) {
+    const masked = maskCode(text);
+    const names: string[] = [];
+    const stars: string[] = [];
+
+    masked.replace(NAMED_EXPORT, (whole: string, clause: string): string => {
+      names.push(...namesFromClause(clause));
+
+      return whole;
+    });
+
+    masked.replace(DECLARED_EXPORT, (whole: string, name: string): string => {
+      names.push(name);
+
+      return whole;
+    });
+
+    // The specifier is read from the source rather than from the capture group: the mask blanks a
+    // string's contents, so the group holds the right number of spaces and nothing else. Its length
+    // is what locates it, since the closing quote is the last character of the match.
+    masked.replace(STAR_EXPORT, (whole: string, _quote: string, blanked: string, offset: number): string => {
+      const end = offset + whole.length - 1;
+      const specifier = text.slice(end - blanked.length, end);
+      const target = specifier.startsWith('.') ? resolveRelative(file, specifier) : undefined;
+
+      stars.push(...(target === undefined ? [] : [target]));
+
+      return whole;
+    });
+
+    parsed = { names, stars };
+  }
+
+  cache.set(file, parsed);
+
+  return parsed;
+}
+
+/** Every name a module exports, following `export * from` through the barrels. */
+export function exportedNames(
+  file: string,
+  seen: Set<string> = new Set(),
+  depth: number = REEXPORT_DEPTH,
+  cache: Map<string, ModuleExports | undefined> = new Map(),
+): string[] {
+  const parsed = seen.has(file) || depth === 0 ? undefined : moduleExports(file, cache);
+
+  if (parsed === undefined) {
     return [];
   }
 
   seen.add(file);
 
-  const masked = maskCode(text);
-  const names: string[] = [];
-
-  masked.replace(NAMED_EXPORT, (whole: string, clause: string): string => {
-    names.push(...namesFromClause(clause));
-
-    return whole;
-  });
-
-  masked.replace(DECLARED_EXPORT, (whole: string, name: string): string => {
-    names.push(name);
-
-    return whole;
-  });
-
-  // The specifier is read from the source rather than from the capture group: the mask blanks a
-  // string's contents, so the group holds the right number of spaces and nothing else. Its length
-  // is what locates it, since the closing quote is the last character of the match.
-  masked.replace(STAR_EXPORT, (whole: string, _quote: string, blanked: string, offset: number): string => {
-    const end = offset + whole.length - 1;
-    const specifier = text.slice(end - blanked.length, end);
-    const target = specifier.startsWith('.') ? resolveRelative(file, specifier) : undefined;
-
-    names.push(...(target === undefined ? [] : exportedNames(target, seen, depth - 1)));
-
-    return whole;
-  });
-
-  return names;
+  return [...parsed.names, ...parsed.stars.flatMap((target) => exportedNames(target, seen, depth - 1, cache))];
 }
 
 function subpathSpecifier(name: string, key: string): string | undefined {
@@ -200,6 +230,7 @@ export function buildEntryMap(root: string | undefined): EntryMap | undefined {
 
   const packageName = parsed['name'];
   const byName = new Map<string, string[]>();
+  const modules = new Map<string, ModuleExports | undefined>();
 
   for (const [key, value] of Object.entries(parsed['exports'])) {
     const specifier = subpathSpecifier(packageName, key);
@@ -210,7 +241,7 @@ export function buildEntryMap(root: string | undefined): EntryMap | undefined {
       continue;
     }
 
-    for (const name of exportedNames(file)) {
+    for (const name of exportedNames(file, new Set(), REEXPORT_DEPTH, modules)) {
       record(byName, name, specifier);
     }
   }

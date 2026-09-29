@@ -13,6 +13,7 @@ import { applyEdits } from './edits';
 import type { Edit, ImportNeed } from './edits';
 import type { Range } from './mask';
 import { maskCode, matchBracket, trimmed } from './mask';
+import { group } from './transform-context';
 
 export interface ImportStatement {
   readonly start: number;
@@ -220,21 +221,59 @@ function pickHost(statements: readonly ImportStatement[], specifier: string, nee
   return needs.every((need) => need.typeOnly) ? candidates[0] : undefined;
 }
 
-function uniqueNeeds(source: string, masked: string, statements: readonly ImportStatement[], needs: readonly ImportNeed[]): ImportNeed[] {
-  const bound = allBound(source, masked, statements);
-  const seen = new Set<string>();
+const DECLARATION = /\b(?:class|const|enum|function\s*\*?|interface|let|namespace|type|var)\s+([$A-Z_a-z][\w$]*)/g;
 
-  return needs.filter((need) => {
+/** Names the file declares itself, with where — importing one of them again is a duplicate binding. */
+export function declaredNames(masked: string): Map<string, number> {
+  const declared = new Map<string, number>();
+
+  for (const match of masked.matchAll(DECLARATION)) {
+    const name = group(match, 1);
+
+    if (!declared.has(name)) {
+      declared.set(name, match.index);
+    }
+  }
+
+  return declared;
+}
+
+/** A need the file already declares a binding for, and the offset of that declaration. */
+export interface Shadowed {
+  readonly need: ImportNeed;
+  readonly at: number;
+}
+
+interface Needs {
+  readonly wanted: ImportNeed[];
+  readonly shadowed: Shadowed[];
+}
+
+function uniqueNeeds(source: string, masked: string, statements: readonly ImportStatement[], needs: readonly ImportNeed[]): Needs {
+  const bound = allBound(source, masked, statements);
+  const declared = declaredNames(masked);
+  const seen = new Set<string>();
+  const wanted: ImportNeed[] = [];
+  const shadowed: Shadowed[] = [];
+
+  for (const need of needs) {
     const key = `${need.specifier} ${need.name}`;
+    const at = declared.get(need.name);
 
     if (bound.has(need.name) || seen.has(key)) {
-      return false;
+      continue;
     }
 
     seen.add(key);
 
-    return true;
-  });
+    if (at === undefined) {
+      wanted.push(need);
+    } else {
+      shadowed.push({ need, at });
+    }
+  }
+
+  return { wanted, shadowed };
 }
 
 function planEdits(source: string, masked: string, statements: readonly ImportStatement[], needs: readonly ImportNeed[]): Edit[] {
@@ -254,66 +293,100 @@ function planEdits(source: string, masked: string, statements: readonly ImportSt
   });
 }
 
-/** Whether a name is still referenced anywhere outside the import block. */
-export function referencedOutsideImports(source: string, statements: readonly ImportStatement[], name: string): boolean {
-  const masked = maskCode(source).split('');
+/** The code with every import statement blanked, so a name found in it is a real reference. */
+function codeOutsideImports(masked: string, statements: readonly ImportStatement[]): string {
+  let result = '';
+  let cursor = 0;
 
   for (const statement of statements) {
-    for (let index = statement.start; index < statement.end; index += 1) {
-      masked[index] = ' ';
-    }
+    result += masked.slice(cursor, statement.start) + ' '.repeat(statement.end - statement.start);
+    cursor = statement.end;
   }
 
-  return new RegExp(`\\b${name}\\b`).test(masked.join(''));
+  return result + masked.slice(cursor);
 }
 
-/** The statement that binds `name`, with the clause already split into its parts. */
-function bindingOf(
-  masked: string,
+function mentions(code: string, name: string): boolean {
+  return new RegExp(`(?<![\\w$])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(code);
+}
+
+/** Whether a name is still referenced anywhere outside the import block. */
+export function referencedOutsideImports(
+  source: string,
   statements: readonly ImportStatement[],
   name: string,
-): { host: Host; slots: Slot[]; slot: Slot } | undefined {
-  for (const statement of statements) {
-    const { braces } = statement;
-    const slots = braces === undefined ? [] : slotsOf(masked, braces);
-    const slot = slots.find((candidate) => candidate.name === name);
-
-    if (braces !== undefined && slot !== undefined) {
-      return { host: { statement, braces }, slots, slot };
-    }
-  }
-
-  return undefined;
+  masked: string = maskCode(source),
+): boolean {
+  return mentions(codeOutsideImports(masked, statements), name);
 }
 
 /** A line comment that rides the specifier being removed, so it goes with it. */
 function trailingComment(source: string, from: number): number {
-  const comment = /^[\t ]*\/\/[^\n]*/.exec(source.slice(from));
+  const comment = /^[\t ]*\/\/[^\n\r]*/.exec(source.slice(from));
 
   return comment === null ? from : from + comment[0].length;
 }
 
-function dropOne(source: string, masked: string, statements: readonly ImportStatement[], name: string): Edit[] {
-  const binding = bindingOf(masked, statements, name);
-
-  if (binding === undefined || referencedOutsideImports(source, statements, name)) {
-    return [];
+/** Past the statement's own line break, whichever one the file uses. */
+function statementEnd(source: string, end: number): number {
+  if (source.startsWith('\r\n', end)) {
+    return end + 2;
   }
 
-  const { host, slots, slot } = binding;
-
-  if (slots.filter((candidate) => candidate.name.length > 0).length === 1) {
-    return [{ start: host.statement.start, end: Math.min(host.statement.end + 1, source.length), text: '' }];
-  }
-
-  // One specifier's span, not a rebuilt clause: rebuilding it lost the aliases as they were written
-  // and moved every comment in the clause onto the wrong line. A part that ends in a comma takes the
-  // comma; the last part takes the comma in front of it instead, which is the character at `start - 1`.
-  return [slot.comma === -1 ? { start: slot.start - 1, end: slot.codeEnd, text: '' } : dropWithComma(source, slot)];
+  return source.charAt(end) === '\n' ? end + 1 : end;
 }
 
-function dropWithComma(source: string, slot: Slot): Edit {
-  return { start: slot.start, end: trailingComment(source, slot.comma + 1), text: '' };
+/**
+ * The edits removing `names` from one statement. A run of adjacent specifiers goes as one span, so
+ * two removals never overlap: the run takes the comma after it, or — at the end of the clause — the
+ * comma before it. Every named specifier gone means the whole statement goes.
+ */
+function dropFrom(source: string, masked: string, host: Host, names: ReadonlySet<string>): Edit[] {
+  const slots = slotsOf(masked, host.braces);
+  const named = slots.filter((slot) => slot.name.length > 0);
+
+  if (named.every((slot) => names.has(slot.name))) {
+    return [{ start: host.statement.start, end: statementEnd(source, host.statement.end), text: '' }];
+  }
+
+  const runs: { first: Slot; last: Slot }[] = [];
+  let open: { first: Slot; last: Slot } | undefined;
+
+  for (const slot of slots) {
+    if (!names.has(slot.name)) {
+      open = undefined;
+    } else if (open === undefined) {
+      open = { first: slot, last: slot };
+      runs.push(open);
+    } else {
+      open.last = slot;
+    }
+  }
+
+  return runs.map(({ first, last }) =>
+    last.comma === -1
+      ? { start: first.start - 1, end: last.codeEnd, text: '' }
+      : { start: first.start, end: trailingComment(source, last.comma + 1), text: '' },
+  );
+}
+
+function dropUnused(source: string, masked: string, statements: readonly ImportStatement[], names: readonly string[]): Edit[] {
+  const code = codeOutsideImports(masked, statements);
+  const unused = new Set(names.filter((name) => !mentions(code, name)));
+
+  return statements.flatMap((statement) => {
+    const { braces } = statement;
+
+    return braces === undefined || !slotsOf(masked, braces).some((slot) => unused.has(slot.name))
+      ? []
+      : dropFrom(source, masked, { statement, braces }, unused);
+  });
+}
+
+export interface ImportPlan {
+  readonly text: string;
+  /** Needs left unimported because the file declares a binding of that name itself. */
+  readonly shadowed: readonly Shadowed[];
 }
 
 /**
@@ -321,15 +394,21 @@ function dropWithComma(source: string, slot: Slot): Edit {
  * edits already produced, so a name inserted into an import a transform has just written lands in
  * the statement as it now reads rather than as it read before.
  */
-export function applyImportPlan(source: string, needs: readonly ImportNeed[], dropIfUnused: readonly string[]): string {
+export function planImports(source: string, needs: readonly ImportNeed[], dropIfUnused: readonly string[]): ImportPlan {
   const masked = maskCode(source);
   const statements = listImports(source, masked);
-  const withImports = applyEdits(source, planEdits(source, masked, statements, uniqueNeeds(source, masked, statements, needs)));
-  const afterMask = maskCode(withImports);
-  const after = listImports(withImports, afterMask);
+  const { wanted, shadowed } = uniqueNeeds(source, masked, statements, needs);
+  const added = applyEdits(source, planEdits(source, masked, statements, wanted)).text;
 
-  return applyEdits(
-    withImports,
-    dropIfUnused.flatMap((name) => dropOne(withImports, afterMask, after, name)),
-  );
+  if (dropIfUnused.length === 0) {
+    return { text: added, shadowed };
+  }
+
+  const afterMask = maskCode(added);
+
+  return { text: applyEdits(added, dropUnused(added, afterMask, listImports(added, afterMask), dropIfUnused)).text, shadowed };
+}
+
+export function applyImportPlan(source: string, needs: readonly ImportNeed[], dropIfUnused: readonly string[]): string {
+  return planImports(source, needs, dropIfUnused).text;
 }
