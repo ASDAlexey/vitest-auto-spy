@@ -118,6 +118,10 @@ describe('the plugin', () => {
     // `recommended` at all — 175 findings in 90 of one consumer's 2032 spec files, against the 1941
     // in 360 the blunt `vitest/prefer-called-with` reports on the same tree.
     //
+    // `no-unasserted-console-spy` and `no-real-wait-in-test` are graded on what their repair needs.
+    // The first names a question only the author can answer — what the silenced channel should have
+    // said — and the second a move onto fake timers, which changes every timer the test runs.
+    //
     // `off` would be the wrong end of the same mistake in all of these cases, so the assertions pin
     // the values rather than allowing "not error".
     expect(new Set(levels)).toEqual(new Set(['error', 'warn']));
@@ -130,7 +134,9 @@ describe('the plugin', () => {
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-unasserted-argument']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-spy-on-own-method']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-to-have-signal-value']).toBe('warn');
-    expect(levels.filter((level) => level !== 'error')).toHaveLength(9);
+    expect(plugin.configs.recommended.rules['vitest-auto-spy/no-unasserted-console-spy']).toBe('warn');
+    expect(plugin.configs.recommended.rules['vitest-auto-spy/no-real-wait-in-test']).toBe('warn');
+    expect(levels.filter((level) => level !== 'error')).toHaveLength(11);
     expect(levels).toHaveLength(Object.keys(rules).length);
   });
 

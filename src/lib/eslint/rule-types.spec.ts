@@ -9,6 +9,7 @@
 import * as tsParser from '@typescript-eslint/parser';
 import { describe, expect, it } from 'vitest';
 
+import { createMock } from '../create-mock';
 import { type EsNode, type RuleContext, anyInSubtree, countInSubtree, isCallExpression, isRunnerFnCall } from './rule-types';
 
 // The hole in `deps` is deliberate: an array element that is not a node at all, which the walk has
@@ -17,7 +18,7 @@ const CODE = 'const p = { provide: Cart, useValue: { total: vi.fn(), save: vi.fn
 
 /** A context carrying nothing but the visitor keys the walk reads. */
 function contextWith(visitorKeys: Record<string, readonly string[]>): RuleContext {
-  return { sourceCode: { visitorKeys } } as RuleContext;
+  return createMock<RuleContext>({ sourceCode: { visitorKeys } });
 }
 
 /** The program of `CODE`, with the keys the parser publishes for it. */
