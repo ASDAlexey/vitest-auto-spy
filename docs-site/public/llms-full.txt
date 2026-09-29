@@ -20733,6 +20733,11 @@ vitest-auto-spy` in its frontmatter is an old copy of the shipped skill. `init` 
 `unchanged` under `--check` and `updated` under `--dry-run`, with the note _only the version stamp
 differs_. A plain `init` refreshes the stamp the next time it has another reason to write.
 
+**Files git ignores.** If a file `init` created or updated is ignored and not tracked (listed in
+`.git/info/exclude` or a global excludes file, say), its row ends with _not tracked by git, so
+`git diff` will not show this change_. Without that note an empty `git diff` reads as "nothing
+changed".
+
 **All or nothing.** Each file is written to a temporary file and renamed into place. If one write
 fails, the files already written are put back (or removed, if `init` created them). The failed file is
 listed as `failed`, the others as `skipped` (`rolled back — <path> could not be written`), and `init`
@@ -23499,6 +23504,10 @@ it('reads the feature flag', () => {
 
 `extraProviders` and `extraImports` exist on `create()` only. Call `create()` once per test: a second
 call in the same test needs `TestBed.resetTestingModule()` first.
+
+**When it pays off.** Only when the tests repeat the same non-empty `providers` or `imports`. If each
+`renderShallow` call passes its own `inputs` or nothing at all, `prepareShallow(X)` only renames the
+call, and `renderShallow` is simpler. Count the shared options, not the calls.
 
 ## A stand-in for a child — `createComponentStub`
 

@@ -630,6 +630,10 @@ it('reads the feature flag', () => {
 `extraProviders` и `extraImports` есть только у `create()`. Вызывайте `create()` один раз на тест:
 второму вызову в том же тесте нужен сначала `TestBed.resetTestingModule()`.
 
+**Когда он окупается.** Только когда тесты повторяют одни и те же непустые `providers` или `imports`.
+Если каждый `renderShallow` передаёт свои `inputs` или не передаёт ничего, `prepareShallow(X)` лишь
+переименует вызов, и `renderShallow` проще. Считать нужно общие опции, а не число вызовов.
+
 ## Заглушка вместо дочернего компонента — `createComponentStub` {#a-stand-in-for-a-child-createcomponentstub}
 
 `createComponentStub` строит заглушку дочернего компонента, директивы или пайпа по настоящему

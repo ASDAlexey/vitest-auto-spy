@@ -455,6 +455,9 @@ export interface PreparedShallow<T> {
  * `TestBed.resetTestingModule()`, because Angular refuses a second `configureTestingModule` on an
  * already-instantiated module.
  *
+ * It pays off only when the tests share non-empty `providers` / `imports`. When each call passes its
+ * own `inputs` or none, it only renames `renderShallow(Component)`.
+ *
  * ```ts
  * const prepare = prepareShallow(TaskListComponent, { providers: [provideAutoSpy(TaskService)] });
  *

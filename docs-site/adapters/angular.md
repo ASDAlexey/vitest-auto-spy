@@ -619,6 +619,10 @@ it('reads the feature flag', () => {
 `extraProviders` and `extraImports` exist on `create()` only. Call `create()` once per test: a second
 call in the same test needs `TestBed.resetTestingModule()` first.
 
+**When it pays off.** Only when the tests repeat the same non-empty `providers` or `imports`. If each
+`renderShallow` call passes its own `inputs` or nothing at all, `prepareShallow(X)` only renames the
+call, and `renderShallow` is simpler. Count the shared options, not the calls.
+
 ## A stand-in for a child — `createComponentStub` {#a-stand-in-for-a-child-createcomponentstub}
 
 `createComponentStub` builds a stand-in for a child component, directive or pipe from the real

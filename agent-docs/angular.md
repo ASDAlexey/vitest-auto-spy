@@ -267,6 +267,8 @@ describe renders the same component with the same providers, `prepareShallow(Com
 them once and each test calls `.create({ inputs: { … } })` — the overrides replace a key outright,
 one instance per test. `create({ providers })` replaces the prepared list; `create({ extraProviders,
 extraImports })` appends to it, so for one token the per-test provider wins (type `ShallowOverrides<T>`).
+It pays off only on shared non-empty `providers` / `imports`: when each call passes its own `inputs`
+or none, `prepareShallow(X)` only renames `renderShallow(X)` — keep `renderShallow`.
 
 ### Observers the component constructs itself
 

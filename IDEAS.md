@@ -113,6 +113,11 @@ Checked against 5.49.0 on 2026-09-29.
 - [x] **`renderShallow` `keepChildren` is a silent no-op on a non-standalone component**: the
       non-standalone path ignores it. Add to `declarations`, or throw with the
       `imports: [DeclaringModule]` hint.
+- [x] **When `prepareShallow` pays off is not stated** (2026-09-29, 5.49.0). A consumer rollout picked specs
+      by `renderShallow` count (10 and 6 calls) and found no shared options in either: each call passes
+      different `inputs` or none, so `prepareShallow(X)` would only rename. Say in the JSDoc and
+      `agent-docs/angular.md` that it needs a shared non-empty `providers` / `imports`; a lint hint could
+      fire at ≥ 3 `renderShallow` calls in one describe with the same such options.
 - [x] **No TestBed metadata passthrough on `renderShallow`**: `deferBlockBehavior`, `errorOnUnknown*`,
       `teardown`. `testBed?: Omit<TestModuleMetadata, 'imports' | 'declarations' | 'providers'>`.
 - [x] **`renderShallow` after `TestBed.inject` shows Angular's bare "already instantiated" error.** Catch
@@ -254,6 +259,10 @@ Checked against 5.49.0 on 2026-09-29.
       per CI run on 700 files.
 - [x] **`isolate: false` + Angular without the restore options.**
 - [x] **A named error when a Vitest entry is used without `vitest` installed.**
+- [x] **`init` does not say when the files it updated are invisible to git** (2026-09-29, 5.49.0). In a
+      consumer where `AGENTS.md` / `GEMINI.md` sit in `.git/info/exclude` and `.claude/` in a global
+      excludes file, a stamp refresh leaves `git diff` empty and reads as "nothing changed". Mark such
+      rows `updated (not tracked by git)` via `git check-ignore`; `src/cli` has no ignore lookup for `init`.
 
 ## CLI: perf
 
