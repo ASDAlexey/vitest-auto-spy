@@ -7,10 +7,11 @@
  * removes a transform's edits and nothing else.
  */
 import type { Finding } from '../report';
-import type { TransformOutput } from './edits';
-import { applyEdits, mergeOutputs, note } from './edits';
+import type { Edit, ImportNeed, TransformOutput } from './edits';
+import { applyEdits, note } from './edits';
 import type { EntryMap } from './entry-map';
-import { applyImportPlan, listImports } from './imports';
+import type { Shadowed } from './imports';
+import { boundNames, listImports, planImports } from './imports';
 import { lineOf, maskCode, maskComments } from './mask';
 import type { Match, TransformContext, TransformFamily, TransformSpec } from './transform-context';
 import { scan } from './transform-context';
@@ -53,6 +54,25 @@ export interface RunInput {
   readonly entries: EntryMap | undefined;
   readonly preferredEntry: string;
   readonly selected: readonly TransformSpec[];
+  /** Whether the Vitest config turns `globals` on; `undefined` when that is not known. */
+  readonly globals?: boolean | undefined;
+}
+
+const GLOBAL_RESIDUE = new WeakMap<TransformSpec, RegExp>();
+
+/** The transform's residue pattern as a global one, built once per transform rather than per file. */
+function globalResidue(transform: TransformSpec): RegExp {
+  const cached = GLOBAL_RESIDUE.get(transform);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const pattern = new RegExp(transform.residue.source, `${transform.residue.flags.replace('g', '')}g`);
+
+  GLOBAL_RESIDUE.set(transform, pattern);
+
+  return pattern;
 }
 
 /**
@@ -73,7 +93,7 @@ export function residueOf(
   const masked = maskComments(text);
 
   return transforms.flatMap((transform) =>
-    scan(masked, new RegExp(transform.residue.source, `${transform.residue.flags.replace('g', '')}g`))
+    scan(masked, globalResidue(transform))
       .filter((match) => transform.residueIgnores?.(masked, match) !== true)
       .map((match) => residueNote(file, text, match, transform, said?.get(transform.id))),
   );
@@ -104,26 +124,118 @@ function residueNote(file: string, text: string, match: Match, transform: Transf
   });
 }
 
-function outputsFor(
-  context: TransformContext,
-  selected: readonly TransformSpec[],
-): [TransformOutput[], Map<string, number>, Map<string, readonly Finding[]>] {
-  const outputs: TransformOutput[] = [];
-  const fired = new Map<string, number>();
+interface OwnedEdit extends Edit {
+  readonly owner: string;
+}
+
+interface Owned {
+  readonly id: string;
+  readonly output: TransformOutput;
+}
+
+interface Outputs {
+  readonly outputs: Owned[];
+  readonly edits: OwnedEdit[];
+  readonly said: Map<string, readonly Finding[]>;
+}
+
+function outputsFor(context: TransformContext, selected: readonly TransformSpec[]): Outputs {
+  const outputs: Owned[] = [];
+  const edits: OwnedEdit[] = [];
   const said = new Map<string, readonly Finding[]>();
 
   for (const transform of selected) {
     const output = transform.run(context);
 
-    outputs.push(output);
+    outputs.push({ id: transform.id, output });
     said.set(transform.id, output.notes);
+    edits.push(...output.edits.map((edit) => ({ ...edit, owner: transform.id })));
+  }
 
-    if (output.edits.length > 0) {
-      fired.set(transform.id, output.edits.length);
+  return { outputs, edits, said };
+}
+
+function firedCounts(edits: readonly OwnedEdit[], dropped: ReadonlySet<OwnedEdit>): Map<string, number> {
+  const fired = new Map<string, number>();
+
+  for (const edit of edits) {
+    if (!dropped.has(edit)) {
+      fired.set(edit.owner, (fired.get(edit.owner) ?? 0) + 1);
     }
   }
 
-  return [outputs, fired, said];
+  return fired;
+}
+
+function overlapNote(file: string, source: string, edit: OwnedEdit): Finding {
+  return note({
+    check: 'overlapping-edit',
+    severity: 'warning',
+    file,
+    line: lineOf(source, edit.start),
+    message: `\`${edit.owner}\` wanted to rewrite ${JSON.stringify(source.slice(edit.start, edit.end).trim())}, but another edit had already rewritten part of that span, so this one was not applied.`,
+    fix: 'Check the line by hand: the other rewrite is in the diff, this one is not.',
+  });
+}
+
+function shadowedNote(file: string, source: string, { need, at }: Shadowed): Finding {
+  return note({
+    check: 'name-declared-locally',
+    severity: 'warning',
+    file,
+    line: lineOf(source, at),
+    message: `The rewrite needs \`${need.name}\` from '${need.specifier}', but this file declares a \`${need.name}\` of its own, so no import was added.`,
+    fix: `Rename the local \`${need.name}\` and import the one from '${need.specifier}' — until then the rewritten code calls whichever is in scope.`,
+  });
+}
+
+/**
+ * The needs of a transform that lost an edit, cut to the names the result still mentions: an
+ * import whose only user was the dropped edit would be one nobody reads.
+ */
+function liveNeeds(outputs: readonly Owned[], dropped: readonly OwnedEdit[], text: string): ImportNeed[] {
+  const losers = new Set(dropped.map((edit) => edit.owner));
+  const code = losers.size === 0 ? '' : maskCode(text);
+
+  return outputs.flatMap(({ id, output }) =>
+    losers.has(id)
+      ? output.needs.filter((need) => new RegExp(`(?<![\\w$.])${need.name.replace(/\$/g, '\\$')}(?![\\w$])`).test(code))
+      : output.needs,
+  );
+}
+
+const BARE_VI = /(?<![\w$.])vi\s*\./;
+
+/**
+ * Jest's `jest` is a global in every Jest suite; Vitest's `vi` is one only under `globals: true`.
+ * A rename to `vi.` with globals off is a `ReferenceError` on the first line that runs it.
+ */
+function viWithoutGlobals(file: string, text: string, globals: boolean | undefined): Finding[] {
+  if (globals !== false) {
+    return [];
+  }
+
+  const masked = maskCode(text);
+  const use = BARE_VI.exec(masked);
+  const bound = listImports(text, masked).some(
+    (statement) => statement.braces !== undefined && boundNames(text, statement.braces, masked).includes('vi'),
+  );
+
+  if (use === null || bound) {
+    return [];
+  }
+
+  return [
+    note({
+      check: 'vi-without-globals',
+      severity: 'warning',
+      file,
+      line: lineOf(text, use.index),
+      message:
+        'This file uses `vi` without importing it, and the Vitest config does not turn `globals` on — it fails with `ReferenceError: vi is not defined`.',
+      fix: "Add `import { vi } from 'vitest'` (and `describe`, `it`, `expect`, which are not globals either), or set `test.globals: true` in the Vitest config.",
+    }),
+  ];
 }
 
 /** One file, start to finish: transform, apply, fix the import block, then read the result back. */
@@ -135,17 +247,28 @@ export function runTransforms(input: RunInput): FileResult {
     entries: input.entries,
     preferredEntry: input.preferredEntry,
   };
-  const [outputs, fired, said] = outputsFor(context, input.selected);
-  const merged = mergeOutputs(outputs);
-  const after = applyImportPlan(applyEdits(input.source, merged.edits), merged.needs, merged.dropIfUnused);
+  const { outputs, edits, said } = outputsFor(context, input.selected);
+  const applied = applyEdits(input.source, edits);
+  const dropped = new Set(applied.dropped);
+  const plan = planImports(
+    applied.text,
+    liveNeeds(outputs, applied.dropped, applied.text),
+    outputs.flatMap(({ output }) => output.dropIfUnused),
+  );
+  const after = plan.text;
 
   return {
     file: input.file,
     before: input.source,
     after,
-    fired,
+    fired: firedCounts(edits, dropped),
     importLines: input.source === after ? [] : relevantImports(after),
-    notes: merged.notes,
+    notes: [
+      ...outputs.flatMap(({ output }) => output.notes),
+      ...applied.dropped.map((edit) => overlapNote(input.file, input.source, edit)),
+      ...plan.shadowed.map((shadowed) => shadowedNote(input.file, applied.text, shadowed)),
+      ...viWithoutGlobals(input.file, after, input.globals),
+    ],
     residue: residueOf(input.file, after, input.selected, said),
   };
 }
