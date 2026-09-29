@@ -90,6 +90,45 @@ describe('no-unregistered-inject-spy', () => {
   });
 
   it.each([
+    ['a hoisted const passed by shorthand', 'const providers = [provideAutoSpy(UserService), routerProvider];', '{ providers }'],
+    ['a hoisted const under a quoted key', 'const shared = [provideAutoSpy(UserService), ...sharedMocks];', "{ 'providers': shared }"],
+    [
+      'a const that is pushed to later',
+      'const providers = [provideAutoSpy(UserService)]; providers.push(routerProvider);',
+      '{ providers }',
+    ],
+    ['a let assigned twice', 'let providers = []; providers = [provideAutoSpy(UserService), routerProvider];', '{ providers }'],
+    ['an import', "import { providers } from './shared';", '{ providers }'],
+    ['a name nothing declares', 'provideAutoSpy(UserService);', '{ providers: sharedProviders }'],
+    ['a factory call', 'provideAutoSpy(UserService);', '{ providers: buildProviders() }'],
+  ])('stays quiet when the providers come from %s it cannot fully read', (_label, before, module) => {
+    const code = `
+      ${before}
+      TestBed.configureTestingModule(${module});
+
+      injectSpy(ActivatedRoute);
+    `;
+
+    expect(lint(code)).toEqual([]);
+  });
+
+  it.each([
+    ['a hoisted const passed by shorthand', '{ providers }'],
+    ['a hoisted const under a quoted key', "{ 'providers': providers }"],
+  ])('reads the providers through %s', (_label, module) => {
+    const code = `
+      const providers = [provideAutoSpy(UserService), { provide: Clock, useValue: createAutoMock<Clock>() }];
+      TestBed.configureTestingModule(${module});
+
+      injectSpy(UserService);
+      injectSpy(Clock);
+      injectSpy(ActivatedRoute);
+    `;
+
+    expect(verify(code).map((message) => message.message.split('`')[1])).toEqual(['ActivatedRoute']);
+  });
+
+  it.each([
     ['createWithAutoSpies', 'createWithAutoSpies(HostComponent, [UserService]);'],
     ['renderShallow', 'renderShallow(HostComponent);'],
     ['TestBed.overrideProvider', 'TestBed.overrideProvider(ActivatedRoute, { useValue: {} });'],
@@ -116,5 +155,20 @@ describe('no-unregistered-inject-spy', () => {
     `;
 
     expect(lint(noise)).toEqual([`vitest-auto-spy/${RULE}`]);
+  });
+
+  it('reads the token of the Nest form, which takes the module ref first', () => {
+    const nest = (injected: string): string => `
+      const moduleRef = await Test.createTestingModule({ providers: [provideAutoSpy(UserService)] }).compile();
+      const users = injectSpy(moduleRef, ${injected});
+    `;
+
+    expect(lint(nest('UserService'))).toEqual([]);
+    expect(lint(nest('UserService as ClassType<UserService>'))).toEqual([]);
+    expect(firstMessage(nest('AuditService'))).toContain('`injectSpy(AuditService)`');
+  });
+
+  it('reads a token through a cast', () => {
+    expect(lint('provideAutoSpy(UserService);\ninjectSpy(<ClassType<UserService>>UserService);')).toEqual([]);
   });
 });

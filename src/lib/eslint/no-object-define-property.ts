@@ -1,8 +1,77 @@
 /** `Object.defineProperty(obj, 'x', …)` → `mockReadonlyProp` / `mockValueProp`. */
+import { boundValueOf, findBinding } from './bindings';
 import { defineRule } from './define-rule';
 import { excerptOr } from './message-data';
 import { definePropertyData, patchKey, propHelperSuggestion } from './prop-helpers';
-import type { EsCallExpression } from './rule-types';
+import {
+  type EsCallExpression,
+  type EsNode,
+  type RuleContext,
+  isCallExpression,
+  isCast,
+  isIdentifier,
+  isMemberCall,
+  isMemberExpression,
+  isRunnerFnCall,
+  memberName,
+} from './rule-types';
+
+const FRESH_VALUES = new Set([
+  'ArrayExpression',
+  'ArrowFunctionExpression',
+  'ClassExpression',
+  'FunctionExpression',
+  'NewExpression',
+  'ObjectExpression',
+]);
+
+const OBJECT = new Set(['Object']);
+
+/** `Object.assign` hands back its first argument, so it is as fresh as that. */
+const ASSIGN = new Set(['assign']);
+
+/** `a = b; b = a` would otherwise walk forever. */
+const MAX_HOPS = 8;
+
+/** eslint-scope's definition types for `class X {}` / `function x() {}`; a parameter's definition also points at the function. */
+const LOCAL_DECLARATIONS = new Set(['ClassName', 'FunctionName']);
+
+/** Whether the patched object was built by this file (a literal, `new`, a local class or `vi.fn()`), so no other file ever sees it. */
+function isBuiltHere(context: RuleContext, target: EsNode | undefined, hops = 0): boolean {
+  let node = target;
+
+  while (node && isCast(node)) {
+    node = node.expression;
+  }
+
+  if (!node || hops > MAX_HOPS) {
+    return false;
+  }
+
+  if (isMemberExpression(node) && memberName(node) === 'prototype') {
+    return isBuiltHere(context, node.object, hops + 1);
+  }
+
+  if (FRESH_VALUES.has(node.type) || isRunnerFnCall(node)) {
+    return true;
+  }
+
+  if (isCallExpression(node) && isMemberCall(node, OBJECT, ASSIGN)) {
+    return isBuiltHere(context, node.arguments[0], hops + 1);
+  }
+
+  if (!isIdentifier(node)) {
+    return false;
+  }
+
+  const scope = context.sourceCode.getScope(node);
+
+  if (findBinding(scope, node.name)?.defs.some((definition) => LOCAL_DECLARATIONS.has(definition.type))) {
+    return true;
+  }
+
+  return isBuiltHere(context, boundValueOf(scope, node), hops + 1);
+}
 
 export const noObjectDefineProperty = defineRule({
   name: 'no-object-define-property',
@@ -23,6 +92,10 @@ export const noObjectDefineProperty = defineRule({
 
     return {
       'CallExpression[callee.object.name="Object"][callee.property.name="defineProperty"]': (node: EsCallExpression): void => {
+        if (isBuiltHere(context, node.arguments[0])) {
+          return;
+        }
+
         const key = patchKey(context, node);
         const seen = patches.get(key) ?? [];
 
@@ -44,6 +117,10 @@ export const noObjectDefineProperty = defineRule({
       // `defineProperties` takes a map of descriptors, so its replacement is one `mockValueProp` per
       // entry — several statements where there was one, which is not a per-node edit.
       'CallExpression[callee.object.name="Object"][callee.property.name="defineProperties"]': (node: EsCallExpression): void => {
+        if (isBuiltHere(context, node.arguments[0])) {
+          return;
+        }
+
         const object = excerptOr(context, node.arguments[0], 'obj', 40);
 
         context.report({

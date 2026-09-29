@@ -159,3 +159,40 @@ it('says so when the patch is paired with a hand-written restore', () => {
   // A call with nothing to key on still reports.
   expect(lint('Object.defineProperty();')).toHaveLength(1);
 });
+
+describe('no-object-define-property on an object the spec built', () => {
+  it.each([
+    ["const hidden = {}; Object.defineProperty(hidden, 'x', { value: 1 });"],
+    ["const hidden = {} as Record<string, number>; Object.defineProperty(hidden, 'x', { value: 1 });"],
+    ["const list: number[] = []; Object.defineProperty(list, 'x', { value: 1 });"],
+    ["const client = new Client(); Object.defineProperty(client, 'refund', { value: 1 });"],
+    ["const load = vi.fn(); Object.defineProperty(load, 'name', { value: 'load' });"],
+    ["const load = vi.fn().mockReturnValue(1); Object.defineProperty(load, 'name', { value: 'load' });"],
+    ["const Wide = class {}; Object.defineProperty(Wide.prototype, 'm0', { value: () => 0 });"],
+    ["class Wide {} Object.defineProperty(Wide.prototype, 'm0', { value: () => 0 });"],
+    ["function make() {} Object.defineProperty(make, 'x', { value: 1 });"],
+    ["Object.defineProperty(() => 'real', 'prototype', { value: {}, writable: false });"],
+    ["const host = {}; const alias = host; Object.defineProperty(alias, 'x', { value: 1 });"],
+    ["let target; target = {}; Object.defineProperty(target, 'x', { value: 1 });"],
+    ['const Generated = class {}; Object.defineProperties(Generated.prototype, methods);'],
+    ["const fn = Object.assign(() => undefined, { value: 1 }); Object.defineProperty(fn, 'name', { value: '' });"],
+  ])('leaves %s alone: nothing outside the file ever sees it', (code) => {
+    expect(lint(code)).toEqual([]);
+  });
+
+  it.each([
+    ["Object.defineProperty(globalThis, 'x', { value: 1 });"],
+    ["Object.defineProperty(Service.prototype, 'x', { value: 1 });"],
+    ["const snapshot = watched(); Object.defineProperty(snapshot.object, 'x', { value: 1 });"],
+    ["const prototype = foreignPrototype(); Object.defineProperty(prototype, 'x', { value: 1 });"],
+    ["import { shared } from './shared'; Object.defineProperty(shared, 'x', { value: 1 });"],
+    ["function put(host) { Object.defineProperty(host, 'x', { value: 1 }); }"],
+    ["let target = {}; target = shared; Object.defineProperty(target, 'x', { value: 1 });"],
+    ["let a = b; let b = a; Object.defineProperty(a, 'x', { value: 1 });"],
+    ['Object.defineProperties(Service.prototype, methods);'],
+    ["const merged = Object.assign(shared, { value: 1 }); Object.defineProperty(merged, 'x', { value: 1 });"],
+    ["const copy = Object.freeze({}); Object.defineProperty(copy, 'x', { value: 1 });"],
+  ])('still reports %s: the object outlives the test', (code) => {
+    expect(lint(code)).toHaveLength(1);
+  });
+});
