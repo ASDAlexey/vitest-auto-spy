@@ -167,6 +167,38 @@ describe('jest-namespace', () => {
     expect(apply(source, jestNamespace)).toBe(source);
   });
 
+  it('reports each Jest-only fake-timer option, which Vitest would ignore in silence', () => {
+    const source = 'jest.useFakeTimers({ doNotFake: ["nextTick"], legacyFakeTimers: false, timerLimit: 10, advanceTimers: true, now: 0 });';
+    const notes = notesOf(source, jestNamespace);
+
+    expect(apply(source, jestNamespace)).toBe(source.replace('jest.', 'vi.'));
+    expect(notes).toEqual([
+      'fake-timers-option `advanceTimers` is a Jest option; `vi.useFakeTimers` ignores it without an error.',
+      'fake-timers-option `doNotFake` is a Jest option; `vi.useFakeTimers` ignores it without an error.',
+      'fake-timers-option `legacyFakeTimers` is a Jest option; `vi.useFakeTimers` ignores it without an error.',
+      'fake-timers-option `timerLimit` is a Jest option; `vi.useFakeTimers` ignores it without an error.',
+    ]);
+    expect(notesOf('jest.useFakeTimers({ now: 0, toFake: ["Date"] });', jestNamespace)).toEqual([]);
+    expect(notesOf('const f = jest.useFakeTimers;', jestNamespace)).toEqual([]);
+    expect(notesOf('jest.useFakeTimers(options.timerLimit);', jestNamespace)).toEqual([]);
+    expect(notesOf('jest.fn({ timerLimit: 1 });', jestNamespace)).toEqual([]);
+    expect(notesOf('jest.useFakeTimers({ timerLimit: 1 ', jestNamespace)).toEqual([]);
+  });
+
+  it('leaves a jest call inside a template nested in a substitution, and the residue names it', () => {
+    const source = 'const a = `${`jest.fn()`}`;\n';
+    const result = runTransforms({
+      file: 'a.spec.ts',
+      source,
+      entries: ENTRIES,
+      preferredEntry: 'vitest-auto-spy',
+      selected: [jestNamespace],
+    });
+
+    expect(result.after).toBe(source);
+    expect(result.residue.map((finding) => finding.check)).toEqual(['residue/jest-namespace']);
+  });
+
   it('leaves the type members to the transform that owns them', () => {
     expect(apply('let a: jest.Mocked<S>;', jestNamespace)).toBe('let a: jest.Mocked<S>;');
   });
@@ -337,10 +369,26 @@ describe('auto-spies-import — the split', () => {
     expect(notesWithoutTable("import { Spy } from 'jest-auto-spies';", autoSpiesImport)[0]).toContain('no-entry-table');
   });
 
+  it('keeps a comment above the first specifier on its own line, where the clause still parses', () => {
+    const source = ['import {', '  // helpers', '  createSpyFromClass,', '  Spy,', "} from 'jest-auto-spies';"].join('\n');
+
+    expect(apply(source, autoSpiesImport)).toBe(
+      ['import {', '  // helpers', '  createSpyFromClass,', '  Spy,', "} from 'vitest-auto-spy';"].join('\n'),
+    );
+  });
+
+  it('keeps a comment after a comma on the specifier before it, and a comment above one on its own line', () => {
+    const source = ['import {', '  createSpyFromClass, // factory', '  /* the type */', '  Spy,', "} from 'jest-auto-spies';"].join('\n');
+
+    expect(apply(source, autoSpiesImport)).toBe(
+      ['import {', '  createSpyFromClass, // factory', '  /* the type */', '  Spy,', "} from 'vitest-auto-spy';"].join('\n'),
+    );
+  });
+
   it('reads a specifier list off the braces', () => {
     expect(parseSpecifiers('{ a, type B as C }', [0, 18])).toEqual([
-      { raw: 'a', imported: 'a' },
-      { raw: 'type B as C', imported: 'B' },
+      { raw: 'a', imported: 'a', lead: '' },
+      { raw: 'type B as C', imported: 'B', lead: '' },
     ]);
   });
 });
@@ -416,5 +464,100 @@ describe('the scan helpers', () => {
 
   it('slices the source through the mask', () => {
     expect(textOf(contextFor('  ab  '), [0, 6])).toBe('ab');
+  });
+});
+
+describe('runTransforms — the report tells what was applied', () => {
+  const first: TransformSpec = {
+    id: 'first',
+    family: 'shared',
+    summary: '',
+    residue: /never-matches/,
+    run: () => ({
+      edits: [{ start: 0, end: 5, text: 'Alpha' }],
+      needs: [{ specifier: 'x', name: 'Alpha', typeOnly: false }],
+      dropIfUnused: [],
+      notes: [],
+    }),
+  };
+  const second: TransformSpec = {
+    id: 'second',
+    family: 'shared',
+    summary: '',
+    residue: /never-matches/,
+    run: () => ({
+      edits: [
+        { start: 3, end: 8, text: 'Beta' },
+        { start: 9, end: 10, text: 'Gamma' },
+      ],
+      needs: [
+        { specifier: 'y', name: 'Beta', typeOnly: false },
+        { specifier: 'y', name: 'Gamma', typeOnly: false },
+      ],
+      dropIfUnused: [],
+      notes: [],
+    }),
+  };
+
+  it('reports an overlapping edit instead of counting it, and imports only what the result still uses', () => {
+    const result = runTransforms({
+      file: 'a.spec.ts',
+      source: 'aaaaaaaa b\n',
+      entries: ENTRIES,
+      preferredEntry: 'vitest-auto-spy',
+      selected: [first, second],
+    });
+
+    expect(result.after).toBe("import { Beta, Gamma } from 'y';\naaaBeta Gamma\n");
+    expect([...result.fired]).toEqual([['second', 2]]);
+    expect(result.notes.map((finding) => `${finding.check} ${finding.file} ${finding.message}`)).toEqual([
+      'overlapping-edit a.spec.ts:1 `first` wanted to rewrite "aaaaa", but another edit had already rewritten part of that span, so this one was not applied.',
+    ]);
+  });
+
+  it('keeps every need of a transform that lost nothing', () => {
+    const result = runTransforms({
+      file: 'a.spec.ts',
+      source: 'aaaaaaaa b\n',
+      entries: ENTRIES,
+      preferredEntry: 'vitest-auto-spy',
+      selected: [first],
+    });
+
+    expect(result.after).toBe("import { Alpha } from 'x';\nAlphaaaa b\n");
+    expect(result.notes).toEqual([]);
+  });
+
+  it('says so when the file declares the name a rewrite needs, rather than importing it twice', () => {
+    const source = 'const asSpy = (value: unknown) => value;\nconst s = TestBed.inject(S) as Spy<S>;\n';
+    const result = runTransforms({
+      file: 'a.spec.ts',
+      source,
+      entries: ENTRIES,
+      preferredEntry: 'vitest-auto-spy',
+      selected: [injectCast],
+    });
+
+    expect(result.after).toBe('const asSpy = (value: unknown) => value;\nconst s = asSpy<S>(TestBed.inject(S));\n');
+    expect(result.notes.map((finding) => `${finding.check} ${finding.file}`)).toEqual(['name-declared-locally a.spec.ts:1']);
+  });
+
+  it('warns about a bare vi only when the config leaves globals off and nothing imports it', () => {
+    const run = (source: string, globals: boolean | undefined): string[] =>
+      runTransforms({
+        file: 'a.spec.ts',
+        source,
+        entries: ENTRIES,
+        preferredEntry: 'vitest-auto-spy',
+        selected: [jestNamespace],
+        globals,
+      }).notes.map((finding) => `${finding.check} ${finding.file}`);
+
+    expect(run('describe("a", () => {});\njest.fn();\n', false)).toEqual(['vi-without-globals a.spec.ts:2']);
+    expect(run('jest.fn();\n', true)).toEqual([]);
+    expect(run('jest.fn();\n', undefined)).toEqual([]);
+    expect(run("import { vi } from 'vitest';\njest.fn();\n", false)).toEqual([]);
+    expect(run("import { it } from 'vitest';\nimport def from 'x';\njest.fn();\n", false)).toEqual(['vi-without-globals a.spec.ts:3']);
+    expect(run('ctx.vi.fn();\n', false)).toEqual([]);
   });
 });

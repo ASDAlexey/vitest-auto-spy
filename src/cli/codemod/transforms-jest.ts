@@ -55,6 +55,39 @@ function bundlingNote(context: TransformContext, member: string, end: number): F
   ];
 }
 
+/** Jest's `useFakeTimers` options Vitest does not read, and what Vitest calls the same idea. */
+const FAKE_TIMER_OPTIONS: Readonly<Record<string, string>> = {
+  advanceTimers: '`shouldAdvanceTime: true`, with `advanceTimeDelta` for a number',
+  doNotFake: '`toFake`, which lists what to fake rather than what to leave',
+  legacyFakeTimers: 'nothing — Vitest has only the modern timers',
+  timerLimit: '`loopLimit`',
+};
+
+/** An option Vitest does not know is ignored without a word, so the timers behave differently. */
+function fakeTimerNotes(context: TransformContext, member: string, end: number): Finding[] {
+  const open = /^\s*\(/.exec(context.masked.slice(end, end + 50));
+  const close = open === null ? undefined : matchBracket(context.masked, end + group(open, 0).length - 1);
+
+  if (member !== 'useFakeTimers' || close === undefined) {
+    return [];
+  }
+
+  const argument = context.masked.slice(end, close);
+
+  return Object.entries(FAKE_TIMER_OPTIONS).flatMap(([name, instead]) =>
+    scan(argument, new RegExp(`(?<![\\w$.])${name}(?![\\w$])`, 'g')).map((option) =>
+      note({
+        check: 'fake-timers-option',
+        severity: 'warning',
+        file: context.file,
+        line: at(context, end + option.index),
+        message: `\`${name}\` is a Jest option; \`vi.useFakeTimers\` ignores it without an error.`,
+        fix: `Vitest's equivalent is ${instead}. Rewrite the option by hand.`,
+      }),
+    ),
+  );
+}
+
 function memberOutput(context: TransformContext, match: Match, name: string): TransformOutput {
   const replacement = RENAMED[name];
 
@@ -65,7 +98,7 @@ function memberOutput(context: TransformContext, match: Match, name: string): Tr
       edits: [{ start: match.index, end, text: `vi.${replacement}` }],
       needs: [],
       dropIfUnused: [],
-      notes: bundlingNote(context, name, end),
+      notes: [...bundlingNote(context, name, end), ...fakeTimerNotes(context, name, end)],
     };
   }
 

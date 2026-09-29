@@ -18,7 +18,7 @@ import type { ImportStatement } from './imports';
 import { listImports } from './imports';
 import { LEGACY_PACKAGES } from './jest-api';
 import type { Range } from './mask';
-import { lineOf, maskCode, matchBracket } from './mask';
+import { lineOf, maskCode, matchBracket, trimmed } from './mask';
 import type { TransformContext, TransformSpec } from './transform-context';
 import { group, scan } from './transform-context';
 
@@ -29,6 +29,8 @@ interface Specifier {
   readonly raw: string;
   /** The exported name, which is what the entry table is keyed by. */
   readonly imported: string;
+  /** Comments on their own lines above the specifier, which go above it again. */
+  readonly lead: string;
 }
 
 export function parseSpecifiers(source: string, braces: Range): Specifier[] {
@@ -49,31 +51,35 @@ export function parseSpecifiers(source: string, braces: Range): Specifier[] {
 
   ranges.push([from, close - 1]);
 
-  const parts: { raw: string; code: string }[] = [];
+  const parts: { raw: string; code: string; lead: string }[] = [];
 
   for (const [start, end] of ranges) {
-    const text = source.slice(start, end).trim();
+    const [codeStart] = trimmed(masked, [start, end]);
+    const before = source.slice(start, codeStart);
+    const newline = before.indexOf('\n');
+    // A comment on the line of the comma above belongs to the specifier before that comma, and a
+    // part with no code at all is such a comment too: its words are not names anybody imported.
+    const riding = (codeStart === end ? before : before.slice(0, newline === -1 ? before.length : newline)).trim();
+    const previous = parts.at(-1);
 
-    if (text.length === 0) {
-      continue;
+    if (previous !== undefined && riding.length > 0) {
+      previous.raw += ` ${riding}`;
     }
 
-    // A part that is blank in the mask is a comment that split off the specifier above it; parsing
-    // its words as imports invented names nobody exported. It rides the previous specifier — the
-    // separator comma itself is re-added by `statementFor`, which gives the pair its own line.
-    const rides = masked.slice(start, end).trim().length === 0 ? parts.at(-1) : undefined;
-
-    if (rides) {
-      rides.raw += ` ${text}`;
+    if (codeStart === end) {
       continue;
     }
 
     // The exported name is read off the mask, where a riding comment is already blank: the entry
     // table is keyed by the identifier, not by the sentence after it.
-    parts.push({ raw: text, code: masked.slice(start, end).trim() });
+    parts.push({
+      raw: source.slice(codeStart, end).trim(),
+      code: masked.slice(codeStart, end).trim(),
+      lead: (previous !== undefined && newline === -1 ? '' : before.slice(previous === undefined ? 0 : newline)).trim(),
+    });
   }
 
-  return parts.map(({ raw, code }) => ({ raw, imported: group(code.replace(/^type\s+/, '').split(/\s+as\s+/), 0).trim() }));
+  return parts.map(({ raw, code, lead }) => ({ raw, lead, imported: group(code.replace(/^type\s+/, '').split(/\s+as\s+/), 0).trim() }));
 }
 
 /**
@@ -96,15 +102,16 @@ function statementFor(entry: string, typeOnly: boolean, specifiers: readonly Spe
   // A specifier carrying a line comment cannot share a line with the join: the comma and the
   // closing brace would end up *inside* the comment, and the emitted statement stops parsing while
   // the residue check sees nothing wrong. One specifier per line keeps every comma in code.
-  if (!specifiers.some((one) => one.raw.includes('//'))) {
+  if (!specifiers.some((one) => one.raw.includes('//') || one.lead.length > 0)) {
     return `${prefix} ${specifiers.map((one) => one.raw).join(', ')} } from '${entry}';`;
   }
 
   const body = specifiers
     .map((one) => {
       const comment = one.raw.indexOf('//');
+      const line = comment === -1 ? `  ${one.raw},` : `  ${one.raw.slice(0, comment).trimEnd()}, ${one.raw.slice(comment)}`;
 
-      return comment === -1 ? `  ${one.raw},` : `  ${one.raw.slice(0, comment).trimEnd()}, ${one.raw.slice(comment)}`;
+      return one.lead.length === 0 ? line : `  ${one.lead}\n${line}`;
     })
     .join('\n');
 
