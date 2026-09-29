@@ -25,6 +25,11 @@ import rxjs from 'eslint-plugin-rxjs-x';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import globals from 'globals';
 
+// The suite lints itself with the plugin it ships, loaded from `src` rather than `dist` so a rule
+// change is enforced here before any build; the hook lets Node resolve the extensionless imports.
+await import('./scripts/node-ts-resolve.mjs');
+const { default: autoSpy } = await import('./src/eslint-plugin.ts');
+
 const languageOptions = {
   globals: globals.node,
   parser: tsParser,
@@ -50,7 +55,19 @@ export default defineConfig([
   // `--ext .ts` is gone in flat config, and `eslint .` would otherwise pick up every `.js`/`.mjs`
   // in the repository — scripts and generated packages that no ruleset here was ever written for.
   // `.claude` holds local git worktrees, each a full checkout; linting them ran past an 8 GB heap.
-  globalIgnores(['dist', 'coverage', '.cache', '.claude', 'alias','bench', '**/*.cjs', '**/*.js', '**/*.mjs', '**/*.mts', '**/*.config.ts']),
+  globalIgnores([
+    'dist',
+    'coverage',
+    '.cache',
+    '.claude',
+    'alias',
+    'bench',
+    '**/*.cjs',
+    '**/*.js',
+    '**/*.mjs',
+    '**/*.mts',
+    '**/*.config.ts',
+  ]),
 
   // ===== Library source =====
   {
@@ -147,5 +164,11 @@ export default defineConfig([
       '@eslint-community/eslint-comments/no-unlimited-disable': 'error',
       '@eslint-community/eslint-comments/no-duplicate-disable': 'error',
     },
+  },
+
+  // ===== Own specs, under the library's own plugin =====
+  {
+    files: ['src/**/*.spec.ts', 'src/bun-tests/**/*.ts', 'src/node-tests/**/*.ts', 'src/rstest-tests/**/*.ts'],
+    ...autoSpy.configs.recommended,
   },
 ]);
