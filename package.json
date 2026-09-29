@@ -262,12 +262,14 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && node scripts/thin-node-cts.mjs && node scripts/eslint-plugin-cts.mjs && node scripts/check-dist.mjs",
+    "build": "tsup && node scripts/portable-dts.mjs && node scripts/thin-node-cts.mjs && node scripts/eslint-plugin-cts.mjs && node scripts/check-dist.mjs",
     "size:badge": "node scripts/size-badge.mjs",
     "size:badge:check": "node scripts/size-badge.mjs --check",
     "size:entries": "node scripts/size-entries.mjs",
     "size:entries:check": "node scripts/size-entries.mjs --check",
     "size:entries:update": "node scripts/size-entries.mjs --update",
+    "perf-size-table:check": "node scripts/check-perf-size-table.mjs",
+    "perf-size-table:update": "node scripts/check-perf-size-table.mjs --write",
     "smoke:dist": "node scripts/smoke-dist.mjs",
     "cold-import": "node scripts/cold-import.mjs",
     "cold-import:check": "node scripts/cold-import.mjs --check",
@@ -277,17 +279,21 @@
     "llms": "node scripts/generate-llms-txt.mjs",
     "llms:check": "node scripts/generate-llms-txt.mjs --check",
     "docs:check": "node scripts/check-docs-frontmatter.mjs",
+    "readme:npm-cut:check": "node scripts/check-readme-npm-cut.mjs",
+    "readme:npm-cut:update": "node scripts/check-readme-npm-cut.mjs --write",
     "ru:sync": "node scripts/sync-ru-pages.mjs",
     "ru:check": "node scripts/sync-ru-pages.mjs --check",
     "plugin:sync": "node scripts/sync-plugin-version.mjs",
     "plugin:sync:check": "node scripts/sync-plugin-version.mjs --check",
     "skill:check": "node scripts/check-skill.mjs",
+    "skill:triggers": "node scripts/check-skill-triggers.mjs",
     "alias:sync": "node scripts/sync-alias.mjs",
     "alias:sync:check": "node scripts/sync-alias.mjs --check",
     "release:notes": "node scripts/release-notes.mjs",
-    "typecheck": "tsc --noEmit",
-    "typecheck:bench": "tsc --noEmit -p tsconfig.bench.json",
-    "typecheck:bench-angular": "tsc --noEmit -p tsconfig.bench-angular.json",
+    "typecheck": "node node_modules/typescript-7/bin/tsc --noEmit",
+    "typecheck:bench": "node node_modules/typescript-7/bin/tsc --noEmit -p tsconfig.bench.json",
+    "typecheck:bench-angular": "node node_modules/typescript-7/bin/tsc --noEmit -p tsconfig.bench-angular.json",
+    "typecheck:configs": "node node_modules/typescript-7/bin/tsc --noEmit -p tsconfig.zone.json && node node_modules/typescript-7/bin/tsc --noEmit -p tsconfig.spec.json && npm run -s typecheck:bench && npm run -s typecheck:bench-angular",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "node scripts/run-coverage.mjs run --coverage",
@@ -298,7 +304,7 @@
     "test:types": "vitest run --config vitest.types.config.mts",
     "types:budget": "node scripts/check-type-budget.mjs",
     "test:node": "node --import ./scripts/node-ts-resolve.mjs --test \"src/node-tests/*.node.test.ts\"",
-    "test:bun": "bun test ./src/bun-tests/core.bun.test.ts ./src/bun-tests/rxjs.bun.test.ts ./src/bun-tests/jasmine.bun.test.ts",
+    "test:bun": "bun test ./src/bun-tests/core.bun.test.ts ./src/bun-tests/rxjs.bun.test.ts ./src/bun-tests/jasmine.bun.test.ts ./src/bun-tests/console-nest.bun.test.ts ./src/bun-tests/adopt-mock.bun.test.ts ./src/bun-tests/adapter-contract.bun.test.ts",
     "test:bun:angular": "bun test --preload ./src/bun-angular.ts ./src/bun-tests",
     "test:bun:isolate": "bun test --isolate --preload ./src/bun-angular.ts ./src/bun-tests",
     "test:bun:preload": "bun test --preload ./dist/bun-angular.js ./src/bun-tests",
@@ -329,15 +335,20 @@
   },
   "peerDependencies": {
     "@angular/common": ">=20.0.0",
+    "@angular/compiler": ">=20.0.0",
     "@angular/core": ">=20.0.0",
     "@angular/forms": ">=20.0.0",
     "@angular/platform-browser": ">=20.0.0",
     "@angular/router": ">=20.0.0",
+    "@rstest/core": ">=0.11.0",
     "rxjs": ">=7.2.0",
     "vitest": ">=2.1.0"
   },
   "peerDependenciesMeta": {
     "@angular/common": {
+      "optional": true
+    },
+    "@angular/compiler": {
       "optional": true
     },
     "@angular/core": {
@@ -350,6 +361,9 @@
       "optional": true
     },
     "@angular/router": {
+      "optional": true
+    },
+    "@rstest/core": {
       "optional": true
     },
     "rxjs": {
@@ -379,8 +393,8 @@
     "@types/node": "^24.13.3",
     "@typescript-eslint/eslint-plugin": "^8.69.0",
     "@typescript-eslint/parser": "^8.69.0",
-    "@vitest/coverage-istanbul": "^5.0.0",
-    "@vitest/coverage-v8": "^5.0.0",
+    "@vitest/coverage-istanbul": "^5.0.2",
+    "@vitest/coverage-v8": "^5.0.2",
     "eslint": "^10.10.0",
     "eslint-plugin-import-x": "^4.17.1",
     "eslint-plugin-optimize-regex": "^1.2.1",
@@ -396,8 +410,9 @@
     "rxjs": "^7.8.0",
     "tsup": "^8.3.0",
     "typescript": "^6.0.3",
+    "typescript-7": "npm:typescript@^7.0.2",
     "undici": "^8.10.2",
-    "vitest": "^5.0.0",
+    "vitest": "^5.0.2",
     "zone.js": "^0.16.2"
   }
 }
