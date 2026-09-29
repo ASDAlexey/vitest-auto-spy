@@ -8,11 +8,13 @@ import { createAutoMock } from './auto-mock';
 import * as DOCS_LINKS from './docs-links';
 import { fillMissingMembers } from './fill-missing';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedReturnValue } from './function-spy';
+import { libraryWarn } from './guard-reaction';
 import { createLazySpyProxy } from './lazy-spy-proxy';
 import { withDocs } from './message-link';
 import { sourceClassName } from './message-text';
 import { reportMisconfiguration } from './misconfiguration';
 import { getMockAdapter } from './mock-adapter';
+import { type AccessorNames, declaresThen, getAllAccessorNames, getAllMethodNames, getDeclaredMethodNames } from './prototype-members';
 import { attachDispose } from './reset-auto-spy';
 import { closestName, ownerOf, warnOnAccessorNamingAMethod, warnOnUnknownMethods } from './spy-config-warnings';
 import { mergeAutoSpyDefaults } from './spy-defaults';
@@ -27,6 +29,8 @@ import type {
   UnstubbedReadHandler,
 } from './types';
 import { createTrackedPropSpy, resolveReadGuard } from './unconfigured-reads';
+
+export { getCallableMemberNames } from './prototype-members';
 
 /** All names to spy on, flattened from either form of the config argument. */
 export interface ResolvedSpyConfiguration {
@@ -47,12 +51,6 @@ export interface ResolvedSpyConfiguration {
   strict: boolean | undefined;
   onUnstubbedCall: UnstubbedCallHandler | undefined;
   onUnstubbedRead: UnstubbedReadHandler | undefined;
-}
-
-/** Getter/setter accessor names discovered along a prototype chain. */
-interface AccessorNames {
-  getters: string[];
-  setters: string[];
 }
 
 // An unset `lazySpies` picks `'proxy'` from this width: there the proxy double is ≥ 21 % lighter with one
@@ -76,182 +74,6 @@ const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
   onUnstubbedCall: undefined,
   onUnstubbedRead: undefined,
 };
-
-/**
- * Own, non-accessor method names of a single prototype object (excluding the constructor).
- *
- * **Both** halves of an accessor are excluded, not just the getter. A setter-only member —
- * `set nickname(value: string)`, with no matching getter — has an `undefined` `get`, so a filter
- * that asks only about `get` classified it as a method and put a function spy on the key. That spy
- * was assigned *after* `createAccessorsSpies` had installed the spied accessor, so it replaced it:
- * `settersToSpyOn: ['nickname']` produced an `accessorSpies.setters.nickname` that recorded nothing,
- * `service.nickname = 'x'` overwrote the spy with a string, and the failure named neither. (The
- * same one-sided filter is why `jasmine-auto-spies` has the identical defect.)
- *
- * A name is a method when the prototype descriptor carries a value, which is what this now asks.
- *
- * **Symbol-keyed methods count**, with the language's own symbols left out — see
- * {@link isProtocolSymbol}. A class that declares `[SERIALIZE]()` or `[Symbol.for('app.render')]()`
- * used to walk out of discovery entirely, so `Spy<T>` typed the member and the double did not have
- * it; the read answered `undefined` and the failure landed inside the code under test.
- */
-function extractMethodsFromObject(obj: object): PropertyKey[] {
-  return Reflect.ownKeys(obj).filter((key) => {
-    if (key === 'constructor' || isProtocolSymbol(key)) {
-      return false;
-    }
-
-    const descriptor = Object.getOwnPropertyDescriptor(obj, key);
-
-    return !descriptor?.get && !descriptor?.set;
-  });
-}
-
-/**
- * Whether a key is one of the runtime's own symbols rather than a member of the type being doubled.
- *
- * Spying these is not an extra spy, it is a broken object: a spy at `Symbol.iterator` makes
- * `[...double]` throw where the class is iterable, one at `Symbol.toPrimitive` breaks every string
- * conversion, and one at `nodejs.util.inspect.custom` breaks the failure message that was about to
- * explain something else. `Symbol.dispose` is in the list for a second reason — `resetAutoSpy`
- * already owns that key on every double. The list is the same judgement `fillMissing` makes about
- * protocol keys, and it is derived rather than written out, so a symbol a future runtime adds to
- * `Symbol` is covered without an edit here.
- */
-const PROTOCOL_SYMBOLS = new Set<PropertyKey>([
-  ...Object.getOwnPropertyNames(Symbol)
-    .map((name) => Reflect.get(Symbol, name))
-    .filter((value): value is symbol => typeof value === 'symbol'),
-  Symbol.for('nodejs.util.inspect.custom'),
-]);
-
-function isProtocolSymbol(key: PropertyKey): boolean {
-  return PROTOCOL_SYMBOLS.has(key);
-}
-
-/**
- * Whether a level of the chain is `Object.prototype` itself — the one level whose members
- * (`hasOwnProperty`, `__proto__`, `toString`) belong to the language rather than to the type being
- * doubled.
- *
- * Asked by identity rather than by "has no parent", which is what a null prototype otherwise looks
- * like: `Object.create(null)` — a dictionary of handlers, an ngrx-style registry, a class built on a
- * null-prototype base — *is* the root of its own chain, so the "no parent" reading skipped the only
- * level that carried anything and `createSpyFromInstance` handed back an object with no spies on it
- * at all. The second half is the cross-realm case, where `Object.prototype` from another realm is
- * not this realm's: a parentless level that answers `hasOwnProperty` is one.
- */
-function isObjectPrototype(level: object): boolean {
-  return (
-    level === Object.prototype || (Object.getPrototypeOf(level) === null && typeof Reflect.get(level, 'hasOwnProperty') === 'function')
-  );
-}
-
-/**
- * Visit every prototype in the chain up to but not including `Object.prototype`, so both the
- * method- and the accessor-name collector stop before `Object`'s own members.
- */
-function walkOwnPrototypes(prototype: object, visit: (obj: object) => void): void {
-  let current: object | null = prototype;
-
-  while (current) {
-    if (!isObjectPrototype(current)) {
-      visit(current);
-    }
-
-    current = Object.getPrototypeOf(current);
-  }
-}
-
-/**
- * Callable members of a live object: its own function-valued fields plus every prototype method
- * below `Object.prototype`.
- *
- * Asks about the value rather than the shape of the descriptor, which is what separates it from
- * {@link extractMethodsFromObject}: on an instance the data properties are real values, so a plain
- * field would otherwise be spied over as if it were a method, and an accessor drops out for free by
- * having no `value` at all.
- */
-export function getCallableMemberNames(target: object): PropertyKey[] {
-  const names = new Set<PropertyKey>();
-
-  walkOwnPrototypes(target, (obj) => {
-    for (const key of Reflect.ownKeys(obj)) {
-      if (key === 'constructor' || isProtocolSymbol(key)) {
-        continue;
-      }
-
-      if (typeof Object.getOwnPropertyDescriptor(obj, key)?.value === 'function') {
-        names.add(key);
-      }
-    }
-  });
-
-  return [...names];
-}
-
-// A class's method set is immutable for a run, but the same class is typically
-// spied once per `beforeEach` — caching by prototype avoids re-walking the chain
-// on every spy. `WeakMap` keeps this GC-safe (no retention of unused classes).
-const methodNamesCache = new WeakMap<object, PropertyKey[]>();
-
-/** Walk the prototype chain and collect every method name (de-duplicated), including inherited ones. Cached per prototype. */
-function getAllMethodNames(prototype: object): PropertyKey[] {
-  const cached = methodNamesCache.get(prototype);
-
-  if (cached) {
-    return cached;
-  }
-
-  const methods = new Set<PropertyKey>();
-  walkOwnPrototypes(prototype, (obj) => extractMethodsFromObject(obj).forEach((name) => methods.add(name)));
-
-  const result = [...methods];
-  methodNamesCache.set(prototype, result);
-
-  return result;
-}
-
-// Same reasoning as `methodNamesCache`, and the same need: with `autoSpyAccessors` on, every
-// `createSpyFromClass` — that is, every `beforeEach` — walked the chain again and materialised the
-// descriptors of each level. `resolveAccessors` copies what it reads, so the cached lists are never
-// handed to a caller that could mutate them.
-const accessorNamesCache = new WeakMap<object, AccessorNames>();
-
-/** Walk the prototype chain and collect every getter/setter name (de-duplicated), excluding the constructor. Cached per prototype. */
-function getAllAccessorNames(prototype: object): AccessorNames {
-  const cached = accessorNamesCache.get(prototype);
-
-  if (cached) {
-    return cached;
-  }
-
-  const getters = new Set<string>();
-  const setters = new Set<string>();
-
-  walkOwnPrototypes(prototype, (obj) => {
-    const descriptors = Object.getOwnPropertyDescriptors(obj);
-
-    Object.keys(descriptors).forEach((name) => {
-      if (name === 'constructor') {
-        return;
-      }
-
-      if (descriptors[name]?.get) {
-        getters.add(name);
-      }
-
-      if (descriptors[name]?.set) {
-        setters.add(name);
-      }
-    });
-  });
-
-  const result: AccessorNames = { getters: [...getters], setters: [...setters] };
-  accessorNamesCache.set(prototype, result);
-
-  return result;
-}
 
 /**
  * Decide which accessors to spy: the explicit lists, plus everything discovered when
@@ -326,6 +148,13 @@ function isCallable(value: unknown): value is Func {
 
 function notASpiedMethod(factory: string, option: string, name: string, methods: readonly PropertyKey[]): string {
   const lead = `[vitest-auto-spy] ${factory}: ${option} names '${name}'`;
+
+  if (name === 'then' && methods.includes(name)) {
+    return withDocs(
+      `${lead}, which the double leaves out unless methodsToSpyOn names it. Add 'then' to methodsToSpyOn.`,
+      DOCS_LINKS.createSpyFromClass,
+    );
+  }
 
   if (methods.includes(name)) {
     return withDocs(
@@ -593,13 +422,44 @@ export function resolveConfiguration<T>(
     autoSpyAccessors: methodsToSpyOnOrConfig.autoSpyAccessors ?? false,
     fillMissing: methodsToSpyOnOrConfig.fillMissing,
     lazySpies: methodsToSpyOnOrConfig.lazySpies,
-    returns: methodsToSpyOnOrConfig.returns ?? {},
+    returns: withUndefinedReturns(methodsToSpyOnOrConfig.returns ?? {}, methodsToSpyOnOrConfig.returnsUndefined),
     selfReturning: methodsToSpyOnOrConfig.selfReturning ?? [],
     overrides: methodsToSpyOnOrConfig.overrides ?? {},
     strict: methodsToSpyOnOrConfig.strict,
     onUnstubbedCall: methodsToSpyOnOrConfig.onUnstubbedCall,
     onUnstubbedRead: methodsToSpyOnOrConfig.onUnstubbedRead,
   };
+}
+
+// Folded into `returns`, where an explicit value for the same method wins, so every consumer of the
+// resolved configuration (strict mode, `createSpyFromInstance`'s real-member check) sees one map.
+function withUndefinedReturns(returns: Record<string, unknown>, names: readonly string[] | undefined): Record<string, unknown> {
+  return names?.length ? { ...Object.fromEntries(names.map((name) => [name, undefined])), ...returns } : returns;
+}
+
+const warnedThenables = new WeakSet<object>();
+
+function warnOnHeldBackThen(ObjectClass: ClassType<unknown>, config: ResolvedSpyConfiguration): void {
+  if (
+    config.onlyMethodsToSpyOn.length > 0 ||
+    config.methodsToSpyOn.includes('then') ||
+    config.instanceMethodsToSpyOn.includes('then') ||
+    Object.hasOwn(config.overrides, 'then') ||
+    warnedThenables.has(ObjectClass) ||
+    !declaresThen(ObjectClass.prototype)
+  ) {
+    return;
+  }
+
+  warnedThenables.add(ObjectClass);
+  libraryWarn(
+    withDocs(
+      `[vitest-auto-spy] createSpyFromClass(${sourceClassName(ObjectClass.name)}): the class declares then(), and a spy there ` +
+        `would make the double a thenable that never settles, so \`await double\` would hang. The double leaves it out; ` +
+        `name it in methodsToSpyOn: ['then'] to spy it anyway.`,
+      DOCS_LINKS.createSpyFromClass,
+    ),
+  );
 }
 
 /**
@@ -632,12 +492,15 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   // The class's registration first, the call site's own configuration merged over it — so a spec
   // that needs one extra member names one extra member instead of restating the composition.
   const config = resolveConfiguration(mergeAutoSpyDefaults(ObjectClass, methodsToSpyOnOrConfig));
+
+  warnOnHeldBackThen(ObjectClass, config);
+
   const autoSpy = assembleSpy<T, Options>(ObjectClass, config);
 
   // Both guards keep the unconfigured call, the one every `beforeEach` makes, off the label's regexes.
   if (config.selfReturning.length > 0 || Object.keys(config.returns).length > 0) {
     applyConfiguredReturns(autoSpy, `createSpyFromClass(${sourceClassName(ObjectClass.name)})`, config, () =>
-      getAllMethodNames(ObjectClass.prototype),
+      getDeclaredMethodNames(ObjectClass.prototype),
     );
   }
 
@@ -656,7 +519,7 @@ function answersWithMethodSpy(ObjectClass: ClassType<unknown>, config: ResolvedS
   const named = (names: readonly PropertyKey[]): boolean => names.includes(key);
 
   if (
-    named(getAllMethodNames(ObjectClass.prototype)) ||
+    named(getDeclaredMethodNames(ObjectClass.prototype)) ||
     named(config.onlyMethodsToSpyOn) ||
     named(config.methodsToSpyOn) ||
     named(config.instanceMethodsToSpyOn)
@@ -786,7 +649,7 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   // the whitelist is the only way to describe such a class, and warning about the correct usage is
   // worse than saying nothing.
   if (config.onlyMethodsToSpyOn.length > 0 && getAllMethodNames(ObjectClass.prototype).length > 0) {
-    warnOnUnknownMethods(label(), config.onlyMethodsToSpyOn, new Set(getAllMethodNames(ObjectClass.prototype)));
+    warnOnUnknownMethods(label(), config.onlyMethodsToSpyOn, new Set(getDeclaredMethodNames(ObjectClass.prototype)));
   }
 
   const autoSpy: Record<string, unknown> = {};

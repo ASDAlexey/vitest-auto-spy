@@ -7,18 +7,19 @@
  * The rest of the factory (discovery, accessors, `returns`, `fillMissing`, the abstract-class
  * fallback) is exercised from `src/auto-spy.spec.ts`; this file stays on the two new seams.
  */
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { useConsoleSpies } from './console-spy';
 import { applyReturns, createSpyFromClass } from './create-spy-from-class';
 import { setDefaultStrictMode, takeStrictViolations } from './function-spy';
 import { registerMockAdapter } from './mock-adapter';
+import { mockValueProp } from './prop-mock';
 import { resetAutoSpy } from './reset-auto-spy';
 import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
 import { vitestMockAdapter } from './vitest-adapter';
 
-beforeAll(() => {
-  registerMockAdapter(vitestMockAdapter);
-});
+// At load, not in `beforeAll`: `useConsoleSpies()` builds its spies while the describes are collected.
+registerMockAdapter(vitestMockAdapter);
 
 afterEach(() => {
   setDefaultStrictMode(undefined);
@@ -110,7 +111,7 @@ describe('createSpyFromClass — strict mode', () => {
     const renamed = (name: string): typeof Cart => {
       class Named extends Cart {}
 
-      Object.defineProperty(Named, 'name', { value: name });
+      mockValueProp(Named, 'name', name);
 
       return Named;
     };
@@ -168,7 +169,7 @@ describe('createSpyFromClass — strict mode', () => {
   it('suggests a neutral holder when the class name is not an identifier', () => {
     const renamed = class extends Cart {};
 
-    Object.defineProperty(renamed, 'name', { value: 'Cart (legacy)' });
+    mockValueProp(renamed, 'name', 'Cart (legacy)');
 
     expect(() => createSpyFromClass(renamed, { strict: true }).total()).toThrow(
       'Configure it in the test: double.total.mockReturnValue(…)',
@@ -212,7 +213,7 @@ describe('createSpyFromClass — strict mode', () => {
     const storage = createSpyFromClass(Storage, { strict: true });
     abstract class Unnamed extends Storage {}
 
-    Object.defineProperty(Unnamed, 'name', { value: '' });
+    mockValueProp(Unnamed, 'name', '');
 
     expect(() => storage.read('k')).toThrow("Storage.read('k') was called; this strict double has nothing configured for it.");
     expect(() => createSpyFromClass(Unnamed, { strict: true }).read('k')).toThrow('read(');
@@ -302,6 +303,8 @@ describe('createSpyFromClass — returns is a default, not a wall', () => {
 });
 
 describe('createSpyFromClass — selfReturning', () => {
+  const { consoleWarnSpy: warn } = useConsoleSpies();
+
   class QueryBuilder {
     where(_field: string): QueryBuilder {
       return this;
@@ -355,8 +358,6 @@ describe('createSpyFromClass — selfReturning', () => {
   });
 
   it('says so, naming the option, when a name is not a spied method', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     createSpyFromClass(QueryBuilder, { onlyMethodsToSpyOn: ['run'], selfReturning: ['where'] });
 
     expect(warn).toHaveBeenCalledWith(
@@ -365,21 +366,15 @@ describe('createSpyFromClass — selfReturning', () => {
           "Add 'where' to onlyMethodsToSpyOn.",
       ),
     );
-    warn.mockRestore();
   });
 
   it('suggests the method a misspelled returns key most likely meant', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     createSpyFromClass(QueryBuilder, { returns: { rum: [] } as never });
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("returns names 'rum', not a method of QueryBuilder — did you mean 'run'?"));
-    warn.mockRestore();
   });
 
   it('points at instanceMethodsToSpyOn when no method comes close', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     createSpyFromClass(QueryBuilder, { returns: { reloadEverything: [] } as never });
 
     expect(warn).toHaveBeenCalledWith(
@@ -388,7 +383,6 @@ describe('createSpyFromClass — selfReturning', () => {
           "If the constructor assigns it (an arrow-function field, an rxMethod), list it in instanceMethodsToSpyOn: ['reloadEverything'].",
       ),
     );
-    warn.mockRestore();
   });
 });
 
@@ -538,12 +532,15 @@ describe("createSpyFromClass — vi.spyOn and the double's own spy", () => {
 });
 
 describe('createSpyFromClass — prototypes the chain used to stop short of', () => {
-  class NullRooted {}
+  class NullRooted {
+    send(): string {
+      return 'real';
+    }
+  }
   Object.setPrototypeOf(NullRooted.prototype, null);
-  Object.defineProperty(NullRooted.prototype, 'send', { value: (): string => 'real', writable: true, configurable: true });
 
   it('spies the methods of a class whose prototype chain has no Object.prototype', () => {
-    const spy = createSpyFromClass(NullRooted as unknown as new () => { send(): string });
+    const spy = createSpyFromClass(NullRooted);
 
     spy.send.mockReturnValue('stubbed');
 
@@ -751,8 +748,8 @@ describe('createSpyFromClass — a function in overrides on a method', () => {
 
     expect(sanitizer.sanitize).toBe(mock);
     expect(sanitizer.trim).toBe(librarySpy);
-    expect(Reflect.get(sanitizer, 'a')).toBe(Replacement);
-    expect(Reflect.get(sanitizer, 'b')).toBe(signalLike);
+    expect(sanitizer.a).toBe(Replacement);
+    expect(sanitizer.b).toBe(signalLike);
   });
 
   it('wraps a sloppy-mode function, whose own keys include arguments and caller', () => {
@@ -779,7 +776,7 @@ describe('createSpyFromClass — a function in overrides on a method', () => {
       },
     });
 
-    expect(Reflect.get(sanitizer, 'trim')).toBe('not a function');
+    expect(sanitizer.trim).toBe('not a function');
     expect(sanitizer.onChange).toBe(onChange);
     expect(sanitizer.label).toBe('read');
     expect(sanitizer.sanitize).toBe(fromGetter);
