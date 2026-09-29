@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 
 import plugin from '../../eslint-plugin';
+import { RULES_WITH_SUGGESTIONS } from './plugin.mock';
 import { rules } from './rules';
 
 describe('the plugin', () => {
@@ -37,27 +38,7 @@ describe('the plugin', () => {
     // `no-mocked-for-spy`, `no-redundant-mock-reset`, `prefer-native-spy-api` and `prefer-spy-on-own-method` declare both: the
     // same edit is applied where the file settles it and offered where something outside the file —
     // or, for the reset, somewhere else inside it — has to agree.
-    expect(named((rule) => rule.meta.hasSuggestions !== undefined)).toEqual([
-      'no-compile-components',
-      'no-expect-in-subscribe',
-      'no-import-time-spread',
-      'no-mock-cast',
-      'no-mocked-for-spy',
-      'no-object-define-property',
-      'no-overridden-provider',
-      'no-passthrough-console-spy',
-      'no-redundant-mock-reset',
-      'no-redundant-smoke-test',
-      'no-reflect-member-access',
-      'no-sync-testbed-await',
-      'prefer-create-mock',
-      'prefer-inject-spy',
-      'prefer-native-spy-api',
-      'prefer-render-shallow',
-      'prefer-set-inputs',
-      'prefer-settle-dynamic-import',
-      'prefer-spy-on-own-method',
-    ]);
+    expect(named((rule) => rule.meta.hasSuggestions !== undefined)).toEqual(RULES_WITH_SUGGESTIONS);
   });
 
   it('ships every rule as an error bar the one that reports a cost rather than a defect', () => {
@@ -122,6 +103,9 @@ describe('the plugin', () => {
     // The first names a question only the author can answer — what the silenced channel should have
     // said — and the second a move onto fake timers, which changes every timer the test runs.
     //
+    // `no-inline-test-data` is graded on the evidence: a line count and a repeat count say where data
+    // should live, not that the test is wrong, and the move to a mock file is the author's to name.
+    //
     // `off` would be the wrong end of the same mistake in all of these cases, so the assertions pin
     // the values rather than allowing "not error".
     expect(new Set(levels)).toEqual(new Set(['error', 'warn']));
@@ -136,7 +120,8 @@ describe('the plugin', () => {
     expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-to-have-signal-value']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-unasserted-console-spy']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-real-wait-in-test']).toBe('warn');
-    expect(levels.filter((level) => level !== 'error')).toHaveLength(11);
+    expect(plugin.configs.recommended.rules['vitest-auto-spy/no-inline-test-data']).toBe('warn');
+    expect(levels.filter((level) => level !== 'error')).toHaveLength(12);
     expect(levels).toHaveLength(Object.keys(rules).length);
   });
 
