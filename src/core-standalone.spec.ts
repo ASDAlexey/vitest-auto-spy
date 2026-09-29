@@ -63,10 +63,16 @@ describe('core without vitest-auto-spy/rxjs', () => {
   });
 
   it('does not attach observable helpers to method spies', () => {
+    // Helpers are shared on the prototype every method spy inherits from, where an earlier file of a
+    // shared worker may have put them; what this call must not do is add any.
+    const helperOnPrototype = (): unknown =>
+      (Object.getPrototypeOf(createSpyFromClass(Service).syncMethod) as Record<string, unknown>)['nextWith'];
+    const before = helperOnPrototype();
     const spy = createSpyFromClass(Service);
 
     expect(vi.isMockFunction(spy.getObs)).toBe(true);
-    expect((spy.getObs as unknown as Record<string, unknown>)['nextWith']).toBeUndefined();
+    expect(Object.hasOwn(spy.getObs, 'nextWith')).toBe(false);
+    expect(helperOnPrototype()).toBe(before);
   });
 
   it('throws an actionable hint when observable props are requested', () => {

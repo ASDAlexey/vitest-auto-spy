@@ -189,6 +189,7 @@ async function expectPlateau(label: string, build: Build, sweep: boolean): Promi
 
   // Printed on a pass as well: the ratio alone says whether the invariant held, the series says
   // how much room it held it by, and that is the number worth watching drift on.
+  // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- the series is this invariant's report, printed on a pass on purpose
   console.log(`heap plateau — ${label} — ${series} | ratio ${(tail / baseline).toFixed(3)} (limit ${PLATEAU_RATIO})`);
 
   expect(

@@ -1,3 +1,4 @@
+/* eslint-disable vitest-auto-spy/no-console-in-spec -- the console spies are the subject: the spec writes to them on purpose */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { consoleInfoSpy, consoleOutput, installConsoleSpies, restoreConsole, useConsoleSpies } from './console';

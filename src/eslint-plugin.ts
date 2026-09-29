@@ -126,6 +126,15 @@ const PLUGIN_NAME = 'vitest-auto-spy';
  *
  * **The three console rules decide on facts, not on a reading of the code**, so they are `error`: on the
  * 1759-file consumer they report 0, 6 in 2 files, and 32 of the 39 files that import `/console`.
+ * **`no-unasserted-console-spy` is `warn`**: the finding is exact, but its repair is a question for the
+ * author — what should the silenced channel have said — the reading that grades `no-unasserted-argument`.
+ *
+ * **`no-outer-binding-in-mock-factory`, `no-relative-mock-under-builder` and `no-disabled-testbed-teardown`
+ * decide on facts** — Vitest's hoisting, the builder's own patch, a literal in the line — so they are
+ * `error`. The builder rule stays silent until an `@angular/build:unit-test` target serves the file or
+ * `{ builder: 'unit-test' }` says one does, the way `no-compile-components` waits for its option.
+ * **`no-real-wait-in-test` is `warn`**: the sleep is a fact, but its repair is a move onto fake timers,
+ * which changes every timer the test runs — a migration, as `prefer-set-inputs` is.
  *
  * **`prefer-stub-response` is `error` on the same footing as `no-hand-assigned-global`**, the rule it
  * is shaped after: the evidence is the line itself. An object literal cast to `Response` answers the
@@ -229,6 +238,11 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-jasmine-globals`]: 'error',
   [`${PLUGIN_NAME}/no-save-arguments-by-value`]: 'error',
   [`${PLUGIN_NAME}/prefer-native-spy-api`]: 'error',
+  [`${PLUGIN_NAME}/no-unasserted-console-spy`]: 'warn',
+  [`${PLUGIN_NAME}/no-outer-binding-in-mock-factory`]: 'error',
+  [`${PLUGIN_NAME}/no-relative-mock-under-builder`]: 'error',
+  [`${PLUGIN_NAME}/no-real-wait-in-test`]: 'warn',
+  [`${PLUGIN_NAME}/no-disabled-testbed-teardown`]: 'error',
 };
 
 /**

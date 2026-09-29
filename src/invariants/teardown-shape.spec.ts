@@ -162,6 +162,7 @@ describe('architecture invariant: teardown shape', () => {
       const largeMedian = median(largeSamples);
       const growth = median(ratios);
 
+      // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- the measurements are this invariant's report
       console.log(
         `teardown shape — ${arm.label}: ${SMALL_COUNT} → ${smallMedian.toFixed(3)} ms, ` +
           `${LARGE_COUNT} → ${largeMedian.toFixed(3)} ms, growth ${growth.toFixed(2)}× (limit ${MAX_GROWTH}×)`,
