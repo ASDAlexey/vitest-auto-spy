@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { mockValueProp, restoreMockedProps } from './prop-mock';
-import { installProxyZonePatch } from './proxy-zone';
+import { installDefaultProxyZonePatch, installProxyZonePatch } from './proxy-zone';
 
 /** A stand-in for `Zone`, recording that the callback really ran through `fork(...).run(...)`. */
 function fakeZone(): { install: () => void; forks: number } {
@@ -272,6 +272,53 @@ describe('installProxyZonePatch', () => {
 
     undoSecond();
     undoFirst();
+  });
+
+  it('switches an installed shared patch to a zone per callback when asked explicitly', () => {
+    const zone = fakeZone();
+    zone.install();
+
+    const globals = fakeGlobals();
+    const undoImport = installDefaultProxyZonePatch();
+    const sharedIt: unknown = Reflect.get(globalThis, 'it');
+    const undoExplicit = installProxyZonePatch({ scope: 'callback' });
+    const perCallbackIt: (...args: unknown[]) => unknown = Reflect.get(globalThis, 'it');
+
+    expect(perCallbackIt).not.toBe(sharedIt);
+
+    perCallbackIt('first', vi.fn());
+    perCallbackIt('second', vi.fn());
+    runRecorded(globals);
+
+    // Two forks, not one: the shared view was replaced rather than kept, and not wrapped either.
+    expect(zone.forks).toBe(2);
+
+    undoExplicit();
+
+    expect(Reflect.get(globalThis, 'it')).toBe(sharedIt);
+
+    undoImport();
+  });
+
+  it('keeps an explicit scope when the entry is imported again', () => {
+    const zone = fakeZone();
+    zone.install();
+
+    const globals = fakeGlobals();
+    const undoExplicit = installProxyZonePatch({ scope: 'callback' });
+    const perCallbackIt: (...args: unknown[]) => unknown = Reflect.get(globalThis, 'it');
+    const undoImport = installDefaultProxyZonePatch();
+
+    expect(Reflect.get(globalThis, 'it')).toBe(perCallbackIt);
+
+    perCallbackIt('first', vi.fn());
+    perCallbackIt('second', vi.fn());
+    runRecorded(globals);
+
+    expect(zone.forks).toBe(2);
+
+    undoImport();
+    undoExplicit();
   });
 
   it('passes a non-callable member through untouched', () => {

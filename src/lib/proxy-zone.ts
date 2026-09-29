@@ -159,15 +159,20 @@ function inProxyZone(callback: Callable, scope: ProxyZoneScope): Callable {
 }
 
 /**
- * One view per target, so identity survives the patch.
+ * One view per target and scope, so identity survives the patch.
  *
  * Without it every property read builds another Proxy and `it.skip !== it.skip`: a comparison by
  * identity, a `WeakMap` keyed by a member of the runner API, a memoised `it.each(table)` — all of
  * them start behaving differently under the patch than without it, and nothing points at the patch.
- * Keyed by the target alone: `scope` is fixed when the patch is installed, and the undo drops the
- * cache along with the shared fork, so a reinstall under the other scope starts from nothing.
+ * The undo drops the cache along with the shared fork, so a reinstall starts from nothing.
  */
-let proxyCache = new WeakMap<Callable, Callable>();
+let proxyCache = { callback: new WeakMap<Callable, Callable>(), shared: new WeakMap<Callable, Callable>() };
+
+/** What a view was made from, so a later installation can re-wrap the original instead of the view. */
+interface ProducedView {
+  target: Callable;
+  scope: ProxyZoneScope;
+}
 
 /**
  * Every view this patch has ever handed out, on the global so two copies of the module agree.
@@ -177,16 +182,16 @@ let proxyCache = new WeakMap<Callable, Callable>();
  * `it` per file, 200 layers deep at 200 files. Correctness survived it (a callback carries
  * {@link ALREADY_WRAPPED}, so the zones never nested) — the cost did not.
  */
-const PRODUCED = Symbol.for('vitest-auto-spy.proxy-zone.produced');
+const PRODUCED = Symbol.for('vitest-auto-spy.proxy-zone.produced-views');
 
-function producedProxies(): WeakSet<object> {
+function producedViews(): WeakMap<object, ProducedView> {
   const existing: unknown = Reflect.get(globalThis, PRODUCED);
 
-  if (existing instanceof WeakSet) {
+  if (existing instanceof WeakMap) {
     return existing;
   }
 
-  const fresh = new WeakSet<object>();
+  const fresh = new WeakMap<object, ProducedView>();
 
   Reflect.set(globalThis, PRODUCED, fresh);
 
@@ -202,7 +207,7 @@ function producedProxies(): WeakSet<object> {
  * across detaches the receiver, which is how `it.each(table)(…)` comes to return `undefined`.
  */
 function proxyCallable(target: Callable, scope: ProxyZoneScope): Callable {
-  const cached = proxyCache.get(target);
+  const cached = proxyCache[scope].get(target);
 
   if (cached) {
     return cached;
@@ -227,8 +232,8 @@ function proxyCallable(target: Callable, scope: ProxyZoneScope): Callable {
     },
   });
 
-  proxyCache.set(target, proxied);
-  producedProxies().add(proxied);
+  proxyCache[scope].set(target, proxied);
+  producedViews().set(proxied, { target, scope });
 
   return proxied;
 }
@@ -263,12 +268,25 @@ function proxyCallable(target: Callable, scope: ProxyZoneScope): Callable {
  *
  * `scope: 'callback'` restores the per-callback fork. It is the right choice for `test.concurrent`,
  * where two callbacks are in flight at once and would otherwise swap the same `ProxyZoneSpec`
- * delegate under one another.
+ * delegate under one another. Importing the entry has already installed `'shared'`; an explicit call
+ * replaces it, and a later import of the entry does not switch it back.
  *
  * @returns The undo, which puts the untouched globals back. Mostly useful to this library's own
  *   tests; a run that installs the patch keeps it for the whole worker.
  */
 export function installProxyZonePatch({ scope = 'shared' }: ProxyZonePatchOptions = {}): () => void {
+  return install(scope, false);
+}
+
+/**
+ * What importing `vitest-auto-spy/zone` runs: `'shared'`, unless a patch of either scope is already
+ * in place — an explicit `installProxyZonePatch({ scope: 'callback' })` must outlive the next import.
+ */
+export function installDefaultProxyZonePatch(): () => void {
+  return install('shared', true);
+}
+
+function install(scope: ProxyZoneScope, keepAnyScope: boolean): () => void {
   // Read once, up front, so a missing zone.js is reported from the setup file rather than from
   // inside the first test that happens to use `fakeAsync`.
   readZone();
@@ -282,18 +300,23 @@ export function installProxyZonePatch({ scope = 'shared' }: ProxyZonePatchOption
     throw new Error(MISSING_GLOBALS);
   }
 
-  // A global this patch already replaced is left alone: re-installing over it would stack another
-  // Proxy layer on every call, and the undo of the installation that put it there still applies.
-  patchable
-    .filter(({ value }) => !producedProxies().has(value))
-    .forEach(({ name, value }) => Reflect.set(globalThis, name, proxyCallable(value, scope)));
+  patchable.forEach(({ name, value }) => {
+    const produced = producedViews().get(value);
+
+    // A view of the requested scope is left alone, and one of the other scope is rebuilt from its
+    // original: wrapping the view would stack a Proxy layer per call and keep the old scope inside.
+    if (produced && (keepAnyScope || produced.scope === scope)) {
+      return;
+    }
+
+    Reflect.set(globalThis, name, proxyCallable(produced?.target ?? value, scope));
+  });
 
   return () => {
     originals.forEach(({ name, value }) => Reflect.set(globalThis, name, value));
     // The shared fork is derived from the globals that were just put back; keeping it would hand a
-    // zone from the previous installation to the next one — and a cached view would hand it the
-    // scope of that installation too.
+    // zone from the previous installation to the next one.
     sharedProxyZone = undefined;
-    proxyCache = new WeakMap();
+    proxyCache = { callback: new WeakMap(), shared: new WeakMap() };
   };
 }
