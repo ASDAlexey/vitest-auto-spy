@@ -75,8 +75,12 @@ function esmTarget(target: unknown): string | undefined {
     return target;
   }
 
-  const imported: unknown = Reflect.get(Object(target), 'import');
-  const built: unknown = typeof imported === 'string' ? imported : Reflect.get(Object(imported), 'default');
+  if (typeof target !== 'object' || target === null || !('import' in target)) {
+    return undefined;
+  }
+
+  const imported = target.import;
+  const built = typeof imported === 'object' && imported !== null && 'default' in imported ? imported.default : imported;
 
   return typeof built === 'string' ? built : undefined;
 }

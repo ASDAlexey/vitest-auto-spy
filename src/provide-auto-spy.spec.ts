@@ -7,10 +7,12 @@
 import { Injectable, InjectionToken } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Observable, ReplaySubject, of } from 'rxjs';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { injectSpy, provideAutoSpy, provideAutoSpyForToken } from './angular';
-import { clearAutoSpyDefaults, createAutoMock, createSpyFromClass, registerAutoSpyDefaults } from './index';
+import { clearAutoSpyDefaults, createAutoMock, createSpyFromClass, mockValueProp, registerAutoSpyDefaults } from './index';
+import { useConsoleSpies } from './lib/console-spy';
+import { takeStrictViolations } from './lib/function-spy';
 // Public entries: core (`./index`) and the Angular helpers (`./angular`). The bare `./rxjs` import
 // registers observable support (IoC), which the token doubles with observable props rely on.
 import './rxjs';
@@ -61,11 +63,18 @@ function collect<T>(obs: Observable<T>): Promise<{ values: T[]; error?: unknown;
   });
 }
 
+// Strict throws provoked on purpose stay recorded until taken, where a later file of a shared worker reads them.
+afterEach(() => {
+  takeStrictViolations();
+});
+
 // ---------------------------------------------------------------------------
 // provideAutoSpy / injectSpy
 // ---------------------------------------------------------------------------
 
 describe('provideAutoSpy / injectSpy', () => {
+  const { consoleWarnSpy: warn } = useConsoleSpies();
+
   it('provides and injects a typed spy through TestBed', () => {
     TestBed.configureTestingModule({
       providers: [provideAutoSpy(MyService)],
@@ -77,8 +86,6 @@ describe('provideAutoSpy / injectSpy', () => {
   });
 
   it('warns when the injector hands back a real instance instead of a spy', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     // The provider is the class itself, so DI builds the real service — the mistake this catches.
     class UnprovidedService {
       load(): string {
@@ -100,13 +107,10 @@ describe('provideAutoSpy / injectSpy', () => {
     injectSpy(UnprovidedService);
 
     expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
   });
 
   it('warns again in the next spec file, so which file shows it does not depend on run order', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
-    const ownFile: unknown = Reflect.get(Object(worker), 'filepath');
 
     class ReportedPerFile {
       load(): string {
@@ -116,16 +120,15 @@ describe('provideAutoSpy / injectSpy', () => {
 
     TestBed.configureTestingModule({ providers: [ReportedPerFile] });
     injectSpy(ReportedPerFile);
-    Reflect.set(Object(worker), 'filepath', '/a/later.spec.ts');
+    const restore = mockValueProp(worker, 'filepath', '/a/later.spec.ts');
 
     try {
       injectSpy(ReportedPerFile);
     } finally {
-      Reflect.set(Object(worker), 'filepath', ownFile);
+      restore();
     }
 
     expect(warn).toHaveBeenCalledTimes(2);
-    warn.mockRestore();
   });
 
   it('fails every occurrence at the call site under misconfiguration: throw', () => {
@@ -147,7 +150,6 @@ describe('provideAutoSpy / injectSpy', () => {
   });
 
   it('names an InjectionToken in that warning too', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const CONFIG = new InjectionToken<{ url: string }>('CONFIG');
 
     TestBed.configureTestingModule({ providers: [{ provide: CONFIG, useValue: { url: '/api' } }] });
@@ -159,12 +161,9 @@ describe('provideAutoSpy / injectSpy', () => {
       ),
     );
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('provideAutoSpy(CONFIG)'));
-    warn.mockRestore();
   });
 
   it("says Angular built a providedIn: 'root' class nobody provided, and names what it got", () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     @Injectable({ providedIn: 'root' })
     class RootPricing {}
 
@@ -189,11 +188,9 @@ describe('provideAutoSpy / injectSpy', () => {
     );
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('injectSpy(Blank): got a real instance'));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('injectSpy(a hand-made token): got a plain value'));
-    warn.mockRestore();
   });
 
   it('provides a spy for a token whose type is an interface, with no class to read', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const PASSCODE = new InjectionToken<{ check(code: string): boolean }>('PASSCODE');
 
     TestBed.configureTestingModule({ providers: [provideAutoSpyForToken(PASSCODE, { check: () => true })] });
@@ -202,18 +199,15 @@ describe('provideAutoSpy / injectSpy', () => {
 
     expect(passcode.check('1234')).toBe(true);
     expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
   });
 
   it('stays quiet for a token provided with a type-based auto-mock', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const LOGGER = new InjectionToken<{ log(message: string): void }>('LOGGER');
 
     TestBed.configureTestingModule({ providers: [{ provide: LOGGER, useValue: createAutoMock<{ log(message: string): void }>() }] });
     injectSpy(LOGGER);
 
     expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
   });
 
   it('seeds properties and method results from the provider, in one statement', () => {
@@ -344,7 +338,7 @@ describe('provideAutoSpy / injectSpy', () => {
         }
       }
 
-      expect(Reflect.get(createSpyFromClass(Sink, { settersToSpyOn: ['level'], overrides: { level: 7 } }), 'level')).toBe(7);
+      expect(createSpyFromClass(Sink, { settersToSpyOn: ['level'], overrides: { level: 7 } }).level).toBe(7);
     });
   });
 
@@ -450,8 +444,6 @@ describe('provideAutoSpy / injectSpy', () => {
   });
 
   it('takes an abstract class — the standard Angular DI-token shape', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     // Production provides `{ provide: LocalStorage, useClass: BrowserLocalStorage }`, so the token
     // is a class with nothing on its prototype: every member is `abstract`, and `abstract` is
     // erased before emit. Both halves used to fail — the type rejected it, and a spy read off that
@@ -477,7 +469,6 @@ describe('provideAutoSpy / injectSpy', () => {
     expect(storage.write).toHaveBeenCalledWith('token', 'abc');
     // The double is recognisably an auto-spy, so `injectSpy` does not report a missing provider.
     expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
   });
 
   it('returns a { provide, useValue } shape', () => {
