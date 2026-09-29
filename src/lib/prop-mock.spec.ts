@@ -7,9 +7,14 @@
  *
  * The rest of the helpers' behaviour is covered from the public entry in `src/auto-spy.spec.ts`.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { useConsoleSpies } from './console-spy';
+import { registerMockAdapter } from './mock-adapter';
 import { beginPropEpoch, countMockedProps, mockValueProp, reportPropsOutsideHooks, restoreMockedProps } from './prop-mock';
+import { vitestMockAdapter } from './vitest-adapter';
+
+registerMockAdapter(vitestMockAdapter);
 
 describe('restoreMockedProps, when a patch cannot be undone', () => {
   // The journal is process-wide; a failing sweep in one test must not colour the next.
@@ -68,6 +73,45 @@ describe('the undo of a single patch', () => {
     restoreMockedProps();
     expect(host).toEqual({ a: 'real-a', b: 'real-b' });
     expect(countMockedProps()).toBe(0);
+  });
+
+  it('keeps neither the object nor the descriptor once undone, and compacts the journal as undos pile up', () => {
+    const journal = (): { slots: { patch: unknown }[]; undone: number } => {
+      const value: unknown = Reflect.get(globalThis, '__vitestAutoSpyPropJournal__');
+
+      return value as { slots: { patch: unknown }[]; undone: number };
+    };
+    const hosts = [{ value: 0 }, { value: 1 }, { value: 2 }, { value: 3 }];
+    const undos = hosts.map((host) => mockValueProp(host, 'value', -1));
+
+    undos[1]?.();
+
+    expect(journal().slots).toHaveLength(4);
+    expect(journal().slots[1]?.patch).toBeUndefined();
+    expect(countMockedProps()).toBe(3);
+
+    undos[2]?.();
+    undos[0]?.();
+
+    expect(journal().slots).toHaveLength(1);
+    expect(journal().undone).toBe(0);
+    expect(countMockedProps()).toBe(1);
+    expect(hosts.map((host) => host.value)).toEqual([0, 1, 2, -1]);
+
+    restoreMockedProps();
+    expect(hosts[3]?.value).toBe(3);
+  });
+
+  it('puts a twice-patched property back to its original after a compaction in between', () => {
+    const host = { value: 'real' };
+    const unrelated = [{ value: 1 }, { value: 2 }, { value: 3 }].map((object) => mockValueProp(object, 'value', 0));
+
+    mockValueProp(host, 'value', 'first');
+    mockValueProp(host, 'value', 'second');
+    unrelated.forEach((undo) => undo());
+
+    restoreMockedProps();
+    expect(host.value).toBe('real');
   });
 });
 
@@ -222,6 +266,8 @@ describe('a property that is writable but not configurable', () => {
  * — where "the file it belongs to" is not something this module can observe.
  */
 describe('a patch applied outside a per-test hook', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   /** One sweep, with the epoch advanced in between — what a `describe`-body patch meets. */
   const sweepAfterANewTest = (patch: () => void): void => {
     patch();
@@ -240,8 +286,6 @@ describe('a patch applied outside a per-test hook', () => {
     }
 
     const anonymous = Object.assign((): undefined => undefined, { value: 1 });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     Object.defineProperty(anonymous, 'name', { value: '' });
 
     sweepAfterANewTest(() => {
@@ -254,89 +298,69 @@ describe('a patch applied outside a per-test hook', () => {
       mockValueProp(anonymous, 'value', 2);
     });
 
-    expect(warn.mock.calls[0]?.[0]).toContain(
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).toContain(
       "mockValueProp(…, 'value') on a function, mockValueProp(…, 'id') on a Cart, mockValueProp(Cart.prototype, 'patchedForTheReport'), " +
         "mockValueProp(Cart, 'region'), mockValueProp(document, 'patchedForTheReport'), mockValueProp(globalThis, 'patchedForTheReport'), mockValueProp(…, 'bare') on an object in ",
     );
-    expect(warn.mock.calls[0]?.[0]).toContain('took them off for good');
-    warn.mockRestore();
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).toContain('took them off for good');
   });
 
   it('warns, naming the property and the hook to move it to', () => {
     const host = { value: 'real' };
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     sweepAfterANewTest(() => mockValueProp(host, 'value', 'patched'));
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toBe(
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).toBe(
       "[vitest-auto-spy] mockValueProp(…, 'value') on an object in src/lib/prop-mock.spec.ts ran outside a per-test hook, " +
         'so the sweep after the first test took it off for good and every later test reads the real member.\n' +
         'Move the call into beforeEach, so it is applied again for each test.\n' +
         'Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#a-patch-put-in-the-wrong-hook-stops-applying',
     );
-    expect(warn.mock.calls[0]?.[0]).not.toContain('**');
-
-    warn.mockRestore();
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).not.toContain('**');
   });
 
   it('says nothing about a patch made during the test that is now ending', () => {
     // The shape the report must never fire on, and the one every correct spec has.
     const host = { value: 'real' };
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     beginPropEpoch();
     mockValueProp(host, 'value', 'patched');
     restoreMockedProps();
 
-    expect(warn).not.toHaveBeenCalled();
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('names one object/property pair once, however many sweeps see it', () => {
     const host = { value: 'real' };
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     sweepAfterANewTest(() => mockValueProp(host, 'value', 'first'));
     sweepAfterANewTest(() => mockValueProp(host, 'value', 'second'));
 
-    expect(warn).toHaveBeenCalledTimes(1);
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
   });
 
   it('names a shared object again in the next spec file, so which file shows it does not depend on run order', () => {
     const shared = { value: 'real' };
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
-    const ownFile: unknown = Reflect.get(Object(worker), 'filepath');
+    const worker: { filepath: unknown } = Reflect.get(globalThis, '__vitest_worker__');
+    const ownFile = worker.filepath;
 
     sweepAfterANewTest(() => mockValueProp(shared, 'value', 'first file'));
-    Reflect.set(Object(worker), 'filepath', '/a/later.spec.ts');
+    worker.filepath = '/a/later.spec.ts';
 
     try {
       sweepAfterANewTest(() => mockValueProp(shared, 'value', 'second file'));
     } finally {
-      Reflect.set(Object(worker), 'filepath', ownFile);
+      worker.filepath = ownFile;
     }
 
-    expect(warn).toHaveBeenCalledTimes(2);
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(2);
   });
 
   it('reports the same property name on a second object, which a name-keyed set would not', () => {
     // Under `isolate: false` two files of one worker patch a member of the same name on different
     // objects; silencing the second would be the blind spot this dedup is keyed to avoid.
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     sweepAfterANewTest(() => mockValueProp({ value: 'real' }, 'value', 'patched'));
     sweepAfterANewTest(() => mockValueProp({ value: 'real' }, 'value', 'patched'));
 
-    expect(warn).toHaveBeenCalledTimes(2);
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(2);
   });
 
   it('throws instead, for a suite that would rather fail on the first test', () => {
@@ -352,13 +376,9 @@ describe('a patch applied outside a per-test hook', () => {
   it('says nothing at all when the report is off', () => {
     reportPropsOutsideHooks('off');
 
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     sweepAfterANewTest(() => mockValueProp({ value: 'real' }, 'value', 'patched'));
 
-    expect(warn).not.toHaveBeenCalled();
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -370,17 +390,19 @@ describe('a patch applied outside a per-test hook', () => {
  * mocked. The report fires at the first patch that arriving file records, once per transition.
  */
 describe('journal entries held across spec files', () => {
-  const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
-  const ownFile: unknown = Reflect.get(Object(worker), 'filepath');
+  const { consoleWarnSpy } = useConsoleSpies();
+
+  const worker: { filepath: unknown } = Reflect.get(globalThis, '__vitest_worker__');
+  const ownFile = worker.filepath;
 
   /** Record `patch` as if it ran in `file`, the way the worker's `filepath` says which file is running. */
   const inSpecFile = (file: unknown, patch: () => void): void => {
-    Reflect.set(Object(worker), 'filepath', file);
+    worker.filepath = file;
 
     try {
       patch();
     } finally {
-      Reflect.set(Object(worker), 'filepath', ownFile);
+      worker.filepath = ownFile;
     }
   };
 
@@ -396,8 +418,6 @@ describe('journal entries held across spec files', () => {
   afterEach(sweepQuietly);
 
   it('lists five of the held patches and counts the rest', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     inSpecFile('/held/wide.spec.ts', () => {
       for (let index = 0; index < 7; index += 1) {
         mockValueProp({ value: 'real' }, 'value', 'patched');
@@ -405,92 +425,69 @@ describe('journal entries held across spec files', () => {
     });
     inSpecFile('/held/after-wide.spec.ts', () => mockValueProp(Object.create(null) as object, 'value', 'patched'));
 
-    expect(warn.mock.calls[0]?.[0]).toContain(`${Array.from({ length: 5 }, () => "'value' on an object").join(', ')} and 2 more.`);
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).toContain(
+      `${Array.from({ length: 5 }, () => "'value' on an object").join(', ')} and 2 more.`,
+    );
   });
 
   it("warns when the next file records over a journal still holding the previous file's patches", () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     inSpecFile('/held/first.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
     inSpecFile('/held/second.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain(
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).toContain(
       "1 mock*Prop patch from earlier spec files, most recently /held/first.spec.ts, is still in place while /held/second.spec.ts records another: 'value' on an object.",
     );
-    expect(warn.mock.calls[0]?.[0]).toContain('restoreMockedProps()');
-    expect(warn.mock.calls[0]?.[0]).toContain('setupAutoSpy');
-
-    warn.mockRestore();
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).toContain('restoreMockedProps()');
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).toContain('setupAutoSpy');
   });
 
   it('names the transition once, not once per patch the new file records', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     inSpecFile('/held/third.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
     inSpecFile('/held/fourth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
     inSpecFile('/held/fourth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
 
-    expect(warn).toHaveBeenCalledTimes(1);
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
   });
 
   it('says nothing when the journal was swept empty between the files', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     inSpecFile('/held/fifth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
     // The teardown the report exists to suggest, doing its work between the two files.
     restoreMockedProps();
     expect(countMockedProps()).toBe(0);
     inSpecFile('/held/sixth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
 
-    expect(warn).not.toHaveBeenCalled();
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('says nothing about patches piling up inside one file', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     inSpecFile('/held/seventh.spec.ts', () => {
       mockValueProp({ value: 'real' }, 'value', 'patched');
       mockValueProp({ other: 'real' }, 'other', 'patched');
     });
 
-    expect(warn).not.toHaveBeenCalled();
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('warns again on the next transition, counting everything still held', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     inSpecFile('/held/eighth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
     inSpecFile('/held/ninth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
     inSpecFile('/held/tenth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
 
-    expect(warn).toHaveBeenCalledTimes(2);
-    expect(warn.mock.calls[1]?.[0]).toContain('2 mock*Prop patches from earlier spec files');
-    expect(warn.mock.calls[1]?.[0]).toContain('most recently /held/ninth.spec.ts');
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(2);
+    expect(consoleWarnSpy.mock.calls[1]?.[0]).toContain('2 mock*Prop patches from earlier spec files');
+    expect(consoleWarnSpy.mock.calls[1]?.[0]).toContain('most recently /held/ninth.spec.ts');
   });
 
   it('names the previous file even when the runner never named it', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     inSpecFile(undefined, () => mockValueProp({ value: 'real' }, 'value', 'patched'));
     mockValueProp({ value: 'real' }, 'value', 'patched');
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain('a file this runner did not name');
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).toContain('a file this runner did not name');
   });
 
   it('says nothing about a patch the previous file already took off through its own undo', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const object = { value: 'real' };
 
     // The documented shape for a suite with no `setupAutoSpy`: the per-patch undo, called in the
@@ -507,14 +504,10 @@ describe('journal entries held across spec files', () => {
     inSpecFile('/held/after-undone.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
 
     expect(object.value).toBe('real');
-    expect(warn).not.toHaveBeenCalled();
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('counts only what is still in place when the previous file undid some of its patches', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     inSpecFile('/held/partial.spec.ts', () => {
       const restore = mockValueProp({ value: 'real' }, 'value', 'patched');
 
@@ -524,10 +517,8 @@ describe('journal entries held across spec files', () => {
 
     inSpecFile('/held/after-partial.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain('1 mock*Prop patch from earlier spec files');
-    expect(warn.mock.calls[0]?.[0]).toContain('most recently /held/partial.spec.ts');
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).toContain('1 mock*Prop patch from earlier spec files');
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).toContain('most recently /held/partial.spec.ts');
   });
 });

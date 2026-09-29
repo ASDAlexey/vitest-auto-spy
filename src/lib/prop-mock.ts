@@ -26,11 +26,9 @@ export interface AccessorImplementations {
 
 /** One property patch applied by the `mock*Prop` helpers, with the descriptor it replaced. */
 interface PatchedProp {
-  object: object;
-  property: PropertyKey;
-  descriptor: PropertyDescriptor | undefined;
-  /** Set by the patch's own undo, so the sweep skips it — see {@link rememberProp}. */
-  undone: boolean;
+  readonly object: object;
+  readonly property: PropertyKey;
+  readonly descriptor: PropertyDescriptor | undefined;
   /** Which test was running when the patch was applied — see {@link beginPropEpoch}. */
   epoch: number;
   /** Which spec file was running when the patch was recorded — the comparison behind {@link reportHeldEntries}. */
@@ -38,7 +36,21 @@ interface PatchedProp {
   /** The helper that made the patch, for the reports that name it. */
   helper: string;
   /** What the define destroyed beyond the property itself, put back after it — see {@link truncatedElements}. */
-  reinstate: (() => void) | undefined;
+  readonly reinstate: (() => void) | undefined;
+}
+
+/**
+ * One journal entry. Undoing a patch empties its slot, so an undone entry pins neither the patched
+ * object nor the descriptor it replaced, and the sweep skips it.
+ */
+interface JournalSlot {
+  patch: PatchedProp | undefined;
+}
+
+interface PropJournal {
+  slots: JournalSlot[];
+  /** Emptied slots still in `slots`, so the live count is a subtraction rather than a scan. */
+  undone: number;
 }
 
 /**
@@ -105,11 +117,28 @@ export function beginPropEpoch(context?: { readonly task?: unknown }): void {
  */
 declare global {
   // A `globalThis` augmentation has to be declared with `var`.
-  var __vitestAutoSpyPatchedProps__: PatchedProp[] | undefined;
+  var __vitestAutoSpyPropJournal__: PropJournal | undefined;
 }
 
-function getPatchedProps(): PatchedProp[] {
-  return (globalThis.__vitestAutoSpyPatchedProps__ ??= []);
+function getJournal(): PropJournal {
+  return (globalThis.__vitestAutoSpyPropJournal__ ??= { slots: [], undone: 0 });
+}
+
+function livePatches(journal: PropJournal): PatchedProp[] {
+  return journal.slots.flatMap((slot) => (slot.patch ? [slot.patch] : []));
+}
+
+/**
+ * Drop emptied slots once they outnumber the live ones — in place of a `splice` per undo, which is
+ * linear per call and made a spec that stubs in a loop quadratic. Order is kept: the sweep relies on it.
+ */
+function compact(journal: PropJournal): void {
+  if (journal.undone * 2 <= journal.slots.length) {
+    return;
+  }
+
+  journal.slots = journal.slots.filter((slot) => slot.patch !== undefined);
+  journal.undone = 0;
 }
 
 /**
@@ -192,21 +221,21 @@ function listPatches(patches: readonly PatchedProp[]): string {
  * business, which is why only the file comparison fires this.
  *
  * **An undone entry is not held**, and counting one was this report's first defect. A patch the
- * caller took off through its own `RestoreProp` is marked rather than spliced out, so it stays in
- * the array with nothing left on its object — and a suite that restores every patch by hand, which
+ * caller took off through its own `RestoreProp` leaves an empty slot behind until the journal is
+ * compacted, with nothing left on its object — and a suite that restores every patch by hand, which
  * is the documented shape for a suite with no `setupAutoSpy`, is exactly the suite this report
  * fired at. Every clause of the message was false for it: the property was back, and the sweep it
  * named had nothing to put back. {@link countMockedProps} has always read the journal this way;
  * the two now answer "how many are still in place" the same.
  */
-function reportHeldEntries(patches: readonly PatchedProp[], file: unknown): void {
+function reportHeldEntries(journal: PropJournal, file: unknown): void {
   // Before the scan: once the report has fired for a file, every later record of that file can only
   // add in-file neighbours — and the journal can be long by then.
   if (reportedHeldIn === file) {
     return;
   }
 
-  const held = patches.filter((patch) => !patch.undone && patch.file !== file);
+  const held = livePatches(journal).filter((patch) => patch.file !== file);
   const latest = held.at(-1);
 
   if (latest === undefined) {
@@ -238,10 +267,10 @@ function rememberProp<T>(
   { helper, reinstate }: PatchOrigin,
 ): RestoreProp {
   const file = currentSpecFile();
-  const patches = getPatchedProps();
+  const journal = getJournal();
 
   // Before the push, so the entry about to be made is not counted among those holding it.
-  reportHeldEntries(patches, file);
+  reportHeldEntries(journal, file);
 
   const patch: PatchedProp = {
     // The helpers only ever patch objects; the cast bridges the generic `T` of the public API.
@@ -249,25 +278,32 @@ function rememberProp<T>(
     object: object as object,
     property,
     descriptor,
-    undone: false,
     epoch: propEpoch().current,
     file,
     helper,
     reinstate,
   };
 
-  patches.push(patch);
+  const slot: JournalSlot = { patch };
 
+  journal.slots.push(slot);
+
+  // Closes over the slot, not the patch: once undone, nothing here keeps the object alive. A second
+  // call (directly, or after `restoreMockedProps` swept the journal) finds the slot empty.
   return () => {
-    // Marked rather than spliced out of the journal: `indexOf` + `splice` is linear in the number of
-    // patches taken so far, which turns a spec that stubs in a loop into quadratic work. A second
-    // call (directly, or after `restoreMockedProps` swept the journal) must stay a no-op either way.
-    if (patch.undone) {
+    const undone = slot.patch;
+
+    if (undone === undefined) {
       return;
     }
 
-    patch.undone = true;
-    restorePatch(patch);
+    slot.patch = undefined;
+
+    const current = getJournal();
+
+    current.undone += 1;
+    compact(current);
+    restorePatch(undone);
   };
 }
 
@@ -361,7 +397,9 @@ function describeRestoreFailures(failures: readonly string[]): string {
  * ```
  */
 export function countMockedProps(): number {
-  return getPatchedProps().filter((patch) => !patch.undone).length;
+  const journal = getJournal();
+
+  return journal.slots.length - journal.undone;
 }
 
 /**
@@ -472,25 +510,27 @@ function reportOutsideHook(patches: readonly PatchedProp[]): void {
  *   other patches are restored first, and the journal is emptied whatever happens.
  */
 export function restoreMockedProps(): void {
-  const patchedProps = getPatchedProps();
-  // A copy, walked newest first: the same property may have been patched more than once, and only
-  // the descriptor recorded first is the original one. Reversing the journal in place would leave it
-  // back-to-front for the next call if a restore throws mid-way, silently inverting that invariant.
-  const pending = [...patchedProps].reverse();
+  const journal = getJournal();
+  // Walked newest first: the same property may have been patched more than once, and only the
+  // descriptor recorded first is the original one.
+  const pending = journal.slots.reverse();
   const failures: string[] = [];
 
   // Emptied before anything is put back, so a patch is attempted once even if it throws: replaying
   // it against a descriptor the failure left in place is how one broken restore becomes many.
-  patchedProps.length = 0;
+  journal.slots = [];
+  journal.undone = 0;
 
   const outsideHook: PatchedProp[] = [];
 
-  for (const patch of pending) {
-    if (patch.undone) {
+  for (const slot of pending) {
+    const patch = slot.patch;
+
+    if (patch === undefined) {
       continue;
     }
 
-    patch.undone = true;
+    slot.patch = undefined;
 
     // Recorded before the restore, because the restore is what makes it unrecoverable: a patch made
     // in an epoch older than the one this sweep runs in was applied outside a per-test hook, so
