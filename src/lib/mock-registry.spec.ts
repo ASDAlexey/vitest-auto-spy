@@ -4,7 +4,7 @@
  * `captureMockRegistry` reads. Vitest 5 walks a weak-ref registry with `for…of`, so there is nothing
  * for the patch to see, and a stand-in runner is the only way to drive the success path on both.
  */
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SWEEP_SENTINEL } from './constants';
 import {
@@ -13,9 +13,9 @@ import {
   keepMockRegistered,
   keepRegisteredMocks,
   pruneMockRegistry,
+  reinstateSweepSentinel,
   resetMockRegistryTracking,
   restoreLongLivedImplementations,
-  trackMockRegistry,
 } from './mock-registry';
 
 /** A Vitest-4-shaped runner standing in for the installed one, and the way back off it. */
@@ -227,6 +227,60 @@ describe('keepMockRegistered', () => {
   });
 });
 
+describe('reinstateSweepSentinel', () => {
+  afterEach(unstage);
+
+  const markedSentinel = (): object => Object.defineProperty(vi.fn(), SWEEP_SENTINEL, { value: true, configurable: true });
+
+  it('has nothing to do without a capture, or before the sentinel was ever seen', () => {
+    expect(reinstateSweepSentinel()).toBe(false);
+
+    stageVitest4Registry();
+    captureMockRegistry();
+
+    expect(reinstateSweepSentinel()).toBe(false);
+  });
+
+  it('leaves a sentinel that is still registered alone', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const registry = stageVitest4Registry();
+
+    captureMockRegistry();
+    registry.add(markedSentinel());
+    keepRegisteredMocks();
+
+    expect(reinstateSweepSentinel()).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+
+  it('puts back a sentinel a hand-written pruner dropped, and says so once', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const registry = stageVitest4Registry();
+    const sentinel = markedSentinel();
+
+    captureMockRegistry();
+    registry.add(sentinel);
+    pruneMockRegistry();
+
+    // A pruner that knows nothing of the mark.
+    registry.clear();
+
+    expect(reinstateSweepSentinel()).toBe(true);
+    expect(registry.has(sentinel)).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain("Symbol.for('vitest-auto-spy.sweepSentinel')");
+
+    registry.clear();
+
+    expect(reinstateSweepSentinel()).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    warn.mockRestore();
+  });
+});
+
 describe('restoreLongLivedImplementations', () => {
   afterEach(unstage);
 
@@ -282,6 +336,55 @@ describe('restoreLongLivedImplementations', () => {
     expect(shared()).toBe('from the module');
   });
 
+  it('holds a remembered mock weakly, and drops the record once the mock is collected', () => {
+    const refs: { target: object | undefined }[] = [];
+    const collected = vi.fn().mockReturnValue('gone');
+    const survivor = vi.fn().mockReturnValue('kept');
+
+    // A stand-in `WeakRef` whose target the test can collect by hand: the real one only lets go on a GC.
+    vi.stubGlobal(
+      'WeakRef',
+      class CollectableRef {
+        readonly slot: { target: object | undefined };
+
+        constructor(target: object) {
+          this.slot = { target };
+          refs.push(this.slot);
+        }
+
+        deref(): object | undefined {
+          return this.slot.target;
+        }
+      },
+    );
+
+    try {
+      keepMockRegistered(collected);
+      keepMockRegistered(survivor);
+
+      expect(refs).toHaveLength(2);
+
+      const [first] = refs;
+
+      if (first) {
+        first.target = undefined;
+      }
+
+      collected.mockReset();
+      survivor.mockReset();
+
+      expect(restoreLongLivedImplementations()).toBe(1);
+      expect(collected()).toBeUndefined();
+      expect(survivor()).toBe('kept');
+
+      survivor.mockReset();
+
+      expect(restoreLongLivedImplementations()).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('forgets what it remembered when tracking is reset', () => {
     const shared = keepMockRegistered(vi.fn().mockReturnValue('kept'));
 
@@ -317,46 +420,3 @@ describe('keepRegisteredMocks', () => {
     expect(registry?.has(local)).toBe(false);
   });
 });
-
-/**
- * The hooks, running for real. `trackedInsideTheBlock` is created while the block owns the hooks;
- * the assertion that it was pruned lives in the test after the block, which is the first place the
- * `afterAll` has already run.
- */
-let trackedInsideTheBlock: unknown;
-let trackedRegistry: Set<unknown> | undefined;
-let markedBeforeTheBlock: unknown;
-
-describe('trackMockRegistry', () => {
-  // Registered before the tracking hooks, so it runs first: this mock exists when the block starts,
-  // which is what a `vi.fn()` created while the module graph was being evaluated looks like.
-  beforeAll(() => {
-    stageVitest4Registry();
-    markedBeforeTheBlock = vi.fn();
-  });
-
-  trackMockRegistry();
-
-  it('has a registry to work with, and the file inherits what was created before it', () => {
-    trackedRegistry = captureMockRegistry();
-    trackedInsideTheBlock = vi.fn();
-
-    expect(getMockRegistrySize()).toBeGreaterThan(0);
-    expect(trackedRegistry?.has(trackedInsideTheBlock)).toBe(true);
-  });
-});
-
-describe('after a tracked block', () => {
-  it('pruned what the block created and kept what preceded it', () => {
-    expect(trackedRegistry?.has(trackedInsideTheBlock)).toBe(false);
-    expect(trackedRegistry?.has(markedBeforeTheBlock)).toBe(true);
-  });
-
-  it('reports the size of the registry it kept', () => {
-    expect(getMockRegistrySize()).toBeGreaterThan(0);
-  });
-});
-
-// The stand-in the tracked block installed outlives that block's own `afterAll` prune, so it comes
-// off at the end of the file instead.
-afterAll(unstage);

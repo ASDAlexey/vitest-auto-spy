@@ -63,6 +63,9 @@
 import { afterAll, beforeAll, beforeEach, vi } from 'vitest';
 
 import { SWEEP_SENTINEL } from './constants';
+import * as DOCS_LINKS from './docs-links';
+import { libraryWarn } from './guard-reaction';
+import { withDocs } from './message-link';
 
 /** The registry, once captured. `undefined` until {@link captureMockRegistry} has run, and after a failed capture. */
 let registry: Set<unknown> | undefined;
@@ -108,12 +111,11 @@ interface RememberedImplementation {
  * The long-lived mocks that carry an implementation, so the restore walks a handful rather than the
  * whole registry before every test.
  *
- * Strong references, unlike {@link longLived}, and they hold next to nothing. On the runners where
- * this module does any work — the ones whose registry is a single strong `Set` — everything in here
- * is already held there for the worker's life. On Vitest 5 the capture fails by design, so the only
- * entries are the ones a spec named itself through {@link keepMockRegistered}.
+ * Weak: Vitest 5's registry holds `WeakRef`s, and a strong list here kept every `keepMockRegistered`
+ * mock, with all its recorded calls, alive for the worker. The map keyed by the mock is what keeps a record alive.
  */
-let rememberedImplementations: RememberedImplementation[] = [];
+let rememberedImplementations: WeakRef<RememberedImplementation>[] = [];
+let rememberedByMock = new WeakMap<object, RememberedImplementation>();
 
 /** The mocks already considered, so re-marking the same one every file stays a `WeakSet` lookup. */
 let implementationsChecked = new WeakSet<object>();
@@ -123,8 +125,47 @@ let implementationsChecked = new WeakSet<object>();
  * alone, because dropping it turns `vi.clearAllMocks()` into a silent no-op for every spy this
  * library built. See {@link SWEEP_SENTINEL}.
  */
-function isSweepSentinel(mock: unknown): boolean {
+function isSweepSentinel(mock: unknown): mock is object {
   return (typeof mock === 'function' || (typeof mock === 'object' && mock !== null)) && SWEEP_SENTINEL in mock;
+}
+
+/** The sentinel as last seen in the captured registry, so its disappearance can be noticed. */
+let sweepSentinel: object | undefined;
+
+let sentinelLossReported = false;
+
+function noteSweepSentinel(mock: unknown): void {
+  if (isSweepSentinel(mock)) {
+    sweepSentinel = mock;
+  }
+}
+
+/**
+ * Put the sweep sentinel back if something other than this module pruned it, and say so once.
+ *
+ * A hand-written pruner is the usual culprit: it drops every entry it did not see created, the
+ * sentinel included, and `vi.clearAllMocks()` quietly stops clearing this library's spies.
+ */
+export function reinstateSweepSentinel(): boolean {
+  if (!registry || !sweepSentinel || registry.has(sweepSentinel)) {
+    return false;
+  }
+
+  registry.add(sweepSentinel);
+
+  if (!sentinelLossReported) {
+    sentinelLossReported = true;
+    libraryWarn(
+      withDocs(
+        "[vitest-auto-spy] Something removed this library's sweep mock from Vitest's mock registry — most likely a hand-written registry " +
+          'pruner. It has been put back: without it vi.clearAllMocks() and clearMocks: true stop clearing every spy this library builds.\n' +
+          "Make the pruner keep any entry that carries Symbol.for('vitest-auto-spy.sweepSentinel'), or use setupAutoSpy({ pruneMockRegistry: true }).",
+        DOCS_LINKS.setup,
+      ),
+    );
+  }
+
+  return true;
 }
 
 /** Whether a value can be a `WeakSet` key, which every mock is (they are functions). */
@@ -165,7 +206,10 @@ function rememberImplementation(mock: object): void {
   const implementation: unknown = mock.getMockImplementation();
 
   if (isMockImplementation(implementation)) {
-    rememberedImplementations.push({ mock, implementation });
+    const remembered: RememberedImplementation = { mock, implementation };
+
+    rememberedByMock.set(mock, remembered);
+    rememberedImplementations.push(new WeakRef(remembered));
   }
 }
 
@@ -176,7 +220,7 @@ function rememberImplementation(mock: object): void {
  * Called once per worker: a second call hands back the first result, including a failed one.
  *
  * The capture clears every mock's recorded calls as a side effect, because `vi.clearAllMocks()` is
- * what makes the set iterate. That is why {@link trackMockRegistry} does it in `beforeAll`, where
+ * what makes the set iterate. That is why {@link trackMockRegistry} does it at setup time, where
  * no test has recorded anything yet.
  */
 export function captureMockRegistry(): Set<unknown> | undefined {
@@ -251,13 +295,24 @@ export function keepMockRegistered<T>(mock: T): T {
  */
 export function restoreLongLivedImplementations(): number {
   let restored = 0;
+  const alive: WeakRef<RememberedImplementation>[] = [];
 
-  for (const remembered of rememberedImplementations) {
+  for (const ref of rememberedImplementations) {
+    const remembered = ref.deref();
+
+    if (remembered === undefined) {
+      continue;
+    }
+
+    alive.push(ref);
+
     if (remembered.mock.getMockImplementation() === undefined) {
       remembered.mock.mockImplementation(remembered.implementation);
       restored += 1;
     }
   }
+
+  rememberedImplementations = alive;
 
   return restored;
 }
@@ -270,6 +325,7 @@ export function restoreLongLivedImplementations(): number {
  */
 export function keepRegisteredMocks(): void {
   registry?.forEach((mock) => {
+    noteSweepSentinel(mock);
     keepMockRegistered(mock);
   });
 }
@@ -288,6 +344,7 @@ export function pruneMockRegistry(): number {
 
   for (const mock of registry) {
     if (isSweepSentinel(mock)) {
+      sweepSentinel = mock;
       continue;
     }
 
@@ -315,12 +372,18 @@ export function pruneMockRegistry(): number {
  * without the rest.
  */
 export function trackMockRegistry(): void {
+  // Vitest 5 has no growing registry and the capture fails there by design: no hook to pay per test.
+  if (!captureMockRegistry()) {
+    return;
+  }
+
   beforeAll(() => {
-    captureMockRegistry();
+    reinstateSweepSentinel();
     keepRegisteredMocks();
   });
 
   beforeEach(() => {
+    reinstateSweepSentinel();
     restoreLongLivedImplementations();
   });
 
@@ -343,7 +406,10 @@ export function getMockRegistrySize(): number | undefined {
 export function resetMockRegistryTracking(): void {
   registry = undefined;
   captureAttempted = false;
+  sweepSentinel = undefined;
+  sentinelLossReported = false;
   longLived = new WeakSet<object>();
   rememberedImplementations = [];
+  rememberedByMock = new WeakMap<object, RememberedImplementation>();
   implementationsChecked = new WeakSet<object>();
 }
