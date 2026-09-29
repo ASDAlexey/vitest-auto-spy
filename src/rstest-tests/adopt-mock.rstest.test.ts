@@ -4,7 +4,7 @@
  */
 import { describe, expect, it, rstest } from '@rstest/core';
 
-import { adoptMock } from '../rstest';
+import { adoptMock, moduleNamespace } from '../rstest';
 
 describe('adoptMock on Rstest', () => {
   it('takes over a mock in place, keeping its calls and its implementation', () => {
@@ -30,5 +30,27 @@ describe('adoptMock on Rstest', () => {
     rstest.resetAllMocks();
 
     expect(load(1)).toBe('one');
+  });
+
+  it('runs the kept implementation and a passthrough export with the receiver of the call', () => {
+    const label = rstest.fn(function label(this: { name: string }): string {
+      return this.name;
+    });
+
+    adoptMock(label);
+
+    const namespace = moduleNamespace(
+      {
+        shout(this: { name: string }): string {
+          return this.name.toUpperCase();
+        },
+      },
+      { passthrough: true },
+    );
+
+    const ada = { name: 'ada', label };
+
+    expect(ada.label()).toBe('ada');
+    expect(namespace.shout.call({ name: 'ada' })).toBe('ADA');
   });
 });
