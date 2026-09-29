@@ -117,7 +117,7 @@ describe('moduleNamespace', () => {
 
   it('keeps a default the factory spelled out, which is the module shape that fails without it', () => {
     const stub = vi.fn(() => 'formatted');
-    const namespace = moduleNamespace({ default: stub, isDayjs: vi.fn() });
+    const namespace = moduleNamespace({ default: stub, isDayjs: (): boolean => false });
 
     // `vi.mock('dayjs', () => moduleNamespace({ default: dayjsStub }))`: the dependency probes
     // `mod.default ?? mod` and used to be handed the namespace object, so `default(…)` threw.
@@ -136,6 +136,7 @@ describe('moduleNamespace', () => {
 
     // Both halves matter: Vitest's own guard asks `in`, and the code under test then reads the key.
     expect('TextDisplayer' in namespace).toBe(true);
+    // eslint-disable-next-line vitest-auto-spy/no-reflect-member-access -- an export the factory never declared is what this test reads
     expect(Reflect.get(namespace, 'TextDisplayer')).toBeUndefined();
     expect(namespace.__esModule).toBe(true);
   });
@@ -170,6 +171,19 @@ describe('moduleNamespace with passthrough', () => {
     adoptMock(namespace.format).calledWith(2).mockReturnValue('two');
 
     expect(namespace.format(2)).toBe('two');
+  });
+
+  it('runs the real function with the receiver it was called on', () => {
+    const counter = {
+      count: 2,
+      next(this: { count: number }): number {
+        return this.count + 1;
+      },
+    };
+    const namespace = moduleNamespace(counter, { passthrough: true });
+
+    expect(namespace.next()).toBe(3);
+    expect(namespace.next.call({ count: 9 })).toBe(10);
   });
 
   it('leaves values and classes as they are, and the module it was given untouched', () => {

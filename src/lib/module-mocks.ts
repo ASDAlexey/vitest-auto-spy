@@ -182,11 +182,13 @@ function spyThrough<T extends object>(exports: T): T {
 
   Object.entries(spied).forEach(([name, value]: [string, unknown]) => {
     if (isPlainFunction(value)) {
-      Reflect.set(
-        spied,
-        name,
-        createFunctionSpy(name, { className: undefined, handle: (call) => Reflect.apply(value, undefined, call.args) }),
-      );
+      const spy: Func = createFunctionSpy(name, {
+        className: undefined,
+        receiver: true,
+        handle: (call, receiver) => Reflect.apply(value, receiver, call.args),
+      });
+
+      Reflect.set(spied, name, spy);
     }
   });
 
