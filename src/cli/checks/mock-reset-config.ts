@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 import { readTextFile } from '../fs-scan';
 import type { Profile } from '../profile';
 import type { Finding } from '../report';
-import type { SourceGraph } from './graph';
+import { type SourceGraph, type TextPass, inOnePass } from './graph';
 import { type Span, isInsideLiteral, literalSpans } from './literals';
 
 const RULE_KEY = /["'][\w/@-]*\/no-redundant-mock-reset["']\s*:\s*\[/g;
@@ -52,6 +52,10 @@ function inCode(spans: readonly Span[], match: RegExpExecArray, base: number): b
 
 /** The `configFile` of each rule entry that writes no flag beside it. */
 export function unflaggedConfigFiles(text: string): string[] {
+  if (!text.includes('no-redundant-mock-reset')) {
+    return [];
+  }
+
   const spans = literalSpans(text);
   const found: string[] = [];
 
@@ -85,9 +89,12 @@ export function unreadableCallee(configText: string): string | undefined {
 }
 
 export function checkMockResetConfig(profile: Profile, graph: SourceGraph): Finding[] {
-  const findings: Finding[] = [];
+  return inOnePass(graph, [mockResetConfigPass(profile)]);
+}
 
-  for (const [file, text] of graph.texts) {
+export function mockResetConfigPass(profile: Profile): TextPass {
+  const findings: Finding[] = [];
+  const visit = (file: string, text: string): void => {
     for (const configFile of unflaggedConfigFiles(text)) {
       const callee = unreadableCallee(readTextFile(resolve(profile.cwd, configFile)) ?? '');
 
@@ -101,7 +108,7 @@ export function checkMockResetConfig(profile: Profile, graph: SourceGraph): Find
         });
       }
     }
-  }
+  };
 
-  return findings;
+  return { visit, finish: (): Finding[] => findings };
 }

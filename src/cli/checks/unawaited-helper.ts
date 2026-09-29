@@ -13,8 +13,8 @@
 import { findStringEnd } from '../fs-scan';
 import type { Profile } from '../profile';
 import type { Finding } from '../report';
-import { findEntryImports, isAwaitableHelper, scanSources } from './entry-imports';
-import type { SourceGraph } from './graph';
+import { findEntryImports, isAwaitableHelper, sourcesPass } from './entry-imports';
+import { type SourceGraph, type TextPass, inOnePass } from './graph';
 import { isInsideLiteral, literalSpans } from './literals';
 
 const QUOTES = new Set(["'", '"', '`']);
@@ -108,7 +108,11 @@ export function findUnawaitedSites(source: string, locals: readonly string[]): {
 }
 
 export function checkUnawaitedHelper(profile: Profile, graph: SourceGraph): Finding[] {
-  return scanSources(profile, graph, (file, text, report) => {
+  return inOnePass(graph, [unawaitedHelperPass(profile)]);
+}
+
+export function unawaitedHelperPass(profile: Profile): TextPass | undefined {
+  return sourcesPass(profile, (file, text, report) => {
     const lines = new Map<string, number[]>();
 
     for (const { local, line } of findUnawaitedSites(text, awaitableLocals(text))) {

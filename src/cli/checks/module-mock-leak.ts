@@ -12,7 +12,7 @@ import { posix } from 'node:path';
 import { readTextFile } from '../fs-scan';
 import type { Profile } from '../profile';
 import type { Finding } from '../report';
-import { type SourceGraph, isSpecFile, resolveRelative } from './graph';
+import { type SourceGraph, type TextPass, inOnePass, isSpecFile, resolveRelative } from './graph';
 import { isInsideLiteral, literalSpans } from './literals';
 import { isolationFromAngularBuilder } from './runner-isolation';
 import { unitTestTargets } from './unit-test-targets';
@@ -65,18 +65,21 @@ function listFiles(files: readonly string[]): string {
 }
 
 export function checkModuleMockLeak(profile: Profile, graph: SourceGraph): Finding[] {
+  return inOnePass(graph, [moduleMockLeakPass(profile)]);
+}
+
+export function moduleMockLeakPass(profile: Profile): TextPass | undefined {
   const source = sharedEnvironmentSource(profile);
 
   if (source === undefined) {
-    return [];
+    return undefined;
   }
 
   const known = new Set(profile.files);
   const byModule = new Map<string, Map<MockKind, { file: string; specifier: string }[]>>();
-
-  for (const [file, text] of graph.texts) {
+  const visit = (file: string, text: string): void => {
     if (!isSpecFile(file)) {
-      continue;
+      return;
     }
 
     for (const { specifier, kind } of mockCalls(text)) {
@@ -86,8 +89,15 @@ export function checkModuleMockLeak(profile: Profile, graph: SourceGraph): Findi
       kinds.set(kind, [...(kinds.get(kind) ?? []), { file, specifier }]);
       byModule.set(key, kinds);
     }
-  }
+  };
 
+  return { visit, finish: (): Finding[] => leaks(byModule, source) };
+}
+
+function leaks(
+  byModule: ReadonlyMap<string, ReadonlyMap<MockKind, readonly { file: string; specifier: string }[]>>,
+  source: string,
+): Finding[] {
   return [...byModule].flatMap(([module, kinds]) => {
     const factories = (kinds.get('factory') ?? []).map((entry) => entry.file);
 

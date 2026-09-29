@@ -12,8 +12,9 @@ import { dirname, join } from 'node:path';
 import { captures, parseJsonc, readTextFile } from '../fs-scan';
 import { type Profile, isRecord } from '../profile';
 import type { Finding } from '../report';
+import { ownPackageRoot, versionFrom } from '../self';
 import { AWAITABLE_HELPERS, ENTRY_SPECIFIERS, EXPORTED_BY, EXPORT_MAP_VERSION } from './export-map.generated';
-import type { SourceGraph } from './graph';
+import type { TextPass } from './graph';
 import { isInsideLiteral, literalSpans } from './literals';
 
 const PACKAGE = 'vitest-auto-spy';
@@ -218,24 +219,33 @@ export function installedEntries(directory: string): ReadonlySet<string> | undef
  * normally run from the installed package, and staying silent because one lockfile is unusual is the
  * worse mistake.
  */
-export function tableApplies(cwd: string): boolean {
+export function tableApplies(cwd: string, own: string = tableVersion()): boolean {
   const installed = installedVersion(cwd);
   const theirs = installed === undefined ? undefined : majorOf(installed);
 
-  return theirs === undefined || theirs === majorOf(EXPORT_MAP_VERSION);
+  return theirs === undefined || theirs === majorOf(own);
+}
+
+/**
+ * The running package's own manifest first: a release builds `dist/cli.js` before `npm version`
+ * regenerates the table, so the shipped `EXPORT_MAP_VERSION` is the previous version.
+ */
+export function tableVersion(findRoot: () => string | undefined = ownPackageRoot): string {
+  const root = findRoot();
+
+  return root === undefined ? EXPORT_MAP_VERSION : versionFrom(root);
 }
 
 /**
  * The shape every text-scanning check shares: say nothing where the table does not apply, then walk
  * the graph once, collecting what `visit` reports.
  */
-export function scanSources(
+export function sourcesPass(
   profile: Profile,
-  graph: SourceGraph,
   visit: (file: string, text: string, report: (finding: Finding) => void) => void,
-): Finding[] {
+): TextPass | undefined {
   if (!tableApplies(profile.cwd)) {
-    return [];
+    return undefined;
   }
 
   const findings: Finding[] = [];
@@ -243,9 +253,5 @@ export function scanSources(
     findings.push(finding);
   };
 
-  for (const [file, text] of graph.texts) {
-    visit(file, text, report);
-  }
-
-  return findings;
+  return { visit: (file, text): void => visit(file, text, report), finish: (): Finding[] => findings };
 }

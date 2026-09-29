@@ -11,8 +11,8 @@
  */
 import type { Profile } from '../profile';
 import type { Finding } from '../report';
-import type { SourceGraph } from './graph';
-import { isInsideLiteral, literalSpans } from './literals';
+import { type SourceGraph, type TextPass, inOnePass } from './graph';
+import { codeMatches } from './literals';
 import { unitTestTargets } from './unit-test-targets';
 import { type ConfigKey, declaredVitestMajor, isKey, isTrue, passesFlag, runnerConfigKeys, vitestScripts } from './vitest-5-facts';
 
@@ -65,46 +65,38 @@ function removed(major: number, file: string, subject: string, effect: string, f
   };
 }
 
-function codeMatches(text: string, pattern: RegExp): RegExpExecArray[] {
-  const spans = literalSpans(text);
-
-  return [...text.matchAll(pattern)].filter((match) => !isInsideLiteral(spans, match.index));
-}
-
 const lineOf = (text: string, offset: number): number => text.slice(0, offset).split('\n').length;
 
-function removedInSources(major: number, graph: SourceGraph): Finding[] {
+function removedInSource(major: number, file: string, text: string): Finding[] {
   const findings: Finding[] = [];
 
-  for (const [file, text] of graph.texts) {
-    for (const entry of new Set(codeMatches(text, REMOVED_IMPORT).map((match) => String(match[1])))) {
-      findings.push(
-        removed(
-          major,
-          file,
-          `Imports \`vitest/${entry}\``,
-          'the specifier stops resolving, for the runner and for `tsc` alike',
-          String(REMOVED_ENTRIES[entry]),
-        ),
-      );
-    }
+  for (const entry of new Set(codeMatches(text, REMOVED_IMPORT).map((match) => String(match[1])))) {
+    findings.push(
+      removed(
+        major,
+        file,
+        `Imports \`vitest/${entry}\``,
+        'the specifier stops resolving, for the runner and for `tsc` alike',
+        String(REMOVED_ENTRIES[entry]),
+      ),
+    );
+  }
 
-    const chains = codeMatches(text, SEQUENTIAL);
+  const chains = codeMatches(text, SEQUENTIAL);
 
-    if (chains.length > 0) {
-      const forms = [...new Set(chains.map((match) => `\`${match[0]}\``))].join(', ');
-      const lines = chains.map((match) => lineOf(text, match.index));
+  if (chains.length > 0) {
+    const forms = [...new Set(chains.map((match) => `\`${match[0]}\``))].join(', ');
+    const lines = chains.map((match) => lineOf(text, match.index));
 
-      findings.push(
-        removed(
-          major,
-          file,
-          `Calls ${forms} (${lines.length === 1 ? 'line' : 'lines'} ${lines.join(', ')})`,
-          'collecting the file throws `TypeError: … is not a function`',
-          'Drop `.sequential`. Where a suite or the config runs tests concurrently, pass `{ concurrent: false }` to opt this one out; the option works on Vitest 4 already.',
-        ),
-      );
-    }
+    findings.push(
+      removed(
+        major,
+        file,
+        `Calls ${forms} (${lines.length === 1 ? 'line' : 'lines'} ${lines.join(', ')})`,
+        'collecting the file throws `TypeError: … is not a function`',
+        'Drop `.sequential`. Where a suite or the config runs tests concurrently, pass `{ concurrent: false }` to opt this one out; the option works on Vitest 4 already.',
+      ),
+    );
   }
 
   return findings;
@@ -151,38 +143,46 @@ function removedInConfigs(major: number, keys: readonly ConfigKey[]): Finding[] 
   return findings;
 }
 
-function renamedApis(graph: SourceGraph): Finding[] {
-  const findings: Finding[] = [];
-
-  for (const [file, text] of graph.texts) {
-    for (const name of new Set(codeMatches(text, RENAMED_API).map((match) => String(match[1])))) {
-      findings.push({
-        check: 'vitest-5-deprecated',
-        severity: 'info',
-        file,
-        message: `Calls \`${name}\`, which Vitest 5 deprecated without a warning at run time: only the type says so.`,
-        fix: `Call \`${String(RENAMED_APIS[name])}\` instead; it takes the same arguments.`,
-      });
-    }
-  }
-
-  return findings;
+function renamedIn(file: string, text: string): Finding[] {
+  return [...new Set(codeMatches(text, RENAMED_API).map((match) => String(match[1])))].map((name) => ({
+    check: 'vitest-5-deprecated',
+    severity: 'info',
+    file,
+    message: `Calls \`${name}\`, which Vitest 5 deprecated without a warning at run time: only the type says so.`,
+    fix: `Call \`${String(RENAMED_APIS[name])}\` instead; it takes the same arguments.`,
+  }));
 }
 
 /** `vitest-5-removed` and, on Vitest 5, `vitest-5-deprecated`. */
 export function checkVitest5Removed(profile: Profile, graph: SourceGraph): Finding[] {
+  return inOnePass(graph, [vitest5RemovedPass(profile, graph)]);
+}
+
+export function vitest5RemovedPass(profile: Profile, graph: SourceGraph): TextPass | undefined {
   const major = declaredVitestMajor(profile);
 
   if (major === undefined || major < FIRST_POOL_REWORK) {
-    return [];
+    return undefined;
   }
 
-  return [
-    ...removedInSources(major, graph),
-    ...removedInScripts(major, profile),
-    ...removedInConfigs(major, runnerConfigKeys(graph)),
-    ...(major >= FIRST_REMOVING ? renamedApis(graph) : []),
-  ];
+  const inSources: Finding[] = [];
+  const renamed: Finding[] = [];
+
+  return {
+    visit: (file, text): void => {
+      inSources.push(...removedInSource(major, file, text));
+
+      if (major >= FIRST_REMOVING) {
+        renamed.push(...renamedIn(file, text));
+      }
+    },
+    finish: (): Finding[] => [
+      ...inSources,
+      ...removedInScripts(major, profile),
+      ...removedInConfigs(major, runnerConfigKeys(graph)),
+      ...renamed,
+    ],
+  };
 }
 
 const CLEAR_MOCKS_ON_BY_DEFAULT = 5;

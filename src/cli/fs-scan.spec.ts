@@ -1,6 +1,7 @@
 /**
  * The one module that touches `node:fs`, so the one module whose specs need real inodes.
  */
+import { chmodSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -270,6 +271,25 @@ describe('single-path helpers', () => {
     expect(pathExists(target)).toBe(false);
   });
 
+  it('replaces a file whole and leaves no temporary file behind', () => {
+    const root = createTempRepo({ 'script.sh': 'old' });
+    const target = join(root, 'script.sh');
+
+    chmodSync(target, 0o755);
+    writeTextFile(target, 'new');
+
+    expect(readTextFile(target)).toBe('new');
+    expect(statSync(target).mode & 0o777).toBe(0o755);
+    expect(readdirSync(root)).toEqual(['script.sh']);
+  });
+
+  it('removes the temporary file when the rename fails', () => {
+    const root = createTempRepo({ 'taken/inner.txt': 'x' });
+
+    expect(() => writeTextFile(join(root, 'taken'), 'text')).toThrow();
+    expect(readdirSync(root)).toEqual(['taken']);
+  });
+
   it('normalises a native path to POSIX', () => {
     expect(toPosix(join('a', 'b', 'c.ts'))).toBe('a/b/c.ts');
   });
@@ -299,5 +319,22 @@ describe('parseJsonc', () => {
 
   it('returns undefined rather than throwing on malformed text', () => {
     expect(parseJsonc('{ not json')).toBeUndefined();
+  });
+
+  it('leaves a comma before a bracket inside a string value alone', () => {
+    expect(parseJsonc('{ "pattern": "a,]b,}c", "list": ["x,]",] }')).toEqual({ pattern: 'a,]b,}c', list: ['x,]'] });
+  });
+
+  it('drops a trailing comma with a comment between it and the bracket', () => {
+    expect(parseJsonc('{ "a": [1, /* last */\n], "b": 2, // end\n}')).toEqual({ a: [1], b: 2 });
+  });
+
+  it('stays linear on a large document', () => {
+    const entries = Array.from({ length: 200_000 }, (_, index) => `"k${index}": "v, ] // ${index}", // note\n`).join('');
+    const started = performance.now();
+    const parsed = parseJsonc(`{ ${entries} }`) as Record<string, string>;
+
+    expect(parsed['k199999']).toBe('v, ] // 199999');
+    expect(performance.now() - started).toBeLessThan(5_000);
   });
 });

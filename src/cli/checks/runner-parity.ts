@@ -11,10 +11,10 @@ import type { Finding } from '../report';
 import { closingIndex } from './analog-fast-compile';
 import { namedTargets } from './angular-build';
 import { type TargetConfig, builderTargets } from './builder-speed';
-import type { SourceGraph } from './graph';
+import { type SourceGraph, type TextPass, inOnePass } from './graph';
 import { isInsideLiteral, literalSpans } from './literals';
 import { unitTestTargets } from './unit-test-targets';
-import { configKeys, installedVersionOf, isKey, stringValue } from './vitest-5-facts';
+import { configKeys, installedVersionOf, isKey, stringValue, textsOf } from './vitest-5-facts';
 
 /** The configs `vitest run` and the IDE discover on their own; `vitest-base.config.*` is the builder's. */
 const DISCOVERED_CONFIG = /^vite(?:st)?\.config\.[cm]?[jt]s$/;
@@ -43,11 +43,7 @@ export function checkRunnerDom(profile: Profile, graph: SourceGraph): Finding[] 
   const builderConfigs = new Set(targets.map(({ config }) => config));
   const onHappyDom = targets.filter(builderRunsHappyDom);
 
-  return [...graph.texts].flatMap(([file, text]) => {
-    if (!DISCOVERED_CONFIG.test(posix.basename(file)) || builderConfigs.has(file)) {
-      return [];
-    }
-
+  return textsOf(graph, (file) => DISCOVERED_CONFIG.test(posix.basename(file)) && !builderConfigs.has(file)).flatMap(({ file, text }) => {
     const jsdom = configKeys(file, text).some((key) => isKey(key, 'environment') && stringValue(key) === 'jsdom');
     const dir = posix.dirname(file) === '.' ? '' : posix.dirname(file);
     const affected = jsdom ? onHappyDom.filter(({ target }) => covers(dir, target.root)) : [];
@@ -104,14 +100,19 @@ function unsetFlags(text: string, name: string): string[] | undefined {
 }
 
 export function checkAnalogTestBed(profile: Profile, graph: SourceGraph): Finding[] {
+  return inOnePass(graph, [analogTestBedPass(profile)]);
+}
+
+export function analogTestBedPass(profile: Profile): TextPass | undefined {
   const targets = unitTestTargets(profile);
   const [first] = targets;
 
   if (first === undefined) {
-    return [];
+    return undefined;
   }
 
-  return [...graph.texts].flatMap(([file, text]) => {
+  const findings: Finding[] = [];
+  const laxerIn = (file: string, text: string): Finding[] => {
     const name = localName(text);
     const unset = name === undefined ? undefined : unsetFlags(text, name);
 
@@ -134,5 +135,12 @@ export function checkAnalogTestBed(profile: Profile, graph: SourceGraph): Findin
         fix,
       },
     ];
-  });
+  };
+
+  return {
+    visit: (file, text): void => {
+      findings.push(...laxerIn(file, text));
+    },
+    finish: (): Finding[] => findings,
+  };
 }

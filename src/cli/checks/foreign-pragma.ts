@@ -1,13 +1,12 @@
 /**
  * A foreign runner's docblock pragma left in a spec.
  *
- * Vitest does not read `@jest-environment`; the environment comes from the config. The comment
- * therefore looks operative, is not, and nothing ever contradicts it — a spec annotated
- * `@jest-environment node` runs in whatever the config says, jsdom included.
+ * Vitest 5 and Rstest read `@jest-environment <name>` and `@jest-environment-options` as they read
+ * their own spelling, so those are only reported as info. `@jest-config`, and `@jest-environment`
+ * with no name, look operative and are read by neither.
  */
 import type { Finding } from '../report';
-import type { SourceGraph } from './graph';
-import { isSpecFile } from './graph';
+import { type SourceGraph, type TextPass, inOnePass, isSpecFile } from './graph';
 
 const PRAGMA = /@jest-(?:environment-options|environment|config)\b/g;
 
@@ -45,24 +44,41 @@ function linesOf(lines: readonly number[]): string {
   return lines.length === 1 ? `Line ${lines[0]}` : `Lines ${lines.join(', ')}`;
 }
 
-export function checkForeignPragma(graph: SourceGraph): Finding[] {
-  const findings: Finding[] = [];
+function findingFor({ pragma, value, lines }: PragmaSite): Pick<Finding, 'fix' | 'message' | 'severity'> {
+  const where = linesOf(lines);
 
-  for (const [file, text] of graph.texts) {
-    if (!isSpecFile(file)) {
-      continue;
-    }
-
-    for (const { pragma, value, lines } of pragmaSites(text)) {
-      findings.push({
-        check: 'foreign-runner-pragma',
-        severity: 'warning',
-        file,
-        message: `${linesOf(lines)}: \`${pragma}${value === undefined ? '' : ` ${value}`}\` is a Jest docblock pragma, which this runner never reads.`,
-        fix: value === undefined ? 'Delete it: the runner config decides this.' : `Write \`@vitest-environment ${value}\` instead.`,
-      });
-    }
+  if (pragma === '@jest-config' || (pragma === '@jest-environment' && value === undefined)) {
+    return {
+      severity: 'warning',
+      message: `${where}: \`${pragma}\` is a Jest docblock pragma, which Vitest never reads.`,
+      fix: 'Delete it: the runner config decides this.',
+    };
   }
 
-  return findings;
+  const spelled = value === undefined ? pragma : `${pragma} ${value}`;
+
+  return {
+    severity: 'info',
+    message: `${where}: \`${spelled}\` is the Jest spelling of a Vitest pragma. Vitest reads it as well, so it works, but it reads as a leftover of a migration.`,
+    fix: `Write \`${spelled.replace('@jest-', '@vitest-')}\` instead.`,
+  };
+}
+
+export function checkForeignPragma(graph: SourceGraph): Finding[] {
+  return inOnePass(graph, [foreignPragmaPass()]);
+}
+
+export function foreignPragmaPass(): TextPass {
+  const findings: Finding[] = [];
+
+  return {
+    visit: (file, text): void => {
+      if (isSpecFile(file)) {
+        for (const site of pragmaSites(text)) {
+          findings.push({ check: 'foreign-runner-pragma', file, ...findingFor(site) });
+        }
+      }
+    },
+    finish: (): Finding[] => findings,
+  };
 }

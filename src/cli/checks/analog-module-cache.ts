@@ -6,9 +6,9 @@
  */
 import type { Profile } from '../profile';
 import type { Finding } from '../report';
-import { type SourceGraph, extractSpecifiers } from './graph';
-import { configKeys, declaredVitestMajor, installedVersionOf, isBelow, isKey, isRunnerConfig } from './vitest-5-facts';
-import { moduleCacheSetting } from './vitest-5-upgrade';
+import { type SourceGraph, type TextPass, extractSpecifiers, inOnePass } from './graph';
+import { configKeys, declaredVitestMajor, installedVersionOf, isBelow, isKey, isRunnerConfig, textsOf } from './vitest-5-facts';
+import { type CacheSetting, moduleCacheSetting } from './vitest-5-upgrade';
 
 const ANALOG_PACKAGES = new Set(['@analogjs/vite-plugin-angular', '@analogjs/vitest-angular']);
 const ANALOG_PLUGIN = '@analogjs/vite-plugin-angular';
@@ -28,38 +28,50 @@ function hasInlineStyles(text: string): boolean {
 }
 
 function analogConfig(graph: SourceGraph): string | undefined {
-  return [...graph.texts].find(([file, text]) => {
-    if (!isRunnerConfig(file) || !extractSpecifiers(text).some((specifier) => ANALOG_PACKAGES.has(specifier))) {
-      return false;
-    }
-
-    return !configKeys(file, text).some((key) => isKey(key, 'jit') && /^false\b/.test(key.value));
-  })?.[0];
+  return textsOf(graph, isRunnerConfig).find(
+    ({ file, text }) =>
+      extractSpecifiers(text).some((specifier) => ANALOG_PACKAGES.has(specifier)) &&
+      !configKeys(file, text).some((key) => isKey(key, 'jit') && /^false\b/.test(key.value)),
+  )?.file;
 }
 
 export function checkAnalogModuleCache(profile: Profile, graph: SourceGraph): Finding[] {
+  return inOnePass(graph, [analogModuleCachePass(profile, graph)]);
+}
+
+export function analogModuleCachePass(profile: Profile, graph: SourceGraph): TextPass | undefined {
   const major = declaredVitestMajor(profile);
   const analog = installedVersionOf(profile.cwd, ANALOG_PLUGIN);
   const config = analogConfig(graph);
 
   if (major === undefined || major < 4 || config === undefined || !isBelow(analog, ANALOG_CACHE_FIXED_IN)) {
-    return [];
+    return undefined;
   }
 
   const setting = moduleCacheSetting(profile, graph, major);
-  const styled = [...graph.texts].find(([, text]) => hasInlineStyles(text))?.[0];
 
-  if (setting === undefined || styled === undefined) {
-    return [];
+  if (setting === undefined) {
+    return undefined;
   }
 
-  return [
-    {
-      check: 'analog-module-cache-inline-styles',
-      severity: 'warning',
-      file: setting.file,
-      message: `\`fsModuleCache\` is on for a suite that ${config} runs through ${ANALOG_PLUGIN} ${String(analog)} in JIT mode, and ${styled} declares inline component \`styles\`: the first run passes and fills the cache, and every run after it fails the specs that reach such a component with \`Cannot find module '/@id/__x00__virtual:angular:jit:style:inline;<hash>'\`. Verified on Analog 2.7.5, Angular 22.2 and Vitest 5.0.0.`,
-      fix: `Turn \`fsModuleCache\` off in ${setting.file} while the suite runs through Analog. \`@angular/build:unit-test\` has no such break: it bundles the code before Vitest sees it.`,
+  let styled: string | undefined;
+
+  return {
+    visit: (file, text): void => {
+      if (styled === undefined && hasInlineStyles(text)) {
+        styled = file;
+      }
     },
-  ];
+    finish: (): Finding[] => (styled === undefined ? [] : [inlineStylesFinding(setting, config, analog, styled)]),
+  };
+}
+
+function inlineStylesFinding(setting: CacheSetting, config: string, analog: string | undefined, styled: string): Finding {
+  return {
+    check: 'analog-module-cache-inline-styles',
+    severity: 'warning',
+    file: setting.file,
+    message: `\`fsModuleCache\` is on for a suite that ${config} runs through ${ANALOG_PLUGIN} ${String(analog)} in JIT mode, and ${styled} declares inline component \`styles\`: the first run passes and fills the cache, and every run after it fails the specs that reach such a component with \`Cannot find module '/@id/__x00__virtual:angular:jit:style:inline;<hash>'\`. Verified on Analog 2.7.5, Angular 22.2 and Vitest 5.0.0.`,
+    fix: `Turn \`fsModuleCache\` off in ${setting.file} while the suite runs through Analog. \`@angular/build:unit-test\` has no such break: it bundles the code before Vitest sees it.`,
+  };
 }

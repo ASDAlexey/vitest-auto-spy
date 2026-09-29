@@ -1,7 +1,7 @@
 // Analog's JIT fastCompile keeps `@Injectable` on the class but emits no `ctorParameters` for it
 // (2.7.5, 2.8.0-beta.12, main), so any constructor parameter there becomes NG0202 at inject time.
 import type { Finding } from '../report';
-import type { SourceGraph } from './graph';
+import { type SourceGraph, type TextPass, inOnePass } from './graph';
 import { type Span, isInsideLiteral, literalSpans } from './literals';
 import { isKey, isRunnerConfig, runnerConfigKeys } from './vitest-5-facts';
 
@@ -158,14 +158,29 @@ export function fastCompileConfigs(graph: SourceGraph): string[] {
 }
 
 export function checkAnalogFastCompile(graph: SourceGraph): Finding[] {
-  const configs = fastCompileConfigs(graph);
-  const classes =
-    configs.length === 0
-      ? []
-      : [...graph.texts]
-          .filter(([file]) => !isRunnerConfig(file))
-          .flatMap(([file, text]) => constructorInjectedClasses(text).map((name) => `${file}: ${name}`));
+  return inOnePass(graph, [analogFastCompilePass(graph)]);
+}
 
+export function analogFastCompilePass(graph: SourceGraph): TextPass | undefined {
+  const configs = fastCompileConfigs(graph);
+
+  if (configs.length === 0) {
+    return undefined;
+  }
+
+  const classes: string[] = [];
+
+  return {
+    visit: (file, text): void => {
+      if (!isRunnerConfig(file)) {
+        classes.push(...constructorInjectedClasses(text).map((name) => `${file}: ${name}`));
+      }
+    },
+    finish: (): Finding[] => fastCompileFindings(configs, classes),
+  };
+}
+
+function fastCompileFindings(configs: readonly string[], classes: readonly string[]): Finding[] {
   if (classes.length === 0) {
     return [];
   }

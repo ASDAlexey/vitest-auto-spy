@@ -16,8 +16,8 @@ import { dirname, join } from 'node:path';
 
 import type { Profile } from '../profile';
 import type { Finding } from '../report';
-import { entryExports, findEntryImports, installedEntries, ownersOf, scanSources } from './entry-imports';
-import type { SourceGraph } from './graph';
+import { entryExports, findEntryImports, installedEntries, ownersOf, sourcesPass } from './entry-imports';
+import { type SourceGraph, type TextPass, inOnePass } from './graph';
 
 /**
  * `provideAutoSpy` exists in five entries, one implementation each, so the raw owner list is a menu
@@ -50,7 +50,11 @@ function publishedOwners(profile: Profile, file: string, name: string): readonly
 }
 
 export function checkHelperEntry(profile: Profile, graph: SourceGraph): Finding[] {
-  return scanSources(profile, graph, (file, text, report) => {
+  return inOnePass(graph, [helperEntryPass(profile)]);
+}
+
+export function helperEntryPass(profile: Profile): TextPass | undefined {
+  return sourcesPass(profile, (file, text, report) => {
     for (const { entry, name } of findEntryImports(text)) {
       const exported = entryExports(entry);
       const owners = exported === undefined || exported.has(name) ? [] : candidates(publishedOwners(profile, file, name), profile.entry);

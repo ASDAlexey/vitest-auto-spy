@@ -105,7 +105,7 @@ const DOM_FREE_SUBPATHS = new Set([
 ]);
 
 /** A file that already declares an environment is not this rule's to move. */
-const DECLARED_ENVIRONMENT = /@vitest-environment\s+\S+/;
+const DECLARED_ENVIRONMENT = /@(?:vitest|jest)-environment\s+[\w-]+/;
 
 /** The rule `perf-environment` applies, as the CLI docs state it. */
 export const DOM_FREE_RULE = `a spec is listed only when it, the configured setup files and every repository module any of them imports were read and none of them mentions a DOM name (document, window, HTML*, *Event, TestBed, …), and every package they import is one of: ${DOM_FREE_PACKAGES.join(', ')}`;
@@ -246,7 +246,7 @@ export function findDomFreeSpecs(profile: Profile, graph: SourceGraph): DomFreeS
 
   // Over `texts` rather than `sources`: a file that could not be read cannot be proved clean, so
   // counting it as undecided and counting it as absent are the same answer.
-  const candidates = [...graph.texts].filter(([file, text]) => isSpecFile(file) && !DECLARED_ENVIRONMENT.test(text)).map(([file]) => file);
+  const candidates = Array.from(graph.texts, ([file, text]) => (isSpecFile(file) && !DECLARED_ENVIRONMENT.test(text) ? [file] : [])).flat();
   // The setup files run for every spec, so they are part of every spec's reach. A setup file that
   // builds a TestBed is why a spec that never touches the DOM itself still cannot move.
   const setup = profile.setupFiles.map((entry) => entry.replace(/^\.\//, ''));
