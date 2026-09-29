@@ -9,6 +9,7 @@ import { hasRootConfig } from './perf-harness';
 import { checkVitest5ClearMocks, checkVitest5Removed } from './vitest-5';
 import { ciConfigs, configKeys, declaredVitestMajor, installedVersionOf, isBelow, passesFlag, stringValue } from './vitest-5-facts';
 import { cachesPath, checkModuleCachePersisted, checkVitest5Available, lowestVersion } from './vitest-5-upgrade';
+import { REMOVED_ON_VITEST_5 } from './vitest-5.mock';
 
 afterEach(() => {
   removeTempRepos();
@@ -119,61 +120,7 @@ describe('vitest-5-removed', () => {
   it('reports everything Vitest 5 removed as an error on Vitest 5', () => {
     const findings = removedIn(repo('5.0.2', sources, scripts));
 
-    expect(findings.map(({ severity, file, message }) => [severity, file, message])).toEqual([
-      [
-        'error',
-        'src/a.spec.ts',
-        'Calls `describe.sequential`, `it.sequential` (lines 1, 2), which Vitest 5 removed: collecting the file throws `TypeError: … is not a function`.',
-      ],
-      [
-        'error',
-        'src/b.spec.ts',
-        'Calls `test.skip.sequential` (line 1), which Vitest 5 removed: collecting the file throws `TypeError: … is not a function`.',
-      ],
-      [
-        'error',
-        'src/reporter.ts',
-        'Imports `vitest/reporters`, which Vitest 5 removed: the specifier stops resolving, for the runner and for `tsc` alike.',
-      ],
-      [
-        'error',
-        'src/reporter.ts',
-        'Imports `vitest/coverage`, which Vitest 5 removed: the specifier stops resolving, for the runner and for `tsc` alike.',
-      ],
-      [
-        'error',
-        'src/reporter.ts',
-        'Imports `vitest/environments`, which Vitest 5 removed: the specifier stops resolving, for the runner and for `tsc` alike.',
-      ],
-      [
-        'error',
-        'src/runner.ts',
-        'Imports `vitest/runners`, which Vitest 5 removed: the specifier stops resolving, for the runner and for `tsc` alike.',
-      ],
-      [
-        'error',
-        'src/runner.ts',
-        'Imports `vitest/suite`, which Vitest 5 removed: the specifier stops resolving, for the runner and for `tsc` alike.',
-      ],
-      [
-        'error',
-        'src/runner.ts',
-        'Imports `vitest/mocker`, which Vitest 5 removed: the specifier stops resolving, for the runner and for `tsc` alike.',
-      ],
-      [
-        'error',
-        'package.json',
-        'The `bench` script passes `--outputJson`, which Vitest 5 removed: the command stops with `Unknown option`.',
-      ],
-      ['error', 'package.json', 'The `bench` script passes `--compare`, which Vitest 5 removed: the command stops with `Unknown option`.'],
-      ['error', 'vitest.config.ts', 'Sets `benchmark.outputJson`, which Vitest 5 removed: nothing reads the key, and no warning says so.'],
-      ['error', 'vitest.config.ts', 'Sets `benchmark.compare`, which Vitest 5 removed: nothing reads the key, and no warning says so.'],
-      [
-        'warning',
-        'vitest.config.ts',
-        '`poolOptions` was removed in Vitest 4: Vitest prints one deprecation line and runs without every option inside it, so the pool is configured by the defaults.',
-      ],
-    ]);
+    expect(findings.map(({ severity, file, message }) => [severity, file, message])).toEqual(REMOVED_ON_VITEST_5);
     expect([...new Set(findings.map(({ fix }) => fix))]).toEqual([
       'Drop `.sequential`. Where a suite or the config runs tests concurrently, pass `{ concurrent: false }` to opt this one out; the option works on Vitest 4 already.',
       'Import from `vitest/node` instead; it exports the same names from Vitest 4.1 on.',
