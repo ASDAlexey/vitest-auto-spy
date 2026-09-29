@@ -32,10 +32,11 @@
  * dirty. Reach for {@link runEffect} when a spec needs one specific effect to run right now,
  * typically because its trigger has been replaced with a static signal and it will never be dirty.
  */
-import { type EffectRef, untracked, ɵSIGNAL } from '@angular/core';
+import { type EffectRef, untracked } from '@angular/core';
 
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
+import { readSignalSymbol } from './signal-symbol';
 
 /** The two members of Angular's reactive node this helper needs, in the order its own runner calls them. */
 interface RunnableEffectNode {
@@ -57,8 +58,7 @@ export function readReactiveNode(candidate: unknown): object | undefined {
     return undefined;
   }
 
-  const holder: Partial<Record<symbol, unknown>> = candidate;
-  const node = holder[ɵSIGNAL];
+  const node = readSignalSymbol(candidate);
 
   return typeof node === 'object' && node !== null ? node : undefined;
 }

@@ -2,6 +2,8 @@ import { Component, type EffectRef, computed, effect, signal, ɵSIGNAL } from '@
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { createMock } from './create-mock';
+import { renderShallow } from './render-shallow';
 import { runEffect } from './run-effect';
 import { flushEffects } from './zoneless';
 
@@ -65,7 +67,7 @@ describe('runEffect', () => {
   });
 
   it('runs the previous cleanup before the body, the way the scheduler does', () => {
-    const fixture = TestBed.createComponent(WatcherComponent);
+    const { fixture } = renderShallow(WatcherComponent);
     fixture.detectChanges();
     flushEffects();
 
@@ -81,7 +83,7 @@ describe('runEffect', () => {
   });
 
   it('keeps one registered cleanup on the node rather than one per call', () => {
-    const fixture = TestBed.createComponent(WatcherComponent);
+    const { fixture } = renderShallow(WatcherComponent);
     fixture.detectChanges();
     flushEffects();
 
@@ -92,7 +94,7 @@ describe('runEffect', () => {
   });
 
   it('leaves teardown with a single cleanup to run, not one per call', () => {
-    const fixture = TestBed.createComponent(WatcherComponent);
+    const { fixture } = renderShallow(WatcherComponent);
     fixture.detectChanges();
     flushEffects();
 
@@ -129,7 +131,7 @@ describe('runEffect', () => {
   });
 
   it('refuses an effect whose view has been destroyed', () => {
-    const fixture = TestBed.createComponent(WatcherComponent);
+    const { fixture } = renderShallow(WatcherComponent);
     fixture.detectChanges();
     flushEffects();
 
@@ -162,7 +164,7 @@ describe('runEffect', () => {
   });
 
   it('refuses a view effect that was destroyed on its own, with the view still alive', () => {
-    const fixture = TestBed.createComponent(WatcherComponent);
+    const { fixture } = renderShallow(WatcherComponent);
     fixture.detectChanges();
     flushEffects();
 
@@ -175,7 +177,7 @@ describe('runEffect', () => {
   });
 
   it('runs a view effect whose Angular version keeps its siblings somewhere new', () => {
-    const fixture = TestBed.createComponent(WatcherComponent);
+    const { fixture } = renderShallow(WatcherComponent);
     fixture.detectChanges();
     flushEffects();
 
@@ -198,7 +200,7 @@ describe('runEffect', () => {
   });
 
   it('rejects a value that is not an EffectRef', () => {
-    expect(() => runEffect({} as EffectRef)).toThrow(/not an EffectRef returned by effect\(\)/);
+    expect(() => runEffect(createMock<EffectRef>())).toThrow(/not an EffectRef returned by effect\(\)/);
   });
 
   it('says what to do instead when the Angular version keeps the body elsewhere', () => {
@@ -226,6 +228,6 @@ describe('runEffect', () => {
   });
 
   it('links to the Angular adapter docs', () => {
-    expect(() => runEffect({} as EffectRef)).toThrow(/Docs: https:\/\/.*\/adapters\/angular/);
+    expect(() => runEffect(createMock<EffectRef>())).toThrow(/Docs: https:\/\/.*\/adapters\/angular/);
   });
 });
