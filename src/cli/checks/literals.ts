@@ -114,30 +114,50 @@ function spanEnd(source: string, index: number): number {
     return next === '*' ? endOfBlockComment(source, index) : -1;
   }
 
-  if (QUOTES.has(char)) {
-    return findStringEnd(source, index);
-  }
-
-  return char === '`' ? endOfTemplate(source, index) : -1;
+  return QUOTES.has(char) ? findStringEnd(source, index) : endOfTemplate(source, index);
 }
 
-/** Every non-code span of a file, in order and disjoint. */
-export function literalSpans(source: string): Span[] {
+/** The only characters a span can open with; everything between two of them is code. */
+const SPAN_OPENER = /["'/`]/g;
+
+let lastSource: string | undefined;
+let lastSpans: readonly Span[] = [];
+
+/**
+ * Every non-code span of a file, in order and disjoint. The last answer is kept: the doctor hands
+ * one text to several checks in a row, and each asks for the same spans.
+ */
+export function literalSpans(source: string): readonly Span[] {
+  if (source === lastSource) {
+    return lastSpans;
+  }
+
   const spans: Span[] = [];
   let index = 0;
 
   while (index < source.length) {
-    const end = spanEnd(source, index);
+    SPAN_OPENER.lastIndex = index;
+
+    const opener = SPAN_OPENER.exec(source);
+
+    if (opener === null) {
+      break;
+    }
+
+    const end = spanEnd(source, opener.index);
 
     if (end === -1) {
-      index += 1;
+      index = opener.index + 1;
 
       continue;
     }
 
-    spans.push({ start: index, end });
+    spans.push({ start: opener.index, end });
     index = end;
   }
+
+  lastSource = source;
+  lastSpans = spans;
 
   return spans;
 }
@@ -145,4 +165,30 @@ export function literalSpans(source: string): Span[] {
 /** Whether a match at this offset is quoted or commented out rather than executed. */
 export function isInsideLiteral(spans: readonly Span[], offset: number): boolean {
   return spans.some((span) => span.start <= offset && offset < span.end);
+}
+
+/** Every match of a global pattern that sits in code; the spans are only worked out when something matched. */
+export function codeMatches(text: string, pattern: RegExp): RegExpExecArray[] {
+  const matches = [...text.matchAll(pattern)];
+
+  if (matches.length === 0) {
+    return matches;
+  }
+
+  const spans = literalSpans(text);
+
+  return matches.filter((match) => !isInsideLiteral(spans, match.index));
+}
+
+/** The text with every string, template and comment blanked out, offsets and line breaks kept. */
+export function codeOnly(text: string): string {
+  let result = '';
+  let last = 0;
+
+  for (const span of literalSpans(text)) {
+    result += text.slice(last, span.start) + text.slice(span.start, span.end).replace(/[^\n]/g, ' ');
+    last = span.end;
+  }
+
+  return result + text.slice(last);
 }

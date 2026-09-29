@@ -25,11 +25,20 @@ const TOKENS =
 const REGEX_KEYWORDS = /(?:await|case|delete|do|else|in|instanceof|new|of|return|throw|typeof|void|yield)$/;
 
 function isRegexPosition(source: string, offset: number): boolean {
+  let newline = false;
+
   for (let index = offset - 1; index >= 0; index -= 1) {
     const char = source.charAt(index);
 
     if (/\s/.test(char)) {
+      newline ||= char === '\n';
       continue;
+    }
+
+    // `{ a: 1 } / 2` divides an object literal; a slash opening the next line after a block is a
+    // statement that starts with a regular expression.
+    if (char === '}') {
+      return newline;
     }
 
     if (/[\w$]/.test(char)) {
@@ -110,8 +119,8 @@ export function buildMask(source: string, options: MaskOptions): string {
   let cursor = 0;
 
   for (let match = tokens.exec(source); match !== null; match = tokens.exec(source)) {
-    const token = match[0];
     const offset = match.index;
+    const token = match[0].startsWith('`') ? source.slice(offset, templateEnd(source, offset) ?? offset + match[0].length) : match[0];
     const comment = token.startsWith('//') || token.startsWith('/*');
 
     if (!comment && token.startsWith('/') && (!isRegexPosition(source, offset) || token.includes('<'))) {
@@ -130,9 +139,72 @@ export function buildMask(source: string, options: MaskOptions): string {
     }
 
     cursor = offset + token.length;
+    tokens.lastIndex = cursor;
   }
 
   return masked + source.slice(cursor);
+}
+
+/**
+ * Just past the backtick closing the template at `start`, stepping over `${…}` so a template nested
+ * inside a substitution does not end the outer one. `undefined` when it never closes.
+ */
+function templateEnd(source: string, start: number): number | undefined {
+  for (let index = start + 1; index < source.length; index += 1) {
+    const char = source.charAt(index);
+
+    if (char === '\\') {
+      index += 1;
+    } else if (char === '`') {
+      return index + 1;
+    } else if (char === '$' && source.charAt(index + 1) === '{') {
+      const end = substitutionEnd(source, index + 2);
+
+      if (end === undefined) {
+        return undefined;
+      }
+
+      index = end - 1;
+    }
+  }
+
+  return undefined;
+}
+
+const SUBSTITUTION_SKIPS = /\/\/[^\n]*|\/\*[\S\s]*?\*\/|'(?:\\.|[^\n'\\])*'|"(?:\\.|[^\n"\\])*"/y;
+
+function substitutionEnd(source: string, from: number): number | undefined {
+  let depth = 1;
+
+  for (let index = from; index < source.length; index += 1) {
+    const char = source.charAt(index);
+
+    SUBSTITUTION_SKIPS.lastIndex = index;
+
+    const skipped = SUBSTITUTION_SKIPS.exec(source);
+
+    if (skipped !== null) {
+      index += skipped[0].length - 1;
+    } else if (char === '`') {
+      const end = templateEnd(source, index);
+
+      if (end === undefined) {
+        return undefined;
+      }
+
+      index = end - 1;
+    } else if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+
+      if (depth === 0) {
+        return index + 1;
+      }
+    }
+  }
+
+  return undefined;
 }
 
 function maskLiteral(token: string): string {
@@ -264,15 +336,48 @@ export function trimmed(text: string, [start, end]: Range): Range {
   return [from, to];
 }
 
+const LINE_STARTS = new Map<string, readonly number[]>();
+const LINE_STARTS_KEPT = 4;
+
+function lineStarts(source: string): readonly number[] {
+  const cached = LINE_STARTS.get(source);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const starts = [0];
+
+  for (let index = source.indexOf('\n'); index !== -1; index = source.indexOf('\n', index + 1)) {
+    starts.push(index + 1);
+  }
+
+  if (LINE_STARTS.size >= LINE_STARTS_KEPT) {
+    LINE_STARTS.clear();
+  }
+
+  LINE_STARTS.set(source, starts);
+
+  return starts;
+}
+
 /** The 1-based line number of an index, for a report line a person can jump to. */
 export function lineOf(source: string, index: number): number {
-  let line = 1;
+  const starts = lineStarts(source);
+  let low = 0;
+  let high = starts.length;
 
-  for (let cursor = 0; cursor < index; cursor += 1) {
-    if (source.charAt(cursor) === '\n') {
-      line += 1;
+  while (high - low > 1) {
+    const middle = (low + high) >> 1;
+
+    // A one-element slice rather than an index: the index types as possibly absent, and the guard
+    // for that is a branch no input can take.
+    if (starts.slice(middle, middle + 1).some((start) => start <= index)) {
+      low = middle;
+    } else {
+      high = middle;
     }
   }
 
-  return line;
+  return low + 1;
 }

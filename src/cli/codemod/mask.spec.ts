@@ -67,6 +67,33 @@ describe('maskCode', () => {
     expect(maskCode('render(<div></div>);')).toBe('render(<div></div>);');
   });
 
+  it('masks a template nested in a substitution as part of the outer template', () => {
+    const source = 'const a = `${`jest.fn()`}`; jest.fn();';
+
+    expect(maskCode(source)).toBe('const a = `              `; jest.fn();');
+    expect(maskComments(source)).toBe(source);
+
+    for (const template of ['`a ${ { b: "}" } /* } */ } c`', '`${ x // }\n}`', "`\\` ${'`'}`"]) {
+      const masked = maskCode(`${template} + jest.fn();`);
+
+      expect(masked.slice(0, template.length).replace(/\n/g, ' ')).toBe(`\`${' '.repeat(template.length - 2)}\``);
+      expect(masked.slice(template.length)).toBe(' + jest.fn();');
+    }
+  });
+
+  it('falls back to the plain template when a substitution never closes', () => {
+    expect(maskCode('`${ `a` ` + jest.fn();')).toBe('`   `a` ` + jest.fn();');
+    expect(maskCode("`${ '`' + jest.fn();")).toBe("`    `' + jest.fn();");
+    expect(maskCode('`${ `a ${ b ` + jest.fn();').length).toBe('`${ `a ${ b ` + jest.fn();'.length);
+  });
+
+  it('reads a slash after an object literal on the same line as a division', () => {
+    const line = 'const r = { a: 1 } / 2; jest.fn(); 3 / 4;';
+
+    expect(maskCode(line)).toBe(line);
+    expect(maskCode('if (x) {}\n/jest/.test(y);')).toBe('if (x) {}\n      .test(y);');
+  });
+
   it('knows the keywords after which a slash opens a regular expression', () => {
     expect(maskCode('return /jest/.test(x);')).toBe('return       .test(x);');
     expect(maskCode('typeof /a/;')).toBe('typeof    ;');
@@ -148,7 +175,16 @@ describe('trimmed and lineOf', () => {
 
   it('counts lines from one', () => {
     expect(lineOf('a\nb\nc', 0)).toBe(1);
+    expect(lineOf('a\nb\nc', 1)).toBe(1);
+    expect(lineOf('a\nb\nc', 2)).toBe(2);
     expect(lineOf('a\nb\nc', 4)).toBe(3);
+  });
+
+  it('answers the same after the line index of a source has been evicted', () => {
+    const sources = ['1\n2', '1\n2\n3', 'a\n\nb', 'x\ny\nz\nw', 'p\nq'];
+
+    expect(sources.map((source) => lineOf(source, source.length))).toEqual([2, 3, 3, 4, 2]);
+    expect(lineOf(sources[0] as string, 2)).toBe(2);
   });
 });
 
@@ -160,7 +196,7 @@ describe('applyEdits', () => {
       { start: 8, end: 11, text: 'z' },
     ]);
 
-    expect(result).toBe('x bbb z');
+    expect(result).toEqual({ text: 'x bbb z', dropped: [] });
   });
 
   it('drops an edit that overlaps one already applied, and an inverted one', () => {
@@ -173,7 +209,7 @@ describe('applyEdits', () => {
     ];
 
     // Back to front, so the edit nearer the end of the file is the one that survives an overlap.
-    expect(applyEdits(source, edits)).toBe('01234Y9');
+    expect(applyEdits(source, edits)).toEqual({ text: '01234Y9', dropped: [edits[2], edits[0]] });
   });
 
   it('breaks a tie on the same start by the longer span, so the shorter one is the one dropped', () => {
@@ -182,7 +218,7 @@ describe('applyEdits', () => {
       { start: 2, end: 6, text: 'long' },
     ];
 
-    expect(applyEdits('0123456789', edits)).toBe('01long6789');
+    expect(applyEdits('0123456789', edits)).toEqual({ text: '01long6789', dropped: [edits[0]] });
   });
 });
 
