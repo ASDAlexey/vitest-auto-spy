@@ -8,11 +8,11 @@
  * whose abstract members answered `undefined` in silence was strict everywhere except where the
  * question always has the same answer.
  */
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Mock } from 'vitest';
 
 import { fillMissingMembers } from './fill-missing';
-import { type UnstubbedGuard, resolveUnstubbedGuard } from './function-spy';
+import { type UnstubbedGuard, resolveUnstubbedGuard, takeStrictViolations } from './function-spy';
 import { registerMockAdapter } from './mock-adapter';
 import { setupAutoSpy } from './setup-auto-spy';
 import { vitestMockAdapter } from './vitest-adapter';
@@ -36,6 +36,11 @@ function guardFor(className: string, strict?: boolean): UnstubbedGuard {
 function strictGuard(className: string): UnstubbedGuard {
   return guardFor(className, true);
 }
+
+// Strict throws provoked on purpose stay recorded until taken, where a later file of a shared worker reads them.
+afterEach(() => {
+  takeStrictViolations();
+});
 
 /**
  * The suite-wide half, kept here rather than in `setup-auto-spy.spec.ts` because only one block per

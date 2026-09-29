@@ -6,7 +6,13 @@
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import { installFileBoundary, reportStrayListeners, runFileBoundary } from './file-boundary';
+import { mockValueProp } from './prop-mock';
 import type { StrayListener } from './stray-listeners';
+
+// Under isolate: false the modules that import the mocked ones may already be evaluated against the real
+// ones; a fresh graph is what lets the mock reach them, and dropping it after keeps it out of the next file.
+vi.hoisted(() => vi.resetModules());
+afterAll(() => vi.resetModules());
 
 const { log, strays } = vi.hoisted(() => ({ log: [] as string[], strays: { removed: 0 } }));
 
@@ -191,17 +197,15 @@ describe('the boundary with a throwing report', () => {
 
   it('says "the file" when the runner names none', () => {
     const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
-    const filepath: unknown = Reflect.get(Object(worker), 'filepath');
     const failing = (): (() => void) => (): void => {
       throw new Error('x');
     };
-
-    Reflect.set(Object(worker), 'filepath', undefined);
+    const restore = mockValueProp(Object(worker), 'filepath', undefined);
 
     try {
       expect(() => runFileBoundary([failing, failing])).toThrow('2 file-end checks failed when the file ended:');
     } finally {
-      Reflect.set(Object(worker), 'filepath', filepath);
+      restore();
     }
   });
 });

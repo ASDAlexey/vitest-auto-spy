@@ -6,9 +6,16 @@
  * lines of it, and pointed at a frame inside `dist/`. The guard's wrapper is stepped over; anything
  * else on the console — a spy the test installed — is not.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
+import { useConsoleSpies } from './console-spy';
 import { libraryWarn, reactToFindings } from './guard-reaction';
+import { registerMockAdapter } from './mock-adapter';
+import { mockValueProp } from './prop-mock';
+import { vitestMockAdapter } from './vitest-adapter';
+
+// At load, not in `beforeAll`: `useConsoleSpies()` builds its spies while the describes are collected.
+registerMockAdapter(vitestMockAdapter);
 
 /** A stand-in for the stray-console guard, in the shape `libraryWarn` reads. */
 function armedGuard(sentinel: unknown, original: unknown): void {
@@ -20,20 +27,16 @@ function armedGuard(sentinel: unknown, original: unknown): void {
 }
 
 describe('libraryWarn', () => {
-  const real = console.warn;
+  const { consoleWarnSpy } = useConsoleSpies();
 
   afterEach(() => {
     Reflect.set(globalThis, '__vitestAutoSpyStrayConsole__', undefined);
-    console.warn = real;
   });
 
   it('writes to console.warn where nothing is guarding it', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     libraryWarn('[vitest-auto-spy] a finding');
 
-    expect(warn).toHaveBeenCalledWith('[vitest-auto-spy] a finding');
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledWith('[vitest-auto-spy] a finding');
   });
 
   it('steps over the stray-console wrapper, so its own report is not stray output', () => {
@@ -44,57 +47,60 @@ describe('libraryWarn', () => {
     const sentinel = (): void => {
       absorbed.push('recorded as stray');
     };
+    const restore = mockValueProp(console, 'warn', sentinel);
 
-    console.warn = sentinel;
     armedGuard(sentinel, original);
 
-    libraryWarn('[vitest-auto-spy] a finding');
+    try {
+      libraryWarn('[vitest-auto-spy] a finding');
+    } finally {
+      restore();
+    }
 
     expect(absorbed).toEqual(['[vitest-auto-spy] a finding']);
   });
 
   it('lets a spy the test installed over the wrapper absorb it, as it absorbs any other output', () => {
-    const sentinel = (): void => undefined;
-
-    armedGuard(sentinel, () => undefined);
-
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    armedGuard(
+      () => undefined,
+      () => undefined,
+    );
 
     libraryWarn('[vitest-auto-spy] a finding');
 
-    expect(warn).toHaveBeenCalledWith('[vitest-auto-spy] a finding');
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledWith('[vitest-auto-spy] a finding');
   });
 
   it('falls back to the console where the guard kept no original', () => {
     const sentinel = (): void => undefined;
-
-    console.warn = sentinel;
-    armedGuard(sentinel, undefined);
-
     const written: string[] = [];
 
-    console.warn = (message: string): void => {
-      written.push(message);
-    };
+    armedGuard(sentinel, undefined);
 
-    libraryWarn('[vitest-auto-spy] a finding');
+    const restore = mockValueProp(console, 'warn', (message: string): void => {
+      written.push(message);
+    });
+
+    try {
+      libraryWarn('[vitest-auto-spy] a finding');
+    } finally {
+      restore();
+    }
 
     expect(written).toEqual(['[vitest-auto-spy] a finding']);
   });
 });
 
 describe('reactToFindings', () => {
-  it('says nothing when nothing was found, throws them joined, or prints them', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  const { consoleWarnSpy } = useConsoleSpies();
 
+  it('says nothing when nothing was found, throws them joined, or prints them', () => {
     reactToFindings([], 'throw');
-    expect(warn).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
 
     expect(() => reactToFindings(['first', 'second'], 'throw')).toThrow('first\nsecond');
 
     reactToFindings(['first'], 'warn');
-    expect(warn).toHaveBeenCalledWith('first');
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledWith('first');
   });
 });

@@ -4,8 +4,10 @@
  * here for the same reason the guard exists — a non-configurable property put on the real
  * `document` could not be taken off again, and this suite runs with `isolate: false` too.
  */
+/* eslint-disable vitest-auto-spy/no-object-define-property -- the sealed and restorable descriptors are what the guard is tested against */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { useConsoleSpies } from './console-spy';
 import {
   type GlobalSnapshot,
   checkSealedAdditions,
@@ -13,7 +15,11 @@ import {
   guardGlobalPatches,
   snapshotWatchedGlobals,
 } from './global-patch-guard';
+import { registerMockAdapter } from './mock-adapter';
 import { mockValueProp } from './prop-mock';
+import { vitestMockAdapter } from './vitest-adapter';
+
+registerMockAdapter(vitestMockAdapter);
 
 const SEALED = 'cookie';
 
@@ -25,6 +31,8 @@ function watchedObject(): GlobalSnapshot {
 }
 
 describe('guardGlobalPatches', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -99,13 +107,12 @@ describe('guardGlobalPatches', () => {
   });
 
   it('reports without failing the run when asked to warn', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const snapshot = watchedObject();
 
     Object.defineProperty(snapshot.object, SEALED, { value: 'a=1' });
     checkSealedAdditions([snapshot], 'warn');
 
-    expect(warn).toHaveBeenCalledTimes(1);
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a property that can be put back', () => {

@@ -2,6 +2,7 @@
 // deadline timer per hook per test, so one `beforeEach` and one `afterEach` walk every list.
 import { beforeEach } from 'vitest';
 
+import { contextHook } from './context-hook';
 import type { TeardownStep } from './setup-teardown';
 
 /** The part of the runner's test context the steps read. */
@@ -24,11 +25,13 @@ export interface GuardRegistry {
 export function createGuardRegistry(): GuardRegistry {
   const registry: GuardRegistry = { open: [], teardown: [], restores: [] };
 
-  beforeEach((context) => {
-    for (const step of registry.open) {
-      step(context);
-    }
-  });
+  beforeEach(
+    contextHook((context: HookContext) => {
+      for (const step of registry.open) {
+        step(context);
+      }
+    }),
+  );
 
   return registry;
 }

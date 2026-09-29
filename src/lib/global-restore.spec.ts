@@ -1,3 +1,4 @@
+/* eslint-disable vitest-auto-spy/no-object-define-property -- the descriptors on these throwaway hosts are what the restore reads and puts back */
 import { describe, expect, it } from 'vitest';
 
 import { captureGlobalBaseline, restoreGlobals } from './global-restore';
@@ -314,8 +315,21 @@ describe('restoreGlobals', () => {
   });
 
   it('against the real globals, an immediate restore reports nothing', () => {
-    captureGlobalBaseline();
+    // The first capture wins for the worker, and an earlier file of a shared one may have made it.
+    const earlier = globalThis.__vitestAutoSpyGlobalBaselines__?.get(globalThis);
 
-    expect(restoreGlobals()).toEqual([]);
+    globalThis.__vitestAutoSpyGlobalBaselines__?.delete(globalThis);
+
+    try {
+      captureGlobalBaseline();
+
+      expect(restoreGlobals()).toEqual([]);
+    } finally {
+      if (earlier === undefined) {
+        globalThis.__vitestAutoSpyGlobalBaselines__?.delete(globalThis);
+      } else {
+        globalThis.__vitestAutoSpyGlobalBaselines__?.set(globalThis, earlier);
+      }
+    }
   });
 });
