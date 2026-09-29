@@ -6,7 +6,13 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { setupAutoSpy } from './setup-auto-spy';
 import { stopGuardingConsole } from './stray-console';
+import { trackStrayListeners } from './stray-listeners';
 import { countStrayTimers, trackStrayTimers } from './stray-timers';
+
+// Under isolate: false the modules that import the mocked ones may already be evaluated against the real
+// ones; a fresh graph is what lets the mock reach them, and dropping it after keeps it out of the next file.
+vi.hoisted(() => vi.resetModules());
+afterAll(() => vi.resetModules());
 
 const { boundaryErrors } = vi.hoisted(() => ({ boundaryErrors: [] as unknown[] }));
 
@@ -27,6 +33,15 @@ vi.mock('vitest', async (importOriginal) => {
   };
 });
 
+const baselineBefore = globalThis.__vitestAutoSpyGlobalBaselines__?.get(globalThis);
+const restoreBaseline = (): void => {
+  if (baselineBefore === undefined) {
+    globalThis.__vitestAutoSpyGlobalBaselines__?.delete(globalThis);
+  } else {
+    globalThis.__vitestAutoSpyGlobalBaselines__?.set(globalThis, baselineBefore);
+  }
+};
+
 const EVENT = 'file-boundary-leftover';
 const hits: string[] = [];
 const realGetComputedStyle = globalThis.getComputedStyle;
@@ -37,6 +52,7 @@ describe('a file that leaves a listener and a replaced global behind', () => {
 
   it('adds both and never takes them off', () => {
     document.addEventListener(EVENT, () => hits.push('leaked'));
+    // eslint-disable-next-line vitest-auto-spy/no-hand-assigned-global -- the leaked global is what the next block expects the boundary to repair
     globalThis.getComputedStyle = stub;
     document.dispatchEvent(new Event(EVENT));
 
@@ -81,6 +97,7 @@ describe('a file that leaves a timer and a listener behind, with both reports on
 
 describe('the file after the one that leaked a timer and a listener', () => {
   it('had the timer cancelled before any report ran, and heard both reports', async () => {
+    // eslint-disable-next-line vitest-auto-spy/no-real-wait-in-test -- outlasts a real timer the boundary must have cancelled; a fake clock would replace the setTimeout it tracks
     await new Promise((resolve) => setTimeout(resolve, 60));
 
     expect(reported).toEqual(['listeners 1, timers left 0', 'timers 1']);
@@ -114,6 +131,7 @@ describe('the file after the one whose reports both threw', () => {
   });
 
   it('failed with both errors together and had the timer cancelled first', async () => {
+    // eslint-disable-next-line vitest-auto-spy/no-real-wait-in-test -- outlasts a real timer the boundary must have cancelled; a fake clock would replace the setTimeout it tracks
     await new Promise((resolve) => setTimeout(resolve, 60));
 
     expect(thrownFired).toEqual([]);
@@ -139,8 +157,10 @@ describe('the file after the one whose reports both threw', () => {
 const realWarn = console.warn;
 
 describe('a file that prints while it is collected and leaves a timer, with both reports set to throw', () => {
+  // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- silences the channel before the guard wraps it; the block after puts it back
   console.warn = (): void => undefined;
   setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayConsole: 'throw', strayTimers: true, onStrayTimers: 'throw' });
+  // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- the collection-time output is what the stray-console report must name
   console.warn('printed while the file was collected');
 
   beforeAll(() => {
@@ -159,8 +179,13 @@ describe('a file that prints while it is collected and leaves a timer, with both
 describe('the file after the one whose timer report threw first', () => {
   afterAll(() => {
     stopGuardingConsole();
+    // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- puts back the channel the block before silenced
     console.warn = realWarn;
     trackStrayTimers()();
+    // The listener tracking and the globals baseline the blocks above installed are run-wide, as a setup
+    // file's are; put back as they were before the next file of a shared worker.
+    trackStrayListeners()();
+    restoreBaseline();
   });
 
   it('still reported the console output, against the file that wrote it', () => {

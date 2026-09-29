@@ -4,6 +4,11 @@
  * setup files put their hooks.
  */
 import { setupAutoSpy } from './setup-auto-spy';
+import { stopGuardingConsole } from './stray-console';
+
+// Registered first so it runs after the library's own file-end hooks: the strict preset's console guard is
+// run-wide, as a setup file installs it, and has to be off before the next file of a shared worker.
+afterAll(stopGuardingConsole);
 
 setupAutoSpy({ duplicateCopies: 'off', blockNetwork: true });
 setupAutoSpy({ duplicateCopies: 'off', preset: 'strict', strict: true });

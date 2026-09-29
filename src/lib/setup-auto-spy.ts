@@ -15,6 +15,8 @@
 import { afterAll, beforeAll, expect, vi } from 'vitest';
 
 import { noticeAngularBuildSplitting } from './angular-build-notice';
+// Declares the console registry slots on `globalThis`; type-only, so this never loads the `/console` entry.
+import type {} from './console-spy';
 import * as DOCS_LINKS from './docs-links';
 import { type DocumentPollutionOptions, type DocumentPollutionReaction, watchDocumentPollution } from './document-guard';
 import { abandonEmissionWaits } from './emission-timeout';
@@ -30,8 +32,10 @@ import { type MisconfigurationReaction, setMisconfigurationReaction } from './mi
 import { trackMockRegistry } from './mock-registry';
 import { type BlockNetworkOptions, blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
+import { timeGuardHooks } from './perf-meta';
 import { type OutsideHookReaction, beginPropEpoch, reportPropsOutsideHooks, restoreMockedProps } from './prop-mock';
 import type { PrototypePollutionReaction } from './prototype-guard';
+import { cleanTestBedSweeps } from './setup-clean-test-bed';
 import { armDiagnostics } from './setup-guards';
 import { recordSetupRegistration } from './setup-per-file';
 import { installTeardown } from './setup-teardown';
@@ -329,6 +333,12 @@ export interface SetupAutoSpyOptions {
    */
   angularBuildHint?: boolean;
   /**
+   * At the end of each file, report and repair a `TestBed` left dirty: a testing module still
+   * instantiated, fixtures still alive, a `TestBed` method still replaced by a spy. Default `'warn'`.
+   * Only runs once the Angular helpers are loaded; a suite without Angular pays nothing.
+   */
+  cleanTestBed?: GuardReaction;
+  /**
    * Clear the `vitest-auto-spy/console` spies after every test. Default `true`.
    *
    * They are plain mocks over the real `console`, and nothing the runner offers empties them:
@@ -566,6 +576,7 @@ export function applyPreset(options: SetupAutoSpyOptions): SetupAutoSpyOptions {
     strayConsole: options.strayConsole ?? 'throw',
     misconfiguration: options.misconfiguration ?? 'throw',
     swallowedStrictCalls: options.swallowedStrictCalls ?? 'throw',
+    cleanTestBed: options.cleanTestBed ?? 'throw',
     strayTimers: options.strayTimers ?? true,
     strayRejections: options.strayRejections ?? zoneIsLoaded(),
   };
@@ -748,7 +759,8 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
   // skip its own `afterAll`, and the output would be charged to the next file.
   const consoleGuard = watchStrayConsole(options.strayConsole, registry.open);
 
-  const sweeps = strayTimerSweeps(options);
+  // The bed first: destroying a leftover fixture runs `ngOnDestroy`, which may clear timers the next sweep counts.
+  const sweeps = [...cleanTestBedSweeps(options.cleanTestBed ?? 'warn'), ...strayTimerSweeps(options)];
 
   if (consoleGuard) {
     sweeps.push(consoleGuard.closeFile);
@@ -801,4 +813,5 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
   }
 
   installTeardown(registry, documents);
+  timeGuardHooks(registry);
 }

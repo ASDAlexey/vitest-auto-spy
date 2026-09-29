@@ -12,6 +12,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { reportUnhandledObservableErrors, setupAutoSpy } from './setup-auto-spy';
 import { countStrayTimers, trackStrayTimers } from './stray-timers';
 
+// Under isolate: false the modules that import the mocked ones may already be evaluated against the real
+// ones; a fresh graph is what lets the mock reach them, and dropping it after keeps it out of the next file.
+vi.hoisted(() => vi.resetModules());
+afterAll(() => vi.resetModules());
+
 const { hookErrors } = vi.hoisted(() => ({ hookErrors: [] as Error[] }));
 
 type Hook = (context: { task?: unknown }) => unknown;
@@ -41,6 +46,7 @@ vi.mock('vitest', async (importOriginal) => {
 if (!Reflect.has(Symbol, 'dispose')) {
   const [dispose] = Object.getOwnPropertySymbols(addAbortListener(new AbortController().signal, () => undefined));
 
+  // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- a polyfill for the whole worker, meant to outlive every test
   Object.defineProperty(Symbol, 'dispose', { value: dispose });
 }
 

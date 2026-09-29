@@ -7,11 +7,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 
 import '../index';
 import { resetAngularBuildNotice } from './angular-build-notice';
+import { useConsoleSpies } from './console-spy';
 import { createSpyFromClass } from './create-spy-from-class';
 import { abandonEmissionWaits, registerEmissionWait } from './emission-timeout';
 import { takeStrictViolations } from './function-spy';
 import { captureMockRegistry, getMockRegistrySize, resetMockRegistryTracking } from './mock-registry';
-import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
+import { registerPackageCopy, resetPackageCopies } from './package-identity';
 import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
 import { snapshotPrototypes } from './prototype-guard';
 import { applyPreset, describeAbandonedWaits, reportStrayTimers, setupAutoSpy, warnAboutSuppressedLeaks } from './setup-auto-spy';
@@ -34,12 +35,12 @@ import {
   runTeardown,
   testNameOf,
 } from './setup-teardown';
+import { stopGuardingConsole } from './stray-console';
 import { type StrayRejection, flushStrayRejections } from './stray-rejections';
 import { countStrayTimers, trackStrayTimers } from './stray-timers';
 import { describeSwallowedStrictCalls } from './swallowed-strict';
 
 const DUPLICATE = 'file:///app/node_modules/other/node_modules/vitest-auto-spy/dist/index.js';
-const REAL_ROOTS = getPackageCopies();
 
 /** A double built inside a test, to show what the suite-wide strict default did to it. */
 class Cart {
@@ -89,9 +90,11 @@ describe('suite-wide strict mode, after the block that armed it', () => {
 });
 
 describe('duplicate installs', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   afterEach(() => {
     resetPackageCopies();
-    REAL_ROOTS.forEach((root) => registerPackageCopy(root));
+    registerPackageCopy();
   });
 
   it('stops the run by default, explaining how to collapse the tree', () => {
@@ -103,19 +106,13 @@ describe('duplicate installs', () => {
   });
 
   it('only warns when asked to', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     registerPackageCopy(DUPLICATE);
     setupAutoSpy({ duplicateCopies: 'warn', restoreProps: false });
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('loaded 2 times'));
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('loaded 2 times'));
   });
 
   it('says nothing when the check is off, or when the tree is clean', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     registerPackageCopy(DUPLICATE);
     setupAutoSpy({ duplicateCopies: 'off', restoreProps: false });
 
@@ -123,9 +120,7 @@ describe('duplicate installs', () => {
     registerPackageCopy(DUPLICATE);
     setupAutoSpy({ duplicateCopies: 'warn', restoreProps: false });
 
-    expect(warn).not.toHaveBeenCalled();
-
-    warn.mockRestore();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -192,6 +187,7 @@ describe('the teardown net, for the run where the hook never happened', () => {
   const warnings: string[] = [];
 
   it.fails('leaves a patch behind when the hook above the library throws', () => {
+    // A raw spy on purpose: the warning lands between tests, where setupAutoSpy clears the library's console spies.
     vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
       warnings.push(String(message));
     });
@@ -325,17 +321,19 @@ describe('stray-timer containment (opted in)', () => {
  * with a clean bill of health.
  */
 describe('reporting what the stray-timer sweep cancelled', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   /** Turn the runner's own flag on for the duration of `run`, whatever it was before. */
   function withLeakDetection<T>(run: () => T): T {
-    const config: object = Object(Reflect.get(Object(Reflect.get(globalThis, '__vitest_worker__')), 'config'));
-    const before: unknown = Reflect.get(config, 'detectAsyncLeaks');
+    const { config }: { config: { detectAsyncLeaks?: unknown } } = Reflect.get(globalThis, '__vitest_worker__');
+    const before = config.detectAsyncLeaks;
 
-    Reflect.set(config, 'detectAsyncLeaks', true);
+    config.detectAsyncLeaks = true;
 
     try {
       return run();
     } finally {
-      Reflect.set(config, 'detectAsyncLeaks', before);
+      config.detectAsyncLeaks = before;
     }
   }
 
@@ -474,7 +472,6 @@ describe('reporting what the stray-timer sweep cancelled', () => {
   });
 
   it('falls back to the console where the environment has no process', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const real = globalThis.process;
 
     Reflect.deleteProperty(globalThis, 'process');
@@ -485,7 +482,7 @@ describe('reporting what the stray-timer sweep cancelled', () => {
       Reflect.set(globalThis, 'process', real);
     }
 
-    expect(warn).toHaveBeenCalledTimes(1);
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -514,10 +511,10 @@ describe('mock-registry pruning (opted in)', () => {
 const zoneStub = Object.assign(() => undefined, { __symbol__: (name: string): string => `__zone_symbol__${name}` });
 const rejectionSlot = zoneStub.__symbol__('unhandledPromiseRejectionHandler');
 
-Object.defineProperty(globalThis, 'Zone', { configurable: true, writable: true, value: zoneStub });
+vi.stubGlobal('Zone', zoneStub);
 
 afterAll(() => {
-  Reflect.deleteProperty(globalThis, 'Zone');
+  vi.unstubAllGlobals();
 });
 
 /** What zone.js does after its `console.error`, minus zone.js. */
@@ -721,6 +718,8 @@ describe('console-spy clearing (on by default)', () => {
 
   setupAutoSpy({ duplicateCopies: 'off', restoreProps: false });
 
+  const registered = globalThis.__vitestAutoSpyResetConsoleSpies__;
+
   beforeAll(() => {
     // Standing in for what `vitest-auto-spy/console` registers on import: the setup entry must not
     // pull that module in, so the hook only ever reaches it through this slot.
@@ -728,7 +727,7 @@ describe('console-spy clearing (on by default)', () => {
   });
 
   afterAll(() => {
-    globalThis.__vitestAutoSpyResetConsoleSpies__ = undefined;
+    globalThis.__vitestAutoSpyResetConsoleSpies__ = registered;
   });
 
   it('leaves the recorded calls alone while a test is running', () => {
@@ -753,12 +752,14 @@ describe('every step opted out', () => {
     restoreTimerGlobals: false,
   });
 
+  const registered = globalThis.__vitestAutoSpyResetConsoleSpies__;
+
   beforeAll(() => {
     globalThis.__vitestAutoSpyResetConsoleSpies__ = reset;
   });
 
   afterAll(() => {
-    globalThis.__vitestAutoSpyResetConsoleSpies__ = undefined;
+    globalThis.__vitestAutoSpyResetConsoleSpies__ = registered;
   });
 
   it('registers a first test to be followed by nothing', () => {
@@ -812,6 +813,7 @@ describe('setupAutoSpy({ restoreWebStorage })', () => {
   function withBrokenStorage(run: () => void): unknown {
     const real = globalThis.localStorage;
 
+    // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- runs while the describe is collected, where no per-test helper applies; the finally puts it back
     Object.defineProperty(globalThis, 'localStorage', { value: broken, writable: true, configurable: true });
 
     try {
@@ -819,6 +821,7 @@ describe('setupAutoSpy({ restoreWebStorage })', () => {
 
       return globalThis.localStorage;
     } finally {
+      // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- the restore of the line above
       Object.defineProperty(globalThis, 'localStorage', { value: real, writable: true, configurable: true });
     }
   }
@@ -986,6 +989,8 @@ function withZone(present: boolean, run: () => void): void {
 }
 
 describe('swallowedStrictCalls', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   function swallow(run: () => unknown): void {
     try {
       run();
@@ -1050,13 +1055,10 @@ describe('swallowedStrictCalls', () => {
   });
 
   it('prints instead of failing under warn', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     swallow(() => createSpyFromClass(Cart, { strict: true }).total());
     reportSwallowedStrictCalls(undefined, 'warn');
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Cart.total('));
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Cart.total('));
   });
 
   it('lets a test that provokes the throw on purpose take it, and says nothing afterwards', () => {
@@ -1095,6 +1097,7 @@ describe('applyPreset', () => {
         strayConsole: 'throw',
         misconfiguration: 'throw',
         swallowedStrictCalls: 'throw',
+        cleanTestBed: 'throw',
         strayTimers: false,
         strayRejections: false,
       });
@@ -1117,13 +1120,12 @@ describe('misconfiguration: "throw" (opted in)', () => {
 });
 
 describe('misconfiguration, after the block that armed it', () => {
-  it('prints again, so the grade cannot travel into the next file', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  const { consoleWarnSpy } = useConsoleSpies();
 
+  it('prints again, so the grade cannot travel into the next file', () => {
     misconfigured();
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("returns names 'clear'"));
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining("returns names 'clear'"));
   });
 });
 
@@ -1131,15 +1133,21 @@ describe('preset: "strict", wired', () => {
   const silent = { log: console.log };
 
   // Silenced before the guard wraps it, so the output the first test makes stays out of the run log.
+  // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- has to sit under the guard, which owns the console from here on
   console.log = (): void => undefined;
 
-  setupAutoSpy({ duplicateCopies: 'off', preset: 'strict', strayTimers: false });
-
+  // Registered first so it runs after the library's own file-end hooks: the guard is run-wide, as a setup
+  // file installs it, and has to be off before the next file of a shared worker.
   afterAll(() => {
+    stopGuardingConsole();
+    // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- the restore of the silencing above
     console.log = silent.log;
   });
 
+  setupAutoSpy({ duplicateCopies: 'off', preset: 'strict', strayTimers: false });
+
   it.fails('fails a test that prints', () => {
+    // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- the stray output the preset must fail
     console.log('unexpected output');
   });
 
@@ -1193,17 +1201,17 @@ describe('a prototype key left behind by a file that has already finished', () =
   });
 
   it('remembers the file each setup ran for, and says "a spec file" when there was none before', () => {
-    const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
-    const filepath: unknown = Reflect.get(Object(worker), 'filepath');
+    const worker: { filepath: unknown } = Reflect.get(globalThis, '__vitest_worker__');
+    const filepath = worker.filepath;
 
-    Reflect.set(Object(worker), 'filepath', undefined);
+    worker.filepath = undefined;
 
     try {
       reportPrototypeLeftovers(write);
       stand['leakedFromEarlierFile'] = 1;
       reportPrototypeLeftovers(write);
     } finally {
-      Reflect.set(Object(worker), 'filepath', filepath);
+      worker.filepath = filepath;
     }
 
     expect(globalThis.__vitestAutoSpyPreviousSpecFile__).toBeUndefined();
@@ -1335,6 +1343,7 @@ describe('an emission wait nobody awaited', () => {
   let abandoned = 0;
 
   it('is left alone while the test that opened it runs', () => {
+    // A raw spy on purpose: the warning lands between tests, where setupAutoSpy clears the library's console spies.
     vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
       warnings.push(String(message));
     });
