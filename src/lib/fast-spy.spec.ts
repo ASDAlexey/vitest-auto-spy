@@ -9,7 +9,7 @@
  * caught a real bug: a `mockReturnValue` applied *after* a reset sweep and read before the next call
  * was undone by the sweep the spy had not answered yet.
  */
-import { type MockInstance, describe, expect, it, vi } from 'vitest';
+import { type Mock, type MockInstance, describe, expect, it, vi } from 'vitest';
 
 import { type FastSpy, clearAllFastSpies, createFastSpy, resetAllFastSpies } from './fast-spy';
 import { isFastSpy } from './spy-probe';
@@ -102,11 +102,17 @@ describe('createFastSpy', () => {
   // `it.fails` rather than a comment, so that a future change making the two comparable turns this
   // into a red test and gets read.
   it.fails('cannot be ordered against a runner mock, and says so by giving the wrong answer', () => {
+    // Both counters live for the worker, so under isolate: false an earlier file may have put either ahead.
+    const probe = vi.fn();
+
+    probe();
+
+    const runnerOrder = probe.mock.invocationCallOrder[0] ?? 0;
     const warmup = createFastSpy();
 
-    warmup();
-    warmup();
-    warmup();
+    do {
+      warmup();
+    } while ((warmup.mock.invocationCallOrder.at(-1) ?? 0) <= runnerOrder + 1);
 
     const ours = createFastSpy();
     const theirs = vi.fn();
@@ -225,6 +231,20 @@ describe('createFastSpy', () => {
         .mockName(1 as unknown as string)
         .getMockName(),
     ).toBe('kept');
+  });
+
+  it('takes its `length` from the implementation, as the runner does', () => {
+    const two = (first: unknown, second: unknown): unknown => [first, second];
+    const spy = createFastSpy(two);
+
+    expect(spy.length).toBe(2);
+    expect(spy.length).toBe(vi.fn(two).length);
+    expect(createFastSpy().length).toBe(vi.fn().length);
+    expect(createFastSpy(() => undefined).length).toBe(0);
+
+    Object.assign(spy, { length: 5 });
+
+    expect(spy.length).toBe(5);
   });
 
   it('reports the implementation the next call will use', () => {
@@ -373,6 +393,28 @@ describe('clearing and resetting one spy', () => {
     // it. A bare `vi.fn()` has no creation-time name to keep, which is why it falls back to
     // `vi.fn()` there.
     expect(spy.getMockName()).toBe('load');
+  });
+
+  it('drops a name given by `mockName()` on a reset, as the runner does', () => {
+    const named = createFastSpy(undefined, 'load').mockName('renamed');
+    const bare = createFastSpy().mockName('renamed');
+
+    named.mockReset();
+    bare.mockReset();
+
+    expect(named.getMockName()).toBe('load');
+    expect(bare.getMockName()).toBe(vi.fn().mockName('renamed').mockReset().getMockName());
+
+    const swept = createFastSpy(undefined, 'save').mockName('renamed');
+
+    resetAllFastSpies();
+
+    expect(swept.getMockName()).toBe('save');
+
+    resetAllFastSpies();
+    swept.mockName('after the sweep');
+
+    expect(swept.getMockName()).toBe('after the sweep');
   });
 
   it('resets through `Symbol.dispose`, so `using` works on a spy', () => {
@@ -576,5 +618,257 @@ describe('the arrays a spec holds', () => {
 
     expect(Spy.mock.instances).toEqual([]);
     expect(Object.keys(createFastSpy().mock.instances)).toEqual([]);
+  });
+});
+
+describe('the two arrays derived until the state is read', () => {
+  it('derives settledResults and instances that match the runner s', () => {
+    const fail = new Error('fail');
+    const implementation = (value: number): number => {
+      if (value < 0) {
+        throw fail;
+      }
+
+      return value;
+    };
+    const ours = createFastSpy(implementation as (...args: unknown[]) => unknown);
+    const theirs = vi.fn(implementation);
+    const receiver = { ours, theirs };
+
+    for (const value of [1, -1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      expect(() => receiver.ours(value)).not.toThrow(TypeError);
+      expect(() => receiver.theirs(value)).not.toThrow(TypeError);
+    }
+
+    expect(ours.mock.settledResults).toEqual(theirs.mock.settledResults);
+    expect(ours.mock.instances).toEqual(theirs.mock.instances);
+    expect(ours.mock.results).toEqual(theirs.mock.results);
+  });
+
+  it('settles a promise returned before anything read the state, past every growth step', async () => {
+    const ours = createFastSpy((value: unknown) => (value === 0 ? Promise.reject(new Error('zero')) : Promise.resolve(value)));
+    const theirs = vi.fn((value: unknown) => (value === 0 ? Promise.reject(new Error('zero')) : Promise.resolve(value)));
+
+    for (let call = 0; call < 20; call++) {
+      ours(call).catch(() => undefined);
+      theirs(call).catch(() => undefined);
+    }
+
+    expect(ours.mock.settledResults[1]).toEqual({ type: 'incomplete', value: undefined });
+
+    await Promise.resolve();
+
+    expect(ours.mock.settledResults).toEqual(theirs.mock.settledResults);
+    expect(ours.mock.instances).toEqual(theirs.mock.instances);
+  });
+
+  it('completes an entry derived by a read inside the call', () => {
+    const fail = new Error('fail');
+    const seen: unknown[] = [];
+    const spy: FastSpy = createFastSpy((value: unknown) => {
+      seen.push(structuredClone(spy.mock.settledResults));
+
+      if (value === 'throw') {
+        throw fail;
+      }
+
+      return value;
+    });
+
+    spy('first');
+
+    expect(() => spy('throw')).toThrow(fail);
+    expect(seen).toEqual([
+      [{ type: 'incomplete', value: undefined }],
+      [
+        { type: 'fulfilled', value: 'first' },
+        { type: 'incomplete', value: undefined },
+      ],
+    ]);
+    expect(spy.mock.settledResults).toEqual([
+      { type: 'fulfilled', value: 'first' },
+      { type: 'rejected', value: fail },
+    ]);
+  });
+
+  it('derives from what was recorded before the first read, then records all six', () => {
+    const spy = createFastSpy((value: unknown) => value);
+
+    spy(1);
+    spy(2);
+
+    expect(spy.mock.settledResults).toEqual([
+      { type: 'fulfilled', value: 1 },
+      { type: 'fulfilled', value: 2 },
+    ]);
+
+    spy(3);
+
+    expect(spy.mock.settledResults).toHaveLength(3);
+    expect(spy.mock.instances).toEqual([undefined, undefined, undefined]);
+  });
+
+  it('records nothing for a call whose promise arrives after the call cleared its own spy', async () => {
+    let clears = true;
+    const spy: FastSpy = createFastSpy(() => {
+      if (clears) {
+        spy.mockClear();
+      }
+
+      return Promise.resolve('late');
+    });
+
+    await spy();
+    clears = false;
+    await spy();
+
+    expect(spy.mock.settledResults).toEqual([{ type: 'fulfilled', value: 'late' }]);
+    expect(spy.mock.instances).toEqual([undefined]);
+  });
+
+  it('records the instance of a construction before and after the state goes live', () => {
+    const Spy = createFastSpy();
+    const before = Reflect.construct(Spy, []);
+
+    expect(Spy.mock.instances).toEqual([before]);
+
+    const after = Reflect.construct(Spy, []);
+
+    expect(Spy.mock.instances[1]).toBe(after);
+    expect(Spy.mock.settledResults).toEqual([
+      { type: 'fulfilled', value: before },
+      { type: 'fulfilled', value: after },
+    ]);
+  });
+
+  it('builds results that match the runner s for any returned or thrown value', () => {
+    const outcomes: unknown[] = [undefined, null, 0, 1.5, 'text', { type: 'throw', value: 1 }, Object.freeze({})];
+    const implementation = (index: number, throws: boolean): unknown => {
+      if (throws) {
+        throw outcomes[index];
+      }
+
+      return outcomes[index];
+    };
+    const ours = createFastSpy(implementation as (...args: unknown[]) => unknown);
+    const theirs = vi.fn(implementation);
+
+    const attempt = (call: () => unknown): void => {
+      try {
+        call();
+      } catch {
+        // Thrown on purpose; only the recorded result matters.
+      }
+    };
+
+    for (const throws of [false, true]) {
+      outcomes.forEach((_, index) => {
+        attempt(() => ours(index, throws));
+        attempt(() => theirs(index, throws));
+      });
+    }
+
+    expect(ours.mock.results).toEqual(theirs.mock.results);
+    expect(ours.mock.results[5]?.value).toBe(outcomes[5]);
+    expect(ours.mock.settledResults).toEqual(theirs.mock.settledResults);
+  });
+
+  it('shows a running call as incomplete to a recursive read, then completes the same entry', () => {
+    const record =
+      (spy: FastSpy | Mock, seen: unknown[][], held: unknown[]) =>
+      (depth: unknown): unknown => {
+        if (typeof depth === 'number' && depth > 0) {
+          spy(depth - 1);
+
+          return depth;
+        }
+
+        seen.push(structuredClone(spy.mock.results));
+        held.push(spy.mock.results[0]);
+
+        return 'bottom';
+      };
+    const oursSeen: unknown[][] = [];
+    const oursHeld: unknown[] = [];
+    const ours: FastSpy = createFastSpy((depth: unknown) => record(ours, oursSeen, oursHeld)(depth));
+    const theirsSeen: unknown[][] = [];
+    const theirsHeld: unknown[] = [];
+    const theirs: Mock = vi.fn((depth: unknown) => record(theirs, theirsSeen, theirsHeld)(depth));
+
+    ours(2);
+    theirs(2);
+
+    expect(oursSeen).toEqual(theirsSeen);
+    expect(oursSeen[0]).toContainEqual({ type: 'incomplete', value: undefined });
+    expect(oursHeld[0]).toBe(ours.mock.results[0]);
+    expect(ours.mock.results).toEqual(theirs.mock.results);
+    expect(ours.mock.settledResults).toEqual(theirs.mock.settledResults);
+  });
+
+  it('completes a throw on the call whose own read made the state live', () => {
+    const fail = new Error('fail');
+    const seen: unknown[] = [];
+    const spy: FastSpy = createFastSpy(() => {
+      seen.push(structuredClone(spy.mock.results));
+
+      throw fail;
+    });
+
+    expect(() => spy()).toThrow(fail);
+    expect(seen).toEqual([[{ type: 'incomplete', value: undefined }]]);
+    expect(spy.mock.results).toEqual([{ type: 'throw', value: fail }]);
+    expect(spy.mock.settledResults).toEqual([{ type: 'rejected', value: fail }]);
+  });
+
+  it('leaves nothing behind when a call clears its own spy and then reads it', () => {
+    const spy: FastSpy = createFastSpy(() => {
+      spy.mockClear();
+
+      return spy.mock.results.length;
+    });
+
+    expect(spy()).toBe(0);
+    expect(spy.mock.results).toEqual([]);
+    expect(spy.mock.settledResults).toEqual([]);
+  });
+
+  it('leaves a later call s entry alone when an earlier running call finishes', () => {
+    const spy: FastSpy = createFastSpy((nested: unknown) => {
+      if (nested === true) {
+        spy.mockClear();
+        spy(false);
+      }
+
+      return nested;
+    });
+
+    spy(true);
+
+    expect(spy.mock.results).toEqual([{ type: 'return', value: false }]);
+    expect(spy.mock.calls).toEqual([[false]]);
+  });
+});
+
+describe('the growth steps', () => {
+  const fields = ['calls', 'contexts', 'instances', 'invocationCallOrder', 'results', 'settledResults'] as const;
+
+  it.each([4, 5, 8, 9])('keeps recording into the arrays read after %i calls', (before) => {
+    const spy = createFastSpy();
+
+    for (let call = 0; call < before; call++) {
+      spy(call);
+    }
+
+    const held = fields.map((field) => spy.mock[field]);
+
+    for (let call = before; call < 20; call++) {
+      spy(call);
+    }
+
+    fields.forEach((field, index) => {
+      expect(spy.mock[field]).toBe(held[index]);
+      expect(held[index]).toHaveLength(20);
+    });
+    expect(spy.mock.calls.map(([value]) => value)).toEqual(Array.from({ length: 20 }, (_, index) => index));
   });
 });

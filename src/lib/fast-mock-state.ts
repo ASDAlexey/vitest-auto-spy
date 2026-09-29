@@ -1,6 +1,7 @@
 /**
  * The call state behind a fast spy's `mock` — six arrays, seeded on the first call rather than at
- * creation, and sized for the handful of calls most spied methods ever see.
+ * creation, and sized for the handful of calls most spied methods ever see. Until something reads
+ * the state, `results` holds bare values, and `settledResults` and `instances` are derived from it.
  */
 
 /**
@@ -44,8 +45,23 @@ export interface FastMockState {
  */
 const UNSEEDED: never[] = [];
 
+/** What an unread state's `results` holds for a call that is still running. */
+const INCOMPLETE: object = Object.freeze({});
+
+/** What an unread state's `results` holds for a call that threw; a returned value is held bare. */
+class Thrown {
+  readonly value: unknown;
+
+  constructor(value: unknown) {
+    this.value = value;
+  }
+}
+
 /** How many calls a freshly seeded array holds before it has to grow — the length of the literal in {@link seeded}. */
 const SEEDED_CAPACITY = 4;
+
+/** The second step, before the arrays grow the way `[]` does — see {@link doubled}. */
+const DOUBLED_CAPACITY = 8;
 
 /**
  * A one-element array with room for three more.
@@ -65,9 +81,24 @@ function seeded<T>(first: T): T[] {
 }
 
 /**
- * A full seeded array plus `next`, rebuilt the way `[]` grows — seventeen slots.
+ * A full seeded array plus `next`, in an eight-slot store: a spy called five to eight times holds
+ * half of what the jump straight to seventeen cost it.
+ */
+function doubled<T>(full: T[], next: T): T[] {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `full` is a full seeded array, so all four indices hold an entry.
+  const array = [full[0] as T, full[1] as T, full[2] as T, full[3] as T, next, next, next, next];
+
+  array.pop();
+  array.pop();
+  array.pop();
+
+  return array;
+}
+
+/**
+ * A full doubled array plus `next`, rebuilt the way `[]` grows — seventeen slots.
  *
- * A `push` past four slots would reserve twenty-three, more than a spy never seeded ever held.
+ * A `push` past eight slots would reserve nearly thirty, more than a spy never seeded ever held.
  */
 function regrown<T>(full: T[], next: T): T[] {
   const array: T[] = [];
@@ -81,6 +112,24 @@ function regrown<T>(full: T[], next: T): T[] {
   return array;
 }
 
+/** The `mock.results` entry for what an unread state recorded — see {@link INCOMPLETE}. */
+function toResult(raw: unknown): RecordedResult {
+  if (raw === INCOMPLETE) {
+    return { type: 'incomplete', value: undefined };
+  }
+
+  return raw instanceof Thrown ? { type: 'throw', value: raw.value } : { type: 'return', value: raw };
+}
+
+/** What `settledResults` holds for a call whose result is known: a thrown call rejected, a returned one fulfilled. */
+function deriveSettled(result: RecordedResult): RecordedResult {
+  if (result.type === 'return') {
+    return { type: 'fulfilled', value: result.value };
+  }
+
+  return result.type === 'throw' ? { type: 'rejected', value: result.value } : { type: 'incomplete', value: undefined };
+}
+
 /**
  * A spy's call state.
  *
@@ -90,19 +139,26 @@ function regrown<T>(full: T[], next: T): T[] {
  * all, so something has to notice it, and reading is where that has to happen: {@link sync} is the
  * spy's hook for it. The spy's own hot path writes through {@link record}, having already noticed.
  *
- * The six fields are seeded together or not at all: a read or an assignment materialises all of
- * them as empty arrays, so an array a spec obtained is the one every later call appends to. Until
- * then the first call seeds them small and {@link record} may swap them for a larger copy.
+ * Until the state is {@link live}, a call records four arrays and no result object: `results` holds
+ * the returned value itself, a {@link Thrown}, or {@link INCOMPLETE}; `instances` is `contexts` entry
+ * for entry, and a settled result follows from its result unless it is a `Promise` — which is why a
+ * returned `Promise` makes the state live as well. Going live builds the result objects in place,
+ * derives the other two and records all six from then on, so an array a spec obtained is the one
+ * every later call appends to. Until then the first call seeds the arrays small and {@link record}
+ * may swap them for a larger copy.
  */
 export abstract class FastMockStateBase implements FastMockState {
   recordedCalls: unknown[][] = UNSEEDED;
   recordedContexts: unknown[] = UNSEEDED;
   recordedInstances: unknown[] = UNSEEDED;
   recordedOrder: number[] = UNSEEDED;
-  recordedResults: RecordedResult[] = UNSEEDED;
+  /** Bare values until the state is {@link live}, `RecordedResult` objects from then on. */
+  recordedResults: unknown[] = UNSEEDED;
   recordedSettledResults: RecordedResult[] = UNSEEDED;
   /** Whether an accessor has handed the arrays out since they were last emptied. */
   handedOut = false;
+  /** Whether `settledResults` and `instances` are recorded per call rather than derived on the first read. */
+  live = false;
 
   get calls(): unknown[][] {
     return this.read().recordedCalls;
@@ -160,27 +216,42 @@ export abstract class FastMockStateBase implements FastMockState {
     return calls[calls.length - 1];
   }
 
-  /** Append one call — the six entries the spy's hot path produces, seeding the arrays on the first. */
-  record(args: unknown[], order: number, result: RecordedResult, settled: RecordedResult, context: unknown): void {
+  /**
+   * Append one call, seeding the arrays on the first. A {@link live} state passes the call's two
+   * entries; before that there are none, and `results` holds {@link INCOMPLETE} until {@link complete}.
+   */
+  record(args: unknown[], order: number, context: unknown, entry?: RecordedResult, settled?: RecordedResult): void {
+    const result: unknown = entry ?? INCOMPLETE;
+
     if (this.recordedCalls === UNSEEDED) {
       this.recordedCalls = seeded(args);
       this.recordedOrder = seeded(order);
       this.recordedResults = seeded(result);
-      this.recordedSettledResults = seeded(settled);
       this.recordedContexts = seeded(context);
-      this.recordedInstances = seeded(context);
+
+      if (settled !== undefined) {
+        this.recordedSettledResults = seeded(settled);
+        this.recordedInstances = seeded(context);
+      }
 
       return;
     }
 
     // Swapping the arrays is invisible only while no accessor has handed them out since the seed.
-    if (this.recordedCalls.length === SEEDED_CAPACITY && !this.handedOut) {
-      this.recordedCalls = regrown(this.recordedCalls, args);
-      this.recordedOrder = regrown(this.recordedOrder, order);
-      this.recordedResults = regrown(this.recordedResults, result);
-      this.recordedSettledResults = regrown(this.recordedSettledResults, settled);
-      this.recordedContexts = regrown(this.recordedContexts, context);
-      this.recordedInstances = regrown(this.recordedInstances, context);
+    const length = this.recordedCalls.length;
+
+    if ((length === SEEDED_CAPACITY || length === DOUBLED_CAPACITY) && !this.handedOut) {
+      const grow = length === SEEDED_CAPACITY ? doubled : regrown;
+
+      this.recordedCalls = grow(this.recordedCalls, args);
+      this.recordedOrder = grow(this.recordedOrder, order);
+      this.recordedResults = grow(this.recordedResults, result);
+      this.recordedContexts = grow(this.recordedContexts, context);
+
+      if (settled !== undefined) {
+        this.recordedSettledResults = grow(this.recordedSettledResults, settled);
+        this.recordedInstances = grow(this.recordedInstances, context);
+      }
 
       return;
     }
@@ -188,8 +259,28 @@ export abstract class FastMockStateBase implements FastMockState {
     this.recordedCalls.push(args);
     this.recordedOrder.push(order);
     this.recordedResults.push(result);
-    this.recordedSettledResults.push(settled);
     this.recordedContexts.push(context);
+
+    if (settled !== undefined) {
+      this.recordedSettledResults.push(settled);
+      this.recordedInstances.push(context);
+    }
+  }
+
+  /** {@link record} for a live state, with the seeding and growth steps skipped once the arrays are handed out. */
+  recordLive(args: unknown[], order: number, context: unknown, result: RecordedResult, settled: RecordedResult): void {
+    // A returned `Promise` makes a state live before anything read it, so its arrays may still be seeded or unseeded.
+    if (!this.handedOut) {
+      this.record(args, order, context, result, settled);
+
+      return;
+    }
+
+    this.recordedCalls.push(args);
+    this.recordedOrder.push(order);
+    this.recordedResults.push(result);
+    this.recordedContexts.push(context);
+    this.recordedSettledResults.push(settled);
     this.recordedInstances.push(context);
   }
 
@@ -201,12 +292,47 @@ export abstract class FastMockStateBase implements FastMockState {
     }
 
     this.recordedContexts[this.recordedContexts.length - 1] = instance;
-    this.recordedInstances[this.recordedInstances.length - 1] = instance;
+
+    if (this.live) {
+      this.recordedInstances[this.recordedInstances.length - 1] = instance;
+    }
+  }
+
+  /**
+   * Complete a call recorded at `index` before the state went live, and hand back its settled entry
+   * if a read inside the call has made it live since.
+   *
+   * Nothing but the position identifies the call, and that is enough: every other call still
+   * running started earlier, so it sits at a lower index or was dropped by a clear inside this one.
+   */
+  complete(index: number, thrown: boolean, value: unknown): RecordedResult | undefined {
+    const results = this.recordedResults;
+
+    if (!this.live) {
+      if (results[index] === INCOMPLETE) {
+        results[index] = thrown ? new Thrown(value) : value;
+      }
+
+      return undefined;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a live state holds `RecordedResult` objects, or whatever a spec assigned.
+    const entry = results[index] as RecordedResult | undefined;
+
+    if (entry?.type !== 'incomplete') {
+      return undefined;
+    }
+
+    entry.type = thrown ? 'throw' : 'return';
+    entry.value = value;
+
+    return this.recordedSettledResults[index];
   }
 
   /** Drop everything recorded, keeping the object identity a spec may be holding. */
   empty(): void {
     this.handedOut = false;
+    this.live = false;
     this.recordedCalls = UNSEEDED;
     this.recordedContexts = UNSEEDED;
     this.recordedInstances = UNSEEDED;
@@ -224,8 +350,30 @@ export abstract class FastMockStateBase implements FastMockState {
     return this.materialise();
   }
 
+  /** Record all six arrays from now on, deriving the two skipped ones from what was recorded so far. */
+  goLive(): void {
+    if (this.live) {
+      return;
+    }
+
+    this.live = true;
+
+    if (this.recordedCalls !== UNSEEDED) {
+      const results = this.recordedResults;
+
+      for (let index = 0; index < results.length; index++) {
+        results[index] = toResult(results[index]);
+      }
+
+      this.recordedInstances = this.recordedContexts.slice();
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- converted to entries just above.
+      this.recordedSettledResults = (results as RecordedResult[]).map(deriveSettled);
+    }
+  }
+
   materialise(): this {
     this.handedOut = true;
+    this.goLive();
 
     if (this.recordedCalls === UNSEEDED) {
       this.recordedCalls = [];

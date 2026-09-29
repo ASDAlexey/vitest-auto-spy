@@ -38,21 +38,21 @@ export type { FastMockResult, FastMockSettledResult, FastMockState } from './fas
  * in the run is therefore one integer increment, it holds nothing alive, and a spy that is never
  * touched again never pays for it.
  *
- * Two counters, because the two sweeps differ: `mockReset` also puts the creation-time
- * implementation back, and a spy has to be able to tell which sweep it has already answered.
+ * The two sweeps differ — `mockReset` also puts the creation-time implementation back — so the
+ * counter remembers where the last reset sweep was, and one stamp per spy answers both questions.
  */
-let clearEpoch = 0;
-let resetEpoch = 0;
+let sweepEpoch = 0;
+let lastResetSweep = 0;
 
-/** `vi.clearAllMocks()` for every fast spy — see {@link clearEpoch}. */
+/** `vi.clearAllMocks()` for every fast spy — see {@link sweepEpoch}. */
 export function clearAllFastSpies(): void {
-  clearEpoch += 1;
+  sweepEpoch += 1;
 }
 
 /** `vi.resetAllMocks()` for every fast spy: clears the calls and reinstates the creation-time implementation. */
 export function resetAllFastSpies(): void {
-  clearEpoch += 1;
-  resetEpoch += 1;
+  sweepEpoch += 1;
+  lastResetSweep = sweepEpoch;
 }
 
 /** The mutable configuration behind one spy — what it returns and what it is called. */
@@ -63,9 +63,10 @@ interface FastSpyConfig {
   name: string;
   /** What `mockReset` puts back — the implementation the spy was created with, as `vi.fn(impl)` restores its own. */
   readonly original: Func | undefined;
-  /** The sweep counters this spy has already answered — see {@link clearEpoch}. */
-  clearSeen: number;
-  resetSeen: number;
+  /** The creation-time name, which a reset puts back over any `mockName()`, as `vi.spyOn` does. */
+  readonly originalName: string;
+  /** The sweep this spy has already answered — see {@link sweepEpoch}. */
+  seen: number;
 }
 
 /** The internal fields a fast spy carries, kept under symbols so they never collide with a member name. */
@@ -134,15 +135,19 @@ class FastMockStateImpl extends FastMockStateBase {
 function syncEpochs(spy: FastSpy): void {
   const config = spy[CONFIG];
 
-  if (config.resetSeen !== resetEpoch) {
-    config.resetSeen = resetEpoch;
+  if (config.seen === sweepEpoch) {
+    return;
+  }
+
+  const resetSince = lastResetSweep > config.seen;
+
+  config.seen = sweepEpoch;
+
+  if (resetSince) {
     reinstateOriginal(spy, config);
   }
 
-  if (config.clearSeen !== clearEpoch) {
-    config.clearSeen = clearEpoch;
-    spy[STATE]?.empty();
-  }
+  spy[STATE]?.empty();
 }
 
 /**
@@ -429,13 +434,27 @@ definePrototypeMember(
     const config = configOf(spy);
     const previousImplementation = config.implementation;
     const previousOnce = config.onceImplementations;
+    const hooks = hooksOf(spy);
+    const previousReplacedBy = hooks?.replacedBy;
 
+    // Not a report on the way out: what comes back is what was there, already reported or not.
     const restore = (): void => {
       config.implementation = previousImplementation;
       config.onceImplementations = previousOnce;
+
+      if (hooks) {
+        hooks.replacedBy = previousReplacedBy;
+      }
     };
 
-    config.implementation = implementation;
+    try {
+      replaceImplementation(spy, implementation, 'withImplementation');
+    } catch (error) {
+      restore();
+
+      throw error;
+    }
+
     config.onceImplementations = undefined;
 
     const returned = callback();
@@ -600,6 +619,7 @@ function resetSpy(spy: FastSpy): void {
  */
 function reinstateOriginal(spy: FastSpy, config: FastSpyConfig): void {
   config.implementation = config.original;
+  config.name = config.originalName;
   config.onceImplementations = undefined;
   hooksOf(spy)?.implementationReplaced?.(config.original, 'mockReset');
 }
@@ -624,14 +644,14 @@ definePrototypeMember('mockRestore', function mockRestore(this: unknown): unknow
 
 definePrototypeMember('mockName', function mockName(this: unknown, name: string): unknown {
   if (typeof name === 'string') {
-    self(this)[CONFIG].name = name;
+    configOf(self(this)).name = name;
   }
 
   return this;
 });
 
 definePrototypeMember('getMockName', function getMockName(this: unknown): string {
-  return self(this)[CONFIG].name || 'vi.fn()';
+  return configOf(self(this)).name || 'vi.fn()';
 });
 
 // `DISPOSE` rather than `Symbol.dispose`: the realm may not have one (Node 22 under `jsdom`), and
@@ -667,35 +687,35 @@ function settleInto(settled: RecordedResult, returned: unknown): void {
   settled.value = returned;
 }
 
+/** Run whatever the next call is configured to run. */
+function callThrough(config: FastSpyConfig, thisArg: unknown, args: unknown[], newTarget: Func | undefined): unknown {
+  const implementation = config.onceImplementations?.shift() ?? config.implementation;
+
+  // `Object` as the stand-in when nothing is configured: constructed against the spy as its
+  // `new.target`, it yields a plain instance of the spy, which is what the runner's mock yields.
+  return newTarget ? Reflect.construct(implementation ?? Object, args, newTarget) : implementation?.apply(thisArg, args);
+}
+
 /**
- * One call of a spy: record it, run whatever is configured, complete the two entries the recording
- * left open.
- *
- * A module-level function rather than the body of the spy itself, because the body is allocated per
- * spy and a wide double allocates forty of them — everything that can be shared is shared.
+ * One call of a spy on a state something has read: record both entries as objects and complete
+ * them in place, as the runner does.
  */
-function invoke(spy: FastSpy, thisArg: unknown, args: unknown[], newTarget: Func | undefined): unknown {
-  const config = spy[CONFIG];
-
-  if (config.clearSeen !== clearEpoch || config.resetSeen !== resetEpoch) {
-    syncEpochs(spy);
-  }
-
-  const state = spy[STATE] ?? stateOf(spy);
+function invokeLive(
+  config: FastSpyConfig,
+  state: FastMockStateImpl,
+  thisArg: unknown,
+  args: unknown[],
+  newTarget: Func | undefined,
+): unknown {
   const result: RecordedResult = { type: 'incomplete', value: undefined };
   const settled: RecordedResult = { type: 'incomplete', value: undefined };
-  const context = newTarget ? undefined : thisArg;
 
-  // Not the accessors: the sweep check above has already run, and they would repeat it six times.
-  state.record(args, invocationCallCounter++, result, settled, context);
+  state.recordLive(args, invocationCallCounter++, newTarget ? undefined : thisArg, result, settled);
 
-  const implementation = config.onceImplementations?.shift() ?? config.implementation;
   let returned: unknown;
 
   try {
-    // `Object` as the stand-in when nothing is configured: constructed against the spy as its
-    // `new.target`, it yields a plain instance of the spy, which is what the runner's mock yields.
-    returned = newTarget ? Reflect.construct(implementation ?? Object, args, newTarget) : implementation?.apply(thisArg, args);
+    returned = callThrough(config, thisArg, args, newTarget);
   } catch (error) {
     result.type = 'throw';
     result.value = error;
@@ -718,6 +738,66 @@ function invoke(spy: FastSpy, thisArg: unknown, args: unknown[], newTarget: Func
 }
 
 /**
+ * One call of a spy: record it, run whatever is configured, complete what the recording left open.
+ *
+ * A module-level function rather than the body of the spy itself, because the body is allocated per
+ * spy and a wide double allocates forty of them — everything that can be shared is shared. Until
+ * something reads the state, a call allocates no result entry at all — see `FastMockStateBase`.
+ */
+function invoke(spy: FastSpy, thisArg: unknown, args: unknown[], newTarget: Func | undefined): unknown {
+  const config = spy[CONFIG];
+
+  if (config.seen !== sweepEpoch) {
+    syncEpochs(spy);
+  }
+
+  const state = spy[STATE] ?? stateOf(spy);
+
+  // Two paths rather than one with branches: sharing one let a spy that is never read slow down every read one.
+  if (state.live) {
+    return invokeLive(config, state, thisArg, args, newTarget);
+  }
+
+  const index = state.recordedCalls.length;
+
+  // Not the accessors: the sweep check above has already run, and they would repeat it six times.
+  state.record(args, invocationCallCounter++, newTarget ? undefined : thisArg);
+
+  let returned: unknown;
+
+  try {
+    returned = callThrough(config, thisArg, args, newTarget);
+  } catch (error) {
+    // A read inside the call may have made the state live and derived this entry as incomplete.
+    const settled = state.complete(index, true, error);
+
+    if (settled) {
+      settled.type = 'rejected';
+      settled.value = error;
+    }
+
+    throw error;
+  }
+
+  if (newTarget) {
+    state.recordInstance(returned);
+  }
+
+  // Settling happens later, so it cannot be derived: a `Promise` needs its entry recorded now.
+  if (returned instanceof Promise) {
+    state.goLive();
+  }
+
+  const settled = state.complete(index, false, returned);
+
+  if (settled) {
+    settleInto(settled, returned);
+  }
+
+  return returned;
+}
+
+/**
  * Create a fast spy wrapping `implementation`.
  *
  * @param implementation What the spy calls through to; a spy without one answers `undefined`.
@@ -729,8 +809,8 @@ export function createFastSpy(implementation?: Func, name?: string): FastSpy {
     onceImplementations: undefined,
     name: name ?? '',
     original: implementation,
-    clearSeen: clearEpoch,
-    resetSeen: resetEpoch,
+    originalName: name ?? '',
+    seen: sweepEpoch,
   };
 
   // Reaches itself by its own name: closing over `spy` cost every spy a context object of its own.
@@ -744,6 +824,12 @@ export function createFastSpy(implementation?: Func, name?: string): FastSpy {
   Object.setPrototypeOf(spy, FAST_SPY_PROTOTYPE);
   spy[CONFIG] = config;
   spy[STATE] = undefined;
+
+  // Only when it differs: redefining `length` costs every spy a map transition, and a method spy's
+  // implementation is the dispatch, whose rest parameter already makes it 0.
+  if (implementation !== undefined && implementation.length !== 0) {
+    Object.defineProperty(spy, 'length', { value: implementation.length, writable: true, configurable: true, enumerable: false });
+  }
 
   return spy;
 }
