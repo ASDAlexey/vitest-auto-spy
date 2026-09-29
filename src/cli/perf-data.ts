@@ -24,14 +24,21 @@ export const PERF_REPORTER_ENV = 'VITEST_AUTO_SPY_PERF_REPORTER';
  */
 export const PERF_PROFILE_ENV = 'VITEST_AUTO_SPY_PERF_PROFILE';
 
-export const PERF_FORMAT_VERSION = 4;
+/** `--ab-isolate`: the reporter sets every project's `isolate` to this before the run starts. */
+export const PERF_ISOLATE_ENV = 'VITEST_AUTO_SPY_PERF_ISOLATE';
+
+/** The `task.meta` key `setupAutoSpy` adds its per-test hook time under. Kept in sync with `src/lib/perf-meta.ts`. */
+export const AUTO_SPY_META_KEY = 'autoSpyMs';
+
+export const PERF_FORMAT_VERSION = 5;
 
 /**
  * Every version this build reads. Version 2 added the per-test data the gate judges, version 3 the
- * flaky tests and the heap, version 4 workers, lanes, fetch waits and the resolved config; an older
- * report simply carries none of it, which is a report with fewer findings in it rather than a bad one.
+ * flaky tests and the heap, version 4 workers, lanes, fetch waits and the resolved config, version 5
+ * per-test heap steps, setup-file imports, library hook time, coverage time and how the run ended; an
+ * older report simply carries none of it, which is a report with fewer findings in it rather than a bad one.
  */
-const READABLE_VERSIONS: readonly number[] = [1, 2, 3, 4];
+const READABLE_VERSIONS: readonly number[] = [1, 2, 3, 4, 5];
 
 /**
  * Below this, a test body is not evidence of anything: 40 ms is the machine rather than somebody's
@@ -54,7 +61,19 @@ export interface PerfImport {
   /** Absolute path, as Vitest resolved it. */
   readonly module: string;
   readonly ms: number;
+  /** The module's own evaluation, without the modules under it. */
+  readonly self?: number;
 }
+
+/** One test's heap growth that the next test did not give back. */
+export interface PerfHeapStep {
+  /** The test's full name. */
+  readonly test: string;
+  readonly bytes: number;
+}
+
+/** How Vitest said the run ended. `interrupted` is a cancelled run: Ctrl-C, `--bail`, a signal. */
+export type PerfRunEnd = 'failed' | 'interrupted' | 'passed';
 
 export interface PerfFile {
   /** Absolute module id, exactly as Vitest reported it. */
@@ -78,6 +97,12 @@ export interface PerfFile {
   readonly heap?: number;
   /** The spec's heaviest direct imports. Only a run that collects import durations records them. */
   readonly slowImports?: readonly PerfImport[];
+  /** The heaviest modules the setup files imported for this file, and the setup files themselves. */
+  readonly setupImports?: readonly PerfImport[];
+  /** Under `logHeapUsage`: the largest step one test added to the heap and the next test kept. */
+  readonly heapStep?: PerfHeapStep;
+  /** Milliseconds `setupAutoSpy`'s per-test hooks took, summed over the file's tests; already inside `tests`. */
+  readonly autoSpy?: number;
   /**
    * Under `isolate: false`: modules the worker evaluated for the first time during this file, heaviest
    * first, the spec itself left out. Only a run that collects import durations records them.
@@ -132,6 +157,12 @@ export interface PerfRun {
   readonly startup?: { readonly ms: number; readonly workers: number };
   /** Written before the run ended — a crashed or killed run keeps the files that finished. */
   readonly partial?: boolean;
+  /** Vitest 3+: how the run ended, as `onTestRunEnd` reported it. */
+  readonly end?: PerfRunEnd;
+  /** Vitest gave up waiting for the process to exit after the run (`onProcessTimeout`). */
+  readonly hung?: boolean;
+  /** Milliseconds coverage took after the last file: generating the map, then writing the reports. */
+  readonly coverage?: number;
 }
 
 export type PhaseName = 'environment' | 'import' | 'prepare' | 'setup' | 'tests' | 'transform';
@@ -147,7 +178,7 @@ export interface Phase {
 type FileKey = 'environment' | 'imports' | 'prepare' | 'setup' | 'tests';
 
 /** `environment` is not among them: it is measured once per worker, not once per file — see `environmentOf`. */
-const OPTIONAL_FILE_NUMBERS = ['workerId', 'lane', 'start', 'fetch', 'setupFetch', 'retries'] as const;
+const OPTIONAL_FILE_NUMBERS = ['workerId', 'lane', 'start', 'fetch', 'setupFetch', 'retries', 'autoSpy'] as const;
 
 const FILE_PHASES: readonly (readonly [PhaseName, FileKey])[] = [
   ['import', 'imports'],
@@ -185,7 +216,17 @@ function parseImports(value: unknown): PerfImport[] {
 
   return value
     .filter((entry): entry is Record<string, unknown> => isRecord(entry) && typeof entry['module'] === 'string')
-    .map((entry) => ({ module: String(entry['module']), ms: numberAt(entry, 'ms') ?? 0 }));
+    .map((entry) => {
+      const self = numberAt(entry, 'self');
+
+      return { module: String(entry['module']), ms: numberAt(entry, 'ms') ?? 0, ...(self === undefined ? {} : { self }) };
+    });
+}
+
+function parseHeapStep(value: unknown): PerfHeapStep | undefined {
+  const bytes = isRecord(value) ? numberAt(value, 'bytes') : undefined;
+
+  return isRecord(value) && typeof value['test'] === 'string' && bytes !== undefined ? { test: value['test'], bytes } : undefined;
 }
 
 function parseNames(value: unknown): string[] {
@@ -201,6 +242,8 @@ function parseFile(value: unknown): PerfFile | undefined {
   const heap = numberAt(value, 'heap');
   const slowImports = parseImports(value['slowImports']);
   const firstLoads = parseImports(value['firstLoads']);
+  const setupImports = parseImports(value['setupImports']);
+  const heapStep = parseHeapStep(value['heapStep']);
   const optional = Object.fromEntries(
     OPTIONAL_FILE_NUMBERS.flatMap((key) => {
       const number = numberAt(value, key);
@@ -222,6 +265,8 @@ function parseFile(value: unknown): PerfFile | undefined {
     ...(heap === undefined ? {} : { heap }),
     ...(slowImports.length === 0 ? {} : { slowImports }),
     ...(firstLoads.length === 0 ? {} : { firstLoads }),
+    ...(setupImports.length === 0 ? {} : { setupImports }),
+    ...(heapStep === undefined ? {} : { heapStep }),
     ...optional,
   };
 }
@@ -303,6 +348,8 @@ export function parsePerfRun(text: string): PerfRun | undefined {
 
   const config = parseConfig(parsed['config']);
   const startup = parseStartup(parsed['startup']);
+  const end = parsed['end'];
+  const coverage = numberAt(parsed, 'coverage');
 
   return {
     version,
@@ -315,6 +362,9 @@ export function parsePerfRun(text: string): PerfRun | undefined {
     ...(config === undefined ? {} : { config }),
     ...(startup === undefined ? {} : { startup }),
     ...(parsed['partial'] === true ? { partial: true } : {}),
+    ...(end === 'failed' || end === 'interrupted' || end === 'passed' ? { end } : {}),
+    ...(parsed['hung'] === true ? { hung: true } : {}),
+    ...(coverage === undefined ? {} : { coverage }),
   };
 }
 

@@ -41,7 +41,7 @@
 import { isAbsolute, join } from 'node:path';
 
 import { isDirectory, listRepositoryFiles, readTextFile, toPosix } from './fs-scan';
-import type { PerfFile, PerfRun } from './perf-data';
+import type { PerfFile, PerfRun, PerfRunEnd } from './perf-data';
 import { PERF_FORMAT_VERSION, formatMs, parsePerfRun } from './perf-data';
 
 export interface MergeInput {
@@ -77,12 +77,17 @@ function reroot(path: string, from: string, to: string): string {
   return rest.startsWith('/') || rest.startsWith('\\') ? `${to}${rest}` : path;
 }
 
+/** The worst ending wins: one interrupted shard makes the merged run one that did not finish. */
+const END_ORDER: readonly PerfRunEnd[] = ['interrupted', 'failed', 'passed'];
+
 /** The run-level numbers of the merge; the files are merged separately. */
 function mergedRun(inputs: readonly MergeInput[]): Omit<PerfRun, 'files' | 'root'> {
   const runs = inputs.map((input) => input.run);
   const vitest = runs.find((run) => run.vitest !== undefined)?.vitest;
   const config = runs.find((run) => run.config !== undefined)?.config;
   const startups = runs.flatMap((run) => (run.startup === undefined ? [] : [run.startup]));
+  const end = END_ORDER.find((reason) => runs.some((run) => run.end === reason));
+  const coverages = runs.flatMap((run) => (run.coverage === undefined ? [] : [run.coverage]));
   const startup = startups.reduce((total, each) => ({ ms: total.ms + each.ms, workers: total.workers + each.workers }), {
     ms: 0,
     workers: 0,
@@ -99,6 +104,9 @@ function mergedRun(inputs: readonly MergeInput[]): Omit<PerfRun, 'files' | 'root
     ...(config === undefined ? {} : { config }),
     ...(startups.length === 0 ? {} : { startup }),
     ...(runs.some((run) => run.partial === true) ? { partial: true } : {}),
+    ...(end === undefined ? {} : { end }),
+    ...(runs.some((run) => run.hung === true) ? { hung: true } : {}),
+    ...(coverages.length === 0 ? {} : { coverage: Math.max(...coverages) }),
   };
 }
 

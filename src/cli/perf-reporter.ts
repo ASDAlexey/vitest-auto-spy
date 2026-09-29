@@ -14,9 +14,17 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { writeTextFile } from './fs-scan';
-import type { PerfCase, PerfConfig, PerfFile, PerfImport, PerfRun } from './perf-data';
-import { CASES_PER_FILE, CASE_FLOOR_MS, PERF_FORMAT_VERSION, PERF_OUTPUT_ENV, PERF_PROFILE_ENV } from './perf-data';
+import { toPosix, writeTextFile } from './fs-scan';
+import type { PerfCase, PerfConfig, PerfFile, PerfHeapStep, PerfImport, PerfRun, PerfRunEnd } from './perf-data';
+import {
+  AUTO_SPY_META_KEY,
+  CASES_PER_FILE,
+  CASE_FLOOR_MS,
+  PERF_FORMAT_VERSION,
+  PERF_ISOLATE_ENV,
+  PERF_OUTPUT_ENV,
+  PERF_PROFILE_ENV,
+} from './perf-data';
 
 /** Vitest keeps the slowest modules of the whole worker; this many leaves room for the spec's own imports among them. */
 const IMPORT_LIMIT = 200;
@@ -33,6 +41,9 @@ const MEASURED_IMPORT_LIMIT = 10;
  * and a new module has to outrank all of them to be seen as a first load.
  */
 const REUSED_IMPORT_LIMIT = 30;
+
+/** A heap step under this is allocator noise rather than something a test kept. */
+const HEAP_STEP_FLOOR = 1024 * 1024;
 
 /** How often a finished file rewrites the partial report: a killed run loses at most this much. */
 export const PARTIAL_WRITE_MS = 2_000;
@@ -54,6 +65,7 @@ export interface PerfDiagnostic {
 
 export interface PerfImportDuration {
   readonly totalTime: number;
+  readonly selfTime?: number;
   readonly importer?: string | undefined;
 }
 
@@ -65,12 +77,16 @@ export interface PerfTestDiagnostic {
   readonly retryCount?: number;
   /** Epoch milliseconds. */
   readonly startTime?: number;
+  /** Bytes after the test, and only under `logHeapUsage`. */
+  readonly heap?: number | undefined;
 }
 
 export interface PerfTestCase {
   readonly fullName?: string;
   readonly name?: string;
   diagnostic?(): PerfTestDiagnostic | undefined;
+  /** The test's `task.meta`, where `setupAutoSpy` leaves its own hook time. */
+  meta?(): Readonly<Record<string, unknown>>;
 }
 
 export interface PerfTestCollection {
@@ -110,7 +126,7 @@ export interface PerfResolvedConfig {
 
 /** A project whose `setupFiles` the profiler is added to. The array is Vitest's own, read when a worker starts. */
 export interface PerfProject {
-  readonly config: PerfResolvedConfig & { readonly setupFiles: string[] };
+  readonly config: PerfResolvedConfig & { readonly setupFiles: string[]; isolate?: boolean };
 }
 
 export interface PerfVitest {
@@ -138,6 +154,42 @@ interface Bodies {
   readonly flaky: readonly string[];
   readonly retries: number;
   readonly start: number | undefined;
+  readonly heapStep: PerfHeapStep | undefined;
+  readonly autoSpy: number | undefined;
+}
+
+interface HeapReading {
+  readonly test: string;
+  readonly heap: number;
+  readonly start: number;
+}
+
+/**
+ * The largest growth one test added over the test before it that the next reading kept, the file's
+ * own heap after its last test standing in for the reading after the last one. The first test is not
+ * judged: its growth is the file's modules loading.
+ */
+function heapStepOf(readings: HeapReading[], fileHeap: number | undefined): PerfHeapStep | undefined {
+  const ordered = readings.sort((a, b) => a.start - b.start);
+  let step: PerfHeapStep | undefined;
+
+  ordered.forEach(({ test, heap }, index) => {
+    const before = ordered[index - 1]?.heap;
+    const next = ordered[index + 1]?.heap ?? fileHeap;
+    const bytes = before === undefined ? 0 : heap - before;
+
+    if (bytes >= HEAP_STEP_FLOOR && next !== undefined && next >= heap && (step === undefined || bytes > step.bytes)) {
+      step = { test, bytes };
+    }
+  });
+
+  return step;
+}
+
+function autoSpyOf(test: PerfTestCase): number | undefined {
+  const value = test.meta?.()[AUTO_SPY_META_KEY];
+
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 /**
@@ -151,14 +203,16 @@ function bodiesOf(module: PerfTestModule, floorMs: number): Bodies {
   const tests = module.children?.allTests?.();
 
   if (tests === undefined) {
-    return { count: 0, cases: [], flaky: [], retries: 0, start: undefined };
+    return { count: 0, cases: [], flaky: [], retries: 0, start: undefined, heapStep: undefined, autoSpy: undefined };
   }
 
   const cases: PerfCase[] = [];
   const flaky = new Set<string>();
+  const heaps: HeapReading[] = [];
   let count = 0;
   let retries = 0;
   let start: number | undefined;
+  let autoSpy: number | undefined;
 
   for (const test of tests) {
     const diagnostic = test.diagnostic?.();
@@ -185,9 +239,19 @@ function bodiesOf(module: PerfTestModule, floorMs: number): Bodies {
     if (diagnostic.startTime !== undefined && (start === undefined || diagnostic.startTime < start)) {
       start = diagnostic.startTime;
     }
+
+    if (diagnostic.heap !== undefined) {
+      heaps.push({ test: name, heap: diagnostic.heap, start: diagnostic.startTime ?? count });
+    }
+
+    const hooks = autoSpyOf(test);
+
+    autoSpy = hooks === undefined ? autoSpy : (autoSpy ?? 0) + hooks;
   }
 
-  return { count, cases: slowestByName(cases), flaky: [...flaky].sort(), retries, start };
+  const heapStep = heapStepOf(heaps, module.diagnostic().heap);
+
+  return { count, cases: slowestByName(cases), flaky: [...flaky].sort(), retries, start, heapStep, autoSpy };
 }
 
 /**
@@ -214,11 +278,18 @@ function slowestByName(cases: readonly PerfCase[]): PerfCase[] {
   return [...slowest.values()].sort((a, b) => b.ms - a.ms || a.name.localeCompare(b.name)).slice(0, CASES_PER_FILE);
 }
 
-/** The spec's own imports, heaviest first. A module another file imported first was paid for there. */
-function slowestImports(module: PerfTestModule, durations: Readonly<Record<string, PerfImportDuration>> | undefined): PerfImport[] {
+function importOf(path: string, duration: PerfImportDuration): PerfImport {
+  return { module: path, ms: duration.totalTime, ...(duration.selfTime === undefined ? {} : { self: duration.selfTime }) };
+}
+
+/** The heaviest of the imports `keep` selects. A module another file imported first was paid for there. */
+function heaviestImports(
+  durations: Readonly<Record<string, PerfImportDuration>> | undefined,
+  keep: (path: string, duration: PerfImportDuration) => boolean,
+): PerfImport[] {
   return Object.entries(durations ?? {})
-    .filter(([, duration]) => duration.importer === module.moduleId)
-    .map(([path, duration]) => ({ module: path, ms: duration.totalTime }))
+    .filter(([path, duration]) => keep(path, duration))
+    .map(([path, duration]) => importOf(path, duration))
     .sort((a, b) => b.ms - a.ms || a.module.localeCompare(b.module))
     .slice(0, CASES_PER_FILE);
 }
@@ -252,7 +323,7 @@ function withFirstLoads(measured: readonly Measured[]): PerfFile[] {
         const seen = new Set(Object.keys(before.module.diagnostic().importDurations ?? {}));
         const first = Object.entries(after.module.diagnostic().importDurations ?? {})
           .filter(([path]) => !seen.has(path) && path !== after.module.moduleId)
-          .map(([path, duration]) => ({ module: path, ms: duration.totalTime }))
+          .map(([path, duration]) => importOf(path, duration))
           .sort((a, b) => b.ms - a.ms || a.module.localeCompare(b.module))
           .slice(0, CASES_PER_FILE);
 
@@ -290,14 +361,23 @@ function runnerFields(module: PerfTestModule, bodies: Bodies): Partial<PerfFile>
     ...(start === undefined ? {} : { start }),
     ...(fetch === undefined ? {} : { fetch, setupFetch: setupFetch ?? 0 }),
     ...(bodies.retries === 0 ? {} : { retries: bodies.retries }),
+    ...(bodies.heapStep === undefined ? {} : { heapStep: bodies.heapStep }),
+    ...(bodies.autoSpy === undefined ? {} : { autoSpy: bodies.autoSpy }),
   };
 }
 
-function toPerfFile(module: PerfTestModule): PerfFile {
+function toPerfFile(module: PerfTestModule, setupFiles: ReadonlySet<string>): PerfFile {
   const diagnostic = module.diagnostic();
   // A profiled pass is a few suspect files, and the reader wants their slowest bodies whatever they cost.
   const bodies = bodiesOf(module, profiling() ? 0 : CASE_FLOOR_MS);
-  const imports = slowestImports(module, diagnostic.importDurations);
+  const imports = heaviestImports(diagnostic.importDurations, (_path, duration) => duration.importer === module.moduleId);
+  const setupImports =
+    setupFiles.size === 0
+      ? []
+      : heaviestImports(
+          diagnostic.importDurations,
+          (path, duration) => setupFiles.has(path) || (duration.importer !== undefined && setupFiles.has(duration.importer)),
+        );
 
   return {
     file: module.moduleId,
@@ -311,6 +391,7 @@ function toPerfFile(module: PerfTestModule): PerfFile {
     ...(bodies.flaky.length === 0 ? {} : { flaky: bodies.flaky }),
     ...(diagnostic.heap === undefined ? {} : { heap: diagnostic.heap }),
     ...(imports.length === 0 ? {} : { slowImports: imports }),
+    ...(setupImports.length === 0 ? {} : { setupImports }),
     ...runnerFields(module, bodies),
   };
 }
@@ -345,6 +426,18 @@ function target(): string | undefined {
   return path === undefined || path === '' ? undefined : path;
 }
 
+function isolateOverride(): boolean | undefined {
+  const value = process.env[PERF_ISOLATE_ENV];
+
+  return value === 'true' ? true : value === 'false' ? false : undefined;
+}
+
+interface Ended {
+  readonly modules: readonly PerfTestModule[];
+  readonly at: number;
+  readonly end: PerfRunEnd | undefined;
+}
+
 export default class PerfReporter {
   #vitest: PerfVitest | undefined;
 
@@ -356,6 +449,18 @@ export default class PerfReporter {
 
   #pending: ReturnType<typeof setTimeout> | undefined;
 
+  readonly #setupFiles = new Set<string>();
+
+  #lastModuleEnd: number | undefined;
+
+  #coverageAt: number | undefined;
+
+  #ended: Ended | undefined;
+
+  #coverage: number | undefined;
+
+  #hung = false;
+
   onInit(vitest: PerfVitest): void {
     this.#vitest = vitest;
     this.#start = Date.now();
@@ -365,8 +470,18 @@ export default class PerfReporter {
     }
 
     const profiler = profiling() ? join(dirname(fileURLToPath(import.meta.url)), 'perf-profiler.js') : undefined;
+    const isolate = isolateOverride();
 
     for (const project of vitest.projects ?? []) {
+      for (const file of project.config.setupFiles) {
+        this.#setupFiles.add(toPosix(file));
+      }
+
+      // Read by the pool when it starts a file, so a value set before the run is the one it runs with.
+      if (isolate !== undefined) {
+        project.config.isolate = isolate;
+      }
+
       const limit = profiler !== undefined ? IMPORT_LIMIT : project.config.isolate === false ? REUSED_IMPORT_LIMIT : MEASURED_IMPORT_LIMIT;
 
       if (profiler !== undefined) {
@@ -398,6 +513,7 @@ export default class PerfReporter {
     }
 
     this.#finished.set(module.moduleId, module);
+    this.#lastModuleEnd = Date.now();
 
     const wait = this.#lastWrite + PARTIAL_WRITE_MS - Date.now();
 
@@ -423,7 +539,7 @@ export default class PerfReporter {
    * script — declares this reporter permanently and pays nothing on the runs that are not
    * measuring anything. `perf` is what notices a missing report, and it says exactly why.
    */
-  onTestRunEnd(modules: readonly PerfTestModule[]): void {
+  onTestRunEnd(modules: readonly PerfTestModule[], _errors?: readonly unknown[], end?: PerfRunEnd): void {
     clearTimeout(this.#pending);
 
     const path = target();
@@ -432,7 +548,46 @@ export default class PerfReporter {
       return;
     }
 
-    writeTextFile(path, JSON.stringify(this.report(modules), undefined, 2));
+    const at = Date.now();
+
+    this.#ended = { modules, at, end };
+    this.#coverage =
+      this.#coverageAt === undefined || this.#lastModuleEnd === undefined ? undefined : Math.max(this.#coverageAt - this.#lastModuleEnd, 0);
+    this.#write(path, this.#ended);
+  }
+
+  /** Called just before `onTestRunEnd` with the coverage map, which is when generating it has finished. */
+  onCoverage(): void {
+    this.#coverageAt = Date.now();
+  }
+
+  /** Called after the coverage reports are written, which Vitest does after `onTestRunEnd`: the report is rewritten with that time added. */
+  onFinishedReportCoverage(): void {
+    const ended = this.#ended;
+    const path = target();
+
+    if (ended === undefined || path === undefined) {
+      return;
+    }
+
+    this.#coverage = (this.#coverage ?? 0) + Math.max(Date.now() - ended.at, 0);
+    this.#write(path, ended);
+  }
+
+  /** Vitest gave up waiting for the process to exit after the run and is about to force it. */
+  onProcessTimeout(): void {
+    const ended = this.#ended;
+    const path = target();
+
+    this.#hung = true;
+
+    if (ended !== undefined && path !== undefined) {
+      this.#write(path, ended);
+    }
+  }
+
+  #write(path: string, ended: Ended): void {
+    writeTextFile(path, JSON.stringify(this.report(ended.modules, ended.end === 'interrupted'), undefined, 2));
   }
 
   /** Exposed so the report can be asserted without a run; the reporter itself only writes it. */
@@ -440,19 +595,23 @@ export default class PerfReporter {
     const vitest = this.#vitest;
     const startup = vitest === undefined ? undefined : startupOf(vitest);
     const config = vitest === undefined ? undefined : configOf(vitest);
-    const measured = modules.map((module) => ({ module, file: toPerfFile(module) }));
+    const measured = modules.map((module) => ({ module, file: toPerfFile(module, this.#setupFiles) }));
+    const end = this.#ended?.end;
 
     return {
       version: PERF_FORMAT_VERSION,
       root: vitest?.config.root ?? '',
       transform: vitest?.state.transformTime ?? 0,
       failed: modules.filter((module) => module.ok?.() === false).length,
-      wall: Date.now() - this.#start,
+      wall: (this.#ended?.at ?? Date.now()) - this.#start,
       files: config?.isolate === false ? withFirstLoads(measured) : measured.map(({ file }) => file),
       ...(vitest?.version === undefined ? {} : { vitest: vitest.version }),
       ...(config === undefined ? {} : { config }),
       ...(startup === undefined ? {} : { startup }),
       ...(partial ? { partial: true } : {}),
+      ...(end === undefined ? {} : { end }),
+      ...(this.#hung ? { hung: true } : {}),
+      ...(this.#coverage === undefined ? {} : { coverage: this.#coverage }),
     };
   }
 }

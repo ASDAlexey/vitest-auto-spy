@@ -6,7 +6,7 @@ import type { CliIo } from './main';
 import type { BaselineRequest, GateRequest, PerfAnalysis, PerfOptions } from './perf';
 import type { PerfBaseline } from './perf-baseline';
 import { baselineDrift, baselineRegressions, buildBaseline, readBaseline, writeBaseline } from './perf-baseline';
-import type { PerfConfig, PerfFile, PerfRun, Phase } from './perf-data';
+import type { PerfConfig, PerfFile, PerfRun, PerfRunEnd, Phase } from './perf-data';
 import { formatMs, testsRunOf } from './perf-data';
 import type { GateCandidate, GateOptions, GateRow } from './perf-gate';
 import { GATE_DEFAULTS, measuredFiles, medianFileMs, medianTestMs } from './perf-gate';
@@ -140,6 +140,16 @@ export interface PerfDocument {
     readonly startup?: { readonly ms: number; readonly workers: number };
     /** Vitest 5+: how the run used its worker lanes. */
     readonly lanes?: LaneSummary;
+    /** How Vitest said the run ended. */
+    readonly end?: PerfRunEnd;
+    /** Vitest had to force the process out after the run. */
+    readonly hung?: true;
+    /** Coverage after the last file, outside `wallMs`'s phases. */
+    readonly coverageMs?: number;
+    /** `setupAutoSpy`'s per-test hooks, summed; already inside the tests phase. */
+    readonly libraryHooksMs?: number;
+    /** From starting the process to its exit, when `perf` ran it. */
+    readonly endToEndMs?: number;
   } | null;
   readonly budgets: Omit<GateOptions, 'maxWallMs'> & { readonly maxWallMs: number | null };
   readonly gate: {
@@ -176,8 +186,15 @@ function slowestFiles(run: PerfRun, cwd: string, top: number | undefined): SlowF
 }
 
 /** What a Vitest 5 report adds to the run, each field only when the report has it. */
-function runExtras(run: PerfRun, analysis: PerfAnalysis): Partial<NonNullable<PerfDocument['run']>> {
+function runExtras(run: PerfRun, analysis: PerfAnalysis, source: PerfSource): Partial<NonNullable<PerfDocument['run']>> {
+  const hooks = run.files.flatMap((file) => (file.autoSpy === undefined ? [] : [file.autoSpy]));
+
   return {
+    ...(run.end === undefined ? {} : { end: run.end }),
+    ...(run.hung === true ? { hung: true as const } : {}),
+    ...(run.coverage === undefined ? {} : { coverageMs: run.coverage }),
+    ...(hooks.length === 0 ? {} : { libraryHooksMs: hooks.reduce((total, ms) => total + ms, 0) }),
+    ...(source.ok && source.endToEnd !== undefined ? { endToEndMs: source.endToEnd } : {}),
     ...(run.vitest === undefined ? {} : { vitest: run.vitest }),
     ...(run.partial === true ? { partial: true as const } : {}),
     ...(run.config === undefined ? {} : { config: run.config }),
@@ -214,7 +231,7 @@ export function perfJson(source: PerfSource, profile: Profile, options: PerfOpti
             medianFileMs: medianFileMs(measured),
             phases: collected.analysis.phases,
             slowestFiles: slowestFiles(collected.run, profile.cwd, options.top),
-            ...runExtras(collected.run, collected.analysis),
+            ...runExtras(collected.run, collected.analysis, source),
           },
     budgets: { ...gate, maxWallMs: gate.maxWallMs ?? null },
     gate:
