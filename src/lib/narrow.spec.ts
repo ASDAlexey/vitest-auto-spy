@@ -128,10 +128,12 @@ describe('narrow — a value with no constructor', () => {
   });
 
   it('falls back to Object for a class that has no name', () => {
-    const Anonymous = class {
-      readonly id = 1;
-    };
-    Object.defineProperty(Anonymous, 'name', { value: '' });
+    // Out of an array, a class expression takes no name from the binding it lands in.
+    const [Anonymous] = [
+      class {
+        readonly id = 1;
+      },
+    ];
 
     expect(() => narrow(new Anonymous(), () => false, 'a route')).toThrow(/but the value is Object \{ id \}/);
   });
@@ -149,8 +151,7 @@ describe('narrow.instanceOf', () => {
   it('names the class and the value when it is not one', () => {
     expect(() => narrow.instanceOf('text', FormData)).toThrow(/expected an instance of FormData, but the value is string 'text'/);
 
-    const Anonymous = class {};
-    Object.defineProperty(Anonymous, 'name', { value: '' });
+    const [Anonymous] = [class {}];
 
     expect(() => narrow.instanceOf(null, Anonymous)).toThrow(/expected an instance of the given class, but the value is null/);
   });
