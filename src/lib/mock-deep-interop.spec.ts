@@ -44,6 +44,7 @@ describe('vi.spyOn over a member nobody has read', () => {
     spy.mockReturnValue('found');
 
     expect(spy).toBe(api.repo.find);
+    // eslint-disable-next-line vitest-auto-spy/no-self-called-spy -- the double is the code under test: its node has to record the call
     expect(api.repo.find(1)).toBe('found');
     expect(spy).toHaveBeenCalledWith(1);
   });
