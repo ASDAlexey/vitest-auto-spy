@@ -194,15 +194,20 @@
   },
   "peerDependencies": {
     "@angular/common": ">=20.0.0",
+    "@angular/compiler": ">=20.0.0",
     "@angular/core": ">=20.0.0",
     "@angular/forms": ">=20.0.0",
     "@angular/platform-browser": ">=20.0.0",
     "@angular/router": ">=20.0.0",
+    "@rstest/core": ">=0.11.0",
     "rxjs": ">=7.2.0",
     "vitest": ">=2.1.0"
   },
   "peerDependenciesMeta": {
     "@angular/common": {
+      "optional": true
+    },
+    "@angular/compiler": {
       "optional": true
     },
     "@angular/core": {
@@ -215,6 +220,9 @@
       "optional": true
     },
     "@angular/router": {
+      "optional": true
+    },
+    "@rstest/core": {
       "optional": true
     },
     "rxjs": {
