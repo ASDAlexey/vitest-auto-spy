@@ -6,6 +6,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { describeMockAdapterContract } from './mock-adapter-contract';
 import { type RstestApi, type RstestMock, createRstestMockAdapter } from './rstest-adapter';
 import { setSpyEngine } from './spy-engine';
 import type { Func } from './types';
@@ -24,11 +25,11 @@ function makeRstestApi(): { api: RstestApi; created: RstestMock[]; names: string
   const fn = (implementation?: Func): RstestMock => {
     const calls: unknown[][] = [];
     let currentImplementation = implementation;
-    const mock = ((...args: unknown[]): unknown => {
+    const mock = function (this: unknown, ...args: unknown[]): unknown {
       calls.push(args);
 
-      return currentImplementation?.(...args);
-    }) as RstestMock;
+      return currentImplementation?.apply(this, args);
+    } as RstestMock;
     mock.mock = { calls };
     mock.mockName = (name: string): void => {
       names.push(name);
@@ -63,6 +64,12 @@ function makeRstestApi(): { api: RstestApi; created: RstestMock[]; names: string
     },
   };
 }
+
+describeMockAdapterContract({ describe, it }, { name: 'Rstest (stub)', adapter: () => createRstestMockAdapter(makeRstestApi().api) });
+describeMockAdapterContract(
+  { describe, it },
+  { name: "Rstest (stub), 'runner' engine", adapter: () => createRstestMockAdapter(makeRstestApi().api), engine: 'runner' },
+);
 
 describe('createRstestMockAdapter', () => {
   it('builds the sweep sentinel with the adapter, so the entry fails on import outside the runner', () => {
@@ -109,62 +116,6 @@ describe('createRstestMockAdapter', () => {
     adapter.createMockFn(() => undefined);
 
     expect(names).toEqual([]);
-  });
-
-  it('getCalls returns the bare argument tuples and reset drops the implementation', () => {
-    const adapter = createRstestMockAdapter(makeRstestApi().api);
-    setSpyEngine('runner');
-    const fn = adapter.createMockFn(() => 'original');
-
-    fn(1, 'a');
-    fn(2);
-    expect(adapter.getCalls(fn)).toEqual([[1, 'a'], [2]]);
-
-    adapter.reset(fn);
-    expect(adapter.getCalls(fn)).toEqual([]);
-    expect(fn()).toBeUndefined();
-  });
-
-  it('clear drops the recorded calls but keeps the implementation', () => {
-    const adapter = createRstestMockAdapter(makeRstestApi().api);
-    setSpyEngine('runner');
-    const fn = adapter.createMockFn(() => 'kept');
-
-    fn('x');
-    adapter.clear(fn);
-
-    expect(adapter.getCalls(fn)).toEqual([]);
-    expect(fn()).toBe('kept');
-  });
-
-  it('restoreImplementation re-installs the given implementation', () => {
-    const adapter = createRstestMockAdapter(makeRstestApi().api);
-    setSpyEngine('runner');
-    const fn = adapter.createMockFn(() => 'original');
-
-    expect(fn()).toBe('original');
-
-    adapter.restoreImplementation(fn, () => 'restored');
-    expect(fn()).toBe('restored');
-  });
-
-  it('spyOnGetter / spyOnSetter install accessor spies by redefining the property', () => {
-    const adapter = createRstestMockAdapter(makeRstestApi().api);
-    const target: Record<string, unknown> = {};
-    Object.defineProperty(target, 'value', {
-      get: (): undefined => undefined,
-      set: (_value: unknown): void => undefined,
-      configurable: true,
-    });
-
-    const getter = adapter.spyOnGetter(target, 'value');
-    const setter = adapter.spyOnSetter(target, 'value');
-
-    void target['value'];
-    target['value'] = 7;
-
-    expect(adapter.getCalls(getter)).toEqual([[]]);
-    expect(adapter.getCalls(setter)).toEqual([[7]]);
   });
 
   it('the sweep sentinel clears the library fast spies on mockClear and mockReset', () => {
