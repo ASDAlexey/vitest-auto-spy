@@ -34,6 +34,13 @@ class CheckoutFacade {
   }
 }
 
+/** A class whose `name` is exactly `name`: a computed key names the class expression it holds. */
+function classNamed(name: string): new () => object {
+  const holder: Record<string, new () => object> = { [name]: class {} };
+
+  return holder[name] as new () => object;
+}
+
 function build(tokens: unknown[]): Injector {
   const collaborators = trackInjections(tokens);
 
@@ -63,7 +70,7 @@ describe('trackInjections', () => {
 
   it('names an InjectionToken and a nameless class by what they print as', () => {
     // A class whose name a minifier removed — the case `names()` cannot answer from the token itself.
-    const anonymous = Object.defineProperty(class {}, 'name', { value: '' });
+    const anonymous = classNamed('');
     const collaborators = trackInjections([CONFIG, anonymous]);
 
     collaborators.providers.forEach(({ useFactory }) => useFactory());
@@ -72,8 +79,8 @@ describe('trackInjections', () => {
   });
 
   it('takes a bundler rename off the names on request, and only then', () => {
-    const renamed = Object.defineProperty(class {}, 'name', { value: '_MailerService' });
-    const suffixed = Object.defineProperty(class {}, 'name', { value: 'ConfigService$1' });
+    const renamed = classNamed('_MailerService');
+    const suffixed = classNamed('ConfigService$1');
     const collaborators = trackInjections([renamed, suffixed, CONFIG]);
 
     collaborators.providers.forEach(({ useFactory }) => useFactory());

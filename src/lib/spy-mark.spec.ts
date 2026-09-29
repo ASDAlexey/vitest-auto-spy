@@ -26,7 +26,7 @@ describe('spy-mark', () => {
   it('runConfigReset runs the reset hook a mark carries and is a no-op without one', () => {
     const withHooks = {};
     const reset = vi.fn();
-    markAsMock(withHooks, { reset, clear: vi.fn() });
+    markAsMock(withHooks, { reset, clear: () => undefined });
 
     runConfigReset(withHooks);
     expect(reset).toHaveBeenCalledTimes(1);
@@ -37,7 +37,7 @@ describe('spy-mark', () => {
   it('runClearHook runs the clear hook a mark carries and is a no-op without one', () => {
     const withHooks = {};
     const clear = vi.fn();
-    markAsMock(withHooks, { reset: vi.fn(), clear });
+    markAsMock(withHooks, { reset: () => undefined, clear });
 
     runClearHook(withHooks);
     expect(clear).toHaveBeenCalledTimes(1);
@@ -52,12 +52,10 @@ describe('spy-mark', () => {
     expect(() => runClearHook(plain)).not.toThrow();
 
     // Half a pair is not a pair: both hooks are required, so a stray object under the mark runs nothing.
-    const halfway = {};
-    Object.defineProperty(halfway, Symbol.for('vitest-auto-spy.mock'), { value: { reset: vi.fn() }, configurable: true });
+    const halfway = { [Symbol.for('vitest-auto-spy.mock')]: { reset: vi.fn() } };
     expect(() => runConfigReset(halfway)).not.toThrow();
 
-    const empty = {};
-    Object.defineProperty(empty, Symbol.for('vitest-auto-spy.mock'), { value: {}, configurable: true });
+    const empty = { [Symbol.for('vitest-auto-spy.mock')]: {} };
     expect(() => runClearHook(empty)).not.toThrow();
   });
 

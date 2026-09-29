@@ -132,13 +132,12 @@ describe('the recorder inside a function spy on a runtime without settledResults
     spy.resolveWith('value');
 
     const returned: unknown = spy(1);
-    const state = Reflect.get(spy, 'mock');
 
-    expect(Reflect.get(state as object, 'settledResults')).toEqual([{ type: 'incomplete', value: undefined }]);
+    expect(spy.mock.settledResults).toEqual([{ type: 'incomplete', value: undefined }]);
 
     await returned;
 
-    expect(Reflect.get(state as object, 'settledResults')).toEqual([{ type: 'fulfilled', value: 'value' }]);
+    expect(spy.mock.settledResults).toEqual([{ type: 'fulfilled', value: 'value' }]);
   });
 });
 

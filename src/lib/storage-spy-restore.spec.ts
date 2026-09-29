@@ -16,23 +16,14 @@ import { restoreStorageSpies } from './storage-spy-restore';
 /** happy-dom names itself in the user agent; jsdom does the same, differently. */
 const isHappyDom = navigator.userAgent.includes('HappyDOM');
 
-/** The globals this file is allowed to break, captured before it breaks any of them. */
-const realGlobals = {
-  Storage: Reflect.get(globalThis, 'Storage'),
-  localStorage: Reflect.get(globalThis, 'localStorage'),
-  sessionStorage: Reflect.get(globalThis, 'sessionStorage'),
-};
-
 /** Put a stand-in where a storage global is, the way a broken environment leaves one. */
 function put(key: 'localStorage' | 'sessionStorage', value: unknown): void {
-  Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
+  vi.stubGlobal(key, value);
 }
 
 describe('restoreStorageSpies', () => {
   afterEach(() => {
-    for (const [name, value] of Object.entries(realGlobals)) {
-      Object.defineProperty(globalThis, name, { value, writable: true, configurable: true });
-    }
+    vi.unstubAllGlobals();
 
     // The runner's own restore first — it clears what it can on its own — then this module's, for
     // whatever that path could not reach in this environment.
@@ -58,7 +49,10 @@ describe('restoreStorageSpies', () => {
   });
 
   it('lists a storage once however many methods were mocked on it', () => {
+    // Raw runner mocks on a stand-in are the broken state this module repairs, not a double to keep in step.
+    // eslint-disable-next-line vitest-auto-spy/prefer-create-spy-from-class -- see above
     const local = { getItem: vi.fn(), key: vi.fn(), removeItem: vi.fn() };
+    // eslint-disable-next-line vitest-auto-spy/prefer-create-spy-from-class -- see above
     const session = { clear: vi.fn(), setItem: vi.fn() };
 
     put('localStorage', local);
@@ -79,7 +73,7 @@ describe('restoreStorageSpies', () => {
   });
 
   it('does nothing where there is no Storage to take methods from', () => {
-    Object.defineProperty(globalThis, 'Storage', { value: undefined, writable: true, configurable: true });
+    vi.stubGlobal('Storage', undefined);
 
     expect(restoreStorageSpies()).toEqual([]);
   });

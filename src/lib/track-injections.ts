@@ -34,7 +34,7 @@ import type { ClassType, Spy } from './types';
 export function createSpyForToken(token: unknown): unknown {
   if (typeof token === 'function') {
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a token narrowed to `function` is a class or an abstract class; `createSpyFromClass` reads only its prototype chain.
-    return createSpyFromClass(token as ClassType<unknown>, { lazySpies: true });
+    return createSpyFromClass(token as ClassType<unknown>);
   }
 
   return createAutoMock();

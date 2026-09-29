@@ -12,9 +12,17 @@ import { beforeTestBedReset } from './testbed-reset';
 @Injectable()
 class Nothing {}
 
+// An earlier file of a shared worker may have wrapped it already (provideHttpTesting does), and marked the TestBed as wrapped.
+const ownReset = Object.getOwnPropertyDescriptor(getTestBed(), 'resetTestingModule');
+
 /** The wrapper is an own property of the singleton instance; the next spec file must not inherit it. */
 function unwrap(): void {
   Reflect.deleteProperty(getTestBed(), 'resetTestingModule');
+
+  if (ownReset) {
+    // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- puts back the wrapper an earlier file installed, which the tests here stack on
+    Object.defineProperty(getTestBed(), 'resetTestingModule', ownReset);
+  }
 }
 
 describe('beforeTestBedReset', () => {
@@ -44,6 +52,45 @@ describe('beforeTestBedReset', () => {
     TestBed.resetTestingModule();
 
     expect(seen).toEqual(['snapshot']);
+  });
+
+  it('keeps one wrapper per caller when another caller wrapped on top of it', () => {
+    const owner = {};
+    const seen: string[] = [];
+
+    beforeTestBedReset(owner, () => seen.push('first'));
+    beforeTestBedReset({}, () => seen.push('second'));
+    beforeTestBedReset(owner, () => seen.push('first'));
+
+    TestBed.resetTestingModule();
+
+    expect(seen).toEqual(['second', 'first']);
+  });
+
+  it('wraps again once the wrapper was deleted off the TestBed, rather than trusting it is still there', () => {
+    const owner = {};
+    const seen: string[] = [];
+
+    beforeTestBedReset(owner, () => seen.push('lost'));
+    unwrap();
+    beforeTestBedReset(owner, () => seen.push('snapshot'));
+
+    TestBed.resetTestingModule();
+
+    expect(seen).toEqual(['snapshot']);
+  });
+
+  it('leaves a TestBed alone whose resetTestingModule is not a method', () => {
+    const seen: string[] = [];
+
+    // eslint-disable-next-line vitest-auto-spy/no-reflect-member-access -- a TestBed without the method is the input under test, and no typed setter takes one
+    Reflect.set(getTestBed(), 'resetTestingModule', undefined);
+    beforeTestBedReset({}, () => seen.push('snapshot'));
+
+    expect(getTestBed().resetTestingModule).toBeUndefined();
+    unwrap();
+    TestBed.resetTestingModule();
+    expect(seen).toEqual([]);
   });
 
   it('resets the module even when the snapshot throws, so the next test can configure one', () => {

@@ -8,6 +8,9 @@ import { Component } from '@angular/core';
 import { TestBed, getTestBed } from '@angular/core/testing';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
+import { useConsoleSpies } from './console-spy';
+import { withFakeTimers } from './fake-timers';
+import { registerMockAdapter } from './mock-adapter';
 import { mockValueProp } from './prop-mock';
 import { renderShallow } from './render-shallow';
 import {
@@ -20,6 +23,9 @@ import {
   reportSpecTiming,
   verifyOnTeardown,
 } from './testbed-diagnostics';
+import { vitestMockAdapter } from './vitest-adapter';
+
+registerMockAdapter(vitestMockAdapter);
 
 @Component({ selector: 'app-measured', template: '<b>hi</b>' })
 class MeasuredComponent {
@@ -69,19 +75,17 @@ describe('enableTestBedDiagnostics', () => {
   it('measures on the real clock, so a spec with fake timers is not reported as free', () => {
     const before = getTestBedTiming().testBedMs;
 
-    vi.useFakeTimers();
-    renderShallow(MeasuredComponent);
-    vi.useRealTimers();
+    withFakeTimers(() => renderShallow(MeasuredComponent));
 
     expect(getTestBedTiming().testBedMs).toBeGreaterThan(before);
   });
 
   it('does not wrap an already-wrapped TestBed method', () => {
-    const wrapped: unknown = Reflect.get(getTestBed(), 'createComponent');
+    const wrapped = getTestBed().createComponent;
 
     instrumentTestBed();
 
-    expect(Reflect.get(getTestBed(), 'createComponent')).toBe(wrapped);
+    expect(getTestBed().createComponent).toBe(wrapped);
   });
 
   it('counts a call made through the instance, and counts it once', () => {
@@ -124,8 +128,9 @@ describe('enableTestBedDiagnostics', () => {
 });
 
 describe('the default report', () => {
+  const { consoleInfoSpy: info } = useConsoleSpies();
+
   it('falls back to the console when there is no stdout to write to', () => {
-    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const process: PropertyKey = 'process';
     const restore = mockValueProp(globalThis, process, undefined);
 
@@ -133,8 +138,6 @@ describe('the default report', () => {
     restore();
 
     expect(info).toHaveBeenCalledWith(expect.stringContaining('c.spec.ts'));
-
-    info.mockRestore();
   });
 });
 

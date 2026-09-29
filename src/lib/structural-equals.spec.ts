@@ -30,7 +30,9 @@ describe('isAsymmetricMatcher', () => {
   });
 
   it('reads the brand the runner stamps on its own matchers', () => {
-    expect(Reflect.get(expect.any(Number), '$$typeof')).toBe(ASYMMETRIC_MATCHER_BRAND);
+    const matcher: { $$typeof: unknown } = expect.any(Number);
+
+    expect(matcher.$$typeof).toBe(ASYMMETRIC_MATCHER_BRAND);
   });
 });
 

@@ -32,6 +32,8 @@ export interface MarkHooks {
    * dispatch to lose.
    */
   implementationReplaced?(implementation: unknown, via: string): void;
+  /** Which member last replaced the dispatch — put back by `withImplementation` when its callback ends. */
+  replacedBy?: string | undefined;
   /** The rxjs layer's per-spy state, when that layer is loaded — reached through the mark so it costs no property of its own. */
   readonly observable?: ObservableStream | undefined;
 }

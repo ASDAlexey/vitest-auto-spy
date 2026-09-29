@@ -329,6 +329,7 @@ function restrictRegistration(registered: Registration, kept: ReadonlySet<unknow
     onUnstubbedRead,
     returns: Object.defineProperties({}, Object.fromEntries(returns.filter(([name]) => kept.has(name)))),
     selfReturning: baseList(registered['selfReturning']).filter((name) => kept.has(name)),
+    returnsUndefined: baseList(registered['returnsUndefined']).filter((name) => kept.has(name)),
   };
 }
 

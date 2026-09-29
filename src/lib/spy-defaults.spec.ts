@@ -7,12 +7,13 @@
  * exactly the silent cross-file effect this API exists to remove.
  */
 import { Observable, of } from 'rxjs';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import '../index';
 import '../rxjs';
 import { createSpyFromClass } from './create-spy-from-class';
 import { clearAutoSpyDefaults, mergeAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
+import type { ClassSpyConfiguration } from './types';
 
 class RouterLike {
   events: Observable<string> = of('start');
@@ -32,6 +33,16 @@ class RouterLike {
   }
 }
 
+function overridesOf(
+  merged: ReturnType<typeof mergeAutoSpyDefaults<RouterLike>>,
+): NonNullable<ClassSpyConfiguration<RouterLike>['overrides']> {
+  if (merged === undefined || Array.isArray(merged)) {
+    throw new Error('expected the merge to produce a configuration object');
+  }
+
+  return merged.overrides ?? {};
+}
+
 class AccountLike {
   ping(): void {
     /* real */
@@ -47,17 +58,27 @@ afterEach(() => {
 });
 
 describe('the registry on globalThis', () => {
-  it('serves what an older copy of the package left in the slot', () => {
-    // The file's first registry read happens here, so what the slot holds at this moment is what
-    // the module adopts. A copy from before the weak registry leaves a plain Map, and its four
-    // methods are the whole contract — a run mixing the two versions shares that one registry
-    // rather than splitting the suite between two.
+  it('serves what an older copy of the package left in the slot', async () => {
+    // A module copy adopts what the slot holds on its first registry read, and under isolate: false an
+    // earlier file has made that read for the copy imported above — so the read is made by a fresh one.
+    // A copy from before the weak registry leaves a plain Map, and its four methods are the whole
+    // contract — a run mixing the two versions shares that one registry rather than splitting the suite.
+    const installed = globalThis.__vitestAutoSpyDefaults__;
+
+    vi.resetModules();
+
+    const fresh = await import('./spy-defaults');
+
     globalThis.__vitestAutoSpyDefaults__ = new Map<object, Record<string, unknown>>([[RouterLike, { gettersToSpyOn: ['url'] }]]);
 
-    expect(mergeAutoSpyDefaults(RouterLike, { instanceMethodsToSpyOn: ['reload'] })).toEqual({
-      gettersToSpyOn: ['url'],
-      instanceMethodsToSpyOn: ['reload'],
-    });
+    try {
+      expect(fresh.mergeAutoSpyDefaults(RouterLike, { instanceMethodsToSpyOn: ['reload'] })).toEqual({
+        gettersToSpyOn: ['url'],
+        instanceMethodsToSpyOn: ['reload'],
+      });
+    } finally {
+      globalThis.__vitestAutoSpyDefaults__ = installed;
+    }
   });
 });
 
@@ -183,7 +204,7 @@ describe('the merge', () => {
     const merged = mergeAutoSpyDefaults(RouterLike, { returns: { navigate: false, reload: undefined } });
 
     expect(merged).toMatchObject({ returns: { navigate: false, reload: undefined } });
-    expect(Object.keys(Object(Reflect.get(Object(merged), 'overrides')))).toEqual(['events']);
+    expect(Object.keys(overridesOf(merged))).toEqual(['events']);
   });
 
   it('keeps a seeded accessor an accessor through the merge', () => {
@@ -201,11 +222,11 @@ describe('the merge', () => {
 
     // Read once the merge is long over: a spread would have called the getter while merging and
     // stored '/home'.
-    const overrides = Object(Reflect.get(Object(merged), 'overrides'));
+    const overrides = overridesOf(merged);
 
-    expect(Reflect.get(overrides, 'url')).toBe('/profile');
+    expect(overrides.url).toBe('/profile');
     expect(Object.getOwnPropertyDescriptor(overrides, 'url')?.get).toBeTypeOf('function');
-    expect(Reflect.has(overrides, 'events')).toBe(true);
+    expect('events' in overrides).toBe(true);
   });
 
   it('takes an object key the registration does not have', () => {
