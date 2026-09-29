@@ -1,40 +1,18 @@
 ---
 title: Vue / Pinia
-description: provideAutoSpy для global.provide из @vue/test-utils и спаи для экшенов Pinia-стора, написанного классом.
+description: provideAutoSpy собирает карту global.provide для @vue/test-utils, а createSpyFromClass превращает Pinia-стор, написанный классом, в спай.
 ---
 
 # Vue / Pinia
 
-Точка входа `vitest-auto-spy/vue` реэкспортирует ядро целиком (на Vitest — без настройки) и добавляет
-небольшой `provideAutoSpy(token, Class)`, который собирает запись `global.provide` для
-`@vue/test-utils`. Ничто здесь не импортирует `vue`, `pinia` или `@vue/test-utils` — они остаются
-необязательными пирами.
+`vitest-auto-spy/vue` отдаёт смонтированному компоненту спай вместо настоящего сервиса. Спай —
+объект-заглушка: каждый его метод запоминает вызовы и возвращает то, что вы задали. Это нужно, когда
+компонент получает сервис-класс через `provide` / `inject` или работает с Pinia-стором, написанным
+классом.
 
-Дефолтный mock-адаптер Vitest она регистрирует только тогда, когда его ещё никто не зарегистрировал,
-так что импортом этой точки входа нельзя подменить адаптер, поставленный рантайм-точкой входа. Но
-`vitest` она всё равно импортирует, а значит под `bun test` и `node --test` не грузится: Vue-сюита на
-любом из этих раннеров берёт ядро через его собственную рантайм-точку входа и собирает карту
-`provide` руками.
-
-Классовые сервисы, инжектируемые через `provide`/`inject`, и классовые Pinia-сторы ложатся сюда
-естественнее всего:
-
-```ts
-import { createSpyFromClass, provideAutoSpy } from 'vitest-auto-spy/vue';
-
-// Спай на экшены Pinia-стора
-const store = createSpyFromClass(CartStore);
-store.checkout.resolveWith({ ok: true });
-
-// Отдать смонтированному компоненту заспаенный сервис
-const provide = provideAutoSpy(UserServiceKey, UserService);
-provide[UserServiceKey].getName.mockReturnValue('Fake Name');
-```
-
-## Полный пример с `mount` {#a-full-mount-example}
-
-`provideAutoSpy(token, Class, methodsOrConfig?)` возвращает **карту `global.provide`** —
-`{ [token]: Spy<T> }`, — поэтому она спредится прямо в `@vue/test-utils`:
+`vitest-auto-spy/vue` — точка входа, то есть путь импорта для Vue-спек. Кроме `provideAutoSpy`, она
+экспортирует API ядра библиотеки: `createSpyFromClass`, `createAutoMock`, тип `Spy<T>`,
+`asInstance`, `resetAutoSpy` и остальное.
 
 ```ts
 import { mount } from '@vue/test-utils';
@@ -46,8 +24,9 @@ import { UserService, UserServiceKey } from './user.service';
 
 it('renders the name the service returns', () => {
   const provide = provideAutoSpy(UserServiceKey, UserService);
+  const users = provide[UserServiceKey]; // спай с типом Spy<UserService>
 
-  provide[UserServiceKey].getName.calledWith(1).mockReturnValue('Ada');
+  users.getName.calledWith(1).mockReturnValue('Ada');
 
   const wrapper = mount(Greeting, {
     props: { userId: 1 },
@@ -55,11 +34,35 @@ it('renders the name the service returns', () => {
   });
 
   expect(wrapper.text()).toContain('Ada');
-  expect(provide[UserServiceKey].getName).toHaveBeenCalledWith(1);
+  expect(users.getName).toHaveBeenCalledWith(1);
 });
 ```
 
-Отдать больше одного коллаборатора — это слияние карт:
+Спай достаётся из карты по его токену. `users.getName.mockReturnValue('Ada')` отвечает `'Ada'` на
+любой вызов; `calledWith(1)` перед ним ограничивает ответ вызовами с `1`.
+
+## `provideAutoSpy(token, Class, config?)` {#provideautospy-token-class-config}
+
+Возвращает карту для `global.provide` с одной записью: `{ [token]: Spy<Class> }`. Передайте её в
+`mount` как `global: { provide }`.
+
+| Параметр | Тип                      | Смысл                                                                                 |
+| -------- | ------------------------ | ------------------------------------------------------------------------------------- |
+| `token`  | `string \| symbol`       | ключ, по которому компонент делает `inject`; `InjectionKey<T>` — это символ, подходит |
+| `Class`  | класс                    | класс, чьи методы становятся спаями                                                   |
+| `config` | опции или список методов | то же, что второй аргумент `createSpyFromClass` (см. ниже)                            |
+
+Ключ карты — ровно тот токен, который вы передали, поэтому `provide[UserServiceKey]` имеет тип спая.
+
+Самые частые опции в `config`:
+
+- `onlyMethodsToSpyOn: ['getName']` — спаить только эти методы.
+- `gettersToSpyOn: ['isAdmin']` — спаить ещё и `get`-аксессор (см. раздел о сторе ниже).
+- `strict: true` — ненастроенный метод бросает ошибку вместо того, чтобы вернуть `undefined`.
+
+Полный список — на странице [createSpyFromClass](/ru/core/create-spy-from-class).
+
+Чтобы передать несколько сервисов, объедините карты в один объект:
 
 ```ts
 const provide = {
@@ -68,13 +71,9 @@ const provide = {
 };
 ```
 
-Токеном может быть обычная строка, `symbol` или типизированный `InjectionKey<T>` (который является
-брендированным `symbol`) — ключом в возвращённой карте будет ровно тот токен, который вы передали.
-
 ## Pinia-стор, написанный классом {#a-class-based-pinia-store}
 
-Стор, написанный классом, — это просто класс, поэтому `createSpyFromClass` спаит каждый экшен и
-каждый геттер:
+Стор-класс — обычный класс, поэтому `createSpyFromClass` делает спаем каждый экшен и геттер:
 
 ```ts
 import { expect, it } from 'vitest';
@@ -85,8 +84,8 @@ import { CartStore } from './cart.store';
 it('drives the store the component talks to', async () => {
   const cart: Spy<CartStore> = createSpyFromClass(CartStore);
 
-  cart.itemCount.mockReturnValue(3); // экшен в стиле геттера
-  cart.checkout.resolveWith({ orderId: 'ord_42' }); // асинхронный экшен
+  cart.itemCount.mockReturnValue(3); // itemCount() — метод
+  cart.checkout.resolveWith({ orderId: 'ord_42' }); // checkout() возвращает Promise
 
   expect(cart.itemCount()).toBe(3);
   await expect(cart.checkout('tok_abc')).resolves.toEqual({ orderId: 'ord_42' });
@@ -94,11 +93,32 @@ it('drives the store the component talks to', async () => {
 });
 ```
 
-Каждый экшен инертен, пока вы его не настроите: `cart.addItem('sku', 1)` записывает вызов и
-возвращает `undefined`, так что никакая настоящая логика стора не выполняется.
+Ненастроенный экшен запоминает вызов и возвращает `undefined`. Настоящий код стора не выполняется.
 
-::: tip Setup-сторы (composition API)
-`defineStore('cart', () => …)` возвращает обычный объект из ref-ов и функций, а не класс. Там
-используйте [`createAutoMock<T>()`](/ru/core/auto-mock-by-type) — он мокает по **типу** стора, с теми
-же хелперами и без всякого класса.
-:::
+Методы становятся спаями автоматически, а настоящий `get`-аксессор (`get total() { … }`) — нет. Чтобы
+управлять им, перечислите его в `gettersToSpyOn` и задайте значение через `accessorSpies`:
+
+```ts
+const cart = createSpyFromClass(CartStore, { gettersToSpyOn: ['total'] });
+
+cart.accessorSpies.getters.total.mockReturnValue(42);
+```
+
+Подробнее — в разделе [Спаи на аксессорах](/ru/core/create-spy-from-class#accessor-spies-—-accessorspies).
+
+**Частая ошибка:** setup-стор, `defineStore('cart', () => …)`, — это обычный объект из ref-ов и
+функций, а не класс, и `createSpyFromClass` читать нечего. Используйте
+[`createAutoMock<T>()`](/ru/core/auto-mock-by-type): он собирает такой же спай по типу стора.
+
+## Какой раннер {#which-runner}
+
+Точка входа реэкспортирует всё API ядра, так что хватает одного импорта. Она не импортирует ни
+`vue`, ни `pinia`, ни `@vue/test-utils`.
+
+Зато она импортирует `vitest`, поэтому под `bun test` и `node --test` не загрузится. На этих раннерах
+импортируйте `createSpyFromClass` из точки входа своего раннера (`vitest-auto-spy/bun`,
+`vitest-auto-spy/node`) и соберите карту `provide` руками:
+`{ [UserServiceKey]: createSpyFromClass(UserService) }`.
+
+Если setup-файл уже импортирует точку входа раннера, например `vitest-auto-spy/bun`, после импорта
+этой точки входа остаются моки того раннера.

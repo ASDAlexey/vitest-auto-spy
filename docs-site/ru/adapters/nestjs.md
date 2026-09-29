@@ -1,34 +1,13 @@
 ---
 title: NestJS
-description: provideAutoSpy и injectSpy(moduleRef, token) для Test.createTestingModule, а также createNestUnit — юнит, собранный по собственным DI-метаданным, со спаями вместо всех коллабораторов и без зависимости от @nestjs.
+description: Заменить зависимости сервиса типизированными спаями в Test.createTestingModule или собрать сервис через createNestUnit вообще без тестового модуля.
 ---
 
 # NestJS
 
-Точка входа `vitest-auto-spy/nestjs` поставляет провайдер `{ provide, useValue }`, заточенный под
-`Test.createTestingModule({ providers: [...] })`, плюс типизированный `injectSpy`, который достаёт
-спай из получившегося `TestingModule`.
-
-```ts
-import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/nestjs';
-
-const moduleRef = await Test.createTestingModule({
-  providers: [provideAutoSpy(MyService), provideAutoSpy(ApiService, { onlyMethodsToSpyOn: ['get', 'post'] })],
-}).compile();
-
-const myService = injectSpy(moduleRef, MyService);
-```
-
-Без зависимостей по замыслу: `@nestjs/common` / `@nestjs/testing` — необязательные пиры, поэтому
-точка входа описывает ссылку на модуль минимальным структурным типом вместо того, чтобы их
-импортировать.
-
-::: warning Здесь `injectSpy` принимает два аргумента
-В Angular `injectSpy(token)` читает из глобального `TestBed`. У NestJS глобального модуля нет,
-поэтому вариант для NestJS — **`injectSpy(moduleRef, token)`**: ссылка на модуль идёт первой.
-:::
-
-## Спека целиком {#a-full-spec}
+`vitest-auto-spy/nestjs` заменяет зависимости Nest-сервиса типизированными спаями. Это нужно, когда
+вы тестируете один провайдер и хотите, чтобы всё, что он получает через DI, было подменой под вашим
+контролем. Спай — функция-заглушка: она запоминает вызовы и возвращает то, что вы ей задали.
 
 ```ts
 import { Test, type TestingModule } from '@nestjs/testing';
@@ -68,87 +47,173 @@ describe('AuthService', () => {
 });
 ```
 
-Сам `AuthService` предоставляется **по-настоящему** — это класс под тестом. Всё, что он инжектит,
-предоставляется как авто-спай.
+`AuthService` указан как есть, поэтому Nest создаёт настоящий класс — его и тестируем. `UserService`
+указан через `provideAutoSpy`, поэтому сервис получает спай.
+
+Под Vitest компилируйте через `unplugin-swc` с включёнными метаданными декораторов: стандартная
+трансформация Vite (esbuild) не пишет метаданные, которые нужны Nest. Подробнее — в разделе
+[Метаданные пишет ваш компилятор](#the-metadata-comes-from-your-compiler).
+
+Как задать ответ методу спая:
+
+- `resolveWith(value)` — для метода, который возвращает `Promise`; вызов разрешится значением `value`.
+- `mockReturnValue(value)` — для метода, который возвращает обычное значение.
+- `calledWith(args)` перед любым из них — ответ сработает только на вызов с этими аргументами.
+
+Все хелперы для ответов — на странице [Хелперы управления](/ru/core/control-helpers).
+
+::: warning Здесь `injectSpy` принимает два аргумента
+В Angular `injectSpy(token)` читает из глобального `TestBed`. В Nest глобального модуля нет, поэтому
+здесь **`injectSpy(moduleRef, token)`**: сначала ссылка на модуль.
+:::
+
+**Частая ошибка:** в `providers` указан сам класс (`providers: [UserService]`), а потом на нём
+вызывают `injectSpy`. Вы получаете настоящий сервис с типом спая, и первый же заданный ответ падает
+с `TypeError: users.findByEmail.resolveWith is not a function`. Указывайте его через
+`provideAutoSpy(UserService)`.
+
+Если тестовый модуль вообще не нужен, [`createNestUnit`](#building-the-unit-from-its-metadata)
+собирает сервис и все его спаи одним синхронным вызовом.
+
+## Что экспортирует точка входа {#what-the-entry-exports}
+
+| Экспорт                                             | Что делает                                                            |
+| --------------------------------------------------- | --------------------------------------------------------------------- |
+| `provideAutoSpy(Class, config?)`                    | возвращает `{ provide: Class, useValue: spy }` для `providers`        |
+| `injectSpy(moduleRef, token)`                       | достаёт провайдер из скомпилированного модуля с типом `Spy<T>`        |
+| `createNestUnit(Target, options?)`                  | создаёт `Target` по его DI-метаданным, со спаем на каждую зависимость |
+| [`trackInjections`](/ru/utilities/track-injections) | записывает, какие провайдеры юнит на самом деле запросил              |
+
+Второй аргумент `provideAutoSpy` принимает те же опции, что и
+[`createSpyFromClass`](/ru/core/create-spy-from-class), например
+`provideAutoSpy(ApiService, { onlyMethodsToSpyOn: ['get', 'post'] })`.
 
 ## Абстрактные классы и токены-интерфейсы {#abstract-classes-and-interface-tokens}
 
-Nest часто инжектит по абстрактному классу или по строковому / символьному токену. `provideAutoSpy`
-нужен конструктор, из которого читать методы, поэтому передайте ему конкретный класс и перенаправьте
-токен:
+Nest часто внедряет зависимость по абстрактному классу или по строковому либо символьному токену.
+`provideAutoSpy` нужен настоящий класс, чтобы прочитать методы. Передайте ему конкретный класс, а
+токен направьте на спай:
 
 ```ts
 // абстрактный класс как токен, конкретный класс как форма
 providers: [{ provide: PaymentGateway, useValue: provideAutoSpy(StripeGateway).useValue }];
 
-// строковый / символьный токен
+// строковый или символьный токен
 providers: [{ provide: 'PAYMENT_GATEWAY', useValue: provideAutoSpy(StripeGateway).useValue }];
 ```
 
-Дальше читайте его так же, как его разрешает Nest:
+Достаёте его по тому же токену, что и Nest:
 
 ```ts
 const gateway = injectSpy(moduleRef, PaymentGateway);
 ```
 
-Когда класса нет вообще — чистый интерфейс, — используйте в качестве `useValue`
-[`createAutoMock<PaymentGateway>()`](/ru/core/auto-mock-by-type): он собирает ту же поверхность спая
-из типа.
+Если класса нет совсем, только интерфейс, передайте в `useValue`
+[`createAutoMock<PaymentGateway>()`](/ru/core/auto-mock-by-type). Он собирает такой же спай по
+типу.
 
-## Почему нет зависимости от `@nestjs` {#why-there-is-no-nestjs-dependency}
+## Любой раннер {#any-runner}
 
-`@nestjs/common` и `@nestjs/testing` остаются **вашими** dev-зависимостями. Точка входа описывает
-ссылку на модуль минимальным структурным типом (`NestModuleRef` — что угодно с `get(token)`),
-поэтому ничто из Nest не попадает в рантайм-бандл этого пакета, а `injectSpy` работает и с
-самодельной подделкой в юнит-тесте.
+На Vitest точка входа раннера не нужна: достаточно одного `vitest-auto-spy/nestjs`.
+
+На других раннерах импортируйте ещё точку входа своего раннера (`vitest-auto-spy/node`,
+`vitest-auto-spy/bun` или `vitest-auto-spy/rstest`), и хелперы Nest будут создавать моки этого
+раннера. `vitest-auto-spy/nestjs` не импортирует `vitest`, поэтому там работает. Её объявления типов
+тоже не упоминают `vitest`, так что проект на Bun или `node:test` проходит проверку типов с
+`skipLibCheck: false` и без установленного Vitest. Точку входа раннера можно импортировать до или
+после `vitest-auto-spy/nestjs`.
+
+**Частая ошибка:** на Vitest набор тестов, который импортирует только `vitest-auto-spy/nestjs`,
+получает спаи без `mockThrow` из Vitest. Добавьте `import type {} from 'vitest-auto-spy';` в любой
+файл; подробнее — [Совместимость](/ru/core/compatibility#vitest-2-1).
+
+`createNestUnit` экспортируется ещё и из `vitest-auto-spy/node` и `vitest-auto-spy/bun`, поэтому
+тестам Nest на `node --test` или `bun test` хватает одного импорта:
+
+```ts
+import 'reflect-metadata';
+
+import { createNestUnit } from 'vitest-auto-spy/node';
+```
+
+Версии `provideAutoSpy` и `injectSpy` для Nest есть только в `/nestjs`. Импортируйте их оттуда на
+любом раннере.
 
 ## Сборка юнита по его метаданным {#building-the-unit-from-its-metadata}
 
-`createNestUnit(Target, options?)` собирает класс под тестом по метаданным, которые пишут
-собственные декораторы Nest, и отвечает спаем на каждую зависимость, которую никто не предоставил.
-Это [`createWithAutoSpies`](/ru/adapters/angular#building-a-class-with-auto-spied-dependencies) поверх
-`design:paramtypes`, `@Inject`, `@Optional()` и property injection вместо сгенерированной фабрики
-Angular — и модель solitary / sociable из `@suites/unit`, но без Proxy, который отвечает на опечатку.
-Изменение конструктора больше не переписывает спеку, потому что список провайдеров выводится, а не
-пишется руками.
+`createNestUnit(Target, options?)` собирает тестируемый класс без `Test.createTestingModule`. Он
+читает метаданные, которые уже пишут декораторы Nest, создаёт класс через `new` и даёт каждой
+зависимости спай. Когда конструктор меняется, спека остаётся прежней: список провайдеров никто не
+пишет руками.
 
 ```ts
+import { expect, it } from 'vitest';
 import { createNestUnit } from 'vitest-auto-spy/nestjs';
 
 import { CartService } from './cart.service';
 import { PricingService } from './pricing.service';
 import { TaxService } from './tax.service';
 
-const { unit, spies } = createNestUnit(CartService);
+it('adds tax to the total', () => {
+  const { unit, spies } = createNestUnit(CartService);
 
-spies.get(PricingService).total.mockReturnValue(100);
-spies.get(TaxService).rate.mockReturnValue(0.5);
+  spies.get(PricingService).total.mockReturnValue(100);
+  spies.get(TaxService).rate.mockReturnValue(0.5);
 
-expect(unit.checkout(3)).toBe(150);
-expect(spies.autoSpiedTokens()).toEqual([PricingService, TaxService]);
+  expect(unit.checkout(3)).toBe(150);
+  expect(spies.autoSpiedTokens()).toEqual([PricingService, TaxService]);
+});
+
+it('saves the order through the repository', async () => {
+  const { unit, spies } = createNestUnit(OrderService);
+
+  spies.get(OrderRepository).save.resolveWith({ id: 7 }); // save() возвращает Promise
+
+  await expect(unit.place({ total: 30 })).resolves.toEqual({ id: 7 });
+  expect(spies.get(OrderRepository).save).toHaveBeenCalledWith({ total: 30 });
+});
 ```
 
-Ни `Test.createTestingModule`, ни `compile()`, ни `await`: граф строится синхронно через `new`, по
-одному инстансу на токен — дефолтная синглтон-область Nest, — поэтому зависимость, которую делят два
-класса, это один спай. Спай класса читается с настоящего прототипа, поэтому
-`spies.get(PricingService).totl` — это `undefined`, а не свежая функция; у строкового или
-символьного токена прототипа нет, и на него отвечают
-[`createAutoMock()`](/ru/core/auto-mock-by-type).
+`compile()` не нужен: сам `createNestUnit` синхронный. `spies.get(X)` возвращает тот же спай, который
+получил юнит, поэтому ответы и проверки вызовов на нём такие же, как с `injectSpy`. Для
+`createNestUnit` `import 'reflect-metadata'` должен загрузиться раньше ваших классов (см.
+[раздел о метаданных](#the-metadata-comes-from-your-compiler) ниже).
 
-`spies.get(token)` отказывает по токену, который юнит никогда не просил, — базовый класс, сервис,
-убранный рефакторингом, — и перечисляет то, что было заспаено, вместо того чтобы выпустить спай,
-который юнит никогда не увидит. Это та же защита, что и в хелпере для Angular, и по той же причине:
-неправильная заглушка должна падать на самой заглушке.
+| Опция       | Тип                  | По умолчанию | Смысл                                                 |
+| ----------- | -------------------- | ------------ | ----------------------------------------------------- |
+| `expose`    | `NestUnitClass[]`    | `[]`         | классы, которые создаются по-настоящему, а не спаятся |
+| `providers` | `NestUnitProvider[]` | `[]`         | ваши значения; важнее спаев и `expose`                |
+
+| Метод `spies`       | Возвращает                                                 |
+| ------------------- | ---------------------------------------------------------- |
+| `get(token)`        | спай (или ваше значение), который юнит получил для `token` |
+| `autoSpiedTokens()` | токены, которые получили спай                              |
+| `exposedTokens()`   | классы из `expose`, которые юнит действительно создал      |
+
+Как ведёт себя граф зависимостей:
+
+- На каждый токен один экземпляр, как в синглтон-области Nest по умолчанию. Если два класса делят
+  зависимость, у них один спай.
+- У спая класса есть только методы настоящего класса. Метод с опечаткой — это `undefined`, а не
+  новый спай, так что тест падает на опечатке: `spies.get(PricingService).totl // опечатка → undefined`.
+- У строкового или символьного токена нет класса, поэтому он получает спай
+  [`createAutoMock()`](/ru/core/auto-mock-by-type), собранный по типу.
+- `spies.get(token)` бросает ошибку на токен, который юнит не запрашивал, и перечисляет токены,
+  получившие спай. Иначе вы настроили бы спай, которым юнит не пользуется, и тест ничего бы не
+  проверял.
+
+Это аналог Angular-хелпера
+[`createWithAutoSpies`](/ru/adapters/angular#building-a-class-with-auto-spied-dependencies) для Nest.
 
 ### Sociable — `expose` {#sociable-—-expose}
 
-`expose` собирает коллаборатора по-настоящему, а его собственные зависимости разрешает через тот же
-граф. Это сахар для `{ provide: X, useClass: X }` и это `sociable().expose()` из `@suites/unit`:
+`expose` создаёт зависимость по-настоящему, а её собственные зависимости по-прежнему получают спаи.
+Это короткая запись `{ provide: X, useClass: X }`.
 
 ```ts
 const { unit, spies } = createNestUnit(CheckoutFacade, { expose: [CartService] });
 
-// Спай, который получил CartService, — тот же спай, который получил фасад.
+// CartService настоящий; его спаи — те, что ниже.
 spies.get(PricingService).total.mockReturnValue(10);
 spies.get(TaxService).rate.mockReturnValue(0.2);
 
@@ -156,15 +221,14 @@ expect(unit.run(1)).toBe(12);
 expect(spies.exposedTokens()).toEqual([CartService]);
 ```
 
-`spies.get(CartService)` здесь падает: юнит получил настоящий инстанс, а не спай. Читайте вместо
-этого спаи его собственных коллабораторов или уберите его из `expose`. `exposedTokens()`
-перечисляет выставленные классы, которые граф действительно построил, поэтому запись, которую никто
-не просил, видна своим отсутствием.
+**Частая ошибка:** `spies.get(CartService)` здесь бросает ошибку: юнит получил настоящий экземпляр, а
+не спай. Читайте спаи его зависимостей или уберите класс из `expose`. Если класса из `expose` нет в
+`exposedTokens()`, значит, никто в графе его не запросил.
 
 ### Токены без класса — `providers` {#tokens-with-no-class-—-providers}
 
-`providers` побеждает и авто-спаи, и `expose`. Он принимает три формы, которые Nest допускает без
-списка `inject`, и результат `provideAutoSpy(X, config)` — первая из них:
+В `providers` вы задаёте значения сами. Поддерживаются три формы: `useValue`, `useClass` и
+`useFactory`. Результат `provideAutoSpy(X, config)` — это провайдер `useValue`, он тоже подходит.
 
 ```ts
 import { createNestUnit, provideAutoSpy } from 'vitest-auto-spy/nestjs';
@@ -178,49 +242,65 @@ const { unit, spies } = createNestUnit(CartService, {
   ],
 });
 
-expect(spies.get('CONFIG')).toEqual({ currency: 'EUR' }); // предоставленное значение возвращается как есть
+expect(spies.get('CONFIG')).toEqual({ currency: 'EUR' }); // заданное значение возвращается как есть
 ```
 
-На токен `@Inject('CONFIG')`, который никто не предоставил, отвечают моком по типу — это правильно
-для сервиса за интерфейсом и неправильно для литерала конфига: `config.currency` окажется
-функцией-спаем. Такие предоставляйте сами. `useClass` строится как выставленный класс, с заспаенными
-зависимостями; `useFactory` не принимает аргументов и выполняется один раз, когда токен впервые
-запросили.
+- `useClass` создаётся как класс из `expose`: настоящий класс, зависимости — спаи.
+- `useFactory` не принимает аргументов и вызывается один раз, когда токен понадобился впервые.
+  Список `inject` не поддерживается.
 
-`@Optional()` меняет одну вещь: параметр или свойство, чей токен вообще невозможно инжектить (см.
-ниже), получает `undefined` вместо ошибки. Необязательная зависимость с инжектируемым токеном свой
-спай всё равно получает, потому что в этом графе доступен каждый токен.
+**Частая ошибка:** токен конфига вроде `@Inject('CONFIG')` не задан в `providers`. Он получает спай
+по типу, и `config.currency` оказывается функцией-спаем, а не строкой. Значения конфига задавайте в
+`providers`.
 
-Property injection (`@Inject(Logger) logger!: Logger`) присваивается после конструирования, по тем же
-правилам.
+### Необязательные зависимости и зависимости-свойства {#optional-and-property-dependencies}
 
-::: warning Метаданные приходят от компилятора, а не от этого пакета
-`design:paramtypes` пишет `emitDecoratorMetadata: true`. **tsc** и **SWC**
-(`jsc.transform.decoratorMetadata: true`) этот флаг уважают; **esbuild**, а значит и дефолтный
-трансформ Vite, — нет, поэтому рецепт Vitest в документации NestJS компилирует через
-`unplugin-swc`. В Nest-приложении это уже настроено, иначе оно бы просто не запустилось, а
-`reflect-metadata` — собственное требование Nest — должен быть загружен раньше классов. Этот пакет
-читает `Reflect.getMetadata` структурно и не добавляет зависимостей.
+- Для обычной зависимости `@Optional()` ничего не меняет: она всё равно получает спай.
+- `@Optional()` важен только для параметра, чей токен вообще нельзя внедрить (см.
+  [ошибки ниже](#what-it-refuses-and-what-the-message-says)). Такой параметр получает `undefined`
+  вместо ошибки.
+- Внедрение в свойство (`@Inject(Logger) logger!: Logger`) работает по тем же правилам. Свойство
+  заполняется после конструктора.
 
-Без флага `@Inject(X)` на каждом параметре всё равно работает: декоратор записывает сам токен, в
-`self:paramtypes`, и `createNestUnit` читает сначала оттуда. А голый `@Inject()` — нет: он читает
-ровно те метаданные, которых не хватает.
-:::
+### Метаданные пишет ваш компилятор {#the-metadata-comes-from-your-compiler}
+
+Nest берёт типы параметров конструктора из `design:paramtypes`. Компилятор пишет эти метаданные при
+включённом `emitDecoratorMetadata: true`. Они нужны обоим способам на этой странице: и
+`Test.createTestingModule`, и `createNestUnit`.
+
+Одно правило для тестовой сборки:
+
+- **Vitest:** компилируйте через `unplugin-swc` с включёнными метаданными декораторов, как советует
+  документация NestJS. Стандартная трансформация Vite (esbuild) метаданные не пишет.
+- **tsc или SWC** (`jsc.transform.decoratorMetadata: true`), например `node --test` на выходе tsc:
+  ничего дополнительно не нужно, оба пишут метаданные.
+- **`reflect-metadata`** должен загрузиться раньше ваших классов. Для `Test.createTestingModule` его
+  загружает тестовый пакет Nest. Для `createNestUnit` добавьте `import 'reflect-metadata'` в начало
+  спеки или setup-файла. `reflect-metadata` — ваша dev-зависимость, этот пакет её не ставит.
+
+Если флаг включить нельзя, ставьте `@Inject(X)` на каждый параметр конструктора. Декоратор сам
+записывает токен, и `createNestUnit` его читает. `@Inject()` без токена не поможет: он опирается на те
+самые метаданные, которых нет.
 
 ### Что он отвергает и что говорит сообщение {#what-it-refuses-and-what-the-message-says}
 
-Каждое сообщение называет починку и заканчивается ссылкой на эту страницу.
+Каждая ошибка называет способ починки и заканчивается ссылкой на эту страницу.
 
-- **Параметр без инжектируемого токена.** Интерфейс, объединение или примитив эмитятся как
-  `Object`, `String`, `Number`, … и Nest такое тоже инжектить не умеет. Ошибка называет класс и
-  индекс параметра и даёт обе починки — `@Inject(TOKEN)` плюс запись в `providers` или
-  `@Optional()`. Параметр, эмитнутый как `undefined`, отдельно отмечается как признак циклического
-  импорта, который решает `@Inject(forwardRef(() => X))`; `forwardRef` под `@Inject`
-  разворачивается. О свойстве сообщается так же, по имени.
-- **Класс с параметрами и без метаданных.** Называет класс, три вещи, которые нужны метаданным
-  (`@Injectable()`, флаг компилятора, `reflect-metadata`, загруженный первым), и какие компиляторы их
-  эмитят. Классу без параметров метаданные не нужны, и он просто конструируется.
-- **Цикл среди классов, построенных по-настоящему.** `A -> B -> A`, с пометкой, что этот хелпер не
-  разрешает циклы через `forwardRef`: выставьте на одну сторону меньше или предоставьте её.
-- **`spies.get` по токену, который никто не просил** — со списком заспаенных токенов; и **по
-  выставленному классу**, который настоящий, а не спай.
+- **Параметр без токена, который можно внедрить.** Интерфейсы, объединения и примитивы компилируются
+  в `Object`, `String`, `Number` и т. п., и Nest их тоже внедрить не может. Сообщение называет класс и
+  номер параметра. Почините через `@Inject(TOKEN)` плюс запись в `providers` или пометьте параметр
+  `@Optional()`. Параметр, скомпилированный как `undefined`, обычно означает циклический импорт:
+  используйте `@Inject(forwardRef(() => X))`. О свойстве сообщается так же, по имени.
+- **Класс с параметрами конструктора и без метаданных.** Сообщение называет класс и три нужные вещи:
+  `@Injectable()`, флаг компилятора и `reflect-metadata`, загруженный первым. Классу без параметров
+  метаданные не нужны.
+- **Цикл среди классов, созданных по-настоящему**, в виде `A -> B -> A`. Этот хелпер не разрешает
+  циклы через `forwardRef`. Уберите одну сторону из `expose` или задайте её значением.
+- **`spies.get` по токену, который юнит не запрашивал.** Сообщение перечисляет токены со спаями.
+- **`spies.get` по классу из `expose`.** Этот класс настоящий, а не спай.
+
+## Зависимости {#dependencies}
+
+`@nestjs/common` и `@nestjs/testing` остаются вашими dev-зависимостями: точка входа их не
+импортирует. `injectSpy` нужен только объект с методом `get(token)` (тип `NestModuleRef`), так что он
+работает и с самописным фейковым модулем.

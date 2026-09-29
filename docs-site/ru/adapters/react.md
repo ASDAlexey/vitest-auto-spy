@@ -1,40 +1,28 @@
 ---
 title: React
-description: Спаи для классов, которыми владеет React-приложение — сервисов, стора, API-клиентов, — и передача спая в Context-провайдер или хук.
+description: Спаи для классов React-приложения (сервисов, сторов, API-клиентов) через Context-провайдер или аргумент хука; мок кастомного хука с типизированным результатом.
 ---
 
 # React
 
-В React нет DI-контейнера, поэтому `vitest-auto-spy/react` не поставляет **никакого** хелпера
-`provide*` — это _рецепт_: спаить **классы**, которыми вы владеете (сервисы, сторы, API-клиенты,
-зависимости, которые вы инжектите в хуки или отдаёте Context-провайдеру), а не сами компоненты.
+`vitest-auto-spy/react` превращает ваш класс (сервис, стор, API-клиент) в типизированный спай.
+Спай — объект-заглушка: каждый его метод запоминает вызовы и возвращает то, что вы задали. Вы
+передаёте спай туда, откуда компонент берёт настоящий объект, чаще всего в Context-провайдер.
 
-```ts
-import { type Spy, createSpyFromClass } from 'vitest-auto-spy/react';
-```
-
-Спай — это обычный объект из моков, поэтому его можно передать напрямую в
-`<Context.Provider value={spy}>` или в аргумент-зависимость хука, а затем задавать возвращаемые
-значения через `calledWith` / `resolveWith` / `mockReturnValue` и проверять `spy.method.mock.calls`.
-
-Импорт этой точки входа регистрирует дефолтный mock-адаптер Vitest — только если его ещё никто не
-зарегистрировал, так что подменить адаптер, поставленный рантайм-точкой входа, он не может, — и
-реэкспортирует то же публичное API, что и ядро. Он тянет только `vitest`, никогда `react` и
-`@testing-library/react`, они остаются вашими dev-зависимостями. Из-за этого же импорта `vitest`
-точка входа не грузится под `bun test` и `node --test`: на этих раннерах импортируйте ядро через их
-собственную рантайм-точку входа.
+`vitest-auto-spy/react` — точка входа, то есть путь импорта для React-спек. Она экспортирует
+`createSpyFromClass`, `createAutoMock`, `autoMocked`, тип `Spy<T>`, `asInstance`, `resetAutoSpy` и
+хелперы для моков модулей, которые встретятся ниже. Полный список — в [справочнике API](/ru/api).
 
 ## Через Context-провайдер {#through-a-context-provider}
 
-Спай — обычный объект из моков, поэтому он идёт прямо в `value` провайдера:
-
 ```tsx
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type Spy, createSpyFromClass } from 'vitest-auto-spy/react';
 
 import { Cart, CartContext } from './cart';
-import { CartStore } from './cart-store';
+import { CartStore, type Order } from './cart-store';
 
 describe('<Cart />', () => {
   let cart: Spy<CartStore>;
@@ -44,7 +32,7 @@ describe('<Cart />', () => {
   });
 
   it('renders the total the store reports', () => {
-    cart.total.mockReturnValue(42);
+    cart.total.mockReturnValue(42); // total(): number
 
     render(
       <CartContext.Provider value={cart}>
@@ -55,30 +43,63 @@ describe('<Cart />', () => {
     expect(screen.getByText('$42')).toBeInTheDocument();
   });
 
-  it('checks out with the items on screen', async () => {
-    cart.checkout.resolveWith({ orderId: 'ord_42' });
+  it('shows the order number after checkout', async () => {
+    const order: Order = { id: 'ord_42', total: 42 };
+    cart.checkout.resolveWith(order); // checkout(token): Promise<Order>
 
     render(
       <CartContext.Provider value={cart}>
-        <Cart />
+        <Cart paymentToken="tok_abc" />
       </CartContext.Provider>,
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'Check out' }));
 
+    expect(await screen.findByText('Order ord_42 placed')).toBeInTheDocument();
     expect(cart.checkout).toHaveBeenCalledWith('tok_abc');
   });
 });
 ```
 
-`Spy<CartStore>` — маппед-тип, и он отбрасывает `#private`-члены, поэтому не присваивается
-`CartStore`. Если контекст типизирован классом, наведите мост через
-[`asInstance(cart)`](/ru/core/spy-typing), а не через `as`.
+Как задать ответ методу спая:
+
+- `mockReturnValue(value)` — для метода, который возвращает обычное значение.
+- `resolveWith(value)` — для метода, который возвращает `Promise`. Передайте значение, которое вернёт
+  промис (здесь `Order`). Неполный объект приведите к типу: `resolveWith({ id: 'ord_42' } as Order)`.
+- `calledWith(args)` перед любым из них — ответ сработает только на вызов с этими аргументами.
+
+Ответ `resolveWith` приходит асинхронно, поэтому результат ждите через `findByText`, а не
+`getByText`. `toBeInTheDocument` приходит из `@testing-library/jest-dom`: добавьте
+`import '@testing-library/jest-dom/vitest'` в setup-файл Vitest.
+
+**Частая ошибка:** `asInstance` нужен, только если у класса есть `#private`- или `private`-члены.
+Тогда TypeScript сообщает об ошибке типа на `value={cart}`: тип спая эти члены отбрасывает.
+Передайте `asInstance(cart)` вместо приведения через `as`:
+
+```tsx
+import { asInstance } from 'vitest-auto-spy/react';
+
+<CartContext.Provider value={asInstance(cart)}>
+  <Cart />
+</CartContext.Provider>;
+```
+
+Подробнее — в разделе [Типизация спаев](/ru/core/spy-typing).
+
+В React нет контейнера зависимостей, поэтому аналога Angular-хелпера `provideAutoSpy` здесь нет:
+спай кладётся в провайдер руками, как в примере выше. `react` и `@testing-library/react` остаются
+вашими dev-зависимостями любой версии.
+
+::: tip Какой раннер
+На Vitest больше ничего не нужно. Если setup-файл уже импортирует другую точку входа раннера,
+например `vitest-auto-spy/bun`, спаи продолжает создавать тот раннер. Эта точка входа импортирует
+`vitest`, поэтому под `bun test` и `node --test` не загрузится: там импортируйте те же функции из
+`vitest-auto-spy/bun` или `vitest-auto-spy/node`.
+:::
 
 ## Как зависимость хука {#as-a-hook-dependency}
 
-Хук, который принимает коллаборатора аргументом, — самое простое, что можно протестировать в
-React-кодовой базе, и спаю здесь не нужна вообще никакая обёртка:
+Если хук принимает зависимость аргументом, передайте спай напрямую. Обёртка не нужна:
 
 ```ts
 import { renderHook, waitFor } from '@testing-library/react';
@@ -102,10 +123,10 @@ it('exposes the loaded user', async () => {
 
 ## Мок кастомного хука {#mocking-a-custom-hook}
 
-Шов из раздела выше — предпочтительный. Когда же компонент зовёт хук напрямую — `useMovies()` из
-модуля с хуками, ничего не принимая снаружи, — хук становится его коллаборатором, и спека подменяет
-модуль. Рукописный мок ошибается в возвращаемом значении: весь объект собирается заново в каждом
-тесте и ни с чем не сверен по типу.
+Лучше подходят два способа выше. Но бывает, что компонент вызывает хук сам, например `useMovies()` из
+модуля с хуками, и снаружи ничего не получает. Тогда модуль подменяют через `vi.mock`. Сложнее всего
+с результатом хука: написанный руками, это большой объект, который собирается заново в каждом тесте
+и не сверяется с типом. `autoMocked` собирает его по типу.
 
 ```tsx
 import { render, screen } from '@testing-library/react';
@@ -149,40 +170,46 @@ describe('<MovieSearch />', () => {
 });
 ```
 
-Три части, у каждой одна работа:
+Что делает каждая часть:
 
-- **[`autoMocked<UseMoviesResult>(seed)`](/ru/core/auto-mock-by-type)** собирает возвращаемое
-  значение хука по его типу. Засеянные поля — обычные значения; каждый член, который спека не
-  засеяла, — `setSearchTerm`, `reload`, — становится спаем с хелперами по своему типу возврата и
-  создаётся при первом чтении. Сид сверяется с типом, так что переименованное в хуке поле — ошибка
-  компиляции. Результат типизирован одновременно как `UseMoviesResult` и как его спай, поэтому один и
-  тот же объект уходит в `mockReturnValue` и возвращается в проверку. Если результат путешествует
-  только как спай, тип `createAutoMock<T>()` уже.
-- **[`moduleNamespace`](/ru/utilities/module-mocks#modulenamespace-exports-options)** даёт результату
-  фабрики `default` и `__esModule`, которые ищет interop-проба, поэтому модуль хуков, прочитанный
-  через CommonJS-совместимый слой, не падает с `No "default" export is defined on the mock`.
-- **[`assertMocked`](/ru/utilities/module-mocks#assertmocked-namespace-options)** падает на строке
-  самой спеки, если мок не применился: под бандлером, который уже заинлайнил модуль, компонент иначе
-  вызвал бы настоящий хук, и тест прошёл бы или упал по посторонней причине. Список `exports` заставляет
-  проверить именно те хуки, которыми управляет файл.
+- **[`autoMocked<UseMoviesResult>(values)`](/ru/core/auto-mock-by-type)** собирает результат хука по
+  его типу. Поля, которые вы передали, — обычные значения. Все остальные члены (`setSearchTerm`,
+  `reload`) — спаи, они создаются при первом чтении. Переданные значения проверяются по типу, так что
+  переименованное в хуке поле даст ошибку компиляции. Результат
+  подходит и как `UseMoviesResult`, и как спай: один и тот же объект можно передать в
+  `mockReturnValue` и проверить в `expect`. Если нужен только тип спая,
+  берите `createAutoMock<T>()`.
+- **[`moduleNamespace`](/ru/utilities/module-mocks#modulenamespace-exports-options)** добавляет к
+  результату фабрики ключи `default` и `__esModule`. Без них модуль хуков, прочитанный через
+  слой совместимости с CommonJS, падает с `No "default" export is defined on the mock`.
+- **[`assertMocked`](/ru/utilities/module-mocks#assertmocked-namespace-options)** падает на этой
+  строке, если мок не применился. Так бывает, когда бандлер уже встроил модуль в код; тогда компонент
+  вызвал бы настоящий хук. В `exports` перечислены хуки, которыми управляет этот файл.
 
-Сам хук остаётся `vi.fn()`: это функция, которую экспортирует модуль, а не метод класса, и
-`vi.mocked` типизирует её как настоящий хук, так что `mockReturnValue` принимает только
-`UseMoviesResult`.
+Сам хук остаётся обычным `vi.fn()`. `vi.mocked` даёт ему тип настоящего хука, поэтому
+`mockReturnValue` принимает только `UseMoviesResult`.
 
-Два варианта, когда простого `vi.fn()` мало. Чтобы оставить настоящие хуки и заменить один,
-`vi.mock('./hooks', async (importOriginal) => moduleNamespace(await importOriginal(), { passthrough: true }))`
-делает каждую экспортируемую функцию спаем, который выполняет настоящий хук, пока спека его не
-настроит. Чтобы дать `vi.fn()` из фабрики `calledWith` и `resolveWith`,
-[`adoptMock(hooks.useMovies)`](/ru/utilities/module-mocks#adoptmock-mock-options) забирает его на
-месте. Оба способа — на [странице о моках модулей](/ru/utilities/module-mocks).
+Два варианта:
+
+- **Оставить настоящие хуки и заменить один.** С
+  `vi.mock('./hooks', async (importOriginal) => moduleNamespace(await importOriginal(), { passthrough: true }))`
+  каждая экспортируемая функция становится спаем, который вызывает настоящий хук, пока вы его не
+  настроите.
+- **Дать `vi.fn()` из фабрики методы `calledWith` и `resolveWith`.**
+  [`adoptMock(hooks.useMovies)`](/ru/utilities/module-mocks#adoptmock-mock-options) добавляет их на
+  месте.
+
+Оба описаны на [странице о моках модулей](/ru/utilities/module-mocks).
 
 ### Хук, который возвращает кортеж {#a-hook-that-returns-a-tuple}
 
-Хук в форме `useState` возвращает `[value, loading, error]`, и этот кортеж — данные. Напишите его
-руками — тип возврата самого хука проверит каждую позицию:
+Хук в стиле `useState` возвращает кортеж вроде `[value, loading, error]`. Кортеж — это данные,
+пишите его руками. Тип результата хука проверит каждую позицию:
 
 ```tsx
+// тот же файл, что выше
+import { UserCard } from './user-card';
+
 it('shows the loading state', () => {
   vi.mocked(hooks.useFetch).mockReturnValue([undefined, true, null]);
 
@@ -213,28 +240,28 @@ it('goes from loading to loaded across renders', () => {
 });
 ```
 
-Автомок здесь не нужен. `const [data, loading] = hook()` деструктурирует через `Symbol.iterator`, а
-дубль на Proxy не итерируем — `createAutoMock<[T, boolean]>()` бросает `TypeError: … is not iterable`
-прямо на строке деструктуризации, и `mockDeep` тоже. Член `mockDeep` становится массивом только после
-чтения по индексу и держит только прочитанные индексы, так что кортежем не становится и он. Автомок — для объекта, который возвращает хук и в котором живут функции;
-кортеж — это три значения.
+**Частая ошибка:** `createAutoMock<[T, boolean]>()` для кортежа. Строка
+`const [data, loading] = hook()` бросает `TypeError: … is not iterable`: автомок не итерируемый.
+`mockDeep` падает так же. Автомок — для объектов с функциями, не для кортежей.
 
 ### Значение, которое протекает в следующий тест {#the-value-that-leaks-into-the-next-test}
 
-`vi.fn()`, созданный в фабрике `vi.mock`, живёт весь файл, поэтому `mockReturnValue` из одного теста
-продолжает отвечать и в следующем — классический баг «последнее замоканное значение `useSearch` всё
-ещё активно», который выглядит как тест, проходящий в одиночку и падающий в составе файла. Vitest 5
-по умолчанию очищает вызовы перед каждым тестом (`clearMocks: true`), но очистка не сбрасывает
-реализацию. Либо включите `mockReset: true` в конфиге Vitest, либо настраивайте хук в каждом тесте,
-который рендерит, как в примерах выше.
+`vi.fn()` из фабрики `vi.mock` живёт весь файл. `mockReturnValue`, заданный в одном тесте, отвечает и
+в следующем. Признак: тест проходит один и падает, когда запускается весь файл.
 
-У возвращаемых значений, собранных через `autoMocked` / `createAutoMock` внутри теста, такой проблемы
-нет: это каждый раз новые объекты. Для дублей, которые переживают тест, — спая, собранного один раз на
-файл, — сброс описывают [`setupAutoSpy()`](/ru/utilities/setup) и
+С `clearMocks: true` (в Vitest 5 это значение по умолчанию) любой Vitest перед каждым тестом очищает
+записанные вызовы, но заданный ответ при этом остаётся. Исправить можно одним из двух способов:
+
+- включите `mockReset: true` в конфиге Vitest;
+- настраивайте хук в каждом тесте, который рендерит компонент, как в примерах выше.
+
+Значения из `autoMocked` или `createAutoMock`, созданные внутри теста, каждый раз новые и не
+протекают. Для спая, созданного один раз на файл, см. [`setupAutoSpy()`](/ru/utilities/setup) и
 [`resetAutoSpy`](/ru/core/control-helpers#resetting-spies-—-clearautospy-resetautospy).
 
 ::: tip Что спаить не надо
-Спайте классы, которыми владеете, а хук мокайте только там, где он — коллаборатор компонента.
-Заспаенный компонент ничего не говорит о рендеринге, а тест хука, в котором замокан сам хук, проверяет
-собственный мок — тестируйте хук через `renderHook` и заспаенную зависимость, как в разделе выше.
+Спайте классы, которыми владеете. Мокайте хук, только когда он — зависимость компонента.
+Заспаенный компонент ничего не говорит о рендеринге. Тест хука, в котором замокан сам хук, проверяет
+только свой мок: тестируйте хук через `renderHook` и спай зависимости, как в разделе
+[Как зависимость хука](#as-a-hook-dependency).
 :::

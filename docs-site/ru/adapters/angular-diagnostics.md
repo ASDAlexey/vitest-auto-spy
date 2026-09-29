@@ -1,104 +1,111 @@
 ---
 title: Диагностика Angular
-description: enableAngularDiagnostics — пять молчаливых провалов Angular-тестов (мёртвые импорты NgModule, мёртвые schemas, неспаенные провайдеры, недофлашенные HTTP-запросы, двойник, которого перебивают собственные providers компонента) становятся громкими.
+description: enableAngularDiagnostics превращает пять тихих ошибок в Angular-спеках в падающие тесты - пустые импорты NgModule, бесполезные schemas, настоящий сервис вместо спая, запросы без ответа и спаи, которые перекрывают собственные providers компонента.
 ---
 
 # Диагностика Angular
 
-```ts
-// vitest.setup.ts — после инициализации тестового окружения Angular
-import { enableAngularDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
+`enableAngularDiagnostics()` превращает пять частых ошибок в Angular-спеках в падения тестов. Из-за
+каждой такой ошибки тест зелёный, хотя проверяет не то, что задумано, и никто об этом не
+предупреждает. Включается
+один раз, в setup-файле Vitest. Выберите вариант, который подходит к тому, как вы запускаете тесты.
 
-enableAngularDiagnostics(); // все пять
-enableAngularDiagnostics({ pendingRequests: false }); // или выборочно
-```
-
-Пять проверок, одно решение. У каждого члена одна и та же форма: что-то, что написала спека, не
-делает ничего, никто об этом не сообщает, и тест проходит по причине, которой автор не задумывал.
-Они едут одной группой, а не пятью хелперами, потому что перевод сюиты из «проходит» в «проходит
-по заявленной причине» — решение, принимаемое один раз, в setup-файле, — и потому что четыре из пяти
-висят на том же хуке `TestBed.configureTestingModule`, который уже ставит
-[диагностика таймингов](/ru/adapters/angular#where-a-spec-spends-its-time). Вся семья живёт в
-собственной точке входа — `vitest-auto-spy/angular/diagnostics`, куда она переехала из
-`vitest-auto-spy/angular` в 5.21.0: импорт спаев больше не исполняет инструментацию, которую не
-включили.
-
-| Член               | По умолчанию | Падает, когда                                                                                                         |
-| ------------------ | ------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `ngModuleScopes`   | `true`       | тестовый модуль импортирует NgModule, который не приносит вообще ничего                                               |
-| `deadSchemas`      | `true`       | `schemas` стоят рядом со standalone-компонентом, где они не могут примениться                                         |
-| `unspiedProviders` | `true`       | `injectSpy` получает настоящий инстанс — сегодня `console.warn`, под группой throw                                    |
-| `pendingRequests`  | `true`       | тест заканчивается с недофлашенными запросами `HttpTestingController`; `{ ignoreCancelled: true }` прощает отменённые |
-
-Каждый член по умолчанию `true`; передайте `false`, чтобы исключить один. Повторный вызов
-`enableAngularDiagnostics` **заменяет** предыдущий набор, а не дополняет его, и потестовые хуки
-регистрируются один раз на модуль — так что второй вызов безопасен откуда угодно, включая изнутри
-теста, где регистрация хука была бы ошибкой.
-
-`disableAngularDiagnostics()` выключает группу: больше никакого разбора конфигурации, а `injectSpy`
-снова предупреждает вместо падения. Инструментацию таймингов `TestBed` она оставляет на месте — ею
-может пользоваться `enableTestBedDiagnostics`, а убирает её `disableTestBedDiagnostics()`.
-
-## Видны оба способа добраться до `TestBed` {#both-ways-of-reaching-the-testbed-are-seen}
-
-Спека настраивает свой модуль через экспортированный класс `TestBed` или через `getTestBed()`, и это
-один и тот же объект: каждый статический метод — однострочная делегация к инстансу. Поэтому хуки
-ставятся на **инстанс**, и сюита, написанная вторым способом, проверяется как любая другая:
+**Обычный Vitest** (`vitest` и `vitest.config.ts`):
 
 ```ts
-getTestBed().configureTestingModule({ imports: [CatalogPageComponent] }); // разбирается
-const fixture = getTestBed().createComponent(CatalogPageComponent); // и это тоже
-```
-
-Это покрывает `ngModuleScopes`, `deadSchemas`, `shadowedProviders` и [проверку
-`overrideComponentProvider`](/ru/adapters/angular-overrides) — все они раньше видели только
-статическую форму и не сообщали ничего о сюите, которая ею не пользовалась. Каждый вызов считается
-один раз — обёртка стоит только на инстансе, никогда на обоих, — а `TestBed.overrideTemplate`,
-который Angular проводит через `overrideComponent`, теперь входит в замеряемое
-[время `TestBed`](/ru/adapters/angular), а не невидим для него.
-
-## Вызывайте _после_ настройки тестового окружения Angular {#call-it-after-the-angular-test-environment-is-set-up}
-
-Vitest выполняет хуки `afterEach` в **обратном порядке регистрации**. Хук `pendingRequests`,
-зарегистрированный здесь, должен выполниться _до_ teardown TestBed, который он разбирает, а значит —
-быть зарегистрированным _после_ него:
-
-```ts
-// vitest.setup.ts
+// src/test-setup.ts
 import { getTestBed } from '@angular/core/testing';
+import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { enableAngularDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
 
 getTestBed().initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
 
-enableAngularDiagnostics(); // ← последним, чтобы его afterEach шёл первым
+enableAngularDiagnostics(); // все пять проверок
 ```
 
-Неверный порядок не отключает проверку молча: `resetTestingModule` обёрнут так, чтобы снять снимок
-открытых запросов до teardown, поэтому падение всё равно придёт — просто из снимка, а не из живого
-инжектора. Правильный порядок — это две строки и на одну косвенность меньше в стеке.
+```ts
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: { setupFiles: ['src/test-setup.ts'] },
+});
+```
+
+**Angular CLI** (`ng test`): `initTestEnvironment()` вызывает сам билдер, и `vitest.config.ts` не
+нужен. В setup-файле остаются только импорт и вызов, а `angular.json` указывает на этот файл:
+
+```ts
+// src/test-setup.ts
+import { enableAngularDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
+
+enableAngularDiagnostics();
+```
+
+```jsonc
+// angular.json
+"test": {
+  "builder": "@angular/build:unit-test",
+  "options": { "setupFiles": ["src/test-setup.ts"] }
+}
+```
+
+Спеки остаются как есть. Спека с одной из ошибок ниже теперь
+падает с сообщением, в котором написано, как её исправить.
+
+## Пять проверок {#the-five-checks}
+
+| Проверка            | По умолчанию | Тест падает, когда                                                                      |
+| ------------------- | ------------ | --------------------------------------------------------------------------------------- |
+| `ngModuleScopes`    | `true`       | тестовый модуль импортирует NgModule, который ничего не приносит                        |
+| `deadSchemas`       | `true`       | `schemas` стоят рядом со standalone-компонентом, где они не действуют                   |
+| `unspiedProviders`  | `true`       | `injectSpy()` получает настоящий сервис вместо спая                                     |
+| `pendingRequests`   | `true`       | тест заканчивается, а на HTTP-запросы никто не ответил                                  |
+| `shadowedProviders` | `true`       | спай на тестовом модуле не доходит до компонента: побеждают его собственные `providers` |
+
+Передайте `false`, чтобы выключить проверку. `pendingRequests` принимает ещё и объект с единственной
+опцией `ignoreCancelled`. Каждый вызов начинает с того, что включены все пять, поэтому проверки, которые
+вы не назвали, включены:
+
+```ts
+enableAngularDiagnostics({ pendingRequests: false }); // остальные четыре
+enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } }); // все пять; отменённые запросы не роняют тест
+```
+
+| Функция                                   | Что делает                                                                        |
+| ----------------------------------------- | --------------------------------------------------------------------------------- |
+| `enableAngularDiagnostics(options?)`      | включает проверки; повторный вызов **заменяет** прежний набор, а не дополняет его |
+| `disableAngularDiagnostics()`             | выключает все проверки; `injectSpy()` снова только предупреждает                  |
+| `assertNoPendingRequests(options?)`       | запускает проверку `pendingRequests` посреди теста                                |
+| `assertNoShadowedProviders(cmp, fixture)` | запускает проверку `shadowedProviders` на фикстуре, которую вы собрали сами       |
+
+Все четыре импортируются из `vitest-auto-spy/angular/diagnostics`.
+
+## Вызывайте _после_ настройки тестового окружения Angular {#call-it-after-the-angular-test-environment-is-set-up}
+
+Проверки читают `TestBed`, который строит `initTestEnvironment()`. Поэтому
+`enableAngularDiagnostics()` вызывается после него, как в примере для обычного Vitest. С `ng test`
+билдер настраивает окружение до ваших setup-файлов, так что порядок уже правильный.
+
+Вызывайте её из setup-файла, а не из спеки. Setup-файл выполняется для каждого файла тестов, и
+проверки получает каждый файл. Это верно и с настройкой Vitest `isolate: false`, когда один рабочий
+процесс выполняет много файлов тестов.
+
+Вызвать её можно и внутри теста, например `enableAngularDiagnostics({ pendingRequests: false })`. Новый
+набор проверок заменяет старый до конца этого файла тестов. Следующий файл снова начинает с набора из
+setup-файла, потому что setup-файл выполняется перед каждым файлом.
+
+Порядок хуков `afterEach` не важен. Даже если ваш `afterEach` сбрасывает `TestBed` раньше, проверки
+всё равно видят, что оставил тест.
 
 ## `ngModuleScopes` {#ngmodulescopes}
 
-Автоматически применяет [`assertNgModuleScopes`](/ru/adapters/angular-overrides#assertngmodulescopes-modules)
-к каждой записи `imports` каждого тестового модуля — но только к тем записям, которые сперва прошли
-куда более строгий фильтр.
+Роняет тест, когда тестовый модуль импортирует NgModule, который в рантайме ничего не приносит. Некоторые
+сборки для тестов теряют список declarations скомпилированного NgModule. Тогда его директивы молча не рендерятся.
 
-**Почему фильтр вообще нужен.** Пустая рантайм-область подозрительна, когда модули для проверки вы
-выбираете руками, потому что туда вы передаёте те, что импортированы _ради своих declarations_.
-Автоматическая проверка видит каждый импорт каждого тестового модуля, а там **модуль только с
-провайдерами** законно пуст по области: `HttpClientTestingModule`, любой результат `forRoot()`,
-десятки штук на реальную сюиту. Без фильтра группа уронила бы на первом же прогоне все файлы
-проекта, и проект выключил бы её целиком.
-
-Поэтому автоматическая проверка срабатывает на модуле, у которого в рантайме:
-
-- нет `ɵmod.declarations` и нет `ɵmod.exports`, **и**
-- нет `ɵinj.providers`, **и**
-- нет `ɵinj.imports`.
-
-Пустота проверяется через уплощение, а не через `length === 0`: компилятор вкладывает структуры, и
-`ɵinj.imports` у `@NgModule({})` — это `[[], []]` (собственные imports и exports модуля, оба
-пустые), что простая проверка длины прочитает как две записи и сочтёт вкладом.
+```ts
+TestBed.configureTestingModule({ imports: [ProfileComponent, DirectivesModule] }); // падает здесь
+```
 
 ```text
 [vitest-auto-spy] ngModuleScopes: DirectivesModule is imported into the testing module but contributes nothing — this test bundle dropped its ɵɵsetNgModuleScope, so its directives are missing (NG0303/NG0304).
@@ -106,46 +113,54 @@ Import the directives it exports directly, or declare them in the TestBed.
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#ngmodulescopes
 ```
 
-**Ограничение, сказанное прямо.** Область, вырезанная AOT-бандлом, и область, которая всегда была
-пустой, в рантайме неразличимы. Поэтому автоматическая проверка срабатывает только тогда, когда
-модуль не приносит _вообще ничего_, — а значит, ловит случай вырезанного бандла только для модулей,
-которые заодно ничего не провайдят. Модуль, который вырезали, но у которого остались провайдеры,
-проходит этот фильтр молча. Ручной вызов `assertNgModuleScopes(DirectivesModule, PipesModule)` в
-спеке остаётся строгой формой, потому что там вы сами сказали, что модуль должен был принести.
+**Как исправить:** импортируйте сами директивы или объявите их в тестовом модуле.
+
+Автоматическая проверка срабатывает, только когда модуль не приносит _совсем ничего_: ни
+declarations, ни exports, ни провайдеров, ни импортов. Модули только с провайдерами, например
+`HttpClientTestingModule` или результат `forRoot()`, — это нормально, на них проверка не падает.
+
+**Частая ошибка:** ждать, что она поймает модуль, который потерял declarations, но сохранил
+провайдеры. Такой модуль не отличить от модуля только с провайдерами. Для него вызовите в спеке
+[`assertNgModuleScopes(DirectivesModule)`](/ru/adapters/angular-overrides#assertngmodulescopes-modules)
+сами: там вы говорите, какие модули обязаны принести declarations.
 
 ## `deadSchemas` {#deadschemas}
 
-`NO_ERRORS_SCHEMA` рядом со standalone-компонентом — мёртвая запись. Schemas — свойство
-`declarations` тестового модуля; standalone-компонент несёт собственную область зависимостей и
-никогда к ним не обращается. Значит, конфигурация, которая ничего не объявляет и импортирует
-standalone-компоненты, настроила пустышку: элемент или атрибут, ради которого схему добавляли,
-по-прежнему не разрешён, а спека зеленеет над шаблоном, который так и не отрендерил то, что должен
-был.
+Роняет тест, когда `schemas`, например `NO_ERRORS_SCHEMA`, стоят рядом со standalone-компонентом.
+Schemas действуют только на компоненты из `declarations`. У standalone-компонента свои импорты, и
+schemas он не читает. Значит, схема ничего не глушит: неизвестный элемент по-прежнему не рендерится,
+а спека остаётся зелёной.
 
 ```ts
-// падает
-TestBed.configureTestingModule({ imports: [CatalogPageComponent], schemas: [NO_ERRORS_SCHEMA] });
+TestBed.configureTestingModule({ imports: [ProfileComponent], schemas: [NO_ERRORS_SCHEMA] }); // падает
 ```
 
-Проверка срабатывает, когда выполняются все три условия: `schemas` непустые, `declarations` пустые,
-а в `imports` есть хотя бы один класс компонента (запись с `ɵcmp`).
-
-```
-[vitest-auto-spy] enableAngularDiagnostics({ deadSchemas }): configureTestingModule was given 1 schema(s) that can never apply. The module declares nothing, and CatalogPageComponent carries its own dependency scope.
+```text
+[vitest-auto-spy] enableAngularDiagnostics({ deadSchemas }): configureTestingModule was given 1 schema(s) that can never apply. The module declares nothing, and ProfileComponent carries its own dependency scope.
 Nothing is being silenced here: whatever the schema was added for is still unresolved, and the template renders without it.
 Drop the `schemas` entry, then put the missing directive, component or pipe into the standalone component's own `imports` — or render it through a standalone host built with `createDirectiveHost({ template, scope: [...] })`.
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#deadschemas
 ```
 
-**Что она пропускает намеренно.** Она не срабатывает, когда `declarations` непустые, даже если рядом
-импортированы standalone-компоненты. Там схема жива для declarations, а ложное падение на корректной
-спеке стоит дороже пропуска — этот размен настроен у каждого члена группы.
+**Как исправить:** уберите `schemas`. Недостающую директиву, компонент или пайп добавьте в `imports`
+самого компонента или отрендерите через `createDirectiveHost({ template, scope: [...] })`.
+
+Проверка срабатывает, только когда выполнены все три условия: `schemas` не пустые, `declarations`
+пустые, а в `imports` есть хотя бы один компонент. Она смотрит на модуль целиком, со всеми вызовами
+`configureTestingModule()` за тест (например, один в `beforeEach` и один в самом тесте).
+
+**Частая ошибка:** ждать падения, когда `declarations` не пустые. Там схема действует на объявленные
+компоненты, поэтому проверка намеренно молчит.
 
 ## `unspiedProviders` {#unspiedproviders}
 
-`injectSpy(X)` и так сообщает, когда инжектор возвращает обычный инстанс вместо авто-спая; без
-группы это сообщение — `console.warn`. Этот член поднимает его до брошенного падения на строке
-`injectSpy`, то есть на той строке, которая рассчитывала на спай.
+Роняет тест на строке `injectSpy()`, когда в тестовом модуле нет спая для этого сервиса и Angular
+создал настоящий. Без диагностики `injectSpy()` только печатает `console.warn`.
+
+```ts
+TestBed.configureTestingModule({ imports: [ProfileComponent] }); // нет provideAutoSpy(FeatureFlagService)
+const flags = injectSpy(FeatureFlagService); // падает здесь
+```
 
 ```text
 [vitest-auto-spy] injectSpy(FeatureFlagService): got a real FeatureFlagService — nothing in the testing module provides a double, so Angular built it (providedIn: 'root').
@@ -153,161 +168,256 @@ Add provideAutoSpy(FeatureFlagService) to providers.
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular#injectspy-says-when-it-got-the-real-thing
 ```
 
-Форма-предупреждение дедуплицируется по токену, поэтому `beforeEach` не печатает одну и ту же строку
-на каждый тест. **В режиме падения эта дедупликация отключена**: throw по определению виден один раз
-за тест, и подавление второго вхождения только скрыло бы падение от теста, который шёл следом.
+**Как исправить:** добавьте `provideAutoSpy(FeatureFlagService)` в `providers`.
+
+Предупреждение печатается один раз на сервис и файл тестов. Падение приходит в каждом тесте, где
+ошибка есть, чтобы один тест не спрятал её от следующего.
 
 ## `pendingRequests` {#pendingrequests}
 
-Роняет тест, который заканчивается, пока настроенный им `HttpTestingController` всё ещё держит
-запросы.
+Роняет тест, который закончился, пока в `HttpTestingController` остались запросы без ответа. Код под
+тестом всё ещё ждёт ответа, поэтому то, что он должен сделать после ответа, не выполнилось.
+
+```ts
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { TestBed } from '@angular/core/testing';
+
+it('loads the user', () => {
+  TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+  const http = TestBed.inject(HttpTestingController);
+
+  TestBed.inject(UserService).load().subscribe();
+
+  http.expectOne('/api/user').flush({ id: 1, name: 'Ada' }); // уберите эту строку — и тест упадёт
+});
+```
+
+Без строки с `flush` тест падает так:
 
 ```text
-[vitest-auto-spy] 2 requests were never answered (end of "users > loads the list"): GET /api/users, POST /api/orders.
-The code under test is still waiting on them, so nothing after that call ran; left open, the next test would match them.
-Answer each in the spec: controller.expectOne('/api/users').flush(body).
+[vitest-auto-spy] GET /api/user was never answered (end of "loads the user").
+The code under test is still waiting on it, so nothing after that call ran; left open, the next test would match it.
+Answer it in the spec: controller.expectOne('/api/user').flush(body).
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#pendingrequests
 ```
 
-Такая строка — для модуля на `provideHttpClientTesting()` или `HttpClientTestingModule`. В модуле
-на `provideHttpTesting()`, где контроллер не инжектят, ответ выглядит как
-`await expectRequest('/api/users').flush(body)` — та же строка, что печатает его собственная
-проверка при teardown.
+**Как исправить:** ответьте в спеке на каждый запрос. С `provideHttpClientTesting()` или
+`HttpClientTestingModule` это `controller.expectOne(url).flush(body)`. С
+[`provideHttpTesting()`](/ru/adapters/angular-http) сообщение предложит
+`await expectRequest('/api/user').flush(body)`.
+
+Проверка находит `HttpTestingController` в ваших `providers` и `imports` на любой глубине. Проект без
+HTTP-тестирования она не затрагивает, и ставить ничего дополнительно не нужно.
+
+**Частая ошибка:** падает тест, который отменяет запрос намеренно. Используйте `ignoreCancelled`, см.
+ниже.
 
 ### `ignoreCancelled` {#ignorecancelled}
 
-Запрос, от которого код под тестом отписался, — `httpResource()` уничтоженного компонента,
-`takeUntil`, оборвавший вызов, `switchMap`, ушедший дальше, — остаётся в контроллере с пометкой
-`cancelled` и роняет тест, как любой другой. Где отмена и есть поведение, передайте объект вместо
-`true`:
+Отменённый запрос тоже считается запросом без ответа. Когда код отписывается, Angular оставляет запрос
+в контроллере с пометкой `cancelled`, и по умолчанию тест падает. Так бывает с `httpResource()` уничтоженного компонента, с `takeUntil` или со
+`switchMap`, который переключился дальше. Если ваш код отменяет запросы намеренно, передайте объект в
+setup-файле. Настройка действует на весь проект:
 
 ```ts
 enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } });
 ```
 
-Это та же опция, что у `HttpTestingController.verify({ ignoreCancelled })` и у
-`provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })`: отменённый запрос всё равно
-забирается, чтобы не утечь в следующий тест, но этот тест больше не роняет. Запрос, который всё ещё
-ждёт ответа, роняет тест как раньше. `assertNoPendingRequests()` читает ту же настройку и принимает
-собственный `{ ignoreCancelled }`, чтобы переопределить её на один вызов.
+| Опция             | Тип       | По умолчанию | Смысл                                   |
+| ----------------- | --------- | ------------ | --------------------------------------- |
+| `ignoreCancelled` | `boolean` | `false`      | отменённый запрос больше не роняет тест |
 
-### Как это работает без второй пир-зависимости {#how-it-works-without-a-second-peer-dependency}
-
-`@angular/common/http/testing` этим пакетом **никогда не импортируется** и его пиром не является.
-Этого и не нужно, потому что токен приезжает внутри конфигурации, которую группа и так видит:
-
-- `provideHttpClientTesting()` возвращает обёртку `EnvironmentProviders` — свойство `ɵproviders`
-  вокруг обычного списка провайдеров, — и один из этих провайдеров называет
-  `HttpTestingController`.
-- `HttpClientTestingModule` держит тот же список в своих `ɵinj.providers`.
-
-Хук уплощает `providers` (вложенные массивы и `ɵproviders` любой обёртки `EnvironmentProviders`),
-затем ищет провайдер, у которого `provide` — функция с именем `HttpTestingController`; если
-`providers` ничего не дали, он обходит `imports` и точно так же читает `ɵinj.providers` каждой
-записи. Токен, таким образом, читается из **собственной конфигурации вызывающего**, а инстанс
-приходит через `TestBed.inject(token, null)`.
-
-Проект, который не настраивает ни одну из форм, молча инертен: токен не найден, проверка ничего не
-сообщает, и ничего не пришлось устанавливать, чтобы это было так. Именно такую форму и должна иметь
-необязательная интеграция.
-
-### Ловушка порядка хуков и как она обработана {#the-hook-ordering-hazard-and-how-it-is-handled}
-
-Vitest выполняет `afterEach` в обратном порядке регистрации, поэтому сюита, у которой teardown
-TestBed зарегистрирован позже, уничтожила бы инжектор раньше, чем `afterEach` этой группы успел бы
-его о чём-то спросить, — и диагностика тихо сообщила бы, что всё в порядке, а это ровно тот режим
-отказа, ради устранения которого она существует.
-
-Поэтому `resetTestingModule` обёрнут так, чтобы снять снимок открытых запросов, пока тестовый модуль
-ещё существует, и `afterEach` сообщает из этого снимка, если снимок есть. Чтение **одноразово** в
-обе стороны: запросы читаются через `match(() => true)`, что одновременно перечисляет и забирает их,
-а снимок очищается по мере чтения. Два хука, которые оба посмотрели, не могут сообщить об одном и
-том же запросе дважды.
-
-Если у работающего `TestBed` вообще нет `resetTestingModule`, обёртка не ставится и проверка
-откатывается к чтению живого инжектора.
+Отменённый запрос всё равно удаляется из контроллера и не попадёт в следующий тест. Запрос, который
+всё ещё ждёт ответа, роняет тест, как и раньше. У `HttpTestingController.verify()` из Angular есть
+опция с тем же именем и смыслом.
 
 ### `assertNoPendingRequests()` {#assertnopendingrequests}
 
-Та же проверка, экспортированная для вызова в середине теста — после подготовки, до проверок,
-которые от неё зависят:
+Та же проверка посреди теста, обычно после подготовки данных:
 
 ```ts
 import { assertNoPendingRequests } from 'vitest-auto-spy/angular/diagnostics';
 
 facade.load();
 controller.expectOne('/api/users').flush([]);
-assertNoPendingRequests(); // больше наружу ничего не ушло
+assertNoPendingRequests(); // → падает, если ушло что-то ещё
 ```
 
-Поскольку чтение забирает запросы, за собственный вызов вы не платите дважды: `afterEach` группы не
-сообщит повторно о том, что вы уже разобрали. Она ничего не делает, когда группа выключена, и ничего
-не делает, когда тест вообще не настраивал HTTP-тестирование. `assertNoPendingRequests({ ignoreCancelled })`
-переопределяет [`ignoreCancelled`](#ignorecancelled) группы на один вызов.
+| Опция             | Тип       | По умолчанию                           | Смысл                        |
+| ----------------- | --------- | -------------------------------------- | ---------------------------- |
+| `ignoreCancelled` | `boolean` | значение из `enableAngularDiagnostics` | переопределить на один вызов |
+
+Она смотрит только на запросы, которые ещё не нашёл ни один `expectOne(...)`, поэтому вызывайте её
+после этих строк. Найденные запросы удаляются из контроллера, и проверка в конце теста не сообщит о них
+второй раз. Она ничего не делает, когда диагностика выключена или тест не настраивал HTTP-тестирование.
 
 ## `shadowedProviders` {#shadowedproviders}
 
+Роняет тест, когда спай на тестовом модуле не доходит до компонента, потому что компонент указал тот
+же сервис в собственных `providers`. Компонент работает с настоящим сервисом. Спай ничего не
+записывает, и проверка вида «метод _не_ вызывали» проходит не по той причине.
+
 ```ts
-// компонент объявляет собственные провайдеры
 @Component({ selector: 'app-promo', providers: [PromoService], template: '…' })
 export class PromoComponent {}
 
-// спека регистрирует двойника уровнем выше
 TestBed.configureTestingModule({ imports: [PromoComponent], providers: [provideAutoSpy(PromoService)] });
-const fixture = TestBed.createComponent(PromoComponent); // ← падает здесь, под группой
+const fixture = TestBed.createComponent(PromoComponent); // падает здесь
 ```
 
-Провайдер уровня компонента резолвится его **узловым** инжектором, а модульный спрашивают только
-тогда, когда у узлового ничего нет. Поэтому `provideAutoSpy(X)` на тестовом модуле не доходит до
-компонента, который объявляет `X` сам: компонент работает с настоящим сервисом, двойник не
-записывает ничего, и проверка «двойника не звали» проходит по неверной причине.
+```text
+[vitest-auto-spy] PromoComponent declares its own providers, so 1 double on the testing module never reached it: PromoService → a PromoService instance.
+The component's own providers are asked before the module's, so it runs against the real service while the spec asserts on a double that records nothing.
+Replace the module-level registration with overrideComponentProvider(PromoComponent, PromoService).
+Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#shadowedproviders
+```
 
-Замер на одной Angular-сюите: из 71 спеки компонента, чей испытуемый объявляет собственные
-`providers`, 43 дублируют тот же токен на уровне модуля. 22 из них обходят это через
-`TestBed.overrideComponent({ set: { providers } })`, 14 — через `TestBed.overrideProvider`, 4 читают
-обратно из инжектора компонента, а **7 не делают ничего** — это и есть отказ.
-
-Починка в одну строку:
+**Как исправить:** положите спай в собственные провайдеры компонента:
 
 ```ts
-overrideComponentProvider(PromoComponent, PromoService, provideAutoSpy(PromoService));
+import { overrideComponentProvider } from 'vitest-auto-spy/angular';
+
+const promo = overrideComponentProvider(PromoComponent, PromoService); // → Spy<PromoService>
 ```
 
-[`overrideComponentProvider`](/ru/adapters/angular-overrides) есть в библиотеке с 3.1.0 и имеет в том
-репозитории **ноль** применений — это довод в пользу проверки, а не против хелпера: по симптому он не
-находится, потому что симптома нет. Ничего не падает, ничего не предупреждает, и спека читается ровно
-как рабочая.
+Третий аргумент — необязательная конфигурация спая. Для `InjectionToken`, который
+`overrideComponentProvider` не принимает, используйте
+`TestBed.overrideProvider(TOKEN, provideAutoSpyForToken(TOKEN))`.
 
-**Молчит, когда ответ компонента сам является двойником.** Спека, которая взяла
-`TestBed.overrideProvider`, `overrideComponentProvider` или двойника в `viewProviders`, этот вопрос
-уже решила, и её ответ выигрывает сознательно — отмечается только **настоящий** инстанс. Это же
-держит проверку в стороне от тех 40 спек, которые так или иначе уже с этим разобрались.
+Проверка молчит, когда компонент уже получает спай: через `TestBed.overrideProvider`,
+`overrideComponentProvider` или спай в `viewProviders`. Она сообщает только о **настоящем**
+экземпляре. Молчит она и тогда, когда спай модуля заменили позже: другим провайдером или через `TestBed.overrideProvider`.
+
+**Частая ошибка:** добавить `provideAutoSpy(PromoService)` в модуль и ждать, что компонент его
+получит. Собственные `providers` компонента всегда побеждают провайдеры модуля.
 
 ### `assertNoShadowedProviders(component, fixture)` {#assertnoshadowedproviders-component-fixture}
 
-Та же проверка, вызываемая руками. `shadowedProviders` зовёт её на каждом фикстуре, который строит
-TestBed; спека, которая рендерит своим хелпером, может спросить сама:
+Та же проверка на фикстуре, которую вы собрали сами, например своим хелпером рендера:
 
 ```ts
+import { assertNoShadowedProviders } from 'vitest-auto-spy/angular/diagnostics';
+
 const fixture = renderThroughOurHelper(CartComponent);
 
-assertNoShadowedProviders(CartComponent, fixture); // двойники и правда те, что в деле
+assertNoShadowedProviders(CartComponent, fixture); // → падает, если спай модуля не дошёл до CartComponent
 ```
 
-Ничего не делает, если этот компонент фикстурой не отрисован.
+Ничего не делает, если фикстура этот компонент не рендерила.
 
 ## Чего в этой группе нет {#what-this-group-does-not-include}
 
-Здесь нет хелперов `provideHttpTesting()` / `expectRequest()`, и их здесь не будет. Это другая
-фича — обёртка над API HTTP-тестирования, а не диагностика над тем, что спека уже написала, — и она
-вообще потребовала бы второй необязательной пир-зависимости (`@angular/common/http/testing`).
-`pendingRequests` читает токен из вашей конфигурации именно затем, чтобы эта страница осталась при
-нуле новых зависимостей.
+Диагностика только проверяет то, что спека уже написала. Отвечать на HTTP-запросы за вас она не
+умеет. Для этого есть [`provideHttpTesting()` и `expectRequest()`](/ru/adapters/angular-http) из
+`vitest-auto-spy/angular-http`. Эта точка входа не импортирует `@angular/common/http/testing` и
+новых зависимостей не добавляет.
+
+## Подробнее {#in-depth}
+
+### Видны оба способа добраться до `TestBed` {#both-ways-of-reaching-the-testbed-are-seen}
+
+Спека настраивает модуль через класс `TestBed` или через `getTestBed()`. Это один и тот же объект:
+каждый статический метод вызывает метод экземпляра. Проверки стоят на экземпляре, поэтому проверяются
+оба способа:
+
+```ts
+getTestBed().configureTestingModule({ imports: [CatalogPageComponent] }); // проверяется
+const fixture = getTestBed().createComponent(CatalogPageComponent); // и это тоже
+```
+
+Это касается `ngModuleScopes`, `deadSchemas`, `shadowedProviders` и
+[проверки `overrideComponentProvider`](/ru/adapters/angular-overrides). Каждый вызов считается один
+раз. `TestBed.overrideTemplate` проходит через `overrideComponent`, поэтому попадает в замеряемое
+[время `TestBed`](/ru/adapters/angular).
+
+### Зачем `ngModuleScopes` фильтрует модули {#why-ngmodulescopes-filters-modules}
+
+Когда вы вызываете `assertNgModuleScopes()` сами, вы передаёте модули, которые импортируете ради их
+declarations, и пустой список — настоящая проблема. Автоматическая проверка видит все импорты подряд.
+Многие из них — модули только с провайдерами, и пустые они законно. Без фильтра проверка уронила бы
+все файлы тестов на первом же прогоне.
+
+Вырезанный список и изначально пустой в рантайме выглядят одинаково. Поэтому автоматическая проверка
+срабатывает, только когда модуль не приносит совсем ничего.
+
+Пустота проверяется разворачиванием вложенных массивов, а не через `length === 0`. У `@NgModule({})`
+скомпилированный `ɵinj.imports` равен `[[], []]`: два пустых списка, которые проверка длины сочла бы
+двумя записями.
+
+### Как `deadSchemas` читает конфигурацию {#how-deadschemas-reads-the-configuration}
+
+Тест может вызвать `configureTestingModule()` несколько раз, например в `beforeEach` и ещё раз в
+самом тесте. Angular складывает вызовы, и проверка судит по общей конфигурации, а не по одному вызову. Поэтому
+схема из одного вызова рядом с declarations из другого считается рабочей. Общая конфигурация сбрасывается перед
+каждым тестом и при каждом `resetTestingModule()`.
+
+### Как это работает без второй пир-зависимости {#how-it-works-without-a-second-peer-dependency}
+
+Этот пакет никогда не импортирует `@angular/common/http/testing`, и в пир-зависимостях его нет. Токен
+`HttpTestingController` берётся из вашей же конфигурации:
+
+- `provideHttpClientTesting()` возвращает обёртку `EnvironmentProviders`. В её списке `ɵproviders`
+  есть провайдер для `HttpTestingController`.
+- `HttpClientTestingModule` хранит тот же список в `ɵinj.providers`.
+
+Проверка разворачивает `providers`, включая вложенные массивы и `ɵproviders` любой обёртки
+`EnvironmentProviders`. Она ищет провайдер, у которого `provide` — функция с именем
+`HttpTestingController`. Если в `providers` такого нет, она обходит `imports` и так же читает
+`ɵinj.providers` каждой записи. Экземпляр она получает через `TestBed.inject(token, null)` и только
+пока тестовый модуль существует. Запрос к сброшенному `TestBed` построил бы новый модуль, и следующий
+`configureTestingModule()` отказался бы работать.
+
+Обход `imports` идёт на всю глубину, поэтому общий тестовый модуль с `HttpClientTestingModule` внутри
+тоже работает:
+
+```ts
+TestBed.configureTestingModule({ imports: [SharedTestingModule] }); // HttpClientTestingModule внутри
+```
+
+Каждый модуль обходится один раз и кешируется. Вложенные массивы и результат в стиле `forRoot()`
+(`{ ngModule, providers }`) понимаются. Цикл в импортах не обходится дважды. Обход останавливается на
+первом найденном токене.
+
+### Ловушка порядка хуков и как она обработана {#the-hook-ordering-hazard-and-how-it-is-handled}
+
+Ваш `afterEach(() => getTestBed().resetTestingModule())` или хук очистки Angular может уничтожить
+тестовый модуль раньше, чем диагностика на него посмотрит. Это верно для обоих порядков хуков:
+`sequence: { hooks: 'stack' }` и `'list'`.
+
+Поэтому диагностика оборачивает `resetTestingModule()` у экземпляра `TestBed`. Перед каждым сбросом
+обёртка сохраняет открытые запросы, пока модуль ещё существует. Обёрнут именно экземпляр: статический
+`TestBed.resetTestingModule()` вызывает его, а `getTestBed().resetTestingModule()` и хук очистки
+Angular зовут его напрямую. Затем `afterEach` сообщает о сохранённых запросах **и** о тех, что открыты
+сейчас. Тест, который сбросил модуль дважды, построил два модуля, и сообщается про оба.
+
+Та же обёртка забывает спаи, которые `shadowedProviders` запомнила для модуля, и общую конфигурацию для `deadSchemas`.
+
+Чтение забирает запросы: `match(() => true)` и перечисляет, и удаляет их, а сохранённый список
+очищается при чтении. Поэтому два хука никогда не сообщат об одном запросе дважды.
+
+Сохранить запросы обёртка пытается, но сброс выполняется в любом случае. Если сохранение бросает ошибку, например потому что
+Angular уже уничтожил инжектор, ошибка глотается, а `resetTestingModule()` всё равно выполняется.
+
+Если у `TestBed` вообще нет `resetTestingModule()`, обёртка не ставится, и проверка читает живой
+инжектор. Обёртка ставится один раз на экземпляр `TestBed` и ничего не делает, пока диагностика
+выключена.
+
+### Как сравнивает `shadowedProviders` {#how-shadowedproviders-compares}
+
+Она читает собственный инжектор компонента с `{ self: true }`. Поэтому она не ищет выше сервис,
+которого компонент не объявляет. Она не может создать настоящий корневой сервис, о котором тест не
+просил, и не может упасть на его недостающих зависимостях (`NG0201`). Спаи, с которыми она сравнивает,
+забываются перед каждым тестом и при каждом сбросе.
 
 ## Смотрите также {#related}
 
-- [Адаптер Angular](/ru/adapters/angular) — `provideAutoSpy`, `injectSpy`, `renderShallow` и
-  диагностика таймингов TestBed, которая делит с этой группой один хук.
-- [Переопределение провайдеров компонента](/ru/adapters/angular-overrides) —
-  `overrideComponentProvider` и его собственная проверка, которая **всегда включена**, а не является
-  членом этой группы.
+- [Адаптер Angular](/ru/adapters/angular): `provideAutoSpy`, `injectSpy`, `renderShallow` и замер
+  времени `TestBed`, который делит с этой группой один хук.
+- [Переопределение провайдеров компонента](/ru/adapters/angular-overrides): `overrideComponentProvider`
+  и его собственная проверка, которая **всегда включена** и в эту группу не входит.
+- [Angular HTTP](/ru/adapters/angular-http): `provideHttpTesting()` и `expectRequest()`.
+
+`disableAngularDiagnostics()` не убирает замер времени `TestBed`, которым пользуется и
+`enableTestBedDiagnostics()` из [адаптера Angular](/ru/adapters/angular). Для этого вызовите
+`disableTestBedDiagnostics()`.

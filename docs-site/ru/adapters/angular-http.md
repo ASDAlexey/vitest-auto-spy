@@ -1,96 +1,169 @@
 ---
 title: Angular HTTP
-description: provideHttpTesting и expectRequest — httpResource() и HttpClient отвечают в две строки, вместе с досчётом, который зонлесс-спеке иначе пришлось бы открывать заново.
+description: Ответить на запросы httpResource() и HttpClient в Angular-тесте одной строкой - provideHttpTesting, expectRequest и проверка запросов, на которые никто не ответил.
 ---
 
 # Angular HTTP
 
+`vitest-auto-spy/angular-http` отвечает на HTTP-запросы, которые ваш код делает в тесте с `TestBed`.
+Она нужна, когда компонент или сервис загружает данные через `httpResource()` или `HttpClient`. Один
+`await` отвечает на запрос, и следующая строка уже видит новое значение.
+
 ```ts
+import { httpResource } from '@angular/common/http';
+import { TestBed } from '@angular/core/testing';
+import { describe, expect, it } from 'vitest';
 import { expectRequest, provideHttpTesting } from 'vitest-auto-spy/angular-http';
 
-TestBed.configureTestingModule({ providers: [...provideHttpTesting()] });
+interface User {
+  id: number;
+  name: string;
+}
 
-const products = TestBed.runInInjectionContext(() => httpResource<Product[]>(() => '/api/products'));
+describe('user resource', () => {
+  it('loads the user', async () => {
+    TestBed.configureTestingModule({ providers: [...provideHttpTesting()] });
+    const user = TestBed.runInInjectionContext(() => httpResource<User>(() => '/api/user'));
 
-await expectRequest('/api/products').flush([product]);
+    await expectRequest('/api/user').flush({ id: 1, name: 'Ada' });
 
-expect(products.value()).toEqual([product]); // без tick, без микротаски, без detectChanges
-```
-
-`httpResource()` — флагманский примитив данных в Angular, и ни у кого в экосистеме тестирования нет
-на него ответа: ни хелпера в `ng-mocks`, ни хелпера в `Spectator`, ни хелпера в
-`@testing-library/angular`. Вместо этого спека танцует шесть шагов, порядок которых не угадывается,
-и каждый пропущенный шаг падает так, что этот шаг не называет.
-
-| Шаг                    | Что происходит без него                                                                    |
-| ---------------------- | ------------------------------------------------------------------------------------------ |
-| tick                   | `httpResource()` ещё ничего не отправил, поэтому `expectOne` сообщает, что запросов нет    |
-| получить контроллер    | `TestBed.inject(HttpTestingController)` — ещё одна строка церемонии в каждой спеке         |
-| `expectOne(url)`       | падение, которое называет токен, а не URL, который на самом деле запросили                 |
-| `flush(body)`          | ресурс навсегда остаётся в `loading`, а фикстура никогда не стабилизируется                |
-| дать пройти микротаске | проверка читает **дефолтное** значение ресурса — зелёный тест, который ничего не проверяет |
-| tick ещё раз           | вью, которое рендерит ресурс, отстаёт от значения на кадр                                  |
-
-`expectRequest(url).flush(body)` — это все шесть.
-
-## `provideHttpTesting()` {#providehttptesting}
-
-```ts
-TestBed.configureTestingModule({
-  providers: [...provideHttpTesting(), provideAutoSpy(Analytics)],
+    expect(user.value()).toEqual({ id: 1, name: 'Ada' }); // без tick и без detectChanges
+  });
 });
 ```
 
-Это `provideHttpClient(...features)` + `provideHttpClientTesting()` одним спредом, в том порядке,
-которого требует Angular, плюс — если `verifyOnTeardown` не `false` — environment initializer,
-который взводит проверку в конце теста. Модуль, собранный без него, на teardown не проверяется.
+С компонентом так же: создайте его, ответьте на запрос, проверьте DOM.
+
+```ts
+import { httpResource } from '@angular/common/http';
+import { Component } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { expect, it } from 'vitest';
+import { expectRequest, provideHttpTesting } from 'vitest-auto-spy/angular-http';
+
+interface User {
+  id: number;
+  name: string;
+}
+
+@Component({
+  selector: 'app-profile',
+  template: `@if (user.hasValue()) {
+    <h1>{{ user.value().name }}</h1>
+  }`,
+})
+class ProfileComponent {
+  readonly user = httpResource<User>(() => '/api/user');
+}
+
+it('shows the user name', async () => {
+  TestBed.configureTestingModule({ imports: [ProfileComponent], providers: [...provideHttpTesting()] });
+  const fixture = TestBed.createComponent(ProfileComponent);
+
+  await expectRequest('/api/user').flush({ id: 1, name: 'Ada' });
+
+  expect(fixture.nativeElement.textContent).toContain('Ada'); // шаблон уже обновлён
+});
+```
+
+Если тест закончился, а на запрос так никто и не ответил, тест падает и называет этот запрос.
+Подробнее — в разделе [`verifyOnTeardown`](#verifyonteardown).
+
+## Что импортировать {#what-to-import}
+
+| Импорт                         | Что даёт                                                                                                              |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `vitest-auto-spy/angular-http` | `provideHttpTesting`, `expectRequest`, `expectNoRequest`, `verifyNoPendingRequests`, `injectHttpTesting`              |
+| `vitest-auto-spy/angular`      | спаи и хелперы для `TestBed` вроде `provideAutoSpy` и `settleResource`; импортируйте, только если спека их использует |
+
+Для этой точки входа нужен установленный `@angular/common`. Это **необязательная** peer-зависимость
+пакета: она нужна только проектам, которые импортируют `vitest-auto-spy/angular-http`. Почему она
+необязательная — в разделе [Необязательные peer-зависимости](/ru/core/compatibility#optional-peers).
+
+## `provideHttpTesting()` {#providehttptesting}
+
+Настраивает HTTP-тестирование одним спредом. Добавьте его в `providers` каждого теста, который делает
+запросы.
+
+```ts
+import { TestBed } from '@angular/core/testing';
+import { provideAutoSpy } from 'vitest-auto-spy/angular';
+import { provideHttpTesting } from 'vitest-auto-spy/angular-http';
+
+TestBed.configureTestingModule({
+  providers: [...provideHttpTesting(), provideAutoSpy(AnalyticsService)],
+});
+```
+
+Он добавляет три вещи в том порядке, которого требует Angular:
+
+1. `provideHttpClient(...)` с вашими `interceptors` и `features`;
+2. `provideHttpClientTesting()`, чтобы ни один запрос не ушёл в сеть;
+3. проверку: если к концу теста остался запрос без ответа, тест падает (пока `verifyOnTeardown` не `false`).
+
+| Опция              | Тип                                        | По умолчанию | Смысл                                                    |
+| ------------------ | ------------------------------------------ | ------------ | -------------------------------------------------------- |
+| `interceptors`     | `HttpInterceptorFn[]`                      | нет          | функциональные интерцепторы, идут в `withInterceptors()` |
+| `features`         | `HttpFeature[]`                            | нет          | любые другие фичи `provideHttpClient()`                  |
+| `verifyOnTeardown` | `boolean \| { ignoreCancelled?: boolean }` | `true`       | уронить тест, если к концу остался запрос без ответа     |
+
+**Частая ошибка:** писать `provideHttpClient()` + `provideHttpClientTesting()` руками рядом с ним или
+вместо него. Если в `configureTestingModule` нет `provideHttpTesting()`, в конце теста ничего не проверяется.
 
 ### `interceptors` и `features` {#interceptors-and-features}
 
-Сюита, в которой под тестом находится интерцептор, передаёт его сюда, а не пишет свои
-`provideHttpClient(withInterceptors([...]))` + `provideHttpClientTesting()` — раньше это стоило ей
-проверки на teardown и `afterEach(() => verifyNoPendingRequests())`, написанного руками:
+Передайте интерцептор сюда, если тестируете именно его. Проверка в конце теста при этом остаётся.
 
 ```ts
 import { HttpClient, type HttpInterceptorFn } from '@angular/common/http';
+import { TestBed } from '@angular/core/testing';
+import { expectRequest, provideHttpTesting } from 'vitest-auto-spy/angular-http';
 
 const authInterceptor: HttpInterceptorFn = (request, next) => next(request.clone({ setHeaders: { Authorization: 'Bearer token' } }));
 
-TestBed.configureTestingModule({ providers: [...provideHttpTesting({ interceptors: [authInterceptor] })] });
+it('adds the token', async () => {
+  TestBed.configureTestingModule({ providers: [...provideHttpTesting({ interceptors: [authInterceptor] })] });
 
-TestBed.inject(HttpClient).get('/api/me').subscribe();
+  TestBed.inject(HttpClient).get('/api/me').subscribe();
+  const pending = expectRequest('/api/me');
 
-const pending = expectRequest('/api/me');
-
-expect(pending.request.headers.get('Authorization')).toBe('Bearer token'); // as the interceptor sent it
-await pending.flush({ id: 1 });
+  expect(pending.request.headers.get('Authorization')).toBe('Bearer token');
+  await pending.flush({ id: 1 });
+});
 ```
 
-`expectRequest` видит запрос после всех интерцепторов: заголовок, который один из них добавил, лежит
-в `request.headers`, а URL, который он переписал, и есть тот, что надо матчить. `error(status)` тоже
-проходит обратно через них, так что подписчик получает ту ошибку, в которую интерцептор превратил
-статус.
+`expectRequest` видит запрос уже после всех интерцепторов. Заголовок, который добавил интерцептор,
+лежит в `request.headers`. Если интерцептор переписал URL, сравнивайте с новым URL. Ответ
+`error(status)` тоже проходит обратно через ваши интерцепторы. Если интерцептор превращает ошибку во
+что-то другое, ваш код получит именно это.
 
-`features` принимает любую другую фичу `provideHttpClient()` — `withInterceptorsFromDi()` для
-интерцептора-класса, `withXsrfConfiguration()`, `withJsonpSupport()`:
+`features` принимает любые другие фичи `provideHttpClient()`: `withInterceptorsFromDi()` для
+интерцептора-класса, `withXsrfConfiguration()`, `withJsonpSupport()`.
 
 ```ts
-providers: [
-  ...provideHttpTesting({ interceptors: [authInterceptor], features: [withInterceptorsFromDi()] }),
-  { provide: HTTP_INTERCEPTORS, useClass: LegacyInterceptor, multi: true },
-],
+import { HTTP_INTERCEPTORS, withInterceptorsFromDi } from '@angular/common/http';
+
+TestBed.configureTestingModule({
+  providers: [
+    ...provideHttpTesting({ interceptors: [authInterceptor], features: [withInterceptorsFromDi()] }),
+    { provide: HTTP_INTERCEPTORS, useClass: LegacyInterceptor, multi: true },
+  ],
+});
 ```
 
-| Правило                            | Почему                                                                                                                                |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Один вызов `provideHttpClient()`   | `interceptors` становится `withInterceptors(interceptors)` в том же вызове, что и `features`, и проверки конфликтов Angular видят всё |
-| `interceptors` раньше `features`   | они выполняются в порядке массива, затем интерцепторы из `features` — в своём                                                         |
-| `provideHttpClientTesting()` после | тестовый бэкенд заменяет настоящий, так что `withXhr()` в `features` всё равно не уходит в сеть                                       |
+Как сочетаются две опции:
+
+- Всё попадает в **один** вызов `provideHttpClient()`. Angular сообщает о конфликтующей настройке
+  HTTP, только когда видит её целиком в одном вызове.
+- Сначала выполняются `interceptors` в порядке массива. Потом интерцепторы из `features`, в своём
+  порядке.
+- `provideHttpClientTesting()` идёт последним. Он заменяет настоящий бэкенд, поэтому даже `withXhr()`
+  в `features` не уходит в сеть.
 
 ### `verifyOnTeardown` {#verifyonteardown}
 
-По умолчанию `true`. Тест, который закончился с запросом, на который никто не ответил, роняет
-**именно себя**, называя запрос:
+Включена по умолчанию. Если тест закончился, а на запрос никто не ответил, тест падает, и сообщение
+называет запрос:
 
 ```text
 [vitest-auto-spy] GET /api/products was never answered (end of "products > shows the list").
@@ -99,24 +172,38 @@ Answer it in the spec: await expectRequest('/api/products').flush(body).
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-http#verifyonteardown
 ```
 
-Если оставить всё как есть, ломаются две вещи. Код под тестом всё ещё ждёт ответа, которого не
-получал, поэтому каждая проверка после этого вызова говорит о состоянии, до которого тест так и не
-дошёл, — а запрос протекает, и `expectRequest` _следующего_ теста находит запрос, сделанный
-предыдущим.
+Такой тест даёт неверный результат по двум причинам. Код всё ещё ждёт ответа, поэтому ваши `expect` после этого вызова смотрят на
+состояние, до которого код не дошёл. А открытый запрос утекает: `expectRequest` следующего теста может
+найти именно его.
 
-Выключайте для сюиты, которая проверяет запросы другим способом:
+Выключайте проверку, только если ваши тесты проверяют запросы по-другому:
 
 ```ts
 TestBed.configureTestingModule({ providers: [...provideHttpTesting({ verifyOnTeardown: false })] });
 ```
 
+**Частая ошибка:** настраивать модуль в `beforeAll`. Такой модуль не принадлежит ни одному тесту,
+поэтому проверки нет. Настраивайте его в `beforeEach` или в самом тесте, либо вызывайте
+[`verifyNoPendingRequests()`](#verifynopendingrequests-options) сами.
+
+**Другие раннеры.** Автоматической проверке нужно, чтобы Vitest сообщал, какой тест сейчас идёт. Под
+`bun:test`, `node:test` и другими раннерами она не включается и сообщает об этом один раз на воркер:
+
+```text
+[vitest-auto-spy] provideHttpTesting(): globalThis.__vitest_worker__ is not there, so the runner
+does not say which test is running and the end-of-test check cannot arm. Call
+`verifyNoPendingRequests()` yourself, or report the runner and version — under bun:test and
+node:test this entry has no hook to use.
+```
+
+Всё остальное на этой странице на таких раннерах работает. Вызовите `verifyNoPendingRequests()` в
+конце теста — это та же проверка, только вручную.
+
 ### `ignoreCancelled` {#ignorecancelled}
 
-Объект оставляет проверку включённой и передаёт ей одну опцию. **Отменённый** запрос — тот, который
-код под тестом забрал обратно, отписавшись: `httpResource()`, у которого сигнал изменился раньше,
-чем пришёл первый ответ, или `switchMap`, уронивший свою внутреннюю подписку. Собственный
-`HttpTestingController.verify()` у Angular принимает `{ ignoreCancelled }` начиная с Angular 5
-ровно для этой формы, а здесь та же опция доходит до проверки при завершении теста:
+Оставляет проверку включённой, но не роняет тест из-за **отменённых** запросов. Запрос отменён, если
+ваш код отписался до того, как пришёл ответ. Два частых случая: у `httpResource()` поменялся входной
+сигнал раньше первого ответа, или `switchMap` отменил свой внутренний запрос.
 
 ```ts
 TestBed.configureTestingModule({
@@ -124,97 +211,47 @@ TestBed.configureTestingModule({
 });
 ```
 
-Браться за неё стоит потому, что альтернатива — всё или ничего. Сюита, в которой один
-`httpResource()` остался без отписки и простить его нечем, выключает проверку **целиком** — и тогда
-каждый остальной тест файла тоже перестаёт проверяться, а ведь ради этой гарантии опция и
-существует. `false` и `{ ignoreCancelled: false }` значат то же, что раньше значило `true`: не
-прощается ничего.
+Запросы, которые всё ещё ждут ответа, по-прежнему роняют тест. `{ ignoreCancelled: false }` — то же, что
+значение по умолчанию: отменённые запросы тоже роняют тест. Смысл опции тот же, что у
+`HttpTestingController.verify({ ignoreCancelled })` в самом Angular.
 
-::: tip Проверку взводит модуль, а не импорт
-Каждый модуль, собранный из этих провайдеров, взводит проверку для того теста, который его собрал, —
-через environment initializer. Поэтому она достаёт до каждого файла спек воркера под
-`isolate: false`, до списка провайдеров, вынесенного в константу, и до спреда, сделанного дважды
-(который взводит её один раз). Раньше это был `afterEach`, регистрировавшийся при импорте точки
-входа, а под `isolate: false` точка входа импортируется один раз на воркер: проверялся только первый
-файл спек, который её импортировал.
-
-Проверка выполняется в `onTestFinished`, после всех `afterEach` — то есть после teardown Angular и
-после собственного `getTestBed().resetTestingModule()` сюиты, что бы ни говорил `sequence.hooks`.
-Она всё равно видит то, что оставалось открытым, потому что сброс инстанса `TestBed` внутри этого
-теста сначала забирает открытые запросы, и она никогда не просит контроллер у сброшенного
-`TestBed`: это собрало бы свежий модуль, и `configureTestingModule` следующего теста отказался бы
-работать.
-
-Модулю, собранному в `beforeAll`, ронять нечего, поэтому он не взводит ничего — забирайте его
-запросы через `verifyNoPendingRequests()`, если они важны.
-:::
-
-Единственное, что нужно инициализатору сверх ангуляровского, — собственный отчёт раннера о том,
-какой тест сейчас выполняется. Там, где его нет — любой раннер, кроме Vitest, включая `bun:test` и
-`node:test`, — он говорит об этом один раз на воркер, вместо того чтобы молча ничего не взвести:
-
-```
-[vitest-auto-spy] provideHttpTesting(): globalThis.__vitest_worker__ is not there, so the runner
-does not say which test is running and the end-of-test check cannot arm. Call
-`verifyNoPendingRequests()` yourself, or report the runner and version — under bun:test and
-node:test this entry has no hook to use.
-```
-
-Всё остальное на этой странице там работает; хук нужен только автоматической проверке при
-завершении, а `verifyNoPendingRequests()` — та же проверка, написанная руками.
+**Частая ошибка:** выключить всю проверку из-за одного теста с отменённым запросом. Тогда перестают
+проверяться и все остальные тесты файла. Используйте `ignoreCancelled`.
 
 ## `expectRequest(matcher, options?)` {#expectrequest-matcher-options}
 
+Находит единственный подходящий запрос, даёт на него посмотреть и отвечает на него. Перед поиском
+запроса запускает change detection, поэтому `httpResource()` к этому моменту уже отправил запрос.
+Вызывать `fixture.detectChanges()` самому не нужно ни до, ни после.
+
 ```ts
 await expectRequest('/api/products').flush([product]); // по URL
-await expectRequest('/api/products', { method: 'POST' }).flush({}); // по URL и глаголу
+await expectRequest('/api/products', { method: 'POST' }).flush({}); // по URL и методу
 await expectRequest(/\/api\/products\?page=\d+/).flush([]); // по шаблону
 await expectRequest((request) => request.body?.id === 7).flush({}); // по чему угодно ещё
 ```
 
-Строка сопоставляется либо с `request.url`, либо с `request.urlWithParams`, поэтому спека может
-назвать эндпоинт, не повторяя строку запроса, — или назвать строку запроса, когда именно она
-различает два запроса. `{ method }` регистронезависим.
+Как сравнивается `matcher`:
 
-Он **делает tick перед тем, как смотреть**, — и это тот самый шаг, который вообще делает
-`httpResource()` тестируемым.
+- **Строка** совпадает с `request.url` или с `request.urlWithParams`. Обычно эндпоинт называют без
+  query-строки. Добавляйте query-строку, только если два запроса отличаются только ею.
+- **RegExp** проверяется на `request.urlWithParams`.
+- **Функция** получает `HttpRequest` и возвращает `true`, если запрос подходит.
 
-Возвращается намеренно немногое:
+| Опция    | Тип       | По умолчанию | Смысл                                                                   |
+| -------- | --------- | ------------ | ----------------------------------------------------------------------- |
+| `method` | `string`  | любой        | HTTP-метод; регистр не важен                                            |
+| `tick`   | `boolean` | `true`       | `false` пропускает change detection до поиска и после ответа (см. ниже) |
 
-| Член                      | Что делает                                                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------------- |
-| `request`                 | `HttpRequest` в том виде, в каком его отправил код под тестом — URL, метод, заголовки, тело |
-| `flush(body, options?)`   | ответить и досчитать; `options` — это `{ headers, status, statusText }`                     |
-| `error(status, options?)` | уронить со статусом и досчитать так же; `options` — это `{ headers, statusText, error }`    |
+`expectRequest` возвращает объект с тремя членами:
 
-`flush()` и `error()` — `async`, потому что досчёт требует дать пройти микротаске, а синхронный
-вызов этого не умеет. Пишите `await`, и следующая строка читает уже досчитанное значение.
+| Член                      | Что делает                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `request`                 | `HttpRequest` в том виде, в каком его отправил ваш код: URL, метод, заголовки, тело                     |
+| `flush(body, options?)`   | отвечает `body` и обновляет приложение; `options` — `{ headers, status, statusText }`                   |
+| `error(status, options?)` | роняет запрос со статусом `status` и обновляет приложение; `options` — `{ headers, statusText, error }` |
 
-`error(0)` — сетевой сбой: до клиента не дошёл никакой ответ, как при упавшем сервере или
-заблокированном запросе. `{ error }` — то, что окажется в `HttpErrorResponse.error`; по умолчанию
-`new ProgressEvent('error')`, если спека не передала своё:
-
-```ts
-const offline = new ProgressEvent('error');
-let failure: HttpErrorResponse | undefined;
-
-http.get('/api/products').subscribe({ error: (error: HttpErrorResponse) => (failure = error) });
-await expectRequest('/api/products').error(0, { error: offline });
-
-expect(failure?.error).toBe(offline);
-```
-
-`{ error }` — это `ProgressEvent`, как его принимает `TestRequest.error()` из Angular. JSON-тело ошибки,
-которое присылает сервер, — это ответ: `flush({ code: 'taken' }, { status: 409 })` завершает вызов
-ошибкой с этим телом в `HttpErrorResponse.error`.
-
-`{ tick: false }` пропускает tick перед поиском и после ответа. Это для модуля со своим частичным
-`DOCUMENT`: во время tick Angular читает члены настоящего документа, и tick падает с
-`inject(...).body?.querySelector is not a function` — `expectRequest` сообщает об этом как о
-подменённом `DOCUMENT`. Без tick `httpResource()` ничего не отправляет, так что опция подходит для
-вызова `HttpClient`, чей запрос уже ушёл; `expectNoRequest` принимает ту же опцию.
-`provideDocumentDouble()` не нужно ни то, ни другое: его двойник сохраняет все члены настоящего
-документа, tick проходит, а ошибка самого приложения под ним пробрасывается как есть.
+Проверьте, что отправил код, прежде чем отвечать:
 
 ```ts
 const created = expectRequest('/api/products', { method: 'POST' });
@@ -224,110 +261,228 @@ expect(created.request.body).toEqual({ title: 'Chair' });
 await created.flush({ id: 9 });
 ```
 
+**Всегда пишите `await` перед `flush()` и `error()`.** После `await` следующая строка видит уже новое
+значение и обновлённую разметку.
+
+### Ответ с ошибкой {#error-responses}
+
+Выберите вызов по тому, что делает сервер:
+
+| Сервер…                                           | Вызов                                       | Ваш код получает `HttpErrorResponse`, где…   |
+| ------------------------------------------------- | ------------------------------------------- | -------------------------------------------- |
+| отвечает 500 или другим кодом ошибки, без тела    | `error(500)`                                | `status: 500`                                |
+| отвечает кодом ошибки и телом, которое вы читаете | `flush({ code: 'taken' }, { status: 409 })` | `status: 409`, тело лежит в `error`          |
+| не отвечает вовсе: лежит, нет сети, заблокирован  | `error(0)`                                  | `status: 0`, в `error` лежит `ProgressEvent` |
+
+В любом из случаев `httpResource()` переходит в статус `'error'`, а `resource.error()` возвращает
+этот `HttpErrorResponse`. Проверяйте в шаблоне `error()` или `hasValue()` до чтения `value()`: в
+состоянии ошибки `value()` в Angular бросает исключение.
+
+```ts
+import { httpResource } from '@angular/common/http';
+import { Component } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { expect, it } from 'vitest';
+import { expectRequest, provideHttpTesting } from 'vitest-auto-spy/angular-http';
+
+@Component({
+  selector: 'app-profile',
+  template: `@if (user.error()) {
+    <p>Could not load the user</p>
+  }`,
+})
+class ProfileComponent {
+  readonly user = httpResource<{ name: string }>(() => '/api/user');
+}
+
+it('shows an error when the server fails', async () => {
+  TestBed.configureTestingModule({ imports: [ProfileComponent], providers: [...provideHttpTesting()] });
+  const fixture = TestBed.createComponent(ProfileComponent);
+
+  await expectRequest('/api/user').error(500);
+
+  expect(fixture.componentInstance.user.status()).toBe('error');
+  expect(fixture.nativeElement.textContent).toContain('Could not load the user');
+});
+```
+
+`options` у `error()` — это `{ headers, statusText, error }`. Опция `error` задаёт содержимое поля
+`HttpErrorResponse.error`. По умолчанию там `new ProgressEvent('error')`, как в `TestRequest.error()`
+из Angular.
+
+**Частая ошибка:** передавать JSON-тело ошибки в `error()`. Эта опция — не тело ответа. Используйте
+`flush(body, { status })`, и ваш код найдёт тело в `HttpErrorResponse.error`.
+
+### Сетевой сбой: `error(0)` {#network-failures-error-0}
+
+`error(0)` значит, что до клиента не дошёл никакой ответ: сервер лежит или запрос заблокирован.
+Передайте свой `ProgressEvent` в `error`, если тест его проверяет:
+
+```ts
+import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
+
+const http = TestBed.inject(HttpClient);
+const offline = new ProgressEvent('error');
+let failure: HttpErrorResponse | undefined;
+
+http.get('/api/products').subscribe({ error: (error: HttpErrorResponse) => (failure = error) });
+await expectRequest('/api/products').error(0, { error: offline });
+
+expect(failure?.error).toBe(offline);
+```
+
+### `{ tick: false }` {#tick-false}
+
+Нужна, только если тестовый модуль подменяет `DOCUMENT` самодельным объектом, в котором нет части
+свойств настоящего документа. Angular читает эти свойства во время change detection, и tick падает с
+`inject(...).body?.querySelector is not a function`. Тогда `expectRequest` бросает ошибку: в ней сказано,
+что этот `TestBed` подставил свой `DOCUMENT`, и предложено `{ tick: false }`.
+
+```ts
+it('sends the token request', () => {
+  TestBed.inject(TokenService).refresh(); // вызов HttpClient, запрос уже ушёл
+
+  expectRequest('/api/token', { tick: false }).flush('t'); // синхронно, без await
+});
+```
+
+- Без tick `httpResource()` ничего не отправляет, поэтому опция подходит для вызовов `HttpClient`, чей
+  запрос уже ушёл.
+- `flush()` и `error()` отвечают синхронно и возвращают `void`. Оставленный `await` работает, но
+  `@typescript-eslint/await-thenable` на него жалуется.
+- `expectNoRequest` принимает ту же опцию.
+- Если документ подменён через `provideDocumentDouble()` из `vitest-auto-spy/angular`, `{ tick: false }`
+  не нужен. Такая подмена сохраняет все члены настоящего документа, и change detection проходит.
+  Если под такой подменой ваше приложение бросит ошибку, `expectRequest` пробросит её как есть.
+
 ## `expectNoRequest(matcher?, options?)` {#expectnorequest-matcher-options}
+
+Проверяет, что подходящий запрос не отправлялся. Без аргумента проверяет, что не отправлялось вообще
+ничего.
 
 ```ts
 component.filter.set('open');
-expectNoRequest('/api/products'); // ответил кэш; наружу ничего не ушло
+expectNoRequest('/api/products'); // ответил кэш, наружу ничего не ушло
 ```
 
-Сначала делает tick, как и `expectRequest`: запрос, который просто ещё _не успел_ уйти, — это
-другое утверждение, и иначе проверка прошла бы по неверной причине. Без аргумента означает
-«не запрашивалось вообще ничего».
+Сначала запускает change detection, как и `expectRequest`. Иначе проверка могла бы пройти только
+потому, что запрос **ещё** не ушёл. Принимает те же `matcher` и опции, что и `expectRequest`.
 
 ## `verifyNoPendingRequests(options?)` {#verifynopendingrequests-options}
 
-Проверка из teardown, вызываемая руками. Полезна в середине теста — после подготовки, до проверок,
-которые от неё зависят, — и в тех двух спеках сюиты, где `verifyOnTeardown` выключили:
+Проверка конца теста, вызванная вручную. Падает, если остался запрос без ответа, и в любом случае
+убирает открытые запросы.
 
 ```ts
 await expectRequest('/api/products').flush([]);
-verifyNoPendingRequests(); // больше наружу ничего не ушло
-verifyNoPendingRequests({ ignoreCancelled: true }); // …кроме того, от чего код под тестом отписался
+verifyNoPendingRequests(); // больше ничего не ушло
+verifyNoPendingRequests({ ignoreCancelled: true }); // кроме запросов, от которых код отписался
 ```
 
-`{ ignoreCancelled: true }` — та же опция, которую принимает
-[`verifyOnTeardown`](#ignorecancelled), и та самая, которую `HttpTestingController.verify()`
-называет начиная с Angular 5.
+Когда нужна:
 
-Ничего не делает, если тест вообще не настраивал HTTP-тестирование.
+- в середине теста, чтобы убедиться, что до следующего шага больше ничего не ушло;
+- в тех немногих тестах, где она нужна, если `verifyOnTeardown` выключен;
+- на раннерах без автоматической проверки (см. [Другие раннеры](#verifyonteardown)).
+
+| Опция             | Тип       | По умолчанию | Смысл                                                   |
+| ----------------- | --------- | ------------ | ------------------------------------------------------- |
+| `ignoreCancelled` | `boolean` | `false`      | не ронять тест из-за запросов, от которых код отписался |
+
+Ничего не делает, если тест не настраивал HTTP-тестирование. Если `TestBed` уже сбросили во время
+теста, всё равно сообщает о запросах, которые были открыты в момент сброса.
 
 ## `injectHttpTesting()` {#injecthttptesting}
 
-`HttpTestingController`, который поставил `provideHttpTesting()`, — для сервиса, возвращающего
-Observable: запрос уже ушёл, когда метод сервиса вернул управление, дожидаться нечего, и `expectOne` /
-`match` / `expectNone` отвечают синхронно.
+Возвращает `HttpTestingController`, который поставил `provideHttpTesting()`. Он удобен, если вы
+привыкли к `expectOne`, `match` и `expectNone` из Angular и тестируете сервис, который возвращает
+Observable: запрос уходит сразу при подписке, и эти методы отвечают синхронно.
 
 ```ts
+import { injectHttpTesting } from 'vitest-auto-spy/angular-http';
+
+const received: Item[][] = [];
+
 service.load().subscribe((items) => received.push(items));
 injectHttpTesting().expectOne('/api/items').flush([]);
+
+expect(received).toEqual([[]]);
 ```
 
-Проверка из teardown остаётся включённой. Без `provideHttpTesting()` бросает то же сообщение
-`this TestBed has no HttpTestingController`, что и `expectRequest`, а не ошибку о провайдере токена,
-который спека не называла.
+Проверка в конце теста остаётся включённой. Без `provideHttpTesting()` в `providers` бросает то же
+сообщение `this TestBed has no HttpTestingController`, что и `expectRequest`.
 
 ## Что говорит каждое падение {#what-each-failure-says}
 
-| Сообщение содержит                          | Причина                                                                                                   |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `no request matched … Made instead: …`      | URL, глагол или предикат не описывают ничего из отправленного                                             |
-| `no POST … — but GET … was made`            | отличается только глагол; передайте `{ method }`, который шлёт код                                        |
-| `… was made; the query differs`             | тот же путь и глагол, другой query; назовите его или сравните только путь                                 |
-| `nothing was requested at all`              | ресурс не стартовал, или никто не подписался на Observable                                                |
-| `N requests matched …`                      | совпало больше одного; сузьте через `{ method }`, полный URL или предикат                                 |
-| `this TestBed has no HttpTestingController` | в `providers` нет `provideHttpTesting()`                                                                  |
-| `… was never answered (end of "…")`         | `verifyOnTeardown` нашёл то, что спека забыла; сообщение называет тест и `expectRequest`, который ответит |
+| Сообщение содержит                          | Причина и что делать                                                                                  |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `no request matched … Made instead: …`      | URL, метод или предикат не подходят ни к одному отправленному запросу; сравните со списком            |
+| `no POST … — but GET … was made`            | отличается только метод; передайте тот `{ method }`, который шлёт код                                 |
+| `… was made; the query differs`             | тот же путь и метод, другая query-строка; назовите её или сравнивайте только путь                     |
+| `nothing was requested at all`              | ресурс не запустился, или на Observable никто не подписался                                           |
+| `N requests matched …`                      | подошло больше одного; сузьте через `{ method }`, полный URL или предикат                             |
+| `this TestBed has no HttpTestingController` | в `providers` нет `provideHttpTesting()`                                                              |
+| `… was never answered (end of "…")`         | `verifyOnTeardown` нашёл запрос без ответа; сообщение называет тест и строку, которая на него ответит |
 
-Список запросов, которые _были_ сделаны, — ровно та причина, по которой первое сообщение стоит
-больше, чем сообщение `expectOne`. «Expected one matching request, found none» отправляет читателя
-перечитывать собственную спеку; «единственный сделанный запрос — `GET /api/product`, а вы просили
-`/api/products`» заканчивает поиск на месте.
+Первое сообщение перечисляет все отправленные запросы. Если вы ждали `/api/products`, а ушёл только
+`GET /api/product`, опечатка видна сразу.
 
-## Собственная точка входа и необязательный второй пир {#its-own-entry-and-an-optional-second-peer}
+## Связанные хелперы {#related-helpers}
 
-`vitest-auto-spy/angular-http` — единственная часть пакета, которая импортирует `@angular/common`.
+- **[`settleResource`](/ru/adapters/angular#resources-httpresource-and-resource)** из
+  `vitest-auto-spy/angular` ждёт, пока ресурс загрузится, кто бы ни запустил загрузку. Он нужен, когда
+  ожидание не привязано к одному запросу: `resource()` с асинхронным загрузчиком, `rxResource`, перезагрузка.
+  `expectRequest().flush()` ждёт только обновления после того запроса, на который ответил.
+- **[`enableAngularDiagnostics({ pendingRequests })`](/ru/adapters/angular-diagnostics#pendingrequests)**
+  сообщает о запросах без ответа из setup-файла, в том числе в тестах, где HTTP настроен вручную. Если
+  все тесты используют `provideHttpTesting()`, он не нужен. Если какие-то файлы ещё настраивают HTTP
+  вручную, оставьте его. О запросе без ответа сообщит одна из двух проверок, а не обе.
 
-`vitest-auto-spy/angular` обязан продолжать загружаться в проекте, где есть `@angular/core` и нет
-`@angular/common`, а статический импорт внутри `dist/angular.js` сломал бы это для всех — включая
-большинство сюит, которые никогда не тестируют HTTP-вызовы. У пакета уже была ровно такая ситуация,
-и решена она была так же: rxjs живёт за `vitest-auto-spy/rxjs`, и ни одна другая точка входа до него
-не дотягивается. Поэтому `@angular/common` — **необязательный** пир, и цену платят только те сюиты,
-которые импортируют эту точку входа, и больше никто.
+## Zoneless и `fakeAsync` {#zoneless-and-fakeasync}
 
-Два следствия, которые стоит проговорить прямо:
+`flush()`, `error()` и поиск запроса обновляют приложение через `TestBed.tick()`. Он синхронно выполняет
+отложенные эффекты и change detection и в zoneless-тестах, и в тестах с зонами. А ещё обновляет
+фикстуры, которые не прикреплены к приложению (`ApplicationRef`).
 
-- Как и [`/angular-router`](/ru/adapters/angular-router) — и с 5.21.0 спутники `/angular/diagnostics`,
-  `/angular/doubles` и `/angular/matchers` — этот подпуть **не** реэкспортирует ядро. Он спутник `vitest-auto-spy/angular`, который остаётся импортом для
-  спаев, хелперов `TestBed` и `settleResource`.
-- Точка входа весит **2.5 kB min+gzip** (2459 B, замерено так же, как для бейджа в README: бандл
-  esbuild, минифицированный, gzip, пиры внешние).
+Под `fakeAsync` из [`vitest-auto-spy/zone`](/ru/utilities/zone) хелперы работают так же. Одно
+исключение: если загрузчик разрешается по **таймеру**, продвиньте таймер через `tick()` или
+`advanceTimers()` из той же точки входа. Прогон микрозадач этого не заменит.
 
-## Как это соотносится с тем, что было раньше {#how-it-relates-to-what-was-already-here}
+## Подробнее {#in-depth}
 
-**[`settleResource`](/ru/adapters/angular#resources-httpresource-and-resource)** остаётся ровно таким, каким был, и по-прежнему
-является ответом всегда, когда ожидание не привязано к одному запросу: `resource()` с асинхронным
-загрузчиком, `rxResource`, перезагрузка, ресурс, которым движет что-то кроме HTTP.
-`expectRequest().flush()` досчитывает за тот запрос, на который только что ответил;
-`settleResource` ждёт ресурс, кто бы его ни запустил.
+### Что заменяет `expectRequest(url).flush(body)` {#what-expectrequest-url-flush-body-replaces}
 
-**[`enableAngularDiagnostics({ pendingRequests })`](/ru/adapters/angular-diagnostics#pendingrequests)**
-продолжает работать без изменений, в том числе в сюитах, которые эту точку входа так и не взяли: он
-читает токен контроллера структурно из вашего же `configureTestingModule`, что и позволило ему
-изначально обойтись без пир-зависимости. Эти двое не конкурируют, а сотрудничают: оба забирают
-открытые запросы через `match(() => true)`, а это одноразовая операция, поэтому один неотвеченный
-запрос будет сообщён один раз — тем, кто посмотрел первым.
+Без этой точки входа тест `httpResource()` требует шести шагов в строгом порядке. Пропущенный шаг
+падает с сообщением, которое этот шаг не называет.
 
-Для сюиты, которая использует `provideHttpTesting()` везде, `pendingRequests` избыточен: проверка
-на уровне сюиты — та же самая проверка, только приезжающая из провайдеров, а не из setup-файла.
-Оставьте диагностику включённой, если хоть какой-то файл всё ещё настраивает HTTP-тестирование
-руками; вреда от обоих нет.
+| Шаг                     | Что будет без него                                                                            |
+| ----------------------- | --------------------------------------------------------------------------------------------- |
+| tick                    | `httpResource()` ещё ничего не отправил, и `expectOne` не находит запрос                      |
+| получить контроллер     | ещё одна строка `TestBed.inject(HttpTestingController)` в каждом тесте                        |
+| `expectOne(url)`        | падение называет токен, а не URL, который на самом деле запросили                             |
+| `flush(body)`           | ресурс навсегда остаётся в `loading`, фикстура не становится стабильной                       |
+| дать пройти микрозадаче | проверка читает значение ресурса **по умолчанию** — зелёный тест, который ничего не проверяет |
+| tick ещё раз            | шаблон, который показывает ресурс, отстаёт от значения на кадр                                |
 
-## Зонлесс и зоны {#zoneless-and-zones}
+`expectRequest(url).flush(body)` делает все шесть.
 
-Tick, который делает эта точка входа, — это `TestBed.tick()` (под капотом `flushEffects()`), и он
-корректен в обоих мирах: выполняет отложенные эффекты и change detection синхронно и обновляет вью
-фикстур, которые никогда не были прикреплены к `ApplicationRef`. Под `fakeAsync` из
-[`vitest-auto-spy/zone`](/ru/utilities/zone) тот же вызов по-прежнему работает; меняется то, что
-загрузчик, разрешающийся по _таймеру_, требует `tick()`/`advanceTimers()` из слоя зон, а этого не
-заменит никакой объём выкачивания микротасок.
+### Когда запускается проверка конца теста {#when-the-end-of-test-check-runs}
+
+Каждый тестовый модуль, собранный с `provideHttpTesting()`, включает проверку для того теста, который
+его собрал. Поэтому она работает и когда:
+
+- Vitest гоняет несколько файлов спек в одном воркере (`isolate: false`);
+- список провайдеров вынесен в общую константу;
+- провайдеры добавлены спредом дважды (проверка всё равно одна).
+
+Проверка идёт в `onTestFinished`, после всех `afterEach`. То есть после teardown самого Angular и
+после вашего `getTestBed().resetTestingModule()`, что бы ни стояло в `sequence.hooks`. Сброс во время
+теста сначала сохраняет открытые запросы, так что проверка их всё равно видит. Контроллер у
+сброшенного `TestBed` она не запрашивает: это собрало бы новый модуль, и `configureTestingModule`
+следующего теста упал бы.
+
+### Как она уживается с `pendingRequests` {#how-it-works-with-pendingrequests}
+
+`provideHttpTesting()` и `enableAngularDiagnostics({ pendingRequests })` обе забирают открытые запросы
+через `match(() => true)`. Этот вызов убирает то, что вернул, поэтому о каждом запросе без ответа
+сообщают один раз — та проверка, что посмотрела первой.

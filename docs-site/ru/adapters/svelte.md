@@ -1,39 +1,59 @@
 ---
 title: Svelte
-description: Спаи для классовых сервисов и сторов Svelte и передача спая через пропсы, контекст или замоканный модуль.
+description: Спаи для сервисов и сторов Svelte, написанных классами, и передача спая компоненту через пропсы, контекст или замоканный модуль.
 ---
 
 # Svelte
 
-В Svelte нет классового внедрения зависимостей, поэтому `vitest-auto-spy/svelte` не добавляет
-**никакого** собственного хелпера — это рецепт, а не интеграция с фреймворком. Svelte-приложения
-обычно держат логику в обычных классовых сервисах или сторах; `createSpyFromClass` спаит такой класс,
-а вы отдаёте спай компоненту под тестом (через пропсы, контекст или замоканный модуль) ровно так же,
-как компонент получает настоящий.
+`vitest-auto-spy/svelte` превращает сервис или стор, написанный классом, в типизированный спай.
+Спай — объект-заглушка: каждый его метод запоминает вызовы и возвращает то, что вы задали. Спай
+передаётся компоненту так же, как настоящий объект: через пропсы, контекст или модуль, который
+компонент импортирует.
+
+## Через пропсы {#through-props}
 
 ```ts
-import { render } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
+import { expect, it } from 'vitest';
 import { createSpyFromClass } from 'vitest-auto-spy/svelte';
 
 import Cart from './Cart.svelte';
 import { CartStore } from './cart-store';
 
-const cartStore = createSpyFromClass(CartStore);
-cartStore.total.mockReturnValue(42);
+it('renders the total the store reports', () => {
+  const cartStore = createSpyFromClass(CartStore);
 
-render(Cart, { props: { store: cartStore } });
+  cartStore.total.mockReturnValue(42);
+
+  render(Cart, { props: { store: cartStore } });
+
+  expect(screen.getByText('$42')).toBeInTheDocument();
+  expect(cartStore.total).toHaveBeenCalled();
+});
+
+it('checks out when the button is clicked', async () => {
+  const cartStore = createSpyFromClass(CartStore);
+
+  cartStore.checkout.resolveWith({ orderId: 'ord_42' }); // checkout() возвращает Promise
+
+  render(Cart, { props: { store: cartStore } });
+  await fireEvent.click(screen.getByRole('button', { name: 'Check out' }));
+
+  expect(cartStore.checkout).toHaveBeenCalledTimes(1);
+});
 ```
 
-Импорт этой точки входа регистрирует дефолтный mock-адаптер Vitest — только если его ещё никто не
-зарегистрировал, так что подменить адаптер, поставленный рантайм-точкой входа, он не может, — и
-реэкспортирует всё ядро, поэтому Svelte-сюите хватает одного импорта. Ни `svelte`, ни
-`@testing-library/svelte` он не тянет. А вот `vitest` тянет, и поэтому под `bun test` и `node --test`
-эта точка входа не грузится: на этих раннерах импортируйте ядро через их собственную рантайм-точку
-входа.
+Ответы задаются через `mockReturnValue` (обычное значение) или `resolveWith` (успешный промис),
+вызовы проверяются обычными матчерами `toHaveBeenCalled…`. Для `toBeInTheDocument` добавьте
+`import '@testing-library/jest-dom/vitest'` в setup-файл Vitest.
+
+`vitest-auto-spy/svelte` — точка входа, то есть путь импорта для Svelte-спек. Она экспортирует API
+ядра библиотеки: `createSpyFromClass`, `createAutoMock`, тип `Spy<T>`, `asInstance`, `resetAutoSpy` и
+остальное. В Svelte нет внедрения зависимостей на классах, поэтому дополнительных хелперов нет.
 
 ## Через контекст {#through-context}
 
-Когда компонент читает коллаборатора из `getContext`, положите спай под тот же ключ:
+Если компонент берёт стор через `getContext`, передайте спай под тем же ключом:
 
 ```ts
 import { render, screen } from '@testing-library/svelte';
@@ -56,8 +76,7 @@ it('renders the total the store reports', () => {
 
 ## Через замоканный модуль {#through-a-mocked-module}
 
-Когда компонент импортирует синглтон напрямую, подменяйте модуль — спай и есть то, что возвращает
-фабрика:
+Если компонент импортирует готовый экземпляр (синглтон) из модуля, замените этот экспорт спаем:
 
 ```ts
 import { render } from '@testing-library/svelte';
@@ -82,10 +101,22 @@ it('checks out through the module singleton', async () => {
 });
 ```
 
-::: warning `vi.mock` нужна граница модуля
-Фабрика `vi.mock` поднимается выше собственных импортов файла, поэтому она не должна замыкаться ни
-на чём, объявленном на уровне модуля, — именно `vi.hoisted` делает спай ей доступным. А в сборках,
-которые бандлят спеку (например, билдер Angular `@angular/build:unit-test`), у относительного пути
-уже не остаётся границы модуля, которую можно подменить; там отдавайте спай через пропсы или
-контекст.
-:::
+**Частая ошибка:** спай создан в обычной `const` в начале файла. Vitest поднимает `vi.mock` выше
+всего остального кода, и фабрика эту переменную не видит. Оберните создание в `vi.hoisted`, как выше.
+
+## Какой раннер {#which-runner}
+
+Точка входа не импортирует ни `svelte`, ни `@testing-library/svelte`. Зато она импортирует `vitest`,
+поэтому под `bun test` и `node --test` не загрузится. На этих раннерах импортируйте
+`createSpyFromClass` из точки входа своего раннера (`vitest-auto-spy/bun`, `vitest-auto-spy/node`).
+
+Если setup-файл уже импортирует точку входа раннера, например `vitest-auto-spy/bun`, после импорта
+этой точки входа остаются моки того раннера.
+
+## Подробнее {#in-depth}
+
+### Когда `vi.mock` нечего заменять {#when-vi-mock-has-nothing-to-replace}
+
+`vi.mock` подменяет модуль по его пути. Некоторые тестовые сборки собирают спеку вместе с импортами в
+один файл (например, билдер `@angular/build:unit-test`), и относительный путь больше не указывает на отдельный модуль. Тогда `vi.mock` ничего не
+меняет, и компонент работает с настоящим стором. Передавайте спай через пропсы или контекст.

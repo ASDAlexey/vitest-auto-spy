@@ -1,168 +1,183 @@
 ---
 title: Переопределение провайдеров компонента
-description: overrideComponentProvider и overrideAutoSpy — подменяют зависимость, которую компонент объявляет сам, и сообщают, когда оверрайд не применился.
+description: overrideComponentProvider и overrideAutoSpy — подменяют зависимость, которую компонент объявляет сам, и сообщают, если подмена не применилась.
 ---
 
 # Переопределение провайдеров компонента {#component-provider-overrides}
 
+`overrideComponentProvider` нужен, когда компонент сам указывает сервис в своём
+`@Component({ providers: [...] })`. `provideAutoSpy` в `TestBed.configureTestingModule` до такого
+сервиса не дотягивается: собственный провайдер компонента важнее, и компонент молча получает
+настоящий сервис. `overrideComponentProvider` подменяет его спаем и при следующем рендере проверяет,
+что компонент получил именно этот спай.
+
 ```ts
-import { overrideAutoSpy, overrideComponentProvider } from 'vitest-auto-spy/angular';
+import { TestBed } from '@angular/core/testing';
+import { of } from 'rxjs';
+import { overrideComponentProvider } from 'vitest-auto-spy/angular';
 
-const menu = overrideComponentProvider(CatalogPageComponent, NavigationBuilderService); // → Spy<NavigationBuilderService>
+import { ProfileComponent } from './profile.component';
+import { UserService } from './user.service';
 
-menu.build.mockReturnValue([]);
+// @Component({ providers: [UserService], … }) class ProfileComponent — ngOnInit вызывает userService.load()
+it('loads the user', () => {
+  TestBed.configureTestingModule({ imports: [ProfileComponent] }); // остальная настройка модуля, как обычно
 
-const fixture = TestBed.createComponent(HostComponent); // ← the override is verified here
+  const users = overrideComponentProvider(ProfileComponent, UserService, {
+    returns: { load: of({ name: 'Ada' }) }, // load(): Observable<User>
+  });
+
+  const fixture = TestBed.createComponent(ProfileComponent); // здесь подмена проверяется
+  fixture.detectChanges(); // запускает ngOnInit
+
+  expect(users.load).toHaveBeenCalledTimes(1);
+});
 ```
 
-`provideAutoSpy` регистрирует провайдер на тестовом модуле, а провайдер тестового модуля **проигрывает**
-тому, что компонент объявляет в собственном `@Component({ providers: [...] })` — route-scoped-сервисам,
-сторам на уровне компонента, хелперам `provideX()`. Предыстория этой ловушки и двух способов её
-обхода — на [странице Angular-адаптера](/ru/adapters/angular#overriding-a-provider-the-component-declares-for-itself).
-Эта страница о том, что идёт следом: **доказать, что оверрайд применился.**
+Вызывайте его после `configureTestingModule` и **до** первого чтения инжектора: `TestBed.inject`,
+`injectSpy` или `createComponent`. Сам `configureTestingModule` инжектор не читает. Почему провайдер
+модуля проигрывает и как ещё это чинится (убрать провайдер у компонента) — на
+[странице Angular](/ru/adapters/angular#overriding-a-provider-the-component-declares-for-itself).
 
 ## `overrideComponentProvider(component, Class, config?)` {#overridecomponentprovider-component-class-config}
 
-Делает три вещи, по порядку:
+Заменяет провайдер `Class`, который `component` объявляет сам, на авто-спай и возвращает этот спай.
+Нужен для сервиса из собственных `providers` компонента.
 
-1. ставит `component` в очередь к компилятору TestBed — как элемент `imports`, если компонент
-   standalone, иначе как элемент `declarations` — потому что `overrideProvider` применяется в момент
-   компиляции компонента, а компонент, который тестовый модуль нигде не упоминает, им не компилируется;
-2. вызывает `TestBed.overrideProvider(Class, { useValue: spy })`;
-3. ставит в очередь проверку, которая сработает на ближайшем `TestBed.createComponent`.
+```ts
+const menu = overrideComponentProvider(CatalogPageComponent, NavigationBuilderService, {
+  returns: { build: [] },
+});
 
-Он возвращает `Spy<T>` напрямую, так что разворачивать нечего.
+const fixture = TestBed.createComponent(AppShellComponent); // CatalogPageComponent рендерится внутри
+```
 
-**Не** тянитесь здесь к `TestBed.overrideComponent`. Он принуждает к JIT-рекомпиляции, а под AOT-бандлом
-тестов эта рекомпиляция разрешает директивы и пайпы компонента из runtime-скоупа, который бандлер
-вырезал, — и компонент остаётся без них; см. [`assertNgModuleScopes`](#assertngmodulescopes-modules) ниже.
+Компонент не обязан быть в `imports`; если он там тоже есть, это не мешает. Хелпер сам добавит
+его в тестовый модуль: в `imports`,
+если он standalone, иначе в `declarations`. Поэтому он работает и для дочернего компонента, который
+рендерит только шаблон родителя.
+
+| Аргумент    | Тип                                      | Смысл                                                    |
+| ----------- | ---------------------------------------- | -------------------------------------------------------- |
+| `component` | класс компонента                         | компонент, который объявляет провайдер                   |
+| `Class`     | класс сервиса                            | провайдер, который нужно заменить                        |
+| `config`    | как второй аргумент `createSpyFromClass` | объект опций, например `{ returns: { load: of(user) } }` |
+| результат   | `Spy<Class>`                             | спай, который получит компонент                          |
+
+**Частая ошибка:** вызов после того, как инжектор уже прочитали. После этого Angular не принимает
+подмен, и хелпер так и говорит:
+
+```text
+[vitest-auto-spy] overrideComponentProvider(ProfileComponent, DeleteAccountService) ran after the testing module was instantiated, and Angular accepts no override past that point. Something read the injector first — a `TestBed.inject`, an `injectSpy`, a `createComponent` — earlier in this test or in the same `beforeCreate`. Override first, then inject.
+```
+
+(`beforeCreate` — опция `renderShallow`, хук, который выполняется до создания компонента.)
+
+Перенесите вызов выше первого `TestBed.inject`, `injectSpy` или `createComponent`. Правило линтера
+[`no-inject-before-override`](/ru/utilities/eslint-rules#no-inject-before-override) находит неверный
+порядок ещё до запуска теста.
+
+Не используйте для этого `TestBed.overrideComponent`. Он перекомпилирует компонент во время теста, и
+в тестовом бандле, собранном заранее (AOT, как у `@angular/build:unit-test`), перекомпилированный компонент теряет свои директивы и
+пайпы (см. [`assertNgModuleScopes`](#assertngmodulescopes-modules)).
 
 ## Проверка {#the-verification}
 
-Постановка компонента в очередь убирает _обычную_ причину немого no-op. Она не доказывает, что
-оверрайд применился, поэтому хелпер проверяет это сам.
-
-**Что попадает в очередь.** Каждый вызов добавляет одну запись — компонент, токен, спай — и **один
-раз** оборачивает `TestBed.createComponent`. На следующем фикстуре обёртка прогоняет все записи
-очереди, возвращает на место исходный метод и очищает очередь. Она срабатывает на первом фикстуре
-и уходит с дороги: проверка принадлежит фикстуре, которую построил именно этот вызов; оставленная
-установленной обёртка выполнялась бы против постороннего компонента более поздней спеки.
-
-**Как разрешается токен.** Через _собственный_ инжектор компонента, не через инжектор тестового
-модуля:
-
-- если `fixture.debugElement.componentInstance` — инстанс переопределённого компонента, спрашивают
-  его инжектор;
-- иначе корень фикстуры обходится простым предикатом —
-  `element.componentInstance instanceof component` — и отвечает инжектор найденного debug-элемента.
-
-Импорт `@angular/platform-browser` в этом не участвует. `By.directive` был бы идиоматичным
-предикатом и добавил бы импорт пакета, который этой входной точке больше ни для чего не нужен;
-поверхностный API `DebugElement` читается структурно.
-
-**Почему вложенный случай вообще работает.** На Angular 21.2.17 ребёнок, размещённый шаблоном
-родителя, уже инстанцирован к моменту `createComponent` — до всякого `detectChanges()`. Это
-измеренный факт, а не вывод: проверка находит инжектор вложенного компонента в фикстуре, которую
-возвращает вызов, без единого запущенного между делом change detection.
-
-Ошибка называет всех троих участников:
+На следующем `TestBed.createComponent` хелпер спрашивает сервис у собственного инжектора компонента.
+Если ответ — не тот спай, что он вернул, тест падает и называет компонент, сервис и причину:
 
 ```text
 [vitest-auto-spy] overrideComponentProvider(CatalogPageComponent, NavigationBuilderService): the override did not apply — CatalogPageComponent resolved NavigationBuilderService to a NavigationBuilderService instance, not the spy this call returned.
 It got the real service because something configured NavigationBuilderService again after this call — a later TestBed.overrideProvider or configureTestingModule. Keep overrideComponentProvider as the last word on it.
-Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-overrides#the-verification
 ```
 
-Не-объектный ответ печатается как есть (`resolved … to not-a-service`), а инстанс класса
-называется по его конструктору.
+Подмену ломает только более поздний вызов с **тем же сервисом**: `TestBed.overrideProvider(UserService, …)`
+или `configureTestingModule`, где `UserService` есть в `providers`. Уберите его или поставьте
+`overrideComponentProvider` после него.
 
-### Почему она всегда включена {#why-it-is-always-on}
+Проверка включена всегда и настройки не требует. Она работает только в тесте, который вызвал
+`overrideComponentProvider`, и другие спеки не затрагивает.
 
-Это проектное решение, и оно же — единственная причина, по которой проверка не входит в
-[`enableAngularDiagnostics`](/ru/adapters/angular-diagnostics):
+Что она проверяет и чего нет:
 
-- **Хелпер существует потому, что задокументированная альтернатива отказывает молча.** Оверрайд,
-  который не применился, — баг хелпера, а не необязательная опция. Отдать хелпер вместе с его
-  собственной проверкой корректности за флагом — значит отгрузить ту самую немую ошибку, ради
-  устранения которой хелпер писался.
-- **Она не может выстрелить в спеке, которая не вызывала `overrideComponentProvider`.** Очередь
-  пуста, значит `createComponent` не оборачивается. Сюита без хелпера не затронута.
-- **Она молчит, когда компонент не отрендерился.** Нет инжектора — нет проверки.
-
-Это ровно те два свойства, которых не хватает группе диагностики: та применяется к каждой спеке
-сюиты, включая написанные задолго до её появления, — поэтому покраснение проходящей сюиты там
-является решением проекта, а не следствием импорта библиотеки.
-
-### Ограничения {#limitations}
-
-- **Только первый `createComponent`.** Обёртка снимает себя после одного фикстура. Спека, создающая
-  одноразовый фикстур до того, который рендерит переопределённый компонент, проверяется против
-  одноразового — где компонента нет, так что проверка молчит, а не врёт.
-- **Отсутствующий компонент — тишина, а не догадка.** Когда фикстура не содержит компонент — за
-  `@if`, на ленивом роуте или просто в другом хосте, — проверять ещё нечего, а угадывание
-  завалило бы корректную спеку.
-- **Более поздний конкурирующий оверрайд всё же побеждает.** `TestBed.overrideProvider(Token, …)`,
-  вызванный _после_ этого хелпера, заменяет спай. Проверка об этом сообщает (это как раз показанный
-  выше throw), но помешать не может.
-- **Нет `createComponent` для перехвата — нет проверки.** На `TestBed` без такого метода в очередь
-  не попадает ничего, и хелпер деградирует до «без проверки», а не до устаревшей проверки на каком-то
-  позднем фикстуре. Сам оверрайд при этом применяется.
+- **Только первую фикстуру.** Проверка срабатывает на первом `createComponent` после вызова и
+  выключается насовсем. Если в первой фикстуре компонента нет, тест проходит без проверки:
+  следующую фикстуру хелпер не ждёт.
+- **Нерендеренный компонент пропускается.** За `@if`, на ленивом маршруте или когда фикстура
+  рендерит другой компонент, спрашивать ещё некого, поэтому проверка ничего не делает, а не гадает.
+- **Более позднюю подмену она замечает, но не отменяет.** `TestBed.overrideProvider(Class, …)` после
+  вызова всё равно заменит спай; тогда проверка упадёт с сообщением выше.
+- **Между тестами ничего не переносится.** Тест, который вызвал хелпер, но ничего не отрендерил, не
+  оставляет следующему тесту отложенной проверки.
+- `getTestBed().createComponent(…)` проверяется так же, как `TestBed.createComponent(…)`.
 
 ## `overrideAutoSpy(Class, config?)` {#overrideautospy-class-config}
 
-Форма `{ useValue }`, которую ждёт `TestBed.overrideProvider`, с авто-спаем внутри:
+Возвращает объект `{ useValue: spy }`, который ждёт `TestBed.overrideProvider`. В отличие от
+`providers` в `configureTestingModule`, `TestBed.overrideProvider` заменяет и собственный провайдер
+компонента. `overrideAutoSpy` подходит, когда компонент уже есть в тестовом модуле и проверка не
+нужна; иначе берите `overrideComponentProvider`.
 
 ```ts
+import { TestBed } from '@angular/core/testing';
+import { overrideAutoSpy } from 'vitest-auto-spy/angular';
+
 const payments = overrideAutoSpy(PaymentMethodService);
 
 TestBed.configureTestingModule({ imports: [CheckoutComponent] }).overrideProvider(PaymentMethodService, payments);
 payments.useValue.charge.resolveWith({ ok: true });
 ```
 
-Используйте её, когда компонент **уже** есть в тестовом модуле и заменить нужно только провайдер;
-`overrideComponentProvider` — когда компонент ещё нужно поставить в очередь. Второй аргумент — тот
-же, что у [`createSpyFromClass`](/ru/core/create-spy-from-class).
+Второй аргумент — тот же, что у [`createSpyFromClass`](/ru/core/create-spy-from-class). Сам спай —
+`payments.useValue`.
 
-У `overrideAutoSpy` собственной проверки нет — очередь и обёртка `createComponent` принадлежат
-`overrideComponentProvider`.
+**Частая ошибка:** ждать от него проверки. `overrideAutoSpy` не проверяет, применилась ли подмена;
+это делает только `overrideComponentProvider`. `overrideProvider(X, provideAutoSpy(X))` тоже
+работает, но `overrideAutoSpy` понятнее по названию.
 
 ## `assertNgModuleScopes(...modules)` {#assertngmodulescopes-modules}
 
-Тоже экспортируется из этого модуля и разобран полностью на
-[странице Angular-адаптера](/ru/adapters/angular#an-ngmodule-that-contributes-nothing): он падает
-раньше, когда у импортированного в TestBed NgModule пустой runtime-скоуп, что под AOT-бандлом
-тестов означает — `ɵɵsetNgModuleScope` вырезали, и импорт не приносит ни директив, ни компонентов,
-ни пайпов.
+Падает сразу и называет модуль, если `NgModule`, импортированный в `TestBed`, не приносит ни
+компонентов, ни директив, ни пайпов. Нужен, когда спека импортирует модуль ради его объявлений, а
+шаблон падает с `NG0303` или `NG0304`.
 
 ```ts
+import { TestBed } from '@angular/core/testing';
+import { assertNgModuleScopes } from 'vitest-auto-spy/angular';
+
 assertNgModuleScopes(DirectivesModule, PipesModule);
 TestBed.configureTestingModule({ imports: [DirectivesModule, PipesModule] });
 ```
 
-Передавайте только модули, которые вы импортируете **ради их declarations** — модуль из одних
-провайдеров правомерно пуст и был бы ложным срабатыванием. Диагностика
-[`ngModuleScopes`](/ru/adapters/angular-diagnostics#ngmodulescopes) — автоматическая форма, и фильтрует
-она куда жёстче именно по этой причине.
+Почему так бывает: тестовый бандл `@angular/build:unit-test` скомпилирован заранее (AOT), и из него
+выброшена запись о том, что модуль объявляет. `TestBed` читает именно эту запись, поэтому
+импортированный модуль для него пуст. Angular сообщает об этом так, что модуль нигде не назван:
+
+```text
+NG0303: Can't bind to 'appTruncate' since it isn't a known property of 'div'
+NG0301: Export of name 'focusable' not found!
+NG0304: 'ui-smart-row' is not a known element
+(или вообще ничего — атрибутная директива просто не запускается)
+```
+
+Исправление — импортировать нужные спеке компоненты, директивы и пайпы напрямую или объявить их в
+`TestBed`.
+
+**Частая ошибка:** передать модуль, в котором только провайдеры. Он намеренно ничего не объявляет,
+поэтому тоже попадёт в ошибку; не передавайте его. [Диагностика
+`ngModuleScopes`](/ru/adapters/angular-diagnostics#ngmodulescopes) делает ту же проверку для каждого
+тестового модуля автоматически и такие модули пропускает.
 
 ## `assertComponentDefIntact(...components)` {#assertcomponentdefintact-components}
 
-Вторая половина той же проблемы бандла. Провайдеры компонента и его скомпилированный скоуп
-**запекаются в `ɵcmp` в момент исполнения модуля компонента** — а не читаются в момент
-`createComponent`. Когда бандлер разрезает баррель на чанк, который ещё не исполнялся, определение
-собирается с `undefined` в этих списках, и Angular обнаруживает это сильно позже, изнутри себя:
-
-```text
-TypeError: Cannot read properties of undefined (reading 'provide')
-  ❯ resolveProvider render3/di_setup.ts:95
-```
-
-Стек не называет ни баррель, ни символ, ни компонент. Хуже: ломается обычно спека, которую никто
-не трогал, — границы чанков двигаются вместе с _содержимым_ файлов, так что правки типа в соседнем
-файле достаточно, чтобы символ переехал через границу. Оба очевидных лекарства по одной и той же
-причине не работают — `await import()` наверху `beforeEach` уже слишком поздний, а статический
-импорт в шапке спеки не чинит порядок, в котором этот бандлер эммитит.
+Падает сразу и называет компонент и список, если компонент скомпилирован с `undefined` в
+`providers`, `viewProviders` или скомпилированных `imports`. Нужен, когда `createComponent` падает с
+`Cannot read properties of undefined (reading 'provide')`, а стек ведёт внутрь Angular.
 
 ```ts
+import { TestBed } from '@angular/core/testing';
+import { assertComponentDefIntact } from 'vitest-auto-spy/angular';
+
 assertComponentDefIntact(HoverMenuComponent);
 const fixture = TestBed.createComponent(HoverMenuComponent);
 ```
@@ -173,18 +188,21 @@ HoverMenuComponent baked that list in when its file ran, before the chunk holdin
 In HoverMenuComponent's source, import the symbol at that position from its own file rather than through the barrel.
 ```
 
-Он обходит `providers`, `viewProviders` и `dependencies`, включая вложенные в них списки и thunk,
-который Angular эммитит для forward reference. Тот же вызов отвечает на родственное
-`Cannot read properties of undefined (reading 'ɵcmp')` из `imports: [Cmp]`, где не приехала сама
-ссылка на класс, — там сообщение называет позицию аргумента. Директивы тоже работают: тип с `ɵdir`
-проверяется так же.
+Почему так бывает: Angular фиксирует списки компонента в момент, когда выполняется его файл. Если
+бандлер положил импортированный символ в чанк, который ещё не выполнился, — обычно это импорт через
+barrel-файл (`index.ts`), — в списке на его месте оказывается `undefined`. Правка соседнего файла
+может сдвинуть границы чанков, поэтому ломается часто спека, которую никто не трогал.
 
-Сборку это не чинит; это вопрос конфигурации бандлера. Оно заменяет получасовое расследование
-одной строкой и уводит указатель от спеки.
+Исправлять надо в исходнике компонента: импортируйте этот символ из его собственного файла, а не
+через barrel. Более ранний импорт в спеке не помогает.
+
+Тот же вызов ловит и `Cannot read properties of undefined (reading 'ɵcmp')` из `imports: [Cmp]`,
+когда сам класс пришёл как `undefined`; тогда сообщение называет номер аргумента. Директивы
+проверяются так же.
 
 ## Смежное {#related}
 
-- [Angular-адаптер](/ru/adapters/angular) — почему провайдер уровня компонента побеждает провайдер
-  уровня модуля.
-- [Angular-диагностика](/ru/adapters/angular-diagnostics) — опциональная группа и почему эта
-  проверка в неё не входит.
+- [Angular](/ru/adapters/angular) — `provideAutoSpy`, `injectSpy` и почему собственный провайдер
+  компонента важнее провайдера модуля.
+- [Диагностика Angular](/ru/adapters/angular-diagnostics) — проверки, которые включаются по желанию
+  и работают на каждом тестовом модуле.
