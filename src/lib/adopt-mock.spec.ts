@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { adoptMock } from './adopt-mock';
+import { settleDynamicImport } from './event-loop';
 import { createFunctionSpy, reinstallDispatch } from './function-spy';
 import { registerMockAdapter } from './mock-adapter';
 import { assertMocked } from './module-mocks';
@@ -22,6 +23,23 @@ describe('adoptMock', () => {
     expect(adopted).toBe(load);
     expect(adopted).toHaveBeenCalledWith(1);
     expect(adopted.mock.calls).toEqual([[1]]);
+  });
+
+  it('calls the implementation it kept with the receiver of the call, nested calls included', () => {
+    const seen: unknown[] = [];
+    const render = vi.fn(function render(this: { label: string; inner?: { render: () => string } }): string {
+      seen.push(this);
+
+      return this.inner ? `${this.label} > ${this.inner.render()}` : this.label;
+    });
+
+    adoptMock(render);
+
+    const inner = { label: 'inner', render };
+    const outer = { label: 'outer', inner, render };
+
+    expect(outer.render()).toBe('outer > inner');
+    expect(seen).toEqual([outer, inner]);
   });
 
   it('answers a configured argument list, and records the call on the runner mock', () => {
@@ -139,11 +157,18 @@ describe('adoptMock', () => {
 
     it('adopts a mock that has no mockReset at all', () => {
       const load = vi.fn<(id: number) => string>();
+      const reset = load.mockReset;
 
       Reflect.deleteProperty(load, 'mockReset');
-      adoptMock(load).calledWith(1).mockReturnValue('one');
 
-      expect(load(1)).toBe('one');
+      try {
+        adoptMock(load).calledWith(1).mockReturnValue('one');
+
+        expect(load(1)).toBe('one');
+      } finally {
+        // The runner still holds this mock, and a vi.resetAllMocks() in any later file of the worker calls it.
+        load.mockReset = reset;
+      }
     });
   });
 
@@ -244,7 +269,10 @@ describe('adoptMock after vi.doMock and a dynamic import', () => {
   it('configures the export the code under test will call', async () => {
     vi.doMock('./adopt-mock.fixture', () => ({ loadUser: vi.fn() }));
 
-    const api = assertMocked(await import('./adopt-mock.fixture'), { specifier: './adopt-mock.fixture', exports: ['loadUser'] });
+    const api = assertMocked(await settleDynamicImport(() => import('./adopt-mock.fixture')), {
+      specifier: './adopt-mock.fixture',
+      exports: ['loadUser'],
+    });
 
     adoptMock(api.loadUser).calledWith(7).resolveWith({ id: 7, name: 'Ada' });
 

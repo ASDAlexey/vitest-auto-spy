@@ -2,12 +2,11 @@
  * `adoptMock`: the library's helpers on a runner mock something else built, most often a `vi.mock`
  * factory. Taken over in place, because the code under test already holds that mock.
  */
-import type { MockInstance } from 'vitest';
-
 import { defineHelper } from './define-helper';
 import * as DOCS_LINKS from './docs-links';
 import { type UnstubbedGuard, adoptFunctionSpy, reinstallDispatch } from './function-spy';
 import { withDocs } from './message-link';
+import type { MockInstance } from './mock-types';
 import { isRunnerMock } from './module-mocks';
 import { isMarkedMock } from './spy-mark';
 import type { AddSpyMethodsByReturnTypes, Func } from './types';
@@ -46,7 +45,9 @@ function nameOf(mock: Func): string {
 // An unconfigured call keeps getting what it got before adoption — the same rule as
 // `createSpyFromInstance(…, { passthrough: true })`, where the real method answers until configured.
 function answerWithPrevious(previous: Func | undefined): UnstubbedGuard | undefined {
-  return previous && { className: undefined, handle: (call): unknown => Reflect.apply(previous, undefined, call.args) };
+  return (
+    previous && { className: undefined, receiver: true, handle: (call, receiver): unknown => Reflect.apply(previous, receiver, call.args) }
+  );
 }
 
 // `vi.resetAllMocks()` and `mockRestore()` go through the mock's own `mockReset`, which drops the dispatch.
