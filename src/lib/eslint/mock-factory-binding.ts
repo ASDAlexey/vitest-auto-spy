@@ -55,10 +55,19 @@ function initialisedLate(variable: EsVariable): boolean {
   return isTopLevel(declarator.parent) && !isHoisted(declarator.init);
 }
 
-/** Whether a read runs later than the factory: a function inside the factory stands between them. */
+/** An instance field's initialiser, which runs when the class is constructed, not when it is declared. */
+function isInstanceFieldValue(node: EsNode, child: EsNode): boolean {
+  return (
+    (node.type === 'PropertyDefinition' || node.type === 'AccessorProperty') &&
+    Reflect.get(node, 'static') !== true &&
+    Reflect.get(node, 'value') === child
+  );
+}
+
+/** Whether a read runs later than the factory: a function or an instance field initialiser inside the factory stands between them. */
 function isDeferred(identifier: EsNode, factory: EsNode): boolean {
-  for (let current = identifier.parent; current !== factory; current = current.parent) {
-    if (isFunctionNode(current)) {
+  for (let child = identifier, current = identifier.parent; current !== factory; child = current, current = current.parent) {
+    if (isFunctionNode(current) || isInstanceFieldValue(current, child)) {
       return true;
     }
   }

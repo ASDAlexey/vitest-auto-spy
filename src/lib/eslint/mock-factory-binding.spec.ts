@@ -45,6 +45,20 @@ describe('no-outer-binding-in-mock-factory', () => {
     expect(lint("import { helper } from './helper';\nvi.mock('./api', () => ({ helper }));")).toEqual([]);
   });
 
+  it('treats an instance field initialiser as deferred, a static field or a computed key as eager', () => {
+    const declare = 'const config = { on: true };\nconst listen = vi.fn();\n';
+
+    expect(
+      lint(`${declare}vi.mock('./api', () => ({ Client: class { config = config.on ? {} : undefined; listen = listen; accessor x = config; } }));`),
+    ).toEqual([]);
+    expect(lint(`${declare}vi.mock('./api', () => ({ Client: class { static config = config; } }));`)).toEqual([
+      'vitest-auto-spy/no-outer-binding-in-mock-factory',
+    ]);
+    expect(lint(`${declare}vi.mock('./api', () => ({ Client: class { [config.on ? 'a' : 'b'] = 1; } }));`)).toEqual([
+      'vitest-auto-spy/no-outer-binding-in-mock-factory',
+    ]);
+  });
+
   it('reads only values, and only bindings declared at the top level', () => {
     expect(
       lint("type User = { id: number };\nconst user = {};\nvi.mock('./api', () => ({ load: (): User => null as unknown as User }));"),
