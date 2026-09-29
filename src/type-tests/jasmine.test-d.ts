@@ -14,7 +14,16 @@
 import { EMPTY, type Observable } from 'rxjs';
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { type Spy, createFunctionSpy, createSpyFromClass, createSpyObj, jasmine, provideAutoSpy } from '../jasmine';
+import {
+  type JasmineWithArgsStrategies,
+  type Spy,
+  createFunctionSpy,
+  createSpyFromClass,
+  createSpyObj,
+  jasmine,
+  provideAutoSpy,
+} from '../jasmine';
+import type { JasmineWithArgsStrategies as CompatWithArgsStrategies } from '../jasmine-compat';
 
 class AccountService {
   balance = 0;
@@ -168,5 +177,14 @@ describe('the jasmine namespace', () => {
     expectTypeOf(jasmine.arrayWithExactContents).toBeCallableWith(['a']);
     expectTypeOf(jasmine.clock().tick).toBeCallableWith(100);
     expectTypeOf(jasmine.DEFAULT_TIMEOUT_INTERVAL).toEqualTypeOf<number>();
+  });
+});
+
+describe('JasmineWithArgsStrategies', () => {
+  it('is exported from both jasmine entries, as the strategies part of withArgs(…).and', () => {
+    type Load = (id: number) => Promise<string>;
+
+    expectTypeOf<CompatWithArgsStrategies<Load>>().toEqualTypeOf<JasmineWithArgsStrategies<Load>>();
+    expectTypeOf<JasmineWithArgsStrategies<Load>['resolveTo']>().toBeCallableWith('a');
   });
 });

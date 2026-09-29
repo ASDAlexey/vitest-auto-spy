@@ -105,6 +105,8 @@ describe('explainSpy', () => {
   it('answers a report to print, whatever it was handed', () => {
     expectTypeOf(explainSpy({})).toEqualTypeOf<string>();
     expectTypeOf(explainSpy({}, 'load')).toEqualTypeOf<string>();
+    expectTypeOf(explainSpy(undefined)).toEqualTypeOf<string>();
+    expectTypeOf(explainSpy(null, 'load')).toEqualTypeOf<string>();
   });
 
   it('asks for the double, and names at most one member', () => {

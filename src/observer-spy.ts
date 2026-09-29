@@ -13,4 +13,4 @@
  * Runtime-agnostic — it registers no mock adapter and touches no runner. It needs only `rxjs`, so it
  * works on Vitest, Bun and `node:test` alike.
  */
-export { ObserverSpy, SubscriberSpy, subscribeSpyTo, type ObserverSpyConfig } from './lib/observer-spy';
+export { ObserverSpy, SubscriberSpy, subscribeSpyTo, type ObserverSpyConfig, type ObserverSpyWaitOptions } from './lib/observer-spy';

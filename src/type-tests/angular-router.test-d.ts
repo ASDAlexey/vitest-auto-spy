@@ -19,6 +19,7 @@ import { describe, expectTypeOf, it } from 'vitest';
 
 import {
   type ActivatedRouteDouble,
+  type RouteResources,
   type RouterEventPair,
   collectRouterEvents,
   createActivatedRoute,
@@ -110,5 +111,11 @@ describe('the router double', () => {
 
     expectTypeOf(events.events).toEqualTypeOf<readonly RouterNavigationEvent[]>();
     expectTypeOf(events.expect).parameter(0).toEqualTypeOf<readonly RouterEventPair[]>();
+  });
+});
+
+describe('RouteResources', () => {
+  it('is exported from the entry, as the resources the installed router declares', () => {
+    expectTypeOf<RouteResources>().toEqualTypeOf<NonNullable<ActivatedRoute[Extract<'resources', keyof ActivatedRoute>]>>();
   });
 });

@@ -1,3 +1,5 @@
+import { useVitestAdapter } from './lib/use-vitest-adapter';
+
 /**
  * `vitest-auto-spy/setup` — one call for a project's test-run hygiene.
  *
@@ -18,7 +20,7 @@
  * import { advanceTimers, setupFakeTimers } from 'vitest-auto-spy/setup';
  * ```
  */
-import { useVitestAdapter } from './lib/use-vitest-adapter';
+export type {} from './lib/vitest-mock-types';
 
 useVitestAdapter();
 
@@ -60,7 +62,7 @@ export {
   restoreLongLivedImplementations,
   trackMockRegistry,
 } from './lib/mock-registry';
-export { advanceTimers, setupFakeTimers, type FakeTimersConfig } from './lib/fake-timers';
+export { advanceTimers, setupFakeTimers, withFakeTimers, type FakeTimersConfig } from './lib/fake-timers';
 export { describeDuplicateCopies, getPackageCopies } from './lib/package-identity';
 export {
   countStrayRejections,

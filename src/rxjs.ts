@@ -52,6 +52,7 @@ export type {
   CompleteValueConfig,
   ErrorValueConfig,
   NextValueConfig,
+  ObservablePropSpyMethods,
   ValueConfig,
   ValueConfigPerCall,
 } from './lib/types';

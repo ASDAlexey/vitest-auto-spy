@@ -1,3 +1,5 @@
+import { useVitestAdapter } from './lib/use-vitest-adapter';
+
 /**
  * `vitest-auto-spy/vue` — auto-spy helpers for Vue / Pinia test suites.
  *
@@ -31,7 +33,7 @@
  * Vue suites run on Vitest, so this entry registers the default adapter even when
  * imported without the core (`provideAutoSpy` builds spies on its own).
  */
-import { useVitestAdapter } from './lib/use-vitest-adapter';
+export type {} from './lib/vitest-mock-types';
 
 useVitestAdapter();
 

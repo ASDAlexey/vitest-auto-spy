@@ -1,3 +1,5 @@
+import { useVitestAdapter } from './lib/use-vitest-adapter';
+
 /**
  * `vitest-auto-spy/react` — auto-spy your service/store CLASSES in React tests.
  *
@@ -18,7 +20,7 @@
  * same public API as the core. It pulls in `vitest` only — never `react` or
  * `@testing-library/react`, which stay the consumer's own (dev) dependencies.
  */
-import { useVitestAdapter } from './lib/use-vitest-adapter';
+export type {} from './lib/vitest-mock-types';
 
 useVitestAdapter();
 

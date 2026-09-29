@@ -1,3 +1,5 @@
+import { useVitestAdapter } from './lib/use-vitest-adapter';
+
 /**
  * `vitest-auto-spy/svelte` — auto-spy recipe for Svelte test suites.
  *
@@ -31,7 +33,7 @@
  * render(Cart, { props: { store: cartStore } });
  * ```
  */
-import { useVitestAdapter } from './lib/use-vitest-adapter';
+export type {} from './lib/vitest-mock-types';
 
 useVitestAdapter();
 
