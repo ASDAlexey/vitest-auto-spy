@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import { count, currentTask, displayFrame, displayPath, sourceClassName, taskName } from './message-text';
+import { mockValueProp } from './prop-mock';
+
+/** The slice of Vitest's worker state these messages read. */
+interface WorkerState {
+  config: { root?: string };
+  current?: unknown;
+}
+
+const worker: WorkerState = Reflect.get(globalThis, '__vitest_worker__');
 
 describe('message text', () => {
   it('counts in the singular and the plural', () => {
@@ -39,28 +48,22 @@ describe('message text', () => {
   });
 
   it('leaves paths absolute when no runner root is known', () => {
-    const config: unknown = Reflect.get(Object(Reflect.get(globalThis, '__vitest_worker__')), 'config');
-    const root: unknown = Reflect.get(Object(config), 'root');
-
-    Reflect.set(Object(config), 'root', undefined);
+    const restore = mockValueProp(worker.config, 'root', undefined);
 
     try {
       expect(displayPath('/repo/a.ts')).toBe('/repo/a.ts');
     } finally {
-      Reflect.set(Object(config), 'root', root);
+      restore();
     }
   });
 
   it('knows no test outside one', () => {
-    const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
-    const current: unknown = Reflect.get(Object(worker), 'current');
-
-    Reflect.set(Object(worker), 'current', { type: 'suite' });
+    const restore = mockValueProp(worker, 'current', { type: 'suite' });
 
     try {
       expect(currentTask()).toBeUndefined();
     } finally {
-      Reflect.set(Object(worker), 'current', current);
+      restore();
     }
   });
 });
