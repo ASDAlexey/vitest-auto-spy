@@ -135,6 +135,8 @@ const PLUGIN_NAME = 'vitest-auto-spy';
  * `{ builder: 'unit-test' }` says one does, the way `no-compile-components` waits for its option.
  * **`no-real-wait-in-test` is `warn`**: the sleep is a fact, but its repair is a move onto fake timers,
  * which changes every timer the test runs — a migration, as `prefer-set-inputs` is.
+ * **`no-inline-test-data` is `warn`**: a line count and a repeat count say where data should live,
+ * not that the test is wrong, and only the author can name the value and pick its file.
  *
  * **`prefer-stub-response` is `error` on the same footing as `no-hand-assigned-global`**, the rule it
  * is shaped after: the evidence is the line itself. An object literal cast to `Response` answers the
@@ -243,6 +245,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-relative-mock-under-builder`]: 'error',
   [`${PLUGIN_NAME}/no-real-wait-in-test`]: 'warn',
   [`${PLUGIN_NAME}/no-disabled-testbed-teardown`]: 'error',
+  [`${PLUGIN_NAME}/no-inline-test-data`]: 'warn',
 };
 
 /**
