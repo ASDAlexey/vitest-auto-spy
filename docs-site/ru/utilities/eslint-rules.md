@@ -1,12 +1,14 @@
 ---
 title: Правила ESLint
-description: По разделу на каждое из пятидесяти правил — что оно сообщает, на чём принимает решение, зачем оно в recommended, где сообщает о работающем коде и почему у него именно такая severity.
+description: По разделу на каждое правило ESLint-плагина - о чём оно сообщает, пример до и после, опции, как исправить находку и когда правило выключить.
 ---
 
 # Правила ESLint
 
-По разделу на каждое правило, у каждого — стабильный анкор, чтобы конфиг мог сослаться на то
-правило, которое он приглушает:
+На этой странице по разделу на каждое правило [ESLint-плагина](/ru/utilities/eslint-plugin).
+Открывайте её, когда пришла находка: в разделе видно, о чём сообщает правило, пример «до и после»,
+опции и когда правило стоит выключить. У каждого раздела стабильный якорь, так что на него можно
+сослаться из конфига:
 
 ```js
 // eslint.config.js
@@ -16,205 +18,223 @@ description: По разделу на каждое из пятидесяти п�
 }
 ```
 
-**Это не страница настройки.** [Плагин ESLint](/ru/utilities/eslint-plugin) — про то, как плагин
-подключается: блок конфига, глоб `files`, рецепт выката на большую сюиту без красного CI и таблицы,
-где каждому правилу отведена одна строка. Эта страница — вторая половина: для отчёта, который уже
-пришёл, — на чём правило приняло решение, когда оно молчит и где оно ошибается насчёт вашего
-проекта. Читать по порядку не нужно.
+Подключение, глоб `files` и рецепт для большого существующего проекта описаны на
+[странице плагина](/ru/utilities/eslint-plugin).
 
-**Сообщение и эта страница делят работу.** Сообщение называет то, что правило нашло в вашем файле, —
-класс, токен, член, вызов, — одной фразой говорит, почему это ломается, и даёт одну подходящую
-починку. Оно заканчивается `Docs:` и ссылкой на раздел правила ниже; это же `meta.docs.url` правила,
-так что редактор ставит ссылку на имени правила. Всё длиннее — другие починки, случаи, которых
-правило не видит, замеры — в этом разделе.
+Каждое сообщение называет то, что правило нашло в вашем файле, одной фразой объясняет, почему это
+ломается, и предлагает одно исправление. В конце стоит `Docs:` и ссылка на раздел правила ниже. Эта же
+ссылка — `meta.docs.url` правила, поэтому редактор делает имя правила ссылкой.
 
-Каждый раздел отвечает на одни и те же шесть вопросов:
+Разделы ниже устроены одинаково:
 
-- **Что сообщает** — что именно считается находкой.
-- **На чём решает** — на каких данных: на форме AST, на имени, на файле целиком или на информации о
-  типах. Именно отсюда понятно, когда правило промолчит и когда ошибётся.
-- **Находка и как её закрыть** — одна форма, «до» и «после».
-- **Зачем это в `recommended`** — конкретный отказ, который получает сюита без правила. Не «так
-  аккуратнее».
-- **Границы** — где правило сообщает о работающем коде и чем это гасится.
-- **Severity** — и почему именно такая.
+1. Первая строка: уровень по умолчанию, есть ли исправление и нужна ли правилу информация о типах.
+2. О чём сообщает правило и чем это плохо.
+3. Пример с ❌ и пример с ✅.
+4. **Опции**, **Как исправить** и **Когда выключить**.
+5. **Как правило решает** — свёрнутый блок: как именно правило сопоставляет код, на чём оно основано
+   и почему у него такой уровень. Раскройте его, если правило вас удивило.
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## Пятьдесят одно правило {#the-twenty-five-rules}
+## Пятьдесят шесть правил {#the-twenty-five-rules}
 
-Сгруппированы по темам — так же, как на [странице настройки](/ru/utilities/eslint-plugin). Все
-правила — `error`, кроме девяти.
+Правила сгруппированы по темам — так же, как на [странице плагина](/ru/utilities/eslint-plugin#rules).
+Все правила — `error`, кроме одиннадцати.
 
-| Правило                                                               | В `recommended` | Что сообщает                                                                                               |
-| --------------------------------------------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------- |
-| [`no-expect-in-subscribe`](#no-expect-in-subscribe)                   | `error`         | `expect()` внутри колбэка `subscribe` — он выполнится только если поток эмитит                             |
-| [`no-vacuous-absence-assertion`](#no-vacuous-absence-assertion)       | `error`         | тест, каждое утверждение которого выполнено уже тем, что поток ничего не прислал                           |
-| [`no-floating-assertion`](#no-floating-assertion)                     | `error`         | `expect()` в цепочке `.then()`, которую никто не ждёт                                                      |
-| [`no-done-callback`](#no-done-callback)                               | `error`         | именованный первый параметр теста или хука и `done.fail(…)` под ним                                        |
-| [`no-bare-called-with`](#no-bare-called-with)                         | `error`         | `calledWith(…)` / `mustBeCalledWith(…)` отдельным выражением-инструкцией                                   |
-| [`no-constant-expect`](#no-constant-expect)                           | `error`         | `expect(true).toBe(true)` — значение из спеки под матчером, чей ответ оно предрешает                       |
-| [`no-redundant-smoke-test`](#no-redundant-smoke-test)                 | `error`         | тест, всё тело которого — проверка, что субъект существует, рядом с тестами на том же setup                |
-| [`no-self-called-spy`](#no-self-called-spy)                           | `error`         | тест сам вызывает заспаенный метод, а потом утверждает, что его вызвали                                    |
-| [`prefer-to-have-signal-value`](#prefer-to-have-signal-value)         | `warn`          | `expect(signal()).toBe(…)` — значение прочитано инлайн, имя сигнала потеряно из падения                    |
-| [`prefer-settle-dynamic-import`](#prefer-settle-dynamic-import)       | `error`         | `await import('…')` в теле теста — ждёт модуль, а не код под тестом                                        |
-| [`no-unasserted-argument`](#no-unasserted-argument)                   | `warn`          | голый `toHaveBeenCalled()` там, где сам файл показывает, что тест про аргументы                            |
-| [`prefer-create-mock`](#prefer-create-mock)                           | `warn`          | объектный литерал под `as SomeType` — каст пропускает и лишний ключ, и недостающий                         |
-| [`no-mock-cast`](#no-mock-cast)                                       | `error`         | `TestBed.inject(S).m as Mock` — `Mock` это `Mock<any>`, аргументы перестают сравниваться                   |
-| [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)       | `error`         | объектный литерал из двух и более `vi.fn()`                                                                |
-| [`no-stub-class-double`](#no-stub-class-double)                       | `warn`          | класс, чьи поля — `vi.fn()`: тот же дубль, только с `new` впереди                                          |
-| [`no-structural-double`](#no-structural-double)                       | `warn`          | объект из `vi.fn()` у имени, объявленного как объект из `Mock` Vitest                                      |
-| [`prefer-spy-on-own-method`](#prefer-spy-on-own-method)               | `warn`          | `createSpyFromInstance`, который шпионит за одним методом и читается только ради него                      |
-| [`no-shared-module-level-mock`](#no-shared-module-level-mock)         | `error`         | **экспортируемое** значение, которое строит `vi.fn()` при загрузке модуля                                  |
-| [`no-object-define-property`](#no-object-define-property)             | `error`         | `Object.defineProperty` / `defineProperties` в спеке                                                       |
-| [`no-import-time-spread`](#no-import-time-spread)                     | `error`         | спред импортированного биндинга, вычисляемый на уровне модуля                                              |
-| [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`         | глобальный observer, подменённый руками или через раннер                                                   |
-| [`no-hand-assigned-global`](#no-hand-assigned-global)                 | `error`         | `global.fetch = vi.fn()`, `environment.x = …` — значение, которое никакой teardown не возвращает           |
-| [`prefer-stub-response`](#prefer-stub-response)                       | `error`         | объектный литерал, приведённый к `Response`, или `createMock<Response>(…)` — половина ответа               |
-| [`no-redundant-mock-reset`](#no-redundant-mock-reset)                 | `error`         | сброс моков в хуке, который раннер и так делает между тестами                                              |
-| [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`         | `ActivatedRoute`, предоставленный как собранный руками объект, класс или фабрика, — полмаршрута            |
-| [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`         | `vi.spyOn(console, m)`, которому ничто не дало реализации, — вызывает оригинал и печатает                  |
-| [`no-console-in-spec`](#no-console-in-spec)                           | `error`         | спека, которая вызывает метод консоли или подменяет его присваиванием                                      |
-| [`no-import-time-console-spies`](#no-import-time-console-spies)       | `error`         | импорт `vitest-auto-spy/console` в файле, который не зовёт `installConsoleSpies()` или `useConsoleSpies()` |
-| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`         | провайдер, который собирает дубль сервиса руками или расписывает `provideAutoSpy`                          |
-| [`prefer-inject-spy`](#prefer-inject-spy)                             | `error`         | `vi.spyOn` поверх инстанса, который выдал `TestBed.inject`                                                 |
-| [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)           | `error`         | `injectSpy(X)` для токена, который этот файл не регистрировал как автоспай                                 |
-| [`no-real-component-provider`](#no-real-component-provider)           | `error`         | собственный провайдер компонента, прочитанный из фикстуры, когда файл его ничем не подменил                |
-| [`prefer-render-shallow`](#prefer-render-shallow)                     | `warn`          | `TestBed.createComponent` в файле, который ни разу не читает отрендеренный шаблон                          |
-| [`prefer-set-inputs`](#prefer-set-inputs)                             | `warn`          | серию `fixture.componentRef.setInput(…)` — имя, которое Angular ничем не проверяет                         |
-| [`no-overridden-provider`](#no-overridden-provider)                   | `error`         | провайдер, которого заменяет более поздний или `TestBed.overrideProvider`                                  |
-| [`no-inject-before-override`](#no-inject-before-override)             | `error`         | инъекция в хуке в сюите, которая ещё зовёт `TestBed.override*`                                             |
-| [`no-dead-schemas`](#no-dead-schemas)                                 | `error`         | `schemas` в тестовом модуле, который ничего не объявляет                                                   |
-| [`no-mistyped-use-value`](#no-mistyped-use-value)                     | `error`         | `useValue`, который не подходит под примитивный тип, объявленный его `InjectionToken`                      |
-| [`no-unknown-use-value-key`](#no-unknown-use-value-key)               | `error`         | ключ объектного `useValue`, которого нет у предоставляемого типа, — только ключи                           |
-| [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)             | `warn`          | `vi.spyOn(component, 'ngOnInit')` — спай на хуке, который Angular не вызывает                              |
-| [`no-compile-components`](#no-compile-components)                     | `error`         | `compileComponents()` под билдером, встраивающим ресурсы, — молчит, пока ему не скажут                     |
-| [`no-sync-testbed-await`](#no-sync-testbed-await)                     | `error`         | `await` на вызове TestBed, который отвечает самим TestBed или фикстурой, а не промисом                     |
-| [`no-private-member-access`](#no-private-member-access)               | `error`         | `private` / `protected`-член, добытый через скобки, каст или прототип                                      |
-| [`no-reflect-member-access`](#no-reflect-member-access)               | `error`         | `Reflect.get` / `Reflect.set` по субъекту теста — ключ, который не проверяет никто                         |
-| [`no-mocked-for-spy`](#no-mocked-for-spy)                             | `error`         | `Mocked<T>` в типовой позиции, где значение — спай                                                         |
-| [`prefer-as-spy`](#prefer-as-spy)                                     | `error`         | `TestBed.inject(X) as Spy<X>` — каст, который больше не компилируется                                      |
-| [`no-ts-expect-error-on-double`](#no-ts-expect-error-on-double)       | `error`         | `@ts-expect-error` / `@ts-ignore` над `nextWith`, `mockReturnValue`, … дубля                               |
-| [`no-jasmine-globals`](#no-jasmine-globals)                           | `error`         | `jasmine.*`, голые `spyOn(` / `fail(` / `pending(` и `.withContext(`                                       |
-| [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) | `error`         | `.and` / `.calls` / `.withArgs` в файле, который нигде не ставит слой совместимости                        |
-| [`no-save-arguments-by-value`](#no-save-arguments-by-value)           | `error`         | `spy.calls.saveArgumentsByValue()` — здесь это no-op                                                       |
-| [`prefer-native-spy-api`](#prefer-native-spy-api)                     | `error`         | `.and` / `.calls` там, где то же самое умеет собственный API спая                                          |
+| Правило                                                                 | По умолчанию | Что сообщает                                                                                                                                                               |
+| ----------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`no-expect-in-subscribe`](#no-expect-in-subscribe)                     | `error`      | `expect()` внутри колбэка `subscribe` — он выполнится только если поток эмитит                                                                                             |
+| [`no-vacuous-absence-assertion`](#no-vacuous-absence-assertion)         | `error`      | тест, каждое утверждение которого выполнено уже тем, что поток ничего не прислал                                                                                           |
+| [`no-floating-assertion`](#no-floating-assertion)                       | `error`      | `expect()` в цепочке `.then()`, которую никто не ждёт                                                                                                                      |
+| [`no-done-callback`](#no-done-callback)                                 | `error`      | параметр `done` в тесте или хуке и `done.fail(…)`                                                                                                                          |
+| [`no-bare-called-with`](#no-bare-called-with)                           | `error`      | `calledWith(…)` / `mustBeCalledWith(…)` отдельным выражением-инструкцией                                                                                                   |
+| [`no-constant-expect`](#no-constant-expect)                             | `error`      | `expect(true).toBe(true)` — значение из спеки под матчером, чей ответ оно предрешает                                                                                       |
+| [`no-redundant-smoke-test`](#no-redundant-smoke-test)                   | `error`      | тест, всё тело которого — проверка, что субъект существует, рядом с тестами на том же setup                                                                                |
+| [`no-self-called-spy`](#no-self-called-spy)                             | `error`      | тест сам вызывает заспаенный метод, а потом утверждает, что его вызвали                                                                                                    |
+| [`prefer-to-have-signal-value`](#prefer-to-have-signal-value)           | `warn`       | `expect(signal()).toBe(…)` — значение прочитано инлайн, имя сигнала потеряно из падения                                                                                    |
+| [`prefer-settle-dynamic-import`](#prefer-settle-dynamic-import)         | `error`      | `await import('…')` в теле теста — ждёт модуль, а не код под тестом                                                                                                        |
+| [`no-real-wait-in-test`](#no-real-wait-in-test)                         | `warn`       | `new Promise((r) => setTimeout(r, N))` — сон на реальных часах                                                                                                             |
+| [`no-unasserted-argument`](#no-unasserted-argument)                     | `warn`       | голый `toHaveBeenCalled()` там, где сам файл показывает, что тест про аргументы                                                                                            |
+| [`prefer-create-mock`](#prefer-create-mock)                             | `warn`       | объектный литерал под `as SomeType` — каст пропускает и лишний ключ, и недостающий                                                                                         |
+| [`no-mock-cast`](#no-mock-cast)                                         | `error`      | `TestBed.inject(S).m as Mock` — `Mock` это `Mock<any>`, аргументы перестают сравниваться                                                                                   |
+| [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)         | `error`      | объектный литерал из двух и более `vi.fn()`                                                                                                                                |
+| [`no-stub-class-double`](#no-stub-class-double)                         | `warn`       | класс, чьи поля — `vi.fn()`: тот же дубль, только с `new` впереди                                                                                                          |
+| [`no-structural-double`](#no-structural-double)                         | `warn`       | объект из `vi.fn()` у имени, объявленного как объект из `Mock` Vitest                                                                                                      |
+| [`prefer-spy-on-own-method`](#prefer-spy-on-own-method)                 | `warn`       | `createSpyFromInstance`, который шпионит за одним методом и читается только ради него                                                                                      |
+| [`no-shared-module-level-mock`](#no-shared-module-level-mock)           | `error`      | **экспортируемое** значение, которое строит `vi.fn()` при загрузке модуля                                                                                                  |
+| [`no-outer-binding-in-mock-factory`](#no-outer-binding-in-mock-factory) | `error`      | фабрика `vi.mock`, читающая биндинг верхнего уровня, объявленный не через `vi.hoisted`                                                                                     |
+| [`no-object-define-property`](#no-object-define-property)               | `error`      | `Object.defineProperty` / `defineProperties` в спеке                                                                                                                       |
+| [`no-import-time-spread`](#no-import-time-spread)                       | `error`      | спред импортированного биндинга, вычисляемый на уровне модуля                                                                                                              |
+| [`prefer-observer-stub`](#prefer-observer-stub)                         | `error`      | глобальный observer, подменённый руками или через раннер                                                                                                                   |
+| [`no-hand-assigned-global`](#no-hand-assigned-global)                   | `error`      | `global.fetch = vi.fn()`, `environment.x = …` — значение, которое никакой teardown не возвращает                                                                           |
+| [`prefer-stub-response`](#prefer-stub-response)                         | `error`      | объектный литерал, приведённый к `Response`, или `createMock<Response>(…)` — половина ответа                                                                               |
+| [`no-redundant-mock-reset`](#no-redundant-mock-reset)                   | `error`      | сброс моков в хуке, который раннер и так делает между тестами                                                                                                              |
+| [`prefer-provide-activated-route`](#prefer-provide-activated-route)     | `error`      | `ActivatedRoute`, предоставленный как собранный руками объект, класс или фабрика, — полмаршрута                                                                            |
+| [`no-passthrough-console-spy`](#no-passthrough-console-spy)             | `error`      | `vi.spyOn(console, m)`, которому ничто не дало реализации, — вызывает оригинал и печатает                                                                                  |
+| [`no-unasserted-console-spy`](#no-unasserted-console-spy)               | `warn`       | консольный спай, которого файл только сбрасывает или настраивает и никогда не проверяет, — `useConsoleSpies()` и так глушит вывод                                          |
+| [`no-console-in-spec`](#no-console-in-spec)                             | `error`      | спека, которая вызывает метод консоли или подменяет его присваиванием                                                                                                      |
+| [`no-import-time-console-spies`](#no-import-time-console-spies)         | `error`      | импорт `vitest-auto-spy/console` в файле, который не зовёт `installConsoleSpies()` или `useConsoleSpies()`                                                                 |
+| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                   | `error`      | провайдер, который собирает дубль сервиса руками или расписывает `provideAutoSpy`                                                                                          |
+| [`prefer-inject-spy`](#prefer-inject-spy)                               | `error`      | `vi.spyOn` поверх инстанса, который выдал `TestBed.inject`                                                                                                                 |
+| [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)             | `error`      | `injectSpy(X)` для токена, который этот файл не регистрировал как автоспай                                                                                                 |
+| [`no-real-component-provider`](#no-real-component-provider)             | `error`      | собственный провайдер компонента, прочитанный из фикстуры, когда файл его ничем не подменил                                                                                |
+| [`prefer-render-shallow`](#prefer-render-shallow)                       | `warn`       | `TestBed.createComponent` в файле, который ни разу не читает отрендеренный шаблон; под `{ templates: 'never' }` — любое чтение DOM или шаблон в спеке                      |
+| [`prefer-set-inputs`](#prefer-set-inputs)                               | `warn`       | серию `fixture.componentRef.setInput(…)` — имя, которое Angular ничем не проверяет                                                                                         |
+| [`no-overridden-provider`](#no-overridden-provider)                     | `error`      | провайдер, которого заменяет более поздний или `TestBed.overrideProvider`                                                                                                  |
+| [`no-inject-before-override`](#no-inject-before-override)               | `error`      | вызов, создающий модуль, в хуке набора тестов, который ещё вызывает `TestBed.override*` или `overrideComponentProvider`; `injectSpy` выше переопределения в `beforeCreate` |
+| [`no-dead-schemas`](#no-dead-schemas)                                   | `error`      | `schemas` в тестовом модуле, который ничего не объявляет                                                                                                                   |
+| [`no-mistyped-use-value`](#no-mistyped-use-value)                       | `error`      | `useValue`, который не подходит под примитивный тип, объявленный его `InjectionToken`                                                                                      |
+| [`no-unknown-use-value-key`](#no-unknown-use-value-key)                 | `error`      | ключ объектного `useValue`, которого нет у предоставляемого типа, — только ключи                                                                                           |
+| [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)               | `warn`       | `vi.spyOn(component, 'ngOnInit')` — спай на хуке, который Angular не вызывает                                                                                              |
+| [`no-compile-components`](#no-compile-components)                       | `error`      | `compileComponents()` под билдером, встраивающим ресурсы, — молчит, пока ему не скажут                                                                                     |
+| [`no-relative-mock-under-builder`](#no-relative-mock-under-builder)     | `error`      | `vi.mock('./x')` в спеке, которую запускает `@angular/build:unit-test`, — билдер на этом падает; молчит, пока такой билдер не найден                                       |
+| [`no-disabled-testbed-teardown`](#no-disabled-testbed-teardown)         | `error`      | `destroyAfterEach: false` — каждая фикстура переживает свой тест                                                                                                           |
+| [`no-sync-testbed-await`](#no-sync-testbed-await)                       | `error`      | `await` на вызове TestBed, который отвечает самим TestBed или фикстурой, а не промисом                                                                                     |
+| [`no-private-member-access`](#no-private-member-access)                 | `error`      | `private` / `protected`-член, добытый через скобки, каст или прототип                                                                                                      |
+| [`no-reflect-member-access`](#no-reflect-member-access)                 | `error`      | `Reflect.get` / `Reflect.set` по субъекту теста — ключ, который не проверяет никто                                                                                         |
+| [`no-mocked-for-spy`](#no-mocked-for-spy)                               | `error`      | `Mocked<T>` в типовой позиции, где значение — спай                                                                                                                         |
+| [`prefer-as-spy`](#prefer-as-spy)                                       | `error`      | `TestBed.inject(X) as Spy<X>` — каст, который больше не компилируется                                                                                                      |
+| [`no-ts-expect-error-on-double`](#no-ts-expect-error-on-double)         | `error`      | `@ts-expect-error` / `@ts-ignore` над `nextWith`, `mockReturnValue`, … дубля                                                                                               |
+| [`no-jasmine-globals`](#no-jasmine-globals)                             | `error`      | `jasmine.*`, голые `spyOn(` / `fail(` / `pending(` и `.withContext(`                                                                                                       |
+| [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry)   | `error`      | `.and` / `.calls` / `.withArgs` в файле, который нигде не ставит слой совместимости                                                                                        |
+| [`no-save-arguments-by-value`](#no-save-arguments-by-value)             | `error`      | `spy.calls.saveArgumentsByValue()` — здесь это no-op                                                                                                                       |
+| [`prefer-native-spy-api`](#prefer-native-spy-api)                       | `error`      | `.and` / `.calls` там, где то же самое умеет собственный API спая                                                                                                          |
 
-У шести есть опции: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
-[`no-stub-class-double`](#no-stub-class-double) и [`no-structural-double`](#no-structural-double)
-(`minRunnerFns`), [`prefer-render-shallow`](#prefer-render-shallow) (`templates`),
-[`no-compile-components`](#no-compile-components) (`builder`, без которой оно ничего не сообщает) и
-[`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) (`setupModules`). Четыре читают
-типы: [`no-private-member-access`](#no-private-member-access),
-[`no-mistyped-use-value`](#no-mistyped-use-value),
-[`no-unknown-use-value-key`](#no-unknown-use-value-key) и
-[`prefer-to-have-signal-value`](#prefer-to-have-signal-value). Два дополнительно поставляются как
-`configs.typeErrors`, потому что их находки не компилируются:
-[`prefer-as-spy`](#prefer-as-spy) и [`no-mocked-for-spy`](#no-mocked-for-spy).
+- **Опции есть у десяти правил:** [`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
+  [`no-stub-class-double`](#no-stub-class-double) и [`no-structural-double`](#no-structural-double)
+  (`minRunnerFns`), [`prefer-render-shallow`](#prefer-render-shallow) (`templates`),
+  [`prefer-inject-spy`](#prefer-inject-spy) (`ignoreTokens`),
+  [`no-real-component-provider`](#no-real-component-provider) (`ignoreTokens`, `childInjectors`),
+  [`no-redundant-mock-reset`](#no-redundant-mock-reset) (флаги сброса раннера, `configFile`,
+  `configFlags`), [`no-compile-components`](#no-compile-components) (`builder`, `ignoreComponents`),
+  [`no-relative-mock-under-builder`](#no-relative-mock-under-builder) (`builder`) и
+  [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) (`setupModules`).
+- **Четырём правилам нужна информация о типах:**
+  [`no-private-member-access`](#no-private-member-access),
+  [`no-mistyped-use-value`](#no-mistyped-use-value),
+  [`no-unknown-use-value-key`](#no-unknown-use-value-key) и
+  [`prefer-to-have-signal-value`](#prefer-to-have-signal-value).
+- **Два правила входят ещё и в `configs.typeErrors`,** потому что их находки не компилируются:
+  [`prefer-as-spy`](#prefer-as-spy) и [`no-mocked-for-spy`](#no-mocked-for-spy).
 
 ## no-expect-in-subscribe {#no-expect-in-subscribe}
 
 **`error`** · подсказка · только синтаксис
 
-**Что сообщает.** `expect()`, который выполнится только если поток эмитит, — где угодно внутри
-колбэка `subscribe(…)`, включая проверки, до которых колбэк добирается через хелпер.
-
-**На чём решает.** Два селектора и подсчёт. Считается каждый `expect(…)` внутри вызова
-`…subscribe(…)`, а ещё каждый вызов простого имени внутри него: это имя разрешается через менеджер
-скоупов до функции, объявленной в том же файле, и `expect`-ы в её теле тоже идут в счёт — один шаг,
-без информации о типах. Хелпер, объявленный _внутри_ колбэка, пропускается: первый селектор его уже
-посчитал. Отчёты группируются по `subscribe` и выдаются на `Program:exit`, поэтому колбэк с четырьмя
-проверками даёт одно сообщение, а не четыре; один файл реального переезда так превратился из 44
-сообщений в 23.
-
-Какое из трёх сообщений придёт — тоже вопрос синтаксиса, и это три разные правки:
-
-- **`inErrorHandler`** — проверка стоит в ветке ошибки, позиционной (`subscribe(next, error)`) или
-  именованной (`subscribe({ error })`).
-- **`afterTrigger`** — за инструкцией с `subscribe` в том же блоке идёт ещё одна. Обычно именно она
-  и заставляет поток эмитить (`req.flush(payload)`, `subject.next(…)`), и разворот подписки наизнанку
-  даст дедлок.
-- **`invertible`** — ни то, ни другое: подписка — последнее, что делает тест.
-
-**Находка и как её закрыть.**
+Сообщает про `expect()` внутри колбэка `subscribe(…)`. Такая проверка выполнится, только если поток
+эмитит. Если поток молчит, тест проходит, ничего не проверив.
 
 ```ts
 it('maps the products', () =>
   new Promise<void>((done) => {
     service.getProducts(id).subscribe((products) => {
-      expect(products).toEqual(expected); // ❌ не выполнится, если поток промолчит
+      expect(products).toEqual(expected); // ❌ не выполнится, если поток молчит
       done();
     });
   }));
 ```
 
 ```ts
+import { firstValueFrom } from 'rxjs';
+
 it('maps the products', async () => {
-  const products = await firstValueFrom(service.getProducts(id));
+  const products = await firstValueFrom(service.getProducts(id)); // ✅ упадёт, если ничего не придёт
 
   expect(products).toEqual(expected);
 });
 ```
 
-Именно этот каркас — `it(name, () => new Promise((done) => …))` — дал 111 находок из 133 в одной
-партии из 22 переехавших файлов, поэтому к нему приложена подсказка, которая пишет замену: для
-обработчика `next` берётся `firstValueFrom`, для `complete` — `lastValueFrom(src, { defaultValue: undefined })`,
-и добавляется импорт из rxjs. Это никогда не `--fix`: замена эквивалентна, только пока проверки —
-это всё, что делает колбэк, а неверная замена оставит зелёный тест, то есть ровно тот отказ, ради
-которого правило и существует.
+**Опции.** Нет.
 
-**Зачем это в `recommended`.** Подписка, которая ни разу не сработала, — самый чистый зелёный и
-неверный тест: [четыре формы проверки против четырёх поведений потока](/ru/core/observable-assertions),
-все четыре зелёные, когда поток не эмитит ничего. В прогоне об этом не говорит ничего — ни
+**Как исправить.** Сообщение говорит, какой из трёх случаев у вас. Для каждого нужна своя правка:
+
+```ts
+// 1. invertible: подписка — последнее, что делает тест. Дождитесь значения.
+const value = await firstValueFrom(source$);
+expect(value).toBe(1);
+
+// 2. afterTrigger: поток эмитит из-за инструкции ниже. Сначала сохраните промис.
+//    `await firstValueFrom(...)` здесь зависнет: триггер под ним так и не выполнится.
+//    `expectEmission` подписывается при вызове, а не при `await`.
+const emission = expectEmission(service.getCurrentLevel());
+httpMock.expectOne(url).flush(payload);
+await expect(emission).resolves.toEqual(payload);
+
+// 3. inErrorHandler: проверка стоит в ветке ошибки. Проверьте реджект.
+await expect(firstValueFrom(source$)).rejects.toBeInstanceOf(UpstreamStatusError);
+```
+
+- Если поток эмитит несколько значений и вы хотели проверить каждое, используйте
+  `expectEmissions(source$, N)`.
+- В случае с ошибкой удалите и страж `next: () => expect.unreachable(…)` рядом с колбэком `error`.
+  `await expect(firstValueFrom(source$)).rejects.toMatchObject({ status: 404 })` и так падает, когда
+  поток завершается успешно.
+- Для точного каркаса `it(name, () => new Promise((done) => …))` редактор предложит подсказку,
+  которая сама пишет замену. Для обработчика `next` она берёт `firstValueFrom`, для `complete` —
+  `lastValueFrom(src, { defaultValue: undefined })`, и добавляет импорт из rxjs.
+
+**Когда выключить.** Правило видит форму, а не ошибку. Поэтому оно сообщает и про подписку на поток,
+который точно эмитит: `BehaviorSubject`, `of(…)` или `ReplaySubject`, наполненный в том же тесте.
+Такие места всё равно перепишите: проверка читается так же. Построчный disable нужен там, где
+предмет теста — сама подписка, например проверка отписки или счёт мультикаста.
+
+::: details Как правило решает
+**Что считается.** Считается каждый `expect(…)` внутри вызова `…subscribe(…)`. Считается и вызов
+простого имени внутри него: правило находит эту функцию в том же файле и считает `expect`-ы в её
+теле. Это один шаг вглубь, без информации о типах. Хелпер, объявленный _внутри_ колбэка, считается
+один раз, а не два.
+
+```ts
+const assertShape = (data: Content): void => {
+  expect(data.items).toHaveLength(3);
+};
+
+source$.subscribe((data) => assertShape(data)); // это всё ещё проверка, которая может не выполниться
+```
+
+Отчёты группируются по `subscribe`. Колбэк с четырьмя проверками даёт одно сообщение, а не четыре.
+Так один файл реального переезда сократился с 44 сообщений до 23.
+
+**Какое сообщение вы получите**, тоже решается по синтаксису:
+
+- **`inErrorHandler`**: проверка стоит в ветке ошибки, позиционной (`subscribe(next, error)`) или
+  именованной (`subscribe({ error })`). `subscribe({ next: () => expect.unreachable(…), error: (e) =>
+expect(e).toBe(err) })` тоже превращается в одну строку с `rejects`.
+- **`afterTrigger`**: в том же блоке за инструкцией с `subscribe` идёт ещё одна. Обычно именно она
+  заставляет поток эмитить (`req.flush(payload)`, `subject.next(…)`).
+- **`invertible`**: ни то, ни другое, то есть подписка — последнее, что делает тест.
+
+Сообщений три, потому что верная правка меняется от файла к файлу, а не от проекта к проекту. За пять
+партий переезда в одном файле 110 мест из 111 оказались простым разворотом, а в другом — 36 из 119.
+
+**Почему оно в recommended.** Подписка, которая ни разу не сработала, — самый чистый зелёный и
+неверный тест. См. [четыре формы проверки против четырёх поведений потока](/ru/core/observable-assertions):
+все четыре зелёные, когда поток ничего не эмитит. В прогоне об этом ничего не сказано: ни
 необработанного реджекта, ни предупреждения, ни пропущенного теста.
 
-**Границы.** Правило видит форму, а не ошибку, поэтому спека, которая подписывается на поток с уже
-доказанной эмиссией, тоже получит отчёт — `BehaviorSubject`, `of(…)`, `ReplaySubject`, наполненный в
-том же тесте. Их всё равно стоит переписать, потому что читается проверка одинаково, но построчный
-disable — честный ответ там, где подписка и есть предмет теста (проверка отписки, счёт мультикаста).
-Подсказка отказывается от любой формы, за которую не может отвечать: исполнитель промиса, делающий
-что-то помимо подписки, `subscribe({ next, complete })` с двумя обработчиками, тестовый колбэк,
-принимающий контекст Vitest, `done`, упомянутый больше одного раза.
+**Почему подсказка, а не `--fix`.** Каркас выше дал 111 находок из 133 в одной партии из 22
+переехавших файлов, поэтому он заслужил своё распознавание. Но замена равносильна, только пока
+проверки — это весь колбэк. Неверная замена оставит тест, который всё ещё проходит. А это ровно тот
+отказ, ради которого правило существует. Подсказка предлагается, только когда:
 
-**Что сообщение оставляет за кадром.** Оно цитирует источник, на который подписан тест, и называет по одной
-починке на ветку. Остальное: поток, который эмитит больше одного раза и каждую эмиссию которого
-нужно было проверить, — это `expectEmissions(source$, N)`; в `afterTrigger` `expectEmission` идёт
-первым, потому что подписывается при вызове, а не при `await`; а в `inErrorHandler` уходит и
-соседний страж `next: () => expect.unreachable(…)`, потому что
-`await expect(firstValueFrom(source$)).rejects.toMatchObject({ status: 404 })` и так падает, когда
-поток завершается успешно.
+- в исполнителе промиса одна инструкция `subscribe` и больше ничего;
+- колбэк один, с телом-блоком и одним обработчиком (не `subscribe({ next, complete })`);
+- `done` упомянут один раз и вызывается последним;
+- тестовый колбэк не принимает контекст Vitest.
 
-**Severity.** `error`. Находка — тест, который проходит, ничего не проверив, а починка для основной
-массы механическая.
+Всё остальное в исполнителе — обычно та инструкция, что запускает источник. Она должна выполниться,
+когда кто-то уже слушает.
+
+**Серьёзность.** `error`. Находка — тест, который проходит, ничего не проверив, а большинство
+исправлений механические.
+:::
 
 ## no-vacuous-absence-assertion {#no-vacuous-absence-assertion}
 
-**`error`** · без починки · только синтаксис и области видимости
+**`error`** · без автоисправления · синтаксис и области видимости
 
-**Сообщает про.** Тест, в котором **каждое** утверждение выполнено состоянием «ничего не
-произошло», — где проверяемое значение это переменная, объявленная в самом тесте и записываемая
-только колбэком `subscribe`, или `vi.fn()`, который тест отдаёт прямо в `subscribe`.
-
-**Решает по.** Трём фактам, и все они есть в файле.
-
-- **Носитель.** `const` / `let`, объявленный внутри этого теста, каждая запись в который, кроме
-  объявления, находится внутри колбэка `subscribe` этого же теста — считаются обе формы, присваивание
-  (`subscribe((r) => (chips = r))`) и `push` (`subscribe((r) => seen.push(r))`), — либо имя,
-  связанное с `vi.fn()`, которое тест отдаёт в `subscribe` и сам нигде не вызывает.
-- **Что оставляет там молчание** — читается как исходный текст инициализатора (`'undefined'` для
-  `let` без него). Матчер равенства, повторяющий этот текст (`let chips = []` …
-  `expect(chips).toEqual([])`), выполняется молчанием; так же `toBeUndefined` / `not.toBeDefined`,
-  когда объявление держит `undefined`, `toBeNull` — когда `null`, `toBeFalsy` / `not.toBeTruthy` —
-  когда там любой ложный литерал, `toHaveLength(0)` — когда `[]` или `''`, и
-  `not.toHaveBeenCalled` / `not.toHaveBeenCalledWith` / `toHaveBeenCalledTimes(0)` — на любом
-  субъекте. Это сознательно буквально, а не по семейству матчеров: `toBeNull()` на `let` без
-  инициализатора на молчании падает, и о нём не сообщается.
-- **Что ничто другое в тесте упасть не может.** Каждый остальной `expect()` взвешивается так же, и
-  одного такого, который молчащий источник мог бы уронить, достаточно, чтобы правило смолчало. Так же
-  действует вызов `expectEmission`, `expectEmissions`, `expectCompletion` или `expectError` этой
-  библиотеки: каждый падает по таймауту на источнике, который не эмитит и не завершается.
-
-**Находка и как её закрыть.**
+Сообщает про тест, в котором **каждая** проверка выполняется и тогда, когда поток ничего не прислал.
+Такой тест не отличает «результат пуст» от «результата нет».
 
 ```ts
 it('yields an empty list when no sub-genre resolved to an address', () => {
@@ -229,70 +249,95 @@ it('yields an empty list when no sub-genre resolved to an address', () => {
 
 ```ts
 it('asks for no shelf when no sub-genre resolved to an address', async () => {
-  await expectNoEmission(load$(quickLinks));
+  await expectNoEmission(load$(quickLinks)); // ✅ падает, как только что-то пришло
 
   expect(catalog.getSectionById).not.toHaveBeenCalled();
 });
 ```
 
-…когда утверждается молчание, — или [`expectEmission`](/ru/core/observable-assertions), когда
-утверждается пустой список:
+**Опции.** Нет.
+
+**Как исправить.** Решите, что утверждает тест:
+
+- **Ничего не приходит:** `await expectNoEmission(source$)`, как выше.
+- **Приходит пустой список:** [`expectEmission`](/ru/core/observable-assertions), который падает, когда
+  ничего не пришло:
 
 ```ts
 expect(await expectEmission(load$(quickLinks))).toEqual([]);
 ```
 
-**Зачем это в `recommended`.** Доказано мутацией, дважды, на Angular-сюите из 2 030 файлов. Замена
-продакшн-источника у файла выше на поток, который никогда не эмитит, уронила три соседних теста и
-оставила этот зелёным; та же замена в сервисе промо-баннера уронила четыре теста и оставила два —
-оба этой формы. Двумя тестами ниже в том же музыкальном файле захват объявлен как
-`let chips: … | null = null` и проверяется через `toEqual([])`, и вот он на молчании _падает_:
-автор знал приём и применил его не везде — ровно для этого и нужен линтер. На той сюите правило
-сообщает **39 раз в 33 файлах**, 22 из них — записанный захват, 17 — `vi.fn()`, отданный в
-`subscribe`.
+**Когда выключить.** Редко. Правило молчит, как только хоть одна проверка в тесте может упасть на
+молчащем потоке. Ещё оно пропускает любой тест, который проверяет через собственный хелпер. Какие
+находки блокируют мерж — одна строка конфига.
 
-Это вторая половина [`no-expect-in-subscribe`](#no-expect-in-subscribe): то правило сообщает про
-утверждение, до которого молчащий поток не доходит, это — про утверждение, которое молчащий поток
-выполняет.
+::: details Как правило решает
+Правило проверяет три факта, и все они есть в файле.
 
-**Ограничения.** Тест, который проверяет ещё и что-то положительное, не сообщается никогда, даже
-если одна из его строк пустая: самое сильное место на потребителе — захват
-`let result: void | undefined` рядом с тремя `toHaveBeenCalledWith`, и правило там молчит.
-Утверждением считается только `expect()`, поэтому `assert.exists(…)` и ожидаемый
-`expectCompletion(…)` правило не удерживают. Тест, который добирается до утверждений через
-собственный хелпер, пропускается целиком — взвесить то, что проверяет хелпер, правило не может.
-Цепочка, которую оно не может дочитать до конца (`resolves`, `rejects`, матчер, взятый значением),
-считается утверждением, которое может упасть, а это делает правило только тише.
+**1. Носитель.** `const` / `let`, объявленный внутри этого теста. Каждая запись в него, кроме
+объявления, стоит внутри колбэка `subscribe` этого же теста. Считаются обе формы:
+`subscribe((r) => (chips = r))` и `subscribe((r) => seen.push(r))`. Считается и имя, связанное с
+`vi.fn()`, если тест отдаёт его в `subscribe` и сам нигде не вызывает.
 
-**Строгость.** `error`. Доказательство — объявление и матчеры, и то и другое в файле; находка — тест,
-который ничего не доказывает про названный им источник; починка — по одному тесту за раз, а не
-миграция. На большой сюите правило приезжает не в ноль, и это та же позиция, в которой выходило
-[`prefer-settle-dynamic-import`](#prefer-settle-dynamic-import): какие находки блокируют мерж —
-по-прежнему одна строка конфига.
+**2. Что там оставляет молчание.** Правило читает исходный текст инициализатора (`'undefined'` для
+`let` без него). На молчании выполняются такие матчеры:
 
-**Без автофикса и без подсказки.** Починка — не правка в сообщённом узле. Она удаляет объявление,
-заменяет подписку ожидаемым хелпером, выбрасывает утверждение, делает колбэк `async` и добавляет
-импорт — пять согласованных правок, — а `expectNoEmission` утверждает нечто _более сильное_, чем
-строка, которую он заменяет, так что ошибочно принятая подсказка красит зелёный тест в красный
-сообщением про хелпер, а не про код. Вместо этого починку называет сообщение — так же и по той же
-причине поступает [`prefer-stub-response`](#prefer-stub-response).
+- матчер равенства, повторяющий этот текст (`let chips = []` … `expect(chips).toEqual([])`);
+- `toBeUndefined` / `not.toBeDefined`, когда объявление держит `undefined`;
+- `toBeNull`, когда там `null`;
+- `toBeFalsy` / `not.toBeTruthy`, когда там любой ложный литерал;
+- `toHaveLength(0)`, когда там `[]` или `''`;
+- `not.toHaveBeenCalled` / `not.toHaveBeenCalledWith` / `toHaveBeenCalledTimes(0)` на любом субъекте.
+
+Правило читает буквально, а не по семейству матчеров, и это сознательно. `toBeNull()` на `let` без
+инициализатора на молчании падает, и о нём правило не сообщает.
+
+**3. Ничто другое в тесте упасть не может.** Каждый остальной `expect()` в тесте взвешивается так же.
+Если хоть один из них может упасть на молчащем источнике, правило молчит. Так же действует вызов
+`expectEmission`, `expectEmissions`, `expectCompletion` или `expectError`: каждый падает по таймауту
+на источнике, который не эмитит и не завершается. Поэтому правило не трогает частую форму «проверить
+отсутствие, запустить источник, проверить значение».
+
+**Границы.**
+
+- Тест, который проверяет ещё и что-то положительное, не сообщается никогда, даже если одна его
+  строка пустая.
+- Проверкой считается только `expect()`. `assert.exists(…)` и ожидаемый `expectCompletion(…)` правило
+  не останавливают.
+- Тест, который проверяет через собственный хелпер, пропускается: взвесить хелпер правило не может.
+- Цепочка, которую правило не может дочитать до конца (`resolves`, `rejects`, матчер, взятый как
+  значение), считается проверкой, которая может упасть. От этого правило становится только тише.
+
+**Почему оно в recommended.** Это доказано мутацией, дважды, на Angular-проекте из 2 030 файлов.
+Продакшн-источник файла выше заменили на поток, который никогда не эмитит. Упали три соседних теста,
+а этот остался зелёным. Та же замена в сервисе промо-баннера уронила четыре теста и оставила зелёными
+два, оба этой формы. Двумя тестами ниже в том же файле захват объявлен как
+`let chips: … | null = null` и проверяется через `toEqual([])`, и вот он на молчании _падает_. Автор
+знал приём, но применил его не везде, а для этого и нужен линтер. На том проекте правило сообщает
+**39 раз в 33 файлах**: 22 записанных захвата и 17 `vi.fn()`, отданных в `subscribe`.
+
+Это вторая половина [`no-expect-in-subscribe`](#no-expect-in-subscribe). То правило сообщает про
+проверку, до которой молчащий поток не доходит. Это — про проверку, которую молчащий поток выполняет.
+
+**Почему нет ни автоисправления, ни подсказки.** Починка — пять согласованных правок: удалить
+объявление, заменить подписку ожидаемым хелпером, убрать проверку, сделать колбэк `async`, добавить
+импорт. К тому же `expectNoEmission` утверждает нечто _более сильное_, чем строка, которую он
+заменяет. Ошибочно принятая подсказка сделала бы зелёный тест красным, с сообщением про хелпер, а не
+про код. Поэтому починку называет сообщение, как у [`prefer-stub-response`](#prefer-stub-response).
+
+**Серьёзность.** `error`. Доказательство — объявление и матчеры, и то и другое в файле. Находка —
+тест, который ничего не доказывает про названный им источник. Исправление идёт по одному тесту, а не
+миграцией. Большой проект не придёт к нулю сразу; какие находки блокируют мерж, остаётся одной
+строкой конфига, как и у [`prefer-settle-dynamic-import`](#prefer-settle-dynamic-import).
+:::
 
 ## no-floating-assertion {#no-floating-assertion}
 
-**`error`** · без правки · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Что сообщает.** `expect()` внутри колбэка `.then()` / `.catch()` / `.finally()`, чья цепочка —
-голое выражение-инструкция: промис никто не ждёт, не возвращает, не сохраняет и никуда не передаёт.
-
-**На чём решает.** На обходе цепочки _вверх_, и в этом вся проверка. В `p.then(a).catch(b)` родитель
-`p.then(a)` — member expression, поэтому только у последнего вызова цепочки есть родитель, по
-которому видно, потребляет ли промис хоть кто-нибудь; чтение непосредственного родителя оправдывало
-бы первый колбэк каждой цепочки, у которой есть второй. `expect` должен стоять в **непосредственно**
-охватывающем колбэке: на один колбэк глубже совет перестаёт быть верным, потому что ожидание цепочки
-оживит проверку в теле `.then()`, но не ту, что припаркована в `setTimeout` внутри него.
-Вычисляемое имя метода (`p[settle](…)`) не является заведомо промис-колбэком и не трогается.
-
-**Находка и как её закрыть.**
+Сообщает про `expect()` внутри колбэка `.then()`, `.catch()` или `.finally()`, когда цепочку никто не
+ждёт, не возвращает, не сохраняет и никуда не передаёт. Колбэк выполняется после конца теста, поэтому
+проверка не может его уронить.
 
 ```ts
 it('compiles', () => {
@@ -302,42 +347,57 @@ it('compiles', () => {
 
 ```ts
 it('compiles', async () => {
-  await TestBed.compileComponents();
+  await TestBed.compileComponents(); // ✅ тест ждёт, поэтому проверка может его уронить
 
   expect(fixture.componentInstance).toBeTruthy();
 });
 ```
 
-**Зачем это в `recommended`.** Колбэк выполняется после того, как написавший его тест уже закончился,
-поэтому проверка не может его уронить. Что скажет прогон, зависит от окружения, и ни один из ответов
-не называет тест: без зон — `Unhandled Rejection` и код выхода 1 без имени теста; под zone.js реджект
-сливается в `console.error`, и из двух реджектов один исчезает совсем.
+**Опции.** Нет.
 
-**Границы.** Сообщается только о том, что действительно лечится ожиданием, поэтому формы с
-отложенными колбэками оставлены [`no-expect-in-subscribe`](#no-expect-in-subscribe) и
-[`setupAutoSpy({ strayRejections: true })`](/ru/utilities/setup), который ловит в рантайме то, чего не
-увидит никакой селектор. Цепочка, которая ничего не проверяет, не сообщается вовсе — это правильно и
-одновременно значит, что от висящей цепочки с побочным эффектом правило не помогает.
+**Как исправить.** Сделайте тест `async`, добавьте `await` перед промисом и проверяйте после `await`.
 
-**Severity.** `error`. Зелёный и неверный, без диагностики, которая указала бы на спеку.
+**Когда выключить.** Почти никогда. Правило сообщает только о том, что действительно лечится
+ожиданием. `expect()`, спрятанный глубже, например в `setTimeout` внутри `.then()`, не сообщается. Для
+такого случая включите [`setupAutoSpy({ strayRejections: true })`](/ru/utilities/setup#_8-failing-on-a-rejection-zone-js-swallowed):
+он ловит во время прогона то, чего не увидит никакое правило линтера.
+
+::: details Как правило решает
+**Обход вверх по цепочке.** В `p.then(a).catch(b)` родитель `p.then(a)` — member expression. Только у
+последнего вызова цепочки есть родитель, по которому видно, использует ли промис хоть кто-нибудь.
+Поэтому правило поднимается до конца цепочки. Если читать только непосредственного родителя, первый
+колбэк оправдывался бы в каждой цепочке, где есть второй.
+
+**Считается только непосредственно охватывающий колбэк.** На один колбэк глубже ожидание цепочки уже
+не помогает: оно оживляет проверку в теле `.then()`, но не ту, что спрятана в `setTimeout` внутри
+него. Такие формы оставлены [`no-expect-in-subscribe`](#no-expect-in-subscribe) и `strayRejections`.
+Вычисляемое имя метода (`p[settle](…)`) не обязательно промис-колбэк, поэтому правило его не трогает.
+Цепочка, которая ничего не проверяет, не сообщается. Значит, от висящей цепочки с одним лишь
+побочным эффектом правило не помогает.
+
+**Почему оно в recommended.** Что покажет прогон, зависит от окружения, и ни один ответ не называет
+тест. Одни и те же два теста (`expect()` в неожидаемом `.then()` и `async`-хелпер, вызванный без
+`await`) в трёх окружениях:
+
+|                                                     |          тесты           | что сообщает раннер                                               |
+| --------------------------------------------------- | :----------------------: | ----------------------------------------------------------------- |
+| без зон                                             |       **2 passed**       | 2 `Unhandled Rejection`, код выхода 1, ни один не связан с тестом |
+| zone.js                                             |       **2 passed**       | 1 ошибка; вторую zone.js перенёс в `console.error`                |
+| zone.js + `setupAutoSpy({ strayRejections: true })` | **1 failed \| 1 passed** | скрытая ошибка стала именованным падением нужного теста           |
+
+Проверка ложна в каждой строке, а тест зелёный везде, кроме последней.
+
+**Серьёзность.** `error`. Тест зелёный и неверный, и никакая диагностика не указывает на спеку.
+:::
 
 ## no-done-callback {#no-done-callback}
 
-**`error`** · без правки · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Что сообщает.** Две вещи. Первый параметр, записанный простым идентификатором, у `it` / `test` /
-`beforeAll` / `beforeEach` / `afterAll` / `afterEach` — и отдельно вызов `.fail(…)` на параметре, о
-котором правило уже сообщило.
-
-**На чём решает.** На _форме_ параметра, а не на его имени. Фикстуры Vitest обязаны
-деструктурироваться, поэтому простое имя в этой позиции — это `done`, переехавший из Jest или
-Jasmine, как бы он ни назывался; `({ task })` и колбэк без параметров молчат. Половина про
-`done.fail(…)` разрешается через менеджер скоупов до параметра колбэка, уже попавшего в отчёты:
-`done` — это то, как параметр называют в девяти файлах из десяти и ни в одном десятом, а метод `fail`
-на наборе матчеров или на доменном объекте — чей-то API. Параметр посещается раньше тела, поэтому к
-моменту встречи с `fail` набор уже полон.
-
-**Находка и как её закрыть.**
+Сообщает про первый параметр в стиле `done` у `it` / `test` / `beforeAll` / `beforeEach` /
+`afterAll` / `afterEach` и про `done.fail(…)` на нём. На это место Vitest передаёт свой объект
+контекста теста, и вызов `done()` бросает ошибку. Если этот вызов стоит внутри колбэка, ошибку никто
+не ловит, и тест **проходит**, почти ничего из себя не выполнив.
 
 ```ts
 it('loads', (done) => {
@@ -349,89 +409,141 @@ it('loads', (done) => {
 ```
 
 ```ts
+import { firstValueFrom } from 'rxjs';
+
 it('loads', async () => {
-  expect(await firstValueFrom(service.load())).toBe(1);
+  expect(await firstValueFrom(service.load())).toBe(1); // ✅
 });
 ```
 
-**Зачем это в `recommended`.** Vitest 4 передаёт сюда вызываемый `TestContext`, поэтому `done()`
-бросает — и бросает внутри колбэка, которого никто не ждёт. Тело вернулось давно, реджект необработан,
-а тест **проходит**, выполнив почти ничего из себя. Четыре таких теста годами были зелёными в той
-сюите, из которой пришло это правило. `done.fail(…)` хуже в том же направлении: у `TestContext` нет
-`fail`, поэтому строка бросает `done.fail is not a function` — из колбэка `error` или из `.catch()`,
-то есть ровно на том пути, который должен был уронить тест.
+**Опции.** Нет.
 
-**Границы.** Хелпер, который честно принимает один позиционный аргумент и _вызывается_ как хук,
-селектору не отличить, — но селектор ловит только шесть имён раннера, так что на практике это узко.
-Тело колбэка здесь никто не читает, поэтому `done`, объявленный и ни разу не вызванный, тоже попадёт
-в отчёт — и правильно: параметр всё равно не то, что передаёт раннер.
+**Как исправить.** Сделайте тест `async` и дождитесь проверки, как выше.
 
-**Что сообщение оставляет за кадром.** `doneFail` называет матчер для отказа; там, где строка отмечает ветку, которая
-не должна выполняться, а не отказ, который надо проверить, это говорит `expect.fail(message)`.
+- Для `done.fail(…)` проверьте само падение:
+  `await expect(firstValueFrom(source$)).rejects.toMatchObject({ status: 404 })`.
+- Если строка отмечает ветку, которая не должна выполняться, напишите `expect.fail(message)`.
 
-**Severity.** `error`. Тест, который проходит, не выполнившись, — не то, что проект может позволить
-себе пролистать в выводе линтера.
+**Когда выключить.** Редко. Параметр в порядке, когда тело только читает его члены, например
+`ctx.skip()` или `ctx.task`; тогда правило и так молчит. Деструктурированный параметр (`({ task })`)
+и колбэк без параметров не сообщаются никогда.
+
+::: details Как правило решает
+**Что это за параметр.** Vitest 4 передаёт **вызываемый** `TestContext`:
+
+```text
+typeof done                → 'function'
+Object.keys(done)          → signal, task, skip, annotate, onTestFailed, onTestFinished
+done()                     → Error: done() callback is deprecated, use promise instead
+```
+
+Прямой вызов падает сразу, с понятной ошибкой. Но так почти никто не пишет. В наборе тестов на Jasmine
+`done()` стоит в конце колбэка:
+
+```ts
+it('loads', (done) => {
+  setTimeout(() => {
+    expect(1).toBe(999); // ← бросает здесь, так что до done() дело даже не доходит
+    done();
+  }, 0);
+});
+```
+
+Тело возвращает `undefined`, поэтому тест заканчивается раньше, чем срабатывает таймер. Замер:
+**зелёный**. `AssertionError` приходит позже как одна из необработанных ошибок прогона, а ошибка об
+устаревании не возникает вовсе. В проекте, откуда пришло это правило, четыре таких теста годами были
+зелёными.
+
+`done.fail(…)` хуже в том же смысле. У `TestContext` нет `fail`, поэтому строка бросает
+`done.fail is not a function`. Бросает она там, где стоит, а это почти всегда колбэк `error` или
+`.catch()`. Реджект не обработан, и прогон **зелёный ровно на том пути, который должен был его
+уронить**.
+
+**Как правило отличает `done` от контекста.** Оно смотрит на форму параметра и на то, что с ним делает
+тело, но никогда не на имя:
+
+- Деструктуризация (`({ task })`) и колбэк без параметров молчат. Фикстуру `test.extend` обязательно
+  деструктурировать.
+- Простое имя — неоднозначный случай. Vitest в любом случае передаёт туда `TestContext`, а
+  `(ctx) => ctx.skip()` — пример из документации самого Vitest.
+- Правило молчит, когда **каждое** использование имени — чтение члена: `ctx.task`, `ctx.expect`,
+  `ctx.onTestFinished`.
+- Оно сообщает, когда имя вызывают (`done()`), передают тому, кто его вызовет (`.subscribe(done)`,
+  `setTimeout(done)`), или не используют вовсе.
+- `.fail` — единственное чтение члена, которое не считается использованием контекста: у `TestContext`
+  такого члена нет. Это второе сообщение правила. Оно касается только параметра, о котором правило
+  уже сообщило; такой параметр находится через анализ областей видимости. Метод `fail` у другого
+  объекта — чей-то API.
+
+**Границы.** Хелпер, который принимает один позиционный аргумент и вызывается как хук, выглядит так
+же. Правило смотрит только на шесть имён раннера, поэтому это редкость. Неиспользуемый параметр
+сообщается сознательно: неиспользуемый `done` — ровно та форма, которую раннер никогда не вызовет, а
+неиспользуемый контекст можно просто убрать. Имя, которое только читают через члены, считается
+контекстом, как бы оно ни называлось.
+
+**Серьёзность.** `error`. Тест, который проходит, не выполнившись, нельзя пролистать в выводе линтера.
+:::
 
 ## no-bare-called-with {#no-bare-called-with}
 
-**`error`** · без правки · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Что сообщает.** `calledWith(…)` или `mustBeCalledWith(…)` отдельным выражением-инструкцией — стаб,
-который никто не продолжил.
-
-**На чём решает.** На форме инструкции плюс на **корне** цепочки — для `calledWith`. С Vitest 4.1
-`calledWith` есть и в сборке chai, для сюит, приезжающих с sinon: `expect(fn).to.have.been.calledWith(x)`
-— это проверка, и она по замыслу является голой инструкцией. Различаются они обходом цепочки до корня:
-проверка всегда начинается с вызова `expect`, стаб — всегда со спая. У `mustBeCalledWith` такой
-защиты нет, и это не упущение: в chai нет ничего с таким именем, поэтому ветка была бы недостижимой.
-
-**Находка и как её закрыть.**
+Сообщает про `calledWith(…)` или `mustBeCalledWith(…)`, записанный отдельной инструкцией. В этой
+библиотеке `calledWith` настраивает стаб. Отдельной строкой он ничего не проверяет, поэтому тест
+проходит независимо от того, был вызов или нет.
 
 ```ts
 cart.checkout.calledWith(1); // ❌ настраивает «на 1 отвечать undefined», не проверяет ничего
 ```
 
 ```ts
-cart.checkout.calledWith(1).mockReturnValue(receipt); // стаб, доведённый до конца
-expect(cart.checkout).toHaveBeenCalledWith(1); // либо проверка, если имелась в виду она
+cart.checkout.calledWith(1).mockReturnValue(receipt); // ✅ стаб, доведённый до конца
+expect(cart.checkout).toHaveBeenCalledWith(1); // ✅ или проверка, если имелась в виду она
 ```
 
-**Зачем это в `recommended`.** Сама по себе строка регистрирует «на аргумент `1` отвечать
-`undefined`» — то есть то, что ненастроенный спай делал и раньше, — поэтому тест проходит независимо
-от того, был ли вызов вообще. `mustBeCalledWith` сам по себе неверен в другую сторону: без настройки
-под переданные аргументы он отвергает **любой** вызов, включая подходящий, и получившееся падение
-называет как раз те аргументы, которые ему дали, — а читается это как несовпадение, а не как
-отсутствующий `.mockReturnValue`.
+**Опции.** Нет.
 
-**Границы.** Два сообщения — это всё знание правила; отличить стаб, который автор собирался
-достроить, от проверки, записанной не тем словарём, он не может, поэтому называет обе починки.
-Цепочка `calledWith`, присвоенная переменной и продолженная позже, голой инструкцией не является и в
-отчёт не попадает.
+**Как исправить.** Выберите, что вы имели в виду:
 
-**Severity.** `error`. Зелёный и неверный, а починка — в одно слово.
+- **Стаб:** продолжите цепочку через `.mockReturnValue(v)`, `.resolveWith(v)`, `.nextWith(v)` или
+  `.failWith(err)`.
+- **Проверку:** `expect(spy.method).toHaveBeenCalledWith(…)`.
+
+**Когда выключить.** Для chai не нужно: цепочки, которые начинаются с `expect(…)`, не сообщаются
+никогда, так что `expect(fn).to.have.been.calledWith(x)` в порядке. Цепочка `calledWith`, сохранённая
+в переменную и продолженная позже, тоже не голая инструкция.
+
+::: details Как правило решает
+**Два значения одного слова.** `calledWith` в этой библиотеке настраивает **стаб**. С Vitest 4.1 в
+сборке chai тоже есть `calledWith`, но как **проверка**, для проектов, пришедших с sinon:
+
+```ts
+expect(fn).to.have.been.calledWith('example'); // chai: проверяет, что вызов был
+cart.checkout.calledWith(1); // эта библиотека: настраивает, что ответит вызов
+```
+
+Правило различает их, спускаясь по цепочке членов до корня. Проверка всегда начинается с вызова
+`expect`, стаб — всегда со спая. `mustBeCalledWith` такая проверка не нужна: в chai нет ничего с этим
+именем.
+
+**Почему оно в recommended.** Сам по себе `calledWith(1)` регистрирует «на аргумент `1` отвечать
+`undefined`». Ненастроенный спай и так это делает, поэтому тест проходит независимо от того, был ли
+вызов. `mustBeCalledWith` сам по себе неверен в другую сторону. Без настройки под его аргументы он
+отвергает **любой** вызов, включая подходящий. В падении он называет аргументы, поэтому оно читается
+как несовпадение, а не как забытый `.mockReturnValue`. Поэтому у него своё сообщение.
+
+**Границы.** Правило не может отличить стаб, который вы собирались достроить, от проверки, записанной
+не тем словарём. Поэтому сообщение называет обе починки.
+
+**Серьёзность.** `error`. Зелёный и неверный, а починка — в одно слово.
+:::
 
 ## no-constant-expect {#no-constant-expect}
 
-**`error`** · без правки · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Сообщает.** `expect(value)`, где значение выписано прямо в спеке, а за ним — через сколько угодно
-`.not` — матчер, чей ответ это значение уже предрешило.
-
-**На чём решает.** На двух прочтениях значения, по одному на вид матчера:
-
-- `toBe`, `toEqual` и `toStrictEqual` предрешены, когда постоянны **обе** стороны: литерал, шаблонная
-  строка без `${…}`, `undefined`, унарный оператор над постоянным, функция, стрелка или выражение
-  класса, либо массив или объектный литерал, каждый элемент которого — одно из перечисленного. Спред,
-  вычисляемый ключ, геттер или любое имя делают значение живым.
-- `toBeTruthy`, `toBeFalsy`, `toBeDefined`, `toBeUndefined`, `toBeNull` и `toBeNaN` предрешены для
-  тех же постоянных **и** для любого литерала объекта, массива, функции или класса, что бы в нём ни
-  лежало, — объект не бывает ложным, пустым (`null` / `undefined`) или `NaN`.
-
-Цепочку через `.resolves` / `.rejects` правило не трогает, как и все прочие матчеры:
-`expect(() => load()).toThrow()` передаёт в `expect` стрелку намеренно. Касты читаются насквозь.
-Арифметика не вычисляется: `expect(1 + 1).toBe(2)` не сообщается.
-
-**Находка и исправление.**
+Сообщает про `expect(value)`, когда значение выписано прямо в спеке и ответ матчера этим значением уже
+предрешён. Такой тест проходит, что бы ни делал код.
 
 ```ts
 it('emits after the timeout', () => {
@@ -446,71 +558,62 @@ it('emits after the timeout', () => {
 it('emits after the timeout', async () => {
   const emitted = expectEmission(cache.waitUntilReady(), { advance: () => vi.runOnlyPendingTimers() });
 
-  await expect(emitted).resolves.toBeUndefined();
+  await expect(emitted).resolves.toBeUndefined(); // ✅
 });
 ```
 
-Строка, помечающая ветку, до которой тест дойти не должен, — `expect(true).toBe(false)` в колбэке
-`error`, — тоже сообщается; `expect.fail('запрос не должен падать')` говорит то же самое и называет
-ветку.
+**Опции.** Нет.
 
-**Зачем оно в recommended.** [`vitest/expect-expect`](/ru/utilities/eslint-plugin#alongside-vitest-expect-expect)
-видит `expect` и доволен, так что тест, чья единственная проверка постоянна, зелёный при любом
-состоянии кода. Замер на Angular-сюите из 1759 файлов спек: четыре находки в четырёх файлах — тест,
-названный по потоку, на который он так и не посмотрел, тест, оставленный после того, как его фичу
-убрали, и два, которые импортируют barrel только ради того, чтобы его строки считались покрытыми. В
-`@vitest/eslint-plugin` (1.6) такого правила нет: его `valid-expect` проверяет форму вызова, а не то,
-что в него передано.
+**Как исправить.** Проверяйте значение, которое вернул код. Если строка отмечает ветку, до которой
+тест дойти не должен, например `expect(true).toBe(false)` в колбэке `error`, напишите
+`expect.fail('the request should not fail')`. Это говорит то же самое и называет ветку.
 
-**Границы.** Правило читает только выписанное, так что постоянное значение, пришедшее через имя, —
-`const ok = true; expect(ok).toBe(true)` — не сообщается. `expect.soft(…)` и chai-шный
-`expect(x).to.be.true` не читаются.
+**Когда выключить.** Не нужно. Правило читает только значения, выписанные в спеке, поэтому на живых
+значениях ложных срабатываний у него нет.
 
-**Severity.** `error`. Находка — факт о строке: ничто из того, что делает код, её ответ не изменит.
+::: details Как правило решает
+**Два прочтения значения**, по одному на вид матчера. Между ними допускается сколько угодно `.not`.
+
+- `toBe`, `toEqual` и `toStrictEqual` предрешены, когда постоянны **обе** стороны. Постоянное — это
+  литерал, шаблонная строка без `${…}`, `undefined`, унарный оператор над постоянным, функция, стрелка
+  или выражение класса, либо массив или объектный литерал, где каждый элемент — одно из этого. Спред,
+  вычисляемый ключ, геттер или любое имя делают значение живым.
+- `toBeTruthy`, `toBeFalsy`, `toBeDefined`, `toBeUndefined`, `toBeNull` и `toBeNaN` предрешены для
+  этих же постоянных **и** для любого литерала объекта, массива, функции или класса, что бы в нём ни
+  лежало. Объект никогда не бывает ложным, `null`/`undefined` или `NaN`.
+
+Правило не трогает:
+
+- цепочку через `.resolves` / `.rejects`;
+- все прочие матчеры: `expect(() => load()).toThrow()` передаёт стрелку намеренно;
+- арифметику: `expect(1 + 1).toBe(2)` не вычисляется;
+- постоянное значение за именем: `const ok = true; expect(ok).toBe(true)`;
+- `expect.soft(…)` и chai-шный `expect(x).to.be.true`.
+
+Касты читаются насквозь.
+
+**Почему оно в recommended.** [`vitest/expect-expect`](/ru/utilities/eslint-plugin#alongside-vitest-expect-expect)
+видит `expect` и доволен. Поэтому тест, чья единственная проверка постоянна, зелёный при любом
+состоянии кода. На одном Angular-проекте из 1759 файлов спек правило сообщило четыре раза в четырёх
+файлах:
+
+- тест, названный по потоку, на который он так и не посмотрел;
+- тест, оставленный после того, как его фичу убрали;
+- два теста, которые импортируют barrel только ради того, чтобы его строки считались покрытыми.
+
+В `@vitest/eslint-plugin` (1.6) такого правила нет. Его `valid-expect` проверяет форму вызова, а не
+то, что в него передано.
+
+**Серьёзность.** `error`. Находка — факт о строке: ничто из того, что делает код, её ответ не изменит.
+:::
 
 ## no-redundant-smoke-test {#no-redundant-smoke-test}
 
 **`error`** · подсказка · только синтаксис
 
-**Сообщает.** Тест, каждая инструкция которого спрашивает, есть ли одно значение, —
-`expect(pipe).toBeTruthy()`, `expect(service).toBeDefined()` — в блоке, где уже есть тесты, которые
-раннер выполнит.
-
-**На чём решает.** На телах тестов блока и ни на чём больше:
-
-- Тело считается smoke-тестом, когда каждая его инструкция — это `expect(x)` под `toBeTruthy`,
-  `toBeDefined` или `toBeInstanceOf`, либо под `toBeFalsy`, `toBeNull` или `toBeUndefined` за `.not` —
-  тот же вопрос, заданный с другой стороны. Одна инструкция, делающая что-то ещё — вызов, локальная
-  переменная, `if`, матчер, который читает значение, — и тест остаётся нетронутым. Пустое тело
-  smoke-тестом тоже не считается.
-- **Значение должно быть ссылкой на субъект, а не тем, что тест вычислил.** Идентификатор, цепочка
-  свойств без вызова внутри (`fixture.componentInstance`) или вызов, который только _создаёт_ субъект и
-  ничего для этого не принимает — `createService()`, `TestBed.inject(Token)`. Вызов с аргументом,
-  чтение метода или сигнала, запрос к DOM, выражение над коллекцией — всё это правило не трогает:
-  матчер не отличает их от субъекта, а проверка при этом единственная, что покрывает поведение.
-  `expect(isRestrictedProfile(MEMBER_ROLE.CHILD)).toBeTruthy()` и
-  `expect(el.querySelector('expand-card')).toBeTruthy()` — не smoke-тесты. Как и запрос к DOM за
-  именем: `expect(minimap()).not.toBeNull()`, где собственный хелпер файла `minimap` вызывает
-  `querySelector`, `query(All)`, `getElement*`, `closest`, `By.*` или `queryElement`, или где имя один
-  раз связано с таким результатом. Это проверка того, какая ветка шаблона отрисовалась. Билдер под
-  `toBeInstanceOf` тоже не трогается: он связывает два имени и утверждает, что одно разрешается в
-  другое, а это проводка, а не существование.
-- **Хотя бы один работающий тест блока должен добираться до субъекта тем же путём** — именно это
-  сообщение правила и утверждает вслух. Сравнивается весь путь, а не имя, с которого он начинается:
-  `expect(publicApi.FocusModule).toBeDefined()` рядом с тестом на `publicApi.viewerSettings`
-  делит с ним только слово `publicApi`, и сосед не упал бы первым. То же с флагом, который `beforeAll`
-  выставляет из `complete` наблюдаемого — `expect(completed).toBeTruthy()` — когда соседи читают
-  собранные значения.
-- Взвешивается он против тестов, выполняющих тот же setup: против остальных тестов своего блока и
-  против всех, объявленных в блоках внутри него. Пропущенный сосед — `it.skip`, `xit`, `it.todo` —
-  ничего не доказывает и не считается; пропущенный smoke-тест сообщается всё равно.
-- Блок, где этот тест — единственный выполняемый, правило не трогает: спека, доказывающая только то,
-  что субъект вообще собирается, тонкая, но правило, опустошающее файл, перестаёт быть правилом
-  линтера.
-- Тест из вложенного блока не взвешивается против блока над ним: внешние тесты не выполняют
-  внутренний `beforeEach`, а значит, не отвечают за субъект, которого он строит.
-
-**Находка и исправление.**
+Сообщает про тест, который только проверяет, что субъект существует, например
+`expect(pipe).toBeTruthy()`, когда другие тесты того же блока уже строят этот субъект. Если субъект
+сломан, первыми упадут они, так что smoke-тест ничего не добавляет.
 
 ```ts
 describe('IndicatorOffsetPipe', () => {
@@ -521,7 +624,7 @@ describe('IndicatorOffsetPipe', () => {
   });
 
   it('should create an instance', () => {
-    expect(pipe).toBeTruthy(); // ❌ зелёный при любом состоянии кода, до которого этот файл дотягивается
+    expect(pipe).toBeTruthy(); // ❌ зелёный при любом состоянии кода, до которого дотягивается этот файл
   });
 
   it('clamps a position past the right edge', () => {
@@ -530,54 +633,82 @@ describe('IndicatorOffsetPipe', () => {
 });
 ```
 
-Удалить; подсказка это и делает — вместе с пустой строкой над ним. Тест ниже выполняет тот же
-`beforeEach`, так что `pipe`, вернувшийся пустым, уронит **его** первым — на `transform` от
-`undefined`, и в падении будет видно, что спека в этот момент делала.
+**Опции.** Нет.
 
-Там, где сборка субъекта и есть то, о чём спека, проверять надо её — фабрику, отвергающую плохой
-конфиг, конструктор, читающий необязательный токен:
+**Как исправить.** Удалите тест. Подсказка это и делает, вместе с пустой строкой над ним. Тест ниже
+выполняет тот же `beforeEach`, поэтому пустой `pipe` первым уронит **его**, на `transform` от
+undefined, и падение покажет, что спека в этот момент делала.
+
+Если вы действительно проверяете сборку субъекта, проверяйте именно её. Например, фабрику, которая
+отвергает плохой конфиг:
 
 ```ts
 it('refuses a config with no bucket', () => {
-  expect(() => new Uploader({ bucket: '' })).toThrow('bucket is required');
+  expect(() => new Uploader({ bucket: '' })).toThrow('bucket is required'); // ✅
 });
 ```
 
-**Зачем оно в recommended.** Строка не может упасть сама по себе, и при этом она — единственная
-строка спеки, выглядящая как покрытие. Замер на Angular-сюите из 1771 файла спек: 569 находок в 540
-файлах, 515 из них озаглавлены `should create`, `should be created` или `create an instance` — то,
-что `ng generate` пишет в каждую новую спеку и что осталось, пока файл вокруг обрастал тестами,
-строящими тот же субъект. На второй сюите, 845 файлов, — 97 находок в 87 файлах. На третьей, 127
-файлов, — одна. [`vitest/expect-expect`](/ru/utilities/eslint-plugin#alongside-vitest-expect-expect)
-видит `expect` и доволен; в `@vitest/eslint-plugin` (1.6) такого правила нет.
+**Когда выключить.** Блок, где smoke-тест — единственный выполняемый, не сообщается никогда. Правило
+не смотрит, что строят остальные тесты, поэтому сообщает и про smoke-тест, чьи соседи проверяют
+**другой** субъект. Такая спека проверяет не то, но знайте, что правило читает её именно так.
 
-**Границы.** Только синтаксис: проверку существования за хелпером — `expectCreated(pipe)` — правило
-не читает, как и `expect.soft`. Оно не смотрит, что строит блок, поэтому smoke-тест, чьи соседи
-проверяют **другой** субъект, тоже сообщается — это скорее спека, утверждающая не то, чем ложная
-находка, но прочтение стоит знать. `it.each([…])('…')` читается как один тест, что бы ни лежало в
-таблице.
+::: details Как правило решает
+Правило читает только тела тестов блока.
 
-**Severity.** `error`. Находка — факт о файле: ничто из того, что делает проверяемый код, ответа не
-изменит, а исправление — удаление.
+- **Smoke-тест** — это тело, где каждая инструкция — `expect(x)` под `toBeTruthy`, `toBeDefined` или
+  `toBeInstanceOf`, либо под `toBeFalsy`, `toBeNull` или `toBeUndefined` за `.not`. Одна инструкция,
+  которая делает что-то ещё (вызов, локальная переменная, `if`, матчер, читающий значение), — и тест
+  остаётся нетронутым. Пустое тело smoke-тестом не считается.
+- **Значение должно быть ссылкой на субъект**, а не тем, что тест вычислил. То есть идентификатором,
+  цепочкой членов без вызова (`fixture.componentInstance`) или вызовом без аргументов, который только
+  строит субъект (`createService()`, `TestBed.inject(Token)`). Правило не трогает:
+  - вызов со значением внутри, чтение метода или сигнала, запрос к DOM, выражение над коллекцией.
+    `expect(isRestrictedProfile(MEMBER_ROLE.CHILD)).toBeTruthy()` и
+    `expect(el.querySelector('expand-card')).toBeTruthy()` — не smoke-тесты;
+  - запрос к DOM за именем: `expect(minimap()).not.toBeNull()`, где собственный хелпер файла
+    `minimap` вызывает `querySelector`, `query(All)`, `getElement*`, `closest`, `By.*` или
+    `queryElement`, или имя, один раз связанное с таким результатом. Это проверка того, какая ветка
+    шаблона отрисовалась;
+  - билдер под `toBeInstanceOf`: он утверждает, что два имени разрешаются друг в друга, а это
+    проводка.
+- **Выполняемый тест блока должен добираться до субъекта тем же путём**, целиком, а не только по
+  первому имени. `expect(publicApi.FocusModule).toBeDefined()` рядом с тестом на
+  `publicApi.viewerSettings` делит с ним только слово `publicApi`, поэтому не сообщается. То же с
+  флагом, который `beforeAll` выставляет из `complete` наблюдаемого, когда соседи читают собранные
+  значения.
+- **Какие тесты считаются:** остальные тесты своего блока и все тесты во вложенных в него блоках.
+  Пропущенный сосед (`it.skip`, `xit`, `it.todo`) ничего не доказывает и не считается. Пропущенный
+  smoke-тест всё равно сообщается.
+- **Тест во вложенном блоке** не взвешивается против блока над ним. Внешние тесты не выполняют
+  внутренний `beforeEach`.
+- Блок, где этот тест — единственный выполняемый, правило не трогает. Такая спека тонкая, но правило,
+  которое опустошает файл, уже не правило линтера.
+
+**Границы.** Только синтаксис. Проверку существования за хелпером (`expectCreated(pipe)`) правило не
+читает, как и проверку через `expect.soft`. `it.each([…])('…')` читается как один тест.
+
+**Почему оно в recommended.** Строка не может упасть сама по себе, но выглядит как покрытие. На одном
+Angular-проекте из 1771 файла спек: 569 находок в 540 файлах. 515 из них назывались `should create`,
+`should be created` или `create an instance` — то, что `ng generate` пишет в каждую новую спеку. На
+втором проекте, из 845 файлов: 97 находок в 87 файлах. На третьем, из 127 файлов: одна.
+[`vitest/expect-expect`](/ru/utilities/eslint-plugin#alongside-vitest-expect-expect) видит `expect`
+и доволен; в `@vitest/eslint-plugin` (1.6) такого правила нет.
+
+**Серьёзность.** `error`. Ничто из того, что делает проверяемый код, ответа не изменит, а исправление —
+удаление.
+:::
 
 ## no-self-called-spy {#no-self-called-spy}
 
-**`error`** · без фикса · только синтаксис и области видимости
+**`error`** · без автоисправления · синтаксис и области видимости
 
-**Что сообщает.** Внутри одного тела теста: `vi.spyOn(obj, 'm')`, затем прямой `obj.m(…)`, написанный
-самим тестом **после** этого, затем положительный `toHaveBeenCalled*` по тому же члену.
-
-**На чём решает.** На трёх позициях внутри одного теста, сопоставленных по тексту объекта и имени
-члена. Порядок — это и есть всё правило: те же три формы в другом порядке — обычная аранжировка. Спека,
-которая приводит субъект в состояние, ставит спай **после** и затем запускает продакшен-путь, делает
-ровно то, что нужно.
-
-**Находка и починка.**
+Сообщает про тест, который ставит спай на метод, сам вызывает этот метод, а потом проверяет, что его
+вызвали. Тест сам делает свою проверку истинной, поэтому ничего не проверяет в коде.
 
 ```ts
 it('relays subscribeClick from children', () => {
   const emitSpy = vi.spyOn(component.subscribeClick, 'emit');
-  component.subscribeClick.emit(payload); // ❌ тест сам делает своё утверждение истинным
+  component.subscribeClick.emit(payload); // ❌ тест сам делает свою проверку истинной
   expect(emitSpy).toHaveBeenCalledWith(payload);
 });
 ```
@@ -585,179 +716,205 @@ it('relays subscribeClick from children', () => {
 ```ts
 it('relays subscribeClick from children', () => {
   const emitSpy = vi.spyOn(component.subscribeClick, 'emit');
-  renderShallow(Parent).query(ChildComponent).subscribeClick.emit(payload);
+  renderShallow(Parent).query(ChildComponent).subscribeClick.emit(payload); // ✅ настоящий триггер
 
   expect(emitSpy).toHaveBeenCalledWith(payload);
 });
 ```
+
+**Опции.** Нет.
+
+**Как исправить.** Запустите то, что должно сделать вызов: отправьте DOM-событие, эмитните на подмене
+соседнего сервиса или вызовите публичный метод, который должен передать вызов дальше. Вся починка
+есть в сообщении.
+
+**Когда выключить.** Не нужно: правило тихое по замыслу. Оно никогда не сообщает про:
+
+- вызов, написанный **до** спая: это подготовка;
+- отрицательную проверку или `toHaveBeenCalledTimes(0)`;
+- вызов, запись о котором `mockClear` / `mockReset` / `mockRestore` / `vi.clearAllMocks()` сбрасывает
+  до проверки;
+- проверку, чьи аргументы отличаются от переданных в вызове;
+- спай, поставленный в хуке, или вызов изнутри колбэка.
+
+::: details Как правило решает
+**Три позиции в одном теле теста**, сопоставленные по тексту объекта и имени члена:
+`vi.spyOn(obj, 'm')`, затем прямой `obj.m(…)` самим тестом **после** него, затем положительный
+`toHaveBeenCalled*` по тому же члену. Порядок — это всё правило. В другом порядке те же формы —
+обычная подготовка: привести субъект в состояние, поставить спай, затем запустить продакшн-путь.
 
 **Почему оно в recommended.** Тест выше доказывает, что `EventEmitter.emit` вызывает
 `EventEmitter.emit`. Удалите привязку `(subscribeClick)="…"`, которую называет его заголовок, — и он
-останется зелёным: он переживает удаление того поведения, которое обещает проверять, и это
-единственный отказ, о котором он сообщить не может.
+останется зелёным. Он переживает удаление того поведения, которое обещает проверять.
 
-**Правило тихое, и об этом сказано вслух.** На потребителе из 2 030 спек оно сообщает **5 сайтов в 3
-файлах** — три ретрансляции `EventEmitter.emit` в одной спеке компонента и ещё две той же формы. Это
-ниже планки, которую поставил бы счёт, и не ради счёта оно в `recommended`: сюите оно не стоит ничего
-(на спеке, которая гоняет продакшен-путь, находок нет), а ловит тест, в котором субъекта нет вовсе.
+Правило тихое. На проекте из 2 030 файлов оно сообщает **5 мест в 3 файлах**: три передачи
+`EventEmitter.emit` в одной спеке компонента и ещё две той же формы в других местах. Проекту оно
+ничего не стоит (на спеке, которая запускает продакшн-путь, находок нет), а ловит тест, в котором
+субъекта нет вовсе.
 
-**Пределы.** **Отрицательное** утверждение не сообщается никогда, как и `toHaveBeenCalledTimes(0)`:
-«его не вызывали» вызовом истинным не сделаешь. Не сообщается и вызов, запись о котором сбросил
-`mockClear` / `mockReset` / `mockRestore` / `vi.clearAllMocks()` до того, как утверждение её прочло, —
-это спека своим же текстом говорит, что утверждение про продакшен-путь, и пять сайтов в одном файле
-замеренного потребителя именно такие. Как и утверждение, чьи аргументы — не те, что передал вызов:
-`expect(component.scale.set).toHaveBeenCalledWith(3)` под аранжирующим `component.scale.set(2)` этой
-строкой удовлетворён быть не может. Сверка аргументов идёт по исходному тексту, то есть ошибается в
-тихую сторону: одно и то же значение, записанное двумя способами, — находка, которую правило
-пропускает, а не отчёт, который ему пришлось бы защищать. Спай, поставленный в **хуке**, вне области:
-он общий для всех тестов блока, и большинство из них гоняют продакшен-путь. Вызов **внутри колбэка** —
-не вызов теста, а вызов кода под тестом.
+**Границы подробнее.**
 
-**Ни фикса, ни саджеста.** Правки в сообщённом узле нет. Починка — запустить то, что должно сделать
-вызов: диспатчнуть DOM-событие, эмитнуть на дубле коллаборатора, позвать публичный метод, который
-должен ретранслировать, — а это суждение о том, что тест имел в виду, от которого по той же причине
-отказывается [`no-vacuous-absence-assertion`](#no-vacuous-absence-assertion). Вместо правки всю
-починку несёт сообщение.
+- «Его не вызывали» вызовом истинным не сделаешь, поэтому отрицательные проверки не сообщаются
+  никогда.
+- Сброс между вызовом и проверкой значит, что спека сама говорит: проверка — про продакшн-путь. Пять
+  мест в одном файле замеренного проекта именно такие.
+- `expect(component.scale.set).toHaveBeenCalledWith(3)` после подготовительного
+  `component.scale.set(2)` этой строкой выполниться не может. Аргументы сравниваются по исходному
+  тексту, поэтому правило ошибается в тихую сторону: одно значение, записанное двумя способами, оно
+  пропускает.
+- Спай в **хуке** общий для всех тестов блока, и большинство из них запускают продакшн-путь.
+- Вызов **изнутри колбэка** делает проверяемый код, а не тест.
 
-**Что сообщение оставляет за кадром.** Вызов, написанный до спая, — это подготовка, и о нём не сообщается, как и о
-`not.toHaveBeenCalled()`: оба и так различают два исхода.
+**Почему нет ни автоисправления, ни подсказки.** В сообщённом узле нечего править. Исправление зависит
+от того, что тест имел в виду, а угадывать это по той же причине отказывается и
+[`no-vacuous-absence-assertion`](#no-vacuous-absence-assertion).
 
-**Severity.** `error`. Доказательство — три строки файла в одном порядке, ничего не решается по
-эвристике, а сообщает оно о тесте, который ничего не доказывает про код, который называет.
+**Серьёзность.** `error`. Доказательство — три строки файла в одном порядке, без догадок, а находка —
+тест, который ничего не доказывает про код, который называет.
+:::
 
 ## prefer-create-spy-from-class {#prefer-create-spy-from-class}
 
-**`error`** · без правки · только синтаксис · опция `minRunnerFns`
+**`error`** · без автоисправления · только синтаксис · опция `minRunnerFns`
 
-**Что сообщает.** Объектный литерал, у которого **два и более** собственных свойства держат мок
-раннера.
-
-**На чём решает.** На подсчёте собственных свойств объекта, а не его поддерева: значение считается,
-если разворачивается в `vi.fn()` / `jest.fn()` — обход идёт вниз по настроенной цепочке, поэтому и
-`vi.fn().mockReturnValue(of([]))`, и `vi.fn().mockReturnValue(x).mockName('y')` попадают в счёт.
-Вложенность отдельной обработки не требует: правило срабатывает на каждом объектном литерале файла,
-поэтому внутренний объект судится по своим свойствам. Вычитаются такие формы:
-
-- объект, который `useValue` провайдера отдаёт в DI, написан ли он в слоте или в одном имени от него
-  (5.5.0) — это строка [`prefer-provide-auto-spy`](#prefer-provide-auto-spy), а два отчёта на один
-  дубль учат отключать оба. Шаг по имени важен потому, что то правило идёт по имени _внутрь_ слота:
-  пока это не читалось с двух концов, литерал, припаркованный в `const`, получал по отчёту от каждого
-  — один советовал `createSpyFromClass`, другой `provideAutoSpy`;
-- всё внутри вызова `autoMocked`, `createActivatedRoute`, `createAutoMock`, `createComponentStub`,
-  `createDirectiveHost`, `createDocumentDouble`, `createMock`, `createRouterDouble`,
-  `createSpyClass`, `createSpyFromClass`, `createWindowDouble`, `mockConstructor`, `mockDeep`,
-  `provideActivatedRoute`, `provideAutoSpy`, `provideAutoSpyForToken`, `provideDocumentDouble`,
-  `provideRouterDouble` или `provideWindowDouble`,
-  на любой глубине — такой объект является **затравкой**, то есть тем, о чём правило и просило;
-- всё внутри фабрики `vi.mock()` / `vi.doMock()`, чей объект подменяет _экспорты_ модуля, а не
-  стоит вместо сервиса, и всё, что возвращает колбэк `vi.hoisted()`, — набор, который несёт моки в
-  такую фабрику, `vi.hoisted(() => ({ spawnMock: vi.fn() }))`;
-- набор опций, переданный прямо в вызов или в `new`: ровно один `vi.fn()` рядом хотя бы с одним
-  обычным значением, как в `service.openDialog({ elRef, options, onColorChange: vi.fn() })`. До этой
-  формы доходит только `{ minRunnerFns: 1 }`, и это колбэк среди аргументов, а не дубль класса. Два
-  мока, значение-функция или тот же объект, сначала припаркованный в `const`, по-прежнему в отчёте;
-- всё внутри вызова `createFixture(…)` / `createFixtureFactory(…)` — значения по умолчанию или
-  переопределения модели с полем-колбэком, `createFixture<Options>({ changeOptionsCallback: vi.fn() })`,
-  уже типизированные по модели;
-- RxJS-обсервер, переданный прямо в `subscribe(…)` или `tap(…)`, как в
-  `source$.subscribe({ error: vi.fn() })`;
-- описание провайдера — любой объект с ключом `provide:`. В `{ provide: CLOSE, useValue: close }`,
-  где значение токена само функция, дубль лежит в `useValue`, а объект вокруг — синтаксис DI;
-- карта инпутов в `setInputs(fixture, { … })` и в `renderShallow(C, { inputs: { … } })` — оба
-  сверяют её с инпутами компонента;
-- `return { preventDefault, stopPropagation }` из одних имён, где каждый шпион читается где-то ещё, —
-  хэндлы шпионов, которые хелпер уже установил и отдаёт на деструктуризацию. Фабрика, чьи шпионы
-  существуют только в возвращаемом объекте, по-прежнему в отчёте;
-- набор опций, вложенный в аргумент вызова, `render({ options: { slide, onClose } })`, — по тому же
-  правилу «один мок рядом со значением», что и набор, переданный в вызов напрямую;
-- объект из одного члена, привязанный к имени с объявленным типом
-  (`const parameters: Record<string, unknown> = { fn }`, на любой глубине внутри), или лежащий в
-  значении `mockValueProp` / `mockReadonlyProp` / `mockSignalProp`, или переданный в типизированный
-  параметр хелпера, объявленного в том же файле (`createDefaultOptions({ onChange: callback })` при
-  `const createDefaultOptions = (overrides?: Partial<Options>) => …`), — он уже сверяется с типом; инлайновый
-  объектный тип из моков не в счёт. Параметр **импортированного** хелпера синтаксическому правилу не
-  виден, поэтому там тот же вызов по-прежнему в отчёте: оберните литерал в
-  `createMock<Partial<Options>>(…)` или привяжите к `const` с типом. Вложенный `{ set: vi.fn() }` / `{ update: vi.fn() }` стоит вместо
-  сигнала, который `createMock<T>` засеять не может, поэтому сообщение называет `mockSignalProp`;
-- объект ниже порога. Сообщение называет дубль, сколько в нём `vi.fn()` и каких, и
-  `createAutoMock<T>()` для типа, который объявляет его имя.
-
-**Находка и как её закрыть.**
+Сообщает об объектном литерале, у которого **два и более** свойства со значением `vi.fn()` / `jest.fn()`.
+У такой подмены, написанной руками, есть только те методы, которые кто-то вспомнил. Когда в классе
+появляется новый метод, подмена от него отстаёт.
 
 ```ts
 const cart = { total: vi.fn(), add: vi.fn() } as unknown as CartService; // ❌
 ```
 
 ```ts
-const cart = createSpyFromClass(CartService);
+const cart = createSpyFromClass(CartService); // ✅ следует за классом, правок потом не нужно
 ```
 
-**Зачем это в `recommended`.** У написанного руками дубля есть только те методы, которые кто-то
-вспомнил. Класс обзаводится ещё одним, и спека умирает на `TypeError: cart.applyCoupon is not a function`
-— в продакшен-коде, в нескольких кадрах стека от объекта, который на самом деле неверен. Система
-типов тоже не поймает: дубль изначально не удовлетворял классу, и стоящий перед ним
-`as unknown as CartService` — это то, что скрывает `TS2741: Property 'rate' is missing`.
-`createSpyFromClass` читает прототип, `createAutoMock<T>()` — тип, поэтому отстать они не могут.
+**Опции.**
 
-**Границы.** Порог по умолчанию `2` — это реальный пробел, и он там из-за того, чего правило не
-видит: объект с одним `vi.fn()` неотличим от набора опций с колбэком внутри (`{ onDone: vi.fn() }`),
-а правило срабатывает на каждом объектном литерале файла. Видимая цена — асимметрия: два дубля на
-соседних строках, один в отчёте, другой нет. Об эту асимметрию спотыкались семь партий переезда,
-поэтому порог — первое, что стоит проверить, когда два соседа расходятся:
+| Опция          | Тип               | По умолчанию | Смысл                                            |
+| -------------- | ----------------- | ------------ | ------------------------------------------------ |
+| `minRunnerFns` | целое число, от 1 | `2`          | сколько свойств `vi.fn()` делают объект подменой |
 
 ```js
 'vitest-auto-spy/prefer-create-spy-from-class': ['error', { minRunnerFns: 1 }],
 ```
 
-Тот случай, о котором те отчёты действительно были, закрыт со всех сторон, которые могут его
-доказать: у [`prefer-provide-auto-spy`](#prefer-provide-auto-spy) рядом с объектом стоит `provide:`,
-у [`no-structural-double`](#no-structural-double) есть объявление, говорящее, что объект стоит вместо
-типа, а [`no-stub-class-double`](#no-stub-class-double) читает классовое написание того же дубля —
-все три срабатывают при **одном**.
+**Как исправить.** Замените объект на `createSpyFromClass(Class)`, который читает класс, или на
+`createAutoMock<T>()`, который читает тип. Для интерфейса или абстрактного класса берите
+`createAutoMock<T>()`. Сообщение называет подмену, сколько в ней `vi.fn()` и каких, а также
+`createAutoMock<T>()` для типа, который объявляет её имя.
 
-**Severity.** `error`. Без правила падение красное, но его сообщение называет метод, а не дубль, и
-починка — переписать дубль, а не строку.
+У объекта из одного члена, например thenable `{ then: vi.fn() }`, нет класса, который можно прочитать.
+Для него сообщение называет `createMock<T>({ then: vi.fn() })`: он сверяет ключ и сигнатуру с `T`.
+Вложенный `{ set: vi.fn() }` / `{ update: vi.fn() }` стоит вместо сигнала, поэтому его сообщение
+называет `mockSignalProp`.
+
+**Когда выключить.** Если две подмены на соседних строках ведут себя по-разному (одна в отчёте, другая
+нет), сначала проверьте порог. При пороге `2` по умолчанию объект с одним `vi.fn()` не сообщается. Он
+выглядит ровно как набор опций с колбэком внутри (`{ onDone: vi.fn() }`). Если нужны и такие, поставьте
+`minRunnerFns: 1`. Посмотрите также, что правило уже пропускает, — ниже.
+
+::: details Как правило решает
+**Подсчёт.** Правило считает собственные свойства объекта, а не всё поддерево. Значение считается, если
+разворачивается в `vi.fn()` / `jest.fn()`, какой бы длинной ни была цепочка настройки:
+`vi.fn().mockReturnValue(of([]))` и `vi.fn().mockReturnValue(x).mockName('y')` оба попадают в счёт.
+Правило срабатывает на каждом объектном литерале файла, поэтому внутренний объект оценивается по своим
+свойствам. Свойство считается и тогда, когда его значение — имя, которое файл один раз связывает с
+`vi.fn()`: `{ load, save }` при двух `const … = vi.fn()`.
+
+**Что правило пропускает:**
+
+- объект, который `useValue` провайдера отдаёт в DI, написанный прямо в слоте или через одно имя. Это
+  случай [`prefer-provide-auto-spy`](#prefer-provide-auto-spy), а два отчёта на одну подмену приучают
+  выключать оба правила;
+- всё внутри вызова `autoMocked`, `createActivatedRoute`, `createAutoMock`,
+  `createComponentStub`, `createDirectiveHost`, `createDocumentDouble`, `createMock`,
+  `createRouterDouble`, `createSpyClass`, `createSpyFromClass`, `createWindowDouble`,
+  `mockConstructor`, `mockDeep`, `provideActivatedRoute`, `provideAutoSpy`,
+  `provideAutoSpyForToken`, `provideDocumentDouble`, `provideRouterDouble` или
+  `provideWindowDouble`, на любой глубине. Такой объект — **начальные значения** (набор
+  переопределений или значения для экземпляра), то есть ровно то, о чём правило просит:
+
+  ```ts
+  const xhr = createAutoMock<XhrLike>({ send: vi.fn(), abort: vi.fn() }); // ✅ никогда не в отчёте
+  const api = mockDeep<Api>({ api: { load: vi.fn(), save: vi.fn() } }); // ✅ и на любой глубине тоже
+  ```
+
+- всё внутри фабрики `vi.mock()` / `vi.doMock()`, чей объект подменяет экспорты модуля, и всё, что
+  возвращает колбэк `vi.hoisted()`: `vi.hoisted(() => ({ spawnMock: vi.fn() }))`;
+- набор опций, переданный прямо в вызов или в `new`: ровно один `vi.fn()` рядом хотя бы с одним
+  обычным значением, как в `service.openDialog({ elRef, options, onColorChange: vi.fn() })`. До этой
+  формы доходит только `{ minRunnerFns: 1 }`. Два мока, значение-функция или тот же объект, сначала
+  сохранённый в `const`, по-прежнему попадают в отчёт. То же относится к набору, вложенному в аргумент
+  вызова: `render({ options: { slide, onClose } })`;
+- всё внутри `createFixture(…)` / `createFixtureFactory(…)`, например
+  `createFixture<Options>({ changeOptionsCallback: vi.fn() })`: такой объект уже типизирован по
+  модели;
+- RxJS-обсервер, переданный прямо в `subscribe(…)` или `tap(…)`:
+  `source$.subscribe({ error: vi.fn() })`;
+- описание провайдера, то есть любой объект с ключом `provide:`;
+- карта инпутов в `setInputs(fixture, { … })` и в `renderShallow(C, { inputs: { … } })`: оба
+  сверяют её с инпутами компонента;
+- `return { preventDefault, stopPropagation }` из одних имён, где каждый спай читается ещё где-то. Это
+  ссылки на спаи, которые установил хелпер. Фабрика, чьи спаи существуют только в возвращаемом объекте,
+  по-прежнему попадает в отчёт;
+- объект ниже порога.
+
+**Объекты из одного члена, которые уже типизированы, тоже пропускаются:**
+
+- литерал из одного члена, привязанный к имени с объявленным типом
+  (`const parameters: Record<string, unknown> = { fn }`, на любой глубине), если только этот тип сам не
+  инлайновый объектный тип;
+- литерал внутри значения `mockValueProp` / `mockReadonlyProp` / `mockSignalProp`;
+- аргумент хелпера, объявленного в том же файле, если параметр типизирован:
+  `createDefaultOptions({ onChange: callback })` при
+  `const createDefaultOptions = (overrides?: Partial<Options>) => …`.
+
+Параметр **импортированного** хелпера синтаксическому правилу не виден, поэтому там тот же вызов
+по-прежнему в отчёте. Оберните литерал в `createMock<Partial<Options>>(…)` или привяжите его к `const`
+с типом.
+
+**Настроенный спай — всё равно спай.** `vi.fn()` и `vi.fn().mockReturnValue(of([]))` — одна и та же
+подмена, просто вторая настроена. Правило разматывает цепочку до вызова, который создал мок. Чем
+сильнее настроена подмена, написанная руками, тем дальше она ушла от класса.
+
+**Почему оно в recommended.** В классе появляется метод, и спека падает в коде приложения, в
+нескольких кадрах стека от объекта, который на самом деле неверен:
+
+```text
+F1  написан руками { total: vi.fn() }      → TypeError: cart.applyCoupon is not a function
+F2  createSpyFromClass(CartService)        → следует за классом, без правок
+```
+
+Система типов этого не ловит, потому что подмена никогда и не совпадала с классом. Стоящий перед ней
+`as unknown as CartService` прячет ошибку:
+
+```text
+TS2741: Property 'rate' is missing in type '{ total: Mock<Procedure>; add: Mock<Procedure>; }'
+        but required in type 'CartService'.
+```
+
+`createSpyFromClass` читает прототип, а `createAutoMock<T>()` читает тип, поэтому ни один из них не
+может отстать.
+
+**Почему порог — 2.** Правило не может отличить `{ onDone: vi.fn() }` от `{ load: vi.fn() }`, а
+срабатывает на каждом объектном литерале. Видимая цена — две подмены на соседних строках: одна в
+отчёте, другая нет. На это наткнулись семь партий переезда. Подмены с одним `vi.fn()` закрывают
+правила, у которых есть доказательство. У [`prefer-provide-auto-spy`](#prefer-provide-auto-spy) рядом с
+объектом стоит `provide:`, у [`no-structural-double`](#no-structural-double) есть объявленный тип, а
+[`no-stub-class-double`](#no-stub-class-double) читает форму класса. Все три срабатывают при **одном**.
+
+**Серьёзность.** `error`. Без правила тест всё равно краснеет, но сообщение называет метод, а не
+подмену. И исправление — переписать подмену, а не одну строку.
+:::
 
 ## no-stub-class-double {#no-stub-class-double}
 
-**`warn`** · без правки · только синтаксис · опция `minRunnerFns`
+**`warn`** · без автоисправления · только синтаксис · опция `minRunnerFns`
 
-**Что сообщает.** Класс, чьи собственные поля инициализированы через `vi.fn()` / `jest.fn()`.
-
-**На чём решает.** На подсчёте собственных инициализированных полей класса и четырёх вычитаниях.
-Считаются только узлы `PropertyDefinition`, настроенная цепочка разворачивается так же, как в правиле
-про объектный литерал, поэтому `load = vi.fn().mockReturnValue(of(url))` попадает в счёт; `static`
-считается вместе с полями экземпляра, потому что `static`-поле из `vi.fn()` — тот же дубль, только
-построенный один раз на модуль, а не один раз на экземпляр. Поле без инициализатора, вычисляемый ключ
-и поле, которому значение присваивают в конструкторе, не считаются.
-
-Четыре вычитания и есть весь замысел, потому что в спеке полно классов, которые держат `vi.fn()` и
-сервисным дублем не являются:
-
-- класс **с декоратором** — тестовый хост или тестовый модуль, у которого поля `vi.fn()` являются
-  обработчиками событий (`onChange = vi.fn()`);
-- класс с непустым **`implements`**, который отстать _не может_: добавьте член в тип, и заглушка
-  перестанет компилироваться, то есть того падения, о котором заявлял бы отчёт, просто нет;
-- класс, который **`extends`** что-нибудь: он наследует настоящее поведение, которое специализирует,
-  поэтому `provideAutoSpy` ему не замена;
-- класс **без собственного имени** — классовое выражение в слоте свойства. Такой подменяет _экспорт_
-  модуля, который затем используется как DI-токен, а токен обязан быть конструктором.
-  `insideModuleMock` ловит написанное на месте (`vi.mock('m', () => ({ C: class { … } }))`) и
-  пропускает как раз дорогой вариант, где объект лежит в `const`, а фабрика лишь называет его.
-
-Счёт начинается с **одного**, тогда как [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)
-нужны два, и причина в тех же четырёх вычитаниях: порог существует потому, что `{ onDone: vi.fn() }`
-не отличить от `{ load: vi.fn() }`, а набор опций классом никто не пишет. Замерено оба способа на
-1759 файлах спек одного потребителя — с двумя полями отчётов 6, с одним 12, и все шесть, которые
-порог скрывал, называются `*Mock` или `Mock*`.
-
-Класс, который тот же файл отдаёт в DI, здесь не сообщается — через `useClass:`, `useExisting:`,
-`useValue: new StubMock()` или `TestBed.overrideProvider`, чей дескриптор его называет (5.5.0). Эта
-регистрация — отчёт [`prefer-provide-auto-spy`](#prefer-provide-auto-spy) на уровне `error`, и именно
-там пишется починка. Отступление копирует условия того правила буквально, вместе с `multi: true`: там,
-где молчит оно, это правило не молчит.
-
-**Находка и как её закрыть.**
+Сообщает о классе, чьи собственные поля — `vi.fn()` / `jest.fn()`. Это та же подмена, написанная
+руками, что и объект из `vi.fn()`, только с `new` впереди. Когда в настоящем классе появляется метод,
+заглушка от него отстаёт.
 
 ```ts
 class PaymentCardServiceMock {
@@ -769,93 +926,86 @@ const mock = new PaymentCardServiceMock();
 ```
 
 ```ts
-const mock = createSpyFromClass(PaymentCardService);
-// либо, когда дубль стоит вместо интерфейса или абстрактного класса:
+const mock = createSpyFromClass(PaymentCardService); // ✅
+// либо, когда подмена стоит вместо интерфейса или абстрактного класса:
 const mock = createAutoMock<PaymentCardService>();
 // а за DI весь класс-заглушка исчезает:
 providers: [provideAutoSpy(PaymentCardService)];
 ```
 
-**Зачем это в `recommended`.** Тот же дрейф, что у
-[`prefer-create-spy-from-class`](#prefer-create-spy-from-class), и это буквально тот же объект с
-`new` впереди: класс обзаводится методом, заглушка нет, и спека умирает на
-`TypeError: mock.applyCoupon is not a function` в продакшен-коде. Отдельным правилом это стоит держать
-потому, что это была _самая большая_ оставшаяся семья в сюите, где все `error`-правила `recommended`
-включены и нет ни одного `eslint-disable`: 112 полей `vi.fn()` в 46 классах по 32 файлам, и ни одного
-отчёта, потому что `prefer-create-spy-from-class` совпадает с объектным литералом, а объявление
-класса им не является.
+**Опции.**
 
-**Границы.** Класс-заглушка в общем `*.mock.ts` невидим: отчёту нужно объявление в проверяемом файле.
-Заглушка, чьи поля присваиваются в конструкторе (`this.load = vi.fn()`), не считается. И единственная
-форма, которая попадёт в отчёт, не будучи сервисным дублем, — локальный вспомогательный класс без
-декоратора и без `extends`, держащий колбэк `vi.fn()`; в сюите, на которой это замерялось, такого нет,
-а сообщение называет `createAutoMock<T>()`, что всё равно верный ответ, если класс вообще стоит
+| Опция          | Тип               | По умолчанию | Смысл                                         |
+| -------------- | ----------------- | ------------ | --------------------------------------------- |
+| `minRunnerFns` | целое число, от 1 | `1`          | сколько полей `vi.fn()` делают класс подменой |
+
+**Как исправить.** Удалите класс-заглушку и возьмите `createSpyFromClass(Class)`, `createAutoMock<T>()`
+или `provideAutoSpy(Class)` в `providers`.
+
+**Когда выключить.** Правило решает по догадке, поэтому входит в пакет как `warn`. Выключите его, если
+не согласны с таким чтением: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)
+продолжит работать. Поднимите до `error`, когда заглушек не останется. Правило не видит:
+
+- класс-заглушку в общем `*.mock.ts`: объявление должно быть в проверяемом файле;
+- поля, которым значение присваивают в конструкторе (`this.load = vi.fn()`).
+
+::: details Как правило решает
+**Подсчёт** читает собственные инициализированные поля класса и разматывает цепочку настройки:
+`load = vi.fn().mockReturnValue(of(url))` попадает в счёт. `static`-поля тоже считаются:
+`static`-поле из `vi.fn()` — та же подмена, только построенная один раз на модуль. Поле без
+инициализатора, вычисляемый ключ и поле, которому значение присваивают в конструкторе, не считаются.
+
+**Четыре вида классов пропускаются.** В файле спеки много классов, которые держат `vi.fn()`, но не
+подменяют сервис:
+
+- класс **с декоратором** — тестовый хост или тестовый модуль. Его поля `vi.fn()` — обработчики
+  событий (`onChange = vi.fn()`);
+- класс с непустым **`implements`**. Он отстать _не может_: добавьте член в тип, и заглушка перестанет
+  компилироваться;
+- класс, который **`extends`** что-нибудь. Он наследует настоящее поведение, поэтому `provideAutoSpy`
+  ему не замена;
+- класс **без собственного имени** — классовое выражение в слоте свойства. Такой класс подменяет
+  экспорт модуля, который потом служит DI-токеном, а токен обязан быть конструктором. Сюда входят и
+  `vi.mock('m', () => ({ C: class { … } }))`, и объект, сохранённый в `const`, который фабрика лишь
+  называет.
+
+**Класс, который тот же файл отдаёт в DI, пропускается:** через `useClass:`, `useExisting:`,
+`useValue: new StubMock()` или дескриптор `TestBed.overrideProvider`, который его называет. Такой
+провайдер — случай [`prefer-provide-auto-spy`](#prefer-provide-auto-spy) на уровне `error`, и
+исправление пишется там. Это правило копирует условия того правила в точности, вместе с `multi: true`:
+где молчит то правило, это сообщает.
+
+**Почему счёт начинается с одного.** [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)
+нужно два, потому что `{ onDone: vi.fn() }` выглядит как `{ load: vi.fn() }`. А набор опций классом
+никто не пишет. На одном проекте из 1759 файлов спек порог в два поля даёт 6 классов, а в одно — 12.
+Все шесть, которые скрывал высокий порог, называются `*Mock` или `Mock*`.
+
+**Единственная ложная форма.** Локальный вспомогательный класс без декоратора и без `extends`, который
+держит один колбэк `vi.fn()`, попадает в отчёт, хотя сервис не подменяет. В замеренном проекте таких не
+было. К тому же сообщение называет `createAutoMock<T>()`, и это верный ответ, если класс вообще стоит
 вместо чего-то.
 
-**Severity.** `warn`, и причина в доказательстве, а не в находке. Сообщается дефект, ровно тот же,
-что `prefer-create-spy-from-class` сообщает на `error`, — но у того правила есть счёт, который он
-может защитить, а у этого эвристика с четырьмя подобранными руками исключениями, и проект, который с
-этим чтением не согласен, должен уметь его выключить, не теряя правило, читающее счёт. Замерено до
-выбора severity: 12 отчётов по 8 из 1759 файлов спек одного потребителя — 10 в 7 после того, как две
-заглушки, попадающие в DI через `useExisting:`, переехали в правило провайдера. Поднимайте до `error`, когда
-партия разобрана.
+**Почему оно в recommended.** Тот же дрейф, что у `prefer-create-spy-from-class`: спека падает на
+`TypeError: mock.applyCoupon is not a function` в коде приложения. Это отдельное правило, потому что
+это была _самая большая_ оставшаяся группа в проекте, где включены все `error`-правила и нет ни одного
+`eslint-disable`: 112 полей `vi.fn()` в 46 классах по 32 файлам. `prefer-create-spy-from-class` ищет
+объектные литералы, а объявление класса к ним не относится.
+
+**Серьёзность.** `warn` — из-за доказательства, а не из-за находки. Дефект тот же, о котором
+`prefer-create-spy-from-class` сообщает на `error`. Но у того правила есть счёт, который можно
+защитить, а у этого — эвристика с четырьмя исключениями, подобранными руками. Проект, который не
+согласен, должен уметь выключить это правило и не потерять правило со счётом. На одном проекте из 1759
+файлов спек оно даёт 10 отчётов в 7 файлах.
+:::
 
 ## no-structural-double {#no-structural-double}
 
-**`warn`** · без правки · только синтаксис · опция `minRunnerFns`
+**`warn`** · без автоисправления · только синтаксис · опция `minRunnerFns`
 
-**Что сообщает.** Объектный литерал из `vi.fn()`, привязанный к имени, чей **объявленный тип** —
-встроенный объектный тип с членом из мок-типов Vitest: `let card: { load: Mock }`.
-
-**На чём решает.** На объявлении, то есть на том доказательстве, которого у
-[`prefer-create-spy-from-class`](#prefer-create-spy-from-class) нет. Тому правилу нужны два `vi.fn()`,
-потому что `{ onDone: vi.fn() }` и `{ load: vi.fn() }` — одно и то же дерево; `Mock`, написанный
-**членом объектного типа**, эту неоднозначность снимает: набор опций как `{ onDone: Mock }` не
-аннотирует никто. Поэтому отчёт срабатывает при одном `vi.fn()` — так же, как
-[`prefer-provide-auto-spy`](#prefer-provide-auto-spy) срабатывает, когда точку ставит `provide:`.
-
-Имя отслеживается в обе стороны, которыми спека его пишет: собственная аннотация декларатора
-(`const svc: { load: Mock } = { … }`) и — что важнее — присваивание обратно в тот `let`, который его
-объявил, потому что в замеренной сюите **ни один** из 120 аннотированных дублей не имел
-инициализатора: все они — `let x: { … };` наверху `describe` и `x = { … }` в `beforeEach`.
-
-Членом считается любое из имён мок-типов Vitest: `Mock`, `MockInstance`, `Mocked`, `MockedClass`,
-`MockedFunction`, `MockedFunctionDeep`, `MockedObject`, `MockedObjectDeep`, `PartialMock`. Какое из
-них _означает_ дубль всего объекта — вопрос [`no-mocked-for-spy`](#no-mocked-for-spy), и здесь он не
-применим: какое бы ни попалось, оно стоит типом одного **члена**, а член написанного руками
-объектного типа — это метод, который кто-то вспомнил.
-
-Вычитаются четыре формы, три из них те же, что вычитает правило про литерал (дубль, отданный в
-Angular DI, затравка фабрики, фабрика `vi.mock()`), и одна своя: правило живёт **ниже** порога
-`prefer-create-spy-from-class`. С двух `vi.fn()` и выше то правило уже сообщает, на `error`, а это
-молчит, так что один дубль никогда не получает двух отчётов. Оба читают один и тот же `minRunnerFns`,
-поэтому проект, который двигает порог, двигает его на обоих.
-
-**Вычет про DI шириной в одно имя** (5.5.0), а не взгляд на объемлющее свойство: правило
-[`prefer-provide-auto-spy`](#prefer-provide-auto-spy) идёт по имени _внутрь_ `useValue`, а это правило
-идёт по тому же имени обратно к объявлению — от чтения только по родителю форма ниже давала два отчёта
-вместо одного, а эти двое расходятся в том, как её починить:
-
-```ts
-let svc: { load: Mock };
-
-beforeEach(() => {
-  svc = { load: vi.fn() };
-  TestBed.configureTestingModule({ providers: [{ provide: Card, useValue: svc }] });
-});
-```
-
-Там их и оказалось большинство. Из 115 отчётов, которые правило дало на потребителе, где его замеряли,
-**110** отданы в DI через одно имя и принадлежат правилу провайдера, чей ответ — `provideAutoSpy(Card)`.
-Собственная тема правила — сервис _без_ DI, так что вычет делает именно то, о чём правило говорит;
-остаётся 5 отчётов в 4 файлах.
-
-Объявление, обёрнутое во что угодно, читается как «нет»: `Mocked<{ load: Mock }>` — отчёт
-[`no-mocked-for-spy`](#no-mocked-for-spy), пересечение с настоящими полями рядом с моками — та
-единственная форма, где объект действительно частично конфигурация, а `interface` или псевдоним типа
-описывают форму, у которой нет значения в поле зрения, то есть некуда указать.
-
-**Находка и как её закрыть.**
+Сообщает об объекте из `vi.fn()`, присвоенном имени, чей **объявленный тип** — инлайновый объектный
+тип с членом из мок-типов Vitest, например `let card: { load: Mock }`. Объявление говорит, что объект
+стоит вместо типа. А дальше объект пишет эту подмену руками, по одному методу. Когда тип меняется,
+подмена отстаёт.
 
 ```ts
 let devModeService: { devMode: Mock };
@@ -869,60 +1019,94 @@ beforeEach(() => {
 let devModeService: Spy<DevModeService>;
 
 beforeEach(() => {
-  devModeService = createAutoMock<DevModeService>();
+  devModeService = createAutoMock<DevModeService>(); // ✅ читает тип
   devModeService.devMode.mockReturnValue(true);
 });
 ```
 
-**Зачем это в `recommended`.** Объявление говорит, что объект стоит вместо типа, а дальше объект
-пишет эту подмену руками по одному методу — то есть отстаёт, и аннотация как раз делает это
-доказуемым, а не догадкой. `createAutoMock<T>()` читает тип и заодно является ответом там, куда
-`provideAutoSpy` вообще не может: у абстрактного класса и у интерфейса нет конструктора, который
-можно прочитать.
+**Опции.**
 
-**Границы.** **Голый** `let fn: Mock` никогда не сообщается и не должен: это обычный колбэк `vi.fn()`,
-и `Mock` — его верный тип; в замеренной сюите таких 109 из 290 упоминаний `Mock`. Не сообщается и
-приведение `X.y as Mock`, которое перетипизирует уже существующую функцию. Правило читает один
-уровень аннотации и не больше, поэтому дубль, объявленный через интерфейс, псевдоним типа,
-`Record<…, Mock>` или пересечение, в отчёт не попадает; а у объекта, присвоенного не простому имени
-(`state.svc = { … }`, деструктурированная привязка, параметр), объявления в поле зрения нет.
+| Опция          | Тип               | По умолчанию | Смысл                                                                                           |
+| -------------- | ----------------- | ------------ | ----------------------------------------------------------------------------------------------- |
+| `minRunnerFns` | целое число, от 1 | `2`          | правило сообщает только **ниже** этого числа; держите его равным `prefer-create-spy-from-class` |
 
-**Severity.** `warn`, по той же причине, что и у [`no-stub-class-double`](#no-stub-class-double):
-находка — настоящий дефект, но доказательство здесь чтение объявления, а не счёт, и ничто больше в
-файле не доказывает, что объект — подстановка. Правило выглядело самым громким в релизе при 115
-отчётах по 74 из 1759 файлов спек одного потребителя; после вычета про DI выше это 5 отчётов в 4
-файлах, а 110 тех дублей переехали в `prefer-provide-auto-spy` на `error`, где доказательство —
-`provide:`. Severity со счётом не изменилась, потому что счёт никогда и не был аргументом за неё —
-аргументом было доказательство.
+**Как исправить.** Объявите переменную как `Spy<T>` и создайте её через `createAutoMock<T>()`.
+`createAutoMock<T>()` работает и там, где `provideAutoSpy` не может: для абстрактного класса или
+интерфейса. Если объект идёт в Angular DI, исправление — `provideAutoSpy(Class)`. Об этом случае
+сообщает [`prefer-provide-auto-spy`](#prefer-provide-auto-spy).
+
+**Когда выключить.** Доказательство здесь — чтение объявления, поэтому правило входит в пакет как
+`warn`. Выключите его, если не согласны: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)
+продолжит работать. Правило никогда не сообщает о:
+
+- **голом** `let fn: Mock`: это обычный колбэк, и `Mock` — его верный тип;
+- приведении `X.y as Mock`, которое перетипизирует уже существующую функцию;
+- подмене, объявленной через интерфейс, псевдоним типа, `Record<…, Mock>` или пересечение;
+- объекте, присвоенном не простому имени (`state.svc = { … }`, деструктурированная привязка,
+  параметр).
+
+::: details Как правило решает
+**Доказательство — объявление.** `prefer-create-spy-from-class` нужно два `vi.fn()`, потому что
+`{ onDone: vi.fn() }` и `{ load: vi.fn() }` выглядят одинаково. `Mock`, записанный **членом объектного
+типа**, снимает вопрос: набор опций как `{ onDone: Mock }` никто не аннотирует. Поэтому это правило
+сообщает уже при одном `vi.fn()` — так же, как `prefer-provide-auto-spy`, когда `provide:` доказывает
+то же самое.
+
+**Имя отслеживается в обе стороны, которыми его пишет спека:** собственная аннотация декларатора
+(`const svc: { load: Mock } = { … }`) и присваивание обратно в `let`, который его объявил. Важна
+вторая. В замеренном проекте **ни у одной** из 120 аннотированных подмен не было инициализатора. Каждая
+была `let x: { … };` в начале `describe` и `x = { … }` в `beforeEach`.
+
+**Типом члена считается любой мок-тип Vitest:** `Mock`, `MockInstance`, `Mocked`, `MockedClass`,
+`MockedFunction`, `MockedFunctionDeep`, `MockedObject`, `MockedObjectDeep`, `PartialMock`. Какой бы ни
+встретился, это тип одного **члена**. А член объектного типа, написанного руками, — это метод, который
+кто-то вспомнил. Какой из них означает подмену всего объекта — вопрос
+[`no-mocked-for-spy`](#no-mocked-for-spy).
+
+**Что правило пропускает:**
+
+- подмену, отданную в Angular DI, начальные значения фабрики и фабрику `vi.mock()` — так же, как
+  `prefer-create-spy-from-class`;
+- всё, что на пороге `prefer-create-spy-from-class` или выше. То правило уже сообщает о таком на
+  `error`, так что одна подмена никогда не получает двух отчётов. Оба читают один и тот же
+  `minRunnerFns`; меняете его — меняйте на обоих;
+- объявление, обёрнутое во что угодно. `Mocked<{ load: Mock }>` — отчёт `no-mocked-for-spy`.
+  Пересечение с настоящими полями — единственная форма, где объект действительно отчасти конфигурация.
+  У `interface` или псевдонима `type` нет значения в поле зрения, так что указать не на что.
+
+**Пропуск про DI шириной в одно имя.** [`prefer-provide-auto-spy`](#prefer-provide-auto-spy) идёт по
+имени внутрь `useValue`, а это правило идёт по тому же имени обратно к объявлению. Иначе форма ниже
+получила бы два отчёта, которые расходятся в том, как её исправить:
+
+```ts
+let svc: { load: Mock };
+
+beforeEach(() => {
+  svc = { load: vi.fn() };
+  TestBed.configureTestingModule({ providers: [{ provide: Card, useValue: svc }] });
+});
+```
+
+Большинство аннотированных подмен оказались именно такими. Из 115 кандидатов в замеренном проекте
+**110** уходят в DI через одно имя. Они принадлежат правилу провайдера, и его ответ —
+`provideAutoSpy(Card)`. На долю этого правила остаётся 5 отчётов в 4 файлах.
+
+**Почему голый `Mock` никогда не сообщается:** 109 из 290 упоминаний `Mock` в замеренном проекте были
+обычными колбэками.
+
+**Серьёзность.** `warn`, по той же причине, что у [`no-stub-class-double`](#no-stub-class-double).
+Дефект настоящий, но доказательство — чтение объявления, а не счёт. И больше ничто в файле не
+доказывает, что объект стоит вместо чего-то. Серьёзность выбрана по доказательству, а не по числу
+отчётов.
+:::
 
 ## prefer-spy-on-own-method {#prefer-spy-on-own-method}
 
 **`warn`** · `--fix` и подсказка · только синтаксис
 
-**Что сообщает.** Вызов `createSpyFromInstance(target, options)`, опции которого — одна из двух форм,
-которые упаковывают [`spyOnOwnMethod` и `spyOnVoidMethod`](/ru/core/create-spy-from-class#spy-on-own-method),
-а результат нужен только ради этого одного метода:
-
-- `{ onlyMethodsToSpyOn: ['m'], passthrough: true }` → `spyOnOwnMethod(target, 'm')`;
-- `{ onlyMethodsToSpyOn: ['m'], returns: { m: undefined } }` → `spyOnVoidMethod(target, 'm')`;
-- один `{ returns: { m: undefined } }` на настоящем событии или элементе → `spyOnVoidMethod(target, 'm')`.
-
-«Только ради этого метода» — одно из четырёх написаний, в одну строку или в десять: `.m` (или
-`['m']`) прямо на вызове, `const { m } = …`, вызов отдельной инструкцией или имя, которому вызов
-присвоен один раз и которое читается только как `name.m`, — `const` или `let`, который заполняет
-`beforeEach`.
-
-**На чём решает.** На вызове и чтениях его результата. Второй метод в списке, `methodsToSpyOn`
-(он добавляет к обнаружению, а не заменяет его), любая другая опция, спред, результат, переданный
-дальше, экспортированный, перезаписанный как `spy.m = …` или прочитанный ради другого члена, — и
-отчёта нет. Голому void-сиду нужна ещё и настоящая цель, видная из выражения или через одно имя:
-`new MouseEvent(…)` и любой глобальный конструктор `…Event`, `document` и `window`,
-`document.createElement(…)` / `createElementNS` / `createEvent` / `querySelector` / `getElementById`,
-`document.body`, `fixture.nativeElement`, `….debugElement.nativeElement`,
-`….query(…).nativeElement`, `hostElement(…)` и `queryElement(…)`. Дубль — `createAutoMock<Event>()`, `createSpyFromClass(Event)`,
-приведённый литерал, имя, значение которого файл не задаёт, — не сообщается никогда.
-
-**Находка и ремонт.**
+Сообщает о вызове `createSpyFromInstance`, который шпионит за одним методом и используется только ради
+него. Хелперы [`spyOnOwnMethod` и `spyOnVoidMethod`](/ru/core/create-spy-from-class#spy-on-own-method)
+говорят то же самое одним вызовом.
 
 ```ts
 const seek = createSpyFromInstance(player, {
@@ -947,155 +1131,269 @@ beforeEach(() => {
 it('seeks', () => expect(spy).toHaveBeenCalled());
 ```
 
-Первые две формы — ровно то, что делают хелперы, поэтому `--fix` применяет их сам: вызов, каждое
-чтение `name.m`, которое становится `name`, импорт хелпера рядом с фабрикой (из той же точки входа,
-если она экспортирует хелпер, иначе из точки входа адаптера, которую импортирует файл, а если такой
-нет — из корня) и удаление импорта фабрики, когда переписывание
-забрало её последнее использование. Аннотация `Spy<X>` у имени становится `Spy<X>['m']` в подсказке,
-а не в фиксе; любая другая аннотация, явные аргументы типа или `spyOnOwnMethod`, который файл
-объявляет сам, оставляют отчёт без правки.
+**Опции.** Нет.
 
-**Почему в recommended.** Хелперы появились потому, что этот вызов — самый частый, и сюита,
-переведённая до их появления, несёт его повсюду. Текстовый поиск пропускает каждый вызов,
-написанный в несколько строк: потребитель, для которого написано правило, перевёл около шестидесяти
-руками, а ещё десять нашлись только так.
+**Как исправить.** Правило знает три формы:
 
-**Границы.** Голый void-сид — подсказка, а не фикс: без `onlyMethodsToSpyOn` обнаружение шпионит и
-за всеми остальными методами цели, и тест, который полагается на заглушённость одного из них,
-под `spyOnVoidMethod` меняется. Поэтому же экземпляра компонента нет среди настоящих целей: на его
-остальные методы полагаются чаще всего. Несколько переписываний одного файла за один проход
-`--fix` могут оставить импорт `createSpyFromInstance` неиспользованным; проход, который
-переписывает последнее использование, его убирает, остальное ловит правило неиспользуемых импортов
-проекта.
+| Переданные опции                                                  | Замена                         | Как       |
+| ----------------------------------------------------------------- | ------------------------------ | --------- |
+| `{ onlyMethodsToSpyOn: ['m'], passthrough: true }`                | `spyOnOwnMethod(target, 'm')`  | `--fix`   |
+| `{ onlyMethodsToSpyOn: ['m'], returns: { m: undefined } }`        | `spyOnVoidMethod(target, 'm')` | `--fix`   |
+| `{ returns: { m: undefined } }` на настоящем событии или элементе | `spyOnVoidMethod(target, 'm')` | подсказка |
 
-**Уровень.** `warn` по той же причине, что и у [`prefer-render-shallow`](#prefer-render-shallow): вызов,
-о котором правило сообщает, корректен и делает ровно то же, что хелпер. Правило называет более
-короткое написание, а не дефект, и раз точные формы несут фикс, поднять его — один `eslint --fix`.
+`--fix` переписывает вызов и превращает каждое чтение `name.m` в `name`. Хелпер он импортирует рядом с
+фабрикой. Источник — та же точка входа, если она экспортирует хелпер. Иначе — точка входа адаптера,
+которую импортирует файл, или корень. Импорт фабрики удаляется, когда уходит её последнее
+использование.
+
+- Аннотация `Spy<X>` у имени становится `Spy<X>['m']` — в подсказке, а не в исправлении.
+- Любая другая аннотация, явные аргументы типа или `spyOnOwnMethod`, который файл объявляет сам:
+  отчёт приходит без правки.
+- Несколько переписываний за один проход `--fix` могут оставить импорт `createSpyFromInstance`
+  неиспользованным. Его поймает ваше правило про неиспользуемые импорты.
+
+**Когда выключить.** Вызов, о котором сообщает правило, корректен и делает ровно то же, что хелпер. Это
+более короткое написание, а не дефект, поэтому правило — `warn`. У точных форм есть `--fix`, так что
+поднять уровень стоит одного запуска `eslint --fix`.
+
+::: details Как правило решает
+**«Используется только ради этого метода»** — одно из четырёх написаний, в одну строку или в десять:
+
+- `.m` (или `['m']`), прочитанное прямо с вызова;
+- `const { m } = …`;
+- вызов отдельной инструкцией;
+- имя, которому вызов присвоен один раз и которое читается только как `name.m`: `const` или `let`,
+  который заполняет `beforeEach`.
+
+**Что снимает отчёт:** второй метод в списке; `methodsToSpyOn` (он добавляет к обнаружению, а не
+заменяет его); любая другая опция; спред; результат, который передают дальше, экспортируют,
+перезаписывают как `spy.m = …` или читают ради другого члена.
+
+**Одиночному `{ returns: { m: undefined } }` нужна настоящая цель.** Она читается из выражения или
+через одно имя:
+
+- `new MouseEvent(…)` и любой глобальный конструктор `…Event`;
+- `document` и `window`;
+- `document.createElement(…)` / `createElementNS` / `createEvent` / `querySelector` /
+  `getElementById`, а также `document.body`;
+- `fixture.nativeElement`, `….debugElement.nativeElement`, `….query(…).nativeElement`;
+- `hostElement(…)` и `queryElement(…)`.
+
+Подмена (`createAutoMock<Event>()`, `createSpyFromClass(Event)`, приведённый литерал, имя, значение
+которого файл не задаёт) никогда не попадает в отчёт.
+
+**Почему одиночный `{ returns: { m: undefined } }` — только подсказка.** Без `onlyMethodsToSpyOn`
+фабрика шпионит и за всеми остальными методами цели. Тест, который полагается на то, что один из них
+заглушён, под `spyOnVoidMethod` меняет поведение. По той же причине экземпляра компонента нет среди
+настоящих целей: на его остальные методы полагаются чаще всего.
+
+**Почему оно в recommended.** Хелперы появились потому, что этот вызов встречается часто. В коде,
+написанном до них, он повсюду. Текстовый поиск пропускает каждый вызов, разбитый на несколько строк.
+Проект, который попросил это правило, перевёл около шестидесяти вызовов руками, а правило нашло ещё
+десять.
+
+**Серьёзность.** `warn`, как у [`prefer-render-shallow`](#prefer-render-shallow): правило называет
+более короткое написание, а не дефект.
+:::
 
 ## no-shared-module-level-mock {#no-shared-module-level-mock}
 
-**`error`** · без правки · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Что сообщает.** **Экспортируемую** переменную, чей инициализатор строит мок раннера прямо во время
-вычисления модуля.
-
-**На чём решает.** На объявлении экспорта плюс на том же обходе поддерева, что и остальные правила о
-дублях, — с уважением к границе функции. `vi.fn()` за стрелкой создаётся на каждый вызов, а это как
-раз та форма, к которой правило и ведёт, поэтому спуск внутрь функций пометил бы починку вместе с
-проблемой. Спай, который не покидает файл, не сообщается вообще.
-
-**Находка и как её закрыть.**
+Сообщает об **экспортируемой** переменной, которая создаёт `vi.fn()` при загрузке модуля. Все спеки,
+которые её импортируют, делят один объект. При `isolate: false` это один объект на воркер, и состояние
+утекает из одного файла тестов в другой.
 
 ```ts
 export const cartFixture = { total: vi.fn(), add: vi.fn() }; // ❌ строится один раз на модуль
 ```
 
 ```ts
-export const createCartFixture = () => ({ total: vi.fn(), add: vi.fn() });
+export const createCartFixture = () => ({ total: vi.fn(), add: vi.fn() }); // ✅ свой набор на каждый вызов
 ```
 
-**Зачем это в `recommended`.** При `isolate: false` модуль вычисляется один раз на **воркер**,
-поэтому каждая импортирующая спека получает один и тот же объект. Проверено идентификатором загрузки
-модуля: с изоляцией два файла печатают разные id, без неё — один и тот же, и файл 2 читает то, что
-записал файл 1. Важно, что именно утекает: `clearMocks: true` до `vi.fn()` уровня модуля **доходит**
-и вызовы очищает — три отдельные пробы это подтвердили. Через файлы переезжает всё остальное, что
-фикстура держит рядом со спаями: уже завершившийся `Subject`, массив, куда кто-то положил элемент,
-сохранённый `mockReturnValue`. Какой файл пойдёт первым, решает раннер, поэтому отказ приходит
-мигающим тестом в файле, которого никто не трогал.
+**Опции.** Нет.
 
-**Границы.** `const` уровня модуля без экспорта молчит, а проблема у него та же — как только его
-разделят два блока `describe` в файле. Правило читает экспорт, потому что именно эта форма переходит
-между файлами. Экспортируемая _замороженная константа_, собранная из `vi.fn()` намеренно (стабильная
-ссылка, которую какой-нибудь реестр сравнивает по идентичности), гасится построчно.
+**Как исправить.** Экспортируйте фабрику и вызывайте её в `beforeEach` каждой спеки, которая
+пользовалась общим объектом. Тогда каждый тест начинает со свежих спаев. Сам файл спеки
+[не должен экспортировать ничего](/ru/utilities/setup#shared-fixtures-are-functions-not-constants).
 
-**Что сообщение оставляет за кадром.** Фабрика — вся починка: `export const createCart = () => ({ total: vi.fn() })`,
-вызванная в `beforeEach` каждой спеки, которая пользовалась общим объектом, так что каждый тест
-начинает со свежих спаев.
+**Когда выключить.** Экспортируемая замороженная константа, собранная из `vi.fn()` намеренно: например,
+стабильная ссылка, которую какой-нибудь реестр сравнивает по идентичности. Такую гасите построчно.
+Применяйте правило и к модулям фикстур, и к файлам спек.
 
-**Severity.** `error`. Зелёный и неверный, и отказ вылезает не в том файле, где причина.
+::: details Как правило решает
+**Что правило читает:** объявление экспорта и каждый `vi.fn()` в его инициализаторе, останавливаясь на
+границе функции. `vi.fn()` за стрелкой создаётся на каждый вызов, а это и есть исправление, поэтому
+правило внутрь функций не заглядывает. Спай, который не покидает файл, в отчёт не попадает.
+
+`const` уровня модуля без экспорта тоже не сообщается, хотя у него та же проблема, как только его
+делят два блока `describe`. Правило читает экспорт, потому что именно он переходит между файлами.
+
+**Почему оно в recommended.** При `isolate: false` модуль вычисляется один раз на **воркер**. Это
+видно на пробной фикстуре с идентификатором загрузки модуля, которую импортируют два файла спек:
+
+```ts
+// пробная фикстура, её импортируют два файла спек
+export const analytics = { sent: [] as string[], track: vi.fn((e: string) => analytics.sent.push(e)) };
+export const moduleLoadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+```
+
+```text
+isolate: true    file 1: load=…-mdncyn     file 2: load=…-ywp3q0   sent=[]
+isolate: false   file 1: load=…-n0v4yh     file 2: load=…-n0v4yh   sent=[from-file-1]
+```
+
+Одинаковый id значит одно вычисление, и файл 2 читает то, что записал файл 1. Вызовы спая не утекают:
+`clearMocks: true` доходит до `vi.fn()` уровня модуля и очищает их (это подтвердили три пробы). Утекает
+всё остальное, что фикстура держит рядом со спаями: уже завершившийся `Subject`, массив, в который
+кто-то положил элемент, сохранённый `mockReturnValue`. Поэтому исправление — фабрика, а не `beforeEach`,
+который чистит усерднее. Какой файл пойдёт первым, решает раннер. Поэтому отказ выглядит как мигающий
+тест в файле, которого никто не трогал.
+
+**Серьёзность.** `error`. Тест зелёный и неверный, а отказ появляется не в том файле, где причина.
+:::
+
+## no-outer-binding-in-mock-factory {#no-outer-binding-in-mock-factory}
+
+**`error`** · без автоисправления · только синтаксис
+
+Сообщает о фабрике `vi.mock(path, factory)`, которая читает `const` / `let` / `var` / `class` верхнего
+уровня, объявленные не через `vi.hoisted`. Vitest поднимает каждый `vi.mock` выше импортов, поэтому
+фабрика выполняется раньше, чем появляется это объявление.
+
+```ts
+const user = { id: 1 };
+vi.mock('./session', () => ({ current: user })); // ❌ Cannot access 'user' before initialization
+```
+
+```ts
+const { user } = vi.hoisted(() => ({ user: { id: 1 } })); // ✅ поднимается вместе с моком
+vi.mock('./session', () => ({ current: user }));
+```
+
+**Опции.** Нет.
+
+**Как исправить.** Объявите значение через `vi.hoisted`, как выше. Если спека импортирует модуль только
+внутри теста (`await import('./session')`), возьмите `vi.doMock`: он не поднимается, и правило о нём не
+сообщает.
+
+**Когда выключить.** Не нужно. Подъём — факт раннера, а не догадка о файле.
+
+::: details Как правило решает
+Фабрика выполняется, как только первый импорт доходит до замоканного модуля. Считаются только чтения во
+время выполнения фабрики. Чтение внутри функции, которую фабрика возвращает, происходит позже, в тесте,
+и это нормально. Объявления функций и импорты не сообщаются, а позиции типов чтениями не являются.
+
+**Почему оно в recommended.** Фабрика читает привязку раньше, чем та существует. Для `const`, `let` или
+`class` это `ReferenceError`. Для `var` это молчаливый `undefined`, который замоканный модуль затем
+отдаёт коду под тестом.
+
+**Серьёзность.** `error`.
+:::
 
 ## no-object-define-property {#no-object-define-property}
 
 **`error`** · подсказка · только синтаксис
 
-**Что сообщает.** Каждый вызов `Object.defineProperty` и `Object.defineProperties` в линтуемом
-файле — плюс второе, более резкое сообщение там, где одно и то же свойство переопределяется в одном
-блоке дважды.
-
-**На чём решает.** На двух селекторах и подсчёте с ключом по тому, _что_ патчится: диапазон
-охватывающей функции, исходный текст цели и исходный текст ключа. Ключ — текст, а не узлы, потому что
-`window` в двух вызовах — это два идентификатора и один глобальный объект. Два патча одного свойства
-в одном блоке читаются как патч и написанное руками восстановление (`manualRestore`); два патча в
-двух разных тестах, как и патч в `beforeEach` в паре с восстановлением в `afterEach`, разводятся и
-получают обычное сообщение. `defineProperties` всегда получает обычное сообщение и никакой подсказки:
-его замена — один `mockValueProp` на запись, то есть несколько инструкций там, где была одна.
-
-Подсказка читает **дескриптор** и называет хелпер, который воспроизводит его точно, — потому она так
-часто и отказывается. `configurable` — единственный сосед, которому разрешено присутствовать, потому
-что вернуть свойству конфигурируемость и есть смысл замены; `writable`, `enumerable` или вторая
-значимая запись означают, что дескриптор оставят как есть. `{ value: vi.fn().mockImplementation(function () { … }) }`
-тоже отклоняется: это мок, который код под тестом вызывает через `new`, и хелпер для него —
-`stubConstructor`, а не `mockValueProp`.
-
-**Находка и как её закрыть.**
+Сообщает о каждом вызове `Object.defineProperty` и `Object.defineProperties` в спеке. После теста
+никто не возвращает исходное свойство на место, поэтому патч утекает в следующие тесты и файлы.
 
 ```ts
 Object.defineProperty(navigator, 'onLine', { value: false, configurable: true }); // ❌
 ```
 
 ```ts
-mockValueProp(navigator, 'onLine', false); // откат зарегистрирован в restoreMockedProps()
+import { mockValueProp } from 'vitest-auto-spy';
+
+mockValueProp(navigator, 'onLine', false); // ✅ откатывается через restoreMockedProps() после теста
 ```
 
-**Зачем это в `recommended`.** Дескриптор никто не возвращает на место. Замерено на файле, который
-патчит `navigator.onLine` и затем зовёт всё, что раннер предлагает для отката, — `vi.restoreAllMocks()`,
-`vi.resetAllMocks()`, `vi.unstubAllGlobals()`: после всех трёх свойство по-прежнему читается как
-`false`, и как `false` же читается в **следующем** файле воркера. `restoreMockedProps()` его
-восстанавливает — но только если свойство патчили одним из хелперов: запустите его после файла с
-`defineProperty` в том же воркере, и исходный дескриптор уже потерян. Из этого сюита не выкарабкается
-файл за файлом. К тому же `Object.defineProperty` по умолчанию ставит `configurable: false`, так что
-патч запечатывает свойство на остаток жизни воркера.
+**Опции.** Нет.
 
-**Границы.** Это правило чаще других право насчёт механики и неправо насчёт конкретной строки —
-свойство на замороженном хостовом объекте, дескриптор, который хелперы не воспроизводят, патч в
-`beforeAll`, который и должен жить весь файл. Сообщение называет хелпер, которого просит
-дескриптор, — `{ value }` это `mockValueProp`, `{ get }` это `mockReadonlyPropGetter`, `set` это
-`mockAccessorsProp`, значение, построенное через `mockImplementation(function () { … })`, это
-`stubConstructor`, — а построчный disable с причиной — это предусмотренный ответ там, где не
-подходит ни один:
+**Как исправить.** Возьмите хелпер, который соответствует дескриптору; все они экспортируются из
+`vitest-auto-spy`. `configurable: true` не нужен: хелпер сам оставляет свойство configurable. Каждую такую подмену откатывает `restoreMockedProps()`. `setupAutoSpy()` из
+`vitest-auto-spy/setup` вызывает его после каждого теста; без `setupAutoSpy()` вызывайте
+`restoreMockedProps()` в `afterEach`. Подсказка выберет хелпер за вас:
+
+| Дескриптор                                                          | Хелпер                   |
+| ------------------------------------------------------------------- | ------------------------ |
+| `{ value }`                                                         | `mockValueProp`          |
+| `{ get }`                                                           | `mockReadonlyPropGetter` |
+| с `set`                                                             | `mockAccessorsProp`      |
+| значение, построенное через `mockImplementation(function () { … })` | `stubConstructor`        |
+
+Два случая, которых дескриптор не показывает:
+
+- Свойство `Signal<T>`: возьмите `mockReadonlyProp(obj, key, signal(value))` с настоящим `signal`.
+  `vi.fn().mockReturnValue(value)` читается так же, но останавливает обновление каждого `computed()` и
+  `effect()` ниже по цепочке.
+- Свойство, которого нет, потому что это поле экземпляра, а не член прототипа: исправляйте там, где
+  строится спай, через `instanceMethodsToSpyOn` / `observablePropsToSpyOn`.
+
+**Когда выключить.** Когда не подходит ни один хелпер: свойство на замороженном хостовом объекте,
+дескриптор, который хелперы не воспроизводят, или патч в `beforeAll`, который должен жить весь файл.
+Выключите правило на этой строке и напишите причину:
 
 ```ts
 // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- clientWidth is a getter on a frozen host object
 Object.defineProperty(target, 'clientWidth', { value: 100 });
 ```
 
-Оно же чувствительнее всех к глобу `files`: `Object.defineProperty` в продакшен-коде совершенно
-уместен, и слишком широкий глоб начинает сообщать о нём.
+Это правило чувствительнее всех к глобу `files`. `Object.defineProperty` в коде приложения вполне
+уместен, а слишком широкий глоб начинает о нём сообщать.
 
-**Что сообщение оставляет за кадром.** Два случая, которых дескриптор не показывает. Свойство `Signal<T>` — это
-`mockReadonlyProp(obj, key, signal(value))` с настоящим `signal`: `vi.fn().mockReturnValue(value)`
-читается в месте вызова так же, но останавливает обновление каждого `computed()` и `effect()` ниже по
-течению. А свойство, которого нет, потому что оно поле экземпляра, а не член прототипа, чинится там,
-где строится спай, — `instanceMethodsToSpyOn` / `observablePropsToSpyOn`, — а не здесь.
+::: details Как правило решает
+**Два сообщения.** Каждый вызов получает обычное сообщение. Второе, более резкое (`manualRestore`),
+появляется, когда одно и то же свойство патчат дважды в одном блоке: патч и восстановление, написанное
+руками. Правило сопоставляет патчи по охватывающей функции, исходному тексту цели и исходному тексту
+ключа. Текст нужен потому, что `window` в двух вызовах — это два идентификатора, но один глобальный
+объект. Два патча в двух разных тестах, как и патч в `beforeEach` с восстановлением в `afterEach`,
+получают обычное сообщение.
 
-**Severity.** `error`. Ущерб не ограничен файлом, который его нанёс, — именно это отличает случай от
-предупреждения.
+**Когда предлагается подсказка.** Она читает **дескриптор** и называет хелпер, который воспроизводит его
+точно. Поэтому она часто отказывается:
+
+- `configurable` — единственный разрешённый соседний ключ: вернуть свойству конфигурируемость и есть
+  смысл замены;
+- `writable`, `enumerable` или второй значимый ключ означают, что подсказки нет;
+- `{ value: vi.fn().mockImplementation(function () { … }) }` тоже подсказки не получает: код под тестом
+  вызывает это через `new`, и хелпер для такого случая — `stubConstructor`;
+- `defineProperties` подсказку не получает никогда: его замена — один `mockValueProp` на запись.
+
+**Почему оно в recommended.** Пробный файл патчит `navigator.onLine`, а затем вызывает всё, что раннер
+предлагает для отката:
+
+```ts
+Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+
+vi.restoreAllMocks();
+vi.resetAllMocks();
+vi.unstubAllGlobals();
+```
+
+```text
+after every restore the runner offers: onLine=false   ← тот же файл
+onLine=false                                          ← следующий файл
+after restoreMockedProps: onLine=true                 ← mockValueProp, запущен отдельно
+```
+
+Третья строка — исправление, и замерена она отдельно не случайно. Запустите её **после** файла с
+`defineProperty` в том же воркере, и она тоже прочитает `false`: исходный дескриптор пропал ещё до того,
+как хелпер увидел свойство. Проект не выберется из этого файл за файлом. К тому же
+`Object.defineProperty` по умолчанию ставит `configurable` в `false`, поэтому патч запечатывает
+свойство до конца жизни воркера.
+
+**Серьёзность.** `error`. Ущерб выходит за пределы файла, который его нанёс.
+:::
 
 ## no-import-time-spread {#no-import-time-spread}
 
 **`error`** · подсказка · только синтаксис
 
-**Что сообщает.** Спред биндинга, которым владеет другой модуль, вычисляемый пока этот модуль ещё
-загружается.
-
-**На чём решает.** На двух вопросах, и оба отвечаются без типов. Является ли операнд спреда именем,
-которое этот файл **импортировал**, — разрешается через менеджер скоупов до `ImportBinding`. И
-вычисляется ли спред во время импорта — обход вверх до `Program`, который останавливается на любом
-теле функции и на любом не-`static` поле класса. `static`-поле границей не является: оно
-действительно выполняется при вычислении объявления класса. Внутри тела функции не сообщается ничего,
-потому что оно выполняется позже, а в этом и вся починка.
-
-**Находка и как её закрыть.**
+Сообщает о спреде импортированного значения на уровне модуля: он выполняется, пока модуль ещё
+загружается. Внутри тестового бандла импортированное значение в этот момент может быть ещё `undefined`.
+Тогда спред в массив бросает ошибку, а спред в объект молча даёт `{}`.
 
 ```ts
 import { BaseEvents } from './base-events';
@@ -1104,79 +1402,99 @@ export const platformEvents = [...BaseEvents]; // ❌ нормально под 
 ```
 
 ```ts
-export const platformEvents = () => [...BaseEvents];
+export const platformEvents = () => [...BaseEvents]; // ✅ выполняется позже, при вызове
 ```
 
-**Зачем это в `recommended`.** Под `tsc` и под ESM-загрузчиком браузера это упасть не может — модуль
-никогда не выполняется раньше своей зависимости. Внутри одного бандла может: спек-бандл выпускает
-общие чанки, чанк может быть вычислен пока переэкспортируемый им биндинг всё ещё `undefined`, и
-`[...undefined]` бросает `Spread syntax requires ...iterable[Symbol.iterator] to be a function` во
-время загрузки бандла — на дереве, где все тесты проходят. Первопричина та же, что у заметки об
-инициализации barrel-модулей в [руководстве по переезду](/ru/migrating), но симптом не называет ни
-модуля, ни barrel-модуля, поэтому эти две вещи ничто не связывает.
+**Опции.** Нет.
+
+**Как исправить.** Перенесите спред в функцию, как выше. Подсказка делает это для спреда в
+инициализаторе переменной. Когда вы её примете, каждому использованию имени понадобятся `()`, и
+тайпчекер перечислит все места, которые надо поправить. Другое исправление — заинлайнить константу,
+чтобы для этой строки ничего не импортировалось, — из одного файла не написать.
+
+**Когда выключить.** Большинство отчётов придётся на код, который ещё ни разу не падал: отказ зависит от
+того, как бандлер делит чанки. Правило включено потому, что отказ дорогой, а не частый. Внутри тела
+функции ничего не сообщается, как и в поле экземпляра:
+
+```ts
+export const make = () => [...BaseEvents]; // тело функции
+class Events {
+  all = [...BaseEvents]; // поле экземпляра, выполняется при создании экземпляра
+  static all = [...BaseEvents]; // …а static-поле в отчёте: оно выполняется вместе с объявлением класса
+}
+```
+
+Операндом должно быть само импортированное имя. `[...BaseEvents.slice()]` — это вызов, и что бы он ни
+бросил, это другая проблема.
+
+::::: details Как правило решает
+**Два вопроса, и на оба правило отвечает без типов:**
+
+1. Является ли операнд спреда именем, которое этот файл **импортировал**? Правило разрешает его через
+   анализ областей видимости до привязки импорта.
+2. Выполняется ли спред во время импорта? Правило поднимается до верха модуля и останавливается на любом
+   теле функции и на любом не-`static` поле класса. `static`-поле границей не является: оно выполняется
+   вместе с объявлением класса.
+
+**Почему оно в recommended.** Под `tsc` и под ESM-загрузчиком браузера это упасть не может: модуль
+никогда не выполняется раньше своей зависимости. Внутри одного бандла может. Сборщик выпускает общие
+чанки. Чанк может выполниться, пока значение, которое он переэкспортирует, ещё `undefined`. И тогда
+`[...undefined]` бросает ошибку во время загрузки бандла — на дереве, где все тесты проходят:
+
+```
+Spread syntax requires ...iterable[Symbol.iterator] to be a function
+```
+
+Первопричина та же, что в заметке об инициализации barrel-модулей в
+[руководстве по переезду](/ru/migrating). Но ошибка не называет ни модуля, ни barrel-модуля.
 
 **Спред в объект — тихая половина, и у него своё сообщение.** `[...undefined]` и `f(...undefined)`
-бросают; `{ ...undefined }` — это `{}`. То есть объектная форма не поднимает ничего: модуль
-загружается, а построенная им константа молча недосчитывается всех ключей, которые собиралась
-скопировать:
+бросают ошибку, а `{ ...undefined }` — это `{}`. Модуль загружается, а константа молча остаётся без
+всех ключей, которые должна была скопировать:
 
 ```ts
 import { SectionItemType } from '@acme/api';
 
-// ❌ `{ ...undefined }` — это `{}`, поэтому `ItemType.COVER` до конца прогона читается как `undefined`
+// ❌ ничего не бросает; `ItemType.COVER` просто читается как `undefined` до конца прогона
 export const ItemType = { ...SectionItemType, ...LocalItemType } as const;
 ```
 
-Сообщают о них порознь, потому что читатель действует по сообщению: отправленный искать
-`Spread syntax requires …` в спреде в объект, он не находит такой ошибки нигде в логе и принимает
-находку за ложное срабатывание. Объектное сообщение сразу говорит, что искать нечего, а ущерб — это
-ключ, читающийся как `undefined`.
+Сообщения разделены вот почему. Читатель, которого отправили искать `Spread syntax requires …`, не
+находит такой ошибки в логе и принимает отчёт за ложное срабатывание. Сообщение про объект сразу
+говорит, что искать ошибку не нужно, а ущерб — ключ, который читается как `undefined`.
 
-**Границы.** Популяция маленькая — семь мест в воркспейсе из 8 673 файлов, два из них спредят
-barrel-модуль воркспейса, — и проба всех семи их оправдала: ни одно не было тем отказом, который
-тогда искали. То есть это правило в основном сообщает о коде, который никогда не падал, и аргумент за
-него — цена отказа, а не его частота. Подсказка предлагается только для спреда, который является
-частью инициализатора переменной, и она подсказка в самом сильном смысле: приняв её, вы делаете
-каждое использование имени вызовом, и тайпчекер сам назовёт все места, которые надо поправить. Второй
-вариант починки — заинлайнить константу, чтобы для этой строки ничего не приходилось импортировать —
-из одного файла не написать.
+**Как часто правило срабатывает.** AST-проход по воркспейсу из 8 673 файлов нашёл ровно **семь**
+спредов импортированного имени на уровне модуля. Два из них спредят barrel-модуль воркспейса. Проба
+всех семи их оправдала: ни один не был тем отказом, который тогда искали.
 
-**Severity.** `error`. Отказ красный по построению, но приходит он раньше любого теста, а его
-сообщение указывает на бандлер.
+::: warning У той же ошибки есть вторая причина, которую правило не видит
+`Spread syntax requires ...iterable[Symbol.iterator] to be a function` появляется и тогда, когда
+**сборщик** Angular раскладывает точки входа по-другому. В этом случае ни один спред в исходниках не
+виноват. На одном шарде Angular-воркспейса, на том же дереве, три прогона подряд:
+
+- собственный ключ `isolate` у `@angular/build:unit-test` не задан: 860 файлов зелёные;
+- `"isolate": false`: 39 файлов красные с этой ошибкой и **ноль собранных тестов**;
+- `"isolate": true`: снова 860 зелёных файлов.
+
+`isolate` раннера и одноимённая опция сборщика — разные настройки. Отличить их помогает число тестов.
+Настоящий спред на уровне модуля ломает файл _после_ того, как его тесты собраны. В случае со сборщиком
+не собирается ни одного теста, стека нет, а список падающих файлов меняется от прогона к прогону.
+Оставьте ключ `isolate` сборщика незаданным (покрытие включает изоляцию), а не пишите `false`. Эти числа
+получены в одной серии прогонов.
+:::
+
+**Серьёзность.** `error`. Отказ красный по построению, но приходит раньше любого теста, а его сообщение
+указывает на бандлер.
+:::::
 
 ## prefer-observer-stub {#prefer-observer-stub}
 
-**`error`** · без правки · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Что сообщает.** `IntersectionObserver`, `ResizeObserver` или `MutationObserver`, подменённые
-дублем. Три формы: присваивание в глобальный объект, `vi.stubGlobal('IntersectionObserver', …)` и
-`vi.spyOn(globalThis, 'MutationObserver')`.
-
-**На чём решает.** Получатель должен быть глобальным объектом — `global`, `globalThis`, `self` или
-`window`, касты снимаются; алиас (`const g = globalThis`) недосягаем и вне области действия. Ключ
-может быть точечным или строкой. А значение обязано быть **дублем**, и в этом вся различающая
-способность правила: выражение класса, функция, мок раннера или имя, которое разрешается в одно из
-этого. Последний шаг — то, из-за чего три реальные строки молчат, и каждая намеренно:
-
-- `globalThis.IntersectionObserver = original` — восстановление. Значение — имя, держащее то, что
-  прочитали из глобального объекта, а `initializerOf` сдаётся на имени, которому присваивают дважды,
-  то есть ровно на этой переменной.
-- `window.ResizeObserver = ResizeObserver` из полифилла — значение пришло из импорта, значит это
-  настоящая реализация и продакшен-код, делающий то, что должен.
-- получатель, который не является глобальным объектом: поддельный `window`, собранный спекой и
-  переданный коду под тестом, — обычное значение.
-
-У определения читается его _вид_, а не узел, потому что определение параметра указывает на функцию,
-которой он принадлежит: чтение узла назовёт функцией каждый параметр, и
-`function restore(original) { globalThis.ResizeObserver = original; }` сообщался как установка дубля,
-пока тест не закрепил восстановление молчащим.
-
-`Object.defineProperty(globalThis, 'ResizeObserver', …)` намеренно **не** входит в формы:
-[`no-object-define-property`](#no-object-define-property) уже сообщает о каждом `defineProperty` в
-спеке и называет хелпер из той же семьи, а два отчёта на одну строку об одном и том же — это то, как
-правило отключают.
-
-**Находка и как её закрыть.**
+Сообщает, когда `IntersectionObserver`, `ResizeObserver` или `MutationObserver` подменены самописной
+подменой. В jsdom нет ни одного из трёх, поэтому спеки снова и снова пишут одну и ту же заглушку на
+девятнадцать строк. К тому же самописное восстановление ломается: оно выполняется, только если тест
+прошёл.
 
 ```ts
 let original: typeof IntersectionObserver;
@@ -1199,70 +1517,91 @@ afterEach(() => {
 ```
 
 ```ts
-const observers = stubIntersectionObserver();
+const observers = stubIntersectionObserver(); // ✅ снимается после каждого теста
 // observers.last.emit([intersectionEntry({ isIntersecting: true })]) вызывает колбэк
 // observers.last.disconnected — то, ради чего писали disconnectSpy
 ```
 
-**Зачем это в `recommended`.** Две причины, и дефект — вторая. Первая: девятнадцать строк выше уже
-написаны — правило существует потому, что пишущий их об этом не знает, и один из блоков, на которых
-это замеряли, несёл комментарий, что другого способа нет. Вторая — восстановление. Восстановление,
-записанное последней инструкцией `it`, выполняется только если все проверки выше прошли, поэтому
-первый красный тест оставляет заглушку установленной на остаток файла, а при `isolate: false` — и на
-каждый следующий файл, который подберёт воркер, где она вылезает как `observe is not a function` в
-компоненте, которого никто не трогал. Откат хелпера идёт через `mockValueProp` и снимается в
-`restoreMockedProps()`, который `setupAutoSpy()` и так запускает после каждого теста. У формы через
-раннер есть свой отказ: `vi.fn().mockImplementation((cb) => ({ observe() {} }))` — это стрелка,
-стрелку нельзя вызвать через `new`, и `TypeError` падает в продакшен-коде, тогда как спека
-по-прежнему выглядит корректной.
+**Опции.** Нет.
 
-Замерено по Angular-монорепозиторию из 1 758 спек-файлов: **16 мест** подменяют один из трёх
-глобальных объектов руками — 14 присваиваний и 2 `vi.spyOn(globalThis, …)`, в пяти библиотеках и
-обоих приложениях, одно из них за кастом, которого grep по `global.IntersectionObserver =` не найдёт.
-Пятнадцать попадают в отчёт (шестнадцатое — под файловым disable), и четырнадцать из пятнадцати —
-тестовый код; то, которое не тестовый, — SSR-шим вне спек-глоба.
+**Как исправить.** Вызовите [`stubIntersectionObserver()`](/ru/utilities/observer-stubs) или его
+соседей для `ResizeObserver` / `MutationObserver`. Сохранение и восстановление удалите. Хэндл,
+который он возвращает, покрывает то, ради чего писали самописную заглушку:
 
-**Границы.** Проект, которому в спеке нужна _конкретная_ реализация observer — настоящий полифилл,
-observer, записывающий геометрию, которую хелпер не моделирует, — получит отчёт о работающем коде, и
-ответ здесь построчный disable. Список из трёх имён закрыт: о четвёртом глобальном observer отчёта не
-будет.
+- `observers.last.disconnected`: проверка очистки;
+- `observers.last.options`: объект инициализации;
+- `observers.last.targets`: то, за чем наблюдали;
+- `observers.instances`: все наблюдатели в порядке создания.
 
-**Что сообщение оставляет за кадром.** Хэндл, который возвращает стаб, покрывает то, ради чего писали
-самодельный: `observers.last.disconnected` — проверка очистки, `observers.last.options` — объект
-инициализации, `observers.last.targets` — то, за чем наблюдали, `observers.instances` — все
-наблюдатели в порядке создания. `let original = …` и `afterEach`, который его возвращает, уходят:
+`let original = …` и `afterEach`, который его возвращает, тоже уходят.
 `restoreMockedProps()` и так возвращает настоящий конструктор.
 
-**Severity.** `error`. Зелёный и неверный, и ущерб переходит между файлами.
+**Когда выключить.** Когда спеке нужна _конкретная_ реализация наблюдателя: настоящий полифилл или
+наблюдатель, который записывает геометрию, не смоделированную хелпером. Там поставьте построчный
+disable. Список из трёх имён закрыт: о четвёртом глобальном наблюдателе отчёта не будет.
+
+::: details Как правило решает
+**Сообщаются три формы:** присваивание в глобальный объект, `vi.stubGlobal('IntersectionObserver', …)`
+и `vi.spyOn(globalThis, 'MutationObserver')`. `vi.stubGlobal` считается, потому что это та же
+подделка, а `vi.unstubAllGlobals()` по умолчанию выключен.
+
+**Получатель должен быть глобальным объектом:** `global`, `globalThis`, `self` или `window`, касты
+снимаются. Алиас (`const g = globalThis`) правилу недоступен. Ключ может быть через точку или строкой.
+
+**Значение должно быть подменой:** выражение класса, функция, мок раннера или имя, которое
+разрешается в одно из этого. Эта проверка намеренно оставляет без отчёта три реальные строки:
+
+- `globalThis.IntersectionObserver = original`, восстановление. Значение — имя, которому
+  присваивают дважды, поэтому правило не считает его подменой.
+- `window.ResizeObserver = ResizeObserver` из полифилла. Значение пришло из импорта, значит это
+  настоящая реализация.
+- Получатель, который не является глобальным объектом. Поддельный `window`, который спека собирает и
+  передаёт коду под тестом, — обычное значение.
+
+Правило читает _вид_ определения имени, а не его узел. Определение параметра указывает на его
+функцию, поэтому чтение узла назвало бы функцией каждый параметр.
+`function restore(original) { globalThis.ResizeObserver = original; }` остаётся без отчёта.
+
+`Object.defineProperty(globalThis, 'ResizeObserver', …)` **не** входит в эти формы.
+[`no-object-define-property`](#no-object-define-property) уже сообщает о каждом `defineProperty` в
+спеке и называет хелпер из той же семьи. Два отчёта об одном и том же на одной строке — верный способ
+добиться, чтобы правило выключили.
+
+**Почему оно в recommended.** Причин две, и вторая — дефект.
+
+1. Эти девятнадцать строк уже написаны в виде хелпера. Правило существует, потому что тот, кто их
+   пишет, об этом не знает. В одном из замеренных блоков стоял комментарий, что другого способа нет.
+2. Восстановление. Если оно написано последней инструкцией `it`, оно выполняется, только когда все
+   проверки выше прошли. Первый красный тест оставляет заглушку на весь остаток файла. При
+   `isolate: false` она остаётся и на все следующие файлы воркера. Там она всплывает как
+   `observe is not a function` в компоненте, которого никто не трогал. Хелпер ставит заглушку через
+   `mockValueProp`, а `restoreMockedProps()` её снимает; `setupAutoSpy()` запускает его после каждого
+   теста.
+
+У формы через раннер свой сбой. `vi.fn().mockImplementation((cb) => ({ observe() {} }))` — стрелочная
+функция, а стрелку нельзя вызвать через `new`. `TypeError` падает в коде приложения, а спека
+по-прежнему выглядит правильной.
+
+В Angular-монорепозитории из 1 758 спек-файлов **16 мест** подменяют один из трёх глобалов руками:
+14 присваиваний и 2 `vi.spyOn(globalThis, 'MutationObserver')`. Они разбросаны по пяти библиотекам и
+обоим приложениям. Одно спрятано за кастом, и grep по `global.IntersectionObserver =` его не найдёт.
+Правило сообщает о пятнадцати (шестнадцатое стоит под файловым `/* eslint-disable */`).
+**Четырнадцать из пятнадцати — тестовый код.** Последнее — SSR-шим вне глоба спек. Именно поэтому
+плагин включают только для спек-файлов. Три строки такого вида намеренно остаются без отчёта: два
+восстановления в `afterEach` (значение — имя, а не подмена) и `window.ResizeObserver = ResizeObserver`
+в модуле приложения (значение пришло из импорта).
+
+**Серьёзность.** `error`. Тест зелёный и при этом неверный, а вред переходит между файлами.
+:::
 
 ## no-hand-assigned-global {#no-hand-assigned-global}
 
-**`error`** · `--fix` для записи в импортированный объект, без правки для глобала · только синтаксис и области видимости
+**`error`** · `--fix` для записи в импортированный объект, без автоисправления для глобала · синтаксис и области видимости
 
-**Что сообщает.** Дубль, присвоенный прямо в свойство глобального объекта, —
-`global.fetch = vi.fn(…)`, `window.matchMedia = vi.fn()`, `window.localStorage = { getItem: vi.fn() }`
-— в файле, где ничто не возвращает оригинал в teardown-хуке. Восстановление, написанное внутри теста,
-а не в хуке, получает отдельное сообщение.
-
-**На чём решает.** То же чтение, что у [`prefer-observer-stub`](#prefer-observer-stub): получатель —
-`global`, `globalThis`, `self` или `window`, касты снимаются; ключ точечный или строковый литерал; а
-значение — **дубль**: мок раннера (`vi.fn()` голый или настроенный), выражение класса, функция, имя,
-связанное с одним из них, или объектный литерал, внутри которого где-то есть `vi.fn()`. Затем весь
-файл читается один раз, в конце, в поисках восстановления того же глобального свойства: присваивания
-значения, которое не дубль, или `delete`. Восстановление внутри `afterEach`, `afterAll` или
-`onTestFinished` гасит отчёт, потому что хук выполняется при любом исходе проверок. Восстановление
-в любом другом месте превращает отчёт в сообщение `restoreInTest`.
-
-Сообщение зависит от глобального имени. Имя со строчной буквы — `fetch`, `matchMedia` — отправляет к
-`mockValueProp(globalThis, name, vi.fn(…))`; имя с заглавной — `XMLHttpRequest`, `WebSocket`,
-`EventSource` — это конструктор, который код вызывает через `new`, и оно отправляет к
-`stubConstructor(globalThis, name, …)`. `localStorage` и `sessionStorage` отправляют к
-[`stubWebStorage()`](/ru/utilities/setup#stub-web-storage), а `Worker` — к
-[`stubWorker({ respond })`](/ru/utilities/worker-stub), который сохраняет семантику слушателей,
-теряемую рукописным стабом воркера. Спеке, которой нужно лишь не выходить в
-сеть, нужен [`blockNetwork()`](/ru/utilities/setup#_5-keeping-the-run-off-the-network).
-
-**Находка и как её закрыть.**
+Сообщает о подмене, присвоенной прямо в глобал, например `global.fetch = vi.fn(…)`, если ничто в
+файле не возвращает оригинал в teardown-хуке. Ни одна очистка раннера не дотягивается до голого
+присваивания, поэтому подделка отвечает всем следующим тестам файла. Ещё правило сообщает о любом
+значении, записанном в импортированный объект, например `environment.production = true`.
 
 ```ts
 beforeEach(() => {
@@ -1272,27 +1611,37 @@ beforeEach(() => {
 
 ```ts
 beforeEach(() => {
-  mockValueProp(globalThis, 'fetch', vi.fn().mockResolvedValue(Response.json(user)));
-  // откат зарегистрирован в restoreMockedProps(), который setupAutoSpy() запускает после каждого теста
+  mockValueProp(
+    globalThis,
+    'fetch',
+    vi.fn(async () => stubResponse({ body: user })),
+  );
+  // ✅ откат зарегистрирован в restoreMockedProps(), который setupAutoSpy() запускает после каждого теста
 });
 ```
 
-**Импортированный объект.** То же правило читает в спеке `environment.production = true`:
-присваивание (`=`, не `+=`) в член имени, связанного именованным импортом или импортом по умолчанию,
-через точку или строковый ключ, касты снимаются, напрямую или дальше по цепочке
-(`config.feature.enabled`). Модуль закеширован на весь воркер, поэтому сообщается **любое** значение,
-а не только дубль; восстановление в teardown-хуке гасит отчёт так же, как для глобала. Локальная
-переменная, `this`, вычисляемый ключ и сам объект пространства имён (`import * as env`; он запечатан,
-и запись бросает исключение) не сообщаются.
+**Опции.** Нет.
 
-`--fix` переписывает инструкцию в `mockValueProp(environment, 'production', true)` и, если
-`mockValueProp` в файле ещё нет, импортирует его из точки входа адаптера, которую файл уже импортирует
-(`vitest-auto-spy/bun`, `/bun-angular`, `/node`, `/rstest`…), чтобы спека на другом раннере не
-загрузила адаптер Vitest, а если такой нет — из `vitest-auto-spy`; импортированный из любого другого
-энтрипоинта используется как есть. Правится только инструкция, которая выполняется в тесте
-или в `beforeEach`: в `beforeAll` или в теле `describe` очистка после первого теста сняла бы патч до
-конца файла, поэтому там отчёт приходит без правки. Присваивание, использованное как значение, и файл,
-объявивший собственный `mockValueProp`, тоже остаются без правки.
+**Как исправить.** Возьмите хелпер, который сам умеет откатываться. Сообщение называет тот, что
+подходит к глобалу:
+
+| Глобал                                                        | Хелпер                                                                                                                                                                                         |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fetch`                                                       | `mockValueProp(globalThis, 'fetch', vi.fn(async () => stubResponse({ body })))`, где [`stubResponse`](/ru/utilities/setup#answering-a-stubbed-fetch-—-stubresponse) из `vitest-auto-spy/setup` |
+| другое имя со строчной буквы, например `matchMedia`           | `mockValueProp(globalThis, name, vi.fn(…))`                                                                                                                                                    |
+| имя с заглавной: `XMLHttpRequest`, `WebSocket`, `EventSource` | `stubConstructor(globalThis, name, …)`: код вызывает его через `new`                                                                                                                           |
+| `localStorage`, `sessionStorage`                              | [`stubWebStorage()`](/ru/utilities/setup#stub-web-storage)                                                                                                                                     |
+| `Worker`                                                      | [`stubWorker({ respond })`](/ru/utilities/worker-stub), который сохраняет поведение слушателей, теряемое самописной заглушкой                                                                  |
+
+- Если спеке нужно лишь не ходить в сеть, ей нужна не подмена, а
+  [`blockNetwork()`](/ru/utilities/setup#_5-keeping-the-run-off-the-network) (или
+  `setupAutoSpy({ blockNetwork: true })`). Он закрывает `fetch`, `XMLHttpRequest` и `sendBeacon` для
+  каждого теста.
+- `vi.stubGlobal(name, value)` с `unstubGlobals: true` в конфиге Vitest тоже возвращает глобал.
+- Или оставьте присваивание и возвращайте оригинал в `afterEach`, `afterAll` или `onTestFinished`.
+  Это правильно, и отчёта не будет.
+
+Для импортированного объекта `--fix` пишет `mockValueProp`:
 
 ```ts
 it('uses the stand configs', () => {
@@ -1301,169 +1650,279 @@ it('uses the stand configs', () => {
 });
 ```
 
-**Зачем это в `recommended`.** Голое присваивание — единственный вид мока, до которого не
-дотягивается ни одна очистка раннера. `vi.restoreAllMocks()` восстанавливает спаи,
-`vi.unstubAllGlobals()` — то, что поставил `vi.stubGlobal`, а `restoreMockedProps()` — то, что прошло
-через `mockValueProp`. Подделка затем отвечает каждому следующему тесту файла, а при
-`isolate: false` — каждому следующему файлу воркера, где компонент, которого никто не трогал, вдруг
-получает заготовленный ответ. Именно эту форму показывает большинство туториалов по `fetch` и
-сгенерированных шпаргалок — обычно без восстановления.
+**Когда выключить.** Для подмены, которая должна жить весь прогон, например той, что намеренно
+ставит setup-файл. Там поставьте построчный disable. Кроме того, правило не видит восстановление
+внутри хелпера, который вызывают ваши хуки: оно читает только присваивания и `delete`, написанные в
+самом файле.
 
-**Границы.** Алиас глобального объекта (`const g = globalThis`) недосягаем. Как и восстановление,
-которое живёт в хелпере, вызываемом из хуков спеки: правило видит только присваивания и `delete`,
-написанные в самом файле. Для дубля, который намеренно должен жить весь прогон, — например,
-поставленного в setup-файле, — ответ построчный disable. Три глобальных observer оставлены
-[`prefer-observer-stub`](#prefer-observer-stub), а `Object.defineProperty(globalThis, …)` —
-[`no-object-define-property`](#no-object-define-property), так что одна строка никогда не получает
-двух отчётов.
+::: details Как правило решает
+**Глобал.** Правило читает так же, как [`prefer-observer-stub`](#prefer-observer-stub):
 
-**Что сообщение оставляет за кадром.** `vi.stubGlobal(name, value)` с `unstubGlobals: true` в конфиге Vitest тоже
-возвращает глобальное имя, а спеке, которой нужно лишь не выходить в сеть, нужен
-`setupAutoSpy({ blockNetwork: true })`, а не дубль.
+- получатель — `global`, `globalThis`, `self` или `window`, касты снимаются. Алиас
+  (`const g = globalThis`) правилу недоступен;
+- ключ через точку или строковый литерал;
+- значение — **подмена**: мок раннера (`vi.fn()` голый или настроенный), выражение класса,
+  функция, имя, связанное с одним из них, или объектный литерал, где-то внутри которого есть
+  `vi.fn()`. `window.localStorage = { getItem: vi.fn() }` считается.
 
-**Severity.** `error`. Дубль переживает тест, который его поставил, а при `isolate: false` — и файл.
+Затем правило один раз, в конце, читает весь файл и ищет восстановление того же глобала:
+присваивание значения, которое не подмена, или `delete`. Восстановление внутри `afterEach`,
+`afterAll` или `onTestFinished` снимает отчёт, потому что хук выполняется при любом исходе проверок.
+Восстановление в любом другом месте, например последней строкой `it`, получает своё сообщение
+`restoreInTest`: первая красная проверка его пропускает.
+
+Три глобала-наблюдателя оставлены правилу `prefer-observer-stub`, а
+`Object.defineProperty(globalThis, …)` — правилу [`no-object-define-property`](#no-object-define-property).
+Одна строка никогда не получает двух отчётов.
+
+**Импортированный объект.** Правило читает в спеке и `environment.production = true`: присваивание
+(`=`, не `+=`) в член имени, связанного именованным импортом или импортом по умолчанию. Член может
+быть через точку или строковым ключом, касты снимаются, напрямую или глубже по цепочке
+(`config.feature.enabled`). Модуль закеширован на весь воркер, поэтому сообщается **любое** значение,
+а не только подмена. Восстановление в teardown-хуке снимает отчёт, как и для глобала. Не
+сообщаются: локальная переменная, `this`, вычисляемый ключ и сам объект пространства имён
+(`import * as env`: объект запечатан, и запись бросает исключение).
+
+**Когда применяется `--fix`.** Он переписывает инструкцию в
+`mockValueProp(environment, 'production', true)`. Если `mockValueProp` в файле ещё нет, он
+импортирует его из точки входа адаптера, которую файл уже импортирует (`vitest-auto-spy/bun`,
+`/bun-angular`, `/node`, `/rstest`…). Так спека на другом раннере не загружает адаптер Vitest. Если
+импорта адаптера нет, импорт идёт из `vitest-auto-spy`; `mockValueProp`, импортированный из любой
+другой точки входа, используется как есть. Исправление не предлагается:
+
+- в `beforeAll` или в теле `describe`: очистка после первого теста сняла бы патч до конца файла;
+- для присваивания, использованного как значение;
+- в файле, который объявляет собственный `mockValueProp`.
+
+**Почему оно в recommended.** Голое присваивание — единственный вид мока, до которого не
+дотягивается ни одна очистка:
+
+- `vi.restoreAllMocks()` восстанавливает спаи;
+- `vi.unstubAllGlobals()` восстанавливает то, что поставил `vi.stubGlobal`;
+- `restoreMockedProps()` восстанавливает то, что прошло через `mockValueProp`.
+
+Подделка затем отвечает каждому следующему тесту файла. При `isolate: false` — каждому следующему
+файлу воркера, где компонент, которого никто не трогал, вдруг получает заготовленный ответ.
+`global.fetch = vi.fn(() => Promise.resolve({ json: () => … }))` — первое, что показывает
+большинство туториалов по `fetch`, и сгенерированные шпаргалки копируют это без восстановления.
+
+**Серьёзность.** `error`. Подмена переживает тест, который её поставил, а при `isolate: false` — и
+файл.
+:::
 
 ## prefer-stub-response {#prefer-stub-response}
 
-**`error`** · без фикса · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Сообщает про.** `Response`, собранный руками для заглушенного `fetch`: объектный литерал,
-приведённый к `Response` — `{ ok: true, json: async () => data } as Response`, двойной каст
-`as unknown as Response` или угловая форма `<Response>{ … }`, — и вызов `createMock<Response>(…)` /
-`createAutoMock<Response>(…)`.
-
-**Решает по.** Двум фактам, написанным в самой строке: тип, который называет приведение, и
-типовой аргумент, который получил хелпер. Программа типов здесь не нужна — на это же опирается
-[`no-sync-testbed-await`](#no-sync-testbed-await). Каст читается сквозь собственную вложенность, так
-что `as unknown as Response` — это одно сообщение, а не ноль.
-
-Одно различение держит правило честным: `Response` обязан разрешаться в **глобал**. Имя, которое
-файл импортирует (`import { type Response } from 'express'`) или объявляет сам (конверт
-сгенерированного клиента, доменный тип с тем же именем), имеет биндинг с определением и никогда не
-сообщается — для них `stubResponse` собирает не тот объект, и назвать его было бы плохим советом.
-Биндинг без определений — это тоже глобал: именно такой кладёт в область видимости
-`languageOptions.globals` у проекта, который объявляет свою среду.
-
-**Находка и починка.**
+Сообщает о `Response`, собранном руками для заглушенного `fetch`: объектном литерале под кастом к
+`Response` или `createMock<Response>(…)`. Каждый член, о котором автор не подумал, отвечает
+`undefined`. Код под тестом может уйти в ветку, куда настоящий ответ его никогда не привёл бы.
 
 ```ts
 vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => user } as Response); // ❌
 ```
 
 ```ts
-vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body: user }));
+vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body: user })); // ✅
 ```
 
-**Почему оно в recommended.** Литерал отвечает на два-три члена, о которых подумал автор, и
-`undefined` на все остальные — `status`, `statusText`, `headers`, `url`, `text()`, `arrayBuffer()`,
-`clone()`. Каст — это то, что позволяет такому скомпилироваться, и он же это прячет: проверяемый код
-читает один из этих членов, уходит в ветку по `undefined`, которую настоящий ответ выдать не мог, и
-тест зелёный на пути, которого не существует. Это тот самый дефект, ради которого существует строгий
-пресет, — только обычный объектный литерал не дубль, про который библиотека знает, так что за ним
-никто не следил. [`stubResponse`](/ru/utilities/setup#answering-a-stubbed-fetch-—-stubresponse) собирает
-собственный `Response` платформы, поэтому настоящий каждый член.
+**Опции.** Нет.
 
-**Границы.** Дубль за фабрикой недостижим — то же ограничение, что у
-[`no-structural-double`](#no-structural-double): `buildResponse()`, возвращающий приведённый литерал,
-сообщается там, где написан каст, и больше нигде. `Response`, собранный по членам на `const` с
-аннотацией типа, — не каст и тоже не сообщается.
+**Как исправить.** Соберите настоящий `Response` через
+[`stubResponse`](/ru/utilities/setup#answering-a-stubbed-fetch-—-stubresponse), как выше. Тогда каждый
+член настоящий.
 
-**Строгость.** `error`. Доказательство — сама строка, починка — хелпер, который пакет уже поставляет,
-и никакой миграции тут гейтить не нужно: сюита, которая уже собирает ответы через `stubResponse`, не
-увидит ничего.
+**Когда выключить.** Не нужно для `Response`, который не глобальный. `Response` из обработчика
+Express или конверт сгенерированного клиента с тем же именем никогда не сообщаются: для них
+`stubResponse` собрал бы не тот объект.
+
+::: details Как правило решает
+**Что сообщается:**
+
+- `{ ok: true, json: async () => data } as Response`;
+- двойной каст `as unknown as Response` (читается сквозь вложенность, поэтому это один отчёт, а не
+  ноль);
+- форма с угловыми скобками `<Response>{ … }`;
+- `createMock<Response>(…)` / `createAutoMock<Response>(…)`.
+
+**Решают два факта в строке:** тип, который называет каст, и типовой аргумент, который получает
+хелпер. Информация о типах не нужна, как и у [`no-sync-testbed-await`](#no-sync-testbed-await).
+
+**`Response` должен разрешаться в глобальный.** У имени, которое файл импортирует
+(`import { type Response } from 'express'`) или объявляет (доменный тип с тем же именем), есть
+определение, и о нём никогда не сообщается. Биндинг без определения — тоже глобальный: именно его
+кладёт в область видимости `languageOptions.globals` у проекта, который объявляет свою среду.
+
+**Границы.** Подмена, собранная за фабрикой, правилу недоступна — то же ограничение, что у
+[`no-structural-double`](#no-structural-double): о `buildResponse()`, который возвращает литерал под
+кастом, сообщается там, где написан каст, и больше нигде. `Response`, собранный по членам на `const` с
+аннотацией типа, — не каст, и о нём не сообщается.
+
+**Почему оно в recommended.** Когда `fetch` подменён, что-то нужно вернуть, и каждый туториал
+показывает каст поверх двух членов. Всё остальное отвечает `undefined`: `status`, `statusText`,
+`headers`, `url`, `text()`, `arrayBuffer()`, `clone()`. Каст позволяет этому скомпилироваться и заодно
+это прячет. Код под тестом читает один из этих членов и уходит в ветку по `undefined`. Настоящий ответ
+такого дать не мог, и тест зелёный на пути, которого не существует. Строгий пресет ловит этот дефект
+на подмене, которую собрала библиотека. Обычный объектный литерал — не она, поэтому за ним никто не
+следил.
+
+**Серьёзность.** `error`. Доказательство — сама строка, исправление — хелпер, который входит в этот
+пакет, и миграции нет: проект, который уже собирает ответы через `stubResponse`, ничего не увидит.
+:::
 
 ## prefer-settle-dynamic-import {#prefer-settle-dynamic-import}
 
 **`error`** · подсказка · только синтаксис
 
-**Сообщает про.** Динамический `import()`, которого спека дожидается сама, написанный в теле теста
-или в хуке: `await import('./thing')`, форма с деструктуризацией
+Сообщает об `import()`, которого спека сама дожидается в тесте или хуке. Допустим, код под тестом
+лениво грузит модуль по клику. Ожидание того же `import()` дожидается модуля, но не строк после
+собственного `await` этого кода. Проверка тогда выполняется на такт раньше.
+
+```ts
+// Обработчик клика делает `await import('./exit-from-app.component')` и затем открывает диалог.
+button.click();
+await import('./exit-from-app.component'); // ❌ ждёт модуль, а не обработчик
+expect(dialog.open).toHaveBeenCalled();
+```
+
+```ts
+button.click();
+await settleDynamicImport(() => import('./exit-from-app.component')); // ✅
+expect(dialog.open).toHaveBeenCalled();
+```
+
+**Опции.** Нет.
+
+**Как исправить.** Оберните импорт в
+[`settleDynamicImport`](/ru/utilities/event-loop#settledynamicimport-load-turns). Он загружает модуль,
+а затем выполняет `flushEventLoop(turns)`, который даёт продолжению кода его такт. Он возвращает
+пространство имён модуля, поэтому `const { Thing } = await import(…)` читается так же. Подсказка
+оборачивает `import()` на месте и добавляет импорт хелпера. Если в файле уже есть импорт из
+`vitest-auto-spy`, она вписывает его туда.
+
+`fakeAsync`, `tick()` и `flushMicrotasks()` его не заменят: они двигают очереди зоны Angular, а
+загрузчик модулей — не одна из них.
+
+Если спека только читает экспорты модуля, лучше исправить на статический `import`.
+`settleDynamicImport`, который называет сообщение, там тоже работает.
+
+**Когда выключить.** Редко: правило сообщает только то, что доказывает один файл. Не сообщаются:
+
+- локальный для спеки `const load = async () => { await import('…'); }`: такой код пишется одинаково,
+  зовёт ли его сама спека или отдаёт коду под тестом как загрузчик, а во втором случае хелпер был бы
+  плохим советом;
+- колбэк, который вызывает не раннер, включая `it('x', waitForAsync(async () => …))`;
+- пространство имён, привязанное **первой** инструкцией теста или хука, например
+  `const api = await import('./index')`. Ещё ничего не выполнилось, чьё продолжение могло бы ждать.
+  Там лучше исправить на статический `import * as ns`.
+
+::: details Как правило решает
+**Что сообщается:** `await import('./thing')`, форма с деструктуризацией
 `const { Thing } = await import('./thing')` и `import('./thing').then(…)`.
 
-**Решает по.** Двум фактам из файла. Что стоит на `import()` — родитель `AwaitExpression` или вызов
-члена `.then` — и внутри какой функции он находится: сообщение делается только там, где ближайшая
-объемлющая функция — собственный колбэк раннера (`it`, `test`, `beforeEach`, `beforeAll`,
-`afterEach`, `afterAll`, включая формы `.only`, `.skip` и `.each`). Программа типов не нужна — на то
-же опирается [`no-sync-testbed-await`](#no-sync-testbed-await).
+**Решают два факта в файле:**
 
-Это одно чтение закрывает все исключения сразу, потому что в каждой форме, где хелпер был бы плохим
-советом, между колбэком и импортом стоит своя функция: фабрика `vi.mock` / `vi.doMock`,
-`loadComponent` / `loadChildren` ленивого роута в фикстуре, которую спека отдаёт роутеру, колбэк,
-отданный коду под тестом, и собственный `() => import(…)` у `settleDynamicImport`. У `import()` на
-уровне модуля объемлющего колбэка нет вовсе.
+1. что стоит на `import()`: родитель `await` или вызов `.then`;
+2. внутри какой функции он стоит. Отчёт делается только там, где ближайшая объемлющая функция —
+   собственный колбэк раннера: `it`, `test`, `beforeEach`, `beforeAll`, `afterEach`, `afterAll`, в
+   формах `.only`, `.skip` и `.each`.
 
-**Находка и как её закрыть.**
+Информация о типах не нужна, как и у [`no-sync-testbed-await`](#no-sync-testbed-await).
 
-```ts
-// Обработчик клика делает `await import('./exit-from-app.component')` и затем открывает модалку.
-button.click();
-await import('./exit-from-app.component'); // ❌
-expect(dialog.open).toHaveBeenCalled();
-```
+Второй факт закрывает все исключения. В каждой форме, где хелпер был бы плохим советом, между
+колбэком и импортом стоит своя функция:
 
-```ts
-button.click();
-await settleDynamicImport(() => import('./exit-from-app.component'));
-expect(dialog.open).toHaveBeenCalled();
-```
+- фабрика `vi.mock` / `vi.doMock`;
+- `loadComponent` / `loadChildren` ленивого роута в фикстуре, которую спека отдаёт роутеру;
+- колбэк, который спека отдаёт коду под тестом;
+- собственный `() => import(…)` у `settleDynamicImport`.
 
-Подсказка оборачивает `import()` на месте и добавляет импорт хелпера, вписывая спецификатор в уже
-имеющийся импорт из `vitest-auto-spy`, если такой в файле есть.
+У `import()` на уровне модуля объемлющего колбэка нет вовсе.
 
-**Зачем это в `recommended`.** Ожидание того же спецификатора действительно дожидается **модуля**:
-реестр общий, поэтому `import()` спеки разрешается на тот же экземпляр, который уже грузит код под
-тестом. Чего оно не дожидается — продолжения этого кода: строки после _его_ `await`, те самые, что
-открывают модалку, пишут сигнал или навигируют, стоят в очереди за микротаской загрузчика. Ассерт
-поэтому читает состояние на такт раньше. Такой тест зелёный ровно до тех пор, пока продолжение
-достаточно короткое, чтобы докрутиться случайно, и краснеет в день, когда в него добавят строку, —
+**Первая инструкция.** Привязанное пространство имён первой инструкцией теста или хука не сообщается
+(например, `ns = await import('@scope/lib')` в `beforeEach`, который потом ставит на него спай).
+Голый `await import(…)` в том же месте по-прежнему сообщается: ждать он может только того, что начал
+грузить хук. После строки подготовки, как в `configure(…); const { run } = await import('./run')`,
+привязка сообщается. Эта строка выглядит так же, как `button.click()`, который запускает загрузку, и
+правило их не различает.
+
+**Почему оно в recommended.** Реестр модулей общий, поэтому `import()` спеки разрешается на тот же
+модуль, который уже грузит код под тестом. Но продолжения этого кода он не ждёт: строк после _его_
+`await`, которые открывают диалог, пишут сигнал или навигируют. Они стоят в очереди за микротаской
+загрузчика. Проверка читает состояние на такт раньше. Тест зелёный, только пока продолжение
+достаточно короткое, чтобы случайно успеть. Он краснеет в тот день, когда кто-то добавит строку. Это
 флак без единой плохой строки.
-[`settleDynamicImport`](/ru/utilities/event-loop#settledynamicimport-load-turns) — та же загрузка
-плюс `flushEventLoop(turns)`, и это тот самый такт, который нужен продолжению; `fakeAsync` /
-`tick()` / `flushMicrotasks()` заменить его не могут: они двигают очереди зоны Angular, а загрузчик
-модулей — не одна из них.
 
-Замерено на Angular-монорепозитории из 2 030 спек-файлов: **81 сообщение в 32 файлах**, и ценность
-правила видно по тому, что лежит рядом. Четыре сообщения в одном файле несут под импортом написанный
-руками `await Promise.resolve()` — расписанный `flushEventLoop(1)`, — а ещё одиннадцать мест той же
-формы в этой же сюите уже вынесены в локальные для спеки хелперы с именами `flushCodeInputChunk`,
-`settleAccountPickerImport`, `settleModalImports`, `settleModalComponentImport` и `flushLazyImport`,
-причём у двух под импортом стоит цикл из пяти `await Promise.resolve()`. Сюита переписала этот хелпер
-руками одиннадцать раз до того, как правило появилось, — и это же объясняет, почему граница ниже
-именно граница, а не пробел.
+В Angular-монорепозитории из 2 030 спек-файлов: **81 отчёт в 32 файлах**. Сильнее говорит то, что
+лежало рядом. Четыре отчёта в одном файле несли под импортом написанный руками
+`await Promise.resolve()` — расписанный `flushEventLoop(1)`. Ещё одиннадцать мест той же формы были
+вынесены в локальные для спек хелперы: `flushCodeInputChunk`, `settleAccountPickerImport`,
+`settleModalImports`, `settleModalComponentImport` и `flushLazyImport`. У двух из них стоял цикл из
+пяти `await Promise.resolve()`. Проект переписал этот хелпер руками одиннадцать раз. Эти одиннадцать —
+ровно та локальная форма, которую правило не читает.
 
-**Границы.** Их две, и обе — то же чтение, которое отказывается гадать. Локальный для спеки
-`const load = async () => { await import('…'); }` **не** сообщается: именованная функция, в теле
-которой ждут импорт, пишется одинаково и когда её зовёт сама спека, и когда её отдают коду под
-тестом как загрузчик, а во втором случае `settleDynamicImport` был бы плохим советом — из файла не
-видно, какой из двух это. По той же причине вне поля зрения остаётся колбэк, который вызывает не
-раннер, включая `it('x', waitForAsync(async () => …))`. Ни то ни другое не молчание о дефекте,
-который правило может доказать: это правило, которое сообщает только то, что решается одним файлом.
+**Серьёзность.** `error`. Доказательство — сама строка, исправление — одна строка, которую правило
+предлагает правкой, и нет миграции, которую нужно вводить постепенно, в отличие от
+[`prefer-set-inputs`](#prefer-set-inputs). Большой проект не придёт к нулю сразу, и это довод за
+`error`: 81 однострочная находка в 32 файлах из 2 030, и каждая — тест, который ждёт не того.
+:::
 
-Не сообщается и неймспейс, привязанный **первой** инструкцией теста или хука, —
-`const api = await import('./index')`, `ns = await import('@scope/lib')` в `beforeEach`, который
-потом ставит на него спай. В этом колбэке ещё ничего не выполнилось, чьё продолжение могло бы
-ждать: спека берёт модуль, чтобы его прочитать, и лучшая починка — статический `import * as ns`.
-Голый `await import(…)` в той же позиции по-прежнему сообщается: ждать он может только того, что
-начал грузить хук.
+## no-real-wait-in-test {#no-real-wait-in-test}
 
-**Severity.** `error`. Свидетельство — сама строка, починка — одна строка, которую правило
-предлагает правкой, и никакого переезда, который надо было бы шлюзовать: принимать его не решают
-пофайлово, как [`prefer-set-inputs`](#prefer-set-inputs). На большой сюите оно не приходит с нулём,
-как пришёл [`prefer-stub-response`](#prefer-stub-response), — и это довод за `error`, а не против:
-81 однострочная находка в 32 файлах из 2 030, и каждая — тест, который ждёт не того.
+**`warn`** · без автоисправления · только синтаксис
+
+Сообщает о сне на реальных часах, например `await new Promise((r) => setTimeout(r, 300))`. Каждый
+прогон платит эту задержку, и это гонка: код должен уложиться в неё. На ноутбуке он укладывается, а на
+нагруженном раннере CI — не всегда.
+
+```ts
+await new Promise((r) => setTimeout(r, 300)); // ❌ каждый прогон платит 300 мс, нагруженный CI может не уложиться
+expect(search.query).toHaveBeenCalledWith('ab');
+```
+
+```ts
+import { advanceTimers, setupFakeTimers } from 'vitest-auto-spy/setup';
+
+setupFakeTimers();
+
+it('debounces', async () => {
+  component.onInput('ab');
+  await advanceTimers(300); // ✅ реальное время не проходит
+  expect(search.query).toHaveBeenCalledWith('ab');
+});
+```
+
+**Опции.** Нет.
+
+**Как исправить.** Переходите на фейковые таймеры через `setupFakeTimers()` и `advanceTimers(ms)`,
+как выше. Если вы ждёте результата, а не отрезка времени, ждите результата: `await vi.waitFor(…)`
+или `await fixture.whenStable()`.
+
+**Когда выключить.** Сон — факт, но исправление меняет каждый таймер в тесте, поэтому правило
+`warn`. Переводите файлы на фейковые таймеры по одному, потом поднимите его до `error`.
+
+::: details Как правило решает
+**Что считается сном:**
+
+- `new Promise((r) => setTimeout(r, N))` в любой форме, где `resolve` исполнителя доходит до
+  таймера: `window.` / `globalThis.` / `self.setTimeout`, `() => r()`;
+- `setTimeout(N)`, импортированный из `node:timers/promises` под любым локальным именем.
+
+Отсутствующая или нулевая задержка — это сброс макрозадач, её правило не трогает. О хелпере
+`sleep(ms)` сообщается один раз, там, где он определён.
+
+**Серьёзность.** `warn`, по исправлению, а не по находке. Сон на реальных часах определяется
+точно. Но исправление — переход на фейковые таймеры, а он меняет каждый таймер в тесте. Это миграция,
+которую проходят файл за файлом, как у [`prefer-set-inputs`](#prefer-set-inputs).
+:::
 
 ## prefer-create-mock {#prefer-create-mock}
 
 **`warn`** · подсказка · только синтаксис
 
-**Сообщает про.** Объектный литерал под кастом к именованному типу, в обеих формах записи:
-`{ id: '1', isOffline: false } as Device` и `<Device>{ id: '1' }`.
-
-**Решает по.** Двум фактам, написанным в строке: операнд каста — объектный литерал, а тип, который
-каст называет, — ссылка на именованный тип. Программа типов не нужна — на то же опираются
-[`prefer-stub-response`](#prefer-stub-response) и [`no-sync-testbed-await`](#no-sync-testbed-await).
-
-**Находка и починка.**
+Сообщает об объектном литерале под кастом к именованному типу, например `{ id: '1' } as Device`.
+Каст пропускает проверки, которые делает присваивание: лишний ключ проходит, и отсутствующее
+обязательное поле тоже. Фикстура может закрепить ключ, которого у настоящего типа нет.
 
 ```ts
 // У `Device` восемь полей, и `isOffline` среди них нет.
@@ -1472,93 +1931,97 @@ expect(service.rename).toHaveBeenCalledWith({ ...device, name: 'Box' });
 ```
 
 ```ts
-const device = createMock<Device>({ id: '1', name: 'TV' });
+const device = createMock<Device>({ id: '1', name: 'TV' }); // ✅ лишний ключ теперь ошибка компиляции
 expect(service.rename).toHaveBeenCalledWith({ ...device, name: 'Box' });
 ```
 
-Подсказка оборачивает литерал на месте и добавляет импорт `createMock`, вливая спецификатор в уже
-существующий импорт из `vitest-auto-spy`, если он в файле есть, а иначе пишет новую строку прямо над
-импортами `vitest-auto-spy/*` файла — в той группе, где её ждёт `import/order`. Так же ставят импорт
-все фиксы и подсказки плагина.
+**Опции.** Нет.
 
-**Почему в recommended.** Каст — это не присваивание. `as T` спрашивает, _пересекаются_ ли два типа,
-а не является ли значение одним из них, поэтому он пропускает обе вещи, которые присваивание
-отвергает: проверка лишних свойств не выполняется, так что ключ, которого у `T` нет, проходит, и
-обязательное поле, которого в фикстуре нет, проходит тоже. Оба тайп-гейта молчат — ради этого каст и
-стоит, — а объект потом расплющивается в ожидаемый payload проверки вызова или уходит в код под
-тестом: спека пинит ключ, которого в контракте нет, либо покрывает ветку, до которой настоящее
-значение не доходит. `createMock<T>` принимает `DeepPartial<T>` и отвечает значением типа `T`: поля,
-которых в литерале нет, в рантайме остаются `undefined` ровно как под кастом, а лишний ключ
-становится ошибкой компиляции на самом литерале.
+**Как исправить.** Выберите первое, что подходит:
 
-Замерено на Angular-монорепозитории из 2 032 спек-файлов: **1 200 сообщений в 327 файлах**, 217
-разных типов. Из того же замера стоит запомнить ещё два факта. **Ни в одном** из этих 1 200
-литералов нет `vi.fn()` — то есть на этой сюите правило и правила про рукописные дубли
-([`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
-[`no-structural-double`](#no-structural-double)) ни разу не сообщают об одной строке: те про
-коллабораторов, это — про данные. И **529** сообщений стоят в слоте, у которого тип уже есть, —
-аргумент вызова, `nextWith`, `mockReturnValue`: там каст ничего не держит, он выключает проверку,
-которую этот слот сделал бы сам, и первая починка — удалить каст, а `createMock<T>` оставить тому
-частичному литералу, который после этого не скомпилируется.
+1. Литерал уже стоит в типизированном слоте (аргумент вызова, `nextWith`, `mockReturnValue`,
+   типизированный `const`): удалите каст, и слот проверит литерал сам.
+2. Иначе оберните его в `createMock<T>({ … })`. Он принимает `DeepPartial<T>` и возвращает значение
+   типа `T`. Подсказка делает именно это и импортирует `createMock`.
+3. Значение вне `T` намеренно (`null`, который присылает бэкенд, данные, которые должны дойти до
+   гарда): напишите `outOfType<T>(…)`. Он называет намерение, и о нём не сообщается.
 
-**Где молчит.**
+Каст к `Partial<T>` в слоте, который и так `Partial<T>`, обычно просто лишний; удалите его.
 
-- `as const` — сужение литерала, а не заявка на тип.
-- `as unknown` и `as any` — ни то ни другое не называет тип, фикстуру которого строят, — и двойной
-  каст `{ … } as unknown as T`, собранный из них. Переход через `unknown` стоит именно потому, что
-  компилятор отказал одиночному касту, так что `createMock<T>` там тоже не скомпилируется; это
-  другая находка, у которой в большинстве потребителей есть собственный запрет.
-- Каст чего угодно, кроме литерала: `raw as Device`, `load() as Device`, `[{ … }] as Device[]`.
-- Каст к анонимному объектному типу, `{ … } as { id: string }`, — его компилятор читает и так.
-- Литерал внутри собственных фабрик этой библиотеки —
-  `createMock<Outer>({ inner: { … } as Inner })`, сид `provideAutoSpyForToken`, мешок
-  `provideRouterDouble`. Рекомендуемая форма не должна быть нарушением правила, которое её
-  рекомендует.
-- Имена типов, которыми владеет другое правило: `Response`
-  ([`prefer-stub-response`](#prefer-stub-response)), `Spy` ([`prefer-as-spy`](#prefer-as-spy)) и
-  семейство `Mock` / `Mocked` из Vitest ([`no-mocked-for-spy`](#no-mocked-for-spy),
-  [`no-mock-cast`](#no-mock-cast)). Строка, собирающая два сообщения, — это строка, в которой
-  читателю придётся выбирать.
+**Когда выключить.** Для фикстуры, невалидной **нарочно**, например `linkType: 'INVALID_TYPE'`,
+поданного ради ветки по умолчанию. Подсказка там не компилируется, и это подтверждает находку.
+Оставьте каст с `eslint-disable-next-line` и объясните почему. Правило `warn`, потому что принятая
+подсказка отдаёт каждую фикстуру компилятору, и все разъехавшиеся фикстуры краснеют в один день.
+Поднимите уровень, когда их исправите.
 
-**Ограничения.** Правило не читает типы, поэтому не отличает разъехавшуюся фикстуру от случайно
-полной — оно сообщает про каст, а какой из двух случаев это был, решает следующий тайп-чек. Это и
-есть размен: сообщение дешёвое, а доказательство приходит на компиляции. Тип-утилита (`Partial<T>`,
-`Pick<T, …>`, `Record<…>`, `ReturnType<typeof f>` — 25 из тех 1 200) сообщается наравне со всеми:
-`createMock<Partial<T>>({ … })` компилируется и ключи всё равно проверяет, но каст к `Partial<T>` в
-слоте, который и так `Partial<T>`, обычно просто лишний, и удалить его — починка лучше. Фикстура,
-невалидная **нарочно** — `linkType: 'INVALID_TYPE'`, поданный ради ветки по умолчанию, — ровно то,
-для чего каст и существует: подсказка там не компилируется, и это компилятор подтверждает находку;
-каст остаётся с `eslint-disable-next-line`, где сказано почему.
+::: details Как правило решает
+**Два факта в строке:** операнд каста — объектный литерал, а тип, который он называет, — ссылка на
+тип. Считаются обе записи: `{ … } as Device` и `<Device>{ … }`. Информация о типах не нужна, как и у
+[`prefer-stub-response`](#prefer-stub-response) и [`no-sync-testbed-await`](#no-sync-testbed-await).
 
-**Что сообщение оставляет за кадром.** Там, где литерал уже стоит в типизированном слоте — аргумент, `nextWith`,
-`const` с типом, — первая починка — удалить каст и дать слоту его проверить. Значение вне `T` намеренно,
-`null` от бэкенда или полезная нагрузка, которая должна дойти до гарда, — это `outOfType<T>(…)`: он
-называет намерение и не сообщается.
+**Вложенные касты — одна находка,** о ней сообщается на самом внешнем.
+`{ inner: { id: '1' } as Inner } as Outer` даёт один отчёт, и его подсказка снимает и внутренний
+каст: начальные значения `createMock` проверяются против `DeepPartial<Outer>` на любой глубине. Каст
+за функцией (`make: () => ({ … }) as Item`) не входит в начальные значения и получает свой отчёт.
 
-**Уровень.** `warn`, и оценивается здесь починка, а не доказательство — то же чтение, что у
-[`prefer-set-inputs`](#prefer-set-inputs), а не эвристики, на которых стоит
-[`no-structural-double`](#no-structural-double). Находка точна: литерал и тип, которым он
-прикрывается, написаны в одной строке. Оценивается миграция. Принятая подсказка отдаёт литерал
-компилятору, поэтому каждая разъехавшаяся фикстура краснеет в тот же день, а на сюите выше это
-1 200 мест в 327 файлах — первое обновление, которое никто не вкатит одной веткой. `off` был бы тем
-же промахом с другого края, поэтому плагин фиксирует именно `warn`, а не оставляет уровень
-незаданным.
+**Как подсказка добавляет импорт.** Она вписывает `createMock` в уже существующий импорт из
+`vitest-auto-spy`. Иначе пишет новую строку прямо над импортами `vitest-auto-spy/*` в файле, в той
+группе, которую ожидает `import/order`. Так же ставят импорт все исправления и подсказки плагина.
+Это подсказка, а не `--fix`, потому что принятие делает каждую разъехавшуюся фикстуру красной.
+
+**Где правило молчит:**
+
+- `as const`, который сужает литерал, а не заявляет тип;
+- `as unknown` и `as any`, а также двойной каст `{ … } as unknown as T`, собранный из них. Переход
+  через `unknown` стоит потому, что компилятор отказал одиночному касту, так что `createMock<T>` тоже
+  не скомпилируется;
+- каст чего угодно, кроме литерала: `raw as Device`, `load() as Device`, `[{ … }] as Device[]`;
+- каст к встроенному объектному типу, `{ … } as { id: string }`, который компилятор и так читает;
+- литерал внутри собственных фабрик этой библиотеки: `createMock<Outer>({ inner: { … } as Inner })`,
+  начальные значения `provideAutoSpyForToken`, набор `provideRouterDouble`;
+- имена типов, которыми владеет другое правило: `Response` ([`prefer-stub-response`](#prefer-stub-response)),
+  `Spy` ([`prefer-as-spy`](#prefer-as-spy)) и семейство `Mock` / `Mocked` из Vitest
+  ([`no-mocked-for-spy`](#no-mocked-for-spy), [`no-mock-cast`](#no-mock-cast)).
+
+**Границы.** Правило не читает типы, поэтому не отличает разъехавшуюся фикстуру от случайно полной.
+Оно сообщает о касте, а какой это был случай, решает следующая проверка типов. Тип-утилита
+(`Partial<T>`, `Pick<T, …>`, `Record<…>`, `ReturnType<typeof f>`) сообщается наравне с остальными.
+`createMock<Partial<T>>({ … })` компилируется и всё равно проверяет ключи.
+
+**Почему оно в recommended.** `as T` спрашивает, _пересекаются_ ли два типа, а не является ли
+значение одним из них. Поэтому он пропускает обе вещи, которые присваивание отвергает: проверка лишних
+свойств не выполняется, и обязательное поле, которое фикстура не задаёт, тоже проходит. Ни одна
+проверка типов ничего не говорит — ради этого каст и стоит. Потом объект разворачивается в ожидаемые
+данные проверки вызова или уходит в код под тестом. Спека закрепляет ключ, которого в контракте нет,
+или покрывает ветку, до которой настоящее значение никогда не дойдёт. `createMock<T>` оставляет
+неуказанные поля `undefined` в рантайме, ровно как каст, а лишний ключ становится ошибкой компиляции.
+
+В Angular-монорепозитории из 2 032 спек-файлов: **1 200 отчётов в 327 файлах**, 217 разных типов.
+
+- **Ни в одном** из этих литералов нет `vi.fn()`. Значит, на этом проекте правило ни разу не сообщает
+  об одной строке с [`prefer-create-spy-from-class`](#prefer-create-spy-from-class) или
+  [`no-structural-double`](#no-structural-double): те про коллабораторов, это — про данные.
+- **529** отчётов стоят в слоте, у которого тип уже есть: аргумент вызова, `nextWith`,
+  `mockReturnValue`. Там каст только выключает собственную проверку слота, и первое исправление —
+  удалить его.
+- 25 из 1 200 — касты к типу-утилите.
+
+**Серьёзность.** `warn`, по исправлению, как у [`prefer-set-inputs`](#prefer-set-inputs) (а не по
+эвристикам, как у [`no-structural-double`](#no-structural-double)). Находка точна: литерал и тип,
+который он заявляет, оба в строке. Оценивается миграция: на проекте выше это 1 200 мест в 327 файлах,
+и никто не вольёт их одной веткой. `off` был бы той же ошибкой с другого края, поэтому плагин ставит
+`warn`, а не пропускает правило. Разрыв с [`no-mock-cast`](#no-mock-cast) (24 места на том же
+проекте) — причина, по которой у двух правил одной семьи разная серьёзность.
+:::
 
 ## no-mock-cast {#no-mock-cast}
 
 **`error`** · подсказка · только синтаксис
 
-**Сообщает про.** Каст к `Mock` или `MockInstance` из Vitest поверх **обращения к члену**:
-`TestBed.inject(Metrics).send as Mock`, `(shelves.getByGid.mockReturnValue as Mock)(…)` и форма
-`<Mock>svc.load`. Параметризованный `Mock<[string], void>` сообщается тоже.
-
-**Решает по.** Имени типа, форме под ним и происхождению имени. Операнд обязан быть обращением к
-члену — обычный `fn as Mock` поверх локального `vi.fn()` ничьим дублем не является и не трогается, —
-а `Mock` обязан разрешаться в именованный импорт из `vitest`, `@rstest/core`, `bun:test` или `jest`
-либо не разрешаться вовсе: последнее — то, что видит проект с ambient-типами раннера. `Mock`, который
-файл объявляет сам или импортирует откуда-то ещё, — чей-то доменный тип, и о нём правило молчит.
-
-**Находка и починка.**
+Сообщает о касте к `Mock` или `MockInstance` из Vitest поверх члена, например
+`TestBed.inject(S).m as Mock`. `Mock` без параметров — это `Mock<any>`, поэтому каст стирает
+сигнатуру метода: `toHaveBeenCalledWith` перестаёт сравнивать типы аргументов, и неверный вызов всё
+равно проходит.
 
 ```ts
 (TestBed.inject(AppMetricsService).sendEvent as Mock).mockReturnValue(undefined); // ❌
@@ -1566,174 +2029,82 @@ expect(TestBed.inject(AppMetricsService).sendEvent).toHaveBeenCalledWith(payload
 ```
 
 ```ts
-injectSpy(AppMetricsService).sendEvent.mockReturnValue(undefined);
+injectSpy(AppMetricsService).sendEvent.mockReturnValue(undefined); // ✅ типизирован по настоящей сигнатуре
 expect(injectSpy(AppMetricsService).sendEvent).toHaveBeenCalledWith(payload);
 ```
 
-Подсказка пишет `injectSpy(Token).member` всюду, где токен виден — цепочка членов, висящая на
-`TestBed.inject(Token)` прямо на месте или на имени, которое файл этим вызовом однажды заполнил, — и
-добавляет импорт `injectSpy` из `vitest-auto-spy/angular`. Она предлагается, а не применяется, и
-причина не в системе типов: `injectSpy` отдаёт тот дубль, который _отдали_ контейнеру, поэтому
-переписывание верно только тогда, когда этот дубль построила эта библиотека. Спека, положившая
-рукописный `{ provide: X, useValue: { m: vi.fn() } }`, получит бросок в рантайме, а не ошибку
-компиляции, — единственный режим отказа, которого у автофикса быть не должно;
-[`no-unregistered-inject-spy`](#no-unregistered-inject-spy) — то, что сообщит о принятой подсказке,
-приземлившейся на такой дубль.
+**Опции.** Нет.
 
-**Почему в recommended.** `Mock` без параметров — это `Mock<any>`. Каст не _добавляет_ поверхность
-спая, он убирает сигнатуру: дальше `mockReturnValue` принимает что угодно, а `toHaveBeenCalledWith`
-не сравнивает ничего — проверка продолжает проходить, когда код под тестом зовёт метод не с теми
-аргументами. Это тот же дрейф, который 5.19.0 вскрыл с другой стороны, когда `accessorSpies` стали
-типизированными, и починка ничего не стоит: член и так **уже** спай и уже типизирован настоящей
-сигнатурой.
+**Как исправить.** Член подмены, которую собрала эта библиотека, — уже спай, типизированный по
+настоящей сигнатуре. Читайте его как есть:
 
-У худшей формы своё сообщение: `(shelves.getByGid.mockReturnValue as Mock)(of(shelf))` ставит каст на
-член, который устанавливает ответ, поэтому не проверяется ни значение на входе, ни собственный тип
-возврата метода, и каждая проверка ниже — про значение, которого настоящий коллаборатор выдать не мог.
+- `injectSpy(Service).method` для подмены, которую выдал DI. Подсказка пишет это всюду, где токен
+  виден, и импортирует `injectSpy` из `vitest-auto-spy/angular`;
+- `asSpy(double).method` для подмены, которую держит тест;
+- `vi.mocked(object.method)` для спая `vi.spyOn` или `vi.fn()` на другом объекте.
 
-Замерено на Angular-монорепозитории из 2 032 спек-файлов: **24 сообщения в 21 файле** — 22 обычной
-формы и 2 конфигурационной, 22 из 24 под `libs/**`. Пятнадцать несут правку `injectSpy`, остальные
-называют починку, не записывая её.
+Если каст появился, потому что значение не компилировалось, посмотрите на метод. Перегруженный метод
+типизирован по последней сигнатуре; `Spy<Service, { overload: { method: 'first' } }>` выбирает ту,
+которую вызывает код. Параметризованный `Mock<[…], R>` пишет сигнатуру второй раз, там, где её никто
+не держит в согласии с первой.
 
-**Чего не покрывают соседи.** [`no-mocked-for-spy`](#no-mocked-for-spy) читает _объявление_
-`Mocked<T>`, а [`prefer-as-spy`](#prefer-as-spy) — каст к `Spy<T>`: оба про имя всей поверхности
-дубля, и ни один не видит `Mock`, подставленный вместо сигнатуры одного члена.
-[`no-structural-double`](#no-structural-double) нужен имя, объявленное как объект из `Mock`, а
-[`no-stub-class-double`](#no-stub-class-double) — класс с полями `vi.fn()`; оба про дубль, который
-строят, а это — про дубль, который уже есть и который читают через каст.
+**Когда выключить.** Не нужно для обычного `fn as Mock` поверх локального `vi.fn()` или для своего
+типа `Mock`: ни о том, ни о другом не сообщается.
 
-**Что сообщение оставляет за кадром.** Член дубля, построенного этой библиотекой, — уже спай, типизированный по
-настоящей сигнатуре: читайте его как есть — `injectSpy(Service).method` для выданного DI,
-`asSpy(double).method` для того, что держит тест. `vi.mocked(object.method)` — для спая `vi.spyOn`
-или `vi.fn()` на чём-то другом. Если каст появился, потому что значение не компилировалось, посмотрите
-на метод: перегруженный типизирован по последней сигнатуре, и
-`Spy<Service, { overload: { method: 'first' } }>` выбирает ту, которую вызывает код.
-Параметризованный `Mock<[…], R>` — это сигнатура, написанная второй раз там, где её никто не
-держит в согласии с первой.
+::: details Как правило решает
+**Что сообщается:** `TestBed.inject(Metrics).send as Mock`,
+`(shelves.getByGid.mockReturnValue as Mock)(…)` и форма `<Mock>svc.load`. Параметризованный
+`Mock<[string], void>` сообщается тоже.
 
-**Уровень.** `error`. Доказательство — сама строка, починка предлагается правкой, а популяция
-достаточно мала, чтобы закрыть её за один заход: 24 места на сюите из 2 032 файлов против 1 200 у
-[`prefer-create-mock`](#prefer-create-mock) — поэтому два правила одной семьи получили разные уровни.
+**Три проверки:**
+
+- имя типа — `Mock` или `MockInstance`;
+- операнд — обращение к члену. Обычный `fn as Mock` поверх локального `vi.fn()` ничьей подменой не
+  является;
+- `Mock` разрешается в именованный импорт из `vitest`, `@rstest/core`, `bun:test` или `jest` либо не
+  разрешается ни во что (проект с ambient-типами раннера). `Mock`, который файл объявляет сам или
+  импортирует откуда-то ещё, — чей-то доменный тип.
+
+**У худшей формы своё сообщение.** `(shelves.getByGid.mockReturnValue as Mock)(of(shelf))` ставит каст
+на член, который устанавливает ответ. Тогда не проверяется ни значение на входе, ни тип возврата
+метода. Каждая проверка ниже — про значение, которое настоящий коллаборатор выдать не мог.
+
+**Почему подсказка, а не `--fix`.** Причина не в системе типов. `injectSpy` возвращает подмену,
+которую _отдали_ контейнеру, поэтому переписывание верно, только когда эту подмену собрала эта
+библиотека. Спека, которая положила самописный `{ provide: X, useValue: { m: vi.fn() } }`, получила
+бы исключение в рантайме вместо ошибки компиляции. Автоматическое исправление так падать не должно.
+[`no-unregistered-inject-spy`](#no-unregistered-inject-spy) сообщает о принятой подсказке, которая
+попала на такую подмену.
+
+**Почему оно в recommended.** Каст не _добавляет_ методы спая, он стирает сигнатуру. Дальше
+`mockReturnValue` принимает что угодно, а `toHaveBeenCalledWith` ничего не сравнивает. Проверка
+продолжает проходить, когда код вызывает метод с неверными аргументами. Исправление ничего не стоит:
+член и так уже спай.
+
+В Angular-монорепозитории из 2 032 спек-файлов: **24 отчёта в 21 файле**, 22 обычной формы и 2
+конфигурационной. Пятнадцать несут правку `injectSpy`, остальные называют исправление, не записывая
+его.
+
+**Чего не покрывают соседние правила.** [`no-mocked-for-spy`](#no-mocked-for-spy) читает _объявление_
+`Mocked<T>`, а [`prefer-as-spy`](#prefer-as-spy) — каст к `Spy<T>`. Оба называют подмену целиком, и
+ни одно не видит `Mock`, подставленный вместо сигнатуры одного члена.
+[`no-structural-double`](#no-structural-double) нужно имя, объявленное как объект из `Mock`, а
+[`no-stub-class-double`](#no-stub-class-double) — класс с полями `vi.fn()`. Оба про подмену, которую
+собирают. Это правило — про существующую подмену, которую читают через каст.
+
+**Серьёзность.** `error`. Доказательство — сама строка, исправление предлагается правкой, а мест
+достаточно мало, чтобы закрыть их за один заход: 24 на проекте из 2 032 файлов против 1 200 у
+[`prefer-create-mock`](#prefer-create-mock).
+:::
 
 ## no-redundant-mock-reset {#no-redundant-mock-reset}
 
-**`error`** · `--fix` там, где удаление доказуемо ничего не меняет, иначе подсказка · синтаксис плюс
-конфигурация раннера
+**`error`** · `--fix` или подсказка · только синтаксис, плюс конфиг вашего раннера
 
-**Сообщает про.** Сброс моков, который раннер уже настроен делать между тестами, —
-`vi.clearAllMocks()`, `vi.resetAllMocks()`, `vi.restoreAllMocks()` и помоковые `mockClear()` /
-`mockReset()` / `mockRestore()`, — там, где после сброса раннера ничего из файла ещё не выполнилось:
-первая инструкция `beforeEach`, которому не предшествует другой `beforeEach`, или очистка последней
-инструкцией `afterEach`.
-
-**Решает по.** Двум вещам, и вторая отличает это правило от всех остальных здесь.
-
-- **Вызов**, прочитанный по callee, — и ничего больше.
-- **Что сбрасывает раннер**, чего в линтуемом файле нет. Первыми идут опции:
-
-  ```js
-  'vitest-auto-spy/no-redundant-mock-reset': ['error', { clearMocks: true, restoreMocks: true }],
-  ```
-
-  Если они заданы вообще, то они и есть ответ. Без опций правило идёт вверх от каталога файла, ищет
-  `vitest.config.*` / `vite.config.*` / `vitest-base.config.*` — последнее имя разрешает
-  `runnerConfig: true` у `@angular/build:unit-test` — и читает первый найденный **как текст**,
-  высматривая `clearMocks: true`, `mockReset: true` и `restoreMocks: true`. Ничего не вычисляется и
-  ни один модуль не загружается: прогон линтера не должен выполнять конфиг проекта, а эти три
-  значения во всяком конфиге, который их ставит, записаны литералами. **Если нет ни опции, ни
-  найденного конфига, правило не сообщает ничего.**
-
-  **Конфиг, где `clearMocks` не упомянут, получает значение Vitest по умолчанию, а оно зависит от
-  версии.** До Vitest 4 включительно оно выключено, с Vitest 5 — включено. Правило берёт мажорную
-  версию из ближайшего `node_modules/vitest/package.json` выше линтуемого файла: на Vitest 5 и новее
-  найденный конфиг (или `configFile`) без `clearMocks` считается включившим его, поэтому
-  `vi.clearAllMocks()` или `mockClear()` первой строкой первого `beforeEach` попадает в отчёт, а
-  сообщение говорит, что флаг взят по умолчанию, а не записан в конфиге. На Vitest 4 и раньше, или
-  если Vitest не найден, ничего не меняется: неупомянутый `clearMocks` выключен. `clearMocks`,
-  записанный в конфиге чем угодно, кроме литерала `true`, — `false`, выражением — выключен на любой
-  версии. Флаги, переданные опциями правила, значениями по умолчанию не дополняются: что в них не
-  указано, то выключено, какой бы Vitest ни стоял.
-
-  Конфиг раннера по пути, который поиск не проверяет, называют явно, и читается он так же:
-
-  ```js
-  'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'tools/unit-test-bench/vitest-runner.config.ts' }],
-  ```
-
-  Путь абсолютный или относительный к каталогу, в котором запущен ESLint; флаг, записанный рядом,
-  главнее файла, а несуществующий `configFile` роняет прогон линтера с именем файла, а не оставляет
-  правило молчать.
-
-  **Конфиг, собранный в другом месте, читается только в пределах собственного текста.** В
-  `export default createProjectConfig({ alias })` или в `mergeConfig(base, …)`, чей `base` лежит в
-  другом модуле, флаги заданы в файле, который правило не открывает. Его текст не упоминает
-  `clearMocks`, поэтому до Vitest 4 флаг читается выключенным и правило молчит, а с Vitest 5 — как
-  значение по умолчанию, включённым, даже там, где фабрика его выключает. `npx vitest-auto-spy doctor`
-  отмечает такой `configFile` как
-  [`mock-reset-config-unread`](/ru/utilities/cli#mock-reset-config-unread). Запишите то, что ставит
-  фабрика, в `configFlags`:
-
-  ```js
-  'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', configFlags: { clearMocks: true } }],
-  ```
-
-  `configFlags` принимает `clearMocks`, `mockReset` и `restoreMocks` и читает их так, будто их
-  записал сам файл: они главнее его текста и доходят только до прогонов, которые этот файл
-  загружают, — обычного `vitest run` и таргета билдера, чей `runnerConfig` указывает на него (см.
-  ниже). `configFlags` без `configFile` — ошибка конфигурации. Флаг, записанный рядом с
-  `configFile`, — слово проекта про каждый прогон, и он не сужается.
-
-  **Спека, которую гоняет ещё и Angular unit-test builder, считает только флаги, которые применяет
-  этот билдер.** `@angular/build:unit-test` — и `@nx/angular:unit-test`, который ему делегирует, —
-  передаёт Vitest `config: false`, если в таргете не назван `runnerConfig`, поэтому
-  `vitest.config.ts`, который читает `npx vitest`, под `ng test` / `nx test` не открывается вовсе, и
-  этот прогон идёт на значениях Vitest по умолчанию. Таргеты правило находит само: идёт вверх от
-  линтуемого файла до корня воркспейса (`angular.json`, `workspace.json` или `nx.json`), берёт каждый
-  таргет любого из двух билдеров, в корне проекта которого лежит файл, — executor может прийти из
-  `targetDefaults` в `nx.json`, — и разрешает его `runnerConfig` так же, как билдер: путь — от корня
-  воркспейса; `true` или `""` — в первый `vitest-base.config.*` в корне проекта, затем в корне
-  воркспейса; отсутствие или `false` — ни в какой конфиг. Каждая конфигурация таргета, задающая
-  `runnerConfig`, считается ещё одним прогоном. Сброс попадает в отчёт, только если его делают и
-  найденный правилом конфиг (или `configFile`), **и** каждый из этих прогонов:
-
-  | в конфиге            | таргет билдера без `runnerConfig` | в отчёте                             |
-  | -------------------- | --------------------------------- | ------------------------------------ |
-  | `restoreMocks: true` | по умолчанию Vitest: выключен     | `vi.restoreAllMocks()` — **нет**     |
-  | `mockReset: true`    | по умолчанию Vitest: выключен     | `vi.resetAllMocks()` — **нет**       |
-  | `clearMocks: true`   | включён по умолчанию с Vitest 5   | `vi.clearAllMocks()` — да, Vitest 5+ |
-
-  Поэтому очистка остаётся в отчёте везде, где стоит Vitest 5 или новее: прогон билдера тоже
-  очищает по умолчанию; на Vitest 4 — нет. Воркспейс без таких таргетов — любой проект на чистом
-  Vitest — читается ровно как раньше. Флаги, переданные опциями правила, не сужаются: записанные
-  руками, они — слово проекта про каждый прогон, поэтому называйте только то, что применяет каждый
-  раннер. `configFlags` сужается вместе с файлом, который описывает. Файл воркспейса, который не является чистым JSON, таргетов не даёт.
-
-**Флаг должен совпадать с вызовом, а не с семейством.** Три опции — это не три степени одного и того
-же, и чтение их как степеней превращает такое правило в правило, удаляющее нужные сюите строки.
-
-| опция раннера  | что раннер вызывает между тестами | до каких моков дотягивается                  |
-| -------------- | --------------------------------- | -------------------------------------------- |
-| `clearMocks`   | `vi.clearAllMocks()`              | до всех — забывает записанные вызовы         |
-| `mockReset`    | `vi.resetAllMocks()`              | до всех — и сбрасывает реализацию            |
-| `restoreMocks` | `vi.restoreAllMocks()`            | **только** до спаев, поставленных `vi.spyOn` |
-
-Поэтому `vi.restoreAllMocks()` в хуке **не** мёртвый при одном лишь `clearMocks: true`, а
-`vi.clearAllMocks()` не мёртвый при одном лишь `restoreMocks: true` — `restoreAllMocks` обходит
-оригиналы, которые подменил `vi.spyOn`, и обычный `vi.fn()` не видит. Доказуемых вложений два, и
-используются только они: `resetAllMocks` сбрасывает каждый зарегистрированный мок, а это включает
-очистку; и `restoreMocks` покрывает **помоковый** `mockClear` / `mockReset` / `mockRestore` там, где
-файл показывает, что получатель — спай от `vi.spyOn`: `const spy = vi.spyOn(api, 'load')`, `let`,
-который хук заполняет однажды, или вызов, написанный по месту. Если получатель — обычный `vi.fn()`
-или имя, записанное больше одного раза, не сообщается ничего.
-
-**`setupAutoSpy({ restoreMocks })` — это не `restoreMocks` раннера.** Раннер восстанавливает в
-`onBeforeTryTask`, перед каждым тестом; `setupAutoSpy` восстанавливает в `afterEach`, после него. Для
-этого правила они не взаимозаменяемы: восстановление в `beforeAll` или перед первым тестом покрыто
-опцией раннера и ничем из того, что делает `setupAutoSpy`. Не передавайте правилу
-`{ restoreMocks: true }` из-за того, что файл настройки вызывает `setupAutoSpy({ restoreMocks: true })`,
-— что происходит между тестами, говорит только флаг конфига раннера.
-
-**Находка и как её закрыть.**
+Сообщает о сбросе моков в хуке, который раннер и так делает между тестами, например
+`vi.clearAllMocks()` в начале `beforeEach` при `clearMocks: true`. Такая строка ничего не делает.
+Правило молчит, пока не узнает, какие флаги сброса ставит ваш раннер. Оно узнаёт их из своих опций
+или читает ваш `vitest.config.*` / `vite.config.*` как текст.
 
 ```ts
 beforeEach(() => {
@@ -1742,80 +2113,200 @@ beforeEach(() => {
 });
 ```
 
-Удалить строку — и хук вместе с ней, если это всё, что в хуке было.
+```ts
+beforeEach(() => {
+  TestBed.configureTestingModule({ providers: [provideAutoSpy(Api)] }); // ✅
+});
+```
 
-**Где правило смотрит и почему так узко.** Vitest сбрасывает моки в `onBeforeTryTask`, а он
-выполняется **перед** цепочкой `beforeEach` каждого теста — и никогда после теста. Отсюда три
-следствия, и каждое — отчёт, который делал 5.23.0 и больше не делает это правило:
+**Опции.** Мёртвый ли сброс, зависит от конфига раннера, а не от спеки. Опции говорят правилу, что
+делает раннер:
 
-- **Сброс отменяет то, что успело выполниться раньше него.** Между сбросом раннера и инструкцией
-  внутри `beforeEach` уже отработали инструкции выше в том же хуке, каждый `beforeEach` объемлющего
-  `describe` — где бы он ни был написан — и каждый более ранний рядом. Спай, который кто-то из них
-  поставил, или вызовы, сделанные подготовкой, — ровно то, что там снимает `spy.mockRestore()` или
-  `mockClear()`, и на сюите ниже удаление такой строки роняло тесты под ней. Поэтому сброс в
-  `beforeEach` сообщается только первой инструкцией хука, которому не предшествует другой
-  `beforeEach`; хук из соседнего `describe` не в счёт.
+| Опция          | Тип                                                   | По умолчанию | Смысл                                                                                           |
+| -------------- | ----------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------- |
+| `clearMocks`   | `boolean`                                             | —            | раннер очищает каждый мок между тестами                                                         |
+| `mockReset`    | `boolean`                                             | —            | раннер сбрасывает каждый мок между тестами                                                      |
+| `restoreMocks` | `boolean`                                             | —            | раннер восстанавливает спаи `vi.spyOn` между тестами                                            |
+| `configFile`   | `string`                                              | —            | конфиг раннера, который поиск не находит; путь абсолютный или относительно запуска ESLint       |
+| `configFlags`  | `{ clearMocks?, mockReset?, restoreMocks? }` (булевы) | —            | флаги, которые собранный фабрикой `configFile` ставит сверх своего текста; требует `configFile` |
+
+Без опций правило само ищет конфиг раннера (см. _Как правило решает_). Если нет ни опции, ни
+найденного конфига, **правило не сообщает ничего**.
+
+```js
+'vitest-auto-spy/no-redundant-mock-reset': ['error', { clearMocks: true, restoreMocks: true }],
+'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'tools/unit-test-bench/vitest-runner.config.ts' }],
+'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'vitest.config.ts', configFlags: { clearMocks: true } }],
+```
+
+**Как исправить.** Удалите строку, а если в хуке больше ничего не было, то и хук. `--fix` делает это
+в файле без другого `beforeEach` и без `beforeAll`; в остальных случаях это подсказка. Инструкция,
+которая стоит на строке одна, уходит вместе со строкой.
+
+**Когда выключить.** Редко: на проекте, о котором правило ничего не знает, оно молчит. Лучше
+правильно укажите флаги.
+
+**Если правило молчит,** хотя в конфиге есть `clearMocks: true`, проверьте по порядку:
+
+1. **Сброс — не первая инструкция первого `beforeEach`.** То, что выполняется до него (инструкция
+   выше, `beforeEach` внешнего `describe`), может нуждаться в сбросе, поэтому правило о нём не
+   сообщает.
+2. **Спеку запускает ещё и таргет Angular-билдера.** `@angular/build:unit-test` без `runnerConfig`
+   не читает `vitest.config.ts`, и этот прогон идёт на значениях Vitest по умолчанию. На Vitest 4
+   `clearMocks` по умолчанию выключен, так что сброс там не лишний. Задайте таргету `runnerConfig`
+   или перейдите на Vitest 5, где `clearMocks` по умолчанию включён.
+3. **Правило не может найти или прочитать конфиг.** Поиск начинается в папке спеки и идёт вверх.
+   Конфиг в другой папке или собранный фабрикой в другом модуле не читается. Укажите его через
+   `configFile` и добавьте `configFlags` с тем, что ставит фабрика.
+
+- **Называйте только те флаги, которые раннер действительно ставит.** `restoreMocks` — не более
+  сильный `clearMocks`: `vi.restoreAllMocks()` дотягивается только до спаев, поставленных
+  `vi.spyOn`, и никогда до обычного `vi.fn()`. При одном лишь `restoreMocks: true`
+  `vi.clearAllMocks()` в хуке всё ещё что-то делает. Передать флаг, которого раннер не ставит, —
+  единственный способ заставить это правило удалить строку, нужную вашим тестам.
+- **`setupAutoSpy({ restoreMocks })` — это не `restoreMocks` раннера.** Раннер восстанавливает перед
+  каждым тестом; `setupAutoSpy` — в `afterEach`. Не передавайте правилу `{ restoreMocks: true }`
+  из-за того, что ваш setup-файл вызывает `setupAutoSpy({ restoreMocks: true })`. Что происходит между
+  тестами, говорит только флаг в конфиге раннера.
+
+::: details Как правило решает
+**Что сообщается.** `vi.clearAllMocks()`, `vi.resetAllMocks()`, `vi.restoreAllMocks()` и помоковые
+`mockClear()` / `mockReset()` / `mockRestore()` там, где после собственного сброса раннера ничего из
+написанного в файле ещё не выполнилось. То есть:
+
+- первая инструкция `beforeEach`, которому не предшествует другой `beforeEach`; или
+- очистка последней инструкцией `afterEach`.
+
+**Поиск конфига раннера.** Без опций правило идёт вверх от каталога линтуемого файла и ищет
+`vitest.config.*`, `vite.config.*` или `vitest-base.config.*` (это имя разрешает
+`runnerConfig: true` у `@angular/build:unit-test`). Первый найденный файл читается **как текст**:
+правило ищет литералы `clearMocks: true`, `mockReset: true` и `restoreMocks: true`. Ничего не
+вычисляется и ни один модуль не загружается: прогон линтера не должен выполнять конфиг проекта, а эти
+три значения — литералы в любом конфиге, который их ставит.
+
+- **Опции главнее.** Если они заданы, они и есть ответ, и поиск не выполняется. Проект, который не
+  хочет, чтобы линтер читал диск, передаёт флаги опциями.
+- **`configFile`** называет конфиг по пути, где поиск не смотрит, и читается так же. Флаг, записанный
+  рядом, главнее файла. Несуществующий `configFile` роняет прогон линтера с его именем, а не оставляет
+  правило молчать. Например, конфиг раннера в `tools/unit-test-bench/vitest-runner.config.ts` для
+  `@angular/build:unit-test` поиск пропускает; `configFile` называет его, и флаги остаются в том
+  единственном файле, который их ставит.
+
+**Значение Vitest по умолчанию для `clearMocks` зависит от версии.** До Vitest 4 включительно оно
+выключено, с Vitest 5 — включено. Правило берёт установленную мажорную версию из ближайшего
+`node_modules/vitest/package.json` выше линтуемого файла.
+
+- На Vitest 5 и новее найденный конфиг (или `configFile`) без `clearMocks` считает его включённым.
+  Тогда `vi.clearAllMocks()` или `mockClear()` в начале первого `beforeEach` попадает в отчёт, а
+  сообщение говорит, что флаг взят по умолчанию.
+- На Vitest 4 и старше, или если Vitest не найден, неупомянутый `clearMocks` выключен.
+- `clearMocks`, записанный чем угодно, кроме литерала `true` (`false`, выражение), читается
+  выключенным на любой версии.
+- Флаги, заданные опциями правила, значениями по умолчанию не дополняются: чего в них нет, то
+  выключено.
+
+**Конфиг, собранный в другом месте, читается только в пределах своего текста.** В
+`export default createProjectConfig({ alias })` или в `mergeConfig(base, …)`, где `base` лежит в
+другом модуле, флаги задаёт файл, который правило не открывает. Его текст не упоминает `clearMocks`.
+Поэтому до Vitest 4 флаг читается выключенным и правило молчит, а с Vitest 5 — как значение по
+умолчанию (включённым), даже там, где фабрика его выключает. `npx vitest-auto-spy doctor` отмечает
+такой `configFile` как [`mock-reset-config-unread`](/ru/utilities/cli#mock-reset-config-unread).
+Запишите то, что ставит фабрика, в `configFlags`. Они читаются так, будто их записал сам файл: они
+главнее его текста и доходят только до прогонов, которые этот файл загружают (обычный `vitest run` и
+таргет билдера, чей `runnerConfig` указывает на него). Флаг, заданный прямой опцией
+(`{ configFile, clearMocks: true }`), наоборот, действует на каждый прогон.
+
+**Спека, которую гоняет ещё и Angular unit-test builder, учитывает только флаги, которые применяет
+этот билдер.** `@angular/build:unit-test` и делегирующий ему `@nx/angular:unit-test` передают Vitest
+`config: false`, если в таргете не назван `runnerConfig`. Тогда `vitest.config.ts`, который читает
+`npx vitest`, под `ng test` / `nx test` не открывается вовсе, и этот прогон идёт на значениях Vitest по
+умолчанию. Таргеты правило находит само:
+
+1. Идёт вверх от линтуемого файла до корня воркспейса (`angular.json`, `workspace.json` или
+   `nx.json`).
+2. Берёт каждый таргет любого из двух билдеров, в корне проекта которого лежит файл. Executor может
+   прийти из `targetDefaults` в `nx.json`.
+3. Разрешает `runnerConfig` так же, как билдер: путь — от корня воркспейса; `true` или `""` — в
+   первый `vitest-base.config.*` в корне проекта, затем в корне воркспейса; отсутствие или `false` —
+   ни в какой конфиг.
+4. Каждая конфигурация таргета, задающая `runnerConfig`, считается ещё одним прогоном.
+
+Сброс попадает в отчёт, только если его делает найденный конфиг (или `configFile`) **и** каждый
+прогон билдера, найденный на шагах 1–4:
+
+| в конфиге            | таргет билдера без `runnerConfig` | в отчёте                            |
+| -------------------- | --------------------------------- | ----------------------------------- |
+| `restoreMocks: true` | по умолчанию Vitest: выключен     | `vi.restoreAllMocks()`: **нет**     |
+| `mockReset: true`    | по умолчанию Vitest: выключен     | `vi.resetAllMocks()`: **нет**       |
+| `clearMocks: true`   | включён по умолчанию с Vitest 5   | `vi.clearAllMocks()`: да, Vitest 5+ |
+
+Поэтому на Vitest 5 и новее очистка по-прежнему попадает в отчёт: прогон билдера тоже очищает по
+умолчанию. На Vitest 4 она в отчёт не попадает. Воркспейс без таких таргетов, то есть любой проект на
+чистом Vitest, читается как обычно. Флаги, заданные опциями правила, действуют на каждый прогон как
+записаны: проверка билдеров их не урезает, поэтому называйте только то, что применяет каждый раннер.
+`configFlags` действуют только на прогоны, которые загружают их `configFile`. Файл воркспейса, который не является чистым JSON, таргетов не даёт.
+
+**Флаг должен совпадать с вызовом, а не с семейством.** Три опции — не три степени одного и того же:
+
+| опция раннера  | что раннер вызывает между тестами | до каких моков дотягивается                  |
+| -------------- | --------------------------------- | -------------------------------------------- |
+| `clearMocks`   | `vi.clearAllMocks()`              | до всех; забывает записанные вызовы          |
+| `mockReset`    | `vi.resetAllMocks()`              | до всех; ещё и сбрасывает реализацию         |
+| `restoreMocks` | `vi.restoreAllMocks()`            | **только** до спаев, поставленных `vi.spyOn` |
+
+Поэтому `vi.restoreAllMocks()` в хуке **не** лишний при одном лишь `clearMocks: true`, а
+`vi.clearAllMocks()` не лишний при одном лишь `restoreMocks: true`. Правило использует только два
+доказуемых пересечения:
+
+- `resetAllMocks` сбрасывает каждый зарегистрированный мок, а это включает очистку;
+- `restoreMocks` покрывает **помоковый** `mockClear` / `mockReset` / `mockRestore` там, где файл
+  показывает, что получатель — спай `vi.spyOn`: `const spy = vi.spyOn(api, 'load')`, `let`, который
+  хук заполняет один раз, или вызов, написанный на месте. Для обычного `vi.fn()` или имени, которому
+  присваивают больше одного раза, отчёта нет.
+
+`setupAutoSpy({ restoreMocks })` восстанавливает в `afterEach`, а раннер — в `onBeforeTryTask`, перед
+каждым тестом. Восстановление в `beforeAll` или перед первым тестом покрыто опцией раннера и ничем из
+того, что делает `setupAutoSpy`.
+
+**Почему правило смотрит так узко.** Vitest сбрасывает моки в `onBeforeTryTask`, который выполняется
+**перед** цепочкой `beforeEach` каждого теста и никогда после теста. Отсюда три следствия:
+
+- **Сброс отменяет то, что выполнилось раньше.** Между сбросом раннера и инструкцией внутри
+  `beforeEach` уже отработали инструкции выше в том же хуке. Отработал и каждый `beforeEach`
+  объемлющего `describe`, где бы он ни был написан, и каждый более ранний рядом. Спай, который
+  кто-то из них поставил, или вызовы, сделанные подготовкой, — ровно то, что там снимает
+  `spy.mockRestore()` или `mockClear()`. Удаление такой строки роняло тесты в реальном проекте. Поэтому
+  сброс в `beforeEach` сообщается только первой инструкцией хука, которому не предшествует другой
+  `beforeEach`. Хук внутри соседнего `describe` не считается.
 - **После последнего теста файла ничего не сбрасывается до конца файла.** Vitest вызывает
-  `vi.restoreAllMocks()` ещё раз на границе файла, после всех `afterAll`, — так что до этого момента
-  хуки `afterEach` объемлющих `describe` и каждый `afterAll`, включая хуки сетап-файла, работают со
+  `vi.restoreAllMocks()` ещё раз на границе файла, после всех `afterAll`. До этого момента хуки
+  `afterEach` объемлющих `describe` и каждый `afterAll` (включая хуки setup-файла) работают со
   спаями последнего теста на `window`, `document` или прототипе. Restore или reset в `afterEach` /
-  `afterAll` их и снимает, и о нём не сообщается никогда; сообщается только очистка последней
+  `afterAll` их снимает, и о нём не сообщается никогда. Сообщается только очистка последней
   инструкцией `afterEach`.
-- **`beforeAll` выполняется до первого сброса раннера**, поэтому сброс там защищает тело самого
-  хука и ничего не повторяет.
+- **`beforeAll` выполняется до первого сброса раннера,** поэтому сброс там защищает тело самого хука
+  и ничего не повторяет.
 
-Правка применяется только в файле, где нет другого `beforeEach` и нет `beforeAll`; всё остальное —
-подсказка, которую показывает редактор и принимает человек. Инструкция, стоящая на строке одна,
-уходит вместе со строкой.
+**Сброс в середине тела теста не сообщается никогда.** Он отделяет одну подготовку от следующей
+внутри одного теста, а ни одна опция раннера так не делает. В одном проекте таких вызовов **445 в 132
+файлах**, и правило молчит на всех по своему устройству: отчёт делается только там, где ближайшая
+функция вокруг вызова — собственный колбэк хука. Сброс внутри `onTestFinished(…)`, который
+регистрирует хук, внутри `if` или внутри хелпера, который вызывает хук, тоже вне правила.
 
-**Сброс в середине тела теста не сообщается никогда.** Это совсем другое: там вызов отделяет одну
-подготовку от следующей внутри одного теста, и ни одна опция раннера так не делает. В той же сюите
-таких вызовов **445 в 132 файлах**, и правило молчит на каждом — по устройству, а не по исключению:
-отчёт делается только там, где ближайшая функция вокруг вызова и есть колбэк хука, так что сброс
-внутри `onTestFinished(…)`, который регистрирует хук, внутри `if` или внутри вызванного хуком
-хелпера тоже вне правила.
-
-**Ограничения.** Поиск находит конфиг раннера только там, где он назван так, как его называет
-экосистема. У сюиты выше конфиг раннера лежит в `tools/unit-test-bench/vitest-runner.config.ts` и
-выбирается билдером `@angular/build:unit-test` — поиск его не находит вовсе; его называет
-`configFile`, и флаги остаются в том единственном файле, который их ставит, а не копируются в
-конфиг линтера, где их пришлось бы держать в синхроне руками. Проект, который предпочитает, чтобы
-линтер не читал диск, передаёт флаги опциями, и поиск не выполняется.
-
-**Severity.** `error`, и аргумент — молчание: проекту, который ничего не сказал, ничего и не
-сообщат, так что ошибиться насчёт сюиты, о которой правило ничего не знает, оно не может. Там же,
-где оно срабатывает, доказательство — флаг, поставленный проектом, и вызов, который его повторяет, а
-починка — удаление, которое правило либо делает, либо предлагает. Это ещё и единственное правило
-здесь, чья находка — чистая цена: строка не делает ничего.
+**Серьёзность.** `error`, и довод — молчание: проекту, который ничего не сказал, ничего и не
+сообщат, поэтому ошибиться насчёт незнакомого проекта правило не может. Там, где оно срабатывает,
+доказательство — флаг, который поставил проект, и вызов, который его повторяет, а исправление —
+удаление, которое правило делает или предлагает. Находка — чистая цена (строка ничего не делает), а
+на такой отчёт реагировать проще всего.
+:::
 
 ## no-unasserted-argument {#no-unasserted-argument}
 
-**`warn`** · без починки · только синтаксис и области видимости
+**`warn`** · без автоисправления · синтаксис и области видимости
 
-**Сообщает про.** Голый `expect(spy).toHaveBeenCalled()` в тесте, где **сам файл** показывает, что
-дело в аргументах, — по одному из двух прочтений.
-
-**Решает по.** Ничему вне файла и ничему, что знает тайпчекер.
-
-1. **Тот же субъект закреплён через `toHaveBeenCalledWith` в другом тесте этого файла.** Автор уже
-   записал, что аргументы этого вызова — часть контракта; здесь он их не прочитал. Тест, который
-   проверяет и то и другое на одном субъекте, не трогается: там аргументы _проверены_, а голая
-   строка просто избыточна.
-2. **Заголовок теста говорит `with`, а тело не утверждает ничего другого.** Тогда всё, что тест
-   обещает, — это список аргументов, а всё, что он проверяет, — что что-то выполнилось. Любое
-   утверждение, кроме ещё одного голого `toHaveBeenCalled()`, это прочтение гасит, потому что как
-   раз в нём аргументы могут и проверяться: равенство на результате, счётчик и цепочка, которую
-   правило не дочитывает (`resolves`, `rejects`), считаются все.
-
-Два субъекта считаются одним, когда совпадает **исходный текст** того, что отдали в `expect()`, без
-учёта пробелов. Поэтому `expect(api.load)` и `expect(loadSpy)` — два субъекта, даже если это один
-спай. Два вида имён читаются через то, что в них лежит, потому что тесты заводят свои под общим
-именем: `spy` с `vi.spyOn(obj, 'm')` — это тот член, как бы переменная ни называлась, а `vi.fn()` —
-никто, кроме себя самого, так что `const spy = vi.spyOn(dialog, 'close')` одного теста — не тот же
-`const spy = vi.spyOn(logger, 'info')` следующего. Так правило теряет находки и не выдумывает ни
-одной — это и есть размен, на котором оно построено.
-
-**Находка и как её закрыть.**
+Сообщает о голом `expect(spy).toHaveBeenCalled()` там, где сам файл показывает, что аргументы
+важны: другой тест закрепляет тот же спай через `toHaveBeenCalledWith`, или в заголовке теста есть
+`with`. Тест проверяет, что что-то выполнилось, но не с чем это вызвали.
 
 ```ts
 it('emits rowFocused with the host element', () => {
@@ -1826,69 +2317,89 @@ it('emits rowFocused with the host element', () => {
 ```
 
 ```ts
-expect(component.rowFocused.emit).toHaveBeenCalledWith(host.nativeElement);
+expect(component.rowFocused.emit).toHaveBeenCalledWith(host.nativeElement); // ✅
 ```
 
-`expect.objectContaining({ … })` и `expect.any(Type)` закрывают ту часть аргумента, которую тест не
-решает, `toHaveBeenCalledExactlyOnceWith(…)` — когда «ровно один раз» тоже часть утверждения, а
-дубль, собранный этим пакетом, принимает
-[`mustBeCalledWith(…)`](/ru/core/control-helpers) там, где он настраивается, и падает на самом
-вызове, а не после него.
+**Опции.** Нет.
 
-**Почему оно узкое и почему в этом весь смысл.** Тупая версия этого правила уже есть:
-`vitest/prefer-called-with` сообщает про **каждый** голый `toHaveBeenCalled`. Оно не входит в
-`recommended` своего плагина, а на сюите из 2032 файлов, на которой мерялось это, оно даёт **1941
-находку в 360 файлах** — число, по которому никто ничего не делает и которое все выключают. Два
-прочтения выше дают на том же дереве **175 находок в 90 файлах**: 151 по первому и 24 по второму.
-Обе — это файл, противоречащий сам себе, а такое стоит сообщать; остальные 1766 — вопрос стиля, а
-такое не стоит.
+**Как исправить.** Назовите аргументы через `toHaveBeenCalledWith(…)`.
 
-Самая сильная пара на той сюите — два теста в одном файле с одинаковыми телами, заголовки которых
-различаются только тем, какой аргумент якобы несёт вызов: разницы, обещанной заголовками, в коде
-нет, и сказать об этом, кроме этого правила, некому.
+- `expect.objectContaining({ … })` и `expect.any(Type)` закрывают ту часть аргумента, которую тест
+  не решает.
+- `toHaveBeenCalledExactlyOnceWith(…)` — когда «ровно один раз» тоже часть утверждения.
+- Подмена, собранная этим пакетом, принимает [`mustBeCalledWith(…)`](/ru/core/control-helpers) там,
+  где её настраивают. Он падает на самом вызове, а не после него.
+- У метода без аргументов называть нечего. Закрепите счётчик: `toHaveBeenCalledOnce()` или
+  `toHaveBeenCalledTimes(n)`.
 
-**Про что сознательно не сообщается.** `expect(spy).not.toHaveBeenCalled()` — это утверждение про
-вызов, а не про его аргументы, и называть там нечего. `toHaveBeenCalledTimes`,
-`toHaveBeenCalledOnce` и прочие считающие матчеры — они утверждают то, чего голый не утверждает. И
-голый вызов рядом с утверждением на результат: по второму прочтению такое утверждение гасит тест
-целиком, а по первому — нет, потому что файл уже сказал, что аргументы _этого субъекта_ значимы.
+**Когда выключить.** Находка точна, но правильный список аргументов знает только автор, поэтому
+правило `warn`. Поднимите его до `error`, когда ответите на отчёты. Никогда не сообщаются:
 
-**Severity.** `warn`, и оценка эта — по тому, чего требует починка, а не по доказательству. Оба
-прочтения — факты из файла, ровно так же решает здесь каждое `error`, но починка — это список
-аргументов, который тест должен был назвать, а его-то правило и не может дать. Каждое `error` этого
-плагина либо несёт правку, либо называет хелпер; это несёт вопрос автору. Проект, который на него
-ответил, поднимает правило той же строкой, которой опускает остальные.
+- `expect(spy).not.toHaveBeenCalled()`: аргументов, которые можно назвать, нет;
+- `toHaveBeenCalledTimes`, `toHaveBeenCalledOnce` и другие считающие матчеры;
+- субъект, который заканчивается на `preventDefault`, `stopPropagation` или
+  `stopImmediatePropagation`: эти методы `Event` не принимают аргументов.
+
+::: details Как правило решает
+Ничего вне файла и ничего из того, что знает тайпчекер. Прочтений два:
+
+1. **Тот же субъект закреплён через `toHaveBeenCalledWith` в другом тесте этого файла.** Автор уже
+   записал, что аргументы этого вызова — часть контракта; здесь он этого не сделал. Тест, который
+   проверяет оба варианта на одном субъекте, не трогается: аргументы там проверены, а голая строка
+   просто лишняя.
+2. **В заголовке теста есть `with`, а тело не проверяет ничего другого.** Тогда всё утверждение теста
+   — список аргументов, а проверяет он только то, что что-то выполнилось. Любая другая проверка
+   снимает это прочтение, потому что аргументы могут проверяться как раз в ней: равенство на
+   результате, счётчик или цепочка, которую правило не может дочитать (`resolves`, `rejects`). `with`,
+   который входит в имя проверяемого метода, не читается: `it('dismisses with action …')` над
+   `expect(ref.dismissWithAction).toHaveBeenCalled()` называет метод, а не список аргументов.
+
+**Тот же субъект** — это тот же исходный текст, переданный в `expect()`, без учёта пробелов. Поэтому
+`expect(api.load)` и `expect(loadSpy)` — два субъекта, даже если это один спай. Имена читаются через
+то, что в них лежит, потому что тесты переиспользуют общие имена: `spy` с `vi.spyOn(obj, 'm')` — это
+тот член, а `vi.fn()` — только он сам. Поэтому `const spy = vi.spyOn(dialog, 'close')` одного теста —
+не тот же `const spy = vi.spyOn(logger, 'info')` следующего. Так правило теряет находки, но не
+выдумывает ни одной.
+
+Голый вызов рядом с проверкой результата снимается по второму прочтению, но не по первому: там файл
+уже сказал, что аргументы _этого субъекта_ важны. Методы `Event` распознаются по имени, потому что у
+правила нет информации о типах.
+
+**Почему оно узкое.** Грубая версия уже есть: `vitest/prefer-called-with` сообщает о **каждом** голом
+`toHaveBeenCalled`. Оно не входит в `recommended` своего плагина. На проекте из 2032 файлов оно даёт
+**1941 отчёт в 360 файлах** — число, по которому никто ничего не делает. Два прочтения выше дают на
+том же дереве **175 отчётов в 90 файлах**: 151 по первому и 24 по второму. И то и другое — файл,
+который противоречит сам себе, а это находка. Остальные 1766 — вопрос стиля.
+
+Самая сильная пара на том проекте: два теста в одном файле с одинаковыми телами, заголовки которых
+различаются только тем, какой аргумент несёт вызов. Разницы, которую обещают заголовки, в коде нет, и
+никто, кроме этого правила, об этом не скажет.
+
+**Серьёзность.** `warn`, по тому, чего требует исправление, а не по доказательству. Оба прочтения —
+факты из файла, как у каждого `error` здесь. Но исправление — это список аргументов, который тест
+должен был назвать, а его правило дать не может. Каждое `error`-правило либо несёт правку, либо
+называет хелпер; это несёт вопрос автору.
+:::
 
 ## prefer-provide-activated-route {#prefer-provide-activated-route}
 
-**`error`** · без правки · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Что сообщает.** Провайдер `ActivatedRoute`, который не является маршрутом библиотеки. Пять форм,
-и четыре из них — слоты одного дескриптора: объект в `useValue` (написан на месте или запаркован в
-имя над TestBed), `useClass`, `useFactory`, `useExisting`. Пятая — вызов:
-`provideAutoSpy(ActivatedRoute)`, и у него своя причина: спай читает прототип, а все половины
-`ActivatedRoute` лежат в полях инстанса, которых у спая нет.
-
-**На чём решает.** Значение `provide:` называет класс, и читается оно как написано — тот же
-последний довод, которым пользуются правила про токены, без похода резолвером в файл, где он
-объявлен. Освобождение — собственное написание того же маршрута библиотекой: дескриптор, в поддереве
-которого встречается `createActivatedRoute(…)`, или чей `useValue` — имя (простое, `.route` от
-имени или из деструктуризации), чьё объявление или единственная запись — этот вызов фабрики.
-
-**Находка и как её закрыть.** Формы пересчитаны с монорепо из 11 000+ спек-файлов, где 42 провайдера
-собранного руками маршрута сидят в 36 из них:
+Сообщает о провайдере `ActivatedRoute`, собранном руками, и о `provideAutoSpy(ActivatedRoute)`.
+Самодельный маршрут знает только ту половину, о которой подумал автор: snapshot или стримы.
+Компонент, который читает другую половину, получает `undefined`, а тест всё равно проходит.
 
 ```ts
-// Одинокий snapshot — компонент, читающий `route.params`, получает `undefined`.
-{ provide: ActivatedRoute, useValue: { snapshot: { queryParams: { ['q']: 'mock' } } } }
+// Одинокий snapshot: компонент, читающий `route.params`, получает `undefined`.
+{ provide: ActivatedRoute, useValue: { snapshot: { queryParams: { ['q']: 'mock' } } } } // ❌
 
-// Пустой объект — маршрут, у которого каждый read — `undefined`.
-{ provide: ActivatedRoute, useValue: {} }
+// Пустой объект: каждое чтение даёт `undefined`.
+{ provide: ActivatedRoute, useValue: {} } // ❌
 
-// Фабрика спаев — у прототипа нет ни одного поля инстанса, которые держит маршрут.
-{ provide: ActivatedRoute, useValue: createSpyFromClass(ActivatedRoute, { observablePropsToSpyOn: ['queryParams'] }) }
+// Фабрика спаев: у прототипа нет ни одного поля экземпляра, которые держит маршрут.
+{ provide: ActivatedRoute, useValue: createSpyFromClass(ActivatedRoute, { observablePropsToSpyOn: ['queryParams'] }) } // ❌
 
-// Фабрика, собирающая половины по одной.
+// Фабрика, которая собирает половины по одной.
 {
   provide: ActivatedRoute,
   useFactory: () => {
@@ -1896,16 +2407,14 @@ expect(component.rowFocused.emit).toHaveBeenCalledWith(host.nativeElement);
     mockReadonlyPropGetter(mock, 'params', () => of({}));
     return mock;
   },
-}
+} // ❌
 ```
-
-Ремонт — замена названной строки один в один, а тестом управляет ручка:
 
 ```ts
 import { injectActivatedRoute, provideActivatedRoute } from 'vitest-auto-spy/angular-router';
 
 TestBed.configureTestingModule({
-  providers: [provideActivatedRoute({ params: { id: '1' } })],
+  providers: [provideActivatedRoute({ params: { id: '1' } })], // ✅
 });
 
 const route = injectActivatedRoute();
@@ -1913,43 +2422,59 @@ const route = injectActivatedRoute();
 route.setParams({ id: '2' }); // стримы эмитят, snapshot уже согласован
 ```
 
-**Зачем это в `recommended`.** `ActivatedRoute` — единственный коллаборатор, у которого очевидный
-мок неверен так, что зелёный тест этого не замечает. Настоящий класс держит `snapshot`, `params`,
-`queryParams`, `data`, `fragment` и `url` в полях инстанса над одной записью состояния, и дубль,
-написанный руками, знает ту половину, которую его автор прочитал первой, — компонент, читающий
-другую, получает `undefined`, а спека, выставившая `snapshot.params` и не эмитнувшая `params`,
-тестирует маршрут, которого не бывает после навигации. `provideActivatedRoute()` собирает
-собственный класс Angular над одной записью состояния, так что половины не могут разойтись, а его
-сеттеры двигают их вместе посреди теста — в том порядке и с тем равенством, что у навигации.
+**Опции.** Нет.
 
-**Границы.** Сюита, которая предоставляет настоящий маршрутизируемый сетап — `RouterTestingModule`,
-настоящий `Router`, которым спека управляет навигациями, — делает это без дескриптора для маршрута и
-не сообщается. Спека, которой сознательно нужна половина маршрута, оставляет её под построчным
-disable. Правило читает имя, поэтому класс проекта, случайно названный `ActivatedRoute`, тоже
-попадёт в отчёт; ответ тот же, что у любого столкновения имён, — переименовать одно из двух.
+**Как исправить.** Замените провайдер из отчёта на `provideActivatedRoute({ … })` из
+`vitest-auto-spy/angular-router`. Маршрутом в тесте управляйте через объект из
+`injectActivatedRoute()`, как в примере выше.
 
-**Severity.** `error`. У каждого отчёта рядом `provide:`, называющий класс маршрута, так что в
-решении нет эвристики, а сообщает правило про дубль, чьи половины зелёный тест молча держит врознь.
+**Когда выключить.**
+
+- Спека с настоящей маршрутизацией (`RouterTestingModule`, настоящий `Router`, по которому спека
+  навигирует) обходится без дескриптора маршрута и в отчёт не попадает.
+- Спеке сознательно нужна половина маршрута: выключите правило на этой строке.
+- Класс проекта, который случайно называется `ActivatedRoute`, тоже попадёт в отчёт: правило читает
+  имя. Переименуйте один из двух.
+
+::: details Как правило решает
+**Пять форм.** Четыре из них — слоты одного дескриптора провайдера: объект в `useValue` (написан на
+месте или сохранён в имя над TestBed), `useClass`, `useFactory` и `useExisting`. Пятая — вызов
+`provideAutoSpy(ActivatedRoute)`. Спай читает прототип, а все части `ActivatedRoute` лежат в полях
+экземпляра. Поэтому у такого спая их нет.
+
+**Токен** — значение `provide:`, которое называет класс. Оно читается как написано. Объявление в
+другом файле правило не ищет.
+
+**Что пропускается:** собственный маршрут библиотеки. Это дескриптор, внутри которого где угодно
+встречается `createActivatedRoute(…)`. Или дескриптор, чей `useValue` — имя (простое, `.route` от
+имени или из деструктуризации), объявленное или один раз записанное этим вызовом фабрики.
+
+**Почему оно в recommended.** `ActivatedRoute` — единственный коллаборатор, у которого очевидный мок
+неверен так, что зелёный тест это прячет. Настоящий класс держит `snapshot`, `params`, `queryParams`,
+`data`, `fragment` и `url` в полях экземпляра над одной записью состояния. Спека, которая задаёт
+`snapshot.params` и не эмитит `params`, тестирует маршрут, который не получится ни при одной
+навигации. `provideActivatedRoute()` собирает собственный класс Angular над одной записью состояния,
+так что половины не могут разойтись. Его сеттеры меняют их вместе посреди теста, в том же порядке и
+с тем же сравнением, что и навигация. Примеры выше взяты из монорепозитория на 11 000+ файлов спек:
+там 42 самодельных провайдера маршрута в 36 файлах.
+
+**Два правила про маршрут согласны.** [`prefer-provide-auto-spy`](#prefer-provide-auto-spy) тоже
+читает токен `ActivatedRoute`: в дескрипторе провайдера и в `TestBed.overrideProvider`. Для этого
+токена то правило советует `provideActivatedRoute()`, а не `provideAutoSpy`. Дескриптор, который видят
+оба правила, получает два отчёта с одним и тем же исправлением.
+
+**Серьёзность.** `error`. Рядом с каждым отчётом стоит `provide:`, который называет класс маршрута,
+так что ничего не угадывается. Правило сообщает о подмене, чьи половины проходящий тест держит
+врозь.
+:::
 
 ## no-passthrough-console-spy {#no-passthrough-console-spy}
 
 **`error`** · подсказка · только синтаксис
 
-**Сообщает.** `vi.spyOn(console, m)` — или `jest.spyOn`, или `globalThis.console` / `window.console`
-в роли объекта — для пишущего метода, спаю которого ничто в файле не даёт реализации.
-
-**На чём решает.** Цепочка и имя, оба прочитаны без типов. Вызов прямо в цепочке спая
-(`.mockImplementation(…)`, `.mockImplementationOnce(…)`, `.mockReturnValue(…)`,
-`.mockReturnValueOnce(…)`, после любого числа звеньев вроде `.mockName(…)`) вопрос закрывает. Если спай
-попадает в имя — `const` или `let`, который присваивает хук, — каждое другое упоминание этого имени
-читается через scope manager: один из этих четырёх вызовов вопрос закрывает, `expect(spy)`,
-`spy.mock.calls`, `spy.mockRestore()` и прямой вызов его только читают, а всё остальное — спай, переданный
-в хелпер, возвращённый, переименованный, положенный в массив, — это место, куда правило не может
-пойти, и оно молчит. Метод должен быть литералом, через который консоль пишет: `time`, `groupEnd` и
-`countReset` ничего не пишут, а вычисляемое имя узнать нельзя. `console`, объявленный самим файлом, —
-не глобальный и не трогается; `console` из `globals` конфига — глобальный.
-
-**Находка и исправление.**
+Сообщает о `vi.spyOn(console, 'error')` (или о другом пишущем методе), когда ничто в файле не даёт
+спаю реализации. Такой спай записывает вызов **и** всё равно его печатает. Спека выглядит так, будто
+заглушила консоль, поэтому шум никто не ищет.
 
 ```ts
 beforeEach(() => {
@@ -1971,37 +2496,50 @@ it('reports the failure', () => {
 });
 ```
 
-Подсказка — правка поменьше: `.mockImplementation(() => undefined)` в конце вызова `spyOn`; это
-подсказка, а не исправление, потому что реализация меняет то, что делает спай, а это решение о тесте.
+**Опции.** Нет.
 
-**Зачем оно в recommended.** Спай без реализации вызывает оригинал: строка записывается **и**
-печатается. Под [`setupAutoSpy({ strayConsole })`](/ru/utilities/setup) это роняет тест как посторонний
-вывод, а без охраны это шум, под которым теряется следующий настоящий провал. Спека при этом выглядит
-так, будто консоль заглушена, поэтому никто и не ищет.
+**Как исправить.** Возьмите `installConsoleSpies()` из `vitest-auto-spy/console`, как в примере
+выше. Правка поменьше — подсказка: она дописывает `.mockImplementation(() => undefined)` к вызову
+`spyOn`. Это подсказка, а не исправление: реализация меняет поведение спая, и решать это вам.
 
-**Границы.** Спека, которая следит за консолью, чтобы видеть напечатанное, _и_ хочет этот вывод в логе,
-получит отчёт о работающем коде; построчный disable это и скажет. Замер на Angular-монорепозитории из
-1 759 файлов спек: **0** отчётов — единственный `vi.spyOn(console, …)` там уже с реализацией.
+**Когда выключить.** Спека следит за консолью, чтобы видеть напечатанное, _и_ хочет видеть этот вывод
+в логе. Выключите правило на этой строке.
 
-**Severity.** `error`. Решает по факту, а не по эвристике: ничто в файле не даёт спаю реализации,
-значит вывод есть.
+::: details Как правило решает
+**Что совпадает:** `vi.spyOn(console, m)` или `jest.spyOn`, где объект — `console`,
+`globalThis.console` или `window.console`. Всё читается без типов.
+
+**Что закрывает вопрос** (отчёта нет):
+
+- вызов прямо в цепочке спая: `.mockImplementation(…)`, `.mockImplementationOnce(…)`,
+  `.mockReturnValue(…)`, `.mockReturnValueOnce(…)`, после любого числа звеньев вроде `.mockName(…)`;
+- если спай сохранён в имя (`const` или `let`, который присваивает хук) — один из этих четырёх вызовов
+  где угодно на этом имени. Правило следит за именем через анализ областей видимости. `expect(spy)`,
+  `spy.mock.calls`, `spy.mockRestore()` и прямой вызов его только читают;
+- спай передан в хелпер, возвращён, переименован или положен в массив. Туда правило пойти не может,
+  поэтому молчит.
+
+**Метод** должен быть литеральным именем, через которое консоль пишет. `time`, `groupEnd` и
+`countReset` ничего не пишут, а вычисляемое имя узнать нельзя. `console`, объявленный самим файлом, —
+не глобальный, и его правило не трогает. `console` из `globals` вашего конфига проверяется.
+
+**Почему оно в recommended.** Спай без реализации вызывает оригинал. Под
+[`setupAutoSpy({ strayConsole })`](/ru/utilities/setup) это роняет тест как посторонний вывод. Без этой
+защиты это шум, под которым в логе прогона теряется следующий настоящий провал. На
+Angular-монорепозитории из 1 759 файлов спек правило сообщает **0** раз: единственный
+`vi.spyOn(console, …)` там уже с реализацией.
+
+**Серьёзность.** `error`. Правило решает по факту: ничто в файле не даёт спаю реализации, значит,
+вывод есть.
+:::
 
 ## no-console-in-spec {#no-console-in-spec}
 
-**`error`** · без исправления · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Сообщает.** Вызов пишущего метода консоли — `log`, `info`, `warn`, `error`, `debug`, `trace`,
-`table`, `dir`, `dirxml`, `group`, `groupCollapsed`, `timeLog`, `timeEnd`, `count`, `assert` — на
-глобальном `console` (и через `globalThis.console` / `window.console`), а также любое присваивание его
-члену.
-
-**На чём решает.** Вызываемое выражение и scope manager. Объект должен быть глобальной консолью —
-`console`, объявленный файлом, чей-то фейк и не трогается, — а вызов должен называть пишущий метод;
-вычисляемый член узнать нельзя, и он пропускается. Упоминание, которое не вызов, —
-`expect(console.error).toHaveBeenCalled()`, `register(console.warn)`, — это чтение, а о чтении правило
-не сообщает никогда. Присваивание сообщается при любом члене, включая `console.time = …`.
-
-**Находка и исправление.**
+Сообщает о спеке, которая вызывает пишущий метод консоли, например `console.log` или `console.error`,
+и о любом присваивании члену `console`. Вызов печатает, поэтому под `strayConsole` роняет тест.
+Присваивание никто не отменяет, и оно протекает в следующие файлы.
 
 ```ts
 httpClient.get(url).subscribe({
@@ -2010,48 +2548,56 @@ httpClient.get(url).subscribe({
 ```
 
 ```ts
-httpClient.get(url).subscribe({ error: () => undefined }); // ✅ провал — это то, что тест и устроил
+httpClient.get(url).subscribe({ error: () => undefined }); // ✅ провал — это то, что устроил тест
 ```
 
-Спека, которая печатает, либо забыла отладочную строку — удалите её, — либо гоняет код, чей лог должна
-поглотить через `installConsoleSpies()` и проверить. А для присваивания:
+**Опции.** Нет.
+
+**Как исправить.**
+
+- Забытая отладочная строка: удалите её.
+- Код под тестом логирует: поглотите лог через `installConsoleSpies()` и проверьте спай.
+- Присваивание: возьмите спай, который восстанавливается после теста.
 
 ```ts
-console.warn = vi.fn(); // ❌ никто не вернёт
+console.warn = vi.fn(); // ❌ никто не вернёт на место
 vi.spyOn(console, 'warn').mockImplementation(() => undefined); // ✅ восстанавливается после теста
 ```
 
-**Зачем оно в recommended.** Вызов печатает по определению, так что под
-[`setupAutoSpy({ strayConsole })`](/ru/utilities/setup) он роняет тест; правило переносит этот провал в
-редактор. Присваивание хуже из двух: его никто не возвращает, так что под `isolate: false` каждый
-следующий файл воркера наследует консоль, которая ничего не печатает, и то, что это скрывает, зависит от
-того, какой файл прошёл первым.
+Замену можно и оставить, сделав её безопасной: `installConsoleSpies()` из `vitest-auto-spy/console`
+в `beforeEach` и `restoreConsole()` в `afterEach`.
 
-**Границы.** Ограничьте его файлами спек — `console.log` у CLI и есть его вывод. Замер на
-Angular-монорепозитории из 1 759 файлов спек: **6 отчётов в 2 файлах**, каждый — `console.error` в
-колбэке ошибки `subscribe`, и ни одного присваивания.
+**Когда выключить.** Ограничьте правило файлами спек. `console.log` у CLI — это его вывод.
 
-**Что сообщение оставляет за кадром.** Замену присваиванием можно и оставить, сделав её безопасной:
-`installConsoleSpies()` из `vitest-auto-spy/console` в `beforeEach` и `restoreConsole()` в
-`afterEach`.
+::: details Как правило решает
+**Пишущие методы:** `log`, `info`, `warn`, `error`, `debug`, `trace`, `table`, `dir`, `dirxml`,
+`group`, `groupCollapsed`, `timeLog`, `timeEnd`, `count`, `assert`.
 
-**Severity.** `error`. Решает по факту: вызов на глобальной консоли пишет, а присваивание ей никто не
-отменит.
+**Объект** должен быть глобальным `console`, в том числе через `globalThis.console` /
+`window.console`. Правило проверяет это анализом областей видимости: `console`, объявленный файлом, —
+чей-то фейк, и его правило не трогает. Вычисляемый член узнать нельзя, он пропускается.
+
+**О чтении правило не сообщает никогда.** `expect(console.error).toHaveBeenCalled()` и
+`register(console.warn)` упоминают метод, но не вызывают его. О присваивании правило сообщает при
+любом члене, включая `console.time = …`.
+
+**Почему оно в recommended.** Вызов печатает по определению, поэтому под
+[`setupAutoSpy({ strayConsole })`](/ru/utilities/setup) роняет тест. Правило переносит этот провал в
+редактор. Присваивание хуже: его никто не восстанавливает. Под `isolate: false` каждый следующий файл
+воркера получает консоль, которая ничего не печатает. Что это скрывает, зависит от того, какой файл
+выполнился первым. На Angular-монорепозитории из 1 759 файлов спек: **6 отчётов в 2 файлах**, каждый —
+`console.error` в колбэке ошибки `subscribe`, и ни одного присваивания.
+
+**Серьёзность.** `error`. Вызов на глобальной консоли пишет, а присваивание ей никто не отменит.
+:::
 
 ## no-import-time-console-spies {#no-import-time-console-spies}
 
-**`error`** · без исправления · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Сообщает.** Импорт `vitest-auto-spy/console` — голый импорт ради побочного эффекта, импорт
-пространства имён или именованный импорт любой константы `console*Spy` — в файле, который ни разу не
-вызывает `installConsoleSpies()` или `useConsoleSpies()`.
-
-**На чём решает.** Объявления импорта и каждый вызов в файле. Вызов `installConsoleSpies` или `useConsoleSpies` где угодно —
-голый или через член — значит, что файл ставит спаи сам, а импорт лишь источник имён, и отчёта нет.
-Импорт одного лишь `installConsoleSpies`, типов или `restoreConsole` на установку при импорте не
-опирается и не трогается.
-
-**Находка и исправление.**
+Сообщает об импорте `vitest-auto-spy/console` в файле, который ни разу не вызывает
+`installConsoleSpies()` или `useConsoleSpies()`. Импорт ставит спаи один раз на воркер — в том файле,
+который импортировал их первым. Потом они глушат каждый следующий файл этого воркера.
 
 ```ts
 import { consoleErrorSpy } from 'vitest-auto-spy/console';
@@ -2065,261 +2611,385 @@ import { useConsoleSpies } from 'vitest-auto-spy/console';
 const { consoleErrorSpy } = useConsoleSpies(); // ✅ тесты этого файла, и больше ничьи
 ```
 
-`useConsoleSpies()` — это `beforeEach(installConsoleSpies)` вместе с `afterEach(restoreConsole)`; на
-`node:test` и Rstest эту пару пишут сами. `installConsoleSpies()` один раз в начале файла — правка поменьше, когда вывод ждут все тесты файла.
-Экспортированные константы и мешок — одни и те же объекты, так что существующий
+**Опции.** Нет.
+
+**Как исправить.** Вызовите `useConsoleSpies()`, как в примере выше. Это
+`beforeEach(installConsoleSpies)` вместе с `afterEach(restoreConsole)`; на `node:test` и Rstest эту
+пару пишите сами. Другие варианты:
+
+- `beforeAll` с `afterAll` — для набора тестов, который делит один сервер или фикстуру между тестами;
+- `installConsoleSpies()` один раз в начале файла — когда вывод ждут все тесты файла.
+
+Экспортированные константы и возвращённый объект — одни и те же спаи, поэтому существующий
 `expect(consoleErrorSpy)` продолжает работать.
 
-**Зачем оно в recommended.** Импорт ставит спаи при первом вычислении модуля, а под `isolate: false`
-это случается один раз на воркер: спаи встают в том файле, который импортировал их первым, и глушат
-каждый следующий файл воркера, а ничто в этих файлах их не снимает. Что это скрывает — зависит от
-порядка файлов. Замер на Angular-монорепозитории из 1 759 файлов спек: вход импортируют 39 файлов, и
-**32** из них ни разу не зовут `installConsoleSpies()` (6 из 32 — голые импорты ради побочного
-эффекта). Как только три файла начали звать `restoreConsole()` в `afterEach`, упали 12 тестов в 5
-других файлах, а вывод, который скрывала глобальная тишина, всплыл в 7 файлах. Под
+**Когда выключить.** Setup-файл, который импортирует точку входа, чтобы нарочно заглушить консоль на
+весь прогон. Это не спека, поэтому ограничьте правило файлами спек.
+
+::: details Как правило решает
+**О чём сообщает:** голый импорт ради побочного эффекта, импорт пространства имён или именованный
+импорт любой константы `console*Spy`.
+
+**Что его останавливает:** вызов `installConsoleSpies` или `useConsoleSpies` где угодно в файле —
+голый, через член или переданный в хук как `beforeAll(installConsoleSpies)`. Тогда файл ставит спаи
+сам, а импорт только даёт имена. Импорт одного лишь `installConsoleSpies`, типов или `restoreConsole`
+на установку при импорте не опирается, и правило его не трогает.
+
+**Почему оно в recommended.** Импорт ставит спаи при первом вычислении модуля. Под `isolate: false`
+это происходит один раз на воркер, и ничто ни в одном файле их не снимает. Что это скрывает, зависит
+от порядка файлов. На Angular-монорепозитории из 1 759 файлов спек точку входа импортируют 39 файлов, и
+**32** из них ни разу не вызывают `installConsoleSpies()` (6 из 32 — голые импорты ради побочного
+эффекта). Когда три файла начали вызывать `restoreConsole()` в `afterEach`, упали 12 тестов в 5 других
+файлах. А вывод, который скрывала глобальная тишина, появился в 7 файлах. Под
 [`setupAutoSpy({ strayConsole })`](/ru/utilities/setup) импорт не ставит ничего, так что правило и
-охрана согласны, где место установке.
+защита согласны, где место установке.
 
-**Границы.** Setup-файл, который импортирует вход, чтобы нарочно заглушить консоль на весь прогон,
-получит отчёт о работающем коде; это не спека, поэтому ограничьте правило файлами спек.
+**Серьёзность.** `error`. Импорт ставит спаи раз на воркер, а ничто в файле их не ставит и не
+снимает.
+:::
 
-**Severity.** `error`. Решает по факту: импорт ставит спаи раз на воркер, а ничто в файле их не ставит
-и не снимает.
+## no-unasserted-console-spy {#no-unasserted-console-spy}
+
+**`warn`** · без автоисправления · только синтаксис
+
+Сообщает о консольном спае, который файл ставит, но ни разу не проверяет. Спай глотает то, что
+залогировал код, и никто это не читает. Это единственное место, где спека может залогировать ошибку
+и всё равно пройти.
+
+```ts
+beforeEach(() => {
+  vi.spyOn(console, 'error').mockImplementation(() => undefined); // ❌ глушит и ничего не проверяет
+});
+```
+
+```ts
+const { consoleErrorSpy } = useConsoleSpies(); // все каналы заглушены и восстанавливаются после каждого теста
+
+it('reports the failure', () => {
+  service.load();
+  expect(consoleErrorSpy).toHaveBeenCalledWith('boom'); // ✅
+});
+```
+
+**Опции.** Нет.
+
+**Как исправить.** Проверьте спай — хотя бы через `expect(consoleErrorSpy).not.toHaveBeenCalled()`.
+Если нужна была только тишина, удалите эти строки, и пусть это сделает `useConsoleSpies()`. Спай,
+импортированный из `/console` и только сбрасываемый в `afterEach`, — та же находка: сброс и так
+работа `useConsoleSpies()`.
+
+**Когда выключить.** Правило стоит на `warn`, потому что только вы знаете, что должен был сказать
+заглушённый канал. Улика точная, но исправление — вопрос к автору.
+
+::: details Как правило решает
+**О чём сообщает:**
+
+- спай из `vitest-auto-spy/console`, импортированный или деструктурированный из `useConsoleSpies()` /
+  `installConsoleSpies()` под любым локальным именем, у которого каждое упоминание — сброс или
+  реализация: `mockClear`, `mockReset`, `mockRestore`, `mockImplementation`, `mockReturnValue`,
+  `mockName`;
+- `vi.spyOn(console, m)`, которому дали реализацию и который не лежит нигде, откуда его читает тест.
+
+**Что не трогает:**
+
+- спай, который всё ещё вызывает оригинал. Это находка
+  [`no-passthrough-console-spy`](#no-passthrough-console-spy), так что одна строка никогда не получает
+  два отчёта с двумя разными исправлениями;
+- файл, который читает консоль иначе: `consoleOutput()`, `consoleLines()`, `expect(console.error)`,
+  `vi.mocked(console.warn)`.
+
+**Почему оно в recommended.** Код под тестом сообщил о сбое, спай его проглотил, а тест проверил
+что-то другое.
+
+**Серьёзность.** `warn`. Улика точная, но только автор может ответить, что должен был сказать
+заглушённый канал.
+:::
 
 ## prefer-provide-auto-spy {#prefer-provide-auto-spy}
 
-**`error`** · правка · только синтаксис
+**`error`** · `--fix` · только синтаксис
 
-**Что сообщает.** Провайдер, чей `useValue`, `useFactory`, `useClass` или `useExisting` отдаёт в DI
-собранный руками дубль сервиса — в массиве `providers` либо через `TestBed.overrideProvider`, — и
-`{ provide: X, useValue: createSpyFromClass(X, config) }`, то есть расписанный руками
-`provideAutoSpy(X, config)`.
-
-**На чём решает.** Токен назван ключом `provide` (а в вызове override — нулевым аргументом), а дубль
-читается одним из четырёх способов — и это самое интересное:
-
-- **`useValue` читается до границы функции.** Значением может быть сам объектный литерал или имя, а
-  за именем делается один шаг до того значения, которым файл его закрывает: инициализатор
-  (`const nav = { go: vi.fn() }`) или одно последующее присваивание
-  (`let nav; beforeEach(() => { nav = { go: vi.fn() }; })`). Читать пришлось оба написания, и каждое
-  измерено на сюите, где правило не сообщало ни об одном: восемь дублей, объявленных над TestBed и
-  переданных по имени, — в одной, и целый шард из 170 файлов, где все до единой возможности
-  `provideAutoSpy` записаны через `beforeEach`, — в другой. Со **второго** присваивания имя не
-  трогается: что оно держит в точке использования, зависит от порядка запуска, а этого правило по
-  одному файлу решить не может. Достаточно одного `vi.fn()` где угодно в этом поддереве — один метод
-  является дублем сервиса, когда рядом стоит `provide:`, — а обход останавливается на каждой
-  функции, потому что `vi.fn()` за стрелкой создаётся на каждый вызов, а это и есть форма, к которой
-  правило ведёт.
-- **`useFactory` читается _сквозь_ функцию.** Всё тело фабрики — это то, что в итоге держит DI.
-  Пропуск этой формы позволил спрятать за одной строкой три слоя вымысла:
-  `useFactory: vi.fn().mockImplementation(() => ({ isKeyEnabled: vi.fn() }))`, структурный дубль,
-  никак не связанный с классом, и двойной каст, чтобы это подошло.
-- **`useValue`, вызывающий `createSpyFromClass`,** читается по классу, который тот читает, а не по
-  тому, что внутри. `provideAutoSpy(X, config)` возвращает `{ provide: X, useValue:
-createSpyFromClass(X, config) }` и больше ничего, поэтому литерал, расписывающий это, — та же
-  фабрика с токеном, написанным дважды. Это единственная ветка с **правкой**: литерал становится
-  вызовом, аргументы переносятся как текст исходника, `provideAutoSpy` импортируется (в уже
-  существующий импорт `vitest-auto-spy/angular`, если он в файле есть), а импорт
-  `createSpyFromClass`, который правка осиротила, удаляется. Правка отступает там, где замена
-  перестаёт быть перестановкой: явные типовые аргументы (`createSpyFromClass<T, Options>` принимает
-  два, `provideAutoSpy<T>` — один), третье свойство в литерале или `provideAutoSpy`, объявленный
-  самим файлом. Дубль, прочитанный с **другого** класса, не сообщается вовсе — см. _Границы_.
-- **`useClass` и `useExisting` читаются как класс, объявленный проверяемым файлом** (5.5.0), и так же
-  читается `useValue: new StubMock()` — тот же дубль, созданный руками, которого чтение объекта не
-  могло увидеть никогда, потому что оно отвечает за `ObjectExpression`, а выражение `new` им не
-  является. Достаточно одного поля `vi.fn()`, по той же причине, по которой одного достаточно в
-  `useValue`: `provide:` доказывает, что класс — дубль сервиса. Класс, которого файл не объявляет —
-  импортированный из общего `*.mock.ts`, доступный через пространство имён, — не резолвится ни во
-  что и в отчёт не попадает, а четыре исключения
-  [`no-stub-class-double`](#no-stub-class-double) действуют и здесь. Слоты различаются тем, что
-  строит Angular — `useClass` создаёт экземпляр на инжектор, `useExisting` делает токен псевдонимом —
-  и ни в одном случае это не меняет способ починки, поэтому у них одно сообщение.
-
-**`TestBed.overrideProvider(X, { … })` — та же подмена снаружи массива**, и до 5.5.0 её не читало ни
-одно правило здесь: ключа `provide` нет, токен стоит нулевым аргументом. На 1759 спек-файлах одного
-потребителя это 61 вызов override в 36 файлах, 33 из них отдают объектный литерал. Вызов, чей второй
-аргумент **не** объектный литерал, не трогается совсем: `.overrideProvider(X, provideAutoSpy(X, { … }))` —
-это и есть цель, и 28 из тех 61 вызова уже так и написаны, потому что `provideAutoSpy` возвращает
-`{ provide, useValue }`, а `overrideProvider` читает с него `useValue`. У этого места вызова своё
-сообщение: там различается не то, какую фабрику брать, а куда положить настройку, и один случай вообще
-не дефект — компонент, объявляющий токен в собственных `providers`, недостижим для провайдера уровня
-модуля, поэтому override остаётся, а меняется только то, что он отдаёт.
-
-Какое из двух сообщений придёт, решает вопрос, **токен** ли то, что провайдится: он закрывается
-сразу, если резолвер дотягивается до инициализатора `new InjectionToken<…>(…)`, а иначе — по имени:
-токен почти всегда импортирован из файла, который его объявляет, поэтому читать остаётся
-`^[\dA-Z_]+$`. Это важно, потому что советы разные: `provideAutoSpy` читает прототип класса, у токена
-его нет, и совет применить его к токену не скомпилируется. Три партии переезда получили неверный
-совет до появления этого различения; в одной из них 6 из 8 отчётов были на токенах.
-
-Регистрация с `multi: true` исключена целиком. `provideAutoSpy` строит один дубль на токен и не
-принимает режима регистрации, поэтому замена молча превратила бы накапливающий провайдер в
-перекрывающий — рекомендовать нечего, поэтому ничего и не говорится.
-
-**Находка и как её закрыть.**
+Сообщает о провайдере, который отдаёт в DI Angular написанную руками подмену сервиса через
+`useValue`, `useFactory`, `useClass` или `useExisting` — в `providers` или в
+`TestBed.overrideProvider`. Такая подмена устаревает, когда меняется класс, а падение всплывает в
+компоненте, через один шаг DI. Ещё правило сообщает о `{ provide: X, useValue: createSpyFromClass(X, config) }` — это
+длинная запись `provideAutoSpy(X, config)`.
 
 ```ts
 providers: [{ provide: CartService, useValue: { total: vi.fn(), add: vi.fn() } }]; // ❌
+
+class CartServiceMock {
+  total = vi.fn().mockReturnValue(0);
+  add = vi.fn();
+}
+providers: [{ provide: CartService, useClass: CartServiceMock }]; // ❌ и класс-заглушка тоже уходит
 ```
 
 ```ts
-providers: [provideAutoSpy(CartService)];
-// член, которым дубль должен *быть*, а не спаить, идёт в опции:
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+
+TestBed.configureTestingModule({ providers: [provideAutoSpy(CartService)] }); // ✅
+injectSpy(CartService).total.mockReturnValue(3); // в beforeEach или в тесте: задаём ответ
+```
+
+```ts
+// член, который подмена должна подменить значением, а не спаем, задаётся в опциях:
 providers: [provideAutoSpy(ConfigService, { overrides: { flagsConfig: { theme: 'dark' } } })];
-// а для токена, у которого нет класса:
+// а для токена, у которого нет класса для чтения:
 providers: [provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] })];
 ```
 
-**Зачем это в `recommended`.** Тот же дрейф, что у
-[`prefer-create-spy-from-class`](#prefer-create-spy-from-class), только через один прыжок DI и
-труднее читаемый: падающая строка — в компоненте, дубль — в конфигурации модуля, а система типов
-промолчала, потому что `useValue` типизирован как `any`.
+**Опции.** Нет.
 
-**`{ provide: LocalStorage, useValue: createSpyFromClass(BaseLocalStorage) }` молчит намеренно.**
-Токен — абстрактный класс, а спай строится с его реализации, потому что абстрактный прототип не несёт
-ни одного метода, который нужен дублю: `provideAutoSpy(LocalStorage)` не заспаил бы ничего. Короче
-этот провайдер не записать, поэтому сообщать не о чем: на сюите, где ветка измерялась, это 51 место в
-41 файле, и всё это рабочий код. Вызов, положенный в имя (`const cart = createSpyFromClass(Cart)`,
-`useValue: cart`), не трогается по другой причине — дубль потом настраивают через это имя, поэтому
-починка это `provideAutoSpy(Cart)` плюс `injectSpy(Cart)` в каждом использовании, то есть правка
-всего файла.
+**Как исправить.** Сообщение называет замену для того, что вы провайдите:
 
-**Границы.** Эвристика токена — проверка имени, поэтому класс, записанный капсом, получит совет про
-`provideAutoSpyForToken`, а токен, названный как класс, — про `provideAutoSpy`; и то и другое — одно
-неверное слово в сообщении, а не ложная находка. За именем в `useValue` делается ровно один шаг и
-только пока имя закрыто одним присваиванием, поэтому дубль, собранный локальным хелпером, или `let`,
-в который пишут два хука, не отслеживается и в отчёт не попадает. Чтение `useClass` требует
-объявления класса в проверяемом файле: класс-заглушка из общего `*.mock.ts` провайдится так же и не
-сообщается никем — это единственная часть пробела, которая остаётся открытой. Ветка override читает
-только литеральный дескриптор, поэтому рукописный дубль, переданный по имени
-(`.overrideProvider(X, descriptor)`), пропускается — намеренно, потому что форма, которую он делит с
-`.overrideProvider(X, provideAutoSpy(X))`, ровно та, о которой сообщать нельзя.
+| Вы провайдите    | Замените на                                                                  |
+| ---------------- | ---------------------------------------------------------------------------- |
+| класс            | `provideAutoSpy(Class)`, а класс-заглушку удалите                            |
+| `InjectionToken` | `provideAutoSpyForToken(TOKEN)`: у токена нет прототипа для `provideAutoSpy` |
+| `ActivatedRoute` | `provideActivatedRoute()` из `vitest-auto-spy/angular-router`                |
 
-**Стоит проверить, где правило вообще _не работает_, прежде чем решать, что оно слепо.** Один шард
-переезда сообщил о ~100 `vi.fn()`, невидимых для плагина, в шести общих файлах `*.service.mock.ts` —
-по фабрике провайдера в каждом:
+- У `{ provide: X, useValue: createSpyFromClass(X, config) }` есть `--fix`: литерал становится
+  `provideAutoSpy(X, config)`.
+- В `TestBed.overrideProvider(X, { … })` передайте вместо литерала результат `provideAutoSpy`:
+  `.overrideProvider(X, provideAutoSpy(X, { … }))`. `provideAutoSpy` возвращает `{ provide, useValue }`,
+  а `overrideProvider` читает из него `useValue`.
+- Компонент, который объявляет токен в собственных `providers`, недостижим для провайдера уровня
+  модуля. Там override остаётся, а меняется только то, что он отдаёт.
+
+**Когда выключить.** Редко: рядом с каждым отчётом стоит `provide:` или токен override. На большом
+проекте вводите правило [постепенным рецептом](/ru/utilities/eslint-plugin#land-it-on-a-large-existing-suite-without-a-red-ci),
+а не сменой серьёзности. Известные пробелы:
+
+- Проверка токена — проверка имени. Классу, записанному в `SCREAMING_CASE`, правило советует
+  `provideAutoSpyForToken`, а токену, названному как класс, — `provideAutoSpy`. Находка верная,
+  неверно одно слово в совете.
+- Подмена, собранная локальным хелпером, или `let`, в который пишут два хука, не отслеживается.
+- Класс-заглушку из общего `*.mock.ts` из спеки не видно: класс должен быть объявлен в проверяемом
+  файле.
+- Написанная руками подмена, переданная в override по имени (`.overrideProvider(X, descriptor)`), в
+  отчёт не попадает. У неё та же форма, что у `.overrideProvider(X, provideAutoSpy(X))`, а о нём
+  сообщать нельзя.
+
+::::: details Как правило решает
+**Токен** берётся из ключа `provide` или из нулевого аргумента вызова override. Подмена читается
+четырьмя способами:
+
+- **`useValue` читается до границы функции.** Значение может быть самим объектным литералом или
+  именем. За именем правило делает один шаг — до значения, которое файл ему даёт: инициализатор
+  (`const nav = { go: vi.fn() }`) или одно последующее присваивание:
+
+  ```ts
+  let nav: { go: Mock };
+  beforeEach(() => {
+    nav = { go: vi.fn() };
+    TestBed.configureTestingModule({ providers: [{ provide: NavService, useValue: nav }] });
+  });
+  ```
+
+  Со _второй_ записи имя не трогается: что оно держит в точке использования, тогда зависит от порядка
+  запуска. Достаточно одного `vi.fn()` где угодно в значении: `provide:` рядом доказывает, что это
+  подмена сервиса. Обход останавливается на каждой функции: `vi.fn()` за стрелкой создаётся на каждый
+  вызов, а это и есть форма, к которой ведёт правило. Свойство, чьё значение — имя, один раз связанное
+  с `vi.fn()`, тоже считается: `useValue: { open }` над `const open = vi.fn()`.
+
+- **`useFactory` читается _сквозь_ функцию.** Всё тело фабрики — это то, что в итоге держит DI.
+  Например, `useFactory: vi.fn().mockImplementation(() => ({ isKeyEnabled: vi.fn() }))` прячет
+  структурную подмену, никак не связанную с классом.
+- **`useValue`, который вызывает `createSpyFromClass`,** оценивается по классу, который тот читает, а
+  не по содержимому. `provideAutoSpy(X, config)` возвращает ровно `{ provide: X, useValue:
+createSpyFromClass(X, config) }`, так что этот литерал — длинная запись `provideAutoSpy(X, config)`.
+  Это единственная форма с **исправлением**: литерал становится вызовом, аргументы переносятся как
+  текст исходника, `provideAutoSpy` импортируется (в существующий импорт `vitest-auto-spy/angular`,
+  если он есть), а осиротевший импорт `createSpyFromClass` удаляется. Исправление отступает там, где
+  замена — не чистая перестановка: явные типовые аргументы (`createSpyFromClass<T, Options>`
+  принимает два, `provideAutoSpy<T>` — один), третье свойство в литерале или `provideAutoSpy`,
+  объявленный самим файлом.
+- **`useClass` и `useExisting` читаются как класс, объявленный в проверяемом файле**, и так же
+  читается `useValue: new StubMock()`. Достаточно одного поля `vi.fn()`. Класс, которого файл не
+  объявляет (импортированный из общего `*.mock.ts`, доступный через пространство имён), ни во что не
+  разрешается и в отчёт не попадает. Четыре исключения
+  [`no-stub-class-double`](#no-stub-class-double) действуют и здесь. `useClass` создаёт экземпляр на
+  каждый инжектор, а `useExisting` делает токен псевдонимом. Исправление у них одно, поэтому и
+  сообщение общее.
+
+**Настроенный спай — всё равно спай.** `vi.fn()` и `vi.fn().mockReturnValue(of([]))` — одна и та же
+подмена, только вторая настроена. Цепочка разматывается до вызова, который создал мок, какой бы
+длинной она ни была. Чем сильнее настроена написанная руками подмена, тем дальше она ушла от класса.
+
+**`TestBed.overrideProvider`** — та же замена снаружи массива. На одном проекте из 1759 файлов спек
+61 вызов override в 36 файлах; 33 из них отдают объектный литерал. Вызов, чей второй аргумент **не**
+объектный литерал, правило не трогает: 28 из этих 61 вызова уже используют
+`provideAutoSpy(X, { … })`. У формы override своё сообщение: там различается не то, какую фабрику
+брать, а куда положить настройку.
+
+**Токен или класс.** Если резолвер дотягивается до инициализатора `new InjectionToken<…>(…)`, вопрос
+закрыт. Иначе решает имя: токен почти всегда импортирован, так что читать остаётся `^[\dA-Z_]+$`.
+Советы разные, потому что `provideAutoSpy` читает прототип класса, а у токена его нет, и такой совет не
+скомпилируется. В трёх партиях переезда это было важно; в одной из них 6 из 8 отчётов пришлись на
+токены.
+
+**`ActivatedRoute`** получает своё сообщение. Класс держит `snapshot`, `params`, `queryParams`,
+`data`, `fragment` и `url` в полях **экземпляра**, так что у спая, построенного по его прототипу, их
+нет. Получилась бы та же половина маршрута, что и у написанного руками `useValue`. Охват правила для
+этого токена не меняется, меняется только совет. Исправления у этой формы нет: замена — другая
+подмена, а не та же, записанная короче. Это то же исправление, которое называет
+[`prefer-provide-activated-route`](#prefer-provide-activated-route), так что оба правила говорят одно.
+
+**`multi: true` пропускается.** `provideAutoSpy` строит одну подмену на токен и не принимает режима
+регистрации. Следуя совету, вы бы незаметно превратили накапливающий провайдер в перекрывающий, так что
+советовать нечего.
+
+**Молчит намеренно:**
+
+- `{ provide: LocalStorage, useValue: createSpyFromClass(BaseLocalStorage) }`. Токен — абстрактный
+  класс, а спай читает его реализацию: у абстрактного прототипа нет ни одного метода, который нужен
+  подмене, так что `provideAutoSpy(LocalStorage)` не заспаил бы ничего. Короче это не записать. На
+  измеренном проекте это 51 место в 41 файле, и всё это рабочий код.
+- Вызов `createSpyFromClass`, сохранённый в имя (`const cart = createSpyFromClass(Cart)`,
+  `useValue: cart`). Подмену потом настраивают через это имя, так что исправлением было бы
+  `provideAutoSpy(Cart)` плюс `injectSpy(Cart)` в каждом использовании: переписывание файла.
+- Начальные значения фабрики. `useValue`, собранный одной из фабрик библиотеки, — это вызов, а правило
+  читает только объектные литералы. Имя, за которым оно следует, приводит к этому вызову, и на нём
+  правило останавливается.
+
+**Прежде чем решить, что правило слепо, проверьте, где оно запускается.** Один шард переезда нашёл
+~100 `vi.fn()`, о которых плагин не сообщил, в шести общих файлах `*.service.mock.ts`, в каждом по
+фабрике провайдера:
 `export function providePaymentsMock(): Provider { return { provide: X, useValue: new XMock() }; }`.
-Правило читает это прекрасно — прогон по тем 84 файлам `*.mock.ts` даёт 9 отчётов в 9 файлах, — а
-ничего не появилось потому, что потребитель ограничивает конфиг `**/*.spec.ts`, как и написано на
-[странице плагина](./eslint-plugin.md). Сюите, которая держит фикстуры рядом со спеками, нужно
+Правило читает это нормально: на тех 84 файлах `*.mock.ts` оно даёт 9 отчётов в 9 файлах. Ничего не
+появилось, потому что проект ограничил конфиг `**/*.spec.ts`, как и написано на
+[странице плагина](/ru/utilities/eslint-plugin). Если фикстуры лежат рядом со спеками, используйте
 `['**/*.spec.ts', '**/*.mock.ts']`.
 
-**Severity.** `error`, и на сюите, которая никогда его не гоняла, это самое громкое правило здесь:
-на 1771 спек-файле одного потребителя одна только ветка длинной формы добавляет **91 отчёт в 49
-файлах** к сюите, уже чистой по `recommended`, — все 91 с правкой, максимум 8 в одном файле, так что
-`eslint --fix` закрывает их за один прогон. На прежних 1759 спек-файлах того же потребителя — 154 отчёта в 87 файлах: 100 на `useValue`, 28 из них за
-токеном, 20 на классах-заглушках и 6 в вызове override. Большая часть — это шаг по имени: раньше о
-тех же дублях сообщало, на уровне `warn`, [`no-structural-double`](#no-structural-double), чьё
-сообщение советует `createAutoMock<T>()` — верный ответ для дубля _без_ DI и неверный здесь. В
-доказательстве нет ничего эвристического, и именно это держит правило на `error`: рядом с каждым из
-этих отчётов стоит `provide:` или токен override. Заводить это на сюите такого размера —
-[постепенным рецептом](./eslint-plugin.md), а не сменой severity.
+**Почему оно в recommended.** Тот же дрейф, что у
+[`prefer-create-spy-from-class`](#prefer-create-spy-from-class), только через один шаг DI, и читать его
+труднее. Падающая строка — в компоненте, подмена — в конфигурации модуля, а система типов молчит,
+потому что `useValue` типизирован как `any`.
+
+**Серьёзность.** `error`. На проекте, где правило ещё ни разу не запускали, оно самое громкое:
+
+- на одном проекте из 1771 файла спек, уже чистом по `recommended`, одна только форма
+  `createSpyFromClass` добавляет **91 отчёт в 49 файлах**. Все 91 исправляются автоматически, максимум
+  8 на файл, так что один прогон `eslint --fix` их закрывает;
+- на прежних 1759 файлах спек того же проекта: **154 отчёта в 87 файлах**. Это 100 `useValue` (28 из
+  них за токеном), 20 классов-заглушек и 6 в вызове override.
+
+Большая часть приходит от шага по имени. Эти подмены отдаются в DI через одно имя, где вопрос
+закрывает `provide:`, а ответ — `provideAutoSpy(X)`, а не `createAutoMock<T>()`. Поэтому
+[`no-stub-class-double`](#no-stub-class-double) и [`no-structural-double`](#no-structural-double) —
+отдельные правила на `warn`: они судят подмены без `provide:` и при этом угадывают. Здесь ничего не
+угадывается, и это держит правило на `error`.
+:::::
 
 ## prefer-inject-spy {#prefer-inject-spy}
 
-**`error`** · подсказка · только синтаксис
+**`error`** · подсказка · только синтаксис · опция `ignoreTokens`
 
-**Что сообщает.** `vi.spyOn(…)` поверх инстанса, который выдал DI, — прямо
-(`vi.spyOn(TestBed.inject(X), 'm')`) или в два шага, когда инстанс сперва положили в `const`.
-
-**На чём решает.** Первый аргумент — либо вызов `TestBed.inject(…)`, либо имя, чей инициализатор им
-является, разрешаемое в том скоупе, где имя _используется_, а не где объявлено. Форма в два шага —
-это распространённая половина пары: обе нашлись на соседних строках одного файла, а сообщалось раньше
-только о прямой.
-
-Подсказка предлагается только когда ничего не приходится придумывать: вызов `inject` принимает один
-токен (`TestBed.inject(X, null, InjectFlags.Optional)` не переводится, потому что `injectSpy` берёт
-только токен, а отбросить остальное — изменить, какой инстанс вернётся), имя метода — строковый
-литерал, который можно записать после точки, и `injectSpy` не занят чем-то другим. Это никогда не
-`--fix`: провайдится ли токен через `provideAutoSpy`, решается в другом файле.
-
-**Находка и как её закрыть.**
+Сообщает о `vi.spyOn` поверх экземпляра, который вернул `TestBed.inject`. Если этот экземпляр —
+автоспай, `vi.spyOn` заменяет его метод обычным `vi.fn()`. Хелперы спая на этом методе пропадают, и
+следующий `nextWith` бросает ошибку.
 
 ```ts
 TestBed.configureTestingModule({ providers: [provideAutoSpy(BillingPlansService)] });
 
 const service = TestBed.inject(BillingPlansService);
-vi.spyOn(service, 'getPlans'); // ❌ подменяет метод автоспая обычным vi.fn()
+vi.spyOn(service, 'getPlans'); // ❌ заменяет метод автоспая обычным vi.fn()
+
+injectSpy(BillingPlansService).getPlans.nextWith(['PRO']);
+// TypeError: spy.getPlans.nextWith is not a function
 ```
 
 ```ts
-injectSpy(BillingPlansService).getPlans.nextWith(['PRO']);
+injectSpy(BillingPlansService).getPlans.nextWith(['PRO']); // ✅ эмитит ["PRO"]
 ```
 
-**Зачем это в `recommended`.** Это одна строка, которая тихо отменяет провайдер. `vi.spyOn` подменяет
-один метод и оставляет остальные настоящими, а подменяет он его обычным `vi.fn()` — значит, у этого
-одного метода исчезли те самые хелперы, под которые написана остальная спека:
-`TypeError: spy.getPlans.nextWith is not a function`, на строке, которая читается как обычная
-настройка спая.
+**Опции.**
 
-**Токены, о которых правило молчит.** Их пять, и ни один не попал сюда из вкусовых соображений: для
-каждого совет выше либо невыполним, либо убирает ровно то, ради чего объект и был заинжекчен.
-
-- `DestroyRef` подменить нельзя вообще. У него есть `__NG_ENV_ID__`, и `R3Injector.get()` отвечает
-  `token[NG_ENV_ID](this)` первой же строкой — _раньше_, чем смотрит в свои записи, — так что
-  `{ provide: DestroyRef, useValue }` принимается, игнорируется и больше нигде не всплывает. Это
-  единственный класс в `@angular/core` с этим флагом, поэтому остальные пункты списка обоснованы
-  иначе.
-- `ApplicationRef` — это сама обвязка. `TestBed` через него гоняет change detection, а спека,
-  создающая компонент руками, берёт рендерер из `ApplicationRef.injector`. Рабочая форма —
-  настоящий инстанс, у которого заспаены `attachView` / `detachView`, чтобы ничего не прикреплялось.
-- `Injector` и `EnvironmentInjector` выдают _другие_ зависимости. Заспаенный `get()` вернёт спай на
-  каждый следующий токен, и подмена расползётся на всё, что код под тестом резолвит лениво.
-- У `HttpClient` уже есть штатный дубль: `provideHttpClientTesting()` подменяет бэкенд и выдаёт
-  спеке `HttpTestingController`. Спай на `get` там читает опции, с которыми позвали клиента, по
-  пути к запросу, который контроллер всё равно флашит.
-
-Токенов node-инжектора (`ElementRef`, `Renderer2`, `ChangeDetectorRef`) в списке нет намеренно:
-`TestBed.inject()` ни один из них не выдаст, так что запись освобождала бы строку, которую никто не
-может написать.
-
-**Опции.** Одна, и она этот список расширяет, а не заменяет:
+| Опция          | Тип        | По умолчанию | Смысл                                                                                     |
+| -------------- | ---------- | ------------ | ----------------------------------------------------------------------------------------- |
+| `ignoreTokens` | `string[]` | `[]`         | ещё токены, чей заинжекченный экземпляр остаётся настоящим; добавляются к пяти встроенным |
 
 ```js
 'vitest-auto-spy/prefer-inject-spy': ['error', { ignoreTokens: ['MapRendererService', 'WINDOW_REF'] }],
 ```
 
-Токены сравниваются по **исходному тексту** — так же, как их сравнивает
-[`no-unregistered-inject-spy`](#no-unregistered-inject-spy): правилу, читающему один файл, нечего
-сравнивать по идентичности. Импорт под другим именем (`import { DestroyRef as NgDestroyRef }`)
-поэтому мимо встроенного списка и в отчёт попадёт; вопрос закрывается записью в `ignoreTokens`.
+**Как исправить.** Читайте спай через `injectSpy(X).m`. Редактор предложит это как подсказку. Это
+никогда не `--fix`: провайдится ли токен через `provideAutoSpy`, решается в другом файле.
 
-**Границы.** Обычный `vi.spyOn` по объекту, которым владеет спека, в отчёт не попадает — как и
-`vi.spyOn` по имени, о происхождении которого из `TestBed.inject` правило не может судить. Обратный
-случай — спека, которая намеренно спаит один метод настоящего сервиса, провайдив настоящий сервис
-осознанно, — в отчёт попадёт. `ignoreTokens` — ответ, когда причина относится к токену и переживёт
-эту строку; построчный disable — когда причина относится к этому конкретному тесту.
+**Когда выключить.**
 
-**Severity.** `error`. Без правила красно, а сообщение указывает на хелпер, а не на `spyOn`, который
-его убрал.
+- Если настоящий экземпляр токена важен для всего проекта, добавьте токен в `ignoreTokens`.
+- Если один тест намеренно спаит один метод настоящего сервиса, выключите правило на этой строке.
+- Токены сравниваются как текст исходника, поэтому импорт под другим именем
+  (`import { DestroyRef as NgDestroyRef }`) проходит мимо встроенного списка и попадает в отчёт.
+  Добавьте этот псевдоним в `ignoreTokens`.
+
+::: details Как правило решает
+**Что совпадает.** Первый аргумент `vi.spyOn` — вызов `TestBed.inject(…)` или имя, чей инициализатор
+им является. Имя разрешается в той области видимости, где оно _используется_. Обе формы часто стоят на
+соседних строках одного файла:
+
+```ts
+vi.spyOn(TestBed.inject(X), 'm'); // прямо
+const service = TestBed.inject(X);
+vi.spyOn(service, 'm'); // в два шага
+```
+
+Обычный `vi.spyOn` по объекту, которым владеет спека, в отчёт не попадает. Как и `vi.spyOn` по имени,
+которое правило не может проследить до `TestBed.inject`.
+
+**Когда предлагается подсказка.** Только когда ничего не приходится придумывать:
+
+- вызов `inject` принимает только токен. `TestBed.inject(X, null, InjectFlags.Optional)` не
+  переводится: `injectSpy` принимает только токен, а если отбросить остальное, изменится, какой
+  экземпляр вернётся;
+- имя метода — строковый литерал, который можно записать после точки;
+- `injectSpy` в файле ещё не связан с чем-то другим.
+
+**Пять встроенных токенов.** О `ApplicationRef`, `DestroyRef`, `EnvironmentInjector`, `HttpClient` и
+`Injector` правило молчит. Для каждого совет либо невыполним, либо убирает то, ради чего спека и
+заинжектила объект:
+
+- `DestroyRef` подменить нельзя вообще. У него есть `__NG_ENV_ID__`, и `R3Injector.get()` первой же
+  строкой отвечает `token[NG_ENV_ID](this)` — _раньше_, чем читает свои записи. Так что
+  `{ provide: DestroyRef, useValue }` принимается, игнорируется и больше нигде не всплывает. Это
+  единственный класс в `@angular/core` с таким флагом.
+- `ApplicationRef` — это сама обвязка. `TestBed` гоняет через него change detection, а спека, которая
+  создаёт компонент руками, берёт рендерер из `ApplicationRef.injector`. Работает настоящий экземпляр,
+  у которого заспаены `attachView` / `detachView`, чтобы ничего не прикреплялось.
+- `Injector` и `EnvironmentInjector` отдают _другие_ зависимости. Если их заспаить, `get()` вернёт спай
+  для каждого токена, разрешённого после этого. Подмена расползётся на всё, что код под тестом ищет
+  лениво.
+- У `HttpClient` уже есть штатная подмена от фреймворка: `provideHttpClientTesting()` меняет бэкенд и
+  даёт спеке `HttpTestingController`. Спай на `get` там читает опции, которые передал вызывающий код,
+  по пути к запросу, который контроллер всё равно флашит.
+
+Токенов node-инжектора (`ElementRef`, `Renderer2`, `ChangeDetectorRef`) в списке нет намеренно.
+`TestBed.inject()` не вернёт ни один из них, так что запись освобождала бы строку, которую никто не
+может написать.
+
+**Токены сравниваются как текст исходника**, как и в
+[`no-unregistered-inject-spy`](#no-unregistered-inject-spy): у правила, которое читает один файл, нет
+идентичности для сравнения. `ignoreTokens` расширяет встроенный список, а не заменяет его.
+
+**Почему оно в recommended.** Это одна строка, которая тихо отменяет провайдер. `vi.spyOn` заменяет
+один метод и оставляет остальные настоящими. Провайдер по-прежнему автоспай, но метод на нём — обычный
+`vi.fn()`, так что все хелперы для observable и promise на нём пропали. Ошибка появляется на строке,
+которая читается как обычная настройка спая. Прочитайте ту же зависимость через
+`injectSpy(BillingPlansService)`, и `nextWith` работает.
+
+**Серьёзность.** `error`. Без правила тест красный, а сообщение указывает на хелпер, а не на `spyOn`,
+который его убрал.
+:::
 
 ## no-unregistered-inject-spy {#no-unregistered-inject-spy}
 
-**`error`** · без правки · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Что сообщает.** `injectSpy(X)` для токена, который в этом файле никто не зарегистрировал как
-автоспай.
-
-**На чём решает.** На разрешении имён по всему файлу и на трёх предусловиях, которые заставляют его
-молчать. Регистрациями считаются: вызов `provideAutoSpy(X)` где угодно и
-`{ provide: X, useValue: … }`, чьё значение — вызов `createAutoMock`, `createSpyFromClass`,
-`createMock` или `mockDeep`. Токены сравниваются как **исходный текст**. Ничего не сообщается, пока не
-выполнены все три условия:
-
-- файл хотя бы раз зовёт `provideAutoSpy` — иначе он настраивает DI способом, который здесь не
-  моделируется, и отсутствие токена ни о чём не говорит;
-- ни в одном массиве `providers` нет спреда, дырки или фабрики провайдера, отличной от
-  `provideAutoSpy`. `providers: [...sharedMocks]` — обычный способ подтянуть модуль общих моков, а
-  одна нечитаемая запись скрывает неизвестное число токенов, поэтому она глушит **файл**, а не
-  строку;
-- файл не зовёт `createWithAutoSpies`, `renderShallow` или `TestBed.overrideProvider` — каждый из них
-  регистрирует дубли там, куда этот скан не смотрит.
-
-Токен, отданный руками — `{ provide: X, useValue: someObject }`, — записывается как _предоставленный,
-но нечитаемый_ и никогда не сообщается. Это форма
-[`prefer-provide-auto-spy`](#prefer-provide-auto-spy).
-
-**Находка и как её закрыть.**
+Сообщает об `injectSpy(X)` для токена, который ничто в файле не зарегистрировало как автоспай. Вы
+получаете то, что уже было в DI Angular, — обычно настоящий сервис. Его хелперы спая существуют только
+для компилятора, поэтому первый же `.mockReturnValue(…)` бросает ошибку.
 
 ```ts
 TestBed.configureTestingModule({
@@ -2327,51 +2997,78 @@ TestBed.configureTestingModule({
   providers: [provideAutoSpy(UserService)],
 });
 
-const route = injectSpy(ActivatedRoute); // ❌ настоящий, с хелперами, которых там нет
+const route = injectSpy(ActivatedRoute); // ❌ настоящий, с хелперами спая, которых там нет
 ```
 
 ```ts
-providers: [provideAutoSpy(UserService), provideAutoSpy(ActivatedRoute)];
-// либо сказать, что настоящий и был нужен:
+providers: [provideAutoSpy(UserService), provideAutoSpy(ActivatedRoute)]; // ✅
+// или скажите, что нужен был как раз настоящий:
 const route = TestBed.inject(ActivatedRoute);
 ```
 
-**Зачем это в `recommended`.** `injectSpy` объявлен как возвращающий `Spy<T>`, поэтому каждый хелпер
-на результате проверяется против объявления, а не против значения. Значит, хелперы есть для `tsc` и
-отсутствуют в рантайме, и первый же `.mockReturnValue(…)` или `.calledWith(…)` бросает на настоящем
-методе. Библиотека говорит об этом и в рантайме — `injectSpy` смотрит, что вернул инжектор, и
-предупреждает, — но предупреждение на stderr не роняет прогон, пролистывается в сюите из тысячи
-файлов и приходит только для тех тестов, которые эту строку выполнили. В одном заказчицком
-монорепозитории десятки спек-файлов печатают его на каждом прогоне CI, и никто ни разу ничего не
-сделал.
+**Опции.** Нет.
 
-**Границы.** Это одно из правил, способных сообщить о корректном проекте, и опции у него **нет**.
-Узкий случай, который он не моделирует, — файл, регистрирующий часть дублей в читаемой форме и
-получающий ещё один через хелпер, за которым этот скан не идёт: общий `beforeEach` в импортированной
-тестовой утилите, настраивающий TestBed. Там ответ — точечный `'off'` или построчный disable. Всё
-остальное, что могло бы скрыть регистрацию, файл уже глушит, поэтому то, что проходит через фильтр,
-обычно является настоящей находкой.
+**Как исправить.** Либо зарегистрируйте токен через `provideAutoSpy(X)`, либо читайте его через
+`TestBed.inject(X)`, если вам нужна настоящая реализация.
 
-**Severity.** `error`. Красно по построению, когда строка выполняется, а тайпчекер стоит не на той
-стороне.
+**Когда выключить.** Это одно из [трёх правил, которые могут сообщить о корректном
+коде](/ru/utilities/eslint-plugin#the-three-rules-that-can-report-on-correct-code), и опции у него нет.
+Оно ошибается, когда файл регистрирует часть подмен понятным правилу способом, а ещё одну получает
+через хелпер, за которым правило не идёт. Например, общий `beforeEach` из импортированной тестовой
+утилиты, который настраивает TestBed. Там выключите правило точечным `'off'` или на строке.
+
+::: details Как правило решает
+**Какие регистрации считаются:** вызов `provideAutoSpy(X)` где угодно и `{ provide: X, useValue: … }`,
+чьё значение — вызов `createAutoMock`, `createSpyFromClass`, `createMock` или `mockDeep`. Токены
+сравниваются как **текст исходника**.
+
+**Правило ничего не сообщает, пока не выполнены все три условия,** потому что ложный отчёт здесь
+обходится дороже предупреждения, которое он заменяет:
+
+- файл хотя бы раз вызывает `provideAutoSpy`. Иначе он настраивает DI способом, который правило не
+  моделирует, и отсутствие токена ни о чём не говорит;
+- ни в одном массиве `providers` нет спреда, дырки или фабрики провайдера, кроме `provideAutoSpy`.
+  `providers: [...sharedMocks]` — обычный способ подтянуть общие моки, а одна нечитаемая запись
+  скрывает неизвестное число токенов. Поэтому она глушит **файл**, а не одну строку;
+- файл не вызывает `createWithAutoSpies`, `renderShallow` или `TestBed.overrideProvider`. Каждый из них
+  регистрирует подмены там, куда этот скан не смотрит.
+
+**Какое значение `providers` правило может прочитать:** литерал массива или `const`, объявленную с
+таким литералом и нигде не изменяемую (`const providers = […]`, переданную как `{ providers }` или под
+ключом в кавычках `'providers'`). Любое другое значение (импорт, вызов фабрики, массив, в который
+делают `push`) делает файл нечитаемым, и в нём ничего не сообщается.
+
+**Токен, отданный руками** (`{ provide: X, useValue: someObject }`), записывается как
+предоставленный, и о нём правило не сообщает никогда. Это форма
+[`prefer-provide-auto-spy`](#prefer-provide-auto-spy), а два правила на одной строке только научили бы
+выключать оба.
+
+**Почему оно в recommended.** `injectSpy` объявлен как возвращающий `Spy<T>`. Каждый хелпер на
+результате проверяется против этого объявления, а не против значения. Поэтому хелперы есть для `tsc`
+и отсутствуют во время выполнения. Первый же `.mockReturnValue(…)` или `.calledWith(…)` попадает на
+настоящий метод и бросает `TypeError` — на строке, которая читается как обычная настройка спая.
+
+Библиотека говорит об этом и во время выполнения: `injectSpy` проверяет, что вернул инжектор, и
+предупреждает, что это обычный экземпляр. Но предупреждение в stderr не роняет прогон. В проекте на
+тысячу файлов оно пролистывается мимо и появляется только для тестов, которые выполнили эту строку. В
+одном монорепозитории десятки файлов спек печатают его на каждом прогоне CI, и никто ничего не сделал.
+Проверке не нужна информация о типах, поэтому её место там, где ошибку пишут.
+
+**Почему нет ни исправления, ни подсказки.** Исправление — либо провайдер, которого в файле нет, либо
+`TestBed.inject(X)`, который говорит, что нужна была настоящая реализация. Какое из двух, знаете
+только вы.
+
+**Серьёзность.** `error`. Когда строка выполняется, тест красный по построению, а проверка типов
+стоит не на той стороне.
+:::
 
 ## no-real-component-provider {#no-real-component-provider}
 
-**`error`** · без правки · только синтаксис · опция `ignoreTokens`
+**`error`** · без автоисправления · только синтаксис · опции `ignoreTokens`, `childInjectors`
 
-**Что сообщает.** `fixture.debugElement.injector.get(X)` или `fixture.componentRef.injector.get(X)`
-для токена, который в этом файле ничем не подменён.
-
-**На чём решает.** Весь файл, токены сравниваются как исходный текст. Токен считается подменённым,
-если он назван в аргументах `provideAutoSpy`, `overrideAutoSpy`, `overrideComponentProvider`,
-`overrideProvider`, `overrideComponent` или `createSpyFromClass` либо в ключе `provide` объекта
-провайдера. Чтение, обёрнутое в `asSpy(…)`, принимается как слово автора, что дубль есть. Никогда не
-сообщаются: токены из `@angular/*`, классы, которые файл рендерит (переданы в `createComponent` или
-перечислены в `imports` / `declarations` / `hostDirectives`), и любые чтения в файле, который зовёт
-`createWithAutoSpies`. Читается только **собственный** инжектор фикстуры — `debugElement.query(…).injector`
-принадлежит дочернему элементу, и запрос класса директивы там — законный способ добраться до неё.
-
-**Находка и исправление.**
+Сообщает о `fixture.debugElement.injector.get(X)` или `fixture.componentRef.injector.get(X)` для
+токена, который ничто в файле не заменило подменой. Вы получаете настоящий провайдер из собственных
+`providers` компонента, и спека компонента гоняет настоящий стор вместе с HTTP-вызовами.
 
 ```ts
 @Component({ providers: [CartStore] })
@@ -2382,111 +3079,140 @@ const store = fixture.debugElement.injector.get(CartStore); // ❌ настоя�
 ```
 
 ```ts
-const store = overrideComponentProvider(CartComponent, CartStore); // до createComponent
+const store = overrideComponentProvider(CartComponent, CartStore); // ✅ до createComponent
 const fixture = TestBed.createComponent(CartComponent);
 
 store.load.mockReturnValue(of(items));
 ```
 
-**Почему в recommended.** `injectSpy` не достаёт провайдер, объявленный на компоненте, поэтому спека
-идёт за ним через фикстуру — и если его никто не подменил, фикстура отдаёт продовый класс. Спека
-компонента гоняет стор через настоящие HTTP-вызовы, флашит запросы, которых компонент сам не делает,
-и повторяет спеку стора под именем компонента: одна правка в сторе красит три файла спек. Замер на трёх
-потребителях, 1078 файлов спек: 5 сообщений, и каждое — стор или сервис из собственных `providers`
+**Опции.**
+
+| Опция            | Тип        | По умолчанию | Смысл                                                                              |
+| ---------------- | ---------- | ------------ | ---------------------------------------------------------------------------------- |
+| `ignoreTokens`   | `string[]` | `[]`         | токены, чей настоящий провайдер нужен спеке                                        |
+| `childInjectors` | `boolean`  | `false`      | читать ещё `query(…).injector`, `queryAll(…)[i].injector` и `children[i].injector` |
+
+```js
+'vitest-auto-spy/no-real-component-provider': ['error', { childInjectors: true }],
+```
+
+**Как исправить.** Замените провайдер через `overrideComponentProvider(Component, X)` до
+`createComponent` и настройте возвращённый спай. Сообщение называет компонент: класс, который запрос
+нашёл через `By.directive(…)`, или единственный класс, который файл передаёт в `createComponent`.
+Когда таких несколько, в сообщении стоит `Component`.
+
+**Когда выключить.**
+
+- Интеграционный тест, который намеренно рендерит компонент с настоящим провайдером: перечислите токен
+  в `ignoreTokens`.
+- Подмену, поставленную хелпером из другого файла, правило не видит. Оберните чтение в `asSpy(…)`: это
+  и документирует подмену, и успокаивает правило.
+
+::: details Как правило решает
+**Весь файл, сравнение по тексту исходника.** Токен считается заменённым, если он назван в аргументах
+`provideAutoSpy`, `overrideAutoSpy`, `overrideComponentProvider`, `overrideProvider`,
+`overrideComponent` или `createSpyFromClass` либо в ключе `provide` объекта провайдера. Чтение,
+обёрнутое в `asSpy(…)`, правило принимает как ваше слово, что подмена есть.
+
+**Никогда не сообщаются:**
+
+- токены, импортированные из `@angular/*`;
+- классы, которые файл рендерит: переданные в `createComponent` или перечисленные в `imports` /
+  `declarations` / `hostDirectives`;
+- все чтения в файле, который вызывает `createWithAutoSpies`.
+
+**По умолчанию — собственный инжектор.** Читается только собственный инжектор фикстуры.
+`debugElement.query(…).injector` принадлежит дочернему элементу, и запрос класса директивы у него —
+способ, которым спека до этой директивы добирается. С `childInjectors: true` чтения дочерних
+инжекторов тоже считаются, а каждый класс, названный в `By.directive(…)`, считается отрендеренным. Так
+что чтение самой директивы по-прежнему молчит.
+
+**Почему оно в recommended.** `injectSpy` не достаёт провайдер, объявленный на компоненте, поэтому
+спека идёт через фикстуру. Если провайдер никто не заменил, фикстура возвращает продовый класс. Тогда
+спека компонента гоняет стор через его настоящие HTTP-вызовы, флашит запросы, которых компонент сам не
+делает, и повторяет спеку стора под именем компонента. Одна правка в сторе красит три файла спек. На
+трёх проектах с 1078 файлами спек: 5 отчётов, каждый — стор или сервис из собственных `providers`
 компонента.
 
-**Границы.** Спека, которая намеренно рендерит компонент с настоящим провайдером — интеграционный тест
-по замыслу, — перечисляет токен в `{ ignoreTokens: [...] }`. Дубль, поставленный хелпером из другого
-файла, отсюда не виден; обёртка чтения в `asSpy(…)` и документирует это, и успокаивает правило.
-
-**Серьёзность.** `error`. Улики точные: и чтение, и каждое место, где могла стоять подмена, — в этом
-файле.
+**Серьёзность.** `error`. Улики точные: и чтение, и каждое место, где можно было бы написать замену,
+находятся в этом файле.
+:::
 
 ## prefer-to-have-signal-value {#prefer-to-have-signal-value}
 
-**`warn`** · подсказка · читает типы · автофикс
+**`warn`** · `--fix` · нужны типы
 
-`expect(component.total()).toBe(3)` читает сигнал инлайн: утверждение проходит и падает так же,
-но в падении названо число, а не сигнал, который его произвёл — и до `expect(component.total).toBe(3)`,
-которое зелёное для любого сигнала когда-либо созданного, один пропущенный символ.
-`toHaveSignalValue` — матчер, который регистрирует `registerSignalMatchers()`, — проверяет то же
-значение, называет в падении неверный сигнал и отказывается от всего, что не геттер без аргументов,
-так что «забыл скобки» падает, а не молча проходит.
-
-**Сообщает.** `toBe`, `toEqual`, `toStrictEqual`, `toBeNull` или `toBeUndefined` по вызову, который
-тайпчекер разрешает в сигнал — `.not` включён. Сигнал узнаётся по типу, а не по имени: вызываемый и с брендом Angular,
-который тайпчекер записывает как `__@SIGNAL@53` (хвостовой номер зависит от программы), —
-`getProperty('ɵSIGNAL')` по обычному имени их не находит. Методы, обычные функции и геттеры не
-затрагиваются, а без parser services правило молчит, а не угадывает по имени.
-
-**Пропускает проверку идентичности.** `toBe` сравнивает через `Object.is`, `toHaveSignalValue` —
-глубоко, так что `expect(list.items()).toBe(items)` — утверждение, что сигнал держит именно этот
-массив, — после переписывания прошло бы для любой равной копии. `toBe` сообщается, только если
-ожидаемое значение — примитивный литерал (`3`, `'on'`, `null`, `undefined`, шаблон без выражений)
-или тип сигнала примитивный (string, number, boolean, bigint, enum, их литералы, `null`,
-`undefined` — `any` не считается); любой другой `toBe` не трогается: ни один матчер над сигналом
-идентичность не сохраняет.
-
-**Фикс.** Две правки — снять скобки, переименовать матчер — `.not` остаётся на месте.
-`toStrictEqual` передаёт `{ strict: true }` и сохраняет сравнение, которое было. `toBeNull()` и
-`toBeUndefined()` становятся `toHaveSignalValue(null)` и `toHaveSignalValue(undefined)`. Вызов с
-собственными type-аргументами сообщается без фикса: текстовый перенос их бы потерял.
+Сообщает о `expect(signal()).toBe(…)` и похожих матчерах над сигналом, прочитанным прямо в `expect`.
+Тогда в падении названо значение, а не сигнал. И до `expect(component.total).toBe(3)`, которое проходит
+для любого когда-либо созданного сигнала, остаётся одно нажатие клавиши.
 
 ```ts
 expect(counter.total()).toBe(3); // ❌ в падении «3», а не сигнал
-expect(counter.total()).toStrictEqual(3); // ❌ то же, и фикс сохраняет строгость
+expect(counter.total()).toStrictEqual(3); // ❌ то же самое, и исправление сохраняет строгость
 ```
 
 ```ts
-expect(counter.total).toHaveSignalValue(3);
-expect(counter.total).toHaveSignalValue(3, { strict: true });
+expect(counter.total).toHaveSignalValue(3); // ✅
+expect(counter.total).toHaveSignalValue(3, { strict: true }); // ✅
 ```
 
-**Почему автофикс безопасен только с 5.46.0.** Матчер сравнивает значения глубокой равностью
-раннера; до 5.46.0 он звал её без iterable equality, так что любое значение `Set` или `Map` было
-«равно» любому другому, и перезапись могла превратить падающее утверждение в проходящее. С 5.46.0
-вложенные `Set` и `Map` сравниваются по содержимому на обоих путях — лёгком и строгом, — что и
-делает фикс эквивалентностью.
+**Опции.** Нет.
+
+**Как исправить.** `--fix` убирает скобки и переименовывает матчер в `toHaveSignalValue` — матчер,
+который регистрирует `registerSignalMatchers()`. `.not` остаётся на своём месте.
+
+| Было                     | Стало                                    |
+| ------------------------ | ---------------------------------------- |
+| `toBe(v)` / `toEqual(v)` | `toHaveSignalValue(v)`                   |
+| `toStrictEqual(v)`       | `toHaveSignalValue(v, { strict: true })` |
+| `toBeNull()`             | `toHaveSignalValue(null)`                |
+| `toBeUndefined()`        | `toHaveSignalValue(undefined)`           |
+
+`toHaveSignalValue` называет сигнал в падении. Ещё он отказывается от всего, что не геттер без
+аргументов, так что забытые скобки приводят к падению, а не к проходу. Вызов с собственными типовыми
+аргументами попадает в отчёт без исправления: перенос текста их бы потерял.
+
+**Когда выключить.** Правилу нужна информация о типах; без неё оно ничего не сообщает. Оно стоит на
+`warn`, потому что исходная проверка верна: матчер лишь падает понятнее.
+
+::: details Как правило решает
+**Что совпадает:** `toBe`, `toEqual`, `toStrictEqual`, `toBeNull` или `toBeUndefined`, включая `.not`,
+над вызовом, который проверка типов разрешает в сигнал.
+
+**Сигнал узнаётся по типу, а не по имени:** он вызываемый и несёт бренд сигнала Angular. Проверка типов
+записывает этот бренд как `__@SIGNAL@53`, с номером в конце, который меняется от программы к
+программе. Поэтому `getProperty('ɵSIGNAL')` по обычному имени ничего не находит. Методы, обычные
+функции и геттеры в отчёт не попадают. Без информации о типах правило молчит, а не угадывает по имени.
+
+**Проверка идентичности пропускается.** `toBe` сравнивает через `Object.is`, а `toHaveSignalValue` —
+глубоко. `expect(list.items()).toBe(items)` утверждает, что сигнал держит именно этот массив; после
+переписывания проверка проходила бы для любой равной копии. Поэтому о `toBe` правило сообщает, только
+если:
+
+- ожидаемое значение — примитивный литерал (`3`, `'on'`, `null`, `undefined`, шаблон без выражений),
+  или
+- тип сигнала примитивный: string, number, boolean, bigint, enum, их литералы, `null`, `undefined`.
+  `any` не считается.
+
+Любой другой `toBe` правило не трогает: ни один матчер над сигналом не сохраняет идентичность.
+
+**Почему исправление безопасно.** Матчер сравнивает глубоким равенством раннера, включая вложенные
+`Set` и `Map` по содержимому, и на нестрогом, и на строгом пути. Поэтому переписывание эквивалентно
+исходной проверке.
+
+**Серьёзность.** `warn`. Правило называет матчер, который падает понятнее; проверка, которую он
+заменяет, не ошибочна.
+:::
 
 ## prefer-render-shallow {#prefer-render-shallow}
 
 **`warn`** · подсказка · только синтаксис · опция `templates`
 
-**Что сообщает.** При значении по умолчанию `{ templates: 'as-needed' }` — `TestBed.createComponent` в
-файле, где никто не читает отрендеренный шаблон. При `{ templates: 'never' }` — каждый
-`TestBed.createComponent` и каждый `keepTemplate: true`.
-
-**На чём решает.** На идентификаторах **файла целиком**, а не той фикстуры, которую вернул вызов.
-Слова: `nativeElement`, `debugElement`, `elementRef`, `hostElement`, `queryElement`, `querySelector`,
-`getComputedStyle`, `triggerEventHandler`, `innerHTML`, `innerText`, `textContent`, `getAttribute`,
-`classList` и `shadowRoot` — ищутся внутри имени идентификатора или члена (так что хелпер
-`nativeElementOf()` тоже считается), плюс `By.css` и `By.directive`. Одно чтение где угодно глушит
-файл.
-
-Считается только код. Комментарий, строковый или шаблонный литерал и член, который спека
-**объявляет**, а не читает, — ключ `{ getAttribute: 'nope' }`, поле или метод фейкового класса, член
-интерфейса — пишут слово, но ничего не читают, поэтому ни один из них файл не глушит. Деструктуризация
-`const { nativeElement } = fixture` и вычисляемый `el['textContent']` — это чтения, и они глушат.
-
-Спрашивать файл, а не фикстуру — сознательное решение. Сюита компонента кладёт фикстуру в `let`,
-наполняет её в `beforeEach` и читает `debugElement` через три хелпера; слежение за одной переменной
-эти формы бы пропустило, а правило, которое сообщает о половине из них, хуже того, которое не
-сообщает ни об одной. Поэтому правило **недосообщает по построению** и никогда не заявляет, что спека
-ничего не читает, когда она читает.
-
-Одна форма вычитается до того, как задан вопрос, — потому что она глушила правило ровно на том файле,
-ради которого оно есть. Спека, подменяющая `location` или `defaultView`, отдаёт подставной `DOCUMENT`,
-делегирующий остальное настоящему документу — `querySelector: document.querySelector.bind(document)`,
-— и каждый скопированный ключ является одним из слов выше. Отбрасывается только форма
-`name: document.name`, и только там, где имена совпадают: это делегирование и ничем другим быть не
-может. Голый `document.querySelector('.row')` продолжает считаться, потому что фикстуру, прикреплённую
-к документу, читают ровно так.
-
-При `{ templates: 'never' }` поиск чтений не выполняется вовсе; единственное исключение — файл, чей
-код вызывает или импортирует `createDirectiveHost`, потому что директива навешивается на элемент, а этот элемент
-кто-то должен отрендерить.
-
-**Находка и как её закрыть.**
+Сообщает о `TestBed.createComponent` в файле спеки, который ни разу не читает отрендеренный шаблон.
+`createComponent` компилирует шаблон и строит все дочерние компоненты, и так в каждом тесте. Спека,
+которая только выставляет инпуты и проверяет состояние, платит за это и ничем не пользуется.
+`renderShallow(X)` даёт тот же `TestBed` и тот же настоящий `ComponentFixture`, но без детей и с
+пустым шаблоном.
 
 ```ts
 const fixture = TestBed.createComponent(CartPage); // ❌ компилирует шаблон, строит всех детей
@@ -2497,57 +3223,37 @@ expect(fixture.componentInstance.total()).toBe(42);
 ```
 
 ```ts
-const { fixture } = renderShallow(CartPage);
-// тот же TestBed, тот же настоящий ComponentFixture, дети выброшены и шаблон пуст;
-// инпуты, сигналы, хуки жизненного цикла и DI остаются на месте
+const { fixture } = renderShallow(CartPage); // ✅
+// тот же TestBed, тот же настоящий ComponentFixture, детей нет, шаблон пуст;
+// инпуты, сигналы, хуки жизненного цикла и DI остаются
 ```
 
-**Зачем это в `recommended`.** Это не дефект, а счёт. `TestBed.createComponent` компилирует шаблон и
-инстанцирует всё поддерево детей на каждый тест, а спека, которая только выставляет инпуты и
-проверяет состояние, ничего этим не покупает. Замерено в `bench-angular/` против закреплённого
-базиса, цикл на тест относительно `TestBed.createComponent`: **0,57×** при 25 детях, **0,24×** при
-100, **0,05×** при 400. Само обнуление шаблона — шаг от `renderShallow({ keepTemplate: true })` к
-`renderShallow()` на компоненте с 100 детьми — даёт из этого около **3,8×**.
+**Опции.**
 
-**Строку про ноль детей читайте раньше остальных.** При нуле детей экономить нечего; два замера
-обступают 1,0, и эта строка — самая шумная в бенчмарке (±16 % против ±3 % у строки с 100 детьми),
-отчасти потому что `overrideComponent` вынуждает JIT-перекомпиляцию, за которую листовой компонент до
-этого не платил. На листовом компоненте этот отчёт стоит проигнорировать.
+| Опция       | Тип                        | По умолчанию  | Смысл                                                                                                          |
+| ----------- | -------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------- |
+| `templates` | `'as-needed'` \| `'never'` | `'as-needed'` | `'as-needed'` сообщает о рендере, который никто не читает; `'never'` запрещает настоящие шаблоны в юнит-спеках |
 
-**Границы.** Двух вещей правило не видит, и у обеих один ответ. Компоненту, который читает свой
-собственный шаблон через `viewChild`, `contentChild` или проекцию контента, шаблон нужен; так же и
-тому, чьё поведение управляется из его же разметки — привязка события, блок `@defer`. Правило читает
-спеку, а не компонент, поэтому оно о них сообщит; `renderShallow(X, { keepTemplate: true })` оставляет
-шаблон и всё равно выбрасывает детей.
-
-Опция превращает находку о стоимости в политику:
+При `'never'` правило сообщает о каждом `TestBed.createComponent` (читает файл DOM или нет), о каждом
+`keepTemplate: true` и о каждом чтении DOM в спеке (по разу на инструкцию). Ещё оно сообщает об
+`@Component`, объявленном в спеке с `template` или `templateUrl`, и о `template:`, переданном в
+`renderShallow` / `prepareShallow`. Каждое из этих сообщений ведёт на
+[Тестирование без DOM](/ru/guides/testing-without-the-dom). Форма с массивом задаёт и серьёзность:
 
 ```js
-'vitest-auto-spy/prefer-render-shallow': ['warn', { templates: 'never' }],
+'vitest-auto-spy/prefer-render-shallow': ['warn', { templates: 'never' }], // или 'error', чтобы требовать
 ```
 
-`'never'` — для проекта, который решил, что разметка принадлежит e2e, и он сообщает политику, а не
-утверждение о файле: под ним громче всех отчитывается обычно тот файл, который читает шаблон сильнее
-всех. **Знайте счёт до того, как включите.** Замерено на одной заказчицкой сюите: `'never'` увёл в
-красное **18 из 40** тестов в одной спеке компонента и покрытие с **100 % до 95,7 %**. Из отчёта
-ничего не выпало; выполняться перестал обычный TypeScript — тело метода, чьё условие входа зависит от
-`viewChild`, который даёт шаблон. Проект, берущий эту опцию, отказывается от порога 100 % по строкам
-на своих компонентах.
+**Как исправить.** Замените рендер на `renderShallow(X)` из `vitest-auto-spy/angular`. Если проект
+проверяет покрытие веток, учтите одно перед массовой заменой. Поверхностный рендер выводит
+AOT-ветки компонента из покрытия до конца файла. Там, где эти ветки важны, оставьте по одному
+настоящему рендеру на компонент; см. [renderShallow](/ru/adapters/angular).
 
-Подсказка (`TestBed.createComponent(X)` → `renderShallow(X).fixture`, с добавлением импорта)
-намеренно не `--fix`. `renderShallow` сам зовёт `configureTestingModule`, добавляет `NO_ERRORS_SCHEMA`
-и запускает первый прогон change detection: правильный модуль для спеки, которая не читает разметку,
-но не тот модуль, который был у файла. Спека, уже инстанцировавшая модуль — любой `TestBed.inject`
-выше строки, — начала бы бросать _Cannot configure the test module when the test module has already
-been instantiated_, а `--fix` идёт по репозиторию без присмотра. Предлагается она и только для формы
-с одним аргументом: форма с двумя несёт опции, которые `renderShallow` пишет иначе, и их потеря была
-бы молчаливой поломкой.
-
-**Компонент, который создаётся в каждом тесте после настройки спаев.** Когда конструктор читает
-состояние спая, а каждый тест сначала настраивает спаи, `renderShallow` не может стоять в `beforeEach`
-с настройкой после него. Рендерите в самом тесте, а чтения `injectSpy` — вместе с умолчаниями и
-настройкой этого теста — перенесите в `beforeCreate`, который выполняется после конфигурации модуля и
-до конструктора:
+- Компонент читает свой шаблон через `viewChild`, `contentChild` или проекцию контента? Или его
+  поведение задаёт разметка (привязка события, блок `@defer`)? Тогда используйте
+  `renderShallow(X, { keepTemplate: true })`. Шаблон останется, а дети всё равно уйдут.
+- Конструктор читает состояние спаев, а каждый тест сначала их настраивает? Рендерите в каждом тесте
+  и настраивайте в `beforeCreate`. Он выполняется после настройки модуля и до конструктора:
 
 ```ts
 const render = (tune: () => void = () => undefined) =>
@@ -2567,214 +3273,327 @@ it('restores the collapsed layout', () => {
 });
 ```
 
-**Severity.** `warn` — одна из трёх градуированных severity, и единственная, градуированная по _виду_
-находки, а не по доказательству за ней. Остальные
-правила называют что-то неверное или мёртвое; это называет файл, который можно рендерить дешевле, а
-это архитектурный выбор сюиты, а не её дефект. На `error` плагин гейтил бы этот выбор: **491 находка
-в 398 из 1759 спек-файлов** одного заказчика, то есть `recommended`, существующий, чтобы его
-переопределяли. `off` был бы другим концом той же ошибки, поэтому значение закреплено, а не просто
-удерживается ниже `error`.
+**Подсказка сворачивает настройку** в один вызов. Она предлагается только для такой формы, целиком в
+одном блоке:
+
+```ts
+TestBed.configureTestingModule({ imports: [CardComponent, RouterStub], providers: [provideAutoSpy(Api)] });
+api = injectSpy(Api);
+fixture = TestBed.createComponent(CardComponent);
+fixture.detectChanges();
+```
+
+```ts
+fixture = renderShallow(CardComponent, { imports: [RouterStub], providers: [provideAutoSpy(Api)] }).fixture;
+api = injectSpy(Api);
+```
+
+- В литерале могут быть только `providers` и `imports`, и в `imports` должен быть компонент. Из
+  списка компонент убирается.
+- Между двумя вызовами могут стоять только голые чтения `v = injectSpy(…)`. Они переезжают под
+  рендер.
+- `fixture.detectChanges()` сразу под рендером поглощается. Если его нет, вызов получает
+  `detectChanges: false`, и ничего не рендерится раньше, чем прежде.
+- Импорт сливается с уже существующим импортом из `vitest-auto-spy/angular`.
+- Любая другая форма получает отчёт без правки. Это цепочка с `compileComponents()`, ключ, который
+  `renderShallow` пишет иначе, настроенный спай между вызовами, комментарий, который правка удалила
+  бы, и `createComponent` с двумя аргументами.
+
+**Когда выключить.** Правило сообщает о цене, а не о дефекте. У листового компонента (без детей)
+экономить нечего, так что там отчёт можно игнорировать. Проект, который решил переходить на
+`renderShallow`, может поднять правило до `'error'`.
+
+:::: details Как правило решает
+**Что считается чтением шаблона.** Правило смотрит на идентификаторы **всего файла**, а не на
+фикстуру, которую вернул вызов. Слова такие: `nativeElement`, `debugElement`, `elementRef`,
+`hostElement`, `queryElement`, `querySelector`, `getComputedStyle`, `triggerEventHandler`,
+`innerHTML`, `innerText`, `textContent`, `getAttribute`, `classList` и `shadowRoot`. Они ищутся
+внутри имени идентификатора или члена (хелпер `nativeElementOf()` тоже считается). К ним добавляются
+`By.css` и `By.directive`. Одно чтение где угодно глушит файл.
+
+Считается только код. Комментарий, строковый или шаблонный литерал ничего не читают. Член, который
+спека **объявляет**, а не читает, тоже ничего не читает: ключ `{ getAttribute: 'nope' }`, поле или
+метод фейкового класса, член интерфейса. Поэтому файл они не глушат. Деструктуризация
+`const { nativeElement } = fixture` и вычисляемый `el['textContent']` — это чтения, и они глушат.
+
+**Почему весь файл.** Спека компонента часто держит фикстуру в `let`, заполняет её в `beforeEach` и
+читает `debugElement` через три хелпера. Слежение за одной переменной это пропустило бы. А правило,
+которое сообщает о половине случаев, хуже, чем никакого. Поэтому правило **намеренно недосообщает**:
+оно никогда не утверждает, что спека ничего не читает, если она читает.
+
+**Одна форма вычитается заранее.** Спека, которая подменяет `location` или `defaultView`, отдаёт
+подставной `DOCUMENT`. Всё остальное он делегирует настоящему документу:
+`querySelector: document.querySelector.bind(document)`. Каждый скопированный ключ — одно из слов
+выше, и правило глохло ровно на том файле, ради которого существует. Отбрасывается только форма
+`name: document.name`, и только там, где имена совпадают: это делегирование и ничего больше. Голый
+`document.querySelector('.row')` по-прежнему считается. Так читают фикстуру, прикреплённую к
+документу.
+
+**При `{ templates: 'never' }`** поиск чтений не выполняется. Единственное исключение — файл, чей код
+вызывает или импортирует `createDirectiveHost`. Директива навешивается на элемент, значит, кто-то
+должен этот элемент отрендерить. Шаблон хоста — это обвязка теста, а не проверяемая разметка. Запрет
+на него запретил бы тесты директив, в том числе тем способом, который советует этот пакет. Исключение
+снимает отчёты и о хост-компоненте, и о чтениях DOM: тест директивы читает элемент, на который она
+навесилась.
+
+Сообщения при двух значениях разные. При `'as-needed'` правило не нашло чтения шаблона, и сообщение
+так и говорит. При `'never'` правило вообще не ищет чтения. Там чаще всего срабатывает файл, который
+больше всех читает шаблон, поэтому сообщение называет политику, а не утверждает что-то о файле.
+
+**Знайте цену `'never'`.** На одном проекте `'never'` сделал красными **18 из 40** тестов в спеке
+компонента. Покрытие упало со **100 % до 95,7 %**. Из отчёта ничего не исключалось: при
+`templateUrl` скомпилированный шаблон отображается на `.html`, а glob покрытия `*.ts` его никогда не
+захватывал. Перестал выполняться обычный TypeScript. Это тело метода, условие входа в который —
+`viewChild` из шаблона. Этот код принадлежит самому компоненту, и никакая настройка покрытия его не
+скроет. Проект, который берёт эту опцию, отказывается от порога 100 % по строкам для компонентов.
+
+**Почему подсказка, а не `--fix`.** `renderShallow` сам вызывает `configureTestingModule`, добавляет
+`NO_ERRORS_SCHEMA` и запускает первую проверку изменений. Для спеки, которая не читает разметку, это
+правильный модуль, но не тот, что был в файле. Голая замена `TestBed.createComponent(X)` →
+`renderShallow(X).fixture` оставляла перед ней собственный `configureTestingModule` спеки и каждый
+`injectSpy` между ними. На 49 файлах она сломала 17 с ошибкой _Cannot configure the test module
+when the test module has already been instantiated_. Кроме того, она рендерила раньше везде, где за
+ней не шёл `fixture.detectChanges()`. `--fix` работает без присмотра по всему репозиторию. Подсказку
+же принимают по одному вызову, с диффом перед глазами.
+
+**Сколько это экономит.** На листовом компоненте — ничего. Два рендера занимают примерно одинаковое
+время, а `overrideComponent` вызывает JIT-перекомпиляцию, которой лист раньше не платил. Чем глубже
+дерево детей, тем больше экономия. Одно только опустошение шаблона даёт примерно **3,8×** на
+компоненте со 100 детьми. Замеры — на странице [Производительность](/ru/core/performance).
+
+**Серьёзность.** `warn`, и она закреплена. Она выбрана по _виду_ находки. Любое другое правило
+называет что-то неверное или мёртвое. Это правило называет файл, который мог бы рендерить дешевле, а
+это выбор проекта, не дефект. При `error` плагин навязывал бы этот выбор: **491 находка в 398 из
+1759 файлов спек одного проекта**. На такой первый прогон каждый ответил бы собственным `warn`. `off`
+был бы той же ошибкой с другой стороны.
+::::
 
 ## prefer-set-inputs {#prefer-set-inputs}
 
 **`warn`** · подсказка · только синтаксис
 
-**Что сообщает.** Серию подряд идущих `fixture.componentRef.setInput('name', value)` на одной
-фикстуре — один отчёт на серию, на её первом вызове.
-
-**На чём решает.** На форме вызова, ничего за пределами файла:
-
-- Приёмник должен читаться как `ComponentFixture`. Большую часть доказательства несёт
-  `<имя>.componentRef`: у голого `ComponentRef` — того, что отдаёт `ViewContainerRef.createComponent()`
-  и к которому `setInputs` неприменим, — своего `componentRef` нет. Остальное несёт имя (`fixture`,
-  `hostFixture`, `newFixture`) или единственное значение, которое файл ему даёт
-  (`TestBed.createComponent(X)`, `renderShallow(X).fixture`, `render(X)`). Приёмник, который не опознаётся ни
-  тем ни другим, остаётся нетронутым.
-- Имя инпута должно быть строковым литералом: вычисляемое имя переписать нечем.
-- Вызов должен быть отдельным стейтментом: результат, уходящий куда-то, — эффект, за который это
-  правило не отвечает.
-- Серия продолжается, пока стейтменты идут подряд без комментария между ними, на одной фикстуре и
-  называют инпуты, которых в серии ещё не было. **Тот же инпут второй раз её заканчивает** — это
-  спека говорит «а теперь оно меняется», и слияние двух записей в один литерал даёт дублирующийся
-  ключ.
-
-**Находка и ремонт.**
+Сообщает о серии вызовов `fixture.componentRef.setInput('name', value)` на одной фикстуре. Angular
+это имя ни с чем не сверяет. Опечатка или переименованный инпут даёт в лог `NG0303` и ничего не
+меняет, а тест падает позже на постороннем состоянии. `setInputs` сначала проверяет каждое имя и
+типизирует значения.
 
 ```ts
-it('показывает обновлённый заголовок', async () => {
-  fixture.componentRef.setInput('title', 'Hi'); // ❌ незнакомое имя — это NG0303 и ноль изменений
+it('shows the updated title', async () => {
+  fixture.componentRef.setInput('title', 'Hi'); // ❌ неизвестное имя — это NG0303 и никаких изменений
   fixture.componentRef.setInput('count', 2);
   fixture.detectChanges();
 
   expect(heading().textContent).toBe('Hi (2)');
 });
+```
 
-it('показывает обновлённый заголовок', async () => {
+```ts
+it('shows the updated title', async () => {
   await setInputs(fixture, { title: 'Hi', count: 2 }); // ✅ каждое имя разрешено до первой записи
 
   expect(heading().textContent).toBe('Hi (2)');
 });
 ```
 
-**Зачем оно в recommended.** На имя, которого компонент не объявляет, `componentRef.setInput`
-отвечает `NG0303` в консоль и **нулём изменений**: опечатка, переименованный под спекой инпут и алиас,
-написанный именем поля класса, заканчиваются одинаково — зелёные вызовы `setInput` и ассерт, который
-падает несколькими строками ниже, на состоянии, которое никто не двигал. `setInputs` разрешает каждый
-ключ по скомпилированному определению до первой записи и типизирует значение: на Angular-сюите, на
-которой это мерили, переписывание 650 вызовов превратило **72 фикстуры, разошедшиеся с моделью,
-которой они притворяются, в ошибки компиляции — в 21 файле**: `{}` вместо `CardActionExtra`, литерал,
-написанный в прошлой форме интерфейса, `imageUrl` у модели, где поле называется `imgUrl`.
+**Опции.** Нет.
 
-**Границы.** Их три, и первая — причина, по которой правка это подсказка, а не `--fix`:
+**Как исправить.** Замените серию одним `await setInputs(fixture, { … })`. Это делает подсказка:
 
-- **`setInputs` ждёт `stable()`, который начинается с `TestBed.tick()`**, а под zone.js этот tick
-  входит в тот, который зона планирует себе сама. Замер на сюите из 1771 файла: принятие всех 451
-  подсказки переписывает 126 файлов, 105 из которых по-прежнему проходят тайпчек, — и **57 из этих 105
-  становятся красными**, каждый на `NG0101: ApplicationRef.tick is called recursively`. Сведено там же
-  к двум строкам: `componentRef.setInput(…)` и голый `TestBed.tick()` — без хелпера и без `await` —
-  воспроизводят это. Значит, будет ли ремонт заменой строки, зависит от факта, которого не видно ни в
-  одной спеке, и правка предлагается по одному вызову, рядом с тестом, который скажет, сработало ли.
-- `await` делает окружающий колбэк `async`, и это правило пишет такое только в колбэк, которым владеет
-  раннер, — `it`, `test`, `beforeEach` и остальные, написанные явно. Внутри хелпера, объявленного
-  спекой, или обёртки `waitForAsync(…)` отчёт приходит без правки: 53 находки из 504 на той сюите.
-- `detectChanges()` прямо под серией уходит вместе с ней: `stable()` сбрасывает эффекты и дожидается
-  фикстуры, а это строго больше, чем один прогон change detection. Вызов с аргументом остаётся:
-  `detectChanges(false)` пропускает проверку check-no-changes, а это не тот прогон, который делает
-  `stable()`.
+- `detectChanges()` прямо под серией тоже уходит. `setInputs` ждёт `stable()`, а тот сбрасывает
+  эффекты и ждёт фикстуру — это больше одного прохода проверки изменений.
+- `detectChanges(false)` остаётся. Он пропускает проверку check-no-changes, а `stable()` её не
+  пропускает.
+- `await` делает колбэк `async`. Подсказка пишет это только в колбэк, которым владеет раннер (`it`,
+  `test`, `beforeEach` и остальные, написанные напрямую). Внутри вашего хелпера или обёртки
+  `waitForAsync(…)` вы получите отчёт без правки.
+- Если ваш линт запрещает `async`-хуки, держите вызов в тесте:
+  `const render = async () => { …; await setInputs(fixture, { … }); }`, и первым делом ждите его в
+  каждом `it`.
 
-**Severity.** `warn`, и градуировано по цене ремонта, а не по тому, о чём отчёт. Сама находка — факт в
-строке: Angular не проверяет это имя ничем, эвристики тут нет. Но правило отчитывается **504 раза в
-140 файлах** на сюите, зелёной под каждым `error`-правилом отсюда, а механический ремонт — тот самый,
-что измерен выше: принятие правила — миграция, которую проект делает файл за файлом. Это то же
-чтение, что градуирует [`prefer-render-shallow`](#prefer-render-shallow). Zoneless-сюита поднимает его
-до `'error'` той же одной строкой, которой всё остальное здесь понижают.
+**Когда выключить.** Под zone.js проверяйте каждую замену прогоном. `setInputs` ждёт `stable()`,
+который начинается с `TestBed.tick()`. Под zone.js этот tick может войти в тот, который зона
+планирует сама: `NG0101: ApplicationRef.tick is called recursively`. Поэтому здесь подсказка, а не
+`--fix`, и поэтому правило `warn`. Проект без zone.js может поднять его до `'error'`.
+
+::: details Как правило решает
+**Один отчёт на серию,** на её первом вызове. Если `componentRef` один раз привязан к
+`<fixture>.componentRef` (`const componentRef = fixture.componentRef` или `let`, который присваивает
+хук), правило прослеживает его до фикстуры. Правка тогда называет эту фикстуру — при условии, что в
+месте вызова это та же привязка.
+
+**Правило читает только вызов и файл:**
+
+- Приёмник должен читаться как `ComponentFixture`. Большую часть этого несёт `<name>.componentRef`.
+  У голого `ComponentRef` (его отдаёт `ViewContainerRef.createComponent()`, и `setInputs` к нему не
+  применим) нет `componentRef`. Остальное решает имя (`fixture`, `hostFixture`, `newFixture`) или
+  единственное значение, которое даёт ему файл (`TestBed.createComponent(X)`,
+  `renderShallow(X).fixture`, `render(X)`). Приёмник, который не опознаётся ни так, ни так, правило
+  не трогает.
+- Имя инпута должно быть строковым литералом. Вычисляемое имя нельзя записать ключом.
+- Вызов должен быть отдельной инструкцией. Результат, который где-то используется, — это эффект,
+  который правило не может учесть.
+- Серия продолжается, пока инструкции идут подряд, без комментария между ними, на одной фикстуре и
+  называют инпуты, которых в серии ещё не было. **Тот же инпут второй раз заканчивает серию:** спека
+  говорит «а теперь оно меняется», и слияние дало бы дублирующийся ключ.
+
+**Почему оно в recommended.** Опечатка, инпут, переименованный под спекой, или алиас, записанный
+именем поля класса, — всё это кончается зелёными вызовами `setInput` и проверкой, которая падает
+позже. На одном Angular-проекте замена 650 вызовов, которые правило умеет переписать, превратила **72
+фикстуры, разошедшиеся со своей моделью, в ошибки компиляции — в 21 файле**. Среди них `{}` вместо
+`CardActionExtra`, литерал в старой форме интерфейса и `imageUrl` у модели, где поле называется
+`imgUrl`.
+
+**Цена под zone.js, в замерах.** На проекте из 1771 файла принятие всех 451 подсказки переписывает
+126 файлов. 105 из них по-прежнему проходят проверку типов, и **57 из этих 105 из зелёных становятся
+красными**, каждый на `NG0101: ApplicationRef.tick is called recursively`. Это воспроизводится в две
+строки: `componentRef.setInput(…)`, а за ним голый `TestBed.tick()`, без хелпера и без `await`.
+Подходит ли правка как прямая замена, зависит от факта, которого не видно ни в одной спеке. В том же
+проекте 53 из 504 находок стоят в хелпере или `waitForAsync` и правку не получают.
+
+**Серьёзность.** `warn`, по цене исправления, а не по находке. Сама находка — факт без всяких догадок.
+Но правило сообщает **504 раза в 140 файлах** на проекте, который зелёный под всеми правилами уровня
+`error`. Переход на исправление — это миграция, которую проводят файл за файлом, как у
+[`prefer-render-shallow`](#prefer-render-shallow).
+:::
 
 ## no-overridden-provider {#no-overridden-provider}
 
-**`error`** · подсказка (только для дублей) · только синтаксис
+**`error`** · подсказка (только для дубликатов) · только синтаксис
 
-**Что сообщает.** Провайдер, которого похоронил более поздний провайдер того же токена — в том же
-массиве либо из вызова `TestBed.overrideProvider` в той же сюите. Четыре сообщения, потому что
-половины собранных данных — не один и тот же дефект.
-
-**На чём решает.** На одном проходе массива справа налево, потому что Angular оставляет последний
-провайдер: первая встреченная регистрация токена — выживший, а всё встреченное после мертво и знает,
-кто его похоронил. Токен, зарегистрированный трижды, даёт отчёты на первые два. Токены сравниваются
-как исходный текст — два написания одного токена были бы пропущены, а одно написание двух токенов
-дало бы ложное срабатывание, и ни того ни другого в массиве `providers` не бывает: там токен
-записывают один раз, по имени, рядом с дублем, за который он стоит. Регистрациями считаются обе формы:
-объект с ключом `provide` и вызов `provideAutoSpy` / `provideAutoSpyForToken`.
-
-Какое сообщение — зависит от того, как эти двое соотносятся:
-
-- **`duplicateProvider`** — записаны одинаково. Удаление более раннего не может изменить поведение,
-  потому что Angular его и так игнорировал, поэтому это единственная форма с правкой (подсказка, а
-  не фикс: удаление строки из массива `providers` — не то, что стоит обнаруживать в диффе).
-- **`overriddenByBarerProvider`** — выживший настроен _беднее_. Настройка считается по записям объекта
-  опций, а не как одна вещь, поэтому `provideAutoSpy(A, { gettersToSpyOn, instanceMethodsToSpyOn })`
-  даёт 2 против 0 у голого вызова. Удалить здесь за вас ничего нельзя, потому что весь вопрос как раз
-  в том, какой из двух оставить.
-- **`noOverriddenProvider`** — два разных провайдера, и побеждает более поздний.
-- **`overriddenByTestBedOverride`** (5.5.0) — похороненный провайдер выжил в своём массиве, а затем
-  его заменяет `TestBed.overrideProvider` на тот же токен. Порядок не читается вовсе: override
-  побеждает провайдер модуля всегда, когда выполняется, и именно поэтому вопрос решается по исходнику.
-
-**Ветка override сознательно узкая, и каждое условие заслужило место на файлах самого потребителя.**
-Две половины никогда не лежат в одном выражении — регистрация внутри `configureTestingModule`,
-override — отдельный или цепочечный вызов после неё, — поэтому они собираются по файлу и
-сопоставляются в конце, по трём условиям:
-
-- **та же сюита, сравниваемая по тождеству.** Override внутри вложенного `describe` заменяет провайдер
-  только для тестов этого блока, поэтому регистрация в объемлющей сюите — по-прежнему то, что получают
-  все остальные тесты, и она не мертва. У потребителя есть ровно такая форма.
-- **override должен быть написан там, куда попадает каждый тест сюиты** — прямо в `beforeEach` /
-  `beforeAll`. Один файл регистрирует три токена и перекрывает каждый из них хелпером, который
-  вызывают три теста из тридцати четырёх, а для остальных тридцати одного работала регистрация.
-- **не массив `providers` под декоратором** — такой принадлежит компоненту, объявленному в спеке, а не
-  тестовому модулю. Дотянуться до провайдера уровня компонента — задокументированное применение
-  `overrideProvider`, а не дефект.
-
-Сюита, вызывающая `TestBed.resetTestingModule()`, исключена целиком — по той же причине, по которой её
-исключает [`no-inject-before-override`](#no-inject-before-override), — а регистрация, которую массив
-похоронил сам, сообщается один раз, а не два.
-
-`multi: true` исключён, и иначе быть не может: Angular multi-провайдеры **накапливает**, а не
-оставляет последний, поэтому спеке, проверяющей, что два хука `BEFORE_INIT` выполняются в порядке
-регистрации, нужны оба, и любой отчёт гасился бы только disable над работающим тестом. `multi`
-читается как «присутствует и не написан как `false`», поэтому неразрешимый флаг (`multi: isFeatureOn`)
-считается multi: пропущенный отчёт не стоит ничего, ложный стоит комментария-disable. Смешение двух
-режимов на один токен по-прежнему сообщается, потому что Angular отказывает такой паре в рантайме:
-`Cannot mix multi providers and regular providers`.
-
-**Находка и как её закрыть.**
+Сообщает о провайдере, которого заменяет более поздний провайдер того же токена. Замена бывает в том
+же массиве или через `TestBed.overrideProvider` в том же наборе тестов. Angular оставляет
+**последний** провайдер токена, поэтому более ранний не выполняется никогда. Спека при этом проверяет
+подмену, которой у неё нет.
 
 ```ts
 providers: [
-  provideAutoSpy(DisplaySettingsService), // ❌ никогда не выполнится
-  { provide: DisplaySettingsService, useValue: mockDisplaySettings }, // вот что выдаёт DI
+  provideAutoSpy(DisplaySettingsService), // ❌ никогда не выполняется
+  { provide: DisplaySettingsService, useValue: mockDisplaySettings }, // вот что отдаёт DI
 ];
 ```
 
 ```ts
-providers: [provideAutoSpy(DisplaySettingsService)]; // оставить один
+providers: [provideAutoSpy(DisplaySettingsService)]; // ✅ оставьте один
 ```
 
-**Зачем это в `recommended`.** Обе половины такой пары вводят в заблуждение, в противоположные
-стороны. Автор считает, что у него автоспай, и пишет проверки под него — `calledWith`, метод, который
-есть у класса и которого нет у рукописного объекта, — тогда как в DI попал рукописный дубль. А тот,
-кто придёт переводить рукописный дубль, увидит рядом `provideAutoSpy` и решит, что работа сделана. В
-одном спек-файле так были зарегистрированы сразу двумя способами восемь токенов. Вердикт зависит от
-остального файла — поэтому правило полезнее рантайм-проверки: прочитайте токен через `injectSpy`, и
-прогон красный с [диагностикой, называющей причину](/ru/adapters/angular); прочитайте через
-`TestBed.inject` и проверяйте против рукописного дубля — а именно так и было сделано в файле, из
-которого выросло правило, — и всё проходит, пока стоящий выше `provideAutoSpy` ни разу не выполнился.
+**Опции.** Нет.
 
-**Границы.** По одному массиву за раз плюс вызовы override той же сюиты. Токен, отданный и в
-`configureTestingModule`, и в собственных `providers` компонента, — другая задача, и инструмент для
-неё [`assertNoShadowedProviders`](/ru/adapters/angular-overrides). Массив `providers`, собранный
-конкатенацией, или токен, написанный в двух записях по-разному, не сравниваются. Ветка override читает
-только то, что сюита говорит лексически: override, до которого добираются через хелпер, не
-сопоставляется вовсе — это плата за то, чтобы в ветке не осталось единственного возможного ложного
-срабатывания.
+**Как исправить.** Сообщение говорит, какой у вас случай:
 
-**Severity.** `error`. Зелёный и неверный везде, где выживший дубль случайно отвечает, а ветка
-override достаточно тихая, чтобы заводиться на этом уровне: на 1759 спек-файлах одного потребителя —
-9 отчётов в 5 файлах, и каждый из них — настроенный `provideAutoSpy(X, { … })`, похороненный более
-бедным провайдером того же токена: спай, который спека настроила, — не тот, который она получила.
+- **`duplicateProvider`:** два провайдера записаны одинаково. Удалите более ранний: Angular и так его
+  игнорировал. Это делает подсказка. Сообщение называет токен и строку копии, которая выживает.
+- **`overriddenByBarerProvider`:** выживший настроен _беднее_, чем тот, кого он хоронит. Перенесите
+  настройку на выжившего провайдера или удалите выжившего. Здесь за вас ничего не удаляется, потому
+  что весь вопрос в том, какой оставить:
+
+  ```ts
+  providers: [
+    provideAutoSpy(AccountService, { gettersToSpyOn: ['plan'], instanceMethodsToSpyOn: ['refresh'] }),
+    provideAutoSpy(AccountService), // ← именно его отдаёт DI
+  ];
+  ```
+
+- **`noOverriddenProvider`:** два разных провайдера, побеждает более поздний. Оставьте тот, который
+  имеете в виду. Сообщение даёт строку победившего провайдера.
+- **`overriddenByTestBedOverride`:** провайдер заменяет `TestBed.overrideProvider` для того же токена.
+  Удалите регистрацию или переопределение.
+
+**Когда выключить.** О провайдерах с `multi: true` правило не сообщает никогда: Angular собирает их
+все, а не оставляет последний. Не сообщает оно и о переопределениях во вложенном `describe`, о
+переопределениях из хелпера и о `providers` уровня компонента (см. ниже).
+
+::: details Как правило решает
+**Один проход массива справа налево.** Angular оставляет последний провайдер. Значит, первая
+встреченная регистрация токена выживает, а всё встреченное после неё мертво. Токен, зарегистрированный
+трижды, даёт отчёты на первые два. Регистрацией считаются обе формы: объект с ключом `provide` и вызов
+`provideAutoSpy` / `provideAutoSpyForToken`.
+
+**Токены сравниваются как исходный текст.** В массиве `providers` токен пишут один раз, по имени,
+рядом с его подменой. Два написания одного токена были бы пропущены, а одно написание двух токенов
+дало бы ложный отчёт. На практике не бывает ни того, ни другого.
+
+**«Беднее» считается по записям опций.** `provideAutoSpy(A, { gettersToSpyOn, instanceMethodsToSpyOn })`
+даёт 2 против 0 у голого вызова.
+
+**Случай `TestBed.overrideProvider`.** Регистрация лежит внутри `configureTestingModule`, а
+переопределение — более поздняя инструкция. Поэтому правило собирает обе половины по файлу и
+сопоставляет их в конце. Порядок не читается: переопределение побеждает провайдер модуля всегда, когда
+выполняется. Случай держат узким три условия, и каждое понадобилось на реальном проекте:
+
+- **Тот же набор тестов, сравнение по тождеству.** Переопределение внутри вложенного `describe`
+  заменяет провайдер только для этого блока. Все остальные тесты по-прежнему получают регистрацию.
+- **Переопределение написано прямо в `beforeEach` / `beforeAll`,** так что до него доходит каждый тест
+  набора. Один файл переопределяет три токена из хелпера, который вызывают 3 из 34 тестов. Для
+  остальных 31 работала регистрация.
+- **Не массив `providers` под декоратором.** Такой массив принадлежит компоненту, объявленному в
+  спеке. Дотянуться до провайдера уровня компонента — задокументированное применение
+  `overrideProvider`.
+
+Набор тестов, который вызывает `TestBed.resetTestingModule()`, исключён, как и в
+[`no-inject-before-override`](#no-inject-before-override). О регистрации, которую уже похоронил
+массив, правило сообщает один раз, а не два.
+
+**`multi: true`.** Angular **накапливает** multi-провайдеры, поэтому второй такой — не
+переопределение:
+
+```ts
+providers: [
+  { provide: BEFORE_INIT, useValue: first, multi: true },
+  { provide: BEFORE_INIT, useValue: second, multi: true }, // выполняются оба, в этом порядке
+];
+```
+
+Спеке, которая проверяет, что хуки выполняются в порядке регистрации, нужны оба. `multi` читается как
+«присутствует и не записан как `false`». Поэтому флаг, который правило не может разрешить
+(`multi: isFeatureOn`), считается multi. Пропущенный отчёт ничего не стоит, а ложный стоит
+комментария-disable над правильным кодом. Смешение двух режимов на одном токене по-прежнему
+сообщается: Angular отвергает такую пару во время выполнения с
+`Cannot mix multi providers and regular providers`.
+
+**Почему оно в recommended.** Обе половины пары вводят в заблуждение. Автор верит, что там автоспай, и
+пишет проверки под него (`calledWith`, метод, который есть у класса и нет у рукописного объекта). А DI
+отдаёт рукописный объект. Тот, кто потом переводит этот объект, видит рядом `provideAutoSpy` и
+считает, что работа сделана. Один файл спеки регистрировал восемь токенов сразу обоими способами.
+Результат зависит от остального файла. Прочитайте токен через `injectSpy` — и прогон красный, с
+[диагностикой, которая называет причину](/ru/adapters/angular). Прочитайте его через
+`TestBed.inject` и проверяйте рукописную подмену — и всё проходит, хотя `provideAutoSpy` так и не
+выполнился.
+
+Первые данные с реальных проектов (20 отчётов на рабочем пространстве из 8 673 файлов) разделились
+надвое. Большинство были буквальными дубликатами. Остальные хоронили настроенный провайдер под более
+бедным. Поэтому сообщения и разделены.
+
+**Границы.** Один массив за раз плюс вызовы переопределения в том же наборе тестов. Токен, который
+предоставлен в `configureTestingModule` и ещё раз в собственных `providers` компонента, — другая
+проблема. Её решает [`assertNoShadowedProviders`](/ru/adapters/angular-overrides). Массив `providers`,
+собранный конкатенацией, и токен, записанный в двух записях по-разному, не сравниваются.
+Переопределение, до которого доходят через хелпер, не сопоставляется. Так этот случай остаётся без
+ложных отчётов.
+
+**Почему правка дубликата — подсказка.** Прогон, который без присмотра удаляет строки массива
+`providers`, — не то, что хочется обнаружить в диффе.
+
+**Серьёзность.** `error`. Тест зелёный и неверный везде, где выжившая подмена случайно отвечает. На
+одном проекте из 1759 файлов спек случай с переопределением сообщается 9 раз в 5 файлах. Каждый раз
+это настроенный `provideAutoSpy(X, { … })`, похороненный под более бедным провайдером того же токена.
+:::
 
 ## no-inject-before-override {#no-inject-before-override}
 
-**`error`** · без правки · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Что сообщает.** Вызов, инстанцирующий тестовый модуль, записанный в `beforeAll` или `beforeEach`, в
-сюите, которая ещё зовёт что-то из `TestBed.override*`.
-
-**На чём решает.** На пяти написаниях инстанцирования и шести написаниях переопределения — и на
-вопросе, который намеренно **не зависит от порядка**. Инстанцируют: `TestBed.inject`,
-`TestBed.createComponent`, `TestBed.runInInjectionContext` и — уже от этого пакета — голые
-`injectSpy(…)` и `renderShallow(…)`. Отсутствие последних двух и держало правило молчащим ровно на том
-файле, который остальной плагин только что переписал: `injectSpy` в `beforeEach` над
-`TestBed.overrideComponent`, падающий в рантайме и не сообщаемый ничем. Переопределяют:
-`overrideComponent`, `overrideDirective`, `overrideModule`, `overridePipe`, `overrideProvider`,
-`overrideTemplateUsingTestingModule`.
-
-Лексический порядок — не порядок выполнения: `override*`, записанный выше хука, внутри хелпера,
-который зовут тесты, всё равно выполняется после него. Поэтому спрашивается «переопределяет ли эта
-сюита хоть что-нибудь», с единственным исключением, которое видно из исходника: `override*` в том же
-теле хука, _перед_ инъекцией, действительно выполняется раньше. Сюита, зовущая
-`TestBed.resetTestingModule()`, исключается сразу: это документированный способ вернуть модуль в
-исходное состояние, и спека, которая его использует, об этом уже подумала.
-
-**Находка и как её закрыть.**
+Сообщает о вызове, который создаёт тестовый модуль (`TestBed.inject()`, `injectSpy()`,
+`renderShallow()` и другие), внутри `beforeAll` или `beforeEach`. Речь о наборе тестов, который ещё и
+вызывает `TestBed.override*`. Как только модуль создан, каждый `override*` бросает ошибку.
 
 ```ts
 beforeEach(() => {
   TestBed.configureTestingModule({ providers: [provideAutoSpy(Api)] });
-  asSpy(TestBed.inject(Api)).load.mockReturnValue(of(page)); // ❌ модуль уже инстанцирован
+  asSpy(TestBed.inject(Api)).load.mockReturnValue(of(page)); // ❌ модуль уже создан
 });
 
 it('renders', () => {
-  TestBed.overrideComponent(CartPage, { set: { imports: [] } }); // бросает
+  TestBed.overrideComponent(CartPage, { set: { imports: [] } }); // бросает ошибку
 });
 ```
 
@@ -2785,109 +3604,151 @@ beforeEach(() => {
 
 it('renders', () => {
   TestBed.overrideComponent(CartPage, { set: { imports: [] } });
-  injectSpy(Api).load.mockReturnValue(of(page)); // настраиваем после всех переопределений
+  injectSpy(Api).load.mockReturnValue(of(page)); // ✅ настроен после всех переопределений
 });
 ```
 
-**Зачем это в `recommended`.** Это ловушка, в которую заводит остальной плагин, и в этом весь
-аргумент за отдельное правило. Рукописный `{ provide: X, useValue: { m: vi.fn(() => 1) } }`
-настраивает свои возвраты прямо в литерале; замените его на `provideAutoSpy(X)`, как просит
-[`prefer-provide-auto-spy`](#prefer-provide-auto-spy), и класть их станет некуда — строка уезжает в
-`beforeEach`, и каждый `override*` в файле перестаёт работать с
-`Cannot override provider when the test module has already been instantiated`. Найдено дважды
-независимо, один раз — на шестнадцати тестах сразу, и оба раза после переезда.
+**Опции.** Нет.
 
-**Границы.** Независимость от порядка означает, что правило сообщит и о сюите, где порядок случайно в
-порядке, — например `override*` внутри хелпера, который зовут только из теста, сбрасывающего модуль
-раньше. Ленивый доступ (`const api = () => injectSpy(Api)`) переносит инстанцирование в первый тест и
-гасит правило честно. Селектор `injectSpy` ловит только голого callee, поэтому `injectSpy(moduleRef, token)`
-на два аргумента из `vitest-auto-spy/nestjs`, который до TestBed не дотягивается, в отчёт не попадёт.
+**Как исправить.** Два способа, оба есть в сообщении:
 
-**Severity.** `error`. Красно, а сообщение называет переопределение, а не хук, который его сломал.
+- Настройте спай внутри теста, после всех переопределений, как выше.
+- Сделайте доступ ленивым, чтобы модуль создавался в первом тесте:
+  `const api = () => injectSpy(Api);`.
+
+**Когда выключить.** Правило не читает порядок. Поэтому оно сообщает и о наборе тестов, где порядок
+случайно в порядке. Пример — `override*` в хелпере, который вызывается только из теста, сначала
+сбрасывающего модуль. Ленивый доступ выше глушит правило честно.
+
+::: details Как правило решает
+**Что создаёт модуль:** `TestBed.inject`, `TestBed.createComponent`,
+`TestBed.runInInjectionContext`, а также голые `injectSpy(…)` и `renderShallow(…)` этого пакета.
+**Что переопределяет:** `overrideComponent`, `overrideDirective`, `overrideModule`, `overridePipe`,
+`overrideProvider`, `overrideTemplateUsingTestingModule`, а также `overrideComponentProvider` этого
+пакета, который сводится к `TestBed.overrideProvider`.
+
+**Почему порядок не читается.** Порядок в коде — не порядок выполнения. `override*`, записанный выше
+хука внутри хелпера, который вызывают тесты, всё равно выполняется после хука. Поэтому правило
+спрашивает: «переопределяет ли этот набор тестов хоть что-то?» Одно исключение видно из исходника.
+`override*` в том же теле хука, _до_ инъекции, действительно выполняется раньше. Набор тестов,
+который вызывает `TestBed.resetTestingModule()`, исключён: это задокументированный способ сбросить
+модуль.
+
+**Внутри `beforeCreate` у `renderShallow` порядок читается,** потому что этот хук выполняется сверху
+вниз до создания компонента. `injectSpy` выше `overrideComponentProvider` (или любого
+`TestBed.override*`) в том же `beforeCreate` получает отдельное сообщение, где бы ни стоял рендер.
+Переопределение внутри собственного `beforeCreate` рендера выполняется раньше, чем рендер что-либо
+создаёт.
+
+**Границы.** Проверка `injectSpy` ловит только голый вызов. Поэтому `injectSpy(moduleRef, token)` с
+двумя аргументами из `vitest-auto-spy/nestjs`, который не трогает `TestBed`, не сообщается.
+
+**Почему оно в recommended.** Переход на `provideAutoSpy` приводит прямо сюда. Рукописный
+`{ provide: X, useValue: { m: vi.fn(() => 1) } }` задавал возвраты прямо в литерале. Замените его на
+`provideAutoSpy(X)`, как просит [`prefer-provide-auto-spy`](#prefer-provide-auto-spy), — и класть их
+станет некуда. Строка уезжает в `beforeEach`, и каждый `override*` в файле падает с
+`Cannot override provider when the test module has already been instantiated`. Это касается и
+переопределения, записанного _выше_ этой строки, внутри хелпера `createComponent`, который вызывают
+тесты. Такое находили дважды после переездов, один раз сразу на шестнадцати тестах.
+
+**Серьёзность.** `error`. Прогон красный, а его сообщение называет переопределение, а не хук, который
+всё сломал.
+:::
 
 ## no-dead-schemas {#no-dead-schemas}
 
-**`error`** · без правки · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Что сообщает.** Запись `schemas` в литерале `TestBed.configureTestingModule({ … })` в файле, чьи
-конфигурации ничего не объявляют.
-
-**На чём решает.** На **файле**, а не на вызове. Angular склеивает подряд идущие вызовы
-`configureTestingModule` до инстанцирования модуля, поэтому `schemas` в одном хуке и `declarations` в
-другом — это живая схема, записанная в две инструкции; правило собирает все литеральные конфигурации
-и молчит по всему файлу, как только хоть одна из них что-то объявляет. Список, который он не может
-посчитать — спред, имя, вызов хелпера, — читается как _присутствующий, а не пустой_, потому что «не
-могу посчитать» обязано означать «там что-то есть»: иначе получится отчёт о живой схеме только
-потому, что объявления приехали через переменную. Читается только `TestBed.configureTestingModule` с
-объектным литералом.
-
-`TestBed.overrideComponent` и `overrideModule` вне правила целиком, и это решение, закреплённое
-тестами. Схема, добавленная там, компенсирует настоящее удаление, сделанное спекой намеренно, и её
-изъятие ломает компиляцию шаблона. Проверено по одной сюите: из 41 спеки, где вызов переопределения
-соседствует со схемой, правило не сообщает ни об одном блоке переопределения. Точно так же
-`remove: { imports: … }` **не** читается как «этот файл что-то объявляет» — в каждом таком файле
-схема уровня модуля тоже была мертва, и её удаление оставило спеки зелёными.
-
-**Находка и как её закрыть.**
+Сообщает о `schemas` в `TestBed.configureTestingModule({ … })`, когда файл не объявляет ни одного
+компонента. Схема действует только на `declarations` модуля. У standalone-компонента, подключённого
+через `imports`, своя область видимости, поэтому схема не действует ни на что.
 
 ```ts
 await TestBed.configureTestingModule({
-  imports: [FooterComponent], // standalone — несёт свой собственный scope
-  schemas: [NO_ERRORS_SCHEMA], // ❌ не относится ни к чему
+  imports: [FooterComponent], // standalone, несёт свою область видимости зависимостей
+  schemas: [NO_ERRORS_SCHEMA], // ❌ не действует ни на что
 }).compileComponents();
 ```
 
 ```ts
 await TestBed.configureTestingModule({
-  imports: [FooterComponent],
+  imports: [FooterComponent], // ✅
 }).compileComponents();
-// затем положить недостающую директиву в imports самого standalone-компонента
-// либо отрендерить его через createDirectiveHost({ template, scope: [...] })
+// затем добавьте недостающую директиву в imports самого standalone-компонента
+// или отрендерите её через createDirectiveHost({ template, scope: [...] })
 ```
 
-**Зачем это в `recommended`.** Схема — свойство `declarations` модуля. `NO_ERRORS_SCHEMA` говорит
-компилятору не жаловаться на неизвестные элементы в шаблонах тех компонентов, которые модуль
-_объявляет_; standalone-компонент, подключённый через `imports`, несёт свой scope, и схема до него не
-доходит. То есть ничего не заглушается — то, ради чего схему добавили, по-прежнему не разрешено, — и
-это не зелёный-и-неверный тест. Строка стоит **ложного ощущения защиты**: `NO_ERRORS_SCHEMA` — самый
-частый способ убрать `NG8001`, поэтому спека с ним читается как «неизвестные элементы здесь
-извинены» всеми, кто её открывает, а в день, когда кто-то добавит `declarations`, та же строка начнёт
-работать, и опечатка в шаблоне тихо перестанет быть ошибкой. Замерено по одной Angular-сюите: из 333
-файлов, упоминающих схему, **230 записей в 204 файлах** мертвы.
+**Опции.** Нет.
 
-Это статический двойник [`enableAngularDiagnostics({ deadSchemas })`](/ru/adapters/angular-diagnostics),
-и оба стоят того, чтобы быть. Диагностика знает больше — она видит, что запись в `imports`
-действительно standalone-компонент, — но бросает внутри `it()`, поэтому сюита выдаёт свой список по
-одному красному прогону за раз. Правило читает один объект и выдаёт все 204 файла сразу, а из этого и
-планируют уборку.
+**Как исправить.** Удалите запись `schemas`. Если что-то не разрешалось, добавьте недостающую
+директиву в собственные `imports` standalone-компонента или отрендерите её через
+`createDirectiveHost`. Импорт `NO_ERRORS_SCHEMA` удаляйте, только если в файле он больше нигде не
+используется. Затем прогоните файл: зелёного линта мало (см. ниже).
 
-**Границы.** Автофикса здесь нет намеренно, и это как раз то правило, где это важнее всего.
-Применённое к одной сюите, оно вычистило **85 файлов и 107 записей, не уронив ни одной спеки** — это
-и есть та точность, ради которой оно построено, — а единственная неверная правка оказалась
-неверной молча: строку `schemas:` внутри блока `overrideComponent` удалили вместе с той, о которой был
-отчёт, потому что обе читаются одинаково, и шесть тестов умерли на
-`NG0303: Can't bind to 'collapsed' since it isn't a known property`. Ни компилятору, ни ESLint
-сказать об этом было нечего. Убирайте импорт `NO_ERRORS_SCHEMA` только когда ничто в файле его больше
-не использует, и проверяйте прогоном, а не зелёным линтом.
+**Когда выключить.** Не нужно. Переопределения и так вне правила: о схеме, добавленной в
+`TestBed.overrideComponent` или `overrideModule`, правило не сообщает никогда.
 
-**Severity.** `error`. Находка — мёртвая строка, поэтому сегодня ничего не ломается; что она даёт —
-это уборка, спланированная один раз, а не обнаруживаемая по одной опечатке в шаблоне.
+::::: details Как правило решает
+**Решает файл, а не вызов.** Angular склеивает подряд идущие вызовы `configureTestingModule` до
+создания модуля. Поэтому `schemas` в одном хуке и `declarations` в другом — это одна живая
+конфигурация. Правило собирает все литеральные конфигурации и молчит по всему файлу, как только
+хоть одна из них что-то объявляет. Список, который нельзя посчитать (спред, имя, вызов хелпера),
+читается как _присутствующий_, а не пустой. Иначе живая схема попала бы в отчёт только потому, что
+объявления пришли через переменную. Читается только `TestBed.configureTestingModule` с объектным
+литералом.
+
+**Переопределения вне правила намеренно,** и тесты пакета это закрепляют. Схема, добавленная там,
+компенсирует удаление, которое спека сделала нарочно:
+
+```ts
+TestBed.overrideComponent(TicketQrCode, {
+  remove: { imports: [QRCodeComponent] }, // рисует на canvas; jsdom не умеет
+  add: { schemas: [NO_ERRORS_SCHEMA] }, // поэтому оставшийся элемент надо простить
+});
+```
+
+Уберите эту схему — и шаблон перестанет компилироваться. На одном проекте из 41 спеки, где вызов
+переопределения соседствует со схемой, правило не сообщает ни об одном блоке переопределения. У
+standalone-компонента живая схема проявляется как вмешательство в его собственные `imports`
+(`set: { imports: [] }`, `set: { imports: [MockThing] }`, `remove: { imports: [X] }`), а не как
+`declarations` модуля.
+
+`remove: { imports: … }` тоже **не** читается как «этот файл что-то объявляет». В каждом таком файле
+`schemas` уровня модуля тоже была мертва, и после её удаления спеки остались зелёными.
+
+**Почему оно в recommended.** Ничего не заглушается, так что это не зелёный и неверный тест: то,
+ради чего добавили схему, по-прежнему не разрешено. Цена — **ложное ощущение защиты**.
+`NO_ERRORS_SCHEMA` — самый частый способ убрать `NG8001`, поэтому спека с ней читается как
+«неизвестные элементы здесь прощены». В день, когда кто-то добавит `declarations`, та же строка
+заработает, и опечатка в шаблоне тихо перестанет быть ошибкой. На одном Angular-проекте из 333
+файлов, где упоминается схема, **230 записей в 204 файлах** мертвы.
+
+Это статический двойник
+[`enableAngularDiagnostics({ deadSchemas })`](/ru/adapters/angular-diagnostics#deadschemas).
+Диагностика знает больше: она видит, что запись в `imports` действительно standalone-компонент. Но
+она бросает ошибку внутри `it()`, поэтому список приходит по одному красному прогону за раз. Правило
+отдаёт все 204 файла сразу, а по такому списку и планируют уборку.
+
+::: warning Проверяйте удаление прогоном, а не зелёным линтом
+Автоисправления нет намеренно. На одном проекте правило вычистило **85 файлов и 107 записей, и ни одна
+спека не упала**. Единственная ошибочная правка ошиблась молча. Вместе с записью из отчёта удалили
+строку `schemas:` внутри блока `overrideComponent`, потому что обе строки выглядят одинаково. Шесть
+тестов упали на
+`NG0303: Can't bind to 'collapsed' since it isn't a known property of 'present-button'`. Ни
+компилятор, ни ESLint ничего не сказали.
+:::
+
+**Серьёзность.** `error`. Сегодня ничего не ломается. Правило позволяет спланировать уборку один раз,
+а не находить её по одной опечатке в шаблоне.
+:::::
 
 ## no-mistyped-use-value {#no-mistyped-use-value}
 
-**`error`** · без правки · **нужен `parserOptions.project`**
+**`error`** · без автоисправления · **нужен `parserOptions.project`**
 
-**Сообщает.** Объектный литерал с `provide` и `useValue`, где `provide` — это `InjectionToken<T>`,
-`T` примитивный, а значение не присваивается в `T`.
-
-**На чём решает.** На тайпчекере, и больше ни на чём. Тип токена должен называться
-`InjectionToken`; его первый аргумент типа считается примитивным, когда каждый член объединения —
-строка, число, boolean, bigint, enum, литерал одного из них, `null` или `undefined`. Дальше
-тайпчекер отвечает, присваивается ли в него тип значения. Без программы — нет
-`parserOptions.project` / `projectService` — или на TypeScript, чей тайпчекер не отдаёт
-`isTypeAssignableTo`, правило молчит, а не догадывается.
-
-**Находка и исправление.**
+Сообщает о `{ provide: TOKEN, useValue }`, когда `TOKEN` — это `InjectionToken` примитивного типа, а
+значение этому типу не подходит. Angular типизирует `useValue` как `any`, так что больше его ничто не
+проверяет.
 
 ```ts
 export const IS_PLATFORM_BROWSER = new InjectionToken<boolean>('IS_PLATFORM_BROWSER');
@@ -2896,83 +3757,92 @@ providers: [{ provide: IS_PLATFORM_BROWSER, useValue: {} }]; // ❌ компил
 providers: [{ provide: IS_PLATFORM_BROWSER, useValue: false }]; // ✅ значение того типа, что объявил токен
 ```
 
-Сообщение называет токен и оба типа — `IS_PLATFORM_BROWSER expects boolean, but useValue is {}`, —
-потому что исправление — это значение объявленного типа, а какое именно, решает спека.
+**Опции.** Нет. Правилу нужна информация о типах: `parserOptions.project` или `projectService`.
 
-**Зачем оно в recommended.** Angular типизирует `useValue` как `any`, так что его никто не сверяет с
-токеном, и всё, что инжектит токен, получает значение как есть. Объект там, где читается `boolean`,
-истинен: спека идёт по ветке, которую собиралась выключить, и всё равно проходит. Замер на
-Angular-монорепозитории: 259 провайдеров токенов примитивного типа в 179 файлах спек, 2 из них с
-неверным типом — оба этот самый `{}` для `boolean`-токена.
+**Как исправить.** Передайте значение объявленного типа. Сообщение называет токен и оба типа,
+например `IS_PLATFORM_BROWSER expects boolean, but useValue is {}`. Какое значение передать, решаете
+вы.
 
-**Границы.** Токены объектного типа не рассматриваются намеренно: их `useValue` обычно частичная
-фикстура, и типизированный инструмент для неё — `createMock<T>()`; отчёт на каждый такой был бы
-сотнями находок, которые никто не обязан переписывать. Их **ключи** проверяет
-[`no-unknown-use-value-key`](#no-unknown-use-value-key), который значения не сравнивает никогда. Токен-класс (`provide: SomeService`) остаётся
-за [`prefer-provide-auto-spy`](#prefer-provide-auto-spy). Читается только объектный литерал, так что
+**Когда выключить.** Не нужно. Токены объектного типа вне правила намеренно: их `useValue` обычно
+частичная фикстура, а типизированный инструмент для неё — `createMock<T>()`. Их **ключи** проверяет
+[`no-unknown-use-value-key`](#no-unknown-use-value-key), который никогда не сравнивает значения.
+Токен-класс (`provide: SomeService`) остаётся за
+[`prefer-provide-auto-spy`](#prefer-provide-auto-spy).
+
+::: details Как правило решает
+**Решает только тайпчекер.** Тип токена должен называться `InjectionToken`. Его аргумент типа
+считается примитивным, когда каждый член объединения — строка, число, boolean, bigint, enum, литерал
+одного из них, `null` или `undefined`. Дальше тайпчекер отвечает, присваивается ли в него тип
+значения. Без программы или на TypeScript, чей тайпчекер не отдаёт `isTypeAssignableTo`, правило
+молчит, а не гадает. Читается только объектный литерал, так что
 `TestBed.overrideProvider(TOKEN, { useValue })` не читается.
 
-**Severity.** `error`. Решает по факту — по ответу тайпчекера, что значение не подходит под
-объявленный тип. В `configs.typeErrors` его нет: `useValue` — это `any`, и находка компилируется.
+**Почему оно в recommended.** Всё, что инжектит токен, получает значение как есть. Объект там, где
+читается `boolean`, истинен. Спека идёт по ветке, которую собиралась выключить, и всё равно проходит.
+На одном Angular-монорепозитории нашлось 259 провайдеров токенов примитивного типа в 179 файлах спек.
+2 из них с неверным типом, и оба — этот самый `{}` для `boolean`-токена.
+
+**Серьёзность.** `error`. Правило решает по факту: тайпчекер говорит, что значение не подходит под
+объявленный тип. В `configs.typeErrors` его нет, потому что `useValue` — это `any` и находка
+компилируется.
+:::
 
 ## no-unknown-use-value-key {#no-unknown-use-value-key}
 
-**`error`** · без правки · **нужен `parserOptions.project`**
+**`error`** · без автоисправления · **нужен `parserOptions.project`**
 
-**Сообщает.** Каждый ключ объектного литерала в `useValue`, которого нет у предоставляемого типа, —
-у `T`, когда `provide` — это `InjectionToken<T>`, и у типа экземпляра, когда это класс.
-
-**На чём решает.** На тайпчекере, и только по ключам. Предоставляемый тип раскладывается на члены
-объединения; `null`, `undefined` и прочие примитивные члены отбрасываются, а ключ считается известным,
-если свойство с таким именем есть хотя бы у одного оставшегося члена (`getPropertyOfType` —
-приватные члены и члены `Object.prototype` считаются). **Значения не сравниваются никогда**: подходит
-ли `apiUrl: 42` под `string` — это широкая форма проверки, и её нет намеренно, потому что `useValue`
-обычно частичная фикстура.
-
-**Находка и исправление.**
+Сообщает о каждом ключе объектного `useValue`, которого нет у предоставляемого типа. Предоставляемый
+тип — это `T` для `InjectionToken<T>` или тип экземпляра для класса. Опечатанный или переименованный
+ключ остаётся в фикстуре, код читает настоящий член, а спека остаётся зелёной над фикстурой, которую
+никто не читает.
 
 ```ts
 providers: [{ provide: ActivatedRoute, useValue: { queryParams$: of({ id: '1' }) } }]; // ❌ такого члена нет
 providers: [{ provide: ActivatedRoute, useValue: { queryParams: of({ id: '1' }) } }]; // ✅ член, который читает код
 ```
 
-Сообщение называет ключ, предоставляемый тип и токен. Исправление — настоящее имя члена или удаление
-ключа; а там, где двойник с самого начала должен проверяться компилятором, это делают
-`provideAutoSpy(X, { overrides })`, `provideAutoSpyForToken(TOKEN, { … })` и `createMock<T>({ … })`.
+**Опции.** Нет. Правилу нужна информация о типах: `parserOptions.project` или `projectService`.
 
-**Зачем оно в recommended.** Angular типизирует `useValue` как `any`, так что ключи литерала ни с чем
-не сверяются: ключ, переименованный в продакшене или опечатанный в спеке, остаётся в фикстуре, код под
-тестом читает настоящий член, которого у двойника нет, и спека зелёная над фикстурой, которую никто не
-читает. В потребительской сюите на ~1 760 файлов спек около 870 объектных литералов `useValue` — 375 у
-провайдеров-классов и 495 у токенов. Ручной пересчёт 434 литералов для классов нашёл два ключа,
-которых у класса нет, один из них — `queryParams$` у `ActivatedRoute` под проходящей спекой. Проверка
-только ключей и держит правило на таком порядке находок, а не на сотнях, которые подняла бы проверка
-значений.
+**Как исправить.** Используйте настоящее имя члена или удалите ключ. Сообщение называет ключ,
+предоставляемый тип и токен. Чтобы компилятор проверял всю подмену, используйте
+`provideAutoSpy(X, { overrides })`, `provideAutoSpyForToken(TOKEN, { … })` или `createMock<T>({ … })`.
 
-**Границы.** Молчит там, где тип ничего не говорит о ключах: `any`, `unknown`, `object`, `{}`,
-примитивный токен (это забота [`no-mistyped-use-value`](#no-mistyped-use-value)), массив и любой член
-с индексной сигнатурой, в том числе с шаблонной. Спред не добавляет ключей в проверку, вычисляемый ключ
-пропускается, а провайдер с `multi: true` не трогается: значение тогда — один элемент того, что отдаёт
-токен. Читается только литерал, записанный прямо в `useValue`, — не литерал за именем, за `as` или в
-дескрипторе `TestBed.overrideProvider(X, { useValue })`. Без программы или на тайпчекере без
+**Когда выключить.** Не нужно. Правило молчит там, где тип ничего не говорит о ключах: `any`,
+`unknown`, `object`, `{}`, примитивный токен (это случай
+[`no-mistyped-use-value`](#no-mistyped-use-value)), массив и любой член с индексной сигнатурой, в том
+числе с шаблонной.
+
+::: details Как правило решает
+**Только ключи.** Предоставляемый тип раскладывается на члены объединения. `null`, `undefined` и
+прочие примитивные члены отбрасываются. Ключ считается известным, если свойство с таким именем есть
+хотя бы у одного оставшегося члена (`getPropertyOfType`; приватные члены и члены `Object.prototype`
+считаются). **Значения не сравниваются никогда.** Подходит ли `apiUrl: 42` под `string`, намеренно не
+проверяется: `useValue` обычно частичная фикстура.
+
+**Границы.** Спред не добавляет ключей в проверку, вычисляемый ключ пропускается. Провайдер с
+`multi: true` правило не трогает: его значение — один элемент того, что отдаёт токен. Читается только
+литерал, записанный прямо в `useValue`. Литерал за именем, за `as` или в дескрипторе
+`TestBed.overrideProvider(X, { useValue })` не читается. Без программы или на тайпчекере без
 `getPropertyOfType` / `getIndexInfosOfType` правило молчит.
 
-**Severity.** `error`. Решает по факту — по ответу тайпчекера, что такого члена у типа нет. В
-`configs.typeErrors` его нет: `useValue` — это `any`, и находка компилируется.
+**Почему оно в recommended.** В проекте примерно из 1 760 файлов спек около 870 объектных литералов
+`useValue`: 375 у провайдеров-классов и 495 у токенов. Ручной пересчёт 434 литералов для классов нашёл
+два ключа, которых у класса нет. Один из них — `queryParams$` у `ActivatedRoute`, под проходящей
+спекой. Проверка только ключей держит находки на таком уровне, а не на сотнях, которые дала бы
+проверка значений.
+
+**Серьёзность.** `error`. Правило решает по факту: тайпчекер говорит, что такого члена у типа нет. В
+`configs.typeErrors` его нет, потому что `useValue` — это `any` и находка компилируется.
+:::
 
 ## no-instance-lifecycle-spy {#no-instance-lifecycle-spy}
 
-**`warn`** · без правки · только синтаксис
+**`warn`** · без автоисправления · только синтаксис
 
-**Сообщает.** `vi.spyOn(target, hook)` или `jest.spyOn(target, hook)`, где `hook` — строковый литерал
-`ngOnInit`, `ngOnDestroy`, `ngDoCheck`, `ngAfterContentInit`, `ngAfterContentChecked`,
-`ngAfterViewInit` или `ngAfterViewChecked`, а `target` — не прототип.
-
-**На чём решает.** Только на вызове. `X.prototype` и `Object.getPrototypeOf(x)` в роли цели — это
-прототипы, их правило не трогает. `ngOnChanges` в списке нет: Angular вызывает его как
-`this.ngOnChanges(changes)`, и спай на инстансе до него доходит.
-
-**Находка и исправление.**
+Сообщает о `vi.spyOn(component, 'ngOnInit')` и о том же для других хуков жизненного цикла, когда цель
+— экземпляр. Angular вызывает хук, который прочитал с прототипа класса при создании компонента. Спай,
+поставленный на экземпляр позже, он не вызывает никогда. Поэтому проверка не пройдёт никогда, а
+заглушка никогда не выполнится.
 
 ```ts
 const fixture = TestBed.createComponent(CardComponent);
@@ -2988,120 +3858,221 @@ fixture.detectChanges();
 expect(init).toHaveBeenCalledTimes(1);
 ```
 
-А лучше проверять, что хук делает, а не то, что он вызвался.
+**Опции.** Нет.
 
-**Зачем оно в recommended.** Вью вызывает хук, который прочитала с прототипа класса компонента, когда
-компонент создавался, и никогда — свойство, которое спай ставит на инстанс потом. Поэтому
-`expect(component.ngOnInit).toHaveBeenCalled()` после `fixture.detectChanges()` не пройдёт никогда, а
-заглушка через `.mockImplementation` не выполнится: в одной сюите-потребителе настоящий `ngOnInit`
-продолжал работать под хуком, который спека считала заглушённым.
+**Как исправить.** Ставьте спай на прототип до создания компонента, как выше. А лучше проверяйте, что
+хук делает, а не то, что он вызвался.
 
-**Границы.** Спай на инстансе срабатывает, когда спека сама вызывает хук — `component.ngOnInit()`, а
-потом проверка спая, — и когда инжектор уничтожает **сервис**: его `ngOnDestroy` он зовёт на
-инстансе. По синтаксису одного файла их не отличить от спая на компоненте, который Angular не вызывает.
+**Когда выключить.** Спай на экземпляре работает в двух случаях. По одному файлу правило не может их
+отличить, поэтому оно `warn`:
 
-**Severity.** `warn` — из-за этих границ: правило решает по эвристике, а не по факту.
+- спека сама вызывает хук, `component.ngOnInit()`, а потом проверяет спай;
+- инжектор уничтожает **сервис** и вызывает его `ngOnDestroy` на экземпляре.
+
+Там используйте disable на одну строку.
+
+::: details Как правило решает
+**Только вызов.** Правило сообщает о `vi.spyOn(target, hook)` или `jest.spyOn(target, hook)`, когда
+`hook` — строковый литерал с именем `ngOnInit`, `ngOnDestroy`, `ngDoCheck`, `ngAfterContentInit`,
+`ngAfterContentChecked`, `ngAfterViewInit` или `ngAfterViewChecked`, а `target` — не прототип.
+`X.prototype` и `Object.getPrototypeOf(x)` — прототипы, их правило не трогает. `ngOnChanges` в списке
+нет: Angular вызывает его как `this.ngOnChanges(changes)`, и спай на экземпляре до него доходит.
+
+**Почему оно в recommended.** `expect(component.ngOnInit).toHaveBeenCalled()` после
+`fixture.detectChanges()` не пройдёт никогда, а заглушка через `.mockImplementation` никогда не
+выполнится. В одном проекте настоящий `ngOnInit` продолжал работать под хуком, который спека считала
+заглушённым.
+
+**Серьёзность.** `warn`: правило решает по догадке, а не по факту.
+:::
 
 ## no-compile-components {#no-compile-components}
 
 **`error`** · подсказка · только синтаксис · **молчит, пока нет `{ builder: 'inline-resources' }`**
 
-**Сообщает.** Каждый вызов `….compileComponents()` — на `TestBed`, на цепочке
-`configureTestingModule(…)`, на имени — как только опция говорит, что билдер проекта встраивает
-ресурсы компонентов.
-
-**На чём решает.** На опции, а дальше — только на вызове. Делает ли вызов что-нибудь — факт о
-**сборке**, а его не видно ни в одном файле спеки: `compileComponents()` существует, чтобы подтянуть
-`templateUrl` / `styleUrls` компонента во время прогона, так что под JIT-сборкой, которая читает эти
-файлы, когда тест уже идёт, он несущий, а под любым билдером, который встроил их заранее, — промис,
-который уже разрешён: тестовые билдеры Angular CLI, `jest-preset-angular`, прелоад
-[`bun-angular`](/ru/runtimes/bun-angular) этого пакета. Поэтому правило молчит, пока проект не скажет,
-какой билдер у него:
-
-```js
-'vitest-auto-spy/no-compile-components': ['error', { builder: 'inline-resources' }],
-```
-
-**Находка и исправление.**
+Сообщает о `compileComponents()`, когда ваш билдер уже встраивает шаблоны и стили компонентов. Вызов
+нужен, чтобы подтянуть `templateUrl` / `styleUrls` во время прогона. Под таким билдером он ничего не
+ждёт. Правило молчит, пока вы не зададите опцию.
 
 ```ts
 beforeEach(async () => {
-  await TestBed.configureTestingModule({ imports: [CardComponent] }).compileComponents(); // ❌ ждёт ничего
+  await TestBed.configureTestingModule({ imports: [CardComponent] }).compileComponents(); // ❌ ничего не ждёт
 });
 ```
 
 ```ts
 beforeEach(() => {
-  TestBed.configureTestingModule({ imports: [CardComponent] });
+  TestBed.configureTestingModule({ imports: [CardComponent] }); // ✅
 });
 ```
 
-Подсказка пишет ровно это: убирает вызов — всю инструкцию, когда перед ним остаётся только `TestBed`, —
-и `async` колбэка `beforeEach` / `beforeAll` / `afterEach` / `afterAll` / `it` / `test`, который больше
-ничего не ждёт. Предлагается она только там, где вызов стоит отдельной инструкцией; цепочка
-`.then(…)`, возвращённый или сохранённый промис и стрелка с телом-выражением сообщаются без правки,
-потому что каждый из них промисом пользуется.
+**Опции.**
 
-**Зачем оно в recommended.** Не ради скорости: на standalone AOT-стенде вызов стоит 0.005 мс. Ради
-того, что строка говорит следующему читателю: каждый хук, который её ждёт, читается как «эта спека
-грузит шаблоны во время прогона», а каждый `async`, который она вынуждает, делает синхронную
-настройку похожей на асинхронную. На Angular-сюите из 1759 файлов спек правило сообщает 449 вызовов
-в 411 файлах, для 435 из них — с правкой.
+| Опция              | Тип                  | По умолчанию | Смысл                                                                                          |
+| ------------------ | -------------------- | ------------ | ---------------------------------------------------------------------------------------------- |
+| `builder`          | `'inline-resources'` | не задана    | говорит, что билдер встраивает шаблоны и стили; без неё правило ни о чём не сообщает           |
+| `ignoreComponents` | `string[]`           | `[]`         | имена классов компонентов с блоком `@defer`; спека, которая называет один из них, пропускается |
 
-**Исключение `@defer`, которое правило сообщает и не умеет распознать.** Встроенные ресурсы — не
-единственное, что закрывает `compileComponents()`. Компонент, в шаблоне которого есть блок `@defer`,
-несёт **асинхронные метаданные класса**, и `TestBed` разрешает их в этом же вызове, что бы ни сделал
-билдер с шаблоном: убрать вызов — и тест падает уже на прогоне:
+```js
+'vitest-auto-spy/no-compile-components': ['error', { builder: 'inline-resources' }],
+```
+
+Встраивают ресурсы тестовые билдеры Angular CLI, `jest-preset-angular` и прелоад
+[`bun-angular`](/ru/runtimes/bun-angular) этого пакета. При JIT-настройке, которая читает файлы
+шаблонов во время прогона, вызов нужен. Там опцию не задавайте.
+
+**Как исправить.** Удалите вызов. Это делает подсказка. Она убирает вызов (всю инструкцию, если
+остаётся только `TestBed`). Ещё она убирает `async` у колбэка `beforeEach` / `beforeAll` /
+`afterEach` / `afterAll` / `it` / `test`, который больше ничего не ждёт. Подсказка предлагается
+только там, где вызов стоит отдельной инструкцией. Цепочка `.then(…)`, возвращённый или сохранённый
+промис и стрелка с телом-выражением получают отчёт без правки: каждый из них пользуется промисом.
+
+**Когда выключить.** Оставьте вызов для компонента, в шаблоне которого есть блок `@defer`. Такой
+компонент несёт **асинхронные метаданные класса**, и `TestBed` разрешает их именно в этом вызове, что
+бы билдер ни сделал с шаблоном. Без вызова тест падает:
 
 ```
 Error: Component 'BackgroundContentComponent' has unresolved metadata.
 Please call `await TestBed.compileComponents()` before running this test.
 ```
 
-Замерено на Angular-сюите из 1862 файлов спек: вызов есть в 410 из них, и после удаления всех этих
-вызовов сломался ровно этот класс файлов. В спеке этого не видно — `@defer` лежит в другом файле, в
-шаблоне компонента, а типы это правило не читает, — поэтому вызов там по-прежнему сообщается, и об
-исключении говорит само сообщение. Такой вызов оставляют с причиной на отдельной строке:
+Правило этого не видит: `@defer` лежит в шаблоне компонента, в другом файле. Перечислите такие
+компоненты в `ignoreComponents`. Это подходит и проекту, который запрещает disable-комментарии:
+
+```js
+'vitest-auto-spy/no-compile-components': ['error', { builder: 'inline-resources', ignoreComponents: ['CardComponent'] }],
+```
+
+Или оставьте один вызов с причиной:
 
 ```ts
 // eslint-disable-next-line vitest-auto-spy/no-compile-components -- @defer: async class metadata
 await TestBed.compileComponents();
 ```
 
-Сузить правило по форме вызова рассматривали и отказались: сломавшиеся файлы писали
-`await TestBed.compileComponents();` отдельной строкой, а не цепочкой от `configureTestingModule(…)`,
-но две записи — разница стиля, а не признак, и правило, пропускающее отдельную форму, перестало бы
-сообщать обычный лишний вызов и всё равно сообщало бы спеку с `@defer`, написанную цепочкой
-(`DECISIONS.md`, 2026-09-12).
+Если в проекте несколько билдеров, ограничьте опцию файлами, которые компилирует встраивающий билдер.
 
-**Границы.** Сюиту со смешанными билдерами — один проект встраивает, другой грузит во время прогона —
-правило не различает, так что опцию стоит ограничить файлами, которые собирает встраивающий билдер.
-Исключение с `@defer` выше оно тоже не видит. Без `await` следующая инструкция выполняется на
-микрозадачу раньше — поэтому правка подсказка, а не `--fix`, и поэтому текст самой подсказки называет
-исключение: массовая правка читает его, а не сообщение.
+::: details Как правило решает
+**Сначала опция, дальше только вызов.** Когда опция задана, правило сообщает о каждом вызове
+`….compileComponents()`: на `TestBed`, на цепочке `configureTestingModule(…)` или на имени. Делает ли
+вызов что-нибудь — это факт о **сборке**, а его не видно ни в одном файле спеки. Поэтому правило ждёт
+опцию, так же как правила с типами ждут программу.
 
-**Severity.** `error`, и по умолчанию бездействует: как три правила с типами ждут программу, так это
-ждёт билдер.
+**`ignoreComponents`.** Имя ищется как целое слово в любом месте спеки. Поэтому пропускается и файл,
+который импортирует компонент ради проверки чего-то другого. Список — для нескольких
+`@defer`-компонентов, а не каталог.
+
+**Почему не сужать по форме вызова.** В сломавшихся файлах оказался
+`await TestBed.compileComponents();` на отдельной строке, а не в цепочке после
+`configureTestingModule(…)`. Но это разница в стиле, а не довод. Правило, пропускающее отдельную
+форму, упустило бы обычный лишний вызов и всё равно сообщило бы о `@defer`-спеке, написанной цепочкой.
+
+**Почему оно в recommended.** Не ради скорости: на standalone AOT-стенде вызов стоит 0,005 мс. Ради
+того, что строка говорит следующему читателю. Каждый хук, который её ждёт, читается как «эта спека
+грузит шаблоны во время прогона». Каждый `async`, который она вынуждает, делает синхронную настройку
+похожей на асинхронную. На одном Angular-проекте из 1759 файлов спек правило сообщает о 449 вызовах в
+411 файлах, из них 435 с правкой. На другом, из 1862 файлов спек, `compileComponents()` вызывают 410
+файлов. Удаление всех вызовов сломало ровно `@defer`-файлы.
+
+**Почему подсказка, а не `--fix`.** Без `await` следующая инструкция выполняется на одну микрозадачу
+раньше. Кроме того, текст самой подсказки называет исключение `@defer`: при массовой правке читают
+этот текст, а не сообщение.
+
+**Серьёзность.** `error`, и по умолчанию правило молчит, пока вы не скажете, какой у вас билдер.
+:::
+
+## no-relative-mock-under-builder {#no-relative-mock-under-builder}
+
+**`error`** · без автоисправления · только синтаксис · опция `builder` · **молчит, пока файл не запускает билдер**
+
+Сообщает о `vi.mock('./x')` и родственных вызовах с относительным путём в спеке, которую запускает
+Angular-билдер `@angular/build:unit-test`. Билдер заставляет эти вызовы падать на любом пути,
+который начинается с `.` или `/`. Ни одна опция билдера этого не снимает.
+
+```ts
+vi.mock('./cart.service'); // ❌ The "vi.mock" and related methods are not supported for relative imports
+```
+
+```ts
+TestBed.configureTestingModule({ providers: [provideAutoSpy(CartService)] }); // ✅
+```
+
+**Опции.**
+
+| Опция     | Тип           | По умолчанию | Смысл                                                                                   |
+| --------- | ------------- | ------------ | --------------------------------------------------------------------------------------- |
+| `builder` | `'unit-test'` | не задана    | говорит, что эти спеки запускает билдер unit-test, когда правило не находит таргет само |
+
+```js
+'vitest-auto-spy/no-relative-mock-under-builder': ['error', { builder: 'unit-test' }],
+```
+
+**Как исправить.** Подменяйте зависимость через `TestBed`, а не через граф модулей:
+`provideAutoSpy(X)` в `providers` или `overrideComponentProvider(Component, CartService)` для
+собственного провайдера компонента. Подробнее —
+[Относительный путь заблокирован, и навсегда](/ru/guides/angular-unit-test-builder#a-relative-path-is-blocked-permanently).
+
+**Когда выключить.** Не нужно. Спека, которую запускает только `npx vitest`, может мокать
+относительный путь, и правило о ней не сообщает.
+
+::: details Как правило решает
+**Что сообщает:** `vi.mock`, `vi.doMock`, `vi.importMock`, `vi.unmock` или `vi.doUnmock` (на `vi` или
+`vitest`) со спецификатором, который начинается с `.` или `/`. Спецификатор может быть строкой,
+статическим шаблонным литералом или `import('…')`.
+
+**Запускает ли файл билдер.** Правило ищет так же, как
+[`no-redundant-mock-reset`](#no-redundant-mock-reset). Оно ищет таргет `@angular/build:unit-test` или
+`@nx/angular:unit-test` в `angular.json`, `workspace.json`, `project.json` или в `targetDefaults`
+файла `nx.json`. Проект таргета должен содержать линтуемый файл. Если таргет не найден, правило
+ничего не сообщает. Если поиск не видит ваш воркспейс, задайте `{ builder: 'unit-test' }`.
+
+**Границы.** Алиас путей из tsconfig (`@app/cart`) проходит мимо проверки билдера: падения нет, а мок
+молча игнорируется. Мимо этого правила он тоже проходит: правило не читает `paths`.
+
+**Почему оно в recommended.** Строка падает при сборе файла, и ничто не снимает эту защиту.
+
+**Серьёзность.** `error`. Там, где правило сообщает, падает собственный патч билдера.
+:::
+
+## no-disabled-testbed-teardown {#no-disabled-testbed-teardown}
+
+**`error`** · без автоисправления · только синтаксис
+
+Сообщает о `destroyAfterEach: false`. С выключенным teardown фикстура переживает свой тест.
+`ngOnDestroy` не выполняется никогда, подписки и таймеры продолжают срабатывать в следующих тестах, а
+DOM и память растут вместе с прогоном.
+
+```ts
+getTestBed().initTestEnvironment(BrowserTestingModule, platformBrowserTesting(), {
+  teardown: { destroyAfterEach: false }, // ❌
+});
+```
+
+```ts
+getTestBed().initTestEnvironment(BrowserTestingModule, platformBrowserTesting()); // ✅ значение Angular по умолчанию
+```
+
+**Опции.** Нет.
+
+**Как исправить.** Удалите строку: `true` — значение Angular по умолчанию с v13. Потом почините
+упавшие тесты: они читали остатки предыдущего теста.
+
+**Когда выключить.** Не нужно. Учтите: конфиг, ограниченный `**/*.spec.ts`, не линтит ваш
+setup-файл. Добавьте setup-файл в `files` этого правила.
+
+::: details Как правило решает
+Правило сообщает о `destroyAfterEach: false`, где бы он ни был записан: в `initTestEnvironment` в
+setup-файле или в `teardown` одного `configureTestingModule`. Ключ в кавычках тоже считается.
+
+**Серьёзность.** `error`. Улика — сам литерал, и обычно это одна строка на проект.
+:::
 
 ## no-sync-testbed-await {#no-sync-testbed-await}
 
 **`error`** · подсказка · только синтаксис
 
-**Что сообщает.** `await` перед вызовом TestBed, который отвечает самим TestBed или фикстурой, а не
-промисом: `configureTestingModule`, `overrideComponent`, `overrideDirective`, `overrideModule`,
-`overridePipe`, `overrideProvider`, `overrideTemplate`, `overrideTemplateUsingTestingModule`,
-`resetTestingModule`, `createComponent`, `getLastFixture`. Получателем может быть `TestBed`,
-`getTestBed()`, цепочка этих же членов или имя, которое файл сводит к одному из них.
-
-**На чём решает.** На имени члена и на сигнатурах самого Angular за ним: те девять возвращают
-`TestBed`, из-за чего вызовы и складываются в цепочку, а два других — `ComponentFixture`. Ничего
-thenable там нет, поэтому типы не нужны и правило сообщает в проекте, где программа не подключена
-вовсе. Цепочка разбирается по звеньям, а не по первому токену: звеном считается только член, который
-Angular объявляет возвращающим `TestBed`. `TestBed.inject(Api).createComponent(x)` тоже начинается с
-`TestBed`, и правило, читающее только корень, сообщало бы про метод чужого коллаборатора, которому
-просто досталось то же имя.
-
-**Находка и починка.**
+Сообщает об `await` перед вызовом TestBed, который возвращает сам TestBed или фикстуру, а не промис.
+Такой `await` ничего не ждёт. Зато следующий читатель идёт искать асинхронную настройку, которой нет.
 
 ```ts
 beforeEach(async () => {
@@ -3111,92 +4082,74 @@ beforeEach(async () => {
 
 ```ts
 beforeEach(() => {
-  TestBed.configureTestingModule({ imports: [CardComponent] });
+  TestBed.configureTestingModule({ imports: [CardComponent] }); // ✅
 });
 ```
 
-Подсказка пишет ровно это: убирает `await`, а вместе с ним `async` у колбэка `beforeEach` /
-`beforeAll` / `afterEach` / `afterAll` / `it` / `test`, которому после этого нечего ждать. Обе
-половины — потому что половина правки оставляет хук, который по-прежнему заявляет асинхронную
-настройку.
+**Опции.** Нет.
 
-**Зачем оно в recommended.** Потому что эта форма прячется за вызовом, который промис действительно
-возвращал. Замерено на Angular-сюите из 1862 спек-файлов: `no-compile-components` убрал 448 вызовов
-`compileComponents()` из 410 файлов, и снизу обнажились 18 `await` на значении, которое промисом
-никогда не было, и 33 хука, оставшихся `async` без единого ожидания. Всё это лежало там и раньше.
-Цена — не микрозадача, а то, что каждый следующий читатель принимает `await` за доказательство
-асинхронной настройки и идёт искать, чего именно она ждёт.
+**Как исправить.** Уберите `await`, а также `async` у колбэка, если ему больше нечего ждать.
+Подсказка делает и то и другое для `beforeEach` / `beforeAll` / `afterEach` / `afterAll` / `it` /
+`test`. Если убрать только `await`, хук по-прежнему выглядит асинхронным.
 
-Потом правило прогнали по тому же потребителю дважды. По его последнему коммиту — 1759 спек-файлов,
-411 из которых ещё зовут `compileComponents()` — оно сообщает **14 раз в 10 файлах**, и у каждого есть
-правка: `await TestBed.resetTestingModule()` и цепочки `configureTestingModule(…)`, которые кончаются
-не промисом, а `overrideComponent` или `overrideProvider`. По тому же дереву, где 448 вызовов убраны,
-а стоявшие за ними `await` починены, оно не сообщает **ничего** — это вторая половина замера: ни
-одного ложного срабатывания на 1759 файлах ни там, ни там.
+Эти вызовы TestBed действительно возвращают промис и сохраняют свой `await`: `compileComponents()`, а
+на фикстуре — `whenStable()`, `whenRenderingDone()` и `getDeferBlocks()`.
 
-**Это не то же сообщение, что у `@typescript-eslint/await-thenable`, и оно приходит без программы.**
-Штатное правило говорит «Unexpected `await` of a non-Promise (non-"Thenable") value» и оставляет
-читателю выяснять, почему вызов TestBed им не является; ему ещё и нужен `parserOptions.project`,
-который есть не у всех сюит, на которых мерялся этот плагин. Включите оба — получите два сообщения на
-одной строке и в одной колонке (замерено на форме выше), и любое отключается одной строкой конфига.
-Различается правка: штатная подсказка убирает `await` и на этом останавливается, хук остаётся `async`,
-и `@typescript-eslint/require-await` сообщает о нём уже на **следующем** прогоне. До этого он молчит:
-`require-await` спрашивает, есть ли внутри `async`-функции выражение `await`, — а оно есть, просто
-ждёт пустоту.
+**Когда выключить.** Не нужно. О `TestBed.inject(TOKEN)` и `TestBed.runInInjectionContext(fn)`
+правило не сообщает никогда. Каждый возвращает то, что держит токен или колбэк, а это может быть
+промис.
 
-**Границы.** `TestBed.inject(TOKEN)` и `TestBed.runInInjectionContext(fn)` сознательно не сообщаются:
-каждый отвечает тем, что лежит в токене или что вернёт колбэк, а это может быть промис — в той же
-сюите четыре вызова `await TestBed.inject(…)` ждут его по-настоящему. Решать такое умеет только
-тайпчекер, и это работа `await-thenable`. Получателя, которого файл не сводит ни к чему одному — имя с
-двумя присваиваниями, возврат хелпера, — правило оставляет в покое, а не угадывает. И колбэк, у
-которого подсказка снимает `async`, сохраняет явную аннотацию `: Promise<void>`, если она была, —
-после чего не компилируется; это та же правка, что предлагает `no-compile-components`, и та же
-причина, по которой обе подсказки, а не `--fix`.
+::: details Как правило решает
+**Вызовы:** `configureTestingModule`, `overrideComponent`, `overrideDirective`, `overrideModule`,
+`overridePipe`, `overrideProvider`, `overrideTemplate`, `overrideTemplateUsingTestingModule` и
+`resetTestingModule` возвращают сам `TestBed` (поэтому они и складываются в цепочку).
+`createComponent` и `getLastFixture` возвращают `ComponentFixture`. Ни один из них не thenable,
+поэтому правилу не нужна информация о типах.
 
-**Что сообщение оставляет за кадром.** Вызовы TestBed, которые действительно возвращают промис, сохраняют свой
-`await`: `compileComponents()`, а на фикстуре — `whenStable()`, `whenRenderingDone()` и
-`getDeferBlocks()`. О `TestBed.inject(TOKEN)` и `TestBed.runInInjectionContext(fn)` не сообщается
-никогда — каждый отвечает тем, что держит токен или колбэк.
+**Получателем** может быть `TestBed`, `getTestBed()`, цепочка этих вызовов или имя, которое файл
+сводит к одному из них. Правило разбирает цепочку по звеньям, а не только по первому слову. Звеном
+считается только член, который Angular объявляет возвращающим `TestBed`. Поэтому о
+`TestBed.inject(Api).createComponent(x)` правило не сообщает, хотя цепочка начинается с `TestBed`:
+этот `createComponent` — метод коллаборатора. Получателя, которого файл не сводит к одному значению
+(имя с двумя присваиваниями, результат хелпера), правило не трогает.
 
-**Severity.** `error`. Факт, на котором оно решает, — опубликованная сигнатура Angular, а не
-эвристика, и починка механическая.
+**Почему оно в recommended.** Эта форма прячется за вызовом, который действительно возвращал промис.
+На Angular-проекте из 1862 спек-файлов [`no-compile-components`](#no-compile-components) убрало 448
+вызовов `compileComponents()` из 410 файлов. Под ними обнаружились 18 `await` на значении, которое
+никогда не было промисом, и 33 хука, оставшихся `async` без единого ожидания. Цена — не микрозадача.
+Каждый читатель принимает `await` за доказательство, что настройка асинхронная.
+
+Потом правило дважды прогнали по другому проекту. На его последнем коммите (1759 спек-файлов, 411 из
+них ещё вызывают `compileComponents()`) оно сообщает **14 раз в 10 файлах**, и у каждой находки есть
+правка. Это `await TestBed.resetTestingModule()` и цепочки `configureTestingModule(…)`, которые
+кончаются на `overrideComponent` или `overrideProvider`. На том же дереве, где 448 вызовов убраны и
+починены, оно не сообщает **ничего**. Ни одного ложного срабатывания на 1759 файлах в обоих случаях.
+
+**В сравнении с `@typescript-eslint/await-thenable`.** То правило говорит «Unexpected `await` of a
+non-Promise (non-"Thenable") value» и оставляет вам выяснять почему. Ему ещё нужен
+`parserOptions.project`, который есть не в каждом проекте. Включите оба — получите два сообщения на
+одной строке и в одной колонке. Любое из них отключается одной строкой конфига. Разница в правке:
+штатная подсказка убирает `await` и останавливается, хук остаётся `async`. Тогда
+`@typescript-eslint/require-await` сообщает о нём на **следующем** прогоне. До этого оно молчит,
+потому что в `async`-функции ещё есть `await`.
+
+**Границы.** О `TestBed.inject` и `TestBed.runInInjectionContext` правило сознательно не сообщает. В
+проекте выше четыре вызова `await TestBed.inject(…)` действительно ждут промис. Чтобы решать такие
+случаи, нужен тайпчекер, а это работа `await-thenable`. Колбэк, у которого подсказка снимает `async`,
+сохраняет явный тип возврата `: Promise<void>`, если он был. После этого код не компилируется. Поэтому
+правка — подсказка, как у `no-compile-components`.
+
+**Серьёзность.** `error`. Правило решает по опубликованным сигнатурам Angular, а не угадывает, и
+починка механическая.
+:::
 
 ## no-private-member-access {#no-private-member-access}
 
-**`error`** · без правки · **нужен `parserOptions.project`** для двух из трёх форм
+**`error`** · без автоисправления · **нужен `parserOptions.project`** для двух из трёх форм
 
-**Что сообщает.** `private`- или `protected`-член, добытый из спеки, в трёх написаниях:
-`instance['member']`, `(instance as any).member` (и варианты с двойным кастом и подставным
-интерфейсом) и `vi.spyOn(Object.getPrototypeOf(instance), 'member')`.
-
-**На чём решает.** На тайпчекере, и это **и есть** правило. Те же скобки встречаются повсеместно и
-совершенно обычны — `process.env['APP_FEATURE_ENABLED']`, `dataset['error']`, `queryParams['id']`,
-`form.controls['profileName']` — это индексные сигнатуры, поэтому ничего не сообщается, пока чекер не
-разрешит имя до члена класса с одним из двух модификаторов. Без сервисов парсера правило не сообщает
-вообще ничего, а не догадывается: типозависимое правило, деградирующее до синтаксического, — это то
-же шумное правило в шляпе.
-
-Три детали разрешения стоит знать, потому что они определяют, что оно вообще видит:
-
-- разрешение идёт через **тип объекта**, а не через `getSymbolAtLocation` на доступе по элементу, —
-  который для `a['b']` не отвечает ничего, а это ровно та форма, ради которой правило есть;
-- имя члена берётся из **типа** ключа, а не из исходного текста, поэтому
-  `const KEY = 'secret'; card[KEY]` разрешается как встроенная строка, а `card[key]`, где `key` —
-  обычный `string`, не разрешается ни во что и является индексным чтением;
-- модификатор читается **текстом** с объявления TypeScript. Очевидная альтернатива, поле
-  `accessibility` из ESTree, достижима только через карту, покрывающую один линтуемый файл, — а класс
-  под тестом в девяти случаях из десяти объявлен в другом файле, поэтому та версия не сообщала ничего
-  на форме, ради которой правило есть, проходя при этом каждый однофайловый тест, написанный для неё.
-
-**Точечный** доступ разрешается только когда перед ним стоит каст, потому что остальное компилятор уже
-проверил, — и это же держит правило подальше от каждого `a.b` в файле. Цепочка кастов обходится до
-самого низа: середина `service as unknown as { hidden: T }` — это `unknown`, и она не отвечает ничего.
-
-Форме через прототип типы не нужны, и она работает без программы: `Object.getPrototypeOf`
-типизирован как `any`, поэтому мнения у чекера тут всё равно не было бы, а доступ через него
-однозначен.
-
-**Находка и как её закрыть.**
+Сообщает, когда спека читает `private`- или `protected`-член. Тогда тест закрепляет член, который
+класс никому не обещал. Переименование ломает только тест, а сам тест ничего не доказывает о том, что
+может вызывающий код.
 
 ```ts
 expect(component['recalculate']()).toBe(3); // ❌
@@ -3205,174 +4158,244 @@ vi.spyOn(Object.getPrototypeOf(component), 'recalculate'); // ❌
 ```
 
 ```ts
-component.onResize(); // публичный вызов, который до него добирается
-expect(component.total()).toBe(3); // и его эффект
+component.onResize(); // ✅ публичный вызов, который до него добирается
+expect(component.total()).toBe(3); // ✅ и его эффект
 ```
 
-**Зачем это в `recommended`.** Доступ по скобкам — не лазейка, которую TypeScript забыл закрыть: так
-читают индексную сигнатуру, поэтому проверка видимости намеренно написана только для точечной формы.
-Спека, записанная иначе, компилируется, выполняется и закрепляет член, которого класс никому не
-обещал: переименование становится зелёным рефакторингом, краснеющим в тестовом файле, а сам тест
-ничего не доказывает о том, что вообще может вызывающий. Форма через прототип к тому же хуже, чем
-кажется: патчится **прототип**, поэтому его видит каждый инстанс в воркере, и вернуть всё на место
-может только `vi.restoreAllMocks()`.
+**Опции.** Нет. Двум формам из трёх нужна информация о типах: `parserOptions.project` или
+`projectService`.
 
-**Почему без типов нельзя — одним числом.** Замерено по корпусу из 1759 спек-файлов Angular:
-синтаксическая версия — каждый `obj['literal']` — даёт **511 мест в 85 файлах**. Из них **324 в 45
-файлах** разрешаются в `private`- или `protected`-член; остальные **187 (37 %)** — корректный код,
-которого правило трогать не должно, а **41 из 85 файлов вообще не содержит приватного доступа**.
-Обычный grep хуже: ~1726 скобочных чтений против тех же 324 находок. По остальным двум формам на том
-же корпусе: 50 кастов в 10 файлах и 9 спаев через прототип — **383 находки в 55 файлах**, 204 из них
-в двух файлах.
+**Как исправить.** Прогоните член через публичный API, который его использует, и проверьте эффект.
 
-**Границы.** Ожидаемый режим отказа — молчание. Без `parserOptions.project` или `projectService` две
-формы из трёх не сообщают ничего, и это неотличимо от чистого файла, поэтому
-`npx eslint --print-config` на спеке стоит запустить до того, как решить, что сюита чиста. Запрос типа
-к тому же заставляет компилятор проверить файл, а сборка его сообщения об ошибке может бросить: на
-TypeScript 6.0.3 сообщение, которому надо назвать символ из другого модуля, умирает в
-`getLocalModuleSpecifier`, когда у программы нет ни `paths`, ни `baseUrl` — то есть в точности та
-изолированная программа, к которой откатывается `@typescript-eslint/parser` в режиме single-run.
-Правило это ловит и молчит, потому что правило, которое перебрасывает исключение, уносит с собой весь
-прогон линтера, а вместе с ним и находки всех остальных правил.
+- У компонента публичная сторона, ради которой существует `protected`, — отрендеренный шаблон:
+  `renderShallow(Cmp)` и читайте DOM.
+- `protected`-сигнал, который компонент передаёт дочернему: отрендерите дочерний компонент как
+  `createComponentStub` и прочитайте его input со стаба. Сигнал, которым спека должна управлять:
+  `mockSignalProp(component, 'x', value)`, он дотягивается и до `protected`-сигнала.
+- Если до члена не добирается ничто публичное, член должен либо стать публичным, либо переехать в
+  коллаборатора, которого спека может заменить подменой.
 
-**Хелпера для этого нет намеренно.** Экспорт вида `readPrivate(instance, 'x')` легитимизировал бы
-ровно то, ради чего правило есть. Починка никогда не механическая: прогоните член через публичный API,
-который его использует, и проверьте эффект; на компоненте вторая публичная поверхность — это
-отрендеренный шаблон, и она как раз то, ради чего существует `protected`. Когда до члена не
-добирается ничто публичное — это факт об устройстве кода, а не повод обойти модификатор.
+Хелпера `readPrivate(instance, 'x')` нет намеренно: он узаконил бы ровно то, ради чего есть правило.
 
-**Что сообщение оставляет за кадром.** У компонента публичная поверхность, ради которой существуют
-`protected`-члены, — отрендеренный шаблон: `renderShallow(Cmp)` и читать DOM, а не поле. Если до члена
-не дотягивается ничего публичного, он либо хочет стать публичным, либо переехать в соавтора, для
-которого спека может подставить дубль.
+**Когда выключить.** Без информации о типах две формы из трёх не сообщают ничего. Это выглядит в
+точности как чистый файл. Запустите `npx eslint --print-config` на спеке, прежде чем решить, что ваши
+спеки чисты. Если у приватного члена действительно нет наблюдаемого эффекта, допустимо отключение на
+строку с причиной. Это лучше, чем обход из [`no-reflect-member-access`](#no-reflect-member-access).
 
-**Severity.** `error`. Находка зелёная и неверная так, что ни один прогон об этом не скажет: тест,
-который проходит сегодня и краснеет на переименовании, которого не заметил бы ни один вызывающий.
+::: details Как правило решает
+**Три формы:**
+
+- `instance['member']`;
+- `(instance as any).member`, а также варианты с двойным кастом и подставным типом:
+
+  ```ts
+  (service as any).privateMember;
+  (service as unknown as { privateMember: T }).privateMember;
+  (service as DecoyDeclaredInTheSpec).privateMember;
+  ```
+
+- `vi.spyOn(Object.getPrototypeOf(instance), 'member')`.
+
+**Тайпчекер и есть правило.** Те же скобки — обычный и частый код:
+`process.env['APP_FEATURE_ENABLED']`, `dataset['error']`, `queryParams['id']` маршрута,
+`req.headers['x-request-id']`, `form.controls['profileName']`, `errors?.['required']` — всё это
+индексные сигнатуры. Поэтому правило ничего не сообщает, пока чекер не разрешит имя в член класса с
+одним из двух модификаторов. Без информации о типах правило не сообщает ничего и не откатывается к
+синтаксису. Типозависимое правило, которое деградирует до синтаксиса, — то же шумное правило под
+другой маской.
+
+**Как оно разрешает:**
+
+- через **тип объекта**, а не через сам доступ по элементу: для `a['b']` тот не отвечает ничего;
+- имя члена берётся из **типа** ключа, а не из исходного текста. `const KEY = 'secret';
+card[KEY]` разрешается так же, как строка на месте. `card[key]`, где `key` — обычный `string`, не
+  разрешается ни во что и считается индексным чтением;
+- модификатор читается **текстом** из объявления TypeScript. Поле `accessibility` из ESTree покрывает
+  только линтуемый файл, а класс под тестом почти всегда объявлен в другом файле. Версия на этом поле
+  не сообщала ничего на реальной форме и при этом проходила каждый однофайловый тест.
+
+**Касты.** **Точечный** доступ разрешается, только если перед ним стоит каст. Без каста его уже
+проверил компилятор, и это же держит правило подальше от каждого `a.b` в файле. Цепочка кастов
+обходится до самого низа. Середина `service as unknown as { hidden: T }` — это `unknown`, и она не
+отвечает ничего. Поэтому правило читает член из выражения, которое ещё несёт настоящий тип.
+
+**Форме через прототип типы не нужны**, она работает без программы: `Object.getPrototypeOf`
+типизирован как `any`, и доступ через него однозначен. К тому же это подмена хуже, чем кажется. Она
+патчит прототип, поэтому её видит каждый экземпляр в воркере. Вернуть всё на место может только
+`vi.restoreAllMocks()`.
+
+**Почему без типов нельзя — в числах.** На 1759 спек-файлах Angular синтаксическая версия (каждый
+`obj['literal']`) сообщает о **511 местах в 85 файлах**. Из них **324 в 45 файлах** разрешаются в
+`private`- или `protected`-член. Остальные **187 (37 %)** — корректный код, а **в 41 из 85 файлов
+приватного доступа нет вообще**. Обычный grep ещё хуже: около 1726 скобочных чтений на те же 324
+находки. Вместе с двумя другими формами (50 кастов в 10 файлах, 9 спаев через прототип) выходит
+**383 находки в 55 файлах**, 204 из них в двух файлах.
+
+**Почему доступ по скобкам компилируется.** Это не лазейка, которую забыл TypeScript. Через скобки
+читают индексную сигнатуру, поэтому проверка видимости действует только для точечной формы.
+
+**Падение, которое правило гасит.** Запрос типа заставляет компилятор проверить файл, а сборка одного
+из его сообщений об ошибке может бросить исключение. На TypeScript 6.0.3 сообщение, которое называет
+символ из другого модуля, падает в `getLocalModuleSpecifier`, когда у программы нет ни `paths`, ни
+`baseUrl`. Это в точности изолированная программа, к которой откатывается `@typescript-eslint/parser`
+в режиме single-run. Правило ловит исключение и молчит. Правило, которое пробрасывает исключение,
+роняет весь прогон линтера вместе с находками всех остальных правил.
+
+**Серьёзность.** `error`. Тест зелёный и неверный так, что ни один прогон об этом не скажет: он
+проходит сегодня и падает на переименовании, которого не заметил бы ни один вызывающий.
+:::
 
 ## no-reflect-member-access {#no-reflect-member-access}
 
-**`error`** · саджест на одной из трёх форм · только синтаксис и области видимости
+**`error`** · подсказка на одной из трёх форм · синтаксис и области видимости
 
-**Что сообщает.** `Reflect.get(subject, 'member')` и `Reflect.set(subject, 'member', value)`, где
-ключ — строковый литерал, а субъект — значение, которое файл держит в руках: компонент, сервис,
-фикстура, дубль.
-
-**На чём решает.** На биндинге цели и на ключе. Голый идентификатор должен разрешаться в объявление
-самого линтуемого файла, которое не сделал `import`; всё остальное — цепочка членов, результат
-вызова — это значение, которое файл вычислил сам, и читается как субъект. Имя, которое спека объявила
-как `Window` или `typeof globalThis` (`let win: Window` с внедрённым `WINDOW`), — то же окружение под
-другим именем, и его правило не трогает, как и `window`. Ключ обязан быть строковым литералом. Проверяльщик типов здесь не спрашивают ни разу, и это суть правила, а не его ограничение:
-именно к этой форме сюита тянется там, где проверяльщик бы возразил.
-
-**Находка и починка.**
+Сообщает о `Reflect.get(subject, 'member')` и `Reflect.set(subject, 'member', value)` со строковым
+ключом, когда субъект — значение, которое держит спека: компонент, сервис, фикстура, подмена. Это тот
+же обход, что `component['x']`, только ключ не проверяет вообще никакой компилятор.
 
 ```ts
-expect(Reflect.get(component, 'minDwellTime')()).toBe(0); // ❌ ключ — строка, которую никто не сверяет
-Reflect.set(service, 'savedData', null); // ❌ и это даже не запись в член
+expect(Reflect.get(component, 'minDwellTime')()).toBe(0); // ❌ ключ — строка, которую никто не проверяет
+Reflect.set(service, 'savedData', null); // ❌ а это даже не пишет в член
 ```
 
 ```ts
-await setInputs(fixture, { seconds: 0 });
-expect(host.textContent).toContain('0 min'); // публичная поверхность, ради которой член и существует
+await setInputs(fixture, { seconds: 0 }); // ✅
+expect(host.textContent).toContain('0 min'); // публичная сторона, ради которой член и существует
 ```
 
-**Почему оно в recommended.** Это вторая дверь из
-[`no-private-member-access`](#no-private-member-access) — и та, перед которой не стоит ни один
-компилятор. `component['x']` хотя бы оставляет член там, где правило с типами его разрешит;
-`Reflect.get(component, 'x')` принимает имя обычным строковым аргументом с типом `any`, так что мнения
-о нём нет ни у компилятора, ни у шаблонного гейта, ни у строгого прохода `tsc`. Потребитель, на
-котором это мерили, открыл дверь сам — его собственный запрет двойных кастов в `no-restricted-syntax`
-называл `Reflect.get` / `Reflect.set` выходом — и пришёл к **214 сайтам в 50 из своих 2 030 спек**:
-125 чтений, 85 записей и 4 в форме дубля.
+**Опции.** Нет.
 
-`Reflect.set` — та половина, которая переживает то, что проверяет. Она вешает **собственное**
-свойство поверх прототипа, а не пишет в член: переименуйте поле в продакшене, и спека продолжит
-компилироваться, выполняться и писать **мёртвое** свойство, которое никто не читает, а
-`expect(spy).not.toHaveBeenCalled()` под ним будет проходить вечно. Два таких сайта на замеренном
-потребителе нашлись чтением, а не прогоном: тест переживает удаление того, ради чего он написан, — и
-это единственный отказ, о котором ни одно его утверждение не сообщит.
+**Как исправить.** Зависит от того, что за субъект. Сообщение говорит, какой у вас случай:
 
-**Третье сообщение и единственная правка.** `Reflect.set(double, 'prop', value)`, где имя держит то,
-что построила одна из фабрик этой библиотеки — `injectSpy`, `provideAutoSpy`,
-`provideAutoSpyForToken`, `createSpyFromClass` и прочие, — патчит дубль за спиной библиотеки: ни
-записи в журнале, ни отката, так что патч жив для каждого следующего теста файла и, при
-`isolate: false`, для каждого следующего файла воркера. Эта форма предлагает саджест
-`mockValueProp(double, 'prop', value)`, который делает ту же запись и регистрирует откат в
-`restoreMockedProps()`. Саджест, а не фикс, по той же причине, что и у
-[`no-object-define-property`](#no-object-define-property): регистрация отката — это изменение между
-тестами, ради которого починка и делается, и всё же изменение.
+- **Класс под тестом:** прогоните член через публичный API, как в
+  [`no-private-member-access`](#no-private-member-access).
+- **Подмена, которую построила эта библиотека** (через `injectSpy`, `provideAutoSpy`,
+  `provideAutoSpyForToken`, `createSpyFromClass` и остальные): используйте
+  `mockValueProp(double, 'prop', value)`. Он делает ту же запись и регистрирует откат в
+  `restoreMockedProps()`. Подсказка пишет именно его.
+- **Объект-фикстура, который написала спека:** поставьте ключ в литерал, где его проверяет компилятор.
+  Если значение нарочно вне объявленного типа, чтобы дойти до запасной ветки, кастуйте **значение**:
+  `{ linkType: value as Model['linkType'] }`. Если в проекте запрещены утверждения типов
+  (`@typescript-eslint/consistent-type-assertions: ['error', { assertionStyle: 'never' }]`),
+  используйте `mockValueProp(link, 'linkType', value)`. Его свободная перегрузка принимает значение
+  вне объявленного типа, а запись откатывается после теста.
+- **Приватный член без всякого наблюдаемого эффекта:** меньший из обходов — `component['member']` под
+  отключением `no-private-member-access` с причиной. Ключ остаётся там, где его видит компилятор.
 
-**У фикстуры своё сообщение.** `Reflect.set(link, 'linkType', value)`, где `link` держит объектный
-литерал, написанный самой спекой, не обходит никакой API — ключу место в литерале, где его проверяет
-компилятор. Если значение нарочно вне объявленного типа, чтобы дойти до ветки по умолчанию, сообщение
-называет каст **значения** (`{ linkType: value as Model['linkType'] }`), который оставляет ключ
-проверяемым. А там, где у приватного члена нет вообще никакого наблюдаемого эффекта, меньший из
-обходов — `component['member']` под отключением `no-private-member-access` с причиной: ключ остаётся
-там, где его видит компилятор.
+**Когда выключить.** Не нужно. О вычисляемом ключе правило не сообщает никогда
+(`Reflect.get(component, method)` в хелпере, который получает имя параметром). Как и о
+`Reflect.apply`, `Reflect.has`, `Reflect.deleteProperty` или `Reflect.construct`.
 
-**Пределы.** Вычисляемый ключ не сообщается никогда — `Reflect.get(component, method)` в хелпере,
-который принимает имя параметром, единственная форма, где строка не выписана в спеке, и никакой
-совет здесь её не починит. Не сообщаются и `Reflect.apply`, `Reflect.has`, `Reflect.deleteProperty`,
-`Reflect.construct`: скобочным обходом в другом написании являются только те два, что читают и пишут
-член. Имя, которое ввёл `import`, тоже оставлено в покое: пространство имён модуля — ничей не
-субъект, и патчить его — дело `vi.mock`; а пространство имён, которое спека кладёт в собственный
-`let` через `await import(…)`, — локальный биндинг, и о нём **сообщается**: так говорит биндинг, а не
-исключение из списка.
+::: details Как правило решает
+**Цель.** Голое имя должно разрешаться в объявление в линтуемом файле, которое не сделал `import`.
+Всё остальное, например цепочка членов или результат вызова, — значение, которое вычислил файл, и
+оно считается субъектом. Имя, которое спека объявляет как `Window` или `typeof globalThis`
+(`let win: Window` с внедрённым `WINDOW`), — это окружение под другим именем. Правило его не трогает,
+как и `window`. Имя, которое ввёл `import`, тоже не трогает: пространство имён модуля — ничей не
+субъект, а патчить его — дело `vi.mock`. Пространство имён, которое спека кладёт в собственный `let`
+через `await import(…)`, — локальный биндинг, и о нём правило **сообщает**. Ключ должен быть
+строковым литералом.
 
-**Severity.** `error`, и понизить его относительно близнеца было бы ошибкой.
-`no-private-member-access` — `error`; будь это правило `warn`, `Reflect.get` стал бы санкционированным
-способом его заглушить, и правило само создало бы тот стимул, ради устранения которого существует.
-Доказательство целиком в строке, ни одна эвристика ничего не решает, а починка — та же, которую
-называет то правило.
+Тайпчекер правило не спрашивает намеренно. К этой форме проект тянется ровно там, где чекер бы
+возразил.
+
+**Почему оно в recommended.** Это второй обход
+[`no-private-member-access`](#no-private-member-access), и его не охраняет ни один компилятор.
+`component['x']` хотя бы оставляет член там, где его разрешит правило с типами.
+`Reflect.get(component, 'x')` принимает имя обычным строковым аргументом с типом `any`. Поэтому
+мнения нет ни у компилятора, ни у проверки шаблонов, ни у строгого прохода `tsc`. В проекте, на
+котором это мерили, собственный запрет двойных кастов в `no-restricted-syntax` называл
+`Reflect.get` / `Reflect.set` выходом. Итог: **214 мест в 50 из 2 030 спек-файлов**, 125 чтений,
+85 записей и 4 в форме с подменой.
+
+**`Reflect.set` переживает то, что проверяет.** Он ставит **собственное** свойство поверх прототипа,
+а не пишет в член. Переименуйте поле в продакшен-коде, и спека продолжит компилироваться, выполняться
+и писать **мёртвое** свойство, которое никто не читает. А `expect(spy).not.toHaveBeenCalled()` под
+ним будет проходить вечно. В замеренном проекте два таких места нашлись чтением кода, а не прогоном.
+
+**Единственная правка.** `Reflect.set` на подмене из библиотеки патчит её за спиной библиотеки: ни
+записи, ни отката. Патч остаётся жив для каждого следующего теста файла, а при `isolate: false` — для
+каждого следующего файла воркера. Исправление — подсказка, а не `--fix`, по той же причине, что у
+[`no-object-define-property`](#no-object-define-property). Регистрация отката меняет то, что
+происходит между тестами. В этом и смысл, но это всё же изменение.
+
+**Серьёзность.** `error`, намеренно не ниже, чем у близнеца. `no-private-member-access` — `error`.
+Будь это правило `warn`, `Reflect.get` стал бы одобренным способом заглушить то. Вся улика — в
+строке, а починка — та, которую называет то правило.
+:::
 
 ## no-mocked-for-spy {#no-mocked-for-spy}
 
-**`error`** · `--fix`, где файл всё решает, иначе подсказка · только синтаксис · в `configs.typeErrors`
+**`error`** · `--fix`, где файл это решает, иначе подсказка · только синтаксис · в `configs.typeErrors`
 
-**Что сообщает.** `Mocked<T>` или `MockedObject<T>` в **любой** типовой позиции — аннотация `let`,
-тип возврата фабрики, параметр хелпера, каст `as unknown as Mocked<T>`.
-
-**На чём решает.** На идентификаторе внутри `TSTypeReference` плюс на скоупе. `Mocked`, объявленный
-самим файлом, — не тот, что у Vitest, как бы он ни назывался, а `Spy`, уже означающий в файле
-что-то другое, — та же проблема с другого конца; любое из двух понижает отчёт до сообщения без правки.
-Проверяется и то, является ли типовой аргумент одним именованным типом: `Mocked<{ isKeyEnabled: Mock }>`
-попадает в отчёт и никогда не перезаписывается, потому что `Spy<T>` читает класс или интерфейс, а
-объектный литерал из `Mock`-ов задаёт системе типов другой вопрос.
-
-Является ли переименование **всей** правкой — отдельный вопрос, и именно поэтому правило объявляет и
-фикс, и подсказки. Каждое значение, которое когда-либо получает аннотированное имя — инициализатор и
-все последующие присваивания, сопоставленные по имени, — должно приходить из фабрик самой библиотеки
-(`asSpy`, `autoMocked`, `createAutoMock`, `createMock`, `createSpyClass`, `createSpyFromClass`,
-`injectSpy`, `mockConstructor`, `mockDeep`). Где это так, переименование применяется под `--fix`; где
-нет, та же правка предлагается подсказкой, чтобы человек починил ею и место создания. Это сужение
-выучено на реальном файле:
+Сообщает о `Mocked<T>` или `MockedObject<T>` в любой типовой позиции. `Mocked<T>` сохраняет
+приватные члены `T`. Поэтому присваивание спая не компилируется, а ошибка перечисляет приватные поля
+и ни разу не называет `Mocked`.
 
 ```ts
-let register: Mocked<Pick<Registry, 'metrics'>> & { contentType: string };
-register = { contentType: '…', metrics: vi.fn().mockResolvedValue(payload) };
-```
+import { Mocked } from 'vitest';
 
-`eslint --fix` переписал первую строку, отчитался чисто, и тайп-гейт затем упал на второй. Это худшая
-форма автофикса: собственная проверка правила проходит, поэтому обратно на него ничто не указывает.
-Аннотация, не принадлежащая переменной — параметр, тип возврата, каст, — места создания в виду не
-имеет и сохраняет обычный фикс.
-
-Правка ещё импортирует `Spy`, когда имя свободно, и убирает импорт `Mocked`, когда его больше ничто не
-использует; при нескольких ссылках импорт убирается на том проходе, который переписывает последнюю,
-потому что ESLint перелинтует после каждого применённого фикса.
-
-**Находка и как её закрыть.**
-
-```ts
-let cart: Mocked<CartService>; // ❌
+let cart: Mocked<CartService>; // ❌ TS2322, как только присвоен спай
 ```
 
 ```ts
-let cart: Spy<CartService>;
+import type { Spy } from 'vitest-auto-spy';
+
+let cart: Spy<CartService>; // ✅ то, что пишет --fix
 ```
 
-**Зачем это в `recommended`.** `Mocked<T>` сохраняет приватные члены `T`, поэтому присваивание спая
-падает со списком имён приватных полей:
+**Опции.** Нет.
+
+**Как исправить.** Переименуйте `Mocked` в `Spy`. `--fix` делает это там, где может доказать, что
+переименование — вся правка. В остальных местах редактор предлагает ту же правку подсказкой:
+
+- **`--fix`:** аннотация на параметре, типе возврата или касте. А также переменная, каждое значение
+  которой приходит из фабрик этой библиотеки: `asSpy`, `autoMocked`, `createAutoMock`, `createMock`,
+  `createSpyClass`, `createSpyFromClass`, `injectSpy`, `mockConstructor`, `mockDeep`.
+- **Подсказка:** переменная, которая получает и другое значение, например объектный литерал.
+  Принимайте её вместе с правкой места создания — обычно `createAutoMock<T>()` вместо литерала.
+
+Правка импортирует `Spy`, когда имя свободно. Она убирает импорт `Mocked`, когда его больше ничто не
+использует: всю декларацию, если `Mocked` был в ней последним именем, иначе только это имя. При
+нескольких ссылках импорт убирается на том проходе, который переписывает последнюю.
+
+**Когда выключить.** Не нужно. `Mocked<T>` рядом с `vi.mocked()` правило не трогает. Оно сообщает о
+том объявлении, чьё присваивание потом падает. Сообщение без правки вы получите, когда:
+
+- файл объявляет собственный тип `Mocked` (сообщение всё равно называет тип из Vitest);
+- `Spy` уже означает в файле что-то другое;
+- типовой аргумент — не один именованный тип: `Mocked<{ isKeyEnabled: Mock }>`. `Spy<T>` читает
+  класс или интерфейс, а объект из `Mock`-ов задаёт другой вопрос.
+
+:::: details Как правило решает
+**Что оно читает.** Идентификатор в ссылке на тип плюс области видимости: объявляет ли файл
+собственный `Mocked` или `Spy`.
+
+**Почему фикс узкий.** Объявление можно решить по файлу. А что имени _присваивают_ парой строк ниже —
+отдельный вопрос. Реальный файл показал разницу:
+
+```ts
+let register: Spy<Pick<Registry, 'metrics'>> & { contentType: string }; // ← что написал --fix
+register = { contentType: '…', metrics: vi.fn().mockResolvedValue(payload) }; // ← что он оставил
+// TS2322: Type 'Mock<Procedure>' is not assignable to type
+//   'AddSpyMethodsByReturnTypes<() => Promise<string>>'
+```
+
+`eslint --fix` отчитался чисто, а проверка типов потом упала. Это худший вид сбоя автофикса:
+собственная проверка правила проходит, поэтому ничто не указывает обратно на него. Поэтому правило
+сверяет каждое значение, которое получает имя: инициализатор и каждое последующее присваивание, по
+имени. Обычный фикс остаётся только там, где каждое значение приходит из фабрик библиотеки. Они и так
+возвращают `Spy<T>`. Скан неточен только в одну, безопасную сторону: одноимённое присваивание в
+другой области видимости может превратить фикс в подсказку, но не наоборот.
+
+Аннотация, которая не принадлежит переменной (параметр, тип возврата, выражение `as`), не видит места
+создания и сохраняет обычный фикс. Это же не даёт `--fix` переписать объявление и оставить ниже каст,
+всё ещё записанный как `Mocked`.
+
+**Почему `--fix` здесь вообще безопасен.** Правка трогает только объявление. Если она неверна, файл
+перестаёт компилироваться, а это самый громкий и дешёвый сбой из возможных.
+
+**Почему оно в recommended.** Ошибка называет класс, а не промах:
 
 ```text
 TS2322: Type 'Spy<CartService, SpyOptions>' is not assignable to type 'Mocked<CartService>'.
@@ -3380,229 +4403,237 @@ TS2322: Type 'Spy<CartService, SpyOptions>' is not assignable to type 'Mocked<Ca
         from type 'CartService': http, cache
 ```
 
-Ни слова про `Mocked` — в этом весь смысл правила: оно правит объявление, а не объясняет ошибку.
-`Mocked<T>` по-прежнему уместен рядом с `vi.mocked()`, и это правило не трогает; в отчёт попадает то
-объявление, чьё присваивание затем падает.
+В ней ничто не называет `Mocked`, поэтому правило чинит объявление, а не объясняет ошибку.
 
-**Границы.** Файл, объявляющий собственный тип `Mocked`, получит отчёт, по которому нельзя действовать
-механически, — и правильно, объявление неверно в любом случае, — но сообщение называет тип из Vitest.
-Скан присваиваний по имени неточен только в одну, безопасную сторону: одноимённое присваивание в
-другом скоупе может понизить фикс до подсказки, но никогда не повысит.
+**Два имени мок-типов Vitest, и только два.** Граница проходит по параметру типа, а не по написанию:
 
-**Два имени мок-типов Vitest, и только два.** Остальные семь — не недосмотр, и граница проходит по
-параметру типа, а не по написанию:
+| тип                                                                                          | параметр                               | вердикт                                                                                                                       |
+| -------------------------------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `Mocked<T>`, `MockedObject<T>`                                                               | любой `T`, отображаемый по членам      | **в отчёт**: подмена всего объекта, на её месте должен быть `Spy<T>`                                                          |
+| `Mock<T>`, `MockInstance<T>`, `MockedFunction<T>`, `MockedFunctionDeep<T>`, `PartialMock<T>` | `T extends Procedure \| Constructable` | не в отчёт: `T` — _функциональный_ тип, поэтому ни один не может назвать класс; каждый типизирует один `vi.fn()`, и это верно |
+| `MockedClass<T>`                                                                             | `T extends Constructable`              | не в отчёт: замоканный **конструктор** класса; его аналог здесь — `createSpyClass` / `mockConstructor`, а не `Spy<T>`         |
+| `MockedObjectDeep<T>`                                                                        | любой `T`, отображаемый вглубь         | не в отчёт: глубокая подмена здесь — `mockDeep<T>()` с типом `DeepMockProxy<T>`, а не `Spy<T>`                                |
 
-| тип                                                                                          | параметр                               | вердикт                                                                                                                                                             |
-| -------------------------------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Mocked<T>`, `MockedObject<T>`                                                               | любой `T`, отображаемый по членам      | **в отчёт** — это и есть дубль всего объекта, и на его месте должен быть `Spy<T>`                                                                                   |
-| `Mock<T>`, `MockInstance<T>`, `MockedFunction<T>`, `MockedFunctionDeep<T>`, `PartialMock<T>` | `T extends Procedure \| Constructable` | не в отчёт — `T` здесь _функциональный_ тип, поэтому ни один из них не может назвать класс в принципе; каждый типизирует один `vi.fn()`, и это верное использование |
-| `MockedClass<T>`                                                                             | `T extends Constructable`              | не в отчёт — это замоканный **конструктор** класса, чей здешний аналог `createSpyClass` / `mockConstructor`, а не `Spy<T>`                                          |
-| `MockedObjectDeep<T>`                                                                        | любой `T`, отображаемый вглубь         | не в отчёт — глубокий дубль здесь `mockDeep<T>()`, чей тип `DeepMockProxy<T>`, а не `Spy<T>`                                                                        |
+Проект, который типизирует свои подмены как `Mock`, не пишет `Mocked<T>` иначе. Он типизирует
+_члены_ объектного типа, собранного вручную, и сообщать стоит как раз об этом объектном типе. Это
+[`no-structural-double`](#no-structural-double). Это отдельное правило, потому что его находка
+**компилируется** (`let s: { load: Mock }` законен). А всё в `configs.typeErrors` должно быть
+находкой, которая не компилируется.
 
-То есть сюита, типизирующая свои дубли как `Mock`, не пишет `Mocked<T>` другим написанием: она пишет
-_члены_ собранного руками объектного типа, и в отчёт стоит брать объектный тип вокруг них. Это
-[`no-structural-double`](#no-structural-double), и оно отдельное правило, а не ветка этого, потому что
-его находка **компилируется** — `let s: { load: Mock }` совершенно законен, — а всё в
-`configs.typeErrors` обязано быть находкой, которая не компилируется.
-
-**Severity.** `error`, и одно из двух правил в `configs.typeErrors`. Находка не компилируется —
-`TS2322`, по построению, а не по случайности, — поэтому «пока warn, починим партиями» для неё не
-план: партия и есть сборка, уже красная.
+**Серьёзность.** `error`, и одно из двух правил в `configs.typeErrors`. Находка не компилируется
+(`TS2322`, по построению), поэтому «сейчас warn, починим партиями» не работает: сборка уже красная.
+::::
 
 ## prefer-as-spy {#prefer-as-spy}
 
 **`error`** · `--fix` · только синтаксис · в `configs.typeErrors`
 
-**Что сообщает.** Каст к `Spy<…>` этой библиотеки — `TestBed.inject(X) as Spy<X>` и переход через
-`as unknown as Spy<X>` там, где значение доказуемо является инжектированным инстансом.
-
-**На чём решает.** На `TSAsExpression`, чей тип — ссылка, записанная как `Spy`, и на скоупе: `Spy`,
-объявленный самим файлом, — не из этой библиотеки, а о касте к чужому типу сказать нечего. Затем — на
-**значении**, о котором говорит утверждение:
-
-- `x as Spy<T>` утверждает, что `x` _и есть_ спай, поэтому значение — `x`, и замена точна;
-- `x as unknown as Spy<T>` утверждает обратное — переход через `unknown` стоит там именно потому, что
-  `x` и `T` не имеют друг к другу отношения, — поэтому `asSpy<T>(x)` был бы вызовом, чей аргумент не
-  проходит по типам. Он разворачивается в одном единственном случае: значение — вызов
-  `TestBed.inject(X)`, который по построению отвечает `X`, а `as unknown` дописали, чтобы заглушить
-  тот самый `TS2352`, о котором это правило. Всё остальное сохраняет свой каст и своё молчание:
-  двойной каст над собранным руками объектом хочет настоящего дубля, а это дело другого правила.
-
-Фикс переносит типовые аргументы дословно, а не оставляет их выводу, потому что `Spy<T, Options>` и
-`asSpy<T, Options>` принимают один и тот же список параметров — поэтому строка после фикса утверждает
-символ в символ то же, что и строка до него. Вывод — не то же самое: на генерик-классе
-`TestBed.inject` отвечает `Service<any>`, и этот `any` всплывает восемью уровнями ниже как
-несовпадение `AddPromiseSpyMethods<unknown>` и `WithMockReturnValue<…>`, причём в сообщении ничто не
-указывает обратно сюда. Фикс ещё импортирует `asSpy` и убирает импорт `Spy`, который замена
-осиротила.
-
-**Находка и как её закрыть.**
+Сообщает о касте к `Spy<…>` этой библиотеки, например `TestBed.inject(X) as Spy<X>`. С этой
+библиотекой такой каст не компилируется (`TS2352`). Это самая частая ошибка компиляции после переезда
+Angular-проекта с `jest-auto-spies`, где эта строка пишется на каждую внедрённую подмену.
 
 ```ts
 const devices = TestBed.inject(DeviceListService) as Spy<DeviceListService>; // ❌ TS2352
 ```
 
 ```ts
-const devices = asSpy(TestBed.inject(DeviceListService));
-const devices = injectSpy(DeviceListService); // то же самое, с вложенным inject
+const devices = asSpy(TestBed.inject(DeviceListService)); // ✅
+const devices = injectSpy(DeviceListService); // ✅ то же самое, inject уже внутри
 ```
 
-**Зачем это в `recommended`.** Каст — не то, как спай возвращается из контейнера, и под этой
-библиотекой он даже не компилируется: `Spy<T>` добавляет `accessorSpies` и хелперы на каждый метод,
-поэтому типы недостаточно перекрываются, и строка падает с
-`TS2352: Conversion of type 'X' to type 'Spy<X>' may be a mistake`. Это
-[самая частая ошибка компиляции у переехавшей Angular-сюиты](/ru/migrating), потому что сюиты на
-`jest-auto-spies` несут эту строку по одной на каждый инжектированный дубль. `asSpy` делает в точности
-то же утверждение, что типизированная функция тождества: тот же объект в рантайме, то же заявление,
-без каста.
+**Опции.** Нет.
 
-Это отдельное правило, а не ветка внутри [`prefer-inject-spy`](#prefer-inject-spy), и они соседние, а
-не одно и то же. То правило сообщает о рантайм-дефекте, чья починка — провайдер в другом файле; это —
-о верном намерении, записанном так, что больше не компилируется, и правит его на месте. Слияние
-стоило бы ещё и честности `meta.fixable`, которое ESLint читает по каждому правилу отдельно.
+**Как исправить.** Запустите `eslint --fix`. Он переписывает каст в `asSpy(…)`, импортирует `asSpy` и
+убирает импорт `Spy`, который после этого не используется. Типовые аргументы переносятся:
 
-**Границы.** Ни один из двух хелперов не предназначен для объекта _под тестом_: сервис, который спека
-и упражняет, дублем не является, и починка там — типизировать его классом. Отличить это правило не
-может, поэтому о касте сообщит в любом случае. Там, где `asSpy` в файле уже занят чем-то другим,
-отчёт придёт без правки.
+```ts
+// после --fix
+import { asSpy } from 'vitest-auto-spy';
 
-**Severity.** `error`, и второе правило в `configs.typeErrors` по той же причине, что и
-[`no-mocked-for-spy`](#no-mocked-for-spy): находка — это `TS2352`, поэтому сборка уже красная.
+// до
+hardwareService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
+
+hardwareService = asSpy<DeviceListService>(TestBed.inject(DeviceListService));
+```
+
+**Когда выключить.** Не нужно. Объект _под тестом_ (сервис, который проверяет спека, а не подмена)
+типизируйте как класс. Правило не отличает одно от другого и сообщает о касте в обоих случаях. Если
+`asSpy` уже означает в файле что-то другое, вы получите сообщение без правки.
+
+::: details Как правило решает
+**Что оно читает.** Каст, тип которого — ссылка, записанная как `Spy`, плюс области видимости. `Spy`,
+который объявляет сам файл, — чужой тип, и правило молчит. Затем — **значение**, о котором говорит
+каст:
+
+- `x as Spy<T>` утверждает, что `x` _и есть_ спай. Замена точна.
+- `x as unknown as Spy<T>` утверждает обратное: переход через `unknown` стоит там, потому что `x` и
+  `T` не связаны. `asSpy<T>(x)` не прошёл бы проверку типов, поэтому такой каст (например
+  `{} as unknown as Spy<CartService>`) правило не трогает. Ему нужна настоящая подмена
+  (`createAutoMock<T>()`), а не переименование. Одно исключение чинится целиком, вместе с переходом:
+  `TestBed.inject(X) as unknown as Spy<X>`. `TestBed.inject(X)` возвращает `X` по построению, а
+  `as unknown` стоял только чтобы заглушить `TS2352`.
+
+**Почему `--fix` безопасен.** Каст — ваше собственное утверждение, что значение — `Spy<X>`. `asSpy` —
+типизированная функция-тождество, поэтому замена сохраняет это утверждение целиком и меняет только
+написание, на уровне типов. Ничего о другом файле знать не нужно. Неверный фикс не скомпилируется.
+
+**Типовые аргументы переносятся, а не выводятся.** `Spy<T, Options>` и `asSpy<T, Options>` принимают
+одни и те же параметры. Поэтому строка после фикса утверждает ровно то же, что строка до него. Это
+касается и `Spy<Cinemas, { overload: 'first' }>`, который вывод молча потерял бы. Вывод неверен и на
+**дженерик**-классе: `TestBed.inject` возвращает `Service<any>`. Этот `any` всплывает восемью
+уровнями ниже как несовпадение `AddPromiseSpyMethods<unknown>` и `WithMockReturnValue<…>`, и ничто
+не указывает на спеку.
+
+**Почему оно в recommended.** `Spy<T>` добавляет `accessorSpies` и хелперы на каждый метод, поэтому
+типы недостаточно пересекаются. Строка падает с
+`TS2352: Conversion of type 'X' to type 'Spy<X>' may be a mistake`. См.
+[самая частая ошибка компиляции у переехавшего Angular-проекта](/ru/migrating#reading-a-spy-back-out-of-the-container).
+`asSpy` утверждает то же самое: тот же объект во время выполнения и никакого каста.
+
+**Почему не часть `prefer-inject-spy`.** Эти правила соседи, но не одно и то же.
+[`prefer-inject-spy`](#prefer-inject-spy) сообщает о дефекте во время выполнения, который чинится
+провайдером в другом файле. Это правило сообщает о верном намерении, записанном так, что оно больше
+не компилируется, и чинит его на месте. Слияние к тому же сделало бы `meta.fixable` неправдой, а
+ESLint читает его для каждого правила отдельно.
+
+**Серьёзность.** `error`, и второе правило в `configs.typeErrors`, по той же причине, что
+[`no-mocked-for-spy`](#no-mocked-for-spy): находка — `TS2352`, сборка уже красная.
+:::
 
 ## no-ts-expect-error-on-double {#no-ts-expect-error-on-double}
 
-**`error`** · без правки · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Сообщает.** `@ts-expect-error` или `@ts-ignore`, чья подавленная строка принадлежит настройке
-дубля: `nextWith`, `nextOneTimeWith`, `nextWithValues`, `nextWithPerCall`, `resolveWith`,
-`resolveWithPerCall`, `returnValue`, `mockReturnValue(Once)`, `mockResolvedValue(Once)`, `calledWith`
-и `mustBeCalledWith`, вызванным на именованном методе (`double.method.nextWith(…)`, или то же через
-цепочку `calledWith(…)`). Сообщение стоит на директиве.
-
-**На чём решает.** На комментариях и номерах строк — так, как их читает компилятор: директива
-действует на строку после комментария, а блочный комментарий читается по последней строке. Эта строка
-должна попасть внутрь вызова настройки — в сам вызов или в фикстуру, растянутую на несколько строк, —
-но не внутрь колбэка, переданного в него: там подавление про что-то другое. `rejectWith`, `failWith`
-и `throwWith` не читаются: их параметр — `unknown`, так что ошибиться с формой заглушки там нельзя, и
-директива над ними глушит что-то помимо дубля.
-
-Какая бы причина ни стояла после директивы, правило её сообщает. На этом решении правило и держится:
-причина — это место, где записан неверный диагноз, а в кодовой базе, которая её требует (как
-`@typescript-eslint/ban-ts-comment` по умолчанию), она есть на каждой строке.
-
-**Находка и исправление.**
+Сообщает о `@ts-expect-error` или `@ts-ignore` над вызовом настройки подмены, например `nextWith`,
+`mockReturnValue` или `calledWith(…)`. Типизированная подмена даёт одну проверку: стаб совпадает с
+тем, что объявляет метод. Директива выключает её для всего на строке.
 
 ```ts
-// @ts-expect-error the spy picks the events overload, not the body the code reads
+// @ts-expect-error спай выбирает перегрузку с events, а не тело, которое читает код
 shelves.getShelf.nextWith(page); // ❌
 ```
 
 ```ts
-let shelves: Spy<ShelvesClient, { overload: { getShelf: 'first' } }>; // ✅ та сигнатура, которую зовёт код
+let shelves: Spy<ShelvesClient, { overload: { getShelf: 'first' } }>; // ✅ та сигнатура, которую вызывает код
 shelves.getShelf.nextWith(page);
 ```
 
-Где перегрузки нет, фикстура не той формы: сверьте её с `ReturnType<X['method']>` — аргумент
-`calledWith` с `Parameters<X['method']>`, — а частичную соберите через `createMock<…>()`.
+**Опции.** Нет.
 
-**Зачем оно в recommended.** Единственная проверка типизированного дубля — что заглушка совпадает с
-тем, что объявляет метод, и директива выключает её для всего на строке. Замер на Angular-сюите из
-1759 файлов спек: 34 директивы в 15 файлах, **у каждой есть причина**. Четыре стояли на
-перегруженных клиентах, которые чинит [`overload`](/ru/core/spy-typing#overloads-parameters-reads-the-last-signature);
-семь винили «схлопнутый дженерик» за фикстуру, которую настоящая инстанциация тоже отвергает;
-девятнадцать прятали фикстуру или прод-тип, расходящиеся с объявленным. Четыре были намеренными.
+**Как исправить.**
 
-**Границы.** Значение вне объявленного типа намеренно — объект ошибки в `nextWith`, чтобы дойти до
-ветки по умолчанию, — это правильный код, и сказать это можно построчным отключением над директивой:
+- **Перегруженный метод:** выберите сигнатуру через
+  [`overload`](/ru/core/spy-typing#overloads-parameters-reads-the-last-signature), как выше.
+- **Перегрузки нет:** у фикстуры неверная форма. Сверьте её с `ReturnType<X['method']>` (аргумент
+  `calledWith` — с `Parameters<X['method']>`) и соберите частичную через `createMock<…>()`.
+- **Значение нарочно вне типа,** например объект ошибки, переданный в `nextWith`, чтобы дойти до
+  ветки по умолчанию: оберните его в `outOfType<T>(…)` из `vitest-auto-spy`. Так вы говорите это без
+  директивы, и правило не сообщает:
 
 ```ts
-// eslint-disable-next-line vitest-auto-spy/no-ts-expect-error-on-double -- an error outside the union reaches the fallback
+reference.load.nextOneTimeWith(outOfType<Reference>(new HttpErrorResponse({ status: 500 })));
+```
+
+**Когда выключить.** Если держите директиву намеренно, объясните почему в отключении на строку над
+ней:
+
+```ts
+// eslint-disable-next-line vitest-auto-spy/no-ts-expect-error-on-double -- ошибка вне union доходит до запасной ветки
 // @ts-expect-error
 reference.load.nextOneTimeWith(new HttpErrorResponse({ status: 500 }));
 ```
 
-Дубль, до которого добираются через вычисляемый член или голый мок (`vi.fn().mockReturnValue(…)`),
-метода не называет и не читается.
+::: details Как правило решает
+**Вызовы:** `nextWith`, `nextOneTimeWith`, `nextWithValues`, `nextWithPerCall`, `resolveWith`,
+`resolveWithPerCall`, `returnValue`, `mockReturnValue(Once)`, `mockResolvedValue(Once)`, `calledWith`
+и `mustBeCalledWith` на именованном методе (`double.method.nextWith(…)` или то же через цепочку
+`calledWith(…)`). Сообщение ставится на директиву.
 
-**Severity.** `error`. Решает по факту — подавлению над настройкой дубля, — а у единственного случая,
-где подавление уместно, есть выход в одну строку, который записывает, почему.
+**Комментарии и номера строк читаются так же, как их читает компилятор.** Директива действует на
+строку после комментария. Блочный комментарий читается с последней строки. Эта строка должна быть
+внутри вызова настройки (вызываемое выражение или фикстура на несколько строк). Но не внутри
+переданного ему колбэка: там директива говорит о другом.
+
+**Не читаются:** `rejectWith`, `failWith` и `throwWith` принимают `unknown`, так что ошибиться в
+форме стаба нельзя. Подмена, до которой добираются через вычисляемый член, или голый мок
+(`vi.fn().mockReturnValue(…)`) не называет метода.
+
+**Причина после директивы не помогает.** Правило всё равно сообщает. Причина — то место, где
+записывают неверный диагноз. А в кодовой базе, которая её требует (как
+`@typescript-eslint/ban-ts-comment` по умолчанию), причина есть на каждой строке.
+
+**Почему оно в recommended.** На одном Angular-проекте из 1759 спек-файлов: 34 директивы в 15 файлах,
+**у каждой есть причина**. Четыре стояли на перегруженных клиентах, это чинит `overload`. Семь винили
+«схлопнутый дженерик» в фикстуре, которую отвергает и настоящий дженерик-тип. Девятнадцать прятали
+фикстуру или продакшен-тип, который расходится с объявленным. Четыре были намеренными.
+
+**Серьёзность.** `error`. Правило решает по факту — подавление над настройкой подмены. А у
+единственного верного случая есть обход в одну строку, который записывает причину.
+:::
 
 ## no-jasmine-globals {#no-jasmine-globals}
 
-**`error`** · без правки · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Что сообщает.** Глобальные объекты, которые ставил собственный раннер jasmine и не ставит здесь
-ничто: `jasmine.*` и голые `spyOn(`, `spyOnProperty(`, `spyOnAllFunctions(`, `fail(`, `pending(` —
-плюс `.withContext(`, то есть способ jasmine подписывать проверку.
-
-**На чём решает.** На имени и на том, есть ли у файла биндинг для него. `jasmine`, объявленный самим
-файлом, не трогается, как и `import { spyOn } from 'bun:test'` — другая функция с тем же именем и
-правильная на этом рантайме. Половина про `jasmine.<member>` — таблица соответствий, из которой
-`createSpyObj` и `clock()` вынесены отдельно, потому что один отчёт должен покрыть несколько вызовов:
-сообщение про часы разом отображает `install` / `uninstall` / `tick` / `mockDate`.
-
-**Находка и как её закрыть.**
+Сообщает о глобалах, которые ставил собственный раннер Jasmine и которые под Vitest никто не ставит:
+`jasmine.*`, голый `spyOn(`, `spyOnProperty(`, `spyOnAllFunctions(`, `fail(`, `pending(` и
+`.withContext(`. Большинство из них и так громко падают. `spyOn` — нет: после переименования в
+`vi.spyOn` он вызывает настоящий метод, а не заменяет его.
 
 ```diff
 - spyOn(analytics, 'track');        // jasmine: track() не выполняется
-+ vi.spyOn(analytics, 'track');     // Vitest: track() выполняется на каждом вызове
++ vi.spyOn(analytics, 'track');     // Vitest: track() выполняется при каждом вызове
 ```
 
 ```ts
-vi.spyOn(analytics, 'track').mockImplementation(() => undefined); // где имелось в виду «заглушить»
-provideAutoSpy(AnalyticsService); // лучше: заглушает все методы по построению
+vi.spyOn(analytics, 'track').mockImplementation(() => undefined); // ✅ где строка имела в виду «заглушить»
+provideAutoSpy(AnalyticsService); // ✅ лучше: глушит каждый метод по построению
 ```
 
-**Зачем это в `recommended`.** Большинство из них шумно падает на первом же прогоне с
-`ReferenceError`, и для них правило было бы излишним. **Одно не падает, и поэтому это правило, а не
-абзац в руководстве по переезду:** `spyOn` из jasmine ставит **заглушку**, а `vi.spyOn` **пропускает
-вызов дальше**. Переименование компилируется, спека выполняется, и код под тестом теперь по-настоящему
-разговаривает со своим коллаборатором — так переехавшая сюита начинает ходить в сеть или проходить,
-проверяя значение, которое случайно вернула настоящая реализация. `.withContext(` в том же правиле,
-потому что [слой chai у Vitest теряет сообщение, а не бросает](/ru/migrating-jasmine).
+**Опции.** Нет.
 
-**Границы.** В сюите, которая никогда не знала jasmine, оно инертно — сработать на коде, где этих
-имён нет, оно не может, поэтому и включено для всех. Сообщения называют замену, а не механику,
-поэтому шумные случаи — по одному переименованию каждый; читать стоит случай `spyOn`.
+**Как исправить.** Замените каждый глобал его формой из Vitest. Сообщение её называет:
 
-**Что сообщение оставляет за кадром.** О `jasmine.clock()` сообщается по члену, с хелпером, который его заменяет:
-`install()` → `setupFakeTimers()`, `uninstall()` → `vi.useRealTimers()`, `tick(n)` →
-`await advanceTimers(ms)` (он заодно сливает микрозадачи, которые поставили таймеры), `mockDate(d)` →
-`mockSystemTime(date)`. Файл, который должен заработать до переписывания, импортирует `{ jasmine }`
-из `vitest-auto-spy/jasmine`: его пространство имён перенаправляет каждый член на примитив Vitest.
+- `spyOn`, который имел в виду «заглушить»: `vi.spyOn(obj, 'm').mockImplementation(() => undefined)`
+  или `createSpyFromClass` / `provideAutoSpy`, которые глушат каждый метод.
+- `fail(…)`: `expect.fail(…)`.
+- `jasmine.clock()`, по одному сообщению на член: `install()` → `setupFakeTimers()`, `uninstall()` →
+  `vi.useRealTimers()`, `tick(n)` → `await advanceTimers(ms)` (он также сбрасывает микрозадачи,
+  которые поставили таймеры), `mockDate(d)` → `mockSystemTime(date)`.
+- Файл, который должен работать до переписывания, может импортировать `{ jasmine }` из
+  `vitest-auto-spy/jasmine`. Его пространство имён передаёт каждый член примитиву Vitest.
 
-**Severity.** `error`. Один член набора зелёный и неверный, и это самый используемый из них.
+Для массовой переделки запустите `npx vitest-auto-spy codemod --from jasmine`. См.
+[Переезд с jasmine-auto-spies](/ru/migrating-jasmine).
+
+**Когда выключить.** Не нужно, даже если вы никогда не пользовались Jasmine: без этих имён правило
+сработать не может. Держите его включённым и в старом Jest-проекте. До Jest 27 Jest работал на
+`jest-jasmine2`, который ставил `spyOn`, `fail` и `pending` как глобалы.
+
+::: details Как правило решает
+**Имя и то, есть ли для него биндинг в файле.** `jasmine`, который файл объявляет сам, правило не
+трогает. Как и `import { spyOn } from 'bun:test'`: это другая функция с тем же именем, и на этом
+рантайме она правильная. Часть `jasmine.<member>` — таблица соответствий. `createSpyObj` и `clock()`
+вынесены отдельно, потому что одно сообщение должно покрыть несколько вызовов: сообщение про часы
+сразу сопоставляет `install` / `uninstall` / `tick` / `mockDate`.
+
+**Почему оно в recommended.** Большинство этих глобалов падает на первом прогоне с `ReferenceError`.
+Случай `spyOn` — нет. `spyOn` из Jasmine ставит **стаб**, а `vi.spyOn` **вызывает оригинал**.
+Переименование компилируется, спека выполняется, и код под тестом теперь по-настоящему говорит со
+своим коллаборатором. Так переехавший проект начинает делать сетевые запросы или проходить на
+значении, которое случайно вернула настоящая реализация. `.withContext(` в том же правиле, потому что
+[слой chai в Vitest теряет сообщение, а не падает](/ru/migrating-jasmine#withcontext-does-not-throw-it-loses-the-message).
+
+**Серьёзность.** `error`. Один член набора зелёный и неверный, и это самый используемый из них.
+:::
 
 ## jasmine-namespace-without-entry {#jasmine-namespace-without-entry}
 
-**`error`** · без правки · только синтаксис · опция `setupModules`
+**`error`** · без автоисправления · только синтаксис · опция `setupModules`
 
-**Что сообщает.** `.and`, `.calls` или `.withArgs`, применённые к спаю, построенному этим файлом, в
-файле, который нигде не ставит слой совместимости.
-
-**На чём решает.** На трёх сужениях, каждое из которых делает неотвечаемый вопрос отвечаемым. Ставит
-ли слой **проект**, из одного файла не узнать: вызов обычно сидит в записи `setupFiles` Vitest,
-которую не импортирует ни одна спека. Поэтому правило заявляет только одно: «этот файл использует
-пространство имён на спае, который **построил этот файл**, и этот файл ничего не ставит»:
-
-- получатель обязан прослеживаться до одной из фабрик библиотеки — обход идёт вниз по цепочке членов,
-  потому что пространство имён навешивается на _метод_ дубля (`api.load.and.returnValue(…)`), а за
-  именем следят по каждой записи, включая инициализатор, поскольку `let api: Spy<Api>`, наполняемый в
-  `beforeEach`, — то, как строит дубли большинство сюит;
-- импорт любой точки входа, которая _не может_ загрузить jasmine-точку, глушит файл —
-  `vitest-auto-spy/bun`, `…/bun-angular`, `…/node`, `…/rstest`, чьи рантаймы неизбежно ставят слой из
-  setup-файла, так что отчёт о них был бы отчётом о документированной схеме;
-- вызов `enableJasmineCompat()` где угодно в файле его глушит, и поэтому отчёты держатся до
-  `Program:exit`: вызов может стоять ниже первого спая, который он оснащает.
-
-`import type { Spy } from 'vitest-auto-spy/jasmine'` **не** считается: компилятор его стирает, значит,
-он ничего не ставит, — а файл, импортирующий тип из jasmine-точки, а фабрики из основной, и есть та
-самая форма, ради которой написано правило. Для точности вычитаются две формы: `spy.mock.calls[0]` —
-собственная бухгалтерия раннера, и здесь она ничья, а `.and`, навешенный на вызов `withArgs(…)`,
-сообщается на `withArgs`, в чьём сообщении названа вся замена, чтобы цепочка не вернулась двумя
-сообщениями.
-
-**Находка и как её закрыть.**
+Сообщает о `.and`, `.calls` или `.withArgs` на спае, который построил этот файл, когда файл ни разу
+не ставит слой совместимости с Jasmine. На обычном спае библиотеки `.and` — `undefined`. Поэтому
+строка падает с сообщением, которое не называет ни пропущенный импорт, ни спай.
 
 ```ts
 import { createSpyFromClass } from 'vitest-auto-spy';
@@ -3613,48 +4644,76 @@ api.load.and.returnValue(of(page)); // ❌ Cannot read properties of undefined (
 ```
 
 ```ts
-api.load.mockReturnValue(of(page)); // убрать пространство имён
+api.load.mockReturnValue(of(page)); // ✅ уберите пространство имён
 ```
 
 ```ts
 import { createSpyFromClass } from 'vitest-auto-spy/jasmine';
 
-// либо поставить слой
+// ✅ или поставьте слой
 ```
 
-**Зачем это в `recommended`.** `.and` читается как `undefined` на спае, построенном этой библиотекой,
-поэтому строка умирает с `Cannot read properties of undefined (reading 'returnValue')` — сообщением,
-которое не называет ни отсутствующего импорта, ни спая. Красно по построению, но с диагностикой,
-которая отправляет читателя разбираться со спаем.
+**Опции.**
 
-**Границы.** Это одно из правил, способных сообщить о корректном проекте, и починка здесь — опция, а
-не severity:
+| Опция          | Тип        | По умолчанию | Смысл                                                                      |
+| -------------- | ---------- | ------------ | -------------------------------------------------------------------------- |
+| `setupModules` | `string[]` | `[]`         | setup-модули, которые ставят слой, например запись в `setupFiles` у Vitest |
 
 ```js
 'vitest-auto-spy/jasmine-namespace-without-entry': ['error', { setupModules: ['./test-setup'] }],
 ```
 
-Назовите модуль, из которого ваш проект ставит слой, и правило перестанет догадываться. До 4.0.0
-ответом на это был `warn`, и это была неверная форма: предупреждение, которого никто не читает, —
-не запас прочности, когда настоящая починка в одной опции.
+**Как исправить.** Используйте собственный API спая (`.mockReturnValue`, `.mock.calls`, `calledWith`)
+или импортируйте фабрику из `vitest-auto-spy/jasmine`, которая ставит `.and`, `.calls` и `.withArgs`.
+На рантайме, который не может импортировать эту точку входа, их ставит `enableJasmineCompat()`.
 
-**Severity.** `error`. Красно по построению там, где строка выполняется, и с опцией на тот
-единственный случай, когда правило ошибается насчёт проекта.
+**Когда выключить.** Это правило может сообщить о корректном проекте: `enableJasmineCompat()` может
+выполняться в записи `setupFiles` у Vitest, которую не импортирует ни одна спека. Назовите этот
+модуль в `setupModules`, и правило перестанет гадать. Это и есть исправление, а не понижение
+серьёзности. Импорт точки входа, которая не может загрузить Jasmine-точку (`vitest-auto-spy/bun`,
+`…/bun-angular`, `…/node`, `…/rstest`), тоже заглушает файл.
+
+::: details Как правило решает
+Ставит ли слой **проект**, по одному файлу не узнать. Поэтому правило утверждает только одно: «этот
+файл использует пространство имён на спае, **который построил этот файл**, и этот файл ничего не
+ставит». Три сужения делают это проверяемым:
+
+- **Получатель прослеживается до одной из фабрик этой библиотеки.** Обход идёт вниз по цепочке
+  членов, потому что пространство имён висит на _методе_ подмены (`api.load.and.returnValue(…)`). За
+  именем правило следит через каждую запись, включая инициализатор. `let api: Spy<Api>`, заполненный в
+  `beforeEach`, — так большинство проектов и строит свои подмены.
+- **Точка входа, которая не может загрузить Jasmine-точку, заглушает файл:** `vitest-auto-spy/bun`,
+  `…/bun-angular`, `…/node`, `…/rstest`. Эти рантаймы ставят слой из setup-файла, и сообщать о них
+  значило бы сообщать о задокументированной настройке.
+- **Вызов `enableJasmineCompat()` в любом месте файла заглушает его.** Сообщения ждут, пока файл не
+  прочитан целиком, потому что вызов может стоять ниже первого спая, которому он даёт слой.
+
+`import type { Spy } from 'vitest-auto-spy/jasmine'` **не** считается: компилятор его стирает, так
+что он ничего не ставит. Файл, который импортирует тип из Jasmine-точки, а фабрики — из основной, —
+ровно та форма, ради которой правило написано.
+
+**Две формы вычитаются.** Всё под `.mock` никогда не пространство имён Jasmine: `spy.mock.calls[0]` —
+собственная запись раннера. `.and` на вызове `withArgs(…)` сообщается на `withArgs`. Его сообщение
+называет всю переделку, поэтому цепочка не даёт двух сообщений.
+
+**Почему оно в recommended.** Падает по построению, но ошибка отправляет вас смотреть на спай, а не
+на пропущенный импорт.
+
+**Серьёзность.** `error`, с опцией для единственного случая, когда правило ошибается насчёт проекта.
+Предупреждение, которое никто не читает, — не запас прочности, когда настоящее исправление — одна
+опция.
+:::
 
 ## no-save-arguments-by-value {#no-save-arguments-by-value}
 
-**`error`** · без правки · только синтаксис
+**`error`** · без автоисправления · только синтаксис
 
-**Что сообщает.** `spy.calls.saveArgumentsByValue()` — на чём бы ни висело пространство `.calls`.
-
-**На чём решает.** Только на цепочке членов: пространство `.calls`, прочитанное насквозь до вызова
-`saveArgumentsByValue(…)`. Решать больше нечего — имя принадлежит jasmine и слою совместимости этой
-библиотеки, и ни один другой API его не пишет.
-
-**Находка и как её закрыть.**
+Сообщает о `spy.calls.saveArgumentsByValue()`. Здесь он ничего не делает: Vitest, Bun и `node:test`
+хранят ссылку на каждый аргумент, а не копию. Тогда спека проверяет то, во что код позже превратил
+объект, а не то, что было передано.
 
 ```ts
-spy.calls.saveArgumentsByValue(); // ❌ no-op — аргументы всё та же ссылка
+spy.calls.saveArgumentsByValue(); // ❌ ничего не делает; аргументы — всё та же ссылка
 expect(spy.calls.argsFor(0)[0]).toEqual({ status: 'pending' });
 ```
 
@@ -3662,58 +4721,42 @@ expect(spy.calls.argsFor(0)[0]).toEqual({ status: 'pending' });
 const seen: Payload[] = [];
 
 spy.mockImplementation((payload) => {
-  seen.push(structuredClone(payload));
+  seen.push(structuredClone(payload)); // ✅ копия в момент вызова
 });
 
 expect(seen[0]).toEqual({ status: 'pending' });
 ```
 
-**Зачем это в `recommended`.** Вызов здесь **no-op**, и намеренно: jasmine защитно копирует аргументы
-каждого вызова, Vitest, Bun и `node:test` держат ссылку, а снимок каждого аргумента каждого вызова ради
-паритета обложил бы налогом каждый спай в сюите. Ничего не бросает — в этом и проблема. Спека просила
-аргументы _такими, какими их передали_; после переезда она читает то, что код под тестом оставил в
-этом объекте потом, поэтому проверка состояния на момент вызова тихо превращается в проверку состояния
-на момент проверки и теперь проходит или падает на значении, которого никто не писал. Ни диффа, ни
-предупреждения, ни падающего прогона, на который можно указать, — самый чистый молчаливый случай во
-всём плагине.
+**Опции.** Нет.
 
-**Границы.** Инертно, если сюита не приехала с jasmine. `captureArg<T>()` — способ _дотянуться_ до
-аргумента вообще, но он держит ту же ссылку, которую сопоставила
-проверка: он лечит доступ, а не мутацию. Поэтому починка — всегда копия в момент вызова, то есть
-переписывание, а не переименование.
+**Как исправить.** Копируйте аргумент в момент вызова, как выше. `captureArg<T>()` позволяет
+_добраться_ до аргумента, но хранит ту же ссылку, поэтому от мутации не спасает.
 
-**Severity.** `error`. Зелёный и неверный без всякого сигнала — тот режим отказа, о котором сюита сама
-сообщить не может.
+**Когда выключить.** Не нужно: правило не может сработать, если ваш код не пришёл из Jasmine.
+
+::: details Как правило решает
+**Только цепочка членов:** пространство имён `.calls`, прочитанное до вызова `saveArgumentsByValue(…)`,
+на чём бы ни висел `.calls`. Никакой другой API это имя не использует.
+
+**Почему это пустая операция.** Jasmine на всякий случай копирует аргументы каждого вызова. Vitest,
+Bun и `node:test` хранят ссылку. Копировать каждый аргумент каждого вызова ради совпадения значило бы
+замедлить каждый спай в каждом проекте.
+
+**Почему оно в recommended.** Ничего не падает, и в этом проблема. Спека просила аргументы _такими,
+какими их передали_. После переезда она читает то, что код под тестом оставил в этом объекте.
+Утверждение о состоянии на момент вызова молча становится утверждением о состоянии на момент
+проверки. Оно проходит или падает на значении, которое никто не писал. Ни дифф, ни предупреждение, ни
+упавший прогон на это не указывают. Это самый чистый тихий случай в плагине.
+
+**Серьёзность.** `error`. Зелёный и неверный без всякого сигнала.
+:::
 
 ## prefer-native-spy-api {#prefer-native-spy-api}
 
 **`error`** · `--fix`, где получатель прослеживается, иначе подсказка · только синтаксис
 
-**Что сообщает.** Вызов `.and` или `.calls`, чей смысл эта библиотека выражает сама, — переименования,
-которыми заканчивается переезд с `jasmine-auto-spies`.
-
-**На чём решает.** На закрытой таблице замен, каждая из которых остаётся внутри одного вызова и
-сохраняет получателя. Два переименования (`.and.returnValue` → `.mockReturnValue`, `.and.callFake` →
-`.mockImplementation`), десять делегированных хелперов, где `.and` лишь переопубликовывает то, что и
-так есть на спае (`nextWith`, `resolveWith`, `rejectWith`, `throwWith`, `complete`, `returnSubject`,
-`nextWithValues`, `nextOneTimeWith`, `nextWithPerCall`, `resolveWithPerCall`), и три
-бухгалтерских вызова (`.calls.count()` → `.mock.calls.length`, `.calls.reset()` → `.mockClear()`,
-`.calls.argsFor(i)` → `.mock.calls[i]`). Получатель `withArgs(…)` складывается внутрь:
-`spy.withArgs(a).and.returnValue(v)` → `spy.calledWith(a).mockReturnValue(v)`.
-
-Таблица очерчена так узко, как это звучит. Стратегии без эквивалента — `.and.returnValues`,
-`.and.callThrough`, `.and.stub`, `.and.throwError`, `.and.resolveTo` — и бухгалтерские вызовы с иной
-формой (`.calls.mostRecent()`, `.calls.all()`) в неё не входят вовсе, потому что переименования,
-которое сказало бы то же самое, нет. `.calls.argsFor()` без индекса тоже отклоняется:
-`mock.calls[undefined]` — не то, что имела в виду строка. Цепочка с опциональным звеном не трогается,
-потому что замена собирается из исходного текста получателя плюс имени члена, и
-`spy?.and.returnValue(1)` вернулся бы как `spy.mockReturnValue(1)` — тот же вызов с молча снятой
-защитой.
-
-Обычный фикс тратится только там, где получатель прослеживается до фабрики этой библиотеки;
-`.calls.count()` на чужом объекте — чужой метод, и там та же правка предлагается подсказкой.
-
-**Находка и как её закрыть.**
+Сообщает о вызове `.and` или `.calls`, который собственный API спая говорит напрямую. Это рабочий код
+из слоя совместимости с Jasmine. Правило — инструмент, который завершает переезд.
 
 ```ts
 api.load.and.returnValue(of(page)); // ❌ говорит слой совместимости
@@ -3722,38 +4765,84 @@ api.load.withArgs(7).and.returnValue(of(other));
 ```
 
 ```ts
-api.load.mockReturnValue(of(page));
+api.load.mockReturnValue(of(page)); // ✅
 api.load.mock.calls.length;
 api.load.calledWith(7).mockReturnValue(of(other));
 ```
 
-**Зачем это в `recommended`.** Оно сообщает о **работающем** коде, поэтому аргумент здесь другой, чем
-у всех остальных правил: это инструмент, доводящий переезд до конца. `eslint --fix` делает
-прослеживаемые переименования одним проходом, а `npx vitest-auto-spy codemod --from jasmine` — всю
-сюиту, после чего импорт `vitest-auto-spy/jasmine` можно удалить; переезд закончен, когда правило
-молчит. До 4.0.0 оно поставлялось как `off` ровно по причине ниже; сейчас оно включено, потому что
-большинство сюит не в середине переезда, а тем, кто в середине, нужна одна строка.
+**Опции.** Нет.
 
-**Границы.** В первый день переезда оно срабатывает на каждой строке моста, и это единственный случай,
-где ответ — severity, а не опция:
+**Как исправить.** Запустите `eslint --fix`. Он переписывает эти вызовы, когда спай прослеживается до
+одной из фабрик этой библиотеки:
+
+| Jasmine                             | Native                              |
+| ----------------------------------- | ----------------------------------- |
+| `.and.returnValue(x)`               | `.mockReturnValue(x)`               |
+| `.and.callFake(f)`                  | `.mockImplementation(f)`            |
+| `.and.nextWith(v)` и ещё 9 хелперов | `.nextWith(v)` и так далее          |
+| `.withArgs(a).and.returnValue(v)`   | `.calledWith(a).mockReturnValue(v)` |
+| `.calls.count()`                    | `.mock.calls.length`                |
+| `.calls.reset()`                    | `.mockClear()`                      |
+| `.calls.argsFor(i)`                 | `.mock.calls[i]`                    |
+
+Десять делегированных хелперов: `nextWith`, `resolveWith`, `rejectWith`, `throwWith`, `complete`,
+`returnSubject`, `nextWithValues`, `nextOneTimeWith`, `nextWithPerCall` и `resolveWithPerCall`.
+
+В остальных местах та же правка — подсказка: `.calls` на чужом объекте — чужой метод. Переделка,
+которая удалила бы комментарий (`.and /* x */ .returnValue` или комментарий внутри
+`.calls.argsFor(…)`), тоже подсказка, даже на спае библиотеки. Она предупреждает, что комментарий
+пропадёт.
+
+Чтобы переделать весь проект за один проход, включая то, что правило не переписывает, запустите
+`npx vitest-auto-spy codemod --from jasmine`. См. [Переезд с jasmine-auto-spies](/ru/migrating-jasmine).
+
+**Когда выключить.** На время переезда. В первый день оно срабатывает на каждой строке слоя
+совместимости, поэтому выключите его, пока тесты не позеленеют:
 
 ```js
-{ rules: { 'vitest-auto-spy/prefer-native-spy-api': 'off' } } // пока сюита не позеленеет
+{ rules: { 'vitest-auto-spy/prefer-native-spy-api': 'off' } } // пока тесты не зелёные
 ```
 
-Уберите эту строку на последнюю милю. Обо всём, что вне таблицы замен, отчёта не будет, поэтому тихий
-прогон не означает, что моста больше нет: `.and.callThrough()` и `.calls.all()` его переживают, и
-честная проверка «нужен ли ещё слой» — можно ли удалить импорт `vitest-auto-spy/jasmine`.
+На последнем отрезке удалите эту строку. Тихий прогон не значит, что слоя больше нет:
+`.and.callThrough()` и `.calls.all()` правило не сообщает. Честная проверка — можно ли удалить импорт
+`vitest-auto-spy/jasmine`.
 
-**Severity.** `error`, с документированным `'off'` на время переезда. Альтернатива — поставлять его
-как `off` и просить закончивших включить его — это правило, которое не включит никто.
+::: details Как правило решает
+**Закрытая таблица переделок.** Каждая остаётся внутри одного выражения вызова и сохраняет получателя:
+
+- два переименования: `.and.returnValue` → `.mockReturnValue`, `.and.callFake` → `.mockImplementation`;
+- десять делегированных хелперов, где `.and` лишь заново открывает то, что уже есть на спае;
+- три служебных вызова: `.calls.count()`, `.calls.reset()`, `.calls.argsFor(i)`;
+- получатель `withArgs(…)` складывается: `spy.withArgs(a).and.returnValue(v)` →
+  `spy.calledWith(a).mockReturnValue(v)`.
+
+**Не в таблице,** потому что никакое переименование не говорит того же:
+
+- `.and.returnValues`, `.and.callThrough`, `.and.stub`, `.and.throwError`, `.and.resolveTo`;
+- `.calls.mostRecent()` и `.calls.all()`: нативная форма — не одно выражение;
+- `.calls.argsFor()` без индекса: `mock.calls[undefined]` — не то, что имела в виду строка.
+
+**Опциональное звено оставляет цепочку в покое.** Замена собирается из исходного текста получателя
+плюс имени члена. Поэтому `spy?.and.returnValue(1)` стал бы `spy.mockReturnValue(1)`: тот же вызов,
+но с молча убранной защитой.
+
+**Почему `--fix` только на прослеживаемом спае.** Фикс переименовывает только член
+(`and.returnValue` → `mockReturnValue`, `withArgs` → `calledWith`), поэтому получатель, аргументы и
+комментарии остаются как написаны. На спае, который не прослеживается до фабрики библиотеки,
+`.calls.count()` может быть чужим API.
+
+**Почему `error`.** Оно сообщает о рабочем коде, и этим отличается от всех остальных правил: оно
+завершает переезд. Большинство проектов не в середине переезда, а тем, кто в середине, нужна одна
+строка. Если бы правило входило в пакет выключенным и законченные проекты должны были бы включать
+его сами, его бы не включил никто.
+:::
 
 ## Смотрите также {#related}
 
-- [Плагин ESLint](/ru/utilities/eslint-plugin) — подключение, глоб `files` и рецепт выката на
-  большую существующую сюиту без красного CI.
-- [Диагностика в редакторе](/ru/utilities/editor-diagnostics) — те же находки внутри IDE.
-- [CLI — кодмод](/ru/utilities/codemod) — массовое переписывание, которое доводят до конца два
-  jasmine-правила с `--fix`.
-- [Диагностика Angular](/ru/adapters/angular-diagnostics) — рантайм-двойник
-  [`no-dead-schemas`](#no-dead-schemas).
+- [ESLint-плагин](/ru/utilities/eslint-plugin): настройка, глоб `files` и как добавить плагин в
+  большой существующий проект без красного CI.
+- [Диагностика в редакторе](/ru/utilities/editor-diagnostics): те же находки в вашем редакторе.
+- [CLI: кодмод](/ru/utilities/codemod): массовая переделка, которую завершают два Jasmine-правила с
+  `--fix`.
+- [Диагностика Angular](/ru/adapters/angular-diagnostics): двойник
+  [`no-dead-schemas`](#no-dead-schemas) во время выполнения.
