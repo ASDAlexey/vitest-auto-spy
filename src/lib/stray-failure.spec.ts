@@ -13,16 +13,23 @@ import {
 import type { StrayListener } from './stray-listeners';
 import type { StrayTimer } from './stray-timers';
 
-function withCurrent<T>(current: unknown, run: () => T): T {
-  const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
-  const saved: unknown = Reflect.get(Object(worker), 'current');
+/** The slice of Vitest's worker state the stray reports read. */
+interface WorkerState {
+  current?: unknown;
+  filepath?: unknown;
+}
 
-  Reflect.set(Object(worker), 'current', current);
+const worker = Reflect.get(globalThis, '__vitest_worker__') as WorkerState;
+
+function withCurrent<T>(current: unknown, run: () => T): T {
+  const saved = worker.current;
+
+  worker.current = current;
 
   try {
     return run();
   } finally {
-    Reflect.set(Object(worker), 'current', saved);
+    worker.current = saved;
   }
 }
 
@@ -100,15 +107,14 @@ describe('the file-end reports', () => {
 
   it('says "a spec file" when neither the timers nor the runner name one', () => {
     const report = withCurrent(undefined, () => {
-      const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
-      const filepath: unknown = Reflect.get(Object(worker), 'filepath');
+      const filepath = worker.filepath;
 
-      Reflect.set(Object(worker), 'filepath', undefined);
+      worker.filepath = undefined;
 
       try {
         return strayTimersReport(2, []);
       } finally {
-        Reflect.set(Object(worker), 'filepath', filepath);
+        worker.filepath = filepath;
       }
     });
 

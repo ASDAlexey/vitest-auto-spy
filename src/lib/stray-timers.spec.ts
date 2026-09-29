@@ -5,6 +5,7 @@ import { Subject, config } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { isOwnedPatch } from './owned-patch';
+import { mockReadonlyProp, mockValueProp, restoreMockedProps } from './prop-mock';
 import {
   type ScheduledCallback,
   type SchedulerHost,
@@ -98,13 +99,18 @@ function createManualHost(): SchedulerHost & { fire(handle: unknown, ...args: un
   };
 }
 
+/** Node's own `Timeout.close()`, on a handle {@link createNodeLikeHost} made. */
+function closeHandle(handle: unknown): void {
+  (handle as { close(): void }).close();
+}
+
 /**
  * A stand-in whose handles behave like Node's `Timeout`: they coerce to a number, and they can be
  * cancelled through the object, through that number, or by their own `close()`.
  */
 function createNodeLikeHost(): SchedulerHost & { pending: number } {
   let next = 1;
-  const live = new Set<object>();
+  const live = new Set<{ _destroyed: boolean }>();
 
   const schedule = (): object => {
     const id = next++;
@@ -123,17 +129,12 @@ function createNodeLikeHost(): SchedulerHost & { pending: number } {
   };
 
   const cancel = (handle: unknown): void => {
-    if (typeof handle === 'object' && handle !== null) {
-      Reflect.set(handle, '_destroyed', true);
-      live.delete(handle);
-
-      return;
-    }
-
     // Node cancels by id too, and a library that stores the handle as a number is why.
+    const byId = typeof handle !== 'object';
+
     live.forEach((candidate) => {
-      if (Number(candidate) === Number(handle)) {
-        Reflect.set(candidate, '_destroyed', true);
+      if (candidate === handle || (byId && Number(candidate) === Number(handle))) {
+        candidate._destroyed = true;
         live.delete(candidate);
       }
     });
@@ -525,16 +526,12 @@ describe('describeStrayTimers', () => {
   it('describes the caller where the runtime has no captureStackTrace', () => {
     const host = createManualHost();
     const stop = trackStrayTimers(host);
-    const capture = Object.getOwnPropertyDescriptor(Error, 'captureStackTrace');
-
-    Reflect.deleteProperty(Error, 'captureStackTrace');
+    const restore = mockValueProp(Error, 'captureStackTrace', undefined);
 
     try {
       host.setTimeout(() => undefined, 10);
     } finally {
-      if (capture) {
-        Object.defineProperty(Error, 'captureStackTrace', capture);
-      }
+      restore();
     }
 
     const [stray] = describeStrayTimers(host);
@@ -562,14 +559,12 @@ describe('describeStrayTimers', () => {
     const host = createHost();
     const stop = trackStrayTimers(host);
     const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
-    const ownFile: unknown = Reflect.get(Object(worker), 'filepath');
-
-    Reflect.set(Object(worker), 'filepath', undefined);
+    const restore = mockValueProp(Object(worker), 'filepath', undefined);
 
     try {
       host.setTimeout(() => undefined, 10);
     } finally {
-      Reflect.set(Object(worker), 'filepath', ownFile);
+      restore();
     }
 
     expect(describeStrayTimers(host)[0]?.file).toBeUndefined();
@@ -620,7 +615,7 @@ describe("a handle cancelled behind the wrappers' back", () => {
     const stop = trackStrayTimers(host);
     const handle = host.setTimeout(() => undefined, 10_000);
 
-    Reflect.get(Object(handle), 'close')?.call(handle);
+    closeHandle(handle);
 
     expect(countStrayTimers(host)).toBe(0);
     expect(cancelStrayTimers(host)).toBe(0);
@@ -673,11 +668,12 @@ describe('an installation that cannot be completed', () => {
     // DOM shim. The frame wrap assigns, so it throws, and the four timer wrappers were left
     // installed with no undo and no registry entry: `countStrayTimers()` then threw for the rest of
     // the run, and a second call wrapped everything twice.
-    Object.defineProperty(host, 'requestAnimationFrame', { configurable: true, get: () => () => 1 });
+    const restore = mockReadonlyProp(host, 'requestAnimationFrame', () => 1);
 
     expect(() => trackStrayTimers(host)).toThrow();
     expect(host.setTimeout).toBe(realSetTimeout);
     expect(() => countStrayTimers(host)).toThrow(/nothing called trackStrayTimers\(\) for this host/);
+    restore();
   });
 });
 
@@ -771,6 +767,7 @@ describe('flushUnhandledObservableErrors', () => {
     stops.splice(0).forEach((stop) => stop());
     config.onUnhandledError = null;
     vi.useRealTimers();
+    restoreMockedProps();
   });
 
   const failUnhandled = (error: unknown): void => {
@@ -846,7 +843,7 @@ describe('flushUnhandledObservableErrors', () => {
       }),
     );
 
-    Reflect.get(Object(handle), 'close')?.call(handle);
+    closeHandle(handle);
 
     expect(flushUnhandledObservableErrors(host)).toEqual([]);
   });
@@ -890,7 +887,7 @@ describe('flushUnhandledObservableErrors', () => {
       throw value;
     };
 
-    Reflect.set(host.setTimeout, 'clock', {
+    mockValueProp(host.setTimeout, 'clock', {
       timers: {
         1: { id: 1, func: rethrow, args: ['old clock'] },
         2: { id: 2, func: () => undefined },
@@ -914,7 +911,7 @@ describe('flushUnhandledObservableErrors', () => {
   ])('finds nothing on a scheduler with %s', (_name, clock) => {
     const host = createHost();
 
-    Reflect.set(host.setTimeout, 'clock', clock);
+    mockValueProp(host.setTimeout, 'clock', clock);
 
     expect(flushUnhandledObservableErrors(host)).toEqual([]);
   });
@@ -1000,6 +997,33 @@ describe('expectUnhandledObservableErrors', () => {
     expect(() => expectUnhandledObservableErrors([RangeError])).toThrow(
       /expected \[0\] RangeError[\s\S]*found {4}\[0\] TypeError: id is not a number/,
     );
+  });
+
+  it('matches an error that does not extend Error, by class and by message', () => {
+    class HttpFailure {
+      readonly message: string;
+
+      constructor(readonly status: number) {
+        this.message = `Http failure response: ${status}`;
+      }
+    }
+
+    stops.push(trackStrayTimers());
+    failUnhandled(new HttpFailure(502));
+    failUnhandled(new HttpFailure(404));
+
+    expect(expectUnhandledObservableErrors([HttpFailure, { message: /404/ }])).toHaveLength(2);
+  });
+
+  it.each([
+    ['a string', 'boom'],
+    ['an object without a message', { status: 502 }],
+    ['an object with a numeric message', { message: 502 }],
+  ])('does not match a message against %s', (_name, error) => {
+    stops.push(trackStrayTimers());
+    failUnhandled(error);
+
+    expect(() => expectUnhandledObservableErrors([{ message: /./ }])).toThrow(/do not match what the test expected/);
   });
 
   it('fails on a count mismatch', () => {

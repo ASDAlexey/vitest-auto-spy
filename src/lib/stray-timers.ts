@@ -827,7 +827,13 @@ export function flushUnhandledObservableErrors(host: SchedulerHost = defaultHost
 }
 
 /** What one entry of {@link expectUnhandledObservableErrors} expects: the error itself, its class, or its message. */
-export type ExpectedUnhandledError = Error | (abstract new () => Error) | { readonly message: RegExp | string };
+export type ExpectedUnhandledError = Error | (abstract new (...args: never[]) => unknown) | { readonly message: RegExp | string };
+
+function messageOf(error: unknown): string | undefined {
+  const message: unknown = typeof error === 'object' && error !== null ? Reflect.get(error, 'message') : undefined;
+
+  return typeof message === 'string' ? message : undefined;
+}
 
 function matchesExpectedUnhandled(error: unknown, expected: ExpectedUnhandledError): boolean {
   if (typeof expected === 'function') {
@@ -838,10 +844,9 @@ function matchesExpectedUnhandled(error: unknown, expected: ExpectedUnhandledErr
     return error instanceof Error && error.name === expected.name && error.message === expected.message;
   }
 
-  return (
-    error instanceof Error &&
-    (typeof expected.message === 'string' ? error.message === expected.message : expected.message.test(error.message))
-  );
+  const message = messageOf(error);
+
+  return message !== undefined && (typeof expected.message === 'string' ? message === expected.message : expected.message.test(message));
 }
 
 function describeExpectedUnhandled(expected: ExpectedUnhandledError): string {

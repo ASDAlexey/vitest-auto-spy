@@ -1,6 +1,7 @@
 import { compileFunction } from 'node:vm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { mockReadonlyProp, mockValueProp } from './prop-mock';
 import {
   type TrackedListenerTarget,
   baselineStrayListeners,
@@ -297,17 +298,17 @@ describe('stray listeners', () => {
 
   it('leaves the file out when the runner reports none', () => {
     const named = namedTarget('stand-in');
-    const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
-    const ownFile: unknown = Reflect.get(Object(worker), 'filepath');
+    const worker: { filepath?: string } = Reflect.get(globalThis, '__vitest_worker__');
 
     track(named);
     baselineStrayListeners([named]);
-    Reflect.set(Object(worker), 'filepath', undefined);
+
+    const restore = mockValueProp(worker, 'filepath', undefined);
 
     try {
       named.target.addEventListener('popstate', () => undefined);
     } finally {
-      Reflect.set(Object(worker), 'filepath', ownFile);
+      restore();
     }
 
     expect(describeStrayListeners([named])[0]?.file).toBeUndefined();
@@ -319,10 +320,7 @@ describe('an installation that cannot be completed', () => {
     const named = namedTarget('half hostile');
     const originalAdd = named.target.addEventListener;
 
-    Object.defineProperty(named.target, 'removeEventListener', {
-      configurable: true,
-      get: () => EventTarget.prototype.removeEventListener,
-    });
+    mockReadonlyProp(named.target, 'removeEventListener', EventTarget.prototype.removeEventListener);
 
     expect(() => trackStrayListeners([named])).toThrow();
     expect(named.target.addEventListener).toBe(originalAdd);
@@ -332,10 +330,7 @@ describe('an installation that cannot be completed', () => {
   it('rethrows untouched when the target refuses the first assignment', () => {
     const named = namedTarget('hostile from the start');
 
-    Object.defineProperty(named.target, 'addEventListener', {
-      configurable: true,
-      get: () => EventTarget.prototype.addEventListener,
-    });
+    mockReadonlyProp(named.target, 'addEventListener', EventTarget.prototype.addEventListener);
 
     expect(() => trackStrayListeners([named])).toThrow();
     expect(() => countStrayListeners([named])).toThrow(/nothing called trackStrayListeners\(\) for this target/);
@@ -346,10 +341,7 @@ describe('an installation that cannot be completed', () => {
     const hostile = namedTarget('hostile');
     const fineAdd = fine.target.addEventListener;
 
-    Object.defineProperty(hostile.target, 'removeEventListener', {
-      configurable: true,
-      get: () => EventTarget.prototype.removeEventListener,
-    });
+    mockReadonlyProp(hostile.target, 'removeEventListener', EventTarget.prototype.removeEventListener);
 
     expect(() => trackStrayListeners([fine, hostile])).toThrow();
     expect(fine.target.addEventListener).toBe(fineAdd);
