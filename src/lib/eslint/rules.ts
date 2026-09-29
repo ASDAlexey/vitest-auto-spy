@@ -54,6 +54,7 @@ import { preferSettleDynamicImport } from './dynamic-import';
 import { noMockCast, preferCreateMock } from './fixture-casts';
 import { noHandAssignedGlobal } from './global-assignment';
 import { preferAsSpy } from './injected-spy';
+import { noInlineTestData } from './inline-test-data';
 import { jasmineRules } from './jasmine-rules';
 import { noInstanceLifecycleSpy } from './lifecycle-spy';
 import { noMistypedUseValue } from './mistyped-use-value';
@@ -153,5 +154,6 @@ export const rules: Record<string, RuleModule> = {
   'no-relative-mock-under-builder': noRelativeMockUnderBuilder,
   'no-real-wait-in-test': noRealWaitInTest,
   'no-disabled-testbed-teardown': noDisabledTestbedTeardown,
+  'no-inline-test-data': noInlineTestData,
   ...jasmineRules,
 };
