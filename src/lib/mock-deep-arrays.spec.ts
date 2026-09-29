@@ -180,7 +180,7 @@ describe('mockDeep — arrays: what a spec said first wins', () => {
     const page = mockDeep<Page>();
     const assigned: Item[] = [{ title: 'a', load: () => 'a' }];
 
-    Reflect.set(page, 'items', assigned);
+    (page as Page).items = assigned;
 
     expect(page.items[0]).toBe(assigned[0]);
   });
@@ -190,7 +190,7 @@ describe('mockDeep — arrays: what a spec said first wins', () => {
     const handle = page.items;
     const assigned: Item[] = [];
 
-    Reflect.set(page, 'items', assigned);
+    (page as Page).items = assigned;
     void at(handle, 0);
 
     expect(page.items).toBe(assigned);
