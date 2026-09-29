@@ -13,6 +13,8 @@ import { describe, expect, it } from 'vitest';
 import '../angular';
 import { provideAutoSpy } from './angular';
 import { createLocationDouble, injectLocationDouble, provideLocationDouble } from './location-double';
+import { mockValueProp } from './prop-mock';
+import { renderShallow } from './render-shallow';
 
 @Component({
   selector: 'vas-whereami',
@@ -54,9 +56,7 @@ describe('provideLocationDouble', () => {
   });
 
   it('reads through DI in a component', () => {
-    TestBed.configureTestingModule({ providers: [provideLocationDouble()] });
-
-    expect(TestBed.createComponent(WhereAmI).componentInstance.where).toBe('');
+    expect(renderShallow(WhereAmI, { providers: [provideLocationDouble()] }).fixture.componentInstance.where).toBe('');
   });
 
   it('reads the double from an injector it is given', () => {
@@ -149,7 +149,7 @@ describe('path() agrees with the real Location', () => {
   it('names the Angular internal it reads when the history is not where it was', () => {
     const location = createLocationDouble();
 
-    Object.defineProperty(location, '_history', { value: undefined });
+    mockValueProp(location, '_history', undefined);
 
     expect(() => location.path()).toThrow(/no longer carries SpyLocation#_history/);
   });
