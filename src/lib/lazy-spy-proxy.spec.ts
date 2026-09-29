@@ -40,10 +40,12 @@ class Wide {
 
 function classOfWidth(width: number): new () => object {
   const Generated = class {};
+  const methods = Array.from({ length: width }, (_, index) => [
+    `m${index}`,
+    { value: (): number => index, writable: true, configurable: true },
+  ]);
 
-  for (let index = 0; index < width; index += 1) {
-    Object.defineProperty(Generated.prototype, `m${index}`, { value: (): number => index, writable: true, configurable: true });
-  }
+  Object.defineProperties(Generated.prototype, Object.fromEntries(methods));
 
   return Generated;
 }
@@ -71,7 +73,9 @@ describe('lazySpies: "proxy"', () => {
 
   it('enumerates exactly what the accessor path enumerates, in the same order', () => {
     expect(Object.keys(proxySpy())).toEqual(Object.keys(accessorSpy()));
-    expect(Object.keys(proxySpy())).toEqual(['accessorSpies', 'first', 'second', 'third']);
+    expect(Object.keys(proxySpy())).toEqual(['first', 'second', 'third']);
+    expect(Object.getOwnPropertyNames(proxySpy())).toEqual(Object.getOwnPropertyNames(accessorSpy()));
+    expect(Object.getOwnPropertyNames(proxySpy())[0]).toBe('accessorSpies');
   });
 
   it('keeps declaration order after a method has materialised out of order', () => {
@@ -80,7 +84,7 @@ describe('lazySpies: "proxy"', () => {
     void spy['third'];
     void spy['first'];
 
-    expect(Object.keys(spy)).toEqual(['accessorSpies', 'first', 'second', 'third']);
+    expect(Object.keys(spy)).toEqual(['first', 'second', 'third']);
   });
 
   it('answers `in` and `hasOwnProperty` for an untouched method', () => {
@@ -124,7 +128,7 @@ describe('lazySpies: "proxy"', () => {
     spy['first'] = replacement;
 
     expect(spy['first']).toBe(replacement);
-    expect(Object.keys(spy)).toEqual(['accessorSpies', 'first', 'second', 'third']);
+    expect(Object.keys(spy)).toEqual(['first', 'second', 'third']);
   });
 
   it('accepts an assignment to a name the class never had, and reports it last', () => {
@@ -132,7 +136,7 @@ describe('lazySpies: "proxy"', () => {
 
     spy['extra'] = 1;
 
-    expect(Object.keys(spy)).toEqual(['accessorSpies', 'first', 'second', 'third', 'extra']);
+    expect(Object.keys(spy)).toEqual(['first', 'second', 'third', 'extra']);
   });
 
   it('deletes an untouched method for good', () => {
@@ -157,6 +161,7 @@ describe('lazySpies: "proxy"', () => {
 
     expect(delete spy[Symbol.dispose as unknown as string]).toBe(true);
     expect(delete spy['accessorSpies']).toBe(true);
+    expect('accessorSpies' in spy).toBe(false);
     expect(Object.getOwnPropertySymbols(spy)).toEqual([]);
     expect(Object.keys(spy)).toEqual(['first', 'second', 'third']);
   });
@@ -168,12 +173,13 @@ describe('lazySpies: "proxy"', () => {
     Object.freeze(spy);
 
     expect(spy['first']).toBe(first);
-    expect(Object.keys(spy)).toEqual(['accessorSpies', 'first', 'second', 'third']);
+    expect(Object.keys(spy)).toEqual(['first', 'second', 'third']);
   });
 
   it('accepts a redefinition through `Object.defineProperty`', () => {
     const spy = proxySpy();
 
+    // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- the redefinition is the trap under test
     Object.defineProperty(spy, 'second', { configurable: true, enumerable: true, writable: true, value: 42 });
 
     expect(spy['second']).toBe(42);
@@ -188,7 +194,7 @@ describe('lazySpies: "proxy"', () => {
     Object.freeze(spy);
 
     expect(Object.isFrozen(spy)).toBe(true);
-    expect(Object.keys(spy)).toEqual(['accessorSpies', 'first', 'second', 'third']);
+    expect(Object.keys(spy)).toEqual(['first', 'second', 'third']);
     expect(vi.isMockFunction(spy['third'])).toBe(true);
   });
 
@@ -238,7 +244,7 @@ describe('lazySpies: "proxy"', () => {
     const spy = createSpyFromClass(classOfWidth(width)) as unknown as Record<string, unknown>;
 
     expect(types.isProxy(spy)).toBe(proxied);
-    expect(Object.keys(spy)).toHaveLength(width + 1);
+    expect(Object.keys(spy)).toHaveLength(width);
     expect(vi.isMockFunction(spy['m0'])).toBe(true);
   });
 
@@ -280,19 +286,19 @@ describe('lazySpies: "proxy"', () => {
     delete spy['first'];
     delete spy['third'];
 
-    expect(Object.keys(spy)).toEqual(['accessorSpies', 'second']);
+    expect(Object.keys(spy)).toEqual(['second']);
   });
 
   it('answers the names an additive list brings in', () => {
     const spy = createSpyFromClass(Wide, { lazySpies: 'proxy', methodsToSpyOn: ['fourth'] as never }) as unknown as Record<string, unknown>;
 
-    expect(Object.keys(spy)).toEqual(['accessorSpies', 'first', 'second', 'third', 'fourth']);
+    expect(Object.keys(spy)).toEqual(['first', 'second', 'third', 'fourth']);
     expect(vi.isMockFunction(spy['fourth'])).toBe(true);
   });
 
   it('reports a seeded key after the methods', () => {
     const spy = createSpyFromClass(Wide, { lazySpies: 'proxy', gettersToSpyOn: ['label'], overrides: { extra: 1 } as never });
 
-    expect(Object.keys(spy)).toEqual(['accessorSpies', 'first', 'second', 'third', 'extra']);
+    expect(Object.keys(spy)).toEqual(['first', 'second', 'third', 'extra']);
   });
 });
