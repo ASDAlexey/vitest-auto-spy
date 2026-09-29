@@ -139,6 +139,74 @@ export interface SetupFakeTimersOptions {
 }
 
 /**
+ * Run `fn` under fake timers and give the real ones back however it ends — returned, thrown, or
+ * rejected. For the one test of a file that needs a clock, where a `describe` of its own is ceremony.
+ *
+ * ```ts
+ * it('retries after a second', () =>
+ *   withFakeTimers(async () => {
+ *     poller.start();
+ *     await advanceTimers(1_000);
+ *     expect(api.fetch).toHaveBeenCalledTimes(2);
+ *   }));
+ * ```
+ *
+ * Inside fakes somebody else installed (`setupFakeTimers()`, `globalFakeTimers`) a call without a
+ * `config` runs on them and leaves them on; one with a `config` throws, since their clock could not
+ * be put back. Over `mockSystemTime()` it starts at the mocked time and ends on real timers.
+ */
+export function withFakeTimers<R>(fn: () => Promise<R>, config?: FakeTimersConfig): Promise<R>;
+export function withFakeTimers<R>(fn: () => R, config?: FakeTimersConfig): R;
+export function withFakeTimers<R>(fn: () => R, config?: FakeTimersConfig): R {
+  if (vi.isFakeTimers() && !hasDateOnlyFakes()) {
+    if (config !== undefined) {
+      throw new Error(
+        withDocs(
+          '[vitest-auto-spy] withFakeTimers(fn, config) found fake timers already installed, and cannot put them back ' +
+            'after installing its own config. Drop the config to run on the installed fakes, or call it outside setupFakeTimers().',
+          DOCS_LINKS.advanceTimers,
+        ),
+      );
+    }
+
+    return fn();
+  }
+
+  // `mockSystemTime()` fakes only `Date`: taken over like `setupFakeTimers()` does, keeping its time.
+  if (hasDateOnlyFakes()) {
+    const frozenAt = Date.now();
+
+    forgetDateOnlyFakes();
+    vi.useRealTimers();
+    vi.useFakeTimers({ now: frozenAt, ...config });
+  } else {
+    vi.useFakeTimers(config);
+  }
+
+  const uninstall = (): void => {
+    vi.useRealTimers();
+    restoreTimerGlobals();
+  };
+  let result: R;
+
+  try {
+    result = fn();
+  } catch (error) {
+    uninstall();
+    throw error;
+  }
+
+  if (result instanceof Promise) {
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the overload that returns a promise is the one whose `fn` did
+    return result.finally(uninstall) as R;
+  }
+
+  uninstall();
+
+  return result;
+}
+
+/**
  * Advance fake timers by `ms`, then let the microtasks their callbacks queued settle.
  *
  * Throws on real timers instead of letting Vitest fail deeper in with "timers are not mocked" —

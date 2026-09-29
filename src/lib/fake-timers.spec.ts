@@ -7,7 +7,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { mockSystemTime } from './clock';
-import { advanceTimers, setupFakeTimers } from './fake-timers';
+import { advanceTimers, setupFakeTimers, withFakeTimers } from './fake-timers';
 import { type RestoreProp } from './prop-mock';
 import { forgetDateOnlyFakes } from './timer-globals';
 
@@ -212,5 +212,85 @@ describe('advanceTimers', () => {
     await advanceTimers(20);
 
     expect(seen).toEqual(['nested']);
+  });
+});
+
+describe('withFakeTimers', () => {
+  it('runs a sync body under fake timers and hands back its result on real ones', () => {
+    const seen = withFakeTimers(() => vi.isFakeTimers());
+
+    expect(seen).toBe(true);
+    expect(vi.isFakeTimers()).toBe(false);
+  });
+
+  it('awaits an async body, then restores', async () => {
+    const fired: number[] = [];
+    const pending = withFakeTimers(async () => {
+      setTimeout(() => fired.push(1), 1_000);
+      await advanceTimers(1_000);
+
+      return fired.length;
+    });
+
+    await expect(pending).resolves.toBe(1);
+    expect(vi.isFakeTimers()).toBe(false);
+  });
+
+  it('restores after a sync throw and an async rejection', async () => {
+    expect(() =>
+      withFakeTimers(() => {
+        throw new Error('sync boom');
+      }),
+    ).toThrow('sync boom');
+    expect(vi.isFakeTimers()).toBe(false);
+
+    await expect(withFakeTimers(() => Promise.reject(new Error('async boom')))).rejects.toThrow('async boom');
+    expect(vi.isFakeTimers()).toBe(false);
+  });
+
+  it('forwards the config', () => {
+    withFakeTimers(
+      () => {
+        const before = Date.now();
+
+        vi.advanceTimersByTime(1_000);
+
+        expect(Date.now() - before).toBeLessThan(1_000);
+      },
+      { toFake: ['setTimeout'] },
+    );
+  });
+
+  it('takes over Date-only fakes at their time and ends on real timers', () => {
+    const restore = mockSystemTime('2030-01-01T00:00:00.000Z');
+
+    try {
+      const now = withFakeTimers(() => {
+        vi.advanceTimersByTime(1_000);
+
+        return new Date().toISOString();
+      });
+
+      expect(now).toBe('2030-01-01T00:00:01.000Z');
+      expect(vi.isFakeTimers()).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  describe('inside setupFakeTimers', () => {
+    setupFakeTimers();
+
+    it('runs on the installed fakes and leaves them on', () => {
+      const clock = setTimeout;
+
+      expect(withFakeTimers(() => setTimeout === clock)).toBe(true);
+      expect(vi.isFakeTimers()).toBe(true);
+    });
+
+    it('refuses a config it could not undo', () => {
+      expect(() => withFakeTimers(() => undefined, { toFake: ['Date'] })).toThrow(/found fake timers already installed/);
+      expect(vi.isFakeTimers()).toBe(true);
+    });
   });
 });

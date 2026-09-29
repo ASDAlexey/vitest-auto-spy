@@ -1,6 +1,7 @@
 import { BehaviorSubject, EMPTY, Subject, from, of, repeat, tap } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { expectNoEmissionSync } from './emission-sync';
 import { abandonEmissionWaits } from './emission-timeout';
 import {
   type SubscribableLike,
@@ -12,7 +13,7 @@ import {
   expectNoEmission,
   setEmissionTimeout,
 } from './expect-emission';
-import { setupFakeTimers } from './fake-timers';
+import { setupFakeTimers, withFakeTimers } from './fake-timers';
 
 /** Emit `value` on the next macrotask, the shape of a stream fed by an async source. */
 function later<T>(value: T, delay = 1): Subject<T> {
@@ -91,7 +92,7 @@ describe('expectEmissions', () => {
     }, 1);
 
     await expect(expectEmissions(source$, 3, { timeout: 50 })).rejects.toThrow(
-      'expectEmissions(source$, 3): the stream completed after 1 emission, expected 3. The stream ends too early',
+      'expectEmissions(source$, 3): the stream completed after 1 emission (1), expected 3. The stream ends too early',
     );
   });
 });
@@ -166,6 +167,7 @@ describe('expectNoEmission', () => {
 
     const settled = unsubscribes;
 
+    // eslint-disable-next-line vitest-auto-spy/no-real-wait-in-test -- the quiet window runs on the real clock by design, so only real time shows it was cancelled
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     // An uncancelled window would stop the collector a second time here — and in a real suite it
@@ -222,7 +224,7 @@ describe('expectCompletion', () => {
 
     setTimeout(() => source$.next(1), 1);
 
-    await expect(expectCompletion(source$, { timeout: 20 })).rejects.toThrow(/did not complete within 20 ms \(1 emission received\)/);
+    await expect(expectCompletion(source$, { timeout: 20 })).rejects.toThrow(/did not complete within 20 ms \(1 emission received: 1\)/);
   });
 
   it('rejects with "instead of completing", not the emission wording', async () => {
@@ -518,7 +520,7 @@ describe('choosing which emission counts', () => {
     // "2 arrived, none matched" is a different diagnosis from "nothing fired", and a
     // `pipe(filter(…))` in front of the helper loses it.
     await expect(expectEmission(source$, { until: (value) => value > 5, timeout: 20, label: 'ids$' })).rejects.toThrow(
-      /expectEmission\(ids\$\): 2 emissions within 20 ms, expected 1 matching\. None of the rest matched `until`/,
+      /expectEmission\(ids\$\): 2 emissions \(1, 2\) within 20 ms, expected 1 matching\. None of the rest matched `until`/,
     );
   });
 
@@ -531,7 +533,7 @@ describe('choosing which emission counts', () => {
     }, 1);
 
     await expect(expectEmission(source$, { until: (value) => value > 5, timeout: 50 })).rejects.toThrow(
-      'completed after 1 emission, expected 1 matching. None of them matched `until`',
+      'completed after 1 emission (1), expected 1 matching. None of them matched `until`',
     );
   });
 
@@ -565,21 +567,17 @@ describe('choosing which emission counts', () => {
 });
 
 describe('advance', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('runs the callback once the subscription exists, closing the window a spec cannot reach', async () => {
-    vi.useFakeTimers();
+    await withFakeTimers(async () => {
+      const source$ = new Subject<boolean>();
 
-    const source$ = new Subject<boolean>();
+      setTimeout(() => source$.next(false), 5_000);
 
-    setTimeout(() => source$.next(false), 5_000);
-
-    // Without this the `await` gives control away before the clock can be advanced, and the shape
-    // people fall back to — hold the promise, advance, then await — breaks the moment somebody adds
-    // an `await` one line above it.
-    await expect(expectEmission(source$, { advance: () => vi.runAllTimers() })).resolves.toBe(false);
+      // Without this the `await` gives control away before the clock can be advanced, and the shape
+      // people fall back to — hold the promise, advance, then await — breaks the moment somebody adds
+      // an `await` one line above it.
+      await expect(expectEmission(source$, { advance: () => vi.runAllTimers() })).resolves.toBe(false);
+    });
   });
 
   it('is not run when a synchronous source has already settled', async () => {
@@ -881,11 +879,11 @@ describe('the emissions that count are matched once each', () => {
 
   it('says how many emissions it was told to skip when the stream completes short', async () => {
     await expect(expectEmission(of(1, 2), { skip: 5, timeout: 50 })).rejects.toThrow(
-      'completed after 2 emissions, expected 1 after skipping 5',
+      'completed after 2 emissions (1, 2), expected 1 after skipping 5',
     );
   });
 
-  it('counts the emissions a completion-waiting helper saw without keeping them', async () => {
+  it('shows the emissions a completion-waiting helper saw', async () => {
     const source$ = new Subject<number>();
 
     setTimeout(() => {
@@ -895,7 +893,7 @@ describe('the emissions that count are matched once each', () => {
     }, 1);
 
     await expect(expectCompletion(source$, { timeout: 20, label: 'saved$' })).rejects.toThrow(
-      /saved\$\): the stream did not complete within 20 ms \(3 emissions received\)/,
+      /saved\$\): the stream did not complete within 20 ms \(3 emissions received: 1, 2, 3\)/,
     );
   });
 });
@@ -938,10 +936,6 @@ describe('a wait nobody awaited does not reach the next test', () => {
 });
 
 describe('what a failed wait tells its reader', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('links the section about the failure', async () => {
     await expect(expectEmission(new Subject<number>(), { timeout: 5 })).rejects.toThrow(
       /\nDocs: \S+\/core\/observable-assertions#failure-messages$/,
@@ -953,19 +947,20 @@ describe('what a failed wait tells its reader', () => {
   });
 
   it('counts the callbacks queued on a fake clock and says how to advance it', async () => {
-    vi.useFakeTimers();
-    setTimeout(() => undefined, 1_000);
+    await withFakeTimers(async () => {
+      setTimeout(() => undefined, 1_000);
 
-    await expect(expectEmission(new Subject<number>(), { timeout: 5 })).rejects.toThrow(
-      /Timers are fake and 1 callback waits on it: advance them inside the wait, `\{ advance: \(\) => vi\.advanceTimersByTime\(ms\) \}`/,
-    );
-    await expect(expectCompletion(new Subject<void>(), { timeout: 5 })).rejects.toThrow(/Timers are fake and 1 callback wait/);
+      await expect(expectEmission(new Subject<number>(), { timeout: 5 })).rejects.toThrow(
+        /Timers are fake and 1 callback waits on it: advance them inside the wait, `\{ advance: \(\) => vi\.advanceTimersByTime\(ms\) \}`/,
+      );
+      await expect(expectCompletion(new Subject<void>(), { timeout: 5 })).rejects.toThrow(/Timers are fake and 1 callback wait/);
+    });
   });
 
   it('names the fake clock without a count when nothing is queued on it', async () => {
-    vi.useFakeTimers();
-
-    await expect(expectError(new Subject<number>(), { timeout: 5 })).rejects.toThrow(/still open\. .* Timers are fake: advance them/);
+    await withFakeTimers(async () => {
+      await expect(expectError(new Subject<number>(), { timeout: 5 })).rejects.toThrow(/still open\. .* Timers are fake: advance them/);
+    });
   });
 
   it('tells a stream that emitted too few values from one that emitted none', async () => {
@@ -975,7 +970,7 @@ describe('what a failed wait tells its reader', () => {
     source$.next(1);
 
     await expect(pending).rejects.toThrow(
-      'expectEmissions(ids$, 3): 1 emission within 10 ms, expected 3. Check what should push the rest, or raise `{ timeout }`',
+      'expectEmissions(ids$, 3): 1 emission (1) within 10 ms, expected 3. Check what should push the rest, or raise `{ timeout }`',
     );
   });
 
@@ -998,3 +993,94 @@ describe('what a failed wait tells its reader', () => {
     );
   });
 });
+
+describe('the values a failure shows', () => {
+  it('shows the first five and counts the rest', async () => {
+    await expect(expectEmissions(of(1, 2, 3, 4, 5, 6, 7), 9)).rejects.toThrow(
+      'the stream completed after 7 emissions (1, 2, 3, 4, 5, … 2 more), expected 9',
+    );
+  });
+
+  it('shows what arrived before a stream completed without erroring', async () => {
+    await expect(expectError(of({ id: 1 }), { label: 'load$' })).rejects.toThrow(
+      'expectError(load$): the stream completed after 1 emission ({id:1}) without erroring',
+    );
+  });
+
+  it('shows what arrived before the wait for an error ran out', async () => {
+    const source$ = new BehaviorSubject('idle');
+
+    await expect(expectError(source$, { timeout: 5 })).rejects.toThrow(/no error within 5 ms \(1 emission received: 'idle'\)/);
+  });
+});
+
+describe('expectNoEmissionSync', () => {
+  it('passes on a silent stream and leaves no subscription behind', () => {
+    const source$ = new Subject<number>();
+
+    expect(expectNoEmissionSync(source$)).toBeUndefined();
+    expect(source$.observed).toBe(false);
+    expect(abandonEmissionWaits()).toStrictEqual([]);
+  });
+
+  it('passes on a stream that completes without emitting', () => {
+    expect(() => expectNoEmissionSync(EMPTY)).not.toThrow();
+  });
+
+  it('fails on a replayed value, pointing at `skip`', () => {
+    expect(() => expectNoEmissionSync(new BehaviorSubject(1), { label: 'saved$' })).toThrow(
+      'expectNoEmissionSync(saved$): emitted 1 the moment it subscribed, but was expected to stay silent. That is a replayed value',
+    );
+  });
+
+  it('skips a replayed value and catches the one `advance` pushes', () => {
+    const source$ = new BehaviorSubject(1);
+
+    expect(() => expectNoEmissionSync(source$, { skip: 1 })).not.toThrow();
+    expect(() => expectNoEmissionSync(source$, { skip: 1, advance: () => source$.next(2) })).toThrow(
+      'emitted 2 but was expected to stay silent. Something the test ran pushed it',
+    );
+    expect(source$.observed).toBe(false);
+  });
+
+  it('ignores what `until` rules out', () => {
+    expect(() => expectNoEmissionSync(of(1, 2), { until: (value) => value > 5 })).not.toThrow();
+  });
+
+  it('reports a source error and a non-subscribable source as its own failures', () => {
+    const failing$ = new Subject<number>();
+
+    expect(() => expectNoEmissionSync(failing$, { advance: () => failing$.error(new Error('boom')) })).toThrow(
+      /expectNoEmissionSync\(source\$\): the stream errored instead of emitting: Error: boom/,
+    );
+    expect(() => expectNoEmissionSync(notSubscribable())).toThrow(/expectNoEmissionSync\(source\$\): the source is not subscribable/);
+  });
+
+  it('reports a throwing `advance` as its own failure', () => {
+    expect(() =>
+      expectNoEmissionSync(new Subject<number>(), {
+        advance: () => {
+          throw new Error('tick failed');
+        },
+      }),
+    ).toThrow(/the `advance` callback threw: Error: tick failed/);
+  });
+
+  it('anchors the failure at the caller', () => {
+    let failure: unknown;
+
+    try {
+      expectNoEmissionSync(of(1));
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure instanceof Error ? failure.stack : '').toContain('expect-emission.spec.ts');
+  });
+});
+
+function notSubscribable(): SubscribableLike<number> {
+  const value: unknown = [1, 2];
+
+  return value as SubscribableLike<number>;
+}
