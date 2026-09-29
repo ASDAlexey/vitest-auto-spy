@@ -1,3 +1,5 @@
+import { useVitestAdapter } from './lib/use-vitest-adapter';
+
 /**
  * `vitest-auto-spy/dom-stubs` — the globals a component constructs for itself, replaced by ones a
  * spec can drive.
@@ -17,7 +19,7 @@
  * from the root still puts back everything patched here — the journal lives on `globalThis` for
  * exactly this reason — and `setupAutoSpy()` still sweeps it between tests.
  */
-import { useVitestAdapter } from './lib/use-vitest-adapter';
+export type {} from './lib/vitest-mock-types';
 
 useVitestAdapter();
 
@@ -64,3 +66,9 @@ export {
   type ObserverStubOptions,
   type ResizeEntryRect,
 } from './lib/observer-stubs';
+
+// An `HTMLElement` for `ElementRef`, with classList, style, attributes and listeners on spies
+export { createElementStub, type ClassListStub, type ElementStub, type ElementStubOptions, type StyleStub } from './lib/element-stub';
+
+// The members jsdom and happy-dom leave out, filled from the setup file before `setupAutoSpy()`
+export { type FillMissingDomApisOptions, fillMissingDomApis } from './lib/fill-dom-apis';

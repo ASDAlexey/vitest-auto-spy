@@ -35,5 +35,6 @@ export type {
   JasmineSpy,
   JasmineStrategies,
   JasmineWithArgsAnd,
+  JasmineWithArgsStrategies,
   JasmineWithArgsSync,
 } from './lib/jasmine-types';

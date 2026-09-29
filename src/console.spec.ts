@@ -1,9 +1,10 @@
+/* eslint-disable vitest-auto-spy/no-console-in-spec -- the console entry is under test: the spec writes to console and swaps its methods itself */
 /**
  * `vitest-auto-spy/console` — importing the entry must patch the global
  * console with silent typed spies. Per-file isolation (vitest `isolate: true`)
  * keeps the patching local to this spec.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import {
   consoleDebugSpy,
@@ -19,7 +20,15 @@ import {
   resetConsoleSpies,
   restoreConsole,
 } from './console';
+import { consoleLines } from './console';
 import { consoleSpiesForImport } from './lib/console-spy';
+import { settleDynamicImport } from './lib/event-loop';
+import { getMockAdapter, registerMockAdapter, resetMockAdapter } from './lib/mock-adapter';
+
+// What is under test happens on import, and under isolate: false an earlier file of the worker has already imported it.
+vi.hoisted(() => vi.resetModules());
+// The tests below hand this copy's adapter to a fresh registry; the next file of the worker starts from one graph again.
+afterAll(() => vi.resetModules());
 
 describe('vitest-auto-spy/console', () => {
   it('replaces every console method with a silent typed spy on import', () => {
@@ -98,9 +107,8 @@ describe('vitest-auto-spy/console', () => {
     restoreConsole();
 
     const realLog = console.log;
-    const orphan = (): void => undefined;
+    const orphan = Object.assign((): void => undefined, { [Symbol.for('vitest-auto-spy.console-spy')]: true });
 
-    Object.defineProperty(orphan, Symbol.for('vitest-auto-spy.console-spy'), { value: true });
     console.log = orphan;
 
     installConsoleSpies();
@@ -117,9 +125,8 @@ describe('vitest-auto-spy/console', () => {
     restoreConsole();
 
     const realLog = console.log;
-    const orphan = (): void => undefined;
+    const orphan = Object.assign((): void => undefined, { [Symbol.for('vitest-auto-spy.console-spy')]: true });
 
-    Object.defineProperty(orphan, Symbol.for('vitest-auto-spy.console-spy'), { value: true });
     Reflect.set(globalThis, '__vitestAutoSpyConsoleOriginals__', undefined);
     console.log = orphan;
 
@@ -143,9 +150,50 @@ describe('vitest-auto-spy/console', () => {
 
     expect(vi.isMockFunction(console.error)).toBe(false);
     expect(installConsoleSpies()).toBe(spies);
-    expect(console.error).toBe(spies.consoleErrorSpy);
+    expect(console.error).toBe(spies?.consoleErrorSpy);
 
     restoreConsole();
+  });
+
+  it('builds nothing on import before a runner entry registered an adapter', () => {
+    const adapter = getMockAdapter();
+
+    resetMockAdapter();
+
+    try {
+      expect(consoleSpiesForImport()).toBeUndefined();
+    } finally {
+      registerMockAdapter(adapter);
+    }
+  });
+
+  it('builds the spies on the first install when the import found no adapter, and the exports follow', async () => {
+    vi.resetModules();
+
+    const realWarn = console.warn;
+    const { __vitestAutoSpyResetConsoleSpies__: reset, __vitestAutoSpyDetachConsoleSpies__: detach } = globalThis;
+    // A fresh copy of the module, over a fresh registry nothing has registered an adapter in yet.
+    const registry = await settleDynamicImport(() => import('./lib/mock-adapter'));
+    const fresh = await settleDynamicImport(() => import('./lib/console-spy'));
+
+    expect(fresh.consoleSpiesForImport()).toBeUndefined();
+    expect(fresh.consoleWarnSpy).toBeUndefined();
+    // Nothing built, so there is nothing to reset and no adapter is asked for.
+    fresh.restoreConsole();
+
+    registry.registerMockAdapter(getMockAdapter());
+
+    const spies = fresh.installConsoleSpies();
+
+    expect(fresh.consoleWarnSpy).toBe(spies.consoleWarnSpy);
+    expect(console.warn).toBe(spies.consoleWarnSpy);
+
+    fresh.restoreConsole();
+    expect(console.warn).toBe(realWarn);
+
+    // The fresh copy published its own seams; the rest of the worker keeps using this file's copy.
+    globalThis.__vitestAutoSpyResetConsoleSpies__ = reset;
+    globalThis.__vitestAutoSpyDetachConsoleSpies__ = detach;
   });
 
   describe('consoleOutput', () => {
@@ -191,6 +239,84 @@ describe('vitest-auto-spy/console', () => {
       restoreConsole();
 
       expect(() => consoleOutput()).toThrow('consoleOutput() reads the console spies, and none is on console now');
+    });
+  });
+
+  describe('consoleLines', () => {
+    it('lists every call in the order it came, across channels, with its channel first', () => {
+      installConsoleSpies();
+      resetConsoleSpies();
+
+      expect(consoleLines()).toStrictEqual([]);
+
+      console.warn('deprecated', { id: 1 });
+      console.info('done');
+      console.time('label');
+      console.warn('again');
+
+      expect(consoleLines()).toStrictEqual([
+        ['warn', 'deprecated', { id: 1 }],
+        ['info', 'done'],
+        ['warn', 'again'],
+      ]);
+
+      restoreConsole();
+    });
+
+    it('starts over after resetConsoleSpies', () => {
+      installConsoleSpies();
+      console.error('before');
+      resetConsoleSpies();
+      console.log('after');
+
+      expect(consoleLines()).toStrictEqual([['log', 'after']]);
+
+      restoreConsole();
+    });
+
+    it('keeps the calls a clear outside this module left, and only those', () => {
+      installConsoleSpies();
+      resetConsoleSpies();
+      console.warn('cleared');
+      console.info('kept');
+      vi.mocked(consoleWarnSpy).mockClear();
+      console.warn('late');
+
+      expect(consoleLines()).toStrictEqual([
+        ['info', 'kept'],
+        ['warn', 'late'],
+      ]);
+      // The dropped entry is gone for good, so reading twice gives the same answer.
+      expect(consoleLines()).toStrictEqual([
+        ['info', 'kept'],
+        ['warn', 'late'],
+      ]);
+
+      restoreConsole();
+    });
+
+    it('refuses to guess the order of calls an override answered', () => {
+      installConsoleSpies();
+      resetConsoleSpies();
+      vi.mocked(consoleErrorSpy).mockImplementation(() => undefined);
+      console.error('unordered');
+
+      expect(() => consoleLines()).toThrow('consoleLines() cannot order the calls of console.error');
+
+      restoreConsole();
+      // The reset put the spy's own implementation back, so the order is recorded again.
+      installConsoleSpies();
+      console.error('ordered');
+      expect(consoleLines()).toStrictEqual([['error', 'ordered']]);
+
+      restoreConsole();
+    });
+
+    it('refuses to answer while no spy is on console', () => {
+      installConsoleSpies();
+      restoreConsole();
+
+      expect(() => consoleLines()).toThrow('consoleLines() reads the console spies, and none is on console now');
     });
   });
 });

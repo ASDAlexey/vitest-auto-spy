@@ -4,8 +4,10 @@
  * it — the two factories, the DI provider, and `createSpyObj` — plus the one configuration key that
  * exists here only because upstream still accepts it.
  */
+/* eslint-disable vitest-auto-spy/prefer-native-spy-api -- this file pins the jasmine spelling the compat layer exists to keep */
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
+import { useConsoleSpies } from './console';
 import { type JasmineMethodSpy, createFunctionSpy, createSpyFromClass, createSpyObj, jasmine, provideAutoSpy } from './jasmine';
 import { resetJasmineSupport } from './lib/jasmine-support';
 import type { Func } from './lib/types';
@@ -26,6 +28,8 @@ class AccountService {
 }
 
 describe('vitest-auto-spy/jasmine', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -59,33 +63,27 @@ describe('vitest-auto-spy/jasmine', () => {
   });
 
   it('merges the deprecated providedMethodNames into methodsToSpyOn, warning once', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     const service = createSpyFromClass(AccountService, { methodsToSpyOn: ['load'], providedMethodNames: ['load'] });
 
-    expect(warn).toHaveBeenCalledOnce();
-    expect(warn.mock.calls[0]?.[0]).toMatch(
+    expect(consoleWarnSpy).toHaveBeenCalledOnce();
+    expect(consoleWarnSpy.mock.calls[0]?.[0]).toMatch(
       /'providedMethodNames' is deprecated: write methodsToSpyOn: \['\w+'(, '\w+')*\] instead[\s\S]*#the-auto-spies-api$/,
     );
     expect(typeof service.load).toBe('function');
   });
 
   it('accepts providedMethodNames on its own, with no methodsToSpyOn beside it', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     const service = createSpyFromClass(AccountService, { providedMethodNames: ['load'] });
 
-    expect(warn).toHaveBeenCalledOnce();
+    expect(consoleWarnSpy).toHaveBeenCalledOnce();
     expect(typeof service.load).toBe('function');
   });
 
   it('leaves a configuration without providedMethodNames unwarned', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     const service = createSpyFromClass(AccountService, { gettersToSpyOn: ['owner'] });
     service.accessorSpies.getters.owner.and.returnValue('spied');
 
-    expect(warn).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
     expect(service.owner).toBe('spied');
   });
 

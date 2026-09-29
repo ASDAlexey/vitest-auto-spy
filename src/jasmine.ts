@@ -29,6 +29,8 @@
 import { enableJasmineCompat } from './lib/enable-jasmine';
 import { useVitestAdapter } from './lib/use-vitest-adapter';
 
+export type {} from './lib/vitest-mock-types';
+
 useVitestAdapter();
 enableJasmineCompat();
 
@@ -69,6 +71,7 @@ export type {
   JasmineSpy,
   JasmineStrategies,
   JasmineWithArgsAnd,
+  JasmineWithArgsStrategies,
   JasmineWithArgsSync,
 } from './lib/jasmine-types';
 

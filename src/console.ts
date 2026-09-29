@@ -12,25 +12,32 @@
  * });
  * ```
  *
- * `useConsoleSpies()` registers the `installConsoleSpies()` / `restoreConsole()` hook pair; on `node:test`
- * and Rstest register that pair yourself. The exported `consoleErrorSpy` & co. are the same objects. Importing the entry also installs them,
- * once per worker — unless `setupAutoSpy({ strayConsole })` owns the console, where it installs nothing.
+ * `useConsoleSpies()` registers the `installConsoleSpies()` / `restoreConsole()` hook pair on the runner
+ * whose entry was imported; the entry never imports `vitest`, so it loads on `node:test`, Bun and Rstest.
+ * The exported `consoleErrorSpy` & co. are the same objects. Importing the entry also installs them,
+ * once per worker — unless `setupAutoSpy({ strayConsole })` owns the console, where it installs nothing,
+ * or no runner entry registered an adapter yet, where the first install builds them.
  */
 import { consoleSpiesForImport } from './lib/console-spy';
-import { useVitestAdapter } from './lib/use-vitest-adapter';
+import { useRunnerAdapter } from './lib/vitest-runner-adapter';
 
-useVitestAdapter();
+useRunnerAdapter();
+consoleSpiesForImport();
 
-export const {
+export {
   consoleDebugSpy,
   consoleErrorSpy,
   consoleInfoSpy,
+  consoleLines,
   consoleLogSpy,
+  consoleOutput,
   consoleTimeEndSpy,
   consoleTimeSpy,
   consoleTraceSpy,
   consoleWarnSpy,
-} = consoleSpiesForImport();
-
-export { consoleOutput, installConsoleSpies, resetConsoleSpies, restoreConsole, useConsoleSpies } from './lib/console-spy';
-export type { ConsoleChannel, ConsoleMethodSpy, ConsoleOutput, ConsoleSpies } from './lib/console-spy';
+  installConsoleSpies,
+  resetConsoleSpies,
+  restoreConsole,
+  useConsoleSpies,
+} from './lib/console-spy';
+export type { ConsoleChannel, ConsoleLine, ConsoleMethodSpy, ConsoleOutput, ConsoleSpies } from './lib/console-spy';
