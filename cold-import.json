@@ -112,7 +112,7 @@
   "measuredOn": "2026-09-29",
   "node": "v24.19.0",
   "released": {
-    "version": "5.51.0",
+    "version": "5.52.0",
     "entries": {
       ".": {
         "modules": 2,

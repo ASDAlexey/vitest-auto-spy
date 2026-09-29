@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.52.0] - 2026-09-29
+
 ### Added
 
 - **`init` says when git will not show what it wrote.** A created or updated file that is ignored
@@ -9861,7 +9863,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.51.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.52.0...HEAD
+[5.52.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.51.0...v5.52.0
 [5.51.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.50.0...v5.51.0
 [5.50.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.49.0...v5.50.0
 [5.49.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.48.0...v5.49.0
