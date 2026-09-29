@@ -110,8 +110,9 @@ Options
                  (coverage/**/perf-*.json) merges every report a sharded
                  pipeline wrote, which is the only way the median means the
                  whole suite.
-  --out <path>   perf only. Keep the JSON report at this path. Without it the
-                 report is written under node_modules/.cache and deleted.
+  --out <path>   perf only. Keep the JSON report at this path, relative to
+                 --cwd; a directory gets perf-report.json inside it. Without
+                 it the report is written under node_modules/.cache and deleted.
   --command <c>  perf only. Measure this shell line instead of running Vitest
                  directly. {paths} / {paths:<prefix>} take the files of a
                  confirmation pass.
@@ -133,6 +134,13 @@ Options
                  median is still taken over the whole run.
   --no-confirm   perf only. Skip the confirmation pass and gate on a single
                  reading.
+  --profile-dir <dir>
+                 perf only. Keep the CPU profile the confirmation pass records
+                 for each re-measured file, as <dir>/<spec path>.cpuprofile,
+                 for DevTools or speedscope. Needs --gate.
+  --ab-isolate   perf only. Run the suite a second time with isolate flipped
+                 and report both wall clocks, instead of predicting whether
+                 isolate: false would be faster.
   --baseline <p> perf only. Compare against a committed baseline and fail on
                  what grew. Recorded as a ratio to the median file of the run,
                  so a slower machine does not read as a regression. A .jsonl
@@ -166,6 +174,11 @@ Options
                  prints everything. The tally line still counts what was hidden,
                  and nothing about the exit code moves — a note never failed a
                  run. Works for doctor and for perf.
+  --fail-on <error|warning|info>
+                 The quietest finding that fails the run, exit 1. doctor
+                 defaults to warning; info fails on a note too. perf defaults
+                 to nothing but its gate, and --fail-on makes its findings
+                 count as well. --ignore drops a check before it is counted.
   --top <n>      perf only. Rows in the "files over budget" and "test bodies
                  over budget" tables. 0 turns them off. The budget flags draw
                  the tables with or without --gate.
@@ -173,7 +186,8 @@ Options
                  stdout, with every finding and, for perf, the gate's verdict
                  rows. markdown: the same document as tables, for an MR note or
                  a job summary. The suite's own output goes to stderr. Works for
-                 doctor and perf.
+                 doctor and perf; codemod takes text or json, with every file's
+                 edits, imports and diff.
   --shard <i/n>  ng-test only. Run shard i of n, split the way Vitest's own
                  --shard splits: by a hash of the path, in near-equal parts.
   --changed [ref]
