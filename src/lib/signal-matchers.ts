@@ -11,10 +11,10 @@
  * alone would let the matcher call it, pass on the `undefined` an unconfigured spy returns, and
  * leave a phantom call in the record for the next `toHaveBeenCalledTimes` to trip over.
  */
-import { ɵSIGNAL } from '@angular/core';
 import { expect } from 'vitest';
 
 import { looseEquals, strictEquals } from './matcher-equality';
+import { signalSymbol } from './signal-symbol';
 
 /** Anything readable like a signal: `signal()`, `computed()`, `input()`, or a plain getter. */
 export type SignalLike<T> = () => T;
@@ -96,9 +96,12 @@ export function registerSignalMatchers(options: RegisterSignalMatchersOptions = 
 
       // Angular brands every signal it makes; a plain getter carries no brand, so a spy is what is
       // left to tell apart by shape — and the brand is per copy of `@angular/core`, hence the order.
-      if (!(ɵSIGNAL in received) && isSpy(received)) {
+      if (!(signalSymbol() in received) && isSpy(received)) {
         throw new Error(
-          `expected a signal (a zero-argument getter), received a spy: ${this.utils.printReceived(received)}. Reading it would have recorded a call — put a real signal on the property with mockSignalProp(), or assert the spy itself.`,
+          `expected a signal (a zero-argument getter), received a spy: ${this.utils.printReceived(received)}. Reading it would have recorded a call — put a real signal on the property with mockSignalProp(), or assert the spy itself.\n` +
+            'If the component copied the member into a field of its own when it was built (`readonly count = inject(Store).count`), ' +
+            'mockSignalProp() on the double cannot reach that copy: seed the signal before render instead — ' +
+            'provideAutoSpy(Store, { overrides: { count: signal(value) } }).',
         );
       }
 

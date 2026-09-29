@@ -120,6 +120,14 @@ describe('toHaveSignalValue', () => {
     expect(() => expect(load).toHaveSignalValue(undefined)).toThrow(/mockSignalProp\(\)/);
   });
 
+  it('names the copy mockSignalProp cannot reach, and the seed that can', () => {
+    const count = createFunctionSpy<() => number>('count');
+
+    expect(() => expect(count).toHaveSignalValue(3)).toThrow(
+      /copied the member into a field of its own.+provideAutoSpy\(Store, \{ overrides: \{ count: signal\(value\) \} \}\)/s,
+    );
+  });
+
   it('refuses a spy through `.not` as well', () => {
     expect(() => expect(createFunctionSpy<() => void>('load')).not.toHaveSignalValue(3)).toThrow(/received a spy/);
   });
