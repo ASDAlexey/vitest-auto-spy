@@ -3,7 +3,7 @@
  * fed never emits. What is pinned here is which of those reach the report, which count as configured,
  * and that a stream fed after the subscription is not a finding.
  */
-import { type Observable, of } from 'rxjs';
+import { of } from 'rxjs';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useConsoleSpies } from '../console';
@@ -19,6 +19,7 @@ import { setupAutoSpy } from './setup-auto-spy';
 import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
 import type { Spy, UnstubbedRead } from './types';
 import { openReadWindow, reportUnconfiguredReads, resolveReadGuard, setUnconfiguredReadsDefault } from './unconfigured-reads';
+import { Feed, STRICT_FEED_CONFIG } from './unconfigured-reads.mock';
 
 class Settings {
   get theme(): string {
@@ -38,17 +39,9 @@ class Settings {
   }
 }
 
-class Feed {
-  items$: Observable<number> = of(1);
-
-  refresh(): void {
-    /* real */
-  }
-}
-
 const strictSettings = (): Spy<Settings> => createSpyFromClass(Settings, { strict: true, gettersToSpyOn: ['theme', 'locale'] });
 
-const strictFeed = (): Spy<Feed> => createSpyFromClass(Feed, { strict: true, observablePropsToSpyOn: ['items$'] });
+const strictFeed = (): Spy<Feed> => createSpyFromClass(Feed, STRICT_FEED_CONFIG);
 
 /**
  * The one block in this file that arms the report through `setupAutoSpy`, and first on purpose: the
@@ -330,8 +323,8 @@ describe('an observable property nobody fed', () => {
   });
 
   it('is named by the token on a type-driven double, and by the member alone without a name', () => {
-    createAutoMock<Feed>(undefined, { strict: true, name: 'FEED', observablePropsToSpyOn: ['items$'] }).items$.subscribe();
-    createAutoMock<Feed>(undefined, { strict: true, observablePropsToSpyOn: ['items$'] }).items$.subscribe();
+    createAutoMock<Feed>(undefined, { ...STRICT_FEED_CONFIG, name: 'FEED' }).items$.subscribe();
+    createAutoMock<Feed>(undefined, STRICT_FEED_CONFIG).items$.subscribe();
 
     expect(() => reportUnconfiguredReads('throw')).toThrow(
       /FEED\.items\$ was subscribed to 1 time[^\n]*\nFeed it[^\n]*\n\[vitest-auto-spy\] items\$ was subscribed/,
@@ -339,7 +332,7 @@ describe('an observable property nobody fed', () => {
   });
 
   it('is not a spy at all once overrides seeds a real stream', () => {
-    const seeded = createAutoMock<Feed>({ items$: of(3) }, { strict: true, observablePropsToSpyOn: ['items$'] });
+    const seeded = createAutoMock<Feed>({ items$: of(3) }, STRICT_FEED_CONFIG);
 
     seeded.items$.subscribe();
 
@@ -349,7 +342,7 @@ describe('an observable property nobody fed', () => {
   it('is tracked on an instance spied in place', () => {
     const instance = new Feed();
 
-    createSpyFromInstance(instance, { strict: true, observablePropsToSpyOn: ['items$'] }).items$.subscribe();
+    createSpyFromInstance(instance, STRICT_FEED_CONFIG).items$.subscribe();
 
     expect(() => reportUnconfiguredReads('throw')).toThrow(/Feed\.items\$ was subscribed to 1 time/);
     restoreSpiedInstance(instance);

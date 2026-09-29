@@ -13,6 +13,7 @@ import {
   needsStructuralMatch,
   sameExpectation,
 } from './structural-equals';
+import { IDS_PAIR, ID_PAIR, MAP_ENTRY_A } from './structural-equals.mock';
 
 /** A matcher the runner did not build: no brand, and a verdict no comparison can read. */
 function handRolled(accept: (value: unknown) => boolean): { asymmetricMatch(value: unknown): boolean } {
@@ -53,7 +54,7 @@ describe('needsStructuralMatch', () => {
     expect(needsStructuralMatch(undefined)).toBe(false);
     expect(needsStructuralMatch({ id: 1, nested: { at: new Date(0) } })).toBe(false);
     expect(needsStructuralMatch([1, 'a'])).toBe(false);
-    expect(needsStructuralMatch(new Set([1, 2]))).toBe(false);
+    expect(needsStructuralMatch(new Set(ID_PAIR))).toBe(false);
   });
 
   it('answers on a cyclic value instead of recursing forever', () => {
@@ -124,23 +125,17 @@ describe('matchesStructurally', () => {
   });
 
   it('compares a Map and a Set by content, in any order', () => {
-    const config = new Map<string, unknown>([
-      ['a', 1],
-      ['b', expect.any(Number)],
-    ]);
+    const config = new Map<string, unknown>([MAP_ENTRY_A, ['b', expect.any(Number)]]);
 
     expect(
       matchesStructurally(
         { map: config },
         {
-          map: new Map<string, unknown>([
-            ['b', 2],
-            ['a', 1],
-          ]),
+          map: new Map<string, unknown>([['b', 2], MAP_ENTRY_A]),
         },
       ),
     ).toBe(true);
-    expect(matchesStructurally({ map: config }, { map: new Map([['a', 1]]) })).toBe(false);
+    expect(matchesStructurally({ map: config }, { map: new Map([MAP_ENTRY_A]) })).toBe(false);
     expect(matchesStructurally({ map: config }, { map: { a: 1, b: 2 } })).toBe(false);
     expect(matchesStructurally({ set: new Set([expect.any(Number), 'a']) }, { set: new Set(['a', 3]) })).toBe(true);
     expect(matchesStructurally({ set: new Set([1]) }, { set: new Set([2]) })).toBe(false);
@@ -150,9 +145,9 @@ describe('matchesStructurally', () => {
   });
 
   it('compares arrays by length and position', () => {
-    expect(matchesStructurally({ ids: [1, 2] }, { ids: [1, 2] })).toBe(true);
-    expect(matchesStructurally({ ids: [1, 2] }, { ids: [2, 1] })).toBe(false);
-    expect(matchesStructurally({ ids: [1] }, { ids: [1, 2] })).toBe(false);
+    expect(matchesStructurally(IDS_PAIR, IDS_PAIR)).toBe(true);
+    expect(matchesStructurally(IDS_PAIR, { ids: [2, 1] })).toBe(false);
+    expect(matchesStructurally({ ids: [1] }, IDS_PAIR)).toBe(false);
     expect(matchesStructurally({ ids: [1] }, { ids: { 0: 1 } })).toBe(false);
   });
 

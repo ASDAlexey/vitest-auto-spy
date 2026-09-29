@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import '../index';
 import { restoreMockedProps } from './prop-mock';
 import { stubWorker } from './worker-stub';
+import { REQUEST_A } from './worker-stub.mock';
 
 interface Request {
   requestId: string;
@@ -51,13 +52,13 @@ describe('stubWorker', () => {
     const workers = stubWorker<Request, Response>();
     const worker = new Worker(new URL('./doubling.worker.ts', 'file:///app/'), { type: 'module', name: 'doubling' });
 
-    worker.postMessage({ requestId: 'a', value: 1 });
+    worker.postMessage(REQUEST_A);
 
     expect(workers.instances).toHaveLength(1);
     expect(workers.last.host).toBe(worker);
     expect(workers.last.url).toBe('file:///app/doubling.worker.ts');
     expect(workers.last.options).toEqual({ type: 'module', name: 'doubling' });
-    expect(workers.last.messages).toEqual([{ requestId: 'a', value: 1 }]);
+    expect(workers.last.messages).toEqual([REQUEST_A]);
     expect(workers.last.postMessage).toHaveBeenCalledOnce();
   });
 
@@ -80,7 +81,7 @@ describe('stubWorker', () => {
     stubWorker<Request, Response>({ respond: doubling });
     const service = new DoublingService();
 
-    const [first, second] = await Promise.all([service.double({ requestId: 'a', value: 1 }), service.double({ requestId: 'b', value: 5 })]);
+    const [first, second] = await Promise.all([service.double(REQUEST_A), service.double({ requestId: 'b', value: 5 })]);
 
     expect(first).toEqual({ requestId: 'a', doubled: 2 });
     expect(second).toEqual({ requestId: 'b', doubled: 10 });
@@ -122,7 +123,7 @@ describe('stubWorker', () => {
     const listener = vi.fn();
 
     worker.addEventListener('message', listener);
-    worker.postMessage({ requestId: 'a', value: 1 });
+    worker.postMessage(REQUEST_A);
     await Promise.resolve();
 
     expect(listener).not.toHaveBeenCalled();
@@ -141,7 +142,7 @@ describe('stubWorker', () => {
     const onerror = vi.fn();
 
     worker.onerror = onerror;
-    worker.postMessage({ requestId: 'a', value: 1 });
+    worker.postMessage(REQUEST_A);
     await Promise.resolve();
 
     const event: unknown = onerror.mock.calls[0]?.[0];
@@ -191,7 +192,7 @@ describe('stubWorker', () => {
     const workers = stubWorker<Request, Response>({ respond });
     const service = new DoublingService();
 
-    void service.double({ requestId: 'a', value: 1 });
+    void service.double(REQUEST_A);
     service.destroy();
     new Worker('other.js').postMessage({ requestId: 'b', value: 1 });
     await Promise.resolve();
@@ -219,7 +220,7 @@ describe('stubWorker', () => {
     const listener = vi.fn();
 
     worker.addEventListener('message', listener);
-    worker.postMessage({ requestId: 'a', value: 1 });
+    worker.postMessage(REQUEST_A);
     await Promise.resolve();
 
     expect(workers.last.terminated).toBe(true);
