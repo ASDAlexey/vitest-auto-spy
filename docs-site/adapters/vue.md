@@ -1,38 +1,18 @@
 ---
 title: Vue / Pinia
-description: provideAutoSpy for @vue/test-utils global.provide, and spying a class-based Pinia store's actions.
+description: provideAutoSpy builds a global.provide map for @vue/test-utils, and createSpyFromClass spies a class-based Pinia store.
 ---
 
 # Vue / Pinia
 
-The `vitest-auto-spy/vue` entry re-exports the full core (zero-config on Vitest) and adds a small
-`provideAutoSpy(token, Class)` that builds a `global.provide` entry for `@vue/test-utils`. Nothing
-here imports `vue`, `pinia` or `@vue/test-utils` — they stay optional peers.
+`vitest-auto-spy/vue` gives a mounted component a spy instead of a real service. A spy is a
+stand-in object: every method records its calls and returns what you set. You need it when a
+component gets a class-based service through `provide` / `inject`, or uses a Pinia store written as
+a class.
 
-It registers the default Vitest mock adapter only when nothing else has, so importing it cannot
-replace one a runtime entry installed first. That entry still imports `vitest`, though, so it does
-not load under `bun test` or `node --test`: a Vue suite on either of those runners uses the core
-through its own runtime entry and builds the `provide` map by hand.
-
-Class-based services injected via `provide`/`inject` and class-based Pinia stores are the natural
-fit:
-
-```ts
-import { createSpyFromClass, provideAutoSpy } from 'vitest-auto-spy/vue';
-
-// Spy a Pinia store's actions
-const store = createSpyFromClass(CartStore);
-store.checkout.resolveWith({ ok: true });
-
-// Provide a spied service to a mounted component
-const provide = provideAutoSpy(UserServiceKey, UserService);
-provide[UserServiceKey].getName.mockReturnValue('Fake Name');
-```
-
-## A full `mount` example
-
-`provideAutoSpy(token, Class, methodsOrConfig?)` returns a **`global.provide` map** —
-`{ [token]: Spy<T> }` — so it spreads straight into `@vue/test-utils`:
+`vitest-auto-spy/vue` is an entry: the import path you use in Vue specs. Besides `provideAutoSpy`, it
+exports the core API of the library: `createSpyFromClass`, `createAutoMock`, the `Spy<T>` type,
+`asInstance`, `resetAutoSpy` and the rest.
 
 ```ts
 import { mount } from '@vue/test-utils';
@@ -44,8 +24,9 @@ import { UserService, UserServiceKey } from './user.service';
 
 it('renders the name the service returns', () => {
   const provide = provideAutoSpy(UserServiceKey, UserService);
+  const users = provide[UserServiceKey]; // the spy, typed as Spy<UserService>
 
-  provide[UserServiceKey].getName.calledWith(1).mockReturnValue('Ada');
+  users.getName.calledWith(1).mockReturnValue('Ada');
 
   const wrapper = mount(Greeting, {
     props: { userId: 1 },
@@ -53,11 +34,35 @@ it('renders the name the service returns', () => {
   });
 
   expect(wrapper.text()).toContain('Ada');
-  expect(provide[UserServiceKey].getName).toHaveBeenCalledWith(1);
+  expect(users.getName).toHaveBeenCalledWith(1);
 });
 ```
 
-Providing more than one collaborator is a merge of the maps:
+You read the spy back from the map by its token. `users.getName.mockReturnValue('Ada')` answers
+`'Ada'` to every call; `calledWith(1)` before it limits the answer to calls with `1`.
+
+## `provideAutoSpy(token, Class, config?)`
+
+Returns a `global.provide` map with one entry, `{ [token]: Spy<Class> }`. Pass it as
+`global: { provide }` to `mount`.
+
+| Parameter | Type                     | Meaning                                                                      |
+| --------- | ------------------------ | ---------------------------------------------------------------------------- |
+| `token`   | `string \| symbol`       | the key the component injects; an `InjectionKey<T>` is a symbol, so it works |
+| `Class`   | class                    | the class whose methods become spies                                         |
+| `config`  | options or a method list | same as the second argument of `createSpyFromClass` (see below)              |
+
+The map is keyed by exactly the token you passed, so `provide[UserServiceKey]` is typed as the spy.
+
+The options you will use most in `config`:
+
+- `onlyMethodsToSpyOn: ['getName']` — spy only these methods.
+- `gettersToSpyOn: ['isAdmin']` — also spy a `get` accessor (see the store section below).
+- `strict: true` — a method you did not configure throws instead of returning `undefined`.
+
+The full list is on [createSpyFromClass](/core/create-spy-from-class).
+
+To provide several services, spread the maps into one object:
 
 ```ts
 const provide = {
@@ -66,12 +71,10 @@ const provide = {
 };
 ```
 
-The token can be a plain string, a `symbol`, or a typed `InjectionKey<T>` (which is a branded
-`symbol`) — the returned map is keyed by exactly the token you passed.
-
 ## A class-based Pinia store
 
-A store written as a class is just a class, so `createSpyFromClass` spies every action and getter:
+A store written as a class is an ordinary class, so `createSpyFromClass` turns every action and
+getter into a spy:
 
 ```ts
 import { expect, it } from 'vitest';
@@ -82,8 +85,8 @@ import { CartStore } from './cart.store';
 it('drives the store the component talks to', async () => {
   const cart: Spy<CartStore> = createSpyFromClass(CartStore);
 
-  cart.itemCount.mockReturnValue(3); // a getter-style action
-  cart.checkout.resolveWith({ orderId: 'ord_42' }); // an async action
+  cart.itemCount.mockReturnValue(3); // itemCount() is a method
+  cart.checkout.resolveWith({ orderId: 'ord_42' }); // checkout() returns a Promise
 
   expect(cart.itemCount()).toBe(3);
   await expect(cart.checkout('tok_abc')).resolves.toEqual({ orderId: 'ord_42' });
@@ -91,11 +94,31 @@ it('drives the store the component talks to', async () => {
 });
 ```
 
-Every action is inert until you configure it — `cart.addItem('sku', 1)` records the call and returns
-`undefined`, so no real store logic runs.
+An action you did not configure records the call and returns `undefined`. No real store code runs.
 
-::: tip Setup-store (composition API) stores
-`defineStore('cart', () => …)` returns a plain object of refs and functions, not a class. Use
-[`createAutoMock<T>()`](/core/auto-mock-by-type) there — it mocks from the store's **type** with the
-same helpers, no class required.
-:::
+Methods become spies automatically. A real `get` accessor (`get total() { … }`) does not. To control
+one, list it in `gettersToSpyOn` and set its value through `accessorSpies`:
+
+```ts
+const cart = createSpyFromClass(CartStore, { gettersToSpyOn: ['total'] });
+
+cart.accessorSpies.getters.total.mockReturnValue(42);
+```
+
+More in [Accessor spies](/core/create-spy-from-class#accessor-spies-—-accessorspies).
+
+**Common mistake:** a setup store, `defineStore('cart', () => …)`, is a plain object of refs and
+functions, not a class, so `createSpyFromClass` has nothing to read. Use
+[`createAutoMock<T>()`](/core/auto-mock-by-type): it builds the same spy from the store's type.
+
+## Which runner
+
+This entry re-exports the whole core API, so one import is enough. It never imports `vue`, `pinia`
+or `@vue/test-utils`.
+
+It does import `vitest`, so it does not load under `bun test` or `node --test`. On those runners,
+import `createSpyFromClass` from your runner's entry (`vitest-auto-spy/bun`, `vitest-auto-spy/node`)
+and build the `provide` map by hand: `{ [UserServiceKey]: createSpyFromClass(UserService) }`.
+
+If a setup file already imports a runner entry such as `vitest-auto-spy/bun`, that runner's mocks
+stay in use after you import this entry.

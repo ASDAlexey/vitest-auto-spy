@@ -1,15 +1,62 @@
 ---
 title: Mocking classes in Vitest
-description: createSpyFromClass against vi.spyOn(Class.prototype) and a vi.mock factory — which one to use, why a prototype spy never sees an arrow-function field, and how to double a class the code under test constructs itself.
+description: Replace a class in a Vitest spec - createSpyFromClass compared with vi.spyOn on the prototype and a vi.mock factory, arrow-function fields, and classes the code under test creates with new.
 ---
 
 # Mocking classes in Vitest
 
-There are three ways to replace a class in a Vitest spec, and the one most guides lead with is the
-one that leaks. This page puts them side by side on one class, then covers the trap all of them share:
-the members that are not on the prototype.
+`createSpyFromClass` builds a typed spy object from a class. Every method becomes a spy, and the real
+class is never touched. Use it when the code under test receives the class instance as a constructor
+argument, a function parameter or through dependency injection.
 
 ```ts
+import { beforeEach, describe, expect, it } from 'vitest';
+import { type Spy, asInstance, createSpyFromClass } from 'vitest-auto-spy';
+
+import { Checkout } from './checkout';
+import { PaymentClient } from './payment-client';
+
+describe('Checkout', () => {
+  let payments: Spy<PaymentClient>;
+  let checkout: Checkout;
+
+  beforeEach(() => {
+    payments = createSpyFromClass(PaymentClient);
+    checkout = new Checkout(asInstance(payments));
+  });
+
+  it('returns the receipt id', async () => {
+    payments.charge.calledWith(5).resolveWith({ id: 'r_1', amount: 5 });
+
+    await expect(checkout.pay(5)).resolves.toBe('r_1');
+    expect(payments.refund).not.toHaveBeenCalled();
+  });
+
+  it('reports a declined card', async () => {
+    payments.charge.rejectWith(new Error('card declined'));
+
+    await expect(checkout.pay(5)).resolves.toBe('declined');
+  });
+
+  it('refunds a receipt', async () => {
+    payments.refund.resolveWith();
+
+    await checkout.cancel('r_1');
+
+    expect(payments.refund).toHaveBeenCalledWith('r_1');
+  });
+});
+```
+
+The classes in this example:
+
+```ts
+// payment-client.ts
+export interface Receipt {
+  id: string;
+  amount: number;
+}
+
 export class PaymentClient {
   constructor(readonly apiKey: string) {}
 
@@ -17,20 +64,65 @@ export class PaymentClient {
     /* a real HTTP call */
   }
 
-  readonly refund = async (id: string): Promise<void> => {
-    /* an arrow-function field — lives on the instance, not the prototype */
-  };
+  async refund(id: string): Promise<void> {
+    /* a real HTTP call */
+  }
 }
 
+// checkout.ts
 export class Checkout {
   constructor(private readonly payments: PaymentClient) {}
-  // pay(amount) calls payments.charge, cancel(id) calls payments.refund
+  // pay(amount) calls payments.charge and returns the receipt id, or 'declined' if it rejects
+  // cancel(id) calls payments.refund
 }
 ```
 
-## 1. `vi.spyOn(Class.prototype, 'method')`
+What each piece does:
+
+- **`createSpyFromClass(PaymentClient)`** creates a new object for each test. It reads the class's
+  methods without running its constructor, so nothing needs restoring afterwards.
+- **Every method is a spy**, even one the test never configured. `payments.refund` exists in the
+  first test, so `expect(payments.refund).not.toHaveBeenCalled()` works.
+- **`Spy<PaymentClient>`** types each method with helpers that fit its return type. `charge` returns a
+  `Promise<Receipt>`, so it gets `resolveWith` and `rejectWith`, and `resolveWith` only accepts a
+  `Receipt`.
+- **`calledWith(5).resolveWith(...)`** answers only when the argument is `5`. A call with other
+  arguments gets the method's general answer, the one set without `calledWith` (for example
+  `payments.charge.resolveWith(receipt)`). If there is none, it gets `undefined`. So the test fails
+  if the code sends the wrong amount. To throw on any other arguments instead, use
+  `mustBeCalledWith(5)`. Why this is stronger than `mockResolvedValue`:
+  [cause and effect](/core/control-helpers#cause-and-effect-why-calledwith-and-not-mockreturnvalue).
+- **`asInstance(payments)`** passes the spy where a `PaymentClient` is expected. You need it only when
+  the class has private or protected members: `Spy<T>` drops them, so TypeScript would reject the
+  spy as a `PaymentClient`. It does no harm otherwise.
+  [Bridging `Spy<T>` and `T`](/core/spy-typing) explains why.
+
+If a method is written as an arrow-function field (`refund = async () => {}`), the spy needs one
+option. See [Mock an arrow-function field](#mock-an-arrow-function-field).
+
+## Choose an approach
+
+|                                   | `vi.spyOn(prototype)`                    | `vi.mock` factory                            | `createSpyFromClass`                     |
+| --------------------------------- | ---------------------------------------- | -------------------------------------------- | ---------------------------------------- |
+| What it replaces                  | every instance of the class              | the module, for the whole file               | one object, for one test                 |
+| Needs a restore                   | yes                                      | no                                           | no                                       |
+| Methods covered                   | the ones you name                        | the ones you write                           | all of them, configured or not           |
+| Typed against the class           | only the stubbed method                  | no                                           | every method and its helpers             |
+| A method added to the class later | real in every spec that does not stub it | missing: the call throws `is not a function` | a spy in every spec, with no spec change |
+| Sees arrow-function fields        | no                                       | only if you write them                       | when listed in `instanceMethodsToSpyOn`  |
+| Code must receive the class       | no                                       | no                                           | yes: by argument or dependency injection |
+
+The last row is the one real limit of `createSpyFromClass`. If the code under test calls
+`new PaymentClient()` itself, see [Mock a class the code creates with `new`](#mock-a-class-the-code-creates-with-new).
+
+## Spy on the prototype with `vi.spyOn`
 
 ```ts
+import { afterEach, expect, it, vi } from 'vitest';
+
+import { Checkout } from './checkout';
+import { PaymentClient } from './payment-client';
+
 afterEach(() => vi.restoreAllMocks());
 
 it('returns the receipt id', async () => {
@@ -42,17 +134,16 @@ it('returns the receipt id', async () => {
 });
 ```
 
-It works, and it has three costs:
+This works, but it has three downsides:
 
-- **It patches the real class, for everyone.** Every instance in the realm answers the stub until
-  something restores it — which is why the `afterEach` is not optional, and why a forgotten restore
-  under `isolate: false` fails a test in a different file.
-- **One method at a time.** Every other method is the real one, so the real constructor runs and the
-  un-stubbed half of the class does real work. A new method on the class is a new real call from
-  every spec that did not know about it.
-- **It cannot see an instance field.** See [below](#the-trap-arrow-function-fields).
+- **It changes the real class for everyone.** Every instance uses the stub until something restores
+  it. That is why the `afterEach` is required. If you forget it and tests share one environment
+  (`isolate: false`), a test in another file fails.
+- **One method at a time.** Every other method stays real, and the real constructor runs. A method
+  added to the class later is a real call in every spec that does not stub it.
+- **It cannot see arrow-function fields.** See [Mock an arrow-function field](#mock-an-arrow-function-field).
 
-## 2. A `vi.mock` factory
+## Replace the module with `vi.mock`
 
 ```ts
 vi.mock('./payment-client', () => ({
@@ -62,121 +153,75 @@ vi.mock('./payment-client', () => ({
 }));
 ```
 
-The whole module is replaced, so nothing leaks — but the double is untyped (`{ charge: vi.fn() }`
-is checked against nothing), it has to be kept in step with the class by hand, and it has a trap of
-its own: Vitest forwards `new` only to an implementation that is itself constructible.
-Write the same factory with an arrow and every construction fails:
+The whole module is replaced, so nothing leaks between files. But:
+
+- the fake is not typed: `{ charge: vi.fn() }` is not checked against the class;
+- you keep it in sync with the class by hand;
+- it must use `function`, not an arrow. Vitest can only call `new` on a constructible
+  implementation. With an arrow, every `new PaymentClient()` fails:
 
 ```text
 TypeError: () => ({ charge: __vite_ssr_import_0__.vi.fn() }) is not a constructor
 ```
 
-with a stack in production code and a single warning on stderr ("The vi.fn() mock did not use
-'function' or 'class' in its implementation") that is easy to miss in a large run. The
-[constructor doubles](/utilities/constructor-doubles) page has the whole story.
+The stack points at production code. Vitest also prints one warning to stderr ("The vi.fn() mock did
+not use 'function' or 'class' in its implementation"), which is easy to miss in a large run. More on
+this in [Constructor doubles](/utilities/constructor-doubles).
 
-## 3. `createSpyFromClass`
+## Mock an arrow-function field
+
+Suppose `refund` is written as an arrow-function field instead of a method:
 
 ```ts
-import { type Spy, asInstance, createSpyFromClass } from 'vitest-auto-spy';
-
-describe('Checkout', () => {
-  let payments: Spy<PaymentClient>;
-  let checkout: Checkout;
-
-  beforeEach(() => {
-    payments = createSpyFromClass(PaymentClient, { instanceMethodsToSpyOn: ['refund'] });
-    checkout = new Checkout(asInstance(payments));
-  });
-
-  it('returns the receipt id', async () => {
-    payments.charge.calledWith(5).resolveWith({ id: 'r_1', amount: 5 });
-
-    await expect(checkout.pay(5)).resolves.toBe('r_1');
-  });
-
-  it('reports a declined card', async () => {
-    payments.charge.rejectWith(new Error('card declined'));
-
-    await expect(checkout.pay(5)).resolves.toBe('declined');
-  });
-
-  it('refunds through the arrow field', async () => {
-    payments.refund.resolveWith();
-
-    await checkout.cancel('r_1');
-
-    expect(payments.refund).toHaveBeenCalledWith('r_1');
-  });
-});
+export class PaymentClient {
+  // ...
+  readonly refund = async (id: string): Promise<void> => {
+    /* a real HTTP call */
+  };
+}
 ```
 
-The spy is a new object per test, built from the class's prototype without running its constructor:
-
-- **Nothing to restore.** The real `PaymentClient` is never touched, so there is no global state to
-  put back and nothing for the next file to inherit.
-- **Every method, typed.** `Spy<PaymentClient>` gives each method the helpers its return type earns —
-  `resolveWith` / `rejectWith` on `charge` because it returns a `Promise`, and a `resolveWith` whose
-  argument must be a `Receipt`. A method added to the class is a spy in every spec on the next run.
-- **Answers keyed on arguments.** `calledWith(5)` configures what that call returns, which is a
-  stronger contract than a blanket `mockResolvedValue` — see
-  [cause and effect](/core/control-helpers#cause-and-effect-why-calledwith-and-not-mockreturnvalue).
-
-`asInstance` is there because `Spy<T>` is a mapped type and drops private members, so it is not
-assignable to `PaymentClient` as written; [Bridging `Spy<T>` and `T`](/core/spy-typing) explains the
-trade.
-
-|                            | `vi.spyOn(prototype)`       | `vi.mock` factory              | `createSpyFromClass`                      |
-| -------------------------- | --------------------------- | ------------------------------ | ----------------------------------------- |
-| Scope of the patch         | every instance in the realm | the module, for the whole file | one object, one test                      |
-| Restore needed             | yes                         | no                             | no                                        |
-| Methods covered            | the ones you name           | the ones you write             | all of them, lazily                       |
-| Typed against the class    | the stubbed method only     | no                             | every method and its helpers              |
-| Sees arrow-function fields | no                          | only if you write them         | when named                                |
-| Needs a seam               | no                          | no                             | yes — the class arrives by argument or DI |
-
-The last row is the honest cost. `createSpyFromClass` needs the code under test to _receive_ the
-instance — a constructor argument, a function parameter, a DI provider. Code that runs `new
-PaymentClient()` itself is covered [below](#a-class-the-code-under-test-constructs).
-
-## The trap: arrow-function fields
+A prototype spy cannot reach it:
 
 ```ts
 vi.spyOn(PaymentClient.prototype, 'refund');
 // Error: The property "refund" is not defined on the object.
 ```
 
-`refund = async () => {}` is not a method. TypeScript compiles it into an assignment inside the
-constructor, so it exists only on instances, and only once the constructor has run. The same is true
-of anything assigned in a field initializer: bound handlers, Angular `signal()` / `computed()` fields,
-an ngrx `signalStore()` member. A prototype has nothing to spy.
+`refund = async () => {}` is a field, not a method. TypeScript turns it into an assignment inside the
+constructor, so it exists only on instances, after the constructor runs. The prototype has nothing to
+spy on. The same applies to anything set in a field initializer: bound handlers, Angular `signal()`
+and `computed()` fields, members of an ngrx `signalStore()`.
 
-`createSpyFromClass` builds from the prototype too, and it does not run the constructor either — that
-is what makes it safe on a class whose constructor opens a socket — so it cannot discover the field on
-its own. Name it:
+`createSpyFromClass` reads the prototype too. Unlike `new PaymentClient()`, it never runs the
+constructor, which is what makes it safe for a class whose constructor opens a socket. So it cannot
+find the field by itself. Name it:
 
 ```ts
 createSpyFromClass(PaymentClient, { instanceMethodsToSpyOn: ['refund'] });
 ```
 
-Forget to, and the spy has no `refund`: the spec's own line fails with `Cannot read properties of
-undefined (reading 'resolveWith')`, rather than the code under test quietly calling something real.
-Put the field in `onlyMethodsToSpyOn` instead and the library reports that the name is not on the
-class prototype — a warning, or a throw under the `strict` preset — and names
-`instanceMethodsToSpyOn` as the fix. The reasoning is on
-[createSpyFromClass](/core/create-spy-from-class#instancemethodstospyon-—-callables-that-are-not-on-the-prototype).
+If you forget, the spy has no `refund`. The failure is in your spec, on the line that configures it:
+`Cannot read properties of undefined (reading 'resolveWith')`. The code under test never calls
+anything real.
 
-A class you only have as a **type** — or one that is all instance fields — needs no list at all:
-[`createAutoMock<PaymentClient>()`](/core/auto-mock-by-type) builds every member lazily from what the
-spec reads.
+If you put the field in `onlyMethodsToSpyOn` instead, the library reports that the name is not on the
+class prototype and suggests `instanceMethodsToSpyOn`. It is a warning by default. It becomes an
+error when your setup file calls `setupAutoSpy({ preset: 'strict' })` (or
+`setupAutoSpy({ misconfiguration: 'throw' })`). Details:
+[`instanceMethodsToSpyOn`](/core/create-spy-from-class#instancemethodstospyon-—-callables-that-are-not-on-the-prototype).
 
-## A class the code under test constructs
+If you only have the class as a **type**, or the class is all instance fields, no list is needed:
+[`createAutoMock<PaymentClient>()`](/core/auto-mock-by-type) creates every member the spec reads.
 
-When the constructor call lives inside the code under test, the class has to be replaced where the
-code finds it — the module. Keep the module mock, and put an auto-spying constructor in it instead
-of a hand-written literal:
+## Mock a class the code creates with `new`
+
+When the code under test calls `new PaymentClient()` itself, replace the class in its module. Keep
+`vi.mock`, but return an auto-spying constructor from `createSpyClass` instead of a hand-written
+object:
 
 ```ts
+import { expect, it, vi } from 'vitest';
 import type { ConstructorSpy } from 'vitest-auto-spy';
 
 import { payOnce } from './checkout';
@@ -204,27 +249,29 @@ it('charges through the client it builds', async () => {
 });
 ```
 
-[`createSpyClass`](/utilities/constructor-doubles) is a real constructor — `new` works whatever the
-runner version — and every instance is a full auto-spy of the original class. Two details are
-load-bearing:
+[`createSpyClass`](/utilities/constructor-doubles) returns a real constructor, so `new` always works.
+Each instance is a full spy of the original class. `calls` holds the arguments of each `new`, and
+`instances` holds the spy each `new` created.
 
-- **The default goes in `returns`.** The instance does not exist until the code under test calls
-  `new`, and `payOnce` calls `charge` in the same breath, so there is no moment for the spec to
-  configure it. `returns` is the value every instance starts with; an instance reached through
-  `instances` can still be reconfigured for the calls that come later.
-- **The real class comes from `importOriginal`.** Inside the factory the module's own import would
-  resolve to the mock being built, so `importOriginal` is the one way to reach the class that
-  `createSpyClass` reads its prototype from.
+Two details matter:
 
-The one `as unknown as` is the price of reading a module export as the double it was replaced with;
-the module's own type still says `PaymentClient`. If that line appears in many specs, the class wants
-a seam — pass it in, or inject a factory — and the section above applies instead.
+- **Put default answers in `returns`.** The instance does not exist until the code calls `new`, and
+  `payOnce` calls `charge` right after. The spec has no moment to configure it in between. `returns`
+  sets what every new instance starts with. You can still reconfigure an instance from `instances`
+  for later calls.
+- **Get the real class from `importOriginal`.** Inside the factory, a normal import of the module
+  returns the mock being built. `importOriginal` is the only way to reach the real class that
+  `createSpyClass` reads.
+
+The `as unknown as` cast is needed because the module's type still says `PaymentClient`. If you find
+this cast in many specs, change the code to receive the class instead: pass it in or inject a
+factory. Then the approach at the top of this page applies.
 
 ## Related
 
-- [createSpyFromClass](/core/create-spy-from-class) — every option, including `onlyMethodsToSpyOn`,
+- [createSpyFromClass](/core/create-spy-from-class): every option, including `onlyMethodsToSpyOn`,
   accessor spies and lazy spies.
-- [Constructor doubles](/utilities/constructor-doubles) — `createSpyClass`, `mockConstructor` and
-  `stubConstructor`, for everything the code under test builds with `new`.
-- [Module mocks that did nothing](/utilities/module-mocks) — `assertMocked`, for the `vi.mock` that
+- [Constructor doubles](/utilities/constructor-doubles): `createSpyClass`, `mockConstructor` and
+  `stubConstructor` for anything the code under test builds with `new`.
+- [Module mocks that did nothing](/utilities/module-mocks): `assertMocked`, for a `vi.mock` that
   silently did not apply.

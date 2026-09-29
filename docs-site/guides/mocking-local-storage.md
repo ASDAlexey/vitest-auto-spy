@@ -1,18 +1,15 @@
 ---
 title: Mocking localStorage in Vitest
-description: Replace localStorage and sessionStorage per test with stubWebStorage — seeded, asserted as a plain record, restored between tests — and when a hand-written double, a package or a Storage.prototype spy is still the right call.
+description: Replace localStorage or sessionStorage for one test with stubWebStorage - fill it, check what was stored, and get it restored automatically; when a spy on setItem or another approach fits better.
 ---
 
 # Mocking `localStorage` in Vitest
 
-Most guides answer this question with a ritual: a twenty-line `Map`-backed class, a
-`vi.stubGlobal('localStorage', …)`, an `afterEach` that clears it and restores the global, and a
-`vi.spyOn(Storage.prototype, 'setItem')` on top for the assertions. Every project ends up with its own
-copy, and every copy forgets one of the four steps.
-
-`stubWebStorage` is those steps as one call:
+`stubWebStorage` replaces `localStorage` or `sessionStorage` with a fresh in-memory storage for one
+test. You can fill it in the same call and check what ended up stored with one `toEqual`.
 
 ```ts
+import { beforeEach, describe, expect, it } from 'vitest';
 import { type WebStorageStub, stubWebStorage } from 'vitest-auto-spy/dom-stubs';
 
 import { forgetUser, loadTheme, saveTheme } from './preferences';
@@ -45,72 +42,130 @@ describe('preferences', () => {
 });
 ```
 
-With [`setupAutoSpy()`](/utilities/setup) in the setup file there is no `afterEach` to write: the stub
-goes on through `mockValueProp`, so the `restoreMockedProps()` it runs after every test puts back
-whatever the global held before — the environment's own storage, or another stub.
-
-## What you get
-
-- **A real `Storage`, not a bag of mocks.** `getItem`, `setItem`, `removeItem`, `clear`, `key` and
-  `length` behave as the platform's do: a number written through `setItem` reads back as a string, a missing
-  key reads `null`, `key()` converts its index the way an `unsigned long` does. A hand-written double that
-  returns `undefined` for a missing key passes tests that the browser fails.
-- **Seeded in the same call.** `items` goes in through `setItem`, so it is coerced exactly as the
-  code under test would store it.
-- **Asserted as data.** `snapshot()` returns a plain record — a copy, not a view — so the assertion is
-  one `toEqual` on what ended up stored, which is the thing a storage test is almost always about.
-- **Both globals.** It installs on `globalThis` and, when that is a separate object, on
-  `document.defaultView`, because code reads `window.localStorage` as often as the bare name.
-- **Any environment.** It installs in a `node` environment too: the spec asked for it.
-
-## When the call itself is the contract
-
-A storage test should usually assert what was stored, not how. When the write _is_ the behaviour — a
-cache that must not write twice, a key that must be removed rather than overwritten — spy on the
-installed storage, not on `Storage.prototype`:
+**Restore after each test.** Call [`setupAutoSpy()`](/utilities/setup) once in your setup file (the
+file listed in `setupFiles` of your Vitest config). It puts back the original storage after every
+test, so you write no `afterEach`:
 
 ```ts
-it('records the write when the call itself is the contract', () => {
+// vitest.setup.ts
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
+setupAutoSpy();
+```
+
+Without `setupAutoSpy()`, restore it yourself:
+
+```ts
+import { afterEach } from 'vitest';
+import { restoreMockedProps } from 'vitest-auto-spy';
+
+afterEach(() => restoreMockedProps());
+```
+
+## Options and return value
+
+`stubWebStorage(key?, options?)`
+
+| Argument        | Type                                 | Default                | Meaning                                                                       |
+| --------------- | ------------------------------------ | ---------------------- | ----------------------------------------------------------------------------- |
+| `key`           | `'localStorage' \| 'sessionStorage'` | `'localStorage'`       | which global to replace                                                       |
+| `options.items` | `Record<string, string>`             | empty                  | what the storage holds at the start; stored through `setItem`                 |
+| `options.view`  | `object \| null`                     | `document.defaultView` | another window object to install on too; `null` installs on `globalThis` only |
+
+You rarely need `view`. By default the stub goes on `globalThis` and also on `document.defaultView`
+(the `window` of `jsdom` or `happy-dom`) when that is a different object. `view` replaces that
+second target:
+
+- pass another window object when your code reads storage from it, for example a fake `window` you
+  inject;
+- pass `null` to install on `globalThis` only; `window.localStorage` then keeps the environment's
+  storage.
+
+**Preload values with `items`.** `getItem` is a real method, not a spy. To force one answer anyway,
+spy on it: `vi.spyOn(local.storage, 'getItem').mockReturnValue('dark')`.
+
+It returns a `WebStorageStub`:
+
+| Member       | What it is                                                                     |
+| ------------ | ------------------------------------------------------------------------------ |
+| `storage`    | the installed `Storage` object, the one the global returns until the test ends |
+| `snapshot()` | a plain-object copy of what the storage holds right now                        |
+
+## What the stub behaves like
+
+- **A real `Storage`.** `getItem`, `setItem`, `removeItem`, `clear`, `key` and `length` work like the
+  browser's. A number written with `setItem` reads back as a string. A missing key reads `null`, not
+  `undefined`. A hand-written fake often gets these wrong and passes tests the browser would fail.
+- **Filled like real code fills it.** `items` go in through `setItem`, so values are converted the
+  same way.
+- **Checked as data.** `snapshot()` returns a copy, so one `toEqual` checks the whole storage.
+- **Both names.** In `jsdom` and `happy-dom`, `window` can be a different object from `globalThis`.
+  The stub installs on both, so `localStorage` and `window.localStorage` return the same stub.
+- **Any environment.** It also works in the `node` test environment, which has no storage of its own.
+
+## Check that a specific call happened
+
+Usually a test should check _what_ was stored, not _how_. Sometimes the call itself is the behaviour:
+a cache that must not write twice, or a key that must be removed rather than overwritten. Then spy on
+the installed storage, not on `Storage.prototype`:
+
+```ts
+it('writes the theme once', () => {
   const setItem = vi.spyOn(local.storage, 'setItem');
 
   saveTheme('dark');
 
+  expect(setItem).toHaveBeenCalledTimes(1);
   expect(setItem).toHaveBeenCalledWith('theme', 'dark');
 });
 ```
 
-`local.storage` is the object the global answers until the test ends, so the spy sees every call and
-leaves every other `Storage` in the realm alone.
+The spy sees every call your code makes, and it leaves every other `Storage` object alone.
 
-## The decision tree the other guides give you
+## Test a "storage is full" error
 
-| Approach                                        | What it costs                                                                                                                                       | Reach for it when                                                                           |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| A hand-written `Map` double + `stubGlobal`      | Twenty lines per project, a restore you must remember, and the coercion rules you must remember to copy                                             | Never, once `stubWebStorage` is available — it is that class, with the restore wired        |
-| A `…-localstorage-mock` package in `setupFiles` | One storage for the whole file, so what one test wrote the next one reads unless an `afterEach` clears it                                           | A suite that only needs storage to _exist_ and never asserts on it                          |
-| `vi.spyOn(Storage.prototype, 'setItem')`        | Patches every `Storage` in the realm, depends on the environment's storage working at all, and reads back nothing a `snapshot()` would not tell you | Asserting a call against the environment's own storage, where replacing it is not an option |
-| **`stubWebStorage`**                            | One import from `vitest-auto-spy/dom-stubs`                                                                                                         | A spec that seeds storage, reads it back, or must not see what an earlier test wrote        |
+The stub has no size limit, so `setItem` never throws on its own. Make it throw:
 
-## Storage that is simply missing
+```ts
+vi.spyOn(local.storage, 'setItem').mockImplementation(() => {
+  throw new DOMException('full', 'QuotaExceededError');
+});
+```
 
-A different failure with the same symptoms: on Node 25 and later, `localStorage` under Vitest's
-`jsdom` or `happy-dom` environment is broken before any spec touches it — `setItem is not a function`
-on Node 25, `undefined` on Node 26 — because the runner's global copy skips it once Node defines its
-own. That is not a spec's problem to stub around; `setupAutoSpy()` repairs it by default, and
-[Web Storage the runner never handed over](/utilities/setup#_14-web-storage-the-runner-never-handed-over)
-explains the mechanism. `stubWebStorage` works either way, because it replaces whatever is there.
+## Compared with other approaches
 
-## What it deliberately does not do
+| Approach                                        | Downside                                                                                                          | Use it when                                                              |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| A hand-written `Map` fake + `vi.stubGlobal`     | About twenty lines per project; you must remember the restore and copy the conversion rules                       | Rarely: `stubWebStorage` already is this fake, with the restore built in |
+| A `…-localstorage-mock` package in `setupFiles` | One storage for the whole file: what one test writes, the next one reads, unless you clear it                     | Your tests only need storage to exist and never check its contents       |
+| `vi.spyOn(Storage.prototype, 'setItem')`        | Patches every `Storage` object; depends on the environment's storage (from `jsdom` or `happy-dom`) working at all | You must check calls on the environment's own storage                    |
+| **`stubWebStorage`**                            | One import from `vitest-auto-spy/dom-stubs`                                                                       | A spec fills storage, reads it back, or must start empty                 |
 
-- **Named-property access.** `localStorage.token` and `Object.keys(localStorage)` do not see the items;
-  go through `getItem` and `snapshot()`.
-- **The `storage` event.** Nothing is dispatched to other windows, because in a test there are none.
-- **A quota.** `setItem` never throws `QuotaExceededError`. To test that branch, make the call fail:
-  `vi.spyOn(local.storage, 'setItem').mockImplementation(() => { throw new DOMException('full', 'QuotaExceededError'); })`.
+## Troubleshooting: `localStorage` is broken on Node 25 and later
+
+Under Vitest's `jsdom` or `happy-dom` environment on Node 25+, `localStorage` can be broken before
+any spec runs:
+
+- Node 25: `setItem is not a function`;
+- Node 26: `localStorage` is `undefined`.
+
+The cause: Node 25 added its own global `localStorage`. Vitest copies the DOM environment's globals
+onto the test's global object, but it skips names that already exist. So the Node version stays,
+and the working one from `jsdom` or `happy-dom` never arrives. `setupAutoSpy()` fixes this by
+default. The details are in
+[Web Storage the runner never handed over](/utilities/setup#_14-web-storage-the-runner-never-handed-over).
+`stubWebStorage` works either way, because it replaces whatever is there.
+
+## Limits
+
+- **No property access to items.** `localStorage.token` and `Object.keys(localStorage)` do not see
+  the items. Use `getItem` and `snapshot()`.
+- **No `storage` event.** Nothing is sent to other windows; a test has none.
+- **No size limit.** See [Test a "storage is full" error](#test-a-storage-is-full-error).
 
 ## Related
 
-- [`stubWebStorage` in the hygiene reference](/utilities/setup#stub-web-storage) — the API and the
-  repair it sits next to.
-- [Observer stubs](/utilities/observer-stubs) — the same install-and-restore pattern for
+- [`stubWebStorage` in the setup reference](/utilities/setup#stub-web-storage): the API next to the
+  Node 25 fix.
+- [Observer stubs](/utilities/observer-stubs): the same install-and-restore pattern for
   `IntersectionObserver`, `ResizeObserver` and `MutationObserver`.

@@ -2,18 +2,18 @@
 # https://vitepress.dev/reference/default-theme-home-page
 layout: home
 title: vitest-auto-spy
-description: The only auto-spy library that reads a real class and returns a fully-typed spy of every method, with control helpers that follow each return type — identical on Vitest, Bun, node:test and Rstest. Drop-in replacement for jest-auto-spies and jasmine-auto-spies, with a codemod that finishes the move.
+description: Typed test spies built from a real class. Every method becomes a spy with helpers that match its return type, on Vitest, Bun, node:test and Rstest. A drop-in replacement for jest-auto-spies and jasmine-auto-spies.
 
 hero:
   name: 'vitest-auto-spy'
-  text: 'A typed spy of every method, read off the class'
-  tagline: 'Point it at a class and every method comes back spied, typed, and carrying the helpers its own return type earns. One API on Vitest, bun:test, node:test and Rstest.'
+  text: 'A typed spy for every method of a class'
+  tagline: 'Pass a class and get back an object where every method is a spy, typed from the class, with helpers that match each return type. One API on Vitest, Bun, node:test and Rstest.'
   actions:
     - theme: brand
       text: Get started
       link: /core/introduction
     - theme: alt
-      text: Why not the one you have
+      text: How it compares
       link: /comparison
     - theme: alt
       text: View on GitHub
@@ -21,76 +21,42 @@ hero:
 
 features:
   - title: Every method, from the real class
-    details: 'createSpyFromClass reads the prototype, so the double carries the class own methods, overloads and signatures — and a call the real method rejects will not compile on the double either.'
+    details: 'createSpyFromClass reads the class, so the spy object has the same methods and signatures. Rename a method, and the spec that uses it stops compiling.'
     link: /core/create-spy-from-class
-  - title: Helpers that follow the return type
-    details: 'A method returning a Promise gets resolveWith and rejectWith, one returning an Observable gets nextWith and throwWith, and every method gets calledWith, mustBeCalledWith and failWith. Reading a value back, narrow.defined returns it with null and undefined stripped inside the expression that needs it; toBeDefined() in Vitest 5.0 narrows nothing, and assert.exists narrows but returns nothing, so every optional read costs a statement and a local. adoptMock hands the same helpers to a vi.fn() that a vi.mock factory already built, with the calls it recorded kept. createLog journals the order of calls across collaborators, where toHaveBeenCalled checks pass in any order — the class Angular itself keeps three copies of, shipped once and runner-free. expectAllEmissions resolves every value a stream sent once it completes, typed from the stream, where expectEmissions(source$, n) stops at n and never sees one more. outOfType types a deliberately wrong fixture — the null a backend sends where the type says object — as T at the call site, with no cast for a lint rule to flag. stubWorker gives jsdom and happy-dom, which run no worker script, a Worker whose script is the spec; listeners stack, replies arrive on a microtask, and messages go through structuredClone, so a callback posted by mistake fails with the DataCloneError the browser throws. stubAnimationFrame hands requestAnimationFrame to the spec — immediate runs the callback before the call returns, queued holds every frame until flush(), so an animation loop advances one step per flush instead of recursing; stubElementRect makes getBoundingClientRect() report a real DOMRect, where jsdom answers zeros for every element.'
+  - title: Helpers that match the return type
+    details: 'A method returning a Promise gets resolveWith and rejectWith. One returning an Observable gets nextWith and throwWith. With calledWith, a method can return different values for different arguments.'
     link: /core/control-helpers
-  - title: Spy defaults that live with the class
-    details: 'registerAutoSpyDefaults(Router, config) once in a setup file and every provideAutoSpy or createSpyFromClass starts from it — merged with what the call site adds, not replaced. One Angular suite carried 23 different configurations of the same class across 109 spec files; a dozen classes go in as one table, each row checked against its own class, and an InjectionToken registers the same way from vitest-auto-spy/angular, clearAutoSpyDefaults taking one row back.'
+  - title: Defaults that live with the class
+    details: 'Configure a class once in your test setup file with registerAutoSpyDefaults. Every spy of that class starts from it, and each spec adds only what differs.'
     link: /core/create-spy-from-class
-  - title: returns or overrides, in one table
-    details: 'Both seed the double where it is built, and neither builds a second object. returns says what a spied method answers and leaves it a spy, so toHaveBeenCalled still works; overrides replaces a member with the value as written, which is no longer a spy. A method goes in returns; a signal, a stream, a field or a config object goes in overrides. A plain function seeded on a method stays a spy, and a member named in both keeps its overrides seed.'
-    link: /core/returns-vs-overrides
-  - title: Vitest 5 on the same install
-    details: 'One package spans Vitest 2.1 through 5.x — no second major, no version-split types, no edit to a spec. The same suite runs 7.7 % faster on Vitest 5, and the bundled spy engine adds another 8.1 % over vi.fn(). On Angular 22.2, whose unit-test builder is the first to run Vitest 5, a 700-file suite with v8 coverage goes from 16.50 s to 8.91 s — 46 % less time, 1.85× faster.'
-    link: /runtimes/vitest#vitest-5
-  - title: One core, four runtimes
-    details: 'vi.fn() and its equivalents sit behind an adapter that each entry point registers on import, so the same spec file runs on Vitest, bun:test, node:test and Rstest.'
+  - title: Four runners, one API
+    details: 'The same spec runs on Vitest 2.1 to 5, Bun, node:test and Rstest. You change one import, not the tests.'
     link: /runtimes/vitest
-  - title: Angular, NestJS, React, Vue, Svelte
-    details: 'Every framework has its own entry point — DI providers, a shallow TestBed that skips the child subtree, child stubs that createComponentStub reads off the real definition so the selector and the inputs cannot drift, signals and resources a spec can drive by hand, plus matchers no runner ships — registerSignalMatchers adds toHaveSignalValue, which reads the signal and deep-compares its value, where expect(signal).toBeTruthy() passes for every signal ever created because a signal is a function; registerResourceMatchers and registerDirectiveMatchers assert the status of a resource and the directives a fixture applied. provideActivatedRoute gives Angular its own ActivatedRoute over one record, createActivatedRoute the same without a TestBed; a setter on injectActivatedRoute() replaces the snapshot first and emits only the streams that moved, where the setRouteParam of Spectator 22.1 re-emits all five. stubWebStorage swaps localStorage for one test, and restoreMockedProps puts the old one back. createSpyFromInstance with passthrough spies a real TestBed service in place, calls recorded and the real methods kept. spyOnOwnMethod folds that one-method onlyMethodsToSpyOn list with passthrough into a single call — the drop-in for a bare vi.spyOn a preset bans, on every runtime — and spyOnVoidMethod records a native void method a handler calls, seeding the undefined without which a strict suite would fail on the very call the spy exists to observe. hostElement and queryElement hand back the fixture DOM as a typed element, checked with instanceof, where Angular types nativeElement as any and a strict lint forbids the cast; a selector that matches nothing throws naming the selector and the host. prepareShallow binds a component and the options every test repeats, so each test of an it.each passes only the inputs that change.'
+  - title: Built for Angular
+    details: 'provideAutoSpy and injectSpy for TestBed, shallow rendering, signals, resources, router, HTTP and signal forms. Works with zoneless and zone.js projects.'
     link: /adapters/angular
-  - title: The providers every suite hand-rolls
-    details: 'provideRouterDouble derives url, routerState and events from one URL instead of the four a hand-built Router guesses at, and navigate answers true; setCurrentNavigation puts a navigation in flight, so currentNavigation() answers the extras.state or the trigger a component reads without the instanceMethodsToSpyOn a hand-rolled double needs for a field Angular 20.2 moved off the prototype, and a NavigationStart pushed through emitNavigation starts one while a NavigationEnd, NavigationCancel, NavigationError or NavigationSkipped drops it back to null the way the real router does — emitNavigation resolves once the router has settled, and collectRouterEvents turns the events that follow into one expect of class-and-URL pairs; provideLocationDouble wraps the SpyLocation Angular itself ships, a real history with a urlChanges journal and simulateUrlPop for the popstate no method call can cause, while Location being providedIn root means the quiet failure is the real one nobody configured. provideWindowDouble and provideDocumentDouble merge what the spec names over the real jsdom object, so the member nobody thought of still answers and the globals are never patched; provideMatDialogData and provideMatDialogRef cover the Material dialog trio while @angular/material stays out of this package. mockSignalProp writes through a member that already is a signal(), model() or linkedSignal() — or a read-only asReadonly() view of one — rather than replacing it, so a computed, an effect or a template that read it first is still connected; setInputs changes an input mid-test, and trackRecomputations and trackEffectRuns count what actually re-ran. Each one has a twin that needs no TestBed — createRouterDouble, createWindowDouble, createDocumentDouble, createMatDialogRef, createLocationDouble — while injectRouterDouble, injectMatDialogRef and injectLocationDouble read the handle back inside the test.'
-    link: /adapters/angular
-  - title: Angular signal forms, in a spec
-    details: 'Signal forms are stable from Angular 22 and no testing tool ships for them; form() injects, so the call a spec makes in a beforeEach dies on NG0203 — a message about inject() that never says form. createForm builds Angular own form() inside the TestBed injection context and hands back the framework FieldTree with nothing wrapped, taking the model as a signal() or as a plain value. registerFormMatchers then adds toHaveFieldErrors, which compares the whole error set order-free by kind, where errors() answers validation-error instances that toEqual fails on over a back-reference nobody wrote.'
-    link: /adapters/signal-forms
+  - title: NestJS, React, Vue and Svelte
+    details: 'Each framework has its own entry point - provideAutoSpy for NestJS testing modules and Vue global.provide, familiar imports for React and Svelte.'
+    link: /adapters/nestjs
   - title: Strict mode instead of undefined
-    details: 'The method nobody stubbed throws with the class, the method and the arguments in the message, rather than returning undefined that fails three frames later. A throw the code under test caught — a try/catch, an operator with no error handler — fails the test afterwards anyway, and one provoked on purpose is taken with takeStrictViolations(). A getter nobody configured or a stream nobody fed is reported after the test under unconfiguredReads, and surveyed first with onUnstubbedRead. A mockDeep tree takes fallbackMockImplementation, so a query nobody configured throws instead of answering one more proxy.'
+    details: 'With strict true, a method you forgot to configure throws instead of returning undefined, naming the class, the method and the arguments.'
     link: /core/strict-mode
-  - title: Fifty-one lint rules and a codemod
-    details: 'The ESLint plugin underlines the old patterns as you type — a private member reached through a cast, an observer global stubbed by hand, a fetch assigned to a global that nothing restores (no-hand-assigned-global), a stub class of vi.fn() fields registered with useClass, schemas that can never apply, a useValue no compiler ever checked, a lifecycle hook spied on the instance, a @ts-expect-error over a stub, an expect that cannot fail, and with no-redundant-smoke-test the generated smoke test that asserts only what the TestBed itself just built, and with prefer-set-inputs a componentRef.setInput whose name Angular checks against nothing, and with no-vacuous-absence-assertion a test whose every assertion is satisfied by a stream that never emitted, and with prefer-settle-dynamic-import a bare await import() in a test body, which waits for the module and not for the handler that was loading it, and with no-self-called-spy a test that calls the spied method itself and then asserts the call it just made, and with no-unasserted-argument a bare toHaveBeenCalled() where the file itself says the arguments are the point, and with prefer-create-mock and no-mock-cast a fixture cast past the compiler and an as Mock cast that takes the signature off a spy that already had one, and with no-reflect-member-access a private member reached through Reflect, which after a rename writes a property nothing reads, and with no-redundant-mock-reset a mock reset in a hook the runner already performs, and with prefer-stub-response a Response written by hand — an object literal cast with as Response, or a createMock<Response>() — which answers undefined for status, headers, text() and everything else its author did not think of, so the code under test branches on a value no real response could produce, and with prefer-spy-on-own-method a createSpyFromInstance whitelist of one method that --fix turns into spyOnOwnMethod or spyOnVoidMethod, even across several lines where a text search misses it, and with prefer-to-have-signal-value an expect(total()).toBe(3) that --fix turns into toHaveSignalValue, which keeps the signal name in the failure, and with no-real-component-provider a fixture.debugElement.injector.get(X) that hands a component spec the production store, because nothing in the file replaced the component-level provider — the message names overrideComponentProvider, and with hookRegisteringHelpers a vitest/require-hook allowlist nobody maintains by hand — the plugin ships the verified list of every library helper that registers a hook, walked out of every public entry by a spec, so a helper that starts registering a hook cannot be missing from it — and the CLI codemod rewrites a jest-auto-spies suite into a diff you can read before you keep it.'
+  - title: Lint rules and a codemod
+    details: 'The ESLint plugin flags fragile test patterns as you type. The codemod moves a jest-auto-spies test set to this library and shows the diff first.'
     link: /utilities/eslint-plugin
-  - title: Failures nothing else reports
-    details: 'A mock*Prop patch left in a describe body stops applying after the first test, a component whose own providers shadow the spy quietly runs the real service, and one key left on Object.prototype stops every later file in the worker from collecting while Vitest 5.0 still prints zero failing tests and no stack — silent under every runner, named here by the property, the token or the file. enableAngularDiagnostics, on for a whole suite from one setup line, takes five more of these from silent to failing — an NgModule import that contributes nothing, schemas that cannot apply beside a standalone component, injectSpy landing a real instance, a request no spec flushed, the shadowed provider itself — and its timing half, enableTestBedDiagnostics, prints one line per file of how much of its wall clock went into TestBed and how many components it built, which is the list a slow Angular suite is rewritten from. Console output nothing absorbed fails the test that wrote it, with a code frame at the line; the onConsoleLog hook of Vitest 5.0 can only drop a line, never fail a test. consoleOutput() returns everything a test logged, keyed by channel, so one toStrictEqual pins the whole output with a full diff instead of an assertion per console spy, and useConsoleSpies() registers the install-and-restore pair in the describe that calls it. An Observable error no subscriber handled fails the test that raised it, with the original error as its cause; rxjs rethrows it from a setTimeout, so a runner blames the run and never the test; a test that leaves one on purpose asserts it with expectUnhandledObservableErrors, which compares the errors in order and prints both lists when they differ. The ignore list of strayTimers takes the timers a dependency owns off the report without turning the sweep off. An attribute a component set on <body> and never took off turns a later file red about one run in six, only when the two share a worker; documentPollution names the test that left it and puts the document back, where no runner compares the document between files. blockNetwork fails a request that reached the real network and steps aside when MSW or nock intercepts fetch; stubResponse builds the real Response a stubbed fetch returns, without a cast. Under isolate: false three more leaks answer for the next file — a storage spy that mockRestore() reports removed while happy-dom keeps it, a window or document listener, and a global replaced by plain assignment, which neither unstubGlobals nor restoreMocks tracks; restoreStorageSpies, strayListeners and restoreGlobals put each back at the file boundary. isAngularUnitTestBuilder lets one setup file serve the Angular unit-test builder and plain Vitest alike. One strict preset turns every guard to its failing grade. Every report names the test, the file and the line, says why in one phrase, gives the one fix that applies to that case and links the section about it.'
+  - title: Leaks fail the test that left them
+    details: 'setupAutoSpy catches what one test leaves behind for the next - unrestored globals, stray timers, console output, real network requests. Each report names the test, the file and the fix.'
     link: /utilities/setup
   - title: Which test is slow, and why
-    details: 'npx vitest-auto-spy perf --gate fails CI over a file whose tests each cost many times the median test of the same run, so a laptop and a runner nine times slower reach the same verdict. Every suspect is re-measured on its own before it fails anything, and a confirmed one comes with a CPU profile card — its slowest tests, hooks against test bodies, the share by package and in your own code, and a likely cause in two sentences. An ordinary run never loads the profiler. Vitest 5.0 marks a test over a fixed slowTestThreshold of 300 ms, the same number on every machine, and says nothing about where the time went.'
+    details: 'npx vitest-auto-spy perf finds the slow spec files, re-measures each one alone, and shows where the time went. Add --gate to fail CI on them.'
     link: /utilities/cli#the-gate
 ---
 
 <div class="vas-section">
 
-<p class="vas-eyebrow">01 / Install</p>
+<p class="vas-eyebrow">01 / The idea</p>
 
-## Sixty seconds to the first spy
-
-Zero runtime dependencies; `rxjs` and the `@angular/*` packages are optional and only for the
-matching entry point. The Angular entries want Angular 20 or newer — 22 for `/signal-forms` — see
-[Installation](/core/installation).
-
-```bash
-npm i -D vitest-auto-spy
-```
-
-Then import from the entry point that matches your runner — everything after that line is identical.
-
-```ts
-import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest, zero config
-import { createSpyFromClass } from 'vitest-auto-spy/bun'; // bun:test
-import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
-import { createSpyFromClass } from 'vitest-auto-spy/rstest'; // Rstest
-```
-
-</div>
-
-<div class="vas-section">
-
-<p class="vas-eyebrow">02 / The idea</p>
-
-## The double you keep in sync by hand, deleted
+## Stop keeping a hand-written mock in sync
 
 <div class="vas-split">
 
@@ -116,7 +82,9 @@ vi.mocked(users.save).mockRejectedValue(new HttpError(409));
 ### <span class="vas-mark">The line that replaces it</span>
 
 ```ts
-const users = createSpyFromClass(UserService);
+import { type Spy, createSpyFromClass } from 'vitest-auto-spy';
+
+const users: Spy<UserService> = createSpyFromClass(UserService);
 
 users.load.resolveWith(user);
 users.save.rejectWith(new HttpError(409));
@@ -126,13 +94,40 @@ users.save.rejectWith(new HttpError(409));
 
 </div>
 
-The cast is what goes. Rename a method on `UserService` and the hand-rolled object still compiles,
-still runs green, and no longer tests anything; `Spy<UserService>` turns the same rename into a red
-line in the spec that uses it. No class to point at? `createAutoMock<T>()` builds the same surface
-from a type or an interface.
+The cast goes away. Because of the cast, renaming a method on `UserService` leaves the hand-written
+object compiling and the test passing, while it no longer tests anything. `Spy<UserService>` is typed
+from the class, so the same rename turns the spec red. The real constructor never runs, so the
+service's own dependencies need no mocks. No class to pass? `createAutoMock<T>()` builds the same spies from a type or an
+interface.
 
-[How it works](/core/how-it-works) · [createSpyFromClass](/core/create-spy-from-class) ·
+[Getting started](/core/introduction) · [createSpyFromClass](/core/create-spy-from-class) ·
 [Control helpers](/core/control-helpers)
+
+</div>
+
+<div class="vas-section">
+
+<p class="vas-eyebrow">02 / Install</p>
+
+## Install and import
+
+```bash
+npm i -D vitest-auto-spy
+```
+
+Import from the entry point for your test runner. Everything after that line is the same.
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest, no config
+import { createSpyFromClass } from 'vitest-auto-spy/bun'; // bun:test
+import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
+import { createSpyFromClass } from 'vitest-auto-spy/rstest'; // Rstest
+```
+
+The package has no runtime dependencies. `rxjs` and the `@angular/*` packages are needed only for
+their own entry points. Angular `TestBed` specs import `provideAutoSpy` and
+`injectSpy` from `vitest-auto-spy/angular` (Angular 20 or newer); `createSpyFromClass` works in any
+spec. See [Installation](/core/installation).
 
 </div>
 
@@ -142,9 +137,8 @@ from a type or an interface.
 
 ## Which test is slow, and why
 
-Vitest prints one `Duration` line for the whole run. `perf` turns it into the files that are actually
-slow, re-measures each of them on its own so a busy runner cannot frame one, and prints where the CPU
-time went. One command, locally or in CI:
+Vitest prints one `Duration` for the whole run. `perf` lists the spec files that are actually slow,
+re-measures each one alone, and shows where the CPU time went. Run it locally or in CI:
 
 ```bash
 npx vitest-auto-spy perf --gate
@@ -167,14 +161,11 @@ error  perf-gate-slow-file libs/player/src/lib/vod/vod.component.spec.ts
        └───────────────────────────────────────────────────────────────
 ```
 
-The budget is counted in the median test **of the same run**, so a laptop and a runner nine times
-slower give the same verdict, and a large file of ordinary tests never fails it — on a 2 023-file
-consumer suite the rule it replaced flagged 0 files at ×1 slowdown and 19 at ×9, and this one flags
-none at either. A file that is fast with the machine to itself is reported as _not reproduced_, not
-as a defect. The profiler is loaded only for that re-measurement; an ordinary run pays nothing. On an Angular spec the
-card also splits the time into TestBed set-up, component creation, change detection and JIT
-compilation, and `--code-quality` puts every finding into the GitLab merge request widget without a
-network or a token.
+The budget scales with the median test of the same run, so a fast laptop and a slow CI machine reach
+the same verdict. A file that was slow only because of its neighbours, and is fast when it runs
+alone, is reported as _not reproduced_, not as a failure. The profiler loads only for that re-measurement, so a normal run pays
+nothing. On Angular specs the card also splits time into `TestBed` setup, component creation, change
+detection and compilation. `--code-quality` writes the findings for the GitLab merge request widget.
 
 [The gate](/utilities/cli#the-gate) · [`perf` in full](/utilities/cli#perf-—-where-the-cpu-time-actually-goes) ·
 [In CI](/utilities/cli#in-ci)
@@ -234,6 +225,7 @@ network or a token.
 ### Reference
 
 - [Full API](/api)
+- [Glossary](/glossary)
 - [Patterns that hold up](/recipes)
 - [Strict mode](/core/strict-mode)
 - [ESLint plugin](/utilities/eslint-plugin)
@@ -249,7 +241,7 @@ network or a token.
 <div class="vas-fact"><b>0</b><span>runtime dependencies</span></div>
 <div class="vas-fact"><b>4</b><span>runtimes, one core</span></div>
 <div class="vas-fact"><b>5</b><span>framework adapters</span></div>
-<div class="vas-fact"><b>49</b><span>lint rules</span></div>
+<div class="vas-fact"><b>56</b><span>lint rules</span></div>
 <div class="vas-fact"><b>100%</b><span>covered core</span></div>
 
 </div>
@@ -264,11 +256,11 @@ network or a token.
 
 <div class="vas-closer">
 
-`jest-auto-spies` and `jasmine-auto-spies` share this API — the codemod rewrites the imports and the
-calls, and prints the diff before anything is kept. Spectator, `@testing-library/angular` and Suites
-each have a page that maps their helpers onto these ones, line for line.
+`jest-auto-spies` and `jasmine-auto-spies` have the same API. The codemod rewrites the imports and
+the calls, and shows the diff before anything is saved. Spectator, `@testing-library/angular` and
+Suites each have a page that maps their helpers to these, line by line.
 
-[What the others do differently](/comparison) · [Migrate a suite](/migrating) ·
+[What the others do differently](/comparison) · [Migrate your tests](/migrating) ·
 [What is new in 4.0](/upgrading-4)
 
 </div>

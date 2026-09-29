@@ -1,41 +1,98 @@
 ---
 title: Comparison
-description: How vitest-auto-spy compares to jest-auto-spies, vitest-mock-extended, @golevelup/ts-vitest, @suites/unit, ng-mocks, @testing-library/angular, spectator, sinon and Vitest's own built-ins — with last-release dates.
+description: How vitest-auto-spy compares to jest-auto-spies, vitest-mock-extended, @golevelup/ts-vitest, @suites/unit, ng-mocks, @testing-library/angular, spectator, sinon and Vitest's own built-ins, with last-release dates.
 ---
 
 # Comparison
 
-How `vitest-auto-spy` compares to the rest of the field. The niche is narrow and deliberate: **the
-only auto-spy library that reads a real _class_ and returns a _fully-typed_ spy of every method with
-_return-type-aware_ control helpers, portable across Vitest / Bun / `node:test` and across Angular /
-NestJS / React / Vue / Svelte.**
+`vitest-auto-spy` turns a class or a type into an object whose every method is a typed
+[spy](/glossary). Each spy gets helpers that match the method's return type, such as `resolveWith`
+for a `Promise` and `nextWith` for an `Observable`. It runs on Vitest, Bun and `node:test`, with
+helpers for Angular, NestJS, React, Vue and Svelte. This page shows which library fits which situation,
+and what you gain or lose by switching.
 
-Everything else on this page does some part of that. Nothing does all of it, and a surprising amount
-of it is no longer being worked on at all.
+## Which one to pick
 
-::: info Where the numbers come from
-Download counts are the npm window **2026-07-29 → 2026-08-27**, from a field survey dated
-**2026-08-29**. Versions, publish dates, dependency lists, repository status and the typings quoted
-below were re-read from the npm registry and the published tarballs on **2026-08-30** — every one of
-them reproduced. Treat all of it as a dated snapshot, not a live feed: re-check before quoting.
+| Your situation                                                        | Pick                                                                                            | Why                                                                                                                                         |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| You use `jest-auto-spies` and stay on Jest                            | keep [`jest-auto-spies`](https://github.com/hirezio/auto-spies)                                 | same API; `vitest-auto-spy` does not run on Jest yet                                                                                        |
+| You use `jest-auto-spies` and move to Vitest, Bun or `node:test`      | `vitest-auto-spy`                                                                               | same API, mostly an import change; see [before and after](#before-and-after)                                                                |
+| You use `ng-mocks` to replace services with spies                     | `vitest-auto-spy`                                                                               | you get `Spy<UserService>` instead of `UserService`, and specs keep AOT compilation, which ng-mocks asks you to turn off ([why](#ng-mocks)) |
+| You use `ng-mocks` to mock a whole tree of components and modules     | keep [`ng-mocks`](https://github.com/help-me-mom/ng-mocks)                                      | `MockBuilder`, `MockInstance`, `ngMocks.findInstance` have no equivalent here; use both in one project                                      |
+| You render components and assert on what the user sees                | keep [`@testing-library/angular`](https://github.com/testing-library/angular-testing-library)   | keep it for rendering; swap only its `createMock` for `createSpyFromClass`                                                                  |
+| You use `@ngneat/spectator`                                           | `vitest-auto-spy`                                                                               | its repository is gone and it does not install on Angular 22; see [Angular](#angular)                                                       |
+| You mock only interfaces, never classes, and need nothing else        | [`vitest-mock-extended`](https://github.com/eratio08/vitest-mock-extended)                      | smaller, runs on Vitest 4 and later; for the helpers too, use `createAutoMock` / `mockDeep` from `vitest-auto-spy`                          |
+| You want a NestJS unit built from DI metadata, on Jest or Vitest only | [`@suites/unit`](https://github.com/suites-dev/suites), or [`createNestUnit`](/adapters/nestjs) | see [NestJS](#nestjs)                                                                                                                       |
+| You already have mocks and want only answers that depend on arguments | [`vitest-when`](https://github.com/mcous/vitest-when)                                           | exactly that and nothing else; take 0.10.2, skip 0.10.1                                                                                     |
+| You need sandboxes, fake servers or a full test-double toolkit        | [`sinon`](https://github.com/sinonjs/sinon)                                                     | a wider tool; this package only turns a class or a type into a typed spy                                                                    |
 
-Re-verified since: the two `@testing-library/angular` `createMock` defects quoted under
-[Angular](#angular) were re-read in the published 19.4.2 tarball on **2026-09-04**, both still hold
-at the same two lines, and both were reproduced by running the published module — the output is on
-[Migrating from @testing-library/angular](/migrating-testing-library-angular). Every version and
-publish date in the two tables below was re-read from the registry on the same day and every one
-reproduced. Every performance figure on this page is this package's own measurement, re-run in full
-on **2026-09-04** — the tables it summarises are in [Performance](/core/performance).
+## Before and after
 
-The one figure not re-measured against the competitors is the type-instantiation count in
-[Type-check cost](#_3-type-check-cost), which is carried from the 2026-08-29 survey. The package's
-own cost has had a CI-measured number since 2026-09-02 — see the same section.
-:::
+From `jest-auto-spies`, most specs change only their imports. Angular helpers live in their own
+entry point. The `Observable` helpers also need `import 'vitest-auto-spy/rxjs'` once, in the setup
+file ([how to add it](/runtimes/rxjs)):
+
+```diff
+- import { createSpyFromClass, provideAutoSpy } from 'jest-auto-spies';
++ import { createSpyFromClass } from 'vitest-auto-spy';
++ import { provideAutoSpy } from 'vitest-auto-spy/angular';
+```
+
+From `ng-mocks`, the type of the service double changes. `ng-mocks` types it as the real service,
+so you cast to reach the mock. ng-mocks also needs `ngMocks.autoSpy('vitest')` in the setup file; remove
+that line once no spec uses ng-mocks.
+
+```ts
+import { TestBed } from '@angular/core/testing';
+import { MockProvider, ngMocks } from 'ng-mocks';
+import { of } from 'rxjs';
+import { vi } from 'vitest';
+
+TestBed.configureTestingModule({ imports: [ProfileComponent], providers: [MockProvider(UserService)] });
+const users = TestBed.inject(UserService); // typed as UserService
+vi.mocked(users.load).mockReturnValue(of({ id: 1, name: 'Ann' })); // cast to reach the mock
+```
+
+With `vitest-auto-spy`, `injectSpy` returns `Spy<UserService>`, and `load` gets helpers for its
+`Observable` return type. Those helpers need `import 'vitest-auto-spy/rxjs'` once per project,
+in the Vitest setup file (see [RxJS](/runtimes/rxjs)). `nextWith` sets the value every later call to
+`load()` emits. Call it before `TestBed.createComponent`, because the component calls `load()`
+when it is created:
+
+```ts
+import { TestBed } from '@angular/core/testing';
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+
+it('shows the user name', async () => {
+  TestBed.configureTestingModule({ imports: [ProfileComponent], providers: [provideAutoSpy(UserService)] });
+  const users = injectSpy(UserService); // Spy<UserService>
+  users.load.nextWith({ id: 1, name: 'Ann' }); // checked against Observable<User>
+
+  const fixture = TestBed.createComponent(ProfileComponent);
+  await fixture.whenStable();
+
+  expect(fixture.nativeElement.textContent).toContain('Ann');
+  expect(users.load).toHaveBeenCalledTimes(1); // Vitest matchers work on these spies
+});
+```
+
+The full step-by-step guides: [Migrating from jest-auto-spies](/migrating),
+[Migrating from Spectator](/migrating-spectator),
+[Migrating from @testing-library/angular](/migrating-testing-library-angular),
+[Migrating from @suites/unit](/migrating-suites).
+
+## What you gain and lose by switching
+
+| Coming from                | You gain                                                                                                                                                                                                                        | You lose                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jest-auto-spies`          | Vitest, Bun and `node:test`; mocks from a type with no class (`createAutoMock`, `mockDeep`); zoneless and `httpResource()` helpers; a package that still ships releases; less memory per spy ([Runtime cost](#_4-runtime-cost)) | Jest: this package does not run on it yet                                                                                                     |
+| `ng-mocks`                 | `Spy<T>` instead of `T`, so no `vi.mocked()` casts; return-type helpers; `calledWith` / `mustBeCalledWith`; getter and setter spies; specs compiled AOT; zoneless and resource helpers; mocks from a type                       | whole-graph mocking (`MockBuilder`), `MockInstance` (set up a dependency a nested child reads in a field initializer), `ngMocks.findInstance` |
+| `@testing-library/angular` | getters on the double; no `Object.prototype` methods mocked by mistake; lazy spies (a method's spy is built on first use)                                                                                                       | nothing, if you keep its `render` and replace only `createMock`                                                                               |
 
 ## Half the field has stopped shipping
 
-This is the first thing to know about the alternatives, and no comparison table anywhere makes it.
-Last release per package, read from the registry on 2026-08-30 and re-read unchanged on 2026-09-04:
+Before you compare features, check who still releases. Last release per package, read from the npm
+registry on 2026-08-30 and again on 2026-09-04:
 
 | Library                                                                                  | Latest  | Published      | Repo                                                                                                              | State                            |
 | ---------------------------------------------------------------------------------------- | ------- | -------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------- |
@@ -48,39 +105,41 @@ Last release per package, read from the registry on 2026-08-30 and re-read uncha
 | [jest-auto-spies](https://www.npmjs.com/package/jest-auto-spies)                         | 3.0.1   | 2025-09-22     | [hirezio/auto-spies](https://github.com/hirezio/auto-spies)                                                       | quiet; its core dep is from 2023 |
 | [@bugsplat/vitest-auto-spies](https://www.npmjs.com/package/@bugsplat/vitest-auto-spies) | 1.0.0   | 2026-02-04     | [BugSplat-Git/auto-spies](https://github.com/BugSplat-Git/auto-spies)                                             | 102 downloads in the window      |
 
-Five of them last published more than a year ago, and a sixth's repository no longer exists. Counted
-against 2026-09-04, the five are 740, 896, 1 220, 1 945 and 2 486 days old; `jest-auto-spies` is the
-row that is _not_ in that group, at 346 days, and it crosses the line in September 2026 unless
-something ships.
+The first five rows last published more than a year ago, and `@ngneat/spectator` has lost its
+repository. On 2026-09-04 the first five were 740, 896, 1 220, 1 945 and 2 486 days old.
+`jest-auto-spies` was 346 days old then, so without a new release it passes one year on 2026-09-22.
 
-Two corrections to claims this page used to make, and to claims still made elsewhere:
+Two corrections to claims this page used to make, and that other pages still make:
 
-- **`ts-auto-mock` is not "one transformer away".** It is feature-frozen by its author and does not
-  work with esbuild or swc — which is to say not with Vitest, not with Vite, not with Bun, and not
-  with the Angular builder. The old line here ("no ttsc transformer to install") undersold it: the
-  true statement is that it cannot run on a modern toolchain at all.
-- **`@ngneat/spectator` is a maintenance risk, not just a stale version.** 22.1.0 shipped
-  2025-11-02; `github.com/ngneat/spectator` returns **404** and took every issue and PR with it,
-  though the `ngneat` org itself still resolves. A third-party snapshot sits at
-  [ngneat-archive/spectator](https://github.com/ngneat-archive/spectator) (created 2026-06-07,
-  already archived). It is still pulled **739 852 times a month** (2026-07-31 → 2026-08-29), so
-  plenty of suites are sitting on it. Three runtime dependencies — `tslib`, `@testing-library/dom`
-  and **`jquery`** — and `lib/mock.d.ts:11` declares `CompatibleSpy … extends jasmine.Spy`, which
-  `SpyObject<T>` is built from, so even `@ngneat/spectator/vitest` drags the Jasmine global types
-  into a Vitest project. It does not resolve on a clean Angular 22 workspace: it imports
-  `BrowserDynamicTestingModule` from `@angular/platform-browser-dynamic/testing` while declaring
-  that package in neither `dependencies` nor `peerDependencies`, so the install errors with
-  `ERR_MODULE_NOT_FOUND` — the package itself still ships (22.1.4) and is merely npm-deprecated, so
-  adding it by hand is a workaround. The [`@openng/spectator`](https://www.npmjs.com/package/@openng/spectator)
-  fork ([openng-org/spectator](https://github.com/openng-org/spectator), 1.0.1, 2026-07-10, at
-  16 251 downloads — 2.1 % of the original) is an active repository, but its Angular 22 build is a
-  recompile: it carries the same undeclared import and fails identically, and the fix
-  ([#13](https://github.com/openng-org/spectator/pull/13)) has been open since 2026-07-26.
-  [The full migration path is its own page](/migrating-spectator). Verified 2026-09-02.
+- **`ts-auto-mock` cannot run on a modern toolchain.** Its author has frozen it, and it does not
+  work with esbuild or swc. That rules out Vitest, Vite, Bun and the Angular builder. The old line
+  here ("no ttsc transformer to install") undersold the problem.
+- **`@ngneat/spectator` is a maintenance risk, not only an old version.** Details, verified on
+  2026-09-02:
+  - 22.1.0 shipped on 2025-11-02. `github.com/ngneat/spectator` returns **404**, with every issue
+    and PR gone; the `ngneat` org still exists.
+  - A third-party snapshot sits at [ngneat-archive/spectator](https://github.com/ngneat-archive/spectator),
+    created on 2026-06-07 and already archived.
+  - It is still downloaded **739 852 times a month** (2026-07-31 → 2026-08-29).
+  - It has three runtime dependencies: `tslib`, `@testing-library/dom` and **`jquery`**.
+  - `lib/mock.d.ts:11` declares `CompatibleSpy … extends jasmine.Spy`, and `SpyObject<T>` is built
+    on it. Even `@ngneat/spectator/vitest` therefore pulls Jasmine's global types into a Vitest
+    project.
+  - It does not install on a clean Angular 22 workspace. It imports `BrowserDynamicTestingModule`
+    from `@angular/platform-browser-dynamic/testing` but declares that package nowhere. The install
+    fails with `ERR_MODULE_NOT_FOUND`. That package still ships (22.1.4) and is only deprecated, so
+    adding it by hand works around the error.
+  - The [`@openng/spectator`](https://www.npmjs.com/package/@openng/spectator) fork
+    ([openng-org/spectator](https://github.com/openng-org/spectator), 1.0.1, 2026-07-10) is active,
+    at 16 251 downloads, 2.1 % of the original. Its Angular 22 build is a recompile with the same
+    undeclared import, so it fails the same way. The fix
+    ([#13](https://github.com/openng-org/spectator/pull/13)) has been open since 2026-07-26.
+
+  The migration path has [its own page](/migrating-spectator).
 
 ## The live field
 
-The competition that is actually shipping, with the same window's downloads:
+The libraries that still ship, with downloads for the same window:
 
 | Library                                                                            | Latest              | Downloads/mo | Repo                                                                                                  | What it is                                                                  |
 | ---------------------------------------------------------------------------------- | ------------------- | ------------ | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -94,14 +153,15 @@ The competition that is actually shipping, with the same window's downloads:
 | [@golevelup/ts-vitest](https://www.npmjs.com/package/@golevelup/ts-vitest)         | 4.0.0, 2026-03-18   | 353 803      | [golevelup/nestjs](https://github.com/golevelup/nestjs)                                               | `createMock<T>()` deep Proxy, the Nest community default                    |
 | [Vitest's own `vi`](https://vitest.dev/api/vi)                                     | Vitest 4            | —            | [vitest-dev/vitest](https://github.com/vitest-dev/vitest)                                             | `vi.fn` / `vi.spyOn` / `vi.mockObject` — increasingly the default answer    |
 
-For scale in the other direction: `jasmine-core` still pulls **23 922 905** downloads a month, and
-Angular's official v22 answer for a service double is a hand-written
-`const stub: Mocked<TaxCalculator> = { calculate: vi.fn() }`. Most of the field is not another
-library — it is a literal somebody typed out by hand.
+The biggest competitor is not a library. `jasmine-core` still gets **23 922 905** downloads a month.
+Angular's official v22 answer for a service double is a hand-written object:
+`const stub: Mocked<TaxCalculator> = { calculate: vi.fn() }`.
 
 ## Feature by feature
 
 ### The double itself
+
+A _double_ is the object that stands in for the real service in a test.
 
 |                                          | vitest-auto-spy | jest-auto-spies | \*-mock-extended | @golevelup/ts-vitest |     @suites/unit     | ng-mocks | @testing-library/angular | @ngneat/spectator |         sinon          | Vitest 4 built-ins |
 | ---------------------------------------- | :-------------: | :-------------: | :--------------: | :------------------: | :------------------: | :------: | :----------------------: | :---------------: | :--------------------: | :----------------: |
@@ -115,47 +175,65 @@ library — it is a literal somebody typed out by hand.
 | `mustBeCalledWith` (fails on a mismatch) |       ✅        |       ✅        |        ❌        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |         ❌         |
 | Typed as a **spy type**, not as `T`      |    `Spy<T>`     |    `Spy<T>`     |  `MockProxy<T>`  |   `DeepMocked<T>`    |     `Mocked<T>`      | **`T`**  |  `Mock<T>` (see below)   |  `SpyObject<T>`   | `SinonStubbedInstance` | `MaybeMockedDeep`  |
 
-Two cells worth expanding, both read out of the published tarballs on 2026-08-30:
+Three cells need more detail. The first two were read from the published packages on 2026-08-30.
 
-- **ng-mocks returns `T`.** `index.d.ts:1473` declares `MockService<T>(service: AnyType<T>,
-spyNamePrefix?: string): T` — the double is typed as the real service, so `.mockReturnValue(…)`
-  does not compile and their own e2e specs launder it through `vi.mocked(...)` to get it back. This
-  is a typing gap, not a runtime one: since 14.17.0 (2026-08-10) `ngMocks.autoSpy('vitest')` makes
-  every mocked method a real `vi.fn()`, and a dedicated `e2e/vitest` project exercises it on CI. The
-  methods are spies; the type just will not admit it.
-- **`@testing-library/angular`'s `Mock<T>` over-promises.** Its type is
-  `T & { [K in keyof T]: T[K] & Mock }` — _every_ member is typed callable — while the runtime
-  factory assigns a `vi.fn()` only where `typeof descriptor.value === 'function'`. A data property
-  is therefore typed as a mock and is `undefined` at runtime.
+- **ng-mocks returns `T`.** `index.d.ts:1473` declares
+  `MockService<T>(service: AnyType<T>, spyNamePrefix?: string): T`. The double is typed as the real
+  service, so `.mockReturnValue(…)` does not compile. Its own e2e specs cast through `vi.mocked(...)`.
+  At runtime the methods are real spies: since 14.17.0 (2026-08-10), `ngMocks.autoSpy('vitest')`
+  makes each one a `vi.fn()`, tested in a dedicated `e2e/vitest` project. Only the type hides it.
+- **`@testing-library/angular`'s `Mock<T>` promises too much.** Its type is
+  `T & { [K in keyof T]: T[K] & Mock }`, so _every_ member is typed as callable. The runtime factory
+  assigns a `vi.fn()` only where `typeof descriptor.value === 'function'`. A data property is
+  therefore typed as a mock and is `undefined` at runtime.
+- **sinon's `createStubInstance` builds a new object.** It takes a constructor and returns a fresh
+  stub. It does not spy on an object you already hold. For that, this package has
+  `createSpyFromInstance`, which turns the object's methods into spies in place. `bun:test` and
+  `node:test` spy on one method at a time and have no call for a whole object.
 
-`vitest-mock-extended` and `jest-mock-extended` share the `*-mock-extended` column: same API, same
-`ts-essentials` deep-Proxy core, different runner.
+`vitest-mock-extended` and `jest-mock-extended` share the `*-mock-extended` column. They have the
+same API and the same `ts-essentials` deep-Proxy core, on different runners.
 
-`vitest-mock-extended` is also the one whose reach is not about features. 5.1.1 (2026-08-02) was
-downloaded 897 290 times in the week to 2026-09-18, and much of that traffic arrives through one
-recipe: Prisma's own testing series mocks `PrismaClient` with its `mockDeep`. Two facts worth having
-before choosing: its peer range is `vitest >=4.0.0`, against `>=2.1.0` here, and it runs on Vitest only.
-The same recipe written with this package's `mockDeep` — typed `resolveWith` / `rejectWith`,
-`resolveWithPerCall`, `resetAutoSpy` over the whole tree, and an interactive `$transaction` — is
+#### vitest-mock-extended and Prisma
+
+Much of `vitest-mock-extended`'s traffic comes from one recipe. Prisma's testing series mocks
+`PrismaClient` with its `mockDeep`. Version 5.1.1 (2026-08-02) had 897 290 downloads in the week to
+2026-09-18.
+
+| Before you choose | vitest-mock-extended | vitest-auto-spy          |
+| ----------------- | -------------------- | ------------------------ |
+| Vitest peer range | `>=4.0.0`            | `>=2.1.0`                |
+| Runners           | Vitest only          | Vitest, Bun, `node:test` |
+
+The same recipe with this package's `mockDeep` adds typed `resolveWith` / `rejectWith`,
+`resolveWithPerCall`, `resetAutoSpy` over the whole tree and an interactive `$transaction`. See
 [Mocking Prisma Client](/guides/mocking-prisma).
 
-**`vitest-when` is the direct competitor for `calledWith`, and only for that.** 702 637 downloads in
-the same window against a two-function API: `when(mock).calledWith(args).thenReturn(v)`, plus
-`thenResolve`, `thenReject`, `thenThrow`, `thenDo`, a `debug()` helper and `{ ignoreExtraArgs, times }`.
-Argument matching is deep equality through `@vitest/expect`'s `equals`, so Vitest's asymmetric matchers
-work inside it — the same semantics as `calledWith` here.
+#### vitest-when
 
-It starts one step later. `when()` stubs a mock you already have; it never produces one. There is no
-class reading, no type-only mocking, no getter spies, no return-type-aware promise or observable
-helpers, no Angular, Bun or `node:test` story, and no `mustBeCalledWith` — an unmatched call falls
-through to `undefined` rather than failing. The two compose cleanly, and if argument-matched stubbing
-on Vitest is genuinely all that is wanted, it is the smaller tool. Two packaging notes, the first of
-which **has now been fixed**: `0.10.1` (2026-09-01) shipped `dist/vitest-when.mjs` and `.d.mts` while
-its `exports` map still pointed at `dist/vitest-when.js` and `.d.ts`, so that one version could not be
-imported at all. `0.10.2` (2026-09-03) repoints the map at the files it ships — verified in the
-published tarball on 2026-09-04 — so **take 0.10.2 and skip 0.10.1**; the older advice here to pin
-0.10.0 no longer applies. The second note stands: install `@vitest/expect` explicitly under pnpm,
-since the bundle imports it unconditionally while `peerDependenciesMeta` marks it optional.
+**`vitest-when` competes with `calledWith`, and only with that.** It has 702 637 downloads in the same
+window and a two-function API: `when(mock).calledWith(args).thenReturn(v)`. It also offers
+`thenResolve`, `thenReject`, `thenThrow`, `thenDo`, a `debug()` helper and
+`{ ignoreExtraArgs, times }`. Arguments are compared by deep equality through `@vitest/expect`'s
+`equals`, so Vitest's asymmetric matchers work inside it. `calledWith` here uses the same rules.
+
+`when()` configures a mock you already have; it never creates one. So it has none of these:
+
+- class reading or mocks from a type alone;
+- getter spies;
+- return-type-aware promise or observable helpers;
+- support for Angular, Bun or `node:test`;
+- `mustBeCalledWith`: a call with other arguments returns `undefined` instead of failing.
+
+The two work together. If argument-matched answers on Vitest are all you need, `vitest-when` is the
+smaller tool. Two packaging notes:
+
+- **Take 0.10.2 and skip 0.10.1.** `0.10.1` (2026-09-01) shipped `dist/vitest-when.mjs` and `.d.mts`,
+  but its `exports` map pointed at `.js` and `.d.ts`, so it could not be imported. `0.10.2`
+  (2026-09-03) fixes the map, checked in the published package on 2026-09-04. The older advice here
+  to pin 0.10.0 no longer applies.
+- **Under pnpm, install `@vitest/expect` yourself.** The bundle always imports it, while
+  `peerDependenciesMeta` marks it optional.
 
 ### Where it runs, and what it costs
 
@@ -175,33 +253,37 @@ since the bundle imports it unconditionally while `peerDependenciesMeta` marks i
 | React / Vue / Svelte recipes      |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         |     ❌     |
 | Runtime dependencies              |      **0**      |        1        |          1           |         2          |          0           |      4       |      0       |            1             | 3 (incl. jQuery)  |     4      |
 
-¹ There is a real `@ngneat/spectator/vitest` secondary entry point, shipped since 19.2.0
-(2024-12-17) — Vitest is supported, not bolted on. The asterisk is elsewhere: it ships
-`declare namespace jasmine` in its own typings, so installing it drags the Jasmine globals into a
-Vitest project, and it imports a package Angular 20 deprecated — see
+¹ `@ngneat/spectator/vitest` is a real entry point, shipped since 19.2.0 (2024-12-17). The catch is
+elsewhere: its typings declare `namespace jasmine`, which pulls Jasmine's globals into a Vitest
+project. It also imports a package Angular 20 deprecated; see
 [above](#half-the-field-has-stopped-shipping).
-² The core is runner-agnostic behind a `MockAdapter`, and Vitest, Bun and `node:test` have shipped
-adapters — see [Runtimes](/runtimes/vitest). **Jest is not one of them today**: the adapter registry
-is internal, `registerMockAdapter` is not exported from any entry point, and a Jest consumer
-therefore has no supported way to plug one in. The architecture allows it; the package does not yet
-expose it. Checked 2026-09-02.
-³ sinon is a library rather than a runner integration: its stubs are its own, so the runner's
-matchers and its `clearMocks` / `restoreMocks` housekeeping do not see them.
+² The core works with any runner through a runner adapter; Vitest, Bun and `node:test` have one. See
+[Runtimes](/runtimes/vitest). Importing an entry point registers the adapter; you do nothing else. **Jest has no adapter today**, and no entry point exports a way to
+register your own. So a Jest project has no supported way to use the package yet. Checked
+2026-09-02.
+³ sinon is a library, not a runner integration. Its stubs are its own, so the runner's matchers and
+its `clearMocks` / `restoreMocks` cleanup do not see them.
 
-Dependency counts are each package's own `dependencies` field on npm, read 2026-08-30:
-`@hirez_io/auto-spies-core` for `jest-auto-spies` (itself last published 2023-06-03), `ts-essentials`
-for `vitest-mock-extended`, plus `lodash.isequal` for `jest-mock-extended`, four `@suites/*` packages
-for `@suites/unit`, `tslib` for `@testing-library/angular`, `tslib` + `jquery` +
-`@testing-library/dom` for spectator, and four `@sinonjs/*` + `diff` packages for sinon.
+Dependency counts come from each package's `dependencies` field on npm, read on 2026-08-30:
+
+| Package                    | Runtime dependencies                                    |
+| -------------------------- | ------------------------------------------------------- |
+| `jest-auto-spies`          | `@hirez_io/auto-spies-core` (last published 2023-06-03) |
+| `vitest-mock-extended`     | `ts-essentials`                                         |
+| `jest-mock-extended`       | `ts-essentials`, `lodash.isequal`                       |
+| `@suites/unit`             | four `@suites/*` packages                               |
+| `@testing-library/angular` | `tslib`                                                 |
+| `@ngneat/spectator`        | `tslib`, `jquery`, `@testing-library/dom`               |
+| `sinon`                    | four `@sinonjs/*` packages and `diff`                   |
 
 ## Four things nothing else does
 
-These are not "we also have it" items — as far as this survey found, no other library on the page has
-them at all.
+As far as this survey found, no other library on this page has any of these. Two are features; two
+are costs that no one else measures and publishes.
 
 ### 1. Accessor spies on Bun
 
-`bun:test`'s own `spyOn` refuses accessors outright. Verified here on Bun 1.4.0:
+Bun's own `spyOn` refuses getters and setters (accessors). Checked on Bun 1.4.0:
 
 ```ts
 const o = {
@@ -213,37 +295,45 @@ spyOn(o, 'v', 'get');
 // TypeError: spyOn(target, prop) does not support accessor properties yet
 ```
 
-`src/lib/redefine-accessor-spy.ts` never calls it. It redefines the property with a mock built by
-the adapter's own `createMockFn`, preserving the accessor it is not replacing — so
-`accessorSpies.getters` works identically on Vitest, Bun and `node:test`.
+This package never calls Bun's `spyOn` for accessors. It replaces the property itself with a mock
+from your runner, and keeps the other half of a getter/setter pair. So `accessorSpies.getters`
+behaves the same on Vitest, Bun and `node:test`.
 
-Per the table above, **none of ng-mocks, spectator, `@testing-library/angular`,
-`vitest-mock-extended`, `jest-mock-extended`, `@golevelup` or Suites has getter/setter spies on any
-runtime** — no library that generates a double from a class or a type does. The two that can stub an
-accessor at all do it one property at a time and by hand: `vi.spyOn(obj, key, 'get')`, which is
-Vitest-only, and sinon's `stub(obj, key).get(fn)`, which is not a runner mock at all. On Bun,
-neither the runner nor a generated double leaves you anything.
+No library on this page that builds a double from a class or a type spies on getters or setters, on
+any runtime. That covers ng-mocks, spectator, `@testing-library/angular`, both `*-mock-extended`
+packages, `@golevelup` and Suites. Only two tools stub an accessor at all, one property at a time:
 
-See [Accessor spies](/core/create-spy-from-class) and [Bun](/runtimes/bun).
+- `vi.spyOn(obj, key, 'get')`, which works on Vitest only;
+- sinon's `stub(obj, key).get(fn)`, which is not a runner mock.
 
-### 2. `injectSpy` tells you when the injector handed back the real thing
+On Bun, neither the runner nor a generated double gives you anything. See
+[Accessor spies](/core/create-spy-from-class) and [Bun](/runtimes/bun).
 
-`reportWhenNotASpy` (`src/lib/angular.ts:132`) checks what came out of the container and warns, once
-per token, when it is a plain instance rather than an auto-spy — naming the token and the
-`provideAutoSpy` call that is missing. Without it, a forgotten provider surfaces much later, as
-`.mockReturnValue is not a function` on a real method, in whichever test happens to touch it first.
-`enableAngularDiagnostics({ unspiedProviders: true })` raises the same report from a warning to a
-failure, at which point the de-duplication drops: a throw is once per test by definition.
+### 2. `injectSpy` warns when it gets the real service
 
-Spectator does the opposite: `spectator.d.ts:17` declares `inject<T>(token: Token<T>):
-SpyObject<T>` — **every** token is typed as a spy whether it was mocked or not, so the compiler
-actively hides the mistake.
+You call `injectSpy(UserService)` but forgot `provideAutoSpy(UserService)`. `injectSpy` then prints a
+warning, once per token in each spec file. It names the token and the `provideAutoSpy` call that is
+missing.
+
+Without that warning, the mistake shows up much later. Some test calls `.mockReturnValue` on a real
+method and fails with `.mockReturnValue is not a function`.
+
+To turn the warning into a failure, call `enableAngularDiagnostics({ unspiedProviders: true })` from
+`vitest-auto-spy/angular/diagnostics`. Then every test that hits the mistake fails, not only the
+first one.
+
+Spectator does the opposite. `spectator.d.ts:17` declares
+`inject<T>(token: Token<T>): SpyObject<T>`, so **every** token is typed as a spy, mocked or not. The
+compiler hides the mistake.
 
 ### 3. Type-check cost
 
-Deep-Proxy mocking is paid for at `tsc` time, and nobody publishes the bill. From the 2026-08-29
-survey — one fixture, an 80-member class, 30 mock declarations, 600 member touches,
-`tsc --extendedDiagnostics`, identical across three runs:
+Deep-Proxy mocks slow down `tsc`, and no library publishes by how much. The 2026-08-29 survey
+measured one fixture with `tsc --extendedDiagnostics`, identical across three runs:
+
+- an 80-member class;
+- 30 mock declarations;
+- 600 member reads.
 
 | Type                    | Instantiations |
 | ----------------------- | -------------: |
@@ -251,57 +341,55 @@ survey — one fixture, an 80-member class, 30 mock declarations, 600 member tou
 | `@golevelup/ts-vitest`  |          5 092 |
 | `vitest-mock-extended`  |          5 614 |
 
-Roughly half the type-checker work of the deep-proxy libraries, while carrying more helpers on each
-method. This is the one number on the page not re-measured on 2026-08-30.
+`Spy<T>` costs the type-checker about half as much as the deep-Proxy libraries, with more helpers
+on each method. This is the one number on the page not re-measured on 2026-08-30.
 
-The figure is guarded now. `npm run types:budget`, part of `npm run check`, regenerates a fixture of
-the same shape — an 80-member class mixing sync, `Promise` and `Observable` methods with a few
-properties and getters, 30 `createSpyFromClass` declarations typed `Spy<T>`, 600 member touches —
-into a temporary directory, type-checks it against the library's **sources** with
-`tsc --extendedDiagnostics`, subtracts a control program with the same class and imports but no
-spies, and fails the gate when the instantiations attributable to `Spy<T>` and its helpers exceed
-the budget. On 2026-09-12, TypeScript 6.0.3: total 23 265, control 12 855, **delta 10 410** against
-a budget of **12 500** — about 20 % of headroom, where a deep-proxy regression would roughly double
-the delta. The previous baseline was 9 126 against 11 000 on 2026-09-02 under TypeScript 5.9.3, and
-the move is not a regression: the control program rose 10 807 → 12 855 on its own (+18.9 %) while
-the delta rose 14.1 %, so `Spy<T>` is a smaller share of a larger bill — a major TypeScript version
-and the typed features added in the same path since, not a type that degenerated. It is a different fixture from the survey's (which was never committed) and it counts
-against the sources rather than the published declarations, so the delta is not comparable to the
-2 656 above — only to itself across commits. `node scripts/check-type-budget.mjs --print` dumps the
-fixture, `--measure` prints the numbers without failing.
+A check in this repository's CI keeps the number from growing: `npm run types:budget`, part of
+`npm run check`. It builds a fixture of the same shape and type-checks it against the library's
+sources. Then it subtracts a control program with the same class and no spies. The check fails when
+the difference exceeds the budget.
+
+| Date       | TypeScript |  Total | Control | Delta (`Spy<T>`) | Budget |
+| ---------- | ---------- | -----: | ------: | ---------------: | -----: |
+| 2026-09-02 | 5.9.3      |      — |  10 807 |            9 126 | 11 000 |
+| 2026-09-12 | 6.0.3      | 23 265 |  12 855 |       **10 410** | 12 500 |
+
+The budget leaves about 20 % of headroom; a regression to a deep-Proxy type would roughly double the
+delta. The rise from 9 126 is not a regression. The control program alone grew 18.9 %, and the
+delta grew 14.1 %. So `Spy<T>`'s share of the total shrank. Most of the rise comes from the new major TypeScript
+version and typed features added since, not from a type gone bad.
+
+This fixture differs from the survey's, which was never committed. It also counts against the
+sources, not the published declarations. So compare the delta only with itself across commits,
+never with the 2 656 above. `node scripts/check-type-budget.mjs --print` prints the fixture;
+`--measure` prints the numbers without failing.
 
 ### 4. Runtime cost
 
-The type-check bill above has a runtime sibling, and nobody publishes that one either: what the
-same class costs across a whole suite, not per mock.
+What does the same class cost across a whole test run, not per mock? No other library publishes
+that either.
 
-`jest-auto-spies@3.0.1`, `jasmine-auto-spies@8.0.1` and `@bugsplat/vitest-auto-spies@1.0.0` are all
-measured directly — not one standing in for another. All three depend on
-`@hirez_io/auto-spies-core@3.0.0` and differ only in the spy factory they hand it (`jest.fn()`,
-`jasmine.createSpy()`, `vi.fn()`), and they land within a few per cent of each other on every
-micro-benchmark case. `jest-auto-spies` and `jasmine-auto-spies` run here under a minimal `jest` /
-`jasmine` global backed by `vi.fn()`, so every arm creates the same underlying mock and the
-runner's own per-mock cost is a shared constant — the numbers describe each library's own code, not
-what a real Jest or Jasmine suite would show.
+The comparison uses `jest-auto-spies@3.0.1`, `jasmine-auto-spies@8.0.1` and
+`@bugsplat/vitest-auto-spies@1.0.0`, each measured directly. All three wrap
+`@hirez_io/auto-spies-core@3.0.0` and differ only in the spy factory they pass it (`jest.fn()`,
+`jasmine.createSpy()`, `vi.fn()`). They land within a few per cent of each other on every case.
+The Jest and Jasmine packages run here under a minimal `jest` / `jasmine` global backed by `vi.fn()`.
+So every contender (an _arm_ in the tables below) creates the same underlying mock. The numbers describe each library's own code, not a
+real Jest or Jasmine run.
 
-Against that shared core, this package runs roughly one and a half times faster at suite scale —
-holds at 1 000, 3 000 and 10 000 tests, on both a 20- and a 100-method class, every round measured.
-Re-measured on the 4.1 build 2026-09-04, medians of three rounds on a 20-method class: 1.50× at
-1 000 tests, 1.61× at 3 000, 1.54× at 10 000, the nine individual rounds spread 1.46–1.62×; and
-1.68× on a 100-method class at 10 000 tests, five rounds out of five above 1.0× (1.66–1.73×).
+**Whole-run speed against that shared core** (re-measured on the 4.1 build, 2026-09-04):
 
-The micro-benchmark figures behind the claims in this section are the **median p75 of seven
-independent runs** at doubled iteration budgets, not a single run, and each row's ± column reports
-how far that median can be off — a median of ±0.9% and at worst ±6.3% across the run's 47
-rows. **A difference under about 20% is still not worth quoting off a single local run**; the
-narrowest margin in any table is 2.19×, which is an order of magnitude clear of both. Full
-methodology:
-[Performance → the measured resolution limit](/core/performance#the-measured-resolution-limit).
+| Class size  |  Tests | This package is faster by | Rounds                                |
+| ----------- | -----: | ------------------------: | ------------------------------------- |
+| 20 methods  |  1 000 |                     1.50× | median of 3                           |
+| 20 methods  |  3 000 |                     1.61× | median of 3                           |
+| 20 methods  | 10 000 |                     1.54× | median of 3; all 9 rounds 1.46–1.62×  |
+| 100 methods | 10 000 |                     1.68× | 5 of 5 rounds above 1.0× (1.66–1.73×) |
 
-The micro-benchmark tables all changed hands in 4.1, when method spies stopped being `vi.fn()`s —
-[the spy engine](/core/performance#the-spy-engine). Six rows were losses and one was parity before
-it; the narrowest margin now is 2.19×, on the row where a test calls every method of the class it
-doubled:
+**Micro-benchmarks.** Version 4.1 stopped building method spies on `vi.fn()`; Vitest's `expect` matchers still work on
+them. See
+[the spy engine](/core/performance#the-spy-engine). Before that, six rows across the published tables were losses and one
+was a tie. The biggest changes:
 
 |                                        |               4.0 |          4.1 |                  best other arm |
 | -------------------------------------- | ----------------: | -----------: | ------------------------------: |
@@ -312,233 +400,297 @@ doubled:
 | `calledWith` dispatch                  |  0.54 µs (parity) |  **0.17 µs** |    0.54 µs vitest-mock-extended |
 | retained heap, one materialised method |           5 445 B |  **1 929 B** |  5 169 B hand-written `vi.fn()` |
 
-This package now leads **every** published
-head-to-head table, including the two `worst case` blocks where a test calls every method of the
-class it doubled and there is nothing for a lazy library to skip. The counterweights that go with
-that:
+This package now wins **every** published head-to-head micro-benchmark table. That includes the two `worst case`
+blocks, where a test calls every method and a lazy library has nothing to skip. The narrowest margin
+is 2.19×, on the row where a test calls every method of its double.
 
-- Part of the lead is that this package no longer pays the runner's per-mock cost while every other
-  arm still does. That is a difference in the product, not in the measurement, and the table is
-  built to show it: the `hand-written vi.fn() per method` arm is the runner's own mock assembled by
-  hand with no library in the way, and the distance to that arm is the whole size of it.
-  `setSpyEngine('runner')` puts this package back on `vi.fn()` for anyone who wants the comparison
-  without it.
-- Hand-written `vi.fn()` doubles are **cheaper**, not more expensive, than this library across a
-  suite under the default `isolate: true` — about **3 %** at the median on the 4.1 build, down from
-  10-15 % before it, with individual rounds between 0.84× and 1.00×. Micro-benchmark multipliers do not transfer to
-  suite scale: building a double is on the order of one per cent of what a test costs, which is why
-  a 10× win on the double is worth a few per cent on the run.
+How precise these figures are:
 
-Where the library wins outright is memory, not wall-clock. On a 100-method class under
-`test.isolate: false`, hand-written doubles peak at 6366 MB against 2103 MB for the lazy accessor
-placeholders and 1851 MB with the proxy mode of the time (measured before 2026-09-27) — the difference between a CI worker finishing and one
-getting OOM-killed.
+- Each is the **median p75 of seven independent runs** at doubled iteration budgets.
+- Each row's ± column says how far that median can be off: ±0.9 % typically, ±6.3 % at worst across
+  47 rows.
+- **Do not quote a difference under about 20 % from a single local run.** 2.19× is far clear of
+  that.
 
-A second, independent memory measurement — retained bytes per double, not peak RSS of a whole run —
-confirms the shape down at the level of a single mock, which is the figure that decides a large
-suite: untouched on a 100-method class, this package's default retains **256 B per method** against
-`jest-auto-spies`' **5 835 B**. Full tables, methodology and per-library figures are in
+Full methodology:
+[Performance → the measured resolution limit](/core/performance#the-measured-resolution-limit).
+
+Two counterweights:
+
+- **Part of the win comes from not paying the runner's per-mock cost**, while every other arm
+  still pays it. That is a real product difference, and the table shows its size. The
+  `hand-written vi.fn() per method` arm is the runner's own mock with no library in the way.
+  `setSpyEngine('runner')` puts this package back on `vi.fn()` if you want the comparison without
+  it.
+- **Across a whole test run, hand-written `vi.fn()` doubles are still cheaper.** The micro-benchmarks
+  above time building a double alone. Under the default
+  `isolate: true`, hand-written doubles win by about **3 %** at the median on the 4.1 build (10–15 % before it).
+  Single rounds range from 0.84× to 1.00×. Building a double is about one per cent of a test's
+  cost, so a 10× win on the double is worth a few per cent on the run.
+
+**Memory is where the library wins outright.** Two measurements:
+
+| Measurement                                            | Hand-written / other        | This package                                                                                                            |
+| ------------------------------------------------------ | --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Peak memory, 100-method class, `test.isolate: false`   | 6366 MB (hand-written)      | 1851 MB (`lazySpies: 'proxy'`, the default at this class size; measured before 2026-09-27); 2103 MB (`lazySpies: true`) |
+| Retained memory per method, untouched 100-method class | 5 835 B (`jest-auto-spies`) | **256 B** (default)                                                                                                     |
+
+The first is the difference between a CI worker that finishes and one killed for running out of
+memory. The second is the figure that decides a large test run. Full tables, methodology and
+per-library figures:
 [Performance → Retained memory per double](/core/performance#retained-memory-per-double).
 
-Measured 2026-09-04, Node v24.19.0, Vitest 4.1.11, Apple M4 Max. Full tables, the isolate-mode and
-interleaving methodology, and reproduction steps (`npm run bench:vs:precise` for the seven-run
-median used above, about eleven minutes; plain `npm run bench:vs` is a single ~1-minute run for
-local iteration; `npm run bench:suite`) are in [Performance](/core/performance).
+Measured on 2026-09-04: Node v24.19.0, Vitest 4.1.11, Apple M4 Max. To reproduce:
+
+| Command                    | What it runs                                          |
+| -------------------------- | ----------------------------------------------------- |
+| `npm run bench:vs:precise` | the seven-run median used above, about eleven minutes |
+| `npm run bench:vs`         | a single run of about one minute, for local iteration |
+| `npm run bench:suite`      | the whole-run comparison                              |
+
+The isolate-mode and interleaving methodology is in [Performance](/core/performance).
 
 ## Angular
 
-Two Angular libraries are direct competition, and the honest summary is that one of them beats this
-package at something it does not attempt.
+Two Angular libraries compete directly. `ng-mocks` does one job this package does not attempt:
+mocking a whole component tree.
 
-**[ng-mocks](https://github.com/help-me-mom/ng-mocks)** — 14.17.3 on 2026-08-24, 2.5M downloads a
-month, healthy. It wins on the whole-graph problem: `MockBuilder` mocks an entire declaration graph
-at once, `MockInstance` reaches a dependency read in a **field initializer of a nested child**, and
-`ngMocks.findInstance` digs a real instance out of a rendered tree. Nothing here does any of that. It
-loses on typing (`MockService<T>` returns `T`, quoted above), on type-only mocking, on **AOT** —
-it requires `aot: false`, where specs here go through full AOT template type-checking — on
-[resources](/adapters/angular#resources-httpresource-and-resource), and on zoneless, where it has
-nothing. Its Vitest support is real and current: `ngMocks.autoSpy('vitest')` landed in 14.17.0
-(2026-08-10) and rides a dedicated `e2e/vitest` project against `@angular/build:unit-test` with
-`runner: vitest`. Note it declares no `vitest` peer dependency — `vi` is resolved off the global at
-runtime — and that the vitest branch is marked `istanbul ignore` in the unit suite, so it is covered
-by those e2e projects only.
+### ng-mocks
 
-**[@testing-library/angular](https://github.com/testing-library/angular-testing-library)** — 19.4.2
-on 2026-08-07. Usually filed as complementary; it is not. Its `/vitest-utils` entry exports
-`createMock` / `provideMock` doing the same job as `createSpyFromClass` / `provideAutoSpy`. Reading
-`fesm2022/testing-library-angular-vitest-utils.mjs` at 19.4.2 — the whole file is 52 lines, and both
-defects below were re-read in the published tarball on **2026-09-02** — it is worse in three
-specific ways:
+**[ng-mocks](https://github.com/help-me-mom/ng-mocks)**: 14.17.3 on 2026-08-24, 2.5M downloads a
+month, healthy.
 
-- **No accessor handling** (line 14). The walk assigns a mock only when
-  `typeof descriptor?.value === 'function'`; a getter's descriptor has no `value`, so accessors are
-  skipped silently. A service's `get isLoggedIn()` is therefore absent from the double while
-  `Mock<T>` still types it as callable — the two defects compound, and the failure surfaces as
-  `undefined` at the reading site rather than at the double.
-- **No `Object.prototype` guard** (line 18). `mockFunctions(Object.getPrototypeOf(proto))` recurses
-  until the prototype is null — so `hasOwnProperty`, `toString`, `valueOf` and `isPrototypeOf` end
-  up mocked on the double. `createSpyFromClass` stops before it —
-  `walkOwnPrototypes` (`src/lib/create-spy-from-class.ts:81`) visits a prototype only when it still
-  has a parent, so `Object.prototype`'s own members are never collected.
-- **Eager only.** Every method is built up front; [lazy spies](/core/performance) exist because that
-  costs 11.50 µs against 6.04 µs on a 40-method service.
+It wins on mocking a whole graph of components and modules. Nothing here does any of this:
 
-It is also the only third party on this page with **zoneless support** — a `./zoneless` entry point
-absent from 19.1.1's `exports` map and present in 19.2.0's, published 2026-03-17 (both maps read
-from the published tarballs). That is a real point in its favour, and its rendering API remains a
-genuinely different tool from a spy factory.
+- `MockBuilder` mocks an entire declaration graph at once.
+- `MockInstance` reaches a dependency read in a **field initializer of a nested child**.
+- `ngMocks.findInstance` finds a real instance in a rendered tree.
 
-Which is why this is the one competitor you are told to keep. The spec-by-spec translation of the
-`/vitest-utils` half — `createMock` to `createSpyFromClass`, `provideMock` to `provideAutoSpy`, the
-`values` / `returns` distinction, the two defects reproduced in a REPL rather than read off the
-source, and what the `./zoneless` `render` actually gives you — is
-[Migrating from @testing-library/angular](/migrating-testing-library-angular).
+It loses on:
 
-**`httpResource()` is the one place where the whole field is empty.** It is Angular's flagship data
-primitive, and none of the three Angular libraries above ships anything for it — no helper, no
-recipe, no mention — `httpResource` does not appear anywhere in the published tarballs of ng-mocks
-14.17.3, `@ngneat/spectator` 22.1.0 or `@testing-library/angular` 19.4.2, read on 2026-09-02. A spec is left with the six-step dance in full: tick, because a resource created
-in an injection context has issued nothing yet; inject the `HttpTestingController`; `expectOne`;
-`flush`; let one microtask run so the response reaches the resource; tick again so the view reading it
-is current. Both halves fail quietly. Skip the first tick and `expectOne` reports a request that was
-never sent, which reads as a bug in the code under test. Skip the microtask and the assertion runs
-against the resource's **default** value — the test is green, and it stays green until the day the
-default changes.
-[`expectRequest(url).flush(body)`](/adapters/angular-http) is all six steps, and the value is readable
-on the next line. That is not a claim about ergonomics: the measurement behind it (Angular 21.2.17,
-zoneless `TestBed`) is that an `httpResource()` settles exactly one microtask plus one tick after its
-response is flushed, and a plain `resource()` takes two rounds — which is also why
-[`settleResource`](/adapters/angular#resources-httpresource-and-resource) still exists for every wait
-that is not tied to a single request. The cost is honest and confined: one **optional** peer
-(`@angular/common`) behind one 2.2 kB subpath, so a project that never tests an HTTP call never
-installs it.
+- typing: `MockService<T>` returns `T` (see [The double itself](#the-double-itself));
+- mocks from a type with no class;
+- **AOT** (ahead-of-time compilation, which type-checks templates): it requires `aot: false`, while
+  specs using `vitest-auto-spy` keep full AOT template checking;
+- [resources](/adapters/angular#resources-httpresource-and-resource);
+- zoneless, where it has nothing. _Zoneless_ means Angular without zone.js, with change detection
+  driven by signals.
+
+Its Vitest support is real and current. `ngMocks.autoSpy('vitest')` landed in 14.17.0 (2026-08-10).
+A dedicated `e2e/vitest` project runs it against `@angular/build:unit-test` with `runner: vitest`.
+Two caveats:
+
+- It declares no `vitest` peer dependency; it reads `vi` from the global at runtime.
+- Its unit tests mark the Vitest branch `istanbul ignore`, so only those e2e projects cover it.
+
+### @testing-library/angular
+
+**[@testing-library/angular](https://github.com/testing-library/angular-testing-library)**: 19.4.2 on
+2026-08-07. It is usually called complementary, but it overlaps. Its `/vitest-utils` entry exports
+`createMock` / `provideMock`, which do the job of `createSpyFromClass` / `provideAutoSpy`.
+
+The whole file, `fesm2022/testing-library-angular-vitest-utils.mjs` at 19.4.2, is 52 lines. Both
+defects below were re-read in the published package on **2026-09-02**. It is worse in three ways:
+
+- **Getters are skipped** (line 14). It assigns a mock only when
+  `typeof descriptor?.value === 'function'`. A getter's descriptor has no `value`, so a service's
+  `get isLoggedIn()` is missing from the double. `Mock<T>` still types it as callable. The test then
+  sees `undefined` where it reads the getter, not where the double was built.
+- **`Object.prototype` gets mocked** (line 18). It walks up the prototype chain until `null`. So
+  `hasOwnProperty`, `toString`, `valueOf` and `isPrototypeOf` end up mocked on the double.
+  `createSpyFromClass` stops before `Object.prototype` and never collects its members.
+- **Eager only.** It builds every method up front. [Lazy spies](/core/performance) exist because
+  that costs 11.50 µs against 6.04 µs on a 40-method service.
+
+It is also the only third party on this page with **zoneless support**. The `./zoneless` entry point
+is absent from 19.1.1's `exports` map and present in 19.2.0's, published 2026-03-17. Both maps were
+read from the published packages. That is a real point in its favour. Its rendering API remains a
+different tool from a spy factory.
+
+That is why this page tells you to keep it. The spec-by-spec translation of the `/vitest-utils` half
+is on [Migrating from @testing-library/angular](/migrating-testing-library-angular). It covers
+`createMock` to `createSpyFromClass`, `provideMock` to `provideAutoSpy`, `values` versus `returns`,
+both defects reproduced in a REPL, and what the `./zoneless` `render` gives you.
+
+### httpResource()
+
+**No other Angular library helps with `httpResource()`.** It is Angular's main data primitive. The
+word `httpResource` does not appear in the published packages of ng-mocks 14.17.3,
+`@ngneat/spectator` 22.1.0 or `@testing-library/angular` 19.4.2, read on 2026-09-02.
+
+Without a helper, a spec does six steps by hand:
+
+1. Tick, because a resource created in an injection context has not sent anything yet.
+2. Inject `HttpTestingController`.
+3. Call `expectOne`.
+4. Call `flush`.
+5. Let one microtask run, so the response reaches the resource.
+6. Tick again, so the view that reads it is current.
+
+Both halves fail quietly:
+
+- Skip the first tick, and `expectOne` reports a request that was never sent. That looks like a bug
+  in the code under test.
+- Skip the microtask, and the assertion reads the resource's **default** value. The test is green,
+  and stays green until the default changes.
+
+[`expectRequest(url).flush(body)`](/adapters/angular-http) does all six steps, and the value is
+readable on the next line. This is based on a measurement (Angular 21.2.17, zoneless `TestBed`). An
+`httpResource()` settles exactly one microtask plus one tick after its response is flushed. A plain
+`resource()` takes two rounds. That is why
+[`settleResource`](/adapters/angular#resources-httpresource-and-resource) still exists, for every
+wait not tied to a single request.
+
+The cost is small and opt-in: one **optional** peer dependency (`@angular/common`) behind one 2.2 kB
+entry point. A project that never tests an HTTP call never installs it.
+
+### Angular's own test `Log`
+
+[`createLog()`](/utilities/call-log) is ported from `Log` in Angular's own test code
+(`packages/core/testing/src/logger.ts`). Angular keeps three copies of it, in core, router and forms.
+It is the usual answer there wherever the subject is a sequence: lifecycle hooks, guards, resolvers,
+teardown.
 
 ## NestJS
 
-**[@suites/unit](https://github.com/suites-dev/suites)** — 473 130 downloads a month, recommended by
-the NestJS docs, and the most serious live competitor to the [NestJS recipe](/recipes). Its solitary/sociable model — the unit built from its DI metadata, so a constructor change does not rewrite the spec — is now [`createNestUnit`](/adapters/nestjs#building-the-unit-from-its-metadata) on this package's Nest entry: `expose` is `sociable().expose()`, `providers` wins over both. The differences are the ones below — the double behind every token is `createSpyFromClass`, which reads the real prototype, so a typo fails instead of being answered; it reads the same metadata Suites reads and needs nothing beyond what Nest itself needs (`reflect-metadata`, `emitDecoratorMetadata`), with no adapter packages; and it runs wherever the core runs.
+### @suites/unit
 
-The contrast:
+**[@suites/unit](https://github.com/suites-dev/suites)**: 473 130 downloads a month, recommended by
+the NestJS docs. It is the most serious live competitor to the [NestJS recipe](/recipes).
 
-- **Backend only, by its own description.** The published DI adapters are `@suites/di.nestjs` and
-  `@suites/di.inversify`; the doubles adapters are `@suites/doubles.jest`, `.vitest` and `.sinon`
+Suites builds the unit from its DI metadata, so a constructor change does not rewrite the spec. This
+package's Nest entry has the same model:
+[`createNestUnit`](/adapters/nestjs#building-the-unit-from-its-metadata). `expose` is
+`sociable().expose()`. Your own values in `providers` win over both the spies and `expose`. The
+differences:
+
+- The double behind every token is `createSpyFromClass`, which reads the real prototype. A typo
+  fails instead of being answered.
+- It reads the same metadata Suites reads. It needs only what Nest itself needs (`reflect-metadata`,
+  `emitDecoratorMetadata`), and no adapter packages.
+- It runs wherever the core runs.
+
+How Suites compares:
+
+- **Backend only, by its own description.** The DI adapters are `@suites/di.nestjs` and
+  `@suites/di.inversify`. The doubles adapters are `@suites/doubles.jest`, `.vitest` and `.sinon`
   (all 3.1.0, listed on npm 2026-08-30). **No Bun, no `node:test`, no Angular.**
-- **It structurally cannot do Angular.** It discovers collaborators from the constructor's
-  `design:paramtypes`, and `readonly #x = inject(X)` — the pattern every modern Angular class uses —
-  emits no such metadata. (There is no open Angular request on the repo; issue #931 is the
-  maintainer's own injection-js item, not one.)
-- **`reflect-metadata` plus `emitDecoratorMetadata` are mandatory**, which is a `tsconfig` and a
-  runtime import a Vite/esbuild project may not otherwise need — the same requirement a Nest app already meets, and the one `createNestUnit` shares; it adds none.
-- **Its Proxy answers every property**, so a typo in a mocked method name never fails — where
-  `createSpyFromClass` reads the real prototype and
-  [`onlyMethodsToSpyOn` reports a name that is not on it](/core/create-spy-from-class), and `createNestUnit` builds every class token with it.
-- **v4 has been in beta since 2025-11-04** (`4.0.0-beta.0`), unreleased — still the case on
-  2026-09-19, with 3.1.1 (2026-05-08) as `latest`. Before the 3.1 line there was no release at all
-  between 3.0.1 on 2025-01-02 and `4.0.0-alpha.0` on 2025-10-27.
+- **It cannot do Angular by design.** It finds collaborators from the constructor's
+  `design:paramtypes`. `readonly #x = inject(X)`, the pattern modern Angular classes use, emits no
+  such metadata. There is no open Angular request on the repo; issue #931 is the maintainer's own
+  injection-js item.
+- **`reflect-metadata` and `emitDecoratorMetadata` are required.** That is a `tsconfig` flag and a
+  runtime import a Vite/esbuild project may not otherwise need. A Nest app already has both, and
+  `createNestUnit` needs the same, nothing more.
+- **Its Proxy answers every property**, so a typo in a mocked method name never fails.
+  `createSpyFromClass` reads the real prototype, and
+  [`onlyMethodsToSpyOn` reports a name that is not on it](/core/create-spy-from-class).
+  `createNestUnit` builds every class token with it.
+- **v4 has been in beta since 2025-11-04** (`4.0.0-beta.0`), still unreleased on 2026-09-19;
+  `latest` is 3.1.1 (2026-05-08). Before the 3.1 line, nothing shipped between 3.0.1 (2025-01-02) and
+  `4.0.0-alpha.0` (2025-10-27).
 - **The Vitest adapter patches another package's typings on install.** `@suites/doubles.vitest`
-  3.1.0 ships a `postinstall` that prepends `/// <reference types="@suites/doubles.vitest/unit" />`
-  to `@suites/unit`'s own `index.d.ts`, found by a relative path out of its own folder. Where
-  dependency install scripts do not run — pnpm 10's default, `--ignore-scripts`, a locked-down CI —
-  or where the two packages do not sit side by side, `Mocked<T>` quietly stays the runner-neutral
-  type, and the documented fallback is a hand-written `global.d.ts`. Subpath entries that carry their
-  own types, as here, have nothing to patch.
-- **On Vitest the decorator metadata needs SWC.** esbuild, and therefore Vite, does not emit
-  `design:paramtypes`, so a Nest suite on Vitest adds `unplugin-swc` whichever builder it uses —
-  `createNestUnit` reads the same metadata and pays the same toll. What differs is everywhere else:
-  the Angular, React, Vue and Svelte entries read no decorator metadata at all.
-- **The scale.** `@suites/doubles.vitest` was downloaded 25 353 times in the week to 2026-09-18, and
-  `@suites/unit` 80 249 — one maintainer, Apache-2.0.
+  3.1.0 has a `postinstall` script. It prepends
+  `/// <reference types="@suites/doubles.vitest/unit" />` to `@suites/unit`'s own `index.d.ts`,
+  found by a relative path. Sometimes install scripts do not run: pnpm 10's default,
+  `--ignore-scripts`, a locked-down CI. Sometimes the two packages do not sit side by side. Then
+  `Mocked<T>` quietly stays the runner-neutral type, and the documented fallback is a hand-written
+  `global.d.ts`. This package's entry points carry their own types, so there is nothing to patch.
+- **On Vitest the decorator metadata needs SWC.** esbuild, and so Vite, does not emit
+  `design:paramtypes`. A Nest project on Vitest adds `unplugin-swc` whichever builder it uses.
+  `createNestUnit` reads the same metadata and has the same need. The Angular, React, Vue and Svelte
+  entries read no decorator metadata at all.
+- **The scale.** In the week to 2026-09-18, `@suites/doubles.vitest` had 25 353 downloads and
+  `@suites/unit` 80 249. One maintainer, Apache-2.0.
 
-**Solitary and sociable are the right words, and they carry over to Angular.** Suites names the two
-shapes a unit test takes: _solitary_, every collaborator doubled, and _sociable_, a named few built
-for real with everything past them still doubled. In a `TestBed` the same choice is made one provider
-at a time — `provideAutoSpy(X)` for a collaborator that stays a double, the real class (or its own
-`providedIn: 'root'`) for one that is exposed — so a spec says which of its dependencies are real by
-what it lists, with no builder to learn. On Nest the builder exists:
+**Solitary and sociable carry over to Angular.** Suites names the two shapes a unit test takes:
+
+- _solitary_: every collaborator is a double;
+- _sociable_: a named few are real, and everything past them is still a double.
+
+In a `TestBed` you make the same choice one provider at a time. `provideAutoSpy(X)` makes `X` a
+double. To keep `X` real, list `X` itself. A service with `providedIn: 'root'` is real
+without being listed. The provider list
+itself says which dependencies are real, with no builder to learn. On Nest the builder exists:
 [`createNestUnit(S, { expose: [D] })`](/adapters/nestjs#sociable-—-expose) is `sociable().expose()`.
 
-The spec-by-spec translation — `unitRef.get` to `spies.get`, `.mock().impl()` to a control helper or
-`providers`, string and symbol tokens, `@Optional()`, and the `await` that disappears — is
-[Migrating from @suites/unit](/migrating-suites).
+The spec-by-spec translation is on [Migrating from @suites/unit](/migrating-suites). It covers
+`unitRef.get` to `spies.get`, `.mock().impl()` to a control helper or `providers`, string and symbol
+tokens, `@Optional()`, and the `await` that disappears.
 
-**[@golevelup/ts-vitest](https://github.com/golevelup/nestjs)** — 4.0.0 on 2026-03-18, 353 803
+### @golevelup/ts-vitest
+
+**[@golevelup/ts-vitest](https://github.com/golevelup/nestjs)**: 4.0.0 on 2026-03-18, 353 803
 downloads a month, the community default. `createMock<T>()` is a deep Proxy with no return-type
-helpers and no argument matching; it costs about twice the type instantiations
-([above](#_3-type-check-cost)). Note that **`@golevelup/nestjs-testing` is dead** — 0.1.2 from 2019 —
-and should not be cited as the current package.
+helpers and no argument matching. It costs about twice the type instantiations
+([Type-check cost](#_3-type-check-cost)). **`@golevelup/nestjs-testing` is dead** (0.1.2, from 2019);
+do not cite it as the current package.
 
 ## Beyond the class spy
 
-The tables above compare the part every one of these libraries does. What none of the others ship
-alongside it:
+The tables above compare what all these libraries do. Here is what none of the others ship beside
+it:
 
-- [**Angular's `TestBed` under `bun test`**](/runtimes/bun-angular) — Bun ships no DOM and cannot
-  resolve `templateUrl`, so Angular specs do not run there at all. One preload closes both gaps.
+- [**Angular's `TestBed` under `bun test`**](/runtimes/bun-angular). Bun has no DOM and cannot
+  resolve `templateUrl`, so Angular specs do not run there at all. One preload fixes both.
 - [`renderShallow`](/adapters/angular#shallow-component-rendering) and
-  [`createWithAutoSpies`](/adapters/angular#building-a-class-with-auto-spied-dependencies) — the
-  shallow-`TestBed` copy-paste and DI-driven instantiation as one call each. What the first saves
-  is however much markup the component owns, so it is a shape and not a headline number:
-  `renderShallow` is flat in the number of children because it never builds the subtree, while
-  `TestBed.createComponent` scales linearly with it — which also means a leaf component with no
-  children has nothing to save, and the per-test `overrideComponent` can cost more than it saves
-  there. The mechanism, and the `keepTemplate: true` middle rung, are in
+  [`createWithAutoSpies`](/adapters/angular#building-a-class-with-auto-spied-dependencies). Each
+  replaces the shallow-`TestBed` boilerplate or DI-driven construction with one call.
+  `renderShallow` never builds the child components, so its cost stays flat as children grow.
+  `TestBed.createComponent` grows with them. A leaf component with no children has nothing to save,
+  and the per-test `overrideComponent` can cost more than it saves there. The mechanism and the
+  `keepTemplate: true` middle option are in
   [Performance](/core/performance#_2-rendering-the-child-subtree).
-- [`stable` / `flushEffects`](/adapters/angular#zoneless-waiting) and `toHaveSignalValue` — zoneless
-  waiting and a signal matcher, for a codebase where `detectChanges()` is no longer enough.
-- [Observable assertions](/core/observable-assertions) that fail when the stream stays silent,
-  duck-typed so they pull in no rxjs.
-- [`setupFakeTimers()` / `advanceTimers()`](/utilities/fake-timers) — an advance that also drains the
-  microtasks a bare `advanceTimersByTime()` leaves pending, and
-  [`flushEventLoop` / `settleDynamicImport`](/utilities/event-loop) for the queue the clock does not
-  reach at all.
-- [`mockConstructor` / `stubConstructor`](/utilities/constructor-doubles) — a double the code under
-  test can call with `new`, which a runner's own `vi.fn(() => instance)` is not.
-- [`fakeAsync` and `waitForAsync` on Vitest](/utilities/zone) — `zone.js/testing` installs its
-  ProxyZone through Jasmine and Jest hooks only, so both throw until this patch is imported.
-- [`assertMocked` / `moduleNamespace`](/utilities/module-mocks) — proof that a `vi.mock()` actually
-  applied under a bundler, instead of a spec quietly asserting on the real module.
-- [`setupAutoSpy({ strayRejections: true })`](/utilities/setup#_8-failing-on-a-rejection-zone-js-swallowed) —
-  the promise rejections zone.js drains into `console.error` and no further, turned into failed
-  tests. Nothing else on this list looks there: a swallowed rejection never reaches the channel
-  Vitest watches, so a spec that asserts inside a `.then()` nobody awaits stays green and exits 0.
-- [`setupAutoSpy({ pruneMockRegistry: true })`](/utilities/setup#_9-pruning-the-mock-registry-nothing-empties) —
-  the `Set` inside `@vitest/spy` that every `vi.fn()` joins and that nothing ever takes anything out
-  of, kept to the mocks that outlive a file. On `isolate: false` it is what makes `clearMocks` cost
-  more with every test already run, and what keeps a whole run's recorded arguments — and the
-  component trees behind them — alive in one worker.
-- [Fifty-one ESLint rules](/utilities/eslint-plugin) versioned together with the API they recommend, and
-  [`setupAutoSpy()`](/utilities/setup) for the test-run hygiene a shared environment needs.
-- [Per-file `TestBed` diagnostics](/adapters/angular#where-a-spec-spends-its-time) — which specs
-  actually pay for `TestBed`, and by how much.
-- [`compareTestRuns`](/migrating) — whether the migration that brought you here lost a test, from
-  the two sets of names rather than from two totals that happen to match.
+- [`stable` / `flushEffects`](/adapters/angular#zoneless-waiting) and `toHaveSignalValue`: zoneless
+  waiting and a signal matcher, for code where `detectChanges()` is no longer enough.
+- [Observable assertions](/core/observable-assertions) that fail when the stream stays silent. They
+  check the shape of the object, so they pull in no rxjs.
+- [`setupFakeTimers()` / `advanceTimers()`](/utilities/fake-timers): advancing the clock also runs
+  the microtasks a bare `advanceTimersByTime()` leaves pending.
+  [`flushEventLoop` / `settleDynamicImport`](/utilities/event-loop) cover the queue the clock does
+  not reach.
+- [`mockConstructor` / `stubConstructor`](/utilities/constructor-doubles): a double the code under
+  test can call with `new`. A runner's own `vi.fn(() => instance)` is not one.
+- [`fakeAsync` and `waitForAsync` on Vitest](/utilities/zone). `zone.js/testing` installs its
+  ProxyZone through Jasmine and Jest hooks only, so both throw until you import this patch.
+- [`assertMocked` / `moduleNamespace`](/utilities/module-mocks): proof that a `vi.mock()` applied
+  under a bundler, instead of a spec quietly asserting on the real module.
+- [`setupAutoSpy({ strayRejections: true })`](/utilities/setup#_8-failing-on-a-rejection-zone-js-swallowed)
+  turns the promise rejections zone.js sends to `console.error` into failed tests. Vitest never sees
+  such a rejection. So a spec that asserts inside an un-awaited `.then()` stays green and exits 0.
+- [`setupAutoSpy({ pruneMockRegistry: true })`](/utilities/setup#_9-pruning-the-mock-registry-nothing-empties)
+  trims a `Set` inside `@vitest/spy`. Every `vi.fn()` joins it and nothing removes them; the option
+  keeps only mocks that outlive a file. Under `isolate: false` that `Set` makes `clearMocks` slower
+  with every test. It also keeps a whole run's recorded arguments, and the component trees behind
+  them, alive in one worker.
+- [Fifty-six ESLint rules](/utilities/eslint-plugin), versioned together with the API they
+  recommend, and [`setupAutoSpy()`](/utilities/setup) for the cleanup a shared test environment
+  needs.
+- [Per-file `TestBed` diagnostics](/adapters/angular#where-a-spec-spends-its-time): which specs
+  actually pay for `TestBed`, and how much.
+- [`compareTestRuns`](/migrating): whether your migration lost a test. It compares the two sets of
+  test names, not two totals that happen to match.
 
-## Where another library is the better answer
+## Sources and dates
 
-- **You are on Jest and staying there.** [`jest-auto-spies`](https://github.com/hirezio/auto-spies)
-  is the same API; there is nothing to gain from switching runner just for this. It is quiet —
-  3.0.1 from 2025-09-22, on a core package last published 2023-06-03 — but it works.
+::: info Where the numbers come from
+Download counts cover the npm window **2026-07-29 → 2026-08-27**, from a survey dated
+**2026-08-29**. Versions, publish dates, dependency lists, repository status and quoted typings were
+re-read from the npm registry and the published packages on **2026-08-30**. Every one reproduced.
+Treat all of it as a dated snapshot and re-check before quoting.
 
-- **You already have your mocks and only want argument-matched stubbing.**
-  [`vitest-when`](https://github.com/mcous/vitest-when) is 700k downloads a month of exactly that and
-  nothing else. Take 0.10.2 and skip 0.10.1 — see above.
-- **You need to mock a whole Angular declaration graph.**
-  [`ng-mocks`](https://github.com/help-me-mom/ng-mocks) is the tool: `MockBuilder`, `MockInstance`
-  into a nested child's field initializer, `ngMocks.findInstance`. This package spies classes, not
-  component trees, and the two compose.
-- **You render components and assert on what the user sees.**
-  [`@testing-library/angular`](https://github.com/testing-library/angular-testing-library) is a
-  different discipline; only its `/vitest-utils` `createMock` overlaps, and
-  [replacing just that half](/migrating-testing-library-angular) leaves `render` where it is.
-- **You only ever mock interfaces, never classes, and want nothing else.**
-  [`vitest-mock-extended`](https://github.com/eratio08/vitest-mock-extended) is smaller and does
-  exactly that, on Vitest 4 and later. `createAutoMock` / [`mockDeep`](/core/auto-mock-by-type) cover
-  the same ground here if you want the helpers too — the two are complementary, not exclusive, and
-  [the Prisma recipe](/guides/mocking-prisma) shows the translation on the case most people arrive
-  with.
-- **You want a NestJS unit built from its DI metadata, on Jest or Vitest, and never anywhere else.**
-  [`@suites/unit`](https://github.com/suites-dev/suites) is the closest thing, with the caveats
-  [above](#nestjs).
-- **You need sandboxes, fake servers, or a full test-double toolkit.**
-  [`sinon`](https://github.com/sinonjs/sinon) is a wider tool; this package is deliberately only
-  about turning a type or a class into a typed spy.
+Re-verified since:
+
+- **2026-09-04**: both `@testing-library/angular` `createMock` defects under [Angular](#angular),
+  re-read in the published 19.4.2 package. Both still hold at the same two lines. Both were
+  reproduced by running the published module; the output is on
+  [Migrating from @testing-library/angular](/migrating-testing-library-angular).
+- **2026-09-04**: every version and publish date in the two status tables, re-read from the registry.
+  Every one reproduced.
+- **2026-09-04**: every performance figure on this page, re-run in full. These are this package's
+  own measurements; the full tables are in [Performance](/core/performance).
+
+The one figure not re-measured against the competitors is the type-instantiation count in
+[Type-check cost](#_3-type-check-cost), carried from the 2026-08-29 survey. The package's own cost
+has a CI-measured number since 2026-09-02; see the same section.
+:::

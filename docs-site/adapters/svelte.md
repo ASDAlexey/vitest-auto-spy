@@ -1,38 +1,59 @@
 ---
 title: Svelte
-description: Spy class-based Svelte services and stores, and inject the spy through props, context or a mocked module.
+description: Spy class-based Svelte services and stores, and pass the spy to the component through props, context or a mocked module.
 ---
 
 # Svelte
 
-Svelte has no class-based dependency injection, so `vitest-auto-spy/svelte` adds **no** helper of
-its own — it is a recipe, not a framework integration. Svelte apps typically keep their logic in
-plain class-based services or stores; `createSpyFromClass` spies that class, and you inject the spy
-into the component under test (props, context, or a mocked module) exactly the way the component
-receives the real one.
+`vitest-auto-spy/svelte` turns a class-based service or store into a typed spy. A spy is a stand-in
+object: every method records its calls and returns what you set. You give the spy to the component
+the same way it gets the real object: through props, context, or the module it imports.
+
+## Through props
 
 ```ts
-import { render } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
+import { expect, it } from 'vitest';
 import { createSpyFromClass } from 'vitest-auto-spy/svelte';
 
 import Cart from './Cart.svelte';
 import { CartStore } from './cart-store';
 
-const cartStore = createSpyFromClass(CartStore);
-cartStore.total.mockReturnValue(42);
+it('renders the total the store reports', () => {
+  const cartStore = createSpyFromClass(CartStore);
 
-render(Cart, { props: { store: cartStore } });
+  cartStore.total.mockReturnValue(42);
+
+  render(Cart, { props: { store: cartStore } });
+
+  expect(screen.getByText('$42')).toBeInTheDocument();
+  expect(cartStore.total).toHaveBeenCalled();
+});
+
+it('checks out when the button is clicked', async () => {
+  const cartStore = createSpyFromClass(CartStore);
+
+  cartStore.checkout.resolveWith({ orderId: 'ord_42' }); // checkout() returns a Promise
+
+  render(Cart, { props: { store: cartStore } });
+  await fireEvent.click(screen.getByRole('button', { name: 'Check out' }));
+
+  expect(cartStore.checkout).toHaveBeenCalledTimes(1);
+});
 ```
 
-Importing this entry registers the default Vitest mock adapter — only when nothing else has, so it
-cannot replace one a runtime entry installed first — and re-exports the whole core, so a Svelte
-suite needs a single import. It pulls in neither `svelte` nor `@testing-library/svelte`. It does
-pull in `vitest`, which is why it does not load under `bun test` or `node --test`: on those runners
-import the core through their own runtime entry instead.
+You set answers with `mockReturnValue` (a plain value) or `resolveWith` (a resolved promise), and
+check calls with the usual `toHaveBeenCalled…` matchers. `toBeInTheDocument` needs
+`import '@testing-library/jest-dom/vitest'` in your Vitest setup file.
+
+`vitest-auto-spy/svelte` is an entry: the import path you use in Svelte specs. It exports the core
+API of the library: `createSpyFromClass`, `createAutoMock`, the `Spy<T>` type, `asInstance`,
+`resetAutoSpy` and the rest. Svelte has no class-based dependency injection, so there are no extra
+helpers.
 
 ## Through context
 
-When the component reads its collaborator from `getContext`, seed the same key with the spy:
+If the component reads the store with `getContext`, pass the spy under the same key:
 
 ```ts
 import { render, screen } from '@testing-library/svelte';
@@ -55,8 +76,8 @@ it('renders the total the store reports', () => {
 
 ## Through a mocked module
 
-When the component imports a singleton directly, replace the module — the spy is what the factory
-returns:
+If the component imports a ready instance (a singleton) from a module, replace that export with
+the spy:
 
 ```ts
 import { render } from '@testing-library/svelte';
@@ -81,9 +102,23 @@ it('checks out through the module singleton', async () => {
 });
 ```
 
-::: warning `vi.mock` needs a module boundary
-A `vi.mock` factory is hoisted above the file's own imports, so it must not close over anything
-declared at module scope — `vi.hoisted` is what makes the spy available to it. And in setups that
-bundle the spec (Angular's `@angular/build:unit-test` builder, for instance) a relative path has no
-module boundary left to replace; inject the spy through props or context there instead.
-:::
+**Common mistake:** creating the spy in a plain `const` at the top of the file. Vitest moves
+`vi.mock` above all other code, so the factory cannot see that variable. Wrap it in `vi.hoisted`, as
+above.
+
+## Which runner
+
+This entry never imports `svelte` or `@testing-library/svelte`. It does import `vitest`, so it does
+not load under `bun test` or `node --test`. On those runners, import `createSpyFromClass` from your
+runner's entry (`vitest-auto-spy/bun`, `vitest-auto-spy/node`).
+
+If a setup file already imports a runner entry such as `vitest-auto-spy/bun`, that runner's mocks
+stay in use after you import this entry.
+
+## In depth
+
+### When `vi.mock` has nothing to replace
+
+`vi.mock` replaces a module by its path. Some test setups bundle the spec together with its imports
+into one file (for example, the `@angular/build:unit-test` builder), so a relative path no longer points to a separate module. Then `vi.mock` changes
+nothing and the component uses the real store. Pass the spy through props or context instead.

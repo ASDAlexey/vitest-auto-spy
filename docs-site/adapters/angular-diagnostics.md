@@ -1,108 +1,109 @@
 ---
 title: Angular diagnostics
-description: enableAngularDiagnostics — five silent Angular-testing failures (dead NgModule imports, dead schemas, unspied providers, unflushed HTTP requests, a double the component's own providers shadow) turned into loud ones.
+description: enableAngularDiagnostics turns five silent mistakes in Angular specs into failing tests - dead NgModule imports, dead schemas, real services where a spy was expected, unanswered HTTP requests and spies the component's own providers hide.
 ---
 
 # Angular diagnostics
 
-```ts
-// vitest.setup.ts — after the Angular test environment is initialised
-import { enableAngularDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
+`enableAngularDiagnostics()` turns five common mistakes in Angular specs into test failures. Each
+mistake lets a test pass for the wrong reason, and nothing warns you. Turn it on once, in your Vitest
+setup file. Pick the variant that matches how you run tests.
 
-enableAngularDiagnostics(); // all five
-enableAngularDiagnostics({ pendingRequests: false }); // or pick
-```
-
-Five checks, one decision. Each member has the same shape: something a spec wrote does nothing,
-nothing says so, and the test passes for a reason its author did not intend. They ship as one group
-rather than five helpers because turning a suite from "passes" into "passes for the stated reason"
-is taken once, in a setup file — and because four of the five hang off the same
-`TestBed.configureTestingModule` hook the
-[timing diagnostics](/adapters/angular#where-a-spec-spends-its-time) already install. The whole
-family ships in its own entry — `vitest-auto-spy/angular/diagnostics` — which it moved to from
-`vitest-auto-spy/angular` in 5.21.0, so that importing spies no longer evaluates the instrumentation a
-suite that never turns it on should not pay for.
-
-| Member              | Default | Fails when                                                                                                       |
-| ------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
-| `ngModuleScopes`    | `true`  | a testing module imports an NgModule that contributes nothing at all                                             |
-| `deadSchemas`       | `true`  | `schemas` sit next to a standalone component, where they can never apply                                         |
-| `unspiedProviders`  | `true`  | `injectSpy` gets a real instance — a `console.warn` today, a throw under the group                               |
-| `pendingRequests`   | `true`  | a test ends with unflushed `HttpTestingController` requests; `{ ignoreCancelled: true }` forgives cancelled ones |
-| `shadowedProviders` | `true`  | a double on the testing module loses to the component's own `providers`                                          |
-
-Every member defaults to `true`; pass `false` to leave one out. Calling `enableAngularDiagnostics`
-again **replaces** the previous selection rather than adding to it. The per-test hooks are
-registered by every call made outside a test, on the file — or `describe` — being collected, which
-is what a setup file needs: under `isolate: false` Vitest re-runs the setup file for every spec file
-while `vitest-auto-spy/angular/diagnostics` stays loaded for the whole worker, and until this
-release the hooks
-were registered once per module, so only the **first** spec file of each worker was checked. A
-second call in the same file does not run anything twice, and a call from inside a test only
-re-configures the group.
-
-`disableAngularDiagnostics()` turns the group off: no more configuration inspection, and `injectSpy`
-warns again instead of failing. It leaves the `TestBed` timing instrumentation in place —
-`enableTestBedDiagnostics` may be using it, and `disableTestBedDiagnostics()` is what removes that.
-
-## Both ways of reaching the `TestBed` are seen
-
-A spec configures its module through the exported `TestBed` class or through `getTestBed()`, and the
-two are the same object: every static is a one-line delegate to the instance. The hooks are
-therefore installed on the **instance**, so a suite written the second way is checked like any
-other:
+**Plain Vitest** (`vitest` with a `vitest.config.ts`):
 
 ```ts
-getTestBed().configureTestingModule({ imports: [CatalogPageComponent] }); // inspected
-const fixture = getTestBed().createComponent(CatalogPageComponent); // and so is this
-```
-
-That covers `ngModuleScopes`, `deadSchemas`, `shadowedProviders` and the
-[`overrideComponentProvider` verification](/adapters/angular-overrides), all of which used to see
-only the static form and report nothing about a suite that never used it. It counts each call once —
-the wrapper sits on the instance alone, never on both — and `TestBed.overrideTemplate`, which
-Angular routes through `overrideComponent`, is now part of the measured
-[`TestBed` time](/adapters/angular) rather than invisible to it.
-
-## Call it _after_ the Angular test environment is set up
-
-The group reads the `TestBed` the environment built, so it belongs after `initTestEnvironment` —
-and in the setup file, so that every spec file registers its hooks:
-
-```ts
-// vitest.setup.ts
+// src/test-setup.ts
 import { getTestBed } from '@angular/core/testing';
+import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { enableAngularDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
 
 getTestBed().initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
 
+enableAngularDiagnostics(); // all five checks
+```
+
+```ts
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: { setupFiles: ['src/test-setup.ts'] },
+});
+```
+
+**Angular CLI** (`ng test`): the builder already calls `initTestEnvironment()`, and you need no
+`vitest.config.ts`. The setup file has only the import and the call, and `angular.json` lists it:
+
+```ts
+// src/test-setup.ts
+import { enableAngularDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
+
 enableAngularDiagnostics();
 ```
 
-The `afterEach` order does not matter — see [the hook-ordering hazard](#the-hook-ordering-hazard-and-how-it-is-handled).
+```jsonc
+// angular.json
+"test": {
+  "builder": "@angular/build:unit-test",
+  "options": { "setupFiles": ["src/test-setup.ts"] }
+}
+```
+
+Your specs stay as they are. A spec with one of the mistakes below now fails with a message that
+names the fix.
+
+## The five checks
+
+| Check               | Default | The test fails when                                                                |
+| ------------------- | ------- | ---------------------------------------------------------------------------------- |
+| `ngModuleScopes`    | `true`  | the testing module imports an NgModule that brings nothing                         |
+| `deadSchemas`       | `true`  | `schemas` sit next to a standalone component, where they never apply               |
+| `unspiedProviders`  | `true`  | `injectSpy()` gets a real service instead of a spy                                 |
+| `pendingRequests`   | `true`  | a test ends with HTTP requests nobody answered                                     |
+| `shadowedProviders` | `true`  | a spy on the testing module never reaches the component, whose own `providers` win |
+
+Pass `false` to leave a check out. `pendingRequests` also takes an object with its one option,
+`ignoreCancelled`. Every call starts from all five on, so checks you do not name are on:
+
+```ts
+enableAngularDiagnostics({ pendingRequests: false }); // the other four
+enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } }); // all five; cancelled requests pass
+```
+
+| Function                                  | What it does                                                                                  |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `enableAngularDiagnostics(options?)`      | turns the checks on; a second call **replaces** the previous selection, it does not add to it |
+| `disableAngularDiagnostics()`             | turns them all off; `injectSpy()` goes back to a warning                                      |
+| `assertNoPendingRequests(options?)`       | runs the `pendingRequests` check in the middle of a test                                      |
+| `assertNoShadowedProviders(cmp, fixture)` | runs the `shadowedProviders` check on a fixture you built yourself                            |
+
+All four come from `vitest-auto-spy/angular/diagnostics`.
+
+## Call it _after_ the Angular test environment is set up
+
+The checks read the `TestBed` that `initTestEnvironment()` builds. So call `enableAngularDiagnostics()`
+after it, as in the plain Vitest example above. With `ng test`, the builder sets up the environment
+before your setup files run, so the order is already right.
+
+Call it from the setup file, not from a spec. The setup file runs for every spec file, so every file
+gets the checks. This also holds with Vitest's `isolate: false`, where one worker process runs many
+spec files.
+
+You can call it again inside a test, for example `enableAngularDiagnostics({ pendingRequests: false })`.
+The new selection replaces the old one for the rest of that spec file. The next file starts with the
+selection from your setup file again, because the setup file runs before each file.
+
+The order of `afterEach` hooks does not matter. If your own `afterEach` resets the `TestBed` first,
+the checks still see what the test left behind.
 
 ## `ngModuleScopes`
 
-Applies [`assertNgModuleScopes`](/adapters/angular-overrides#assertngmodulescopes-modules) automatically to
-every `imports` entry of every testing module — but only to the entries that pass a much stricter
-filter first.
+Fails when the testing module imports an NgModule that brings nothing at runtime. Some test builds
+lose the list of declarations of a compiled NgModule. Its directives then silently do not render.
 
-**Why there is a filter.** An empty runtime scope is suspicious when you hand-pick the modules to
-check, because you pass the ones imported _for their declarations_. The automatic check sees every
-import of every testing module, and there a **providers-only module** is legitimately scope-empty:
-`HttpClientTestingModule`, any `forRoot()` result, dozens per real suite. Without the filter the
-group would fail every file in the project on its first run, and the project would turn the whole
-group back off.
-
-So the automatic check fires on a module that has, at runtime:
-
-- no `ɵmod.declarations` and no `ɵmod.exports`, **and**
-- no `ɵinj.providers`, **and**
-- no `ɵinj.imports`.
-
-Emptiness is tested by flattening, not by `length === 0`: the compiler nests, and the `ɵinj.imports`
-of `@NgModule({})` is `[[], []]` — the module's own imports and exports, both empty — which a plain
-length check reads as two entries and calls a contribution.
+```ts
+TestBed.configureTestingModule({ imports: [ProfileComponent, DirectivesModule] }); // throws here
+```
 
 ```text
 [vitest-auto-spy] ngModuleScopes: DirectivesModule is imported into the testing module but contributes nothing — this test bundle dropped its ɵɵsetNgModuleScope, so its directives are missing (NG0303/NG0304).
@@ -110,53 +111,53 @@ Import the directives it exports directly, or declare them in the TestBed.
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#ngmodulescopes
 ```
 
-**The limitation, stated plainly.** A scope stripped by the AOT bundle and a scope that was always
-empty are indistinguishable at runtime. The automatic check therefore only fires when a module
-contributes _nothing at all_ — which catches the stripped-bundle case only for modules that also
-provide nothing. A module that was stripped but still has providers passes this filter silently.
-Hand-calling `assertNgModuleScopes(DirectivesModule, PipesModule)` in the spec remains the strict
-form, because there you have told it what you expected the module to bring.
+**Fix:** import the directives themselves, or declare them in the testing module.
+
+The automatic check fires only when a module brings _nothing at all_: no declarations, no exports,
+no providers and no imports. Modules with only providers, such as `HttpClientTestingModule` or a
+`forRoot()` result, are normal and never fail.
+
+**Common mistake:** expecting it to catch a module that lost its declarations but still has
+providers. It cannot tell that one from a providers-only module. For those, call
+[`assertNgModuleScopes(DirectivesModule)`](/adapters/angular-overrides#assertngmodulescopes-modules)
+in the spec yourself: there you say which modules must bring declarations.
 
 ## `deadSchemas`
 
-`NO_ERRORS_SCHEMA` next to a standalone component is a dead entry. Schemas are a property of the
-testing module's `declarations`; a standalone component carries its own dependency scope and never
-consults them. So a configuration that declares nothing and imports standalone components has
-configured a no-op — the element or attribute the schema was meant to excuse is still unresolved,
-and the spec is green over a template that never rendered what it was supposed to.
+Fails when `schemas` such as `NO_ERRORS_SCHEMA` sit next to a standalone component. Schemas apply
+only to components in `declarations`. A standalone component has its own imports and ignores them. So
+the schema silences nothing: the unknown element still does not render, and the spec stays green.
 
 ```ts
-// fails
-TestBed.configureTestingModule({ imports: [CatalogPageComponent], schemas: [NO_ERRORS_SCHEMA] });
+TestBed.configureTestingModule({ imports: [ProfileComponent], schemas: [NO_ERRORS_SCHEMA] }); // throws
 ```
 
-The check fires when all three hold: `schemas` is non-empty, `declarations` is empty, and `imports`
-carries at least one component class (an entry with a `ɵcmp`).
-
-**The three are read off the configuration Angular ends up with, not off one call.**
-`TestBedCompiler` accumulates: a spec is free to call `configureTestingModule` in a `beforeEach` and
-again inside the test, and the module is the sum of them. Judging a single call reported a spec that
-declares a component in the first and adds a schema next to a standalone import in the second —
-where the schema is live — and said nothing in the reverse order, where it is dead. The tally is
-forgotten wherever the module is: before every test, and at every `resetTestingModule`.
-
-```
-[vitest-auto-spy] enableAngularDiagnostics({ deadSchemas }): configureTestingModule was given 1 schema(s) that can never apply. The module declares nothing, and CatalogPageComponent carries its own dependency scope.
+```text
+[vitest-auto-spy] enableAngularDiagnostics({ deadSchemas }): configureTestingModule was given 1 schema(s) that can never apply. The module declares nothing, and ProfileComponent carries its own dependency scope.
 Nothing is being silenced here: whatever the schema was added for is still unresolved, and the template renders without it.
 Drop the `schemas` entry, then put the missing directive, component or pipe into the standalone component's own `imports` — or render it through a standalone host built with `createDirectiveHost({ template, scope: [...] })`.
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#deadschemas
 ```
 
-**What it deliberately misses.** It does not fire when `declarations` is non-empty, even if
-standalone components are imported alongside them. The schema is live for the declarations there,
-and a false failure on a correct spec costs more than a miss — that is the trade every member of
-this group is tuned to.
+**Fix:** remove `schemas`. Add the missing directive, component or pipe to the component's own
+`imports`, or render it through `createDirectiveHost({ template, scope: [...] })`.
+
+It fires only when all three hold: `schemas` is not empty, `declarations` is empty, and `imports`
+holds at least one component. It looks at the whole module, including every
+`configureTestingModule()` call of the test (for example one in `beforeEach` and one in the test).
+
+**Common mistake:** expecting a failure when `declarations` is not empty. There the schema is live for
+the declared components, so the check stays silent on purpose.
 
 ## `unspiedProviders`
 
-`injectSpy(X)` already reports when the injector hands back a plain instance instead of an auto-spy;
-without the group that report is a `console.warn`. This member raises it to a thrown failure at the
-`injectSpy` line, which is the line that assumed the spy.
+Fails at the `injectSpy()` line when the testing module has no spy for that service, so Angular built
+the real one. Without the diagnostics, `injectSpy()` only prints a `console.warn`.
+
+```ts
+TestBed.configureTestingModule({ imports: [ProfileComponent] }); // no provideAutoSpy(FeatureFlagService)
+const flags = injectSpy(FeatureFlagService); // throws here
+```
 
 ```text
 [vitest-auto-spy] injectSpy(FeatureFlagService): got a real FeatureFlagService — nothing in the testing module provides a double, so Angular built it (providedIn: 'root').
@@ -164,195 +165,256 @@ Add provideAutoSpy(FeatureFlagService) to providers.
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular#injectspy-says-when-it-got-the-real-thing
 ```
 
-The warning form de-duplicates per token and spec file, so a `beforeEach` does not print the same line once per
-test. **That de-duplication is skipped in fail mode**: a throw is seen once per test by definition,
-and suppressing the second occurrence would only hide the failure from the test that came after.
+**Fix:** add `provideAutoSpy(FeatureFlagService)` to `providers`.
+
+The warning prints once per service and spec file. The failure is reported in every test that hits
+it, so no test hides it from the next.
 
 ## `pendingRequests`
 
-Fails a test that ends while the `HttpTestingController` it configured is still holding requests.
+Fails a test that ends while `HttpTestingController` still holds requests nobody answered. The code
+under test is still waiting for them, so nothing that depends on the response ran.
+
+```ts
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { TestBed } from '@angular/core/testing';
+
+it('loads the user', () => {
+  TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+  const http = TestBed.inject(HttpTestingController);
+
+  TestBed.inject(UserService).load().subscribe();
+
+  http.expectOne('/api/user').flush({ id: 1, name: 'Ada' }); // remove this line and the test fails
+});
+```
+
+Without the `flush` line, the test fails with:
 
 ```text
-[vitest-auto-spy] 2 requests were never answered (end of "users > loads the list"): GET /api/users, POST /api/orders.
-The code under test is still waiting on them, so nothing after that call ran; left open, the next test would match them.
-Answer each in the spec: controller.expectOne('/api/users').flush(body).
+[vitest-auto-spy] GET /api/user was never answered (end of "loads the user").
+The code under test is still waiting on it, so nothing after that call ran; left open, the next test would match it.
+Answer it in the spec: controller.expectOne('/api/user').flush(body).
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#pendingrequests
 ```
 
-That is the line for a module built on `provideHttpClientTesting()` or `HttpClientTestingModule`. In
-one built on `provideHttpTesting()`, which never injects the controller, the answer reads
-`await expectRequest('/api/users').flush(body)` — the line its own teardown check prints.
+**Fix:** answer each request in the spec. With `provideHttpClientTesting()` or
+`HttpClientTestingModule` that is `controller.expectOne(url).flush(body)`. With
+[`provideHttpTesting()`](/adapters/angular-http) the message suggests
+`await expectRequest('/api/user').flush(body)` instead.
+
+The check finds `HttpTestingController` in your own `providers` and `imports`, at any depth. A
+project without HTTP testing is not affected, and nothing extra needs installing.
+
+**Common mistake:** a test that cancels a request on purpose fails. Use `ignoreCancelled`, below.
 
 ### `ignoreCancelled`
 
-A request the code under test unsubscribed from — an `httpResource()` whose component was
-destroyed, a `takeUntil` that cut a call, a `switchMap` that moved on — stays in the controller,
-flagged `cancelled`, and fails the test like any other. Where cancelling is the behaviour, pass an
-object instead of `true`:
+A cancelled request counts as unanswered too. When the code unsubscribes, Angular keeps the request in
+the controller, marked `cancelled`, and by default the test fails. This happens with an `httpResource()` whose component was destroyed,
+a `takeUntil`, or a `switchMap` that moved on. If your code cancels requests on purpose, pass an
+object in the setup file. It then applies to the whole project:
 
 ```ts
 enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } });
 ```
 
-It is the opt-in `HttpTestingController.verify({ ignoreCancelled })` names, and the one
-`provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })` takes: a cancelled request is
-still taken, so it cannot leak into the next test, but it no longer fails this one. A request still
-waiting fails exactly as before. `assertNoPendingRequests()` reads the same setting and takes
-`{ ignoreCancelled }` of its own to override it for one call.
+| Option            | Type      | Default | Meaning                                      |
+| ----------------- | --------- | ------- | -------------------------------------------- |
+| `ignoreCancelled` | `boolean` | `false` | a cancelled request no longer fails the test |
 
-### How it works without a second peer dependency
-
-`@angular/common/http/testing` is **never imported** by this package and is not a peer of it. It
-does not need to be, because the token arrives inside the configuration this group already sees:
-
-- `provideHttpClientTesting()` returns an `EnvironmentProviders` wrapper — a `ɵproviders` property
-  around a plain provider list — and one of those providers names `HttpTestingController`.
-- `HttpClientTestingModule` keeps the same list on its `ɵinj.providers`.
-
-The hook flattens `providers` (nested arrays, and the `ɵproviders` of any `EnvironmentProviders`
-wrapper), then looks for a provider whose `provide` is a function named `HttpTestingController`; if
-`providers` yields nothing it walks `imports` and reads each entry's `ɵinj.providers` the same way.
-The token is therefore read out of **the caller's own configuration**, and the instance comes back
-through `TestBed.inject(token, null)` — only while the testing module exists. Asking a reset
-`TestBed` would build a fresh module, and the next `configureTestingModule` would then refuse to run.
-
-The walk over `imports` goes all the way down, which is what the usual shape needs:
-
-```ts
-TestBed.configureTestingModule({ imports: [SharedTestingModule] }); // and HttpClientTestingModule is inside that
-```
-
-A suite of any size has one shared testing module, and the HTTP one sits inside it. Reading only the
-first level found no token there and turned the check off without a word. Each module's `ɵinj` is
-walked once and cached, nested arrays and a `forRoot()`-style `{ ngModule, providers }` result are
-both understood, a cycle in the import graph is not followed twice, and the walk stops at the first
-token — a suite that configures HTTP testing directly pays nothing for it.
-
-A project that configures neither form is silently inert — no token is found, the check reports
-nothing, and nothing had to be installed for that to be true. That is exactly the shape an optional
-integration should have.
-
-### The hook-ordering hazard, and how it is handled
-
-Whichever order the `afterEach` hooks run in — `sequence: { hooks: 'stack' }` or `'list'` — a
-suite's own `afterEach(() => getTestBed().resetTestingModule())` or Angular's cleanup hook may
-destroy the testing module before this group's `afterEach` asks it anything. Until this release the
-check then read an empty module and reported nothing — and, worse, `TestBed.inject` on the reset
-`TestBed` rebuilt the module, so under `'list'` every spec using HTTP testing failed from its second
-test on with _Cannot configure the test module when the test module has already been instantiated_.
-
-The `TestBed` **instance's** `resetTestingModule` is therefore wrapped to snapshot the open requests
-while the testing module still exists — the instance, because the static
-`TestBed.resetTestingModule()` delegates to it while `getTestBed().resetTestingModule()` and
-Angular's cleanup hook call it directly — and the `afterEach` reports the snapshot **and** whatever
-is open now. A test that resets twice built two modules, and both are reported: the snapshot is a
-list that every reset adds to, not a value the next reset overwrites. The same wrapper forgets the
-doubles `shadowedProviders` remembered for the module, and the `deadSchemas` tally with them.
-Reading is **one-shot** in both directions: the requests are read with `match(() => true)`, which
-both lists and takes them, and the snapshot is emptied as it is read. Two hooks that both looked
-cannot report the same request twice.
-
-Taking the snapshot is best-effort; the reset it precedes is not. A snapshot that throws — reading a
-token out of an injector Angular has already destroyed is the way it happens — is swallowed, and
-`resetTestingModule` runs regardless. Skipping it used to fail the **next** test with
-_Cannot configure the test module when the test module has already been instantiated_, a failure
-that names a spec with nothing wrong with it.
-
-If the running `TestBed` has no `resetTestingModule` at all, no wrapper is installed and the check
-falls back to reading a live injector. The wrapper is installed once per `TestBed` instance and does
-nothing while the group is off, so it never has to be unlinked from under a wrapper installed after it.
+A cancelled request is still cleared from the controller, so it cannot leak into the next test. A
+request that is still waiting fails as before. Angular's own `HttpTestingController.verify()` has an
+option with the same name and meaning.
 
 ### `assertNoPendingRequests()`
 
-The same check, exported for mid-test use — after the arrange step, before the assertions that
-depend on it:
+Runs the same check in the middle of a test, usually after the arrange step:
 
 ```ts
 import { assertNoPendingRequests } from 'vitest-auto-spy/angular/diagnostics';
 
 facade.load();
 controller.expectOne('/api/users').flush([]);
-assertNoPendingRequests(); // nothing else went out
+assertNoPendingRequests(); // → throws if anything else went out
 ```
 
-Because reading takes the requests, calling it yourself is not paid for twice: the group's own
-`afterEach` will not re-report what you already inspected. It is a no-op when the group is off, and
-a no-op when the test never configured HTTP testing at all. `assertNoPendingRequests({ ignoreCancelled })`
-overrides the group's [`ignoreCancelled`](#ignorecancelled) for that one call.
+| Option            | Type      | Default                                        | Meaning                       |
+| ----------------- | --------- | ---------------------------------------------- | ----------------------------- |
+| `ignoreCancelled` | `boolean` | the value passed to `enableAngularDiagnostics` | override it for this one call |
+
+It only looks at requests that no `expectOne(...)` has taken yet, so call it after those lines. The
+requests it reports are cleared, so the end-of-test check does not report them again. It does nothing
+when the diagnostics are off or the test never set up HTTP testing.
 
 ## `shadowedProviders`
 
+Fails when a spy on the testing module never reaches the component, because the component lists the
+same service in its own `providers`. The component then talks to the real service. The spy records
+nothing, and a check like "was _not_ called" passes for the wrong reason.
+
 ```ts
-// the component declares its own providers
 @Component({ selector: 'app-promo', providers: [PromoService], template: '…' })
 export class PromoComponent {}
 
-// the spec registers the double one level too high
 TestBed.configureTestingModule({ imports: [PromoComponent], providers: [provideAutoSpy(PromoService)] });
-const fixture = TestBed.createComponent(PromoComponent); // ← fails here, under the group
+const fixture = TestBed.createComponent(PromoComponent); // throws here
 ```
 
-A component-level provider is resolved by the component's **node** injector, and the module injector
-is only consulted when the node injector has nothing. So a `provideAutoSpy(X)` on the testing module
-never reaches a component that declares `X` itself: the component talks to the real service, the
-double records nothing, and an assertion that it was _not_ called passes for the wrong reason.
+```text
+[vitest-auto-spy] PromoComponent declares its own providers, so 1 double on the testing module never reached it: PromoService → a PromoService instance.
+The component's own providers are asked before the module's, so it runs against the real service while the spec asserts on a double that records nothing.
+Replace the module-level registration with overrideComponentProvider(PromoComponent, PromoService).
+Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#shadowedproviders
+```
 
-Measured in one Angular suite: of 71 component specs whose subject declares its own `providers`, 43
-register the same token on the module too. 22 of those work around it with
-`TestBed.overrideComponent({ set: { providers } })`, 14 with `TestBed.overrideProvider`, 4 read back
-through the component's injector — and **7 do nothing at all**, which is this failure.
-
-The repair is one line:
+**Fix:** put the spy into the component's own providers:
 
 ```ts
-overrideComponentProvider(PromoComponent, PromoService); // → Spy<PromoService>; an optional spy config is the third argument
+import { overrideComponentProvider } from 'vitest-auto-spy/angular';
+
+const promo = overrideComponentProvider(PromoComponent, PromoService); // → Spy<PromoService>
 ```
 
-Behind an `InjectionToken`, which `overrideComponentProvider` cannot take,
-`TestBed.overrideProvider(TOKEN, provideAutoSpyForToken(TOKEN))` reaches the component's own
-providers too.
+An optional spy config is the third argument. For an `InjectionToken`, which
+`overrideComponentProvider` does not take, use
+`TestBed.overrideProvider(TOKEN, provideAutoSpyForToken(TOKEN))`.
 
-[`overrideComponentProvider`](/adapters/angular-overrides) has existed since 3.1.0 and had **zero**
-uses in that repository, which is the argument for the check rather than against the helper: it
-cannot be found from the symptom, because there is no symptom. Nothing fails, nothing warns, and the
-spec reads exactly like one that works.
+The check stays silent when the component already gets a spy: through `TestBed.overrideProvider`,
+`overrideComponentProvider` or a `viewProviders` spy. It reports only a **real** instance. It also
+stays silent when a later provider or override replaced the module's spy.
 
-**Silent when the component's answer is itself a double.** A spec that reached for
-`TestBed.overrideProvider`, `overrideComponentProvider` or a `viewProviders` double has already
-decided this question and its answer wins on purpose — only a **real** instance is reported. That is
-also what keeps the check off the 40 specs of that suite that had handled it one way or another. So
-does a double the module itself no longer answers with, because a later provider or an override
-replaced it: that double lost to the override, not to the component.
-
-**It asks the component's node alone.** The comparison reads the node injector with `{ self: true }`,
-so a token the component does not declare is never resolved further up — the check cannot build a
-real root service the test never asked for, and cannot fail on that service's missing dependencies
-(`NG0201`). The doubles it compares against are forgotten before every test and at every reset.
+**Common mistake:** adding `provideAutoSpy(PromoService)` to the module and expecting the component to
+use it. A component's own `providers` always win over the module's.
 
 ### `assertNoShadowedProviders(component, fixture)`
 
-The same check, callable. `shadowedProviders` runs it on every fixture the TestBed builds; a spec
-that renders through a helper of its own can ask directly:
+Runs the same check on a fixture you built yourself, for example through your own render helper:
 
 ```ts
+import { assertNoShadowedProviders } from 'vitest-auto-spy/angular/diagnostics';
+
 const fixture = renderThroughOurHelper(CartComponent);
 
-assertNoShadowedProviders(CartComponent, fixture); // the doubles really are the ones in play
+assertNoShadowedProviders(CartComponent, fixture); // → throws if a module spy never reached CartComponent
 ```
 
-A no-op when the fixture never rendered that component.
+It does nothing when the fixture never rendered that component.
 
 ## What this group does not include
 
-There is no `provideHttpTesting()` / `expectRequest()` helper here, and there is not going to be
-one. That is a different feature — a wrapper over the HTTP testing API rather than a diagnostic over
-what a spec already wrote — and it would cost a second optional peer dependency
-(`@angular/common/http/testing`) to do at all. `pendingRequests` reads the token out of your
-configuration precisely so that this page can stay at zero new dependencies.
+The diagnostics only check what a spec already wrote. They do not answer HTTP requests for you. For
+that, use [`provideHttpTesting()` and `expectRequest()`](/adapters/angular-http) from
+`vitest-auto-spy/angular-http`. This entry does not import `@angular/common/http/testing`, so it adds
+no dependency.
+
+## In depth
+
+### Both ways of reaching the `TestBed` are seen
+
+A spec can configure its module through the `TestBed` class or through `getTestBed()`. Both are the
+same object: each static method calls the instance. The checks sit on the instance, so both styles
+are checked:
+
+```ts
+getTestBed().configureTestingModule({ imports: [CatalogPageComponent] }); // checked
+const fixture = getTestBed().createComponent(CatalogPageComponent); // and so is this
+```
+
+This holds for `ngModuleScopes`, `deadSchemas`, `shadowedProviders` and the
+[`overrideComponentProvider` verification](/adapters/angular-overrides). Each call is counted once.
+`TestBed.overrideTemplate` goes through `overrideComponent`, so it counts toward the measured
+[`TestBed` time](/adapters/angular).
+
+### Why `ngModuleScopes` filters modules
+
+When you call `assertNgModuleScopes()` yourself, you pass modules you import for their declarations,
+so an empty scope is a real problem. The automatic check sees every import instead. Many of them are
+providers-only modules, which are legitimately empty. Without the filter, the check would fail every
+spec file on the first run.
+
+A stripped scope and an always-empty scope look the same at runtime. So the automatic check only
+fires when a module brings nothing at all.
+
+Emptiness is tested by flattening the nested arrays, not by `length === 0`. The compiled
+`ɵinj.imports` of `@NgModule({})` is `[[], []]`: two empty lists that a length check would count as
+two entries.
+
+### How `deadSchemas` reads the configuration
+
+A test may call `configureTestingModule()` several times, for example in `beforeEach` and again in the
+test. Angular adds the calls up, and the check judges the sum, not one call. So a schema added in one
+call next to declarations from another call counts as live. The sum is forgotten before every test and
+at every `resetTestingModule()`.
+
+### How it works without a second peer dependency
+
+This package never imports `@angular/common/http/testing`, and it is not a peer dependency. The
+`HttpTestingController` token comes from your own configuration:
+
+- `provideHttpClientTesting()` returns an `EnvironmentProviders` wrapper. Its `ɵproviders` list
+  contains a provider for `HttpTestingController`.
+- `HttpClientTestingModule` keeps the same list in its `ɵinj.providers`.
+
+The check flattens `providers`, including nested arrays and the `ɵproviders` of any
+`EnvironmentProviders` wrapper. It looks for a provider whose `provide` is a function named
+`HttpTestingController`. If `providers` has none, it walks `imports` and reads each entry's
+`ɵinj.providers` the same way. It gets the instance through `TestBed.inject(token, null)`, and only
+while the testing module exists. Asking a reset `TestBed` would build a new module, and the next
+`configureTestingModule()` would then refuse to run.
+
+The walk over `imports` goes all the way down, so a shared testing module that contains
+`HttpClientTestingModule` works:
+
+```ts
+TestBed.configureTestingModule({ imports: [SharedTestingModule] }); // HttpClientTestingModule is inside
+```
+
+Each module is walked once and cached. Nested arrays and a `forRoot()`-style `{ ngModule, providers }`
+result are understood. A cycle in the imports is not followed twice. The walk stops at the first
+token found.
+
+### The hook-ordering hazard, and how it is handled
+
+Your own `afterEach(() => getTestBed().resetTestingModule())`, or Angular's cleanup hook, may destroy
+the testing module before the diagnostics look at it. This holds for both hook orders, `sequence:
+{ hooks: 'stack' }` and `'list'`.
+
+So the diagnostics wrap the `TestBed` instance's `resetTestingModule()`. Before each reset, the
+wrapper saves the open requests while the module still exists. It wraps the instance because the
+static `TestBed.resetTestingModule()` calls it, and `getTestBed().resetTestingModule()` and Angular's
+cleanup hook call it directly. The `afterEach` then reports the saved requests **and** any still open.
+A test that resets twice built two modules, and both are reported.
+
+The same wrapper forgets the spies `shadowedProviders` remembered for the module and the `deadSchemas`
+sum.
+
+Reading takes the requests: `match(() => true)` both lists and removes them, and the saved list is
+emptied as it is read. So two hooks never report the same request twice.
+
+The wrapper tries to save the requests, and it always runs the reset. If saving throws, for example because Angular already
+destroyed the injector, the error is swallowed and `resetTestingModule()` still runs.
+
+If the `TestBed` has no `resetTestingModule()` at all, no wrapper is installed, and the check reads the
+live injector. The wrapper is installed once per `TestBed` instance and does nothing while the
+diagnostics are off.
+
+### How `shadowedProviders` compares
+
+It reads the component's own injector with `{ self: true }`. So it never looks further up for a
+service the component does not declare. It cannot build a real root service the test never asked
+for, and it cannot fail on that service's missing dependencies (`NG0201`). The spies it compares
+against are forgotten before every test and at every reset.
 
 ## Related
 
-- [Angular adapter](/adapters/angular) — `provideAutoSpy`, `injectSpy`, `renderShallow` and the
-  TestBed timing diagnostics that share this group's hook.
-- [Component provider overrides](/adapters/angular-overrides) — `overrideComponentProvider` and its
-  own verification, which is **always on** rather than a member of this group.
+- [Angular adapter](/adapters/angular): `provideAutoSpy`, `injectSpy`, `renderShallow` and the
+  `TestBed` timing diagnostics, which share a hook with this group.
+- [Component provider overrides](/adapters/angular-overrides): `overrideComponentProvider` and its own
+  check, which is **always on** and not part of this group.
+- [Angular HTTP](/adapters/angular-http): `provideHttpTesting()` and `expectRequest()`.
+
+`disableAngularDiagnostics()` does not remove the `TestBed` timing instrumentation that
+`enableTestBedDiagnostics()` from the [Angular adapter](/adapters/angular) also uses. Call
+`disableTestBedDiagnostics()` for that.

@@ -1,39 +1,28 @@
 ---
 title: React
-description: Spy the classes a React app owns — services, stores, API clients — and hand the spy to a Context provider or a hook.
+description: Spy the classes a React app owns (services, stores, API clients) and pass the spy to a Context provider or a hook; mock a custom hook with a typed return value.
 ---
 
 # React
 
-React has no DI container, so `vitest-auto-spy/react` ships **no** `provide*` helper — it is a
-_recipe_: spy the **classes** you own (services, stores, API clients, the deps you inject into
-hooks or hand to a Context provider), not the components themselves.
+`vitest-auto-spy/react` turns a class you own (a service, a store, an API client) into a typed spy.
+A spy is a stand-in object: every method records its calls and returns what you set. You pass it
+wherever the component gets the real object, most often a Context provider.
 
-```ts
-import { type Spy, createSpyFromClass } from 'vitest-auto-spy/react';
-```
-
-The spy is a plain object of mocks, so you pass it straight into a `<Context.Provider value={spy}>`
-or a hook's dependency argument, then drive return values with `calledWith` / `resolveWith` /
-`mockReturnValue` and assert against `spy.method.mock.calls`.
-
-Importing this entry registers the default Vitest mock adapter — only when nothing else has, so it
-cannot replace one a runtime entry installed first — and re-exports the same public API as the core.
-It pulls in `vitest` only, never `react` or `@testing-library/react`, which stay your own dev
-dependencies. That `vitest` import is also why the entry does not load under `bun test` or
-`node --test`: on those runners import the core through their own runtime entry instead.
+`vitest-auto-spy/react` is an entry: the import path you use in React specs. It exports
+`createSpyFromClass`, `createAutoMock`, `autoMocked`, the `Spy<T>` type, `asInstance`, `resetAutoSpy`
+and the module-mock helpers used below. The full list is in the [API reference](/api).
 
 ## Through a Context provider
 
-The spy is a plain object of mocks, so it goes straight into a provider's `value`:
-
 ```tsx
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type Spy, createSpyFromClass } from 'vitest-auto-spy/react';
 
 import { Cart, CartContext } from './cart';
-import { CartStore } from './cart-store';
+import { CartStore, type Order } from './cart-store';
 
 describe('<Cart />', () => {
   let cart: Spy<CartStore>;
@@ -43,7 +32,7 @@ describe('<Cart />', () => {
   });
 
   it('renders the total the store reports', () => {
-    cart.total.mockReturnValue(42);
+    cart.total.mockReturnValue(42); // total(): number
 
     render(
       <CartContext.Provider value={cart}>
@@ -54,30 +43,63 @@ describe('<Cart />', () => {
     expect(screen.getByText('$42')).toBeInTheDocument();
   });
 
-  it('checks out with the items on screen', async () => {
-    cart.checkout.resolveWith({ orderId: 'ord_42' });
+  it('shows the order number after checkout', async () => {
+    const order: Order = { id: 'ord_42', total: 42 };
+    cart.checkout.resolveWith(order); // checkout(token): Promise<Order>
 
     render(
       <CartContext.Provider value={cart}>
-        <Cart />
+        <Cart paymentToken="tok_abc" />
       </CartContext.Provider>,
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'Check out' }));
 
+    expect(await screen.findByText('Order ord_42 placed')).toBeInTheDocument();
     expect(cart.checkout).toHaveBeenCalledWith('tok_abc');
   });
 });
 ```
 
-`Spy<CartStore>` is a mapped type and drops `#private` members, so it is not assignable to
-`CartStore`. If the context is typed as the class, bridge it with
-[`asInstance(cart)`](/core/spy-typing) rather than an `as`.
+How to set an answer on a spy method:
+
+- `mockReturnValue(value)` for a method that returns a plain value.
+- `resolveWith(value)` for a method that returns a `Promise`. The value must match the promise type
+  (`Order` here). For a partial object, cast it: `resolveWith({ id: 'ord_42' } as Order)`.
+- `calledWith(args)` before either one limits the answer to calls with those arguments.
+
+The answer of `resolveWith` arrives asynchronously, so wait for the result with `findByText`, not
+`getByText`. `toBeInTheDocument` comes from `@testing-library/jest-dom`: add
+`import '@testing-library/jest-dom/vitest'` to your Vitest setup file.
+
+**Common mistake:** you need `asInstance` only when the class has `#private` or `private` members.
+TypeScript then reports a type error on `value={cart}`, because the spy type drops those members.
+Pass `asInstance(cart)` instead of an `as` cast:
+
+```tsx
+import { asInstance } from 'vitest-auto-spy/react';
+
+<CartContext.Provider value={asInstance(cart)}>
+  <Cart />
+</CartContext.Provider>;
+```
+
+More in [Spy typing](/core/spy-typing).
+
+React has no dependency injection container, so there is nothing like Angular's `provideAutoSpy`
+here: you put the spy into the provider yourself, as above. `react` and `@testing-library/react`
+stay your own dev dependencies, in any version.
+
+::: tip Which runner
+On Vitest you need nothing else. If your setup file already imports another runner entry, such as
+`vitest-auto-spy/bun`, that runner keeps building the spies. This entry imports `vitest`, so it does
+not load under `bun test` or `node --test`: there, import the same functions from
+`vitest-auto-spy/bun` or `vitest-auto-spy/node`.
+:::
 
 ## As a hook dependency
 
-A hook that takes its collaborator as an argument is the easiest thing in a React codebase to test,
-and the spy needs no wrapper at all:
+If a hook takes its dependency as an argument, pass the spy directly. No wrapper is needed:
 
 ```ts
 import { renderHook, waitFor } from '@testing-library/react';
@@ -101,10 +123,10 @@ it('exposes the loaded user', async () => {
 
 ## Mocking a custom hook
 
-The seam above is the one to prefer. When a component calls a hook directly — `useMovies()` from a
-module of hooks, with nothing passed in — the hook is its collaborator, and the spec replaces the
-module. What a hand-written mock gets wrong is the return value: the whole object, rebuilt in every
-test, typed against nothing.
+Prefer the two options above. Sometimes a component calls a hook directly, for example `useMovies()`
+from a hooks module, and nothing is passed in. Then you replace the module with `vi.mock`. The hard
+part is the hook's return value: written by hand, it is a big object rebuilt in every test and
+checked against no type. `autoMocked` builds it from the type.
 
 ```tsx
 import { render, screen } from '@testing-library/react';
@@ -148,38 +170,43 @@ describe('<MovieSearch />', () => {
 });
 ```
 
-Three pieces, each doing one job:
+What each piece does:
 
-- **[`autoMocked<UseMoviesResult>(seed)`](/core/auto-mock-by-type)** builds the hook's return value
-  from its type. The seeded fields are plain values; every member the spec did not seed —
-  `setSearchTerm`, `reload` — is a spy with the helpers its return type earns, created on first
-  read. The seed is checked against the type, so a field the hook renamed is a compile error. It is
-  typed as both `UseMoviesResult` and its spy, which is what lets one object go into
-  `mockReturnValue` and come back out in the assertion. When the result only ever travels as a spy,
-  `createAutoMock<T>()` is the narrower type.
-- **[`moduleNamespace`](/utilities/module-mocks#modulenamespace-exports-options)** gives the factory's
-  result the `default` and `__esModule` an interop probe looks for, so a hooks module consumed through
-  a CommonJS-compatible layer does not fail with `No "default" export is defined on the mock`.
-- **[`assertMocked`](/utilities/module-mocks#assertmocked-namespace-options)** fails at the spec's
-  own line when the mock did not apply — under a bundler that has already inlined the module, the
-  component would otherwise call the real hook and the test would pass or fail for an unrelated
-  reason. Naming `exports` makes it check the hooks the file actually drives.
+- **[`autoMocked<UseMoviesResult>(values)`](/core/auto-mock-by-type)** builds the return value from
+  its type. The fields you pass are plain values. Every other member (`setSearchTerm`, `reload`) is
+  a spy, created when first read. The values are type-checked, so a field the hook renamed is a
+  compile error. The result is typed both as `UseMoviesResult` and as its spy, so the same object
+  goes into `mockReturnValue` and into `expect`. If you only need the spy type, use
+  `createAutoMock<T>()`.
+- **[`moduleNamespace`](/utilities/module-mocks#modulenamespace-exports-options)** adds the `default`
+  and `__esModule` keys to the factory result. Without them, a hooks module read through a CommonJS
+  compatibility layer fails with `No "default" export is defined on the mock`.
+- **[`assertMocked`](/utilities/module-mocks#assertmocked-namespace-options)** fails on this line if
+  the mock did not apply. That happens when a bundler has already inlined the module; the component
+  would then call the real hook. `exports` lists the hooks this file drives.
 
-The hook itself stays a `vi.fn()`: it is a function the module exports, not a method of a class, and
-`vi.mocked` types it as the real hook, so `mockReturnValue` only accepts a `UseMoviesResult`.
+The hook itself stays a plain `vi.fn()`. `vi.mocked` types it as the real hook, so `mockReturnValue`
+accepts only a `UseMoviesResult`.
 
-Two variations, when the plain `vi.fn()` is not enough. To keep the real hooks and replace one,
-`vi.mock('./hooks', async (importOriginal) => moduleNamespace(await importOriginal(), { passthrough: true }))`
-turns every exported function into a spy that runs the real hook until the spec configures it. To
-give a factory's `vi.fn()` `calledWith` and `resolveWith`, [`adoptMock(hooks.useMovies)`](/utilities/module-mocks#adoptmock-mock-options)
-takes it over in place. Both are on the [module-mocks page](/utilities/module-mocks).
+Two variations:
+
+- **Keep the real hooks and replace one.** With
+  `vi.mock('./hooks', async (importOriginal) => moduleNamespace(await importOriginal(), { passthrough: true }))`
+  every exported function becomes a spy that runs the real hook until you configure it.
+- **Give a factory's `vi.fn()` `calledWith` and `resolveWith`.**
+  [`adoptMock(hooks.useMovies)`](/utilities/module-mocks#adoptmock-mock-options) adds them in place.
+
+Both are described on the [module mocks page](/utilities/module-mocks).
 
 ### A hook that returns a tuple
 
-A `useState`-shaped hook returns `[value, loading, error]`, and that tuple is data. Write it — the
-hook's own return type checks every position:
+A `useState`-style hook returns a tuple such as `[value, loading, error]`. That tuple is data, so
+write it by hand. The hook's return type checks every position:
 
 ```tsx
+// same file as above
+import { UserCard } from './user-card';
+
 it('shows the loading state', () => {
   vi.mocked(hooks.useFetch).mockReturnValue([undefined, true, null]);
 
@@ -210,29 +237,29 @@ it('goes from loading to loaded across renders', () => {
 });
 ```
 
-Do not reach for an auto-mock here. `const [data, loading] = hook()` destructures through
-`Symbol.iterator`, and a Proxy-backed double is not iterable — `createAutoMock<[T, boolean]>()`
-throws a `TypeError: … is not iterable` at the destructuring line, and so does `mockDeep`. A
-`mockDeep` member turns into an array only once it is read by index, and holds only the indices read,
-so it is no tuple either. An auto-mock is for the object a hook returns, where the callables are; a
-tuple is three values.
+**Common mistake:** `createAutoMock<[T, boolean]>()` for a tuple. The destructuring line
+`const [data, loading] = hook()` throws `TypeError: … is not iterable`, because an auto-mock is not
+iterable. `mockDeep` fails the same way. Use auto-mocks for objects that hold functions, not for
+tuples.
 
 ### The value that leaks into the next test
 
-A `vi.fn()` created in a `vi.mock` factory lives for the whole file, so a `mockReturnValue` set in one
-test is still answering in the next — the classic "the last mocked value of `useSearch` is still
-active" bug, which surfaces as a test that passes alone and fails in the file. Vitest 5 clears calls
-before every test by default (`clearMocks: true`); clearing does not reset an implementation.
-Either set `mockReset: true` in the Vitest config, or configure the hook in every test that renders,
-as the examples above do.
+A `vi.fn()` created in a `vi.mock` factory lives for the whole file. A `mockReturnValue` set in one
+test still answers in the next one. The symptom: a test passes alone and fails when the whole file
+runs.
 
-The return values built with `autoMocked` / `createAutoMock` inside a test have no such problem: they
-are new objects each time. For the doubles that do outlive a test — a spy built once for the file —
-[`setupAutoSpy()`](/utilities/setup) and [`resetAutoSpy`](/core/control-helpers#resetting-spies-—-clearautospy-resetautospy)
-are the reset story.
+With `clearMocks: true` (the default since Vitest 5), any Vitest clears recorded calls before every
+test, but clearing keeps the configured return value. Fix it one of two ways:
+
+- set `mockReset: true` in the Vitest config, or
+- configure the hook in every test that renders, as the examples above do.
+
+Values from `autoMocked` or `createAutoMock` created inside a test are new objects each time, so
+they do not leak. For a spy created once per file, see [`setupAutoSpy()`](/utilities/setup) and
+[`resetAutoSpy`](/core/control-helpers#resetting-spies-—-clearautospy-resetautospy).
 
 ::: tip What not to spy
-Spy the classes you own, and mock a hook only where it is the component's collaborator. A spied
-component tells you nothing about rendering, and a test of a hook that mocks the hook asserts its own
-mock — test the hook itself with `renderHook` and a spied dependency, as in the section above.
+Spy the classes you own. Mock a hook only when it is the component's dependency. A spied component
+tells you nothing about rendering. A hook test that mocks the hook only tests its own mock: test the
+hook with `renderHook` and a spied dependency, as in [As a hook dependency](#as-a-hook-dependency).
 :::

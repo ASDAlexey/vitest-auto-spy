@@ -5,36 +5,29 @@ description: A spec-by-spec translation from TestBed.solitary and TestBed.sociab
 
 # Migrating from `@suites/unit`
 
-[`@suites/unit`](https://github.com/suites-dev/suites) is the NestJS unit-test builder the Nest
-documentation points at, and it is downloaded close to half a million times a month. It is also the
-package this one borrowed from: `createNestUnit` on
-[`vitest-auto-spy/nestjs`](/adapters/nestjs#building-the-unit-from-its-metadata) is Suites' solitary
-/ sociable model, deliberately. This page is the translation, not the argument — the argument is in
-the [comparison](/comparison#nestjs).
+This page moves NestJS unit tests from [`@suites/unit`](https://github.com/suites-dev/suites) to
+[`createNestUnit`](/adapters/nestjs#building-the-unit-from-its-metadata) from
+`vitest-auto-spy/nestjs`. Both build the class under test from its DI metadata and replace every
+dependency with a spy. Most specs change like this:
 
-## What Suites gets right
+```ts
+// Before
+import { TestBed } from '@suites/unit';
 
-Two ideas, and both survive the move.
+const { unit, unitRef } = await TestBed.solitary(CartService).compile();
+unitRef.get(PricingService).total.mockReturnValue(100);
 
-**The unit is built from its own DI metadata.** A Nest provider already declares its collaborators;
-`@Injectable()` and `emitDecoratorMetadata` already write that declaration down. A spec that repeats
-it as a list of `{ provide, useValue }` entries is a second copy of the constructor, and every
-constructor change edits both. Suites reads the metadata instead, so the spec does not have a
-provider list to go stale.
+// After
+import { createNestUnit } from 'vitest-auto-spy/nestjs';
 
-**Solitary and sociable are the two real shapes of a unit test.** Solitary is every collaborator
-doubled. Sociable is a named few built for real, everything past them still doubled — the seam moved
-one class outwards, deliberately, rather than a testing module that grows until it is the
-application. Suites made that a first-class distinction instead of a comment in the spec, and it is
-the right distinction.
+const { unit, spies } = createNestUnit(CartService);
+spies.get(PricingService).total.mockReturnValue(100);
+```
 
-`createNestUnit` keeps both. What changes is the double behind each token, the dependency count, and
-where the thing can run.
-
-The two words are worth keeping outside Nest, too. An Angular `TestBed` makes the same choice one
-provider at a time: `provideAutoSpy(Dep)` for every collaborator is a solitary spec; leaving one real —
-by not listing it, or by listing the real class — makes it sociable, with the seam moved exactly as
-far as the spec says. There is no builder to learn, because the provider list already is one.
+Two things to watch: a stub of a method that does not exist now fails
+([details](#the-difference-that-will-change-a-spec)), and a constructor that calls a dependency needs
+the spy configured through `providers` ([details](#configuring-a-double)). Why pick one or the other
+is on the [comparison page](/comparison#nestjs).
 
 ## Install and remove
 
@@ -43,41 +36,43 @@ npm remove @suites/unit @suites/di.nestjs @suites/doubles.vitest
 npm i -D vitest-auto-spy
 ```
 
-Three direct packages become one. `@suites/unit` also pulls four `@suites/*` runtime dependencies of
-its own — `core.unit`, `types.common`, `types.di`, `types.doubles` — and `@suites/di.nestjs` imports
-`@nestjs/common/constants` at runtime, so `@nestjs/common` is a hard peer of the test tooling.
-`vitest-auto-spy` has **zero runtime dependencies** and imports nothing from `@nestjs/*`; the Nest
-entry reads the metadata keys as strings.
+Three direct packages become one.
 
-Your `tsconfig` does not change. `reflect-metadata` and `emitDecoratorMetadata: true` are mandatory
-for Suites and equally mandatory here — they are Nest's own requirements, and a Nest app that boots
-already meets them. Neither package adds one.
+- `@suites/unit` also pulls four runtime dependencies: `@suites/core.unit`, `types.common`,
+  `types.di` and `types.doubles`.
+- `@suites/di.nestjs` imports `@nestjs/common/constants` at runtime, so your test tooling hard-depends
+  on `@nestjs/common`.
+- `vitest-auto-spy` has **zero runtime dependencies** and imports nothing from `@nestjs/*`. The Nest
+  entry reads the metadata keys as plain strings.
 
-Your Vitest config does not change either. esbuild, and therefore Vite, does not emit
-`design:paramtypes`, so a Nest suite on Vitest already runs its specs through SWC (`unplugin-swc`).
-`createNestUnit` reads the same metadata, so the plugin stays; this is the one piece of Suites' setup
-cost that is really Nest's and does not go away.
+**Your `tsconfig` does not change.** Both packages need `reflect-metadata` and
+`emitDecoratorMetadata: true`. Nest itself needs them, so a working Nest app already has them.
 
-One file you can delete: the `global.d.ts` that references `@suites/doubles.vitest/unit` to augment
-`Mocked<T>` and `unitRef.get()` with Vitest's mock types. It exists because the adapter's own route
-to the same result is a `postinstall` script that prepends that reference to `@suites/unit`'s
-`dist/esm/index.d.ts` and `dist/cjs/index.d.ts` inside `node_modules` — which does nothing where
-dependency install scripts do not run (pnpm 10 by default, `--ignore-scripts`) or where the two
-packages are not installed side by side. `Spy<T>` is a plain exported type; there is nothing to
-augment and nothing to patch.
+**Your Vitest config does not change.** esbuild (and so Vite) does not emit `design:paramtypes`, so a
+Nest project on Vitest already runs specs through SWC (`unplugin-swc`). `createNestUnit` reads the
+same metadata, so the plugin stays.
+
+**You can delete one file:** the `global.d.ts` that references `@suites/doubles.vitest/unit`. It adds
+Vitest's mock types to `Mocked<T>` and `unitRef.get()`. Suites also tries to do this with a
+`postinstall` script that edits `@suites/unit`'s `.d.ts` files inside `node_modules`. That script does
+nothing where install scripts do not run (pnpm 10 by default, `--ignore-scripts`). Here, `Spy<T>` is a
+plain exported type, so there is nothing to patch.
 
 ## The translation
 
-| Suites                                              | `vitest-auto-spy/nestjs`                             |
-| --------------------------------------------------- | ---------------------------------------------------- |
-| `await TestBed.solitary(S).compile()`               | `createNestUnit(S)`                                  |
-| `await TestBed.sociable(S).expose(D).compile()`     | `createNestUnit(S, { expose: [D] })`                 |
-| `const { unit, unitRef } = …`                       | `const { unit, spies } = …`                          |
-| `unitRef.get(Dep)`                                  | `spies.get(Dep)`                                     |
-| `unitRef.get<T>('TOKEN')`, `unitRef.get<T>(SYMBOL)` | `spies.get<T>('TOKEN')`, `spies.get<T>(SYMBOL)`      |
-| `.mock(Dep).impl((stub) => ({ … }))`                | `spies.get(Dep).method.mockReturnValue(…)`           |
-| `.mock('TOKEN').final({ … })`                       | `providers: [{ provide: 'TOKEN', useValue: { … } }]` |
-| `Mocked<Dep>`                                       | [`Spy<Dep>`](/core/spy-typing)                       |
+| Suites                                              | `vitest-auto-spy/nestjs`                                                                                                           |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `await TestBed.solitary(S).compile()`               | `createNestUnit(S)`                                                                                                                |
+| `await TestBed.sociable(S).expose(D).compile()`     | `createNestUnit(S, { expose: [D] })`                                                                                               |
+| `const { unit, unitRef } = …`                       | `const { unit, spies } = …`                                                                                                        |
+| `unitRef.get(Dep)`                                  | `spies.get(Dep)`                                                                                                                   |
+| `unitRef.get<T>('TOKEN')`, `unitRef.get<T>(SYMBOL)` | `spies.get<T>('TOKEN')`, `spies.get<T>(SYMBOL)`                                                                                    |
+| `.mock(Dep).impl((stub) => ({ … }))`                | `spies.get(Dep).method.mockReturnValue(…)`; if the constructor calls `Dep`, `providers: [provideAutoSpy(Dep, { returns: { … } })]` |
+| `.mock('TOKEN').final({ … })`                       | `providers: [{ provide: 'TOKEN', useValue: { … } }]`                                                                               |
+| `Mocked<Dep>`                                       | [`Spy<Dep>`](/core/spy-typing)                                                                                                     |
+
+"Solitary" means every dependency is a spy. "Sociable" means a few named dependencies are real
+classes, and everything behind them is still a spy.
 
 ### Solitary
 
@@ -105,14 +100,12 @@ spies.get(TaxService).rate.mockReturnValue(0.5);
 expect(unit.checkout(3)).toBe(150);
 ```
 
-**The `await` disappears.** `compile()` returns a promise because Suites resolves its DI and doubles
-adapters dynamically, at compile time, from what it finds installed. `createNestUnit` has no
-adapters to find: it reads the metadata and calls `new`, synchronously. A `beforeEach` that existed
-only to hold the `await` can become a plain assignment, and a `describe` body can build the unit
-directly.
+**The `await` goes away.** Suites finds its adapters at compile time, so `compile()` returns a
+promise. `createNestUnit` reads the metadata and calls `new` synchronously. A `beforeEach` that only
+held the `await` can become a plain assignment.
 
-One instance per token, as Nest's default singleton scope gives — a collaborator two classes share
-is one spy on both sides of the migration.
+Each token gets one instance, like Nest's default singleton scope. A dependency shared by two classes
+is one spy, before and after the migration.
 
 ### Sociable — `expose`
 
@@ -130,20 +123,17 @@ const { unit, spies } = createNestUnit(CheckoutFacade, { expose: [CartService] }
 spies.get(PricingService).total.mockReturnValue(10);
 ```
 
-`expose` takes the whole list at once instead of chaining, which is the only shape change.
-`sociable()` in Suites is typed as `Pick<SociableTestBedBuilder, 'expose'>`, so at least one
-`.expose()` is required before `.compile()` exists; `{ expose: [] }` here is legal and simply means
-solitary.
+`expose` takes the whole list at once instead of a chain. In Suites, `sociable()` requires at least
+one `.expose()` before `.compile()`. Here `{ expose: [] }` is allowed and means solitary.
 
-Both sides refuse to hand you an exposed class as a spy — Suites throws a
-`DependencyResolutionError` that says the identifier "is marked as an exposed dependency", and
-`spies.get(CartService)` throws with the same reasoning and the two fixes. `spies.exposedTokens()`
-lists what the graph actually built, so an `expose` entry nothing asked for shows up as absent
-rather than as silence.
+Neither side gives you an exposed class as a spy. Suites throws `DependencyResolutionError` saying the
+identifier "is marked as an exposed dependency". `spies.get(CartService)` throws too, and names both
+fixes. `spies.exposedTokens()` lists what was actually built, so an `expose` entry nothing needed
+shows up as missing.
 
 ### Configuring a double
 
-Suites configures before `compile()`, because the unit does not exist until then:
+Suites configures a dependency before `compile()`, because the unit does not exist until then:
 
 ```ts
 // Before
@@ -153,8 +143,10 @@ const { unit, unitRef } = await TestBed.solitary(CartService)
   .compile();
 ```
 
-`createNestUnit` builds the unit when you call it, so the usual translation is to configure the spy
-afterwards, with the [control helpers](/core/control-helpers) rather than a partial object:
+`createNestUnit` builds the unit immediately. Configure the spy afterwards with the
+[control helpers](/core/control-helpers). Vitest's own `mockReturnValue` and `mockResolvedValue` work
+too; `resolveWith(v)` is the typed shortcut, and `calledWith(arg).resolveWith(v)` answers one
+argument only:
 
 ```ts
 // After
@@ -164,8 +156,9 @@ spies.get(TaxService).rate.mockReturnValue(0.2);
 spies.get(ApiService).fetchUser.calledWith(7).resolveWith(user);
 ```
 
-There is one case where "afterwards" is too late: a constructor that calls a collaborator. For that,
-hand the configured spy in through `providers`, which wins over the auto-spies:
+**If the constructor calls a dependency**, "afterwards" is too late. Pass a configured spy through
+`providers`; it wins over the automatic spies. `returns` sets what each named method returns, for
+any arguments ([all options](/core/create-spy-from-class)):
 
 ```ts
 import { createNestUnit, provideAutoSpy } from 'vitest-auto-spy/nestjs';
@@ -175,7 +168,7 @@ const { unit, spies } = createNestUnit(CartService, {
 });
 ```
 
-`.final(value)` — Suites' "this is not a double, it is the value" — is a `providers` entry:
+Suites' `.final(value)` ("this is the value, not a mock") becomes a `providers` entry:
 
 ```ts
 // Before
@@ -185,17 +178,20 @@ await TestBed.solitary(CartService).mock('CONFIG').final({ currency: 'EUR' }).co
 createNestUnit(CartService, { providers: [{ provide: 'CONFIG', useValue: { currency: 'EUR' } }] });
 ```
 
-with one behavioural difference in your favour. Suites treats a faked dependency as unreadable:
-`unitRef.get('CONFIG')` throws `DependencyResolutionError`, because "faked dependencies are not
-intended for direct retrieval". Here `spies.get('CONFIG')` returns the value you provided, as is.
+One difference helps you. In Suites, `unitRef.get('CONFIG')` throws `DependencyResolutionError`,
+because "faked dependencies are not intended for direct retrieval". Here `spies.get('CONFIG')` returns
+the value you provided.
 
-`providers` also takes `{ provide: Abstract, useClass: Impl }` — built like an exposed class, its own
-dependencies spied — and `{ provide: TOKEN, useFactory }`, a zero-argument factory that runs once,
-when the token is first asked for.
+`providers` also accepts:
+
+- `{ provide: Abstract, useClass: Impl }`: built like an exposed class, with its own dependencies
+  spied;
+- `{ provide: TOKEN, useFactory }`: a zero-argument factory that runs once, when the token is first
+  requested.
 
 ### Tokens with no class
 
-Both packages reach a string or symbol token by passing it straight to `get`:
+Both packages reach a string or symbol token by passing it to `get`:
 
 ```ts
 unitRef.get<AppConfig>('CONFIG'); // Suites
@@ -203,24 +199,23 @@ spies.get<AppConfig>('CONFIG'); //  here
 spies.get<Flags>(FLAGS); //          symbols too
 ```
 
-The token comes from the same place on both sides — `@Inject('CONFIG')` records it in
-`self:paramtypes`, which is the metadata key both packages read first. What comes back differs: a
-token with no class has no prototype to read, so this package answers it with
-[`createAutoMock()`](/core/auto-mock-by-type), a type mock. That is right for a service behind an
-interface and wrong for a config literal, where `config.currency` would be a function spy rather
-than `'EUR'`. Provide those, as above.
+Both read the token from the same metadata: `@Inject('CONFIG')` records it in `self:paramtypes`.
+What you get back differs. A token with no class has no methods to read, so this package answers it
+with [`createAutoMock()`](/core/auto-mock-by-type), a mock built from the type. That suits a service
+behind an interface. It does not suit a config object: `config.currency` would be a spy function, not
+`'EUR'`. Provide such values through `providers`, as above.
 
 ### `@Optional()` and property injection
 
-Property injection (`@Inject(Logger) logger!: Logger`) works on both sides; both read
-`self:properties_metadata` plus `design:type` and assign after construction.
+Property injection (`@Inject(Logger) logger!: Logger`) works on both sides. Both read
+`self:properties_metadata` plus `design:type` and assign the value after construction.
 
-`@Optional()` does not work on both sides. `@suites/di.nestjs` reads three metadata keys —
-`design:paramtypes`, `self:paramtypes` and `self:properties_metadata` — and `optional:paramtypes` is
-not one of them, so the decorator changes nothing about what the unit receives. `createNestUnit`
-reads it: an `@Optional()` parameter or property whose token cannot be injected at all receives
-`undefined`, which is what Nest itself would hand it. An optional dependency with an injectable
-token still gets its spy, because in this graph every token is available.
+`@Optional()` works only here. `@suites/di.nestjs` reads `design:paramtypes`, `self:paramtypes` and
+`self:properties_metadata`, but not `optional:paramtypes`, so the decorator changes nothing.
+`createNestUnit` reads it:
+
+- an `@Optional()` parameter or property whose token cannot be injected gets `undefined`, as in Nest;
+- an optional dependency with an injectable token still gets its spy.
 
 ```ts
 class ReportService {
@@ -237,8 +232,8 @@ expect(unit.logger).toBe(spies.get(Logger));
 
 ## The difference that will change a spec
 
-**A Suites double answers every property name.** `@suites/doubles.vitest` builds the mock as a
-`Proxy` whose `get` trap creates what is missing:
+**A Suites mock answers every property name.** `@suites/doubles.vitest` builds the mock as a `Proxy`
+whose `get` trap creates anything missing:
 
 ```js
 // @suites/doubles.vitest 3.1.0, mock.static.js
@@ -254,99 +249,110 @@ get: (obj, property) => {
 };
 ```
 
-The mock starts from `{}` — nothing is read off the class — so the trap answers every name, and
-there is no name it can refuse. Rename `getUser` to `fetchUser` in the service and the spec that
-still stubs `getUser` keeps passing: the stub configures a function nothing calls, the assertion
-against it never runs, and the suite stays green over a method that no longer exists.
+The mock starts empty and reads nothing from the class, so it accepts any name. Rename `getUser` to
+`fetchUser` in the service, and the spec that still stubs `getUser` keeps passing. The stub configures
+a function nobody calls, and the tests stay green for a method that no longer exists.
 
 ```ts
-unitRef.get(Api).getUserz.mockResolvedValue(user); // a working mock, of nothing
+unitRef.get(Api).getUserz.mockResolvedValue(user); // a working mock of nothing
 ```
 
-Here the double is built from the real prototype by
-[`createSpyFromClass`](/core/create-spy-from-class), so the same line is a `TypeError` on
-`undefined`:
+Here the spy is built from the real class by [`createSpyFromClass`](/core/create-spy-from-class), so
+the same line fails:
 
 ```ts
-spies.get(Api).getUserz; // undefined — `getUserz` is not on Api.prototype
+spies.get(Api).getUserz; // undefined: `getUserz` is not on Api.prototype
 spies.get(Api).getUserz.mockResolvedValue(user); // TypeError, at the line that is wrong
 ```
 
-Ask for the method explicitly and the message names it instead:
-`createSpyFromClass(Api, { onlyMethodsToSpyOn: ['getUserz'] })` reports that `getUserz` is not
-on the class prototype. Both are the same rule: the wrong stub should fail at the stub.
+If you list the method explicitly, the error names it:
+`createSpyFromClass(Api, { onlyMethodsToSpyOn: ['getUserz'] })` reports that `getUserz` is not on the
+class prototype. Either way, a wrong stub fails at the stub.
 
-This is worth a pass over the suite after the migration rather than a trust exercise. A spec that
-was quietly stubbing a renamed method will now fail, and that failure is the migration paying for
-itself.
+After the migration, expect some specs to fail this way. Each one was stubbing a renamed method, and
+finding it is part of what you gain.
 
 ### What each side refuses
 
 | Situation                                 | Suites                                       | `createNestUnit`                                        |
 | ----------------------------------------- | -------------------------------------------- | ------------------------------------------------------- |
-| A misspelt method on a double             | a working mock                               | `undefined`, or a named error with `onlyMethodsToSpyOn` |
+| A misspelt method on a mock               | a working mock                               | `undefined`, or a named error with `onlyMethodsToSpyOn` |
 | `get` of a token the unit never asked for | `DependencyResolutionError`                  | throws, **and lists the auto-spied tokens**             |
 | `get` of an exposed class                 | `DependencyResolutionError`                  | throws, with both fixes                                 |
-| `get` of a provided constant              | throws — "faked dependencies"                | returns the value                                       |
+| `get` of a provided constant              | throws: "faked dependencies"                 | returns the value                                       |
 | A parameter typed as an interface         | takes the emitted `Object` as the identifier | throws, naming the class, the slot and both fixes       |
 | A cycle among classes built for real      | `forwardRef` guidance in the error           | names the cycle as `A -> B -> A`                        |
 
-The second row is the one that saves time. Both packages refuse a token the unit does not use, which
-is correct — a spy the unit will never see is a spec that cannot fail. This one also prints what it
-_did_ ask for, so a `spies.get(OldService)` after a refactor tells you the new name in the same
-message.
+The second row saves the most time. Both refuse a token the unit does not use: a spy the unit never
+sees makes a test that cannot fail. Here the error also lists what the unit _did_ ask for. So after a
+refactor, `spies.get(OldService)` tells you the new name in the same message.
 
 ## What you give up
 
-Four things, honestly.
-
-- **Inversify.** Suites ships `@suites/di.inversify` alongside `@suites/di.nestjs`, and its adapter
-  registry also names `tsyringe` (`@suites/di.tsyringe` is not on npm today). There is no Inversify
-  adapter here and none planned; `createNestUnit` reads Nest's metadata keys specifically. An
-  Inversify suite should stay on Suites.
-- **Jest.** There is no Jest entry point. The core never imports a test runner directly — it talks
-  to one through an internal `MockAdapter`, and Vitest, `bun:test` and `node:test` have shipped
-  adapters — but that interface is not exported from any public entry, so a Jest project cannot
-  register one without reaching into internals. If the suite is Jest and staying Jest,
-  `@suites/doubles.jest` is the working answer and this move is not for you.
-- **`identifierMetadata`.** Every Suites `get` and `mock` takes an optional metadata object as a
-  second argument, for a DI container that distinguishes bindings by more than a token. There is no
-  equivalent here; a token is a token.
-- **Configuring a double before construction is a different call.** Suites' `.mock(…).impl(…)` runs
-  before the unit exists, so it covers a constructor that calls a collaborator for free. Here that
-  case needs `providers: [provideAutoSpy(Dep, config)]` rather than a line after the fact — one more
-  thing to notice while migrating, and the only place the `await` you removed was doing work.
+- **Inversify.** Suites has `@suites/di.inversify` next to `@suites/di.nestjs`, and its adapter list
+  also names `tsyringe` (not on npm today). There is no Inversify support here and none is planned.
+  `createNestUnit` reads Nest's metadata keys only. Keep an Inversify project on Suites.
+- **Jest.** There is no Jest entry point. The package supports Vitest, `bun:test` and `node:test`, and
+  offers no public way to plug in another runner. If your project stays on Jest, use
+  `@suites/doubles.jest`.
+- **`identifierMetadata`.** Every Suites `get` and `mock` takes an optional metadata object, for DI
+  containers that tell bindings apart by more than a token. There is nothing like it here; a token is
+  a token.
+- **Configuring a dependency before construction is a different call.** Suites' `.mock(…).impl(…)`
+  runs before the unit exists, so it handles a constructor that calls a dependency. Here that case
+  needs `providers: [provideAutoSpy(Dep, config)]`.
 
 ## What you get
 
-- **Zero runtime dependencies**, against four transitive `@suites/*` packages plus two adapters you
-  install directly plus a runtime `@nestjs/common` import in the DI adapter.
-- **A typo fails.** The single largest behavioural difference, above.
+- **Zero runtime dependencies**, instead of four transitive `@suites/*` packages, two adapters you
+  install yourself, and a runtime `@nestjs/common` import.
+- **A typo fails.** See [the difference above](#the-difference-that-will-change-a-spec).
 - **Three runtimes.** The same spec runs on Vitest, [`bun:test`](/runtimes/bun) and
-  [`node:test`](/runtimes/node); Suites describes itself as backend-only and ships doubles adapters
-  for Jest, Vitest and sinon.
-- **The rest of your suite on the same core.** [Angular](/adapters/angular) — which Suites
-  structurally cannot do, because it discovers collaborators from constructor `design:paramtypes`
-  and `readonly #x = inject(X)` emits no such metadata; there is no Angular adapter and no DI
-  adapter beyond Nest and Inversify — plus [React](/adapters/react), [Vue](/adapters/vue) and
-  [Svelte](/adapters/svelte), from one dependency.
-- **Streams and accessors.** A Suites double is a `Proxy` over `{}` answering every name with a
-  `vi.fn()`, so a method returning an `Observable` gets no stream helpers and a getter is not
-  preserved at all — reading it returns a mock function. Here a method returning an `Observable`
-  gets [`nextWith` and the rest](/core/control-helpers#observable-methods-properties-—-nextwith), and
-  getters and setters get [their own spies](/core/create-spy-from-class#accessor-spies-—-accessorspies).
-- **Getter and setter spies**, [observable spies](/core/observable-assertions), `calledWith` /
-  `resolveWith` / `mustBeCalledWith`, [strict mode](/core/strict-mode) and
-  [fixtures](/core/create-spy-from-class) — the helper layer a Nest spec ends up writing by hand.
-- **Synchronous construction**, and a `spies.get` failure that names what the unit actually asked
-  for.
+  [`node:test`](/runtimes/node). Suites is backend-only and ships mock adapters for Jest, Vitest and
+  sinon.
+- **The rest of your frontend tests on the same library:** [Angular](/adapters/angular),
+  [React](/adapters/react), [Vue](/adapters/vue) and [Svelte](/adapters/svelte). Suites cannot cover
+  Angular: it finds dependencies through constructor `design:paramtypes`, and
+  `readonly #x = inject(X)` emits no such metadata.
+- **Streams and accessors.** A Suites mock answers every name with a `vi.fn()`. A method that returns
+  an `Observable` gets no stream helpers, and reading a getter returns a mock function. Here an
+  `Observable` method gets [`nextWith` and the rest](/core/control-helpers#observable-methods-properties-—-nextwith),
+  and getters and setters get [their own spies](/core/create-spy-from-class#accessor-spies-—-accessorspies).
+- **The helpers a Nest spec otherwise writes by hand:** getter and setter spies,
+  [observable spies](/core/observable-assertions), `calledWith` / `resolveWith` / `mustBeCalledWith`,
+  [strict mode](/core/strict-mode) and [fixtures](/core/create-spy-from-class).
+- **Synchronous construction**, and a `spies.get` error that names what the unit actually asked for.
+
+## What Suites gets right
+
+Suites is the unit-test builder the Nest documentation points to, downloaded close to half a million
+times a month. `createNestUnit` borrows its model on purpose, and both of its core ideas carry over.
+
+**The unit is built from its own DI metadata.** A Nest provider already declares its dependencies:
+`@Injectable()` and `emitDecoratorMetadata` write them down. A spec that repeats them as
+`{ provide, useValue }` entries is a second copy of the constructor, and every constructor change
+edits both. Suites reads the metadata instead, so the spec has no provider list to go stale.
+
+**Solitary and sociable are the two real shapes of a unit test.** A sociable test moves the boundary
+one class outwards on purpose. It does not grow a testing module until it becomes the whole app.
+Suites made this a first-class choice, and it is the right one. `createNestUnit` keeps both shapes.
+
+The same two words work outside Nest. An Angular `TestBed` makes the same choice one provider at a
+time:
+
+- `provideAutoSpy(Dep)` for every dependency is a solitary spec;
+- leaving one real (not listing it, or listing the real class) makes it sociable.
+
+No builder is needed there, because the provider list already is one.
 
 ## Versions this was written against
 
-`@suites/unit` 3.1.1, published 2026-05-08, with `@suites/di.nestjs` and `@suites/doubles.vitest` at
-3.1.0. `4.0.0-beta.0` was published on 2025-11-04 and nothing has shipped on the 4.x line since; the
-3.1.x releases that followed are on the 3.x line. Before them, nothing was published between 3.0.1 on
-2025-01-02 and `4.0.0-alpha.0` on 2025-10-27. Everything on this page was read out of those
-published tarballs rather than from the documentation site, and the versions and dates were
-re-read from the registry on 2026-09-19 — unchanged, with 3.1.1 still `latest`. In the week to
-2026-09-18, `@suites/unit` was downloaded 80 249 times and `@suites/doubles.vitest` 25 353.
+- `@suites/unit` 3.1.1 (published 2026-05-08), with `@suites/di.nestjs` and `@suites/doubles.vitest`
+  at 3.1.0.
+- `4.0.0-beta.0` was published on 2025-11-04. Nothing has shipped on the 4.x line since; the later
+  3.1.x releases are on the 3.x line.
+- Before them, nothing was published between 3.0.1 (2025-01-02) and `4.0.0-alpha.0` (2025-10-27).
+
+Everything here was read from the published tarballs, not from the documentation site. Versions and
+dates were re-checked in the registry on 2026-09-19: unchanged, 3.1.1 still `latest`. In the week to
+2026-09-18, `@suites/unit` was downloaded 80 249 times and `@suites/doubles.vitest` 25 353 times.

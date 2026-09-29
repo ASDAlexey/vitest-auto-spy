@@ -5,174 +5,179 @@ description: overrideComponentProvider and overrideAutoSpy — replace a depende
 
 # Component provider overrides
 
+Use `overrideComponentProvider` when a component lists a service in its own
+`@Component({ providers: [...] })`. A `provideAutoSpy` in `TestBed.configureTestingModule` does not
+reach such a service: the component's own provider wins, and the component quietly gets the real
+one. `overrideComponentProvider` replaces it with a spy and checks, on the next render, that the
+component really received that spy.
+
 ```ts
-import { overrideAutoSpy, overrideComponentProvider } from 'vitest-auto-spy/angular';
+import { TestBed } from '@angular/core/testing';
+import { of } from 'rxjs';
+import { overrideComponentProvider } from 'vitest-auto-spy/angular';
 
-const menu = overrideComponentProvider(CatalogPageComponent, NavigationBuilderService); // → Spy<NavigationBuilderService>
+import { ProfileComponent } from './profile.component';
+import { UserService } from './user.service';
 
-menu.build.mockReturnValue([]);
+// @Component({ providers: [UserService], … }) class ProfileComponent — ngOnInit calls userService.load()
+it('loads the user', () => {
+  TestBed.configureTestingModule({ imports: [ProfileComponent] }); // the rest of the module, as usual
 
-const fixture = TestBed.createComponent(HostComponent); // ← the override is verified here
+  const users = overrideComponentProvider(ProfileComponent, UserService, {
+    returns: { load: of({ name: 'Ada' }) }, // load(): Observable<User>
+  });
+
+  const fixture = TestBed.createComponent(ProfileComponent); // the override is checked here
+  fixture.detectChanges(); // runs ngOnInit
+
+  expect(users.load).toHaveBeenCalledTimes(1);
+});
 ```
 
-`provideAutoSpy` registers a provider on the testing module, and a testing-module provider **loses**
-to one the component declares in its own `@Component({ providers: [...] })` — route-scoped services,
-per-component stores, `provideX()` helpers. The background on that trap, and on the two ways to fix
-it, is on the [Angular adapter page](/adapters/angular#overriding-a-provider-the-component-declares-for-itself).
-This page is about the part that comes after: **proving the override landed.**
+Call it after `configureTestingModule` and **before** anything reads the injector: `TestBed.inject`,
+`injectSpy` or `createComponent`. `configureTestingModule` does not read the injector. Why a
+module-level provider loses, and the other fix (removing the component's provider), is on the
+[Angular page](/adapters/angular#overriding-a-provider-the-component-declares-for-itself).
 
 ## `overrideComponentProvider(component, Class, config?)`
 
-Does three things, in order:
+Replaces the provider `Class` that `component` declares for itself with an auto-spy, and returns the
+spy. Use it for a service in the component's own `providers`.
 
-1. queues `component` with the TestBed compiler — as an `imports` entry when it is standalone, as a
-   `declarations` entry otherwise — because `overrideProvider` is applied while a component is
-   compiled, and a component the testing module never mentions is never compiled by it;
-2. calls `TestBed.overrideProvider(Class, { useValue: spy })`;
-3. queues a verification against the next `TestBed.createComponent`.
+```ts
+const menu = overrideComponentProvider(CatalogPageComponent, NavigationBuilderService, {
+  returns: { build: [] },
+});
 
-It returns the `Spy<T>` directly, so there is nothing to unwrap.
+const fixture = TestBed.createComponent(AppShellComponent); // CatalogPageComponent renders inside it
+```
 
-Do **not** reach for `TestBed.overrideComponent` for this. It forces a JIT recompilation, and under
-an AOT test bundle that recompilation resolves the component's directives and pipes from a runtime
-scope the bundler has stripped, leaving it with none of them — see
-[`assertNgModuleScopes`](#assertngmodulescopes-modules) below.
+The component does not have to be in `imports`; listing it there too is harmless. The helper adds
+it to the testing module for you: as an import when it is standalone, as a declaration otherwise. So it also works for a child
+that only a parent's template renders.
+
+| Argument    | Type                                   | Meaning                                                     |
+| ----------- | -------------------------------------- | ----------------------------------------------------------- |
+| `component` | component class                        | the component that declares the provider                    |
+| `Class`     | service class                          | the provider to replace                                     |
+| `config`    | same as `createSpyFromClass`'s 2nd arg | an options object such as `{ returns: { load: of(user) } }` |
+| returns     | `Spy<Class>`                           | the spy the component will get                              |
+
+**Common mistake:** calling it after something has already read the injector. Angular accepts no
+override past that point, and the helper says so:
+
+```text
+[vitest-auto-spy] overrideComponentProvider(ProfileComponent, DeleteAccountService) ran after the testing module was instantiated, and Angular accepts no override past that point. Something read the injector first — a `TestBed.inject`, an `injectSpy`, a `createComponent` — earlier in this test or in the same `beforeCreate`. Override first, then inject.
+```
+
+(`beforeCreate` is an option of `renderShallow`, a hook that runs before the component is created.)
+
+Move the call above the first `TestBed.inject`, `injectSpy` or `createComponent`. The lint rule
+[`no-inject-before-override`](/utilities/eslint-rules#no-inject-before-override) reports the wrong
+order before you run the test.
+
+Do not use `TestBed.overrideComponent` for this. It recompiles the component at runtime, and in an
+ahead-of-time (AOT) test bundle, such as the one `@angular/build:unit-test` builds, the recompiled component loses its directives and pipes
+(see [`assertNgModuleScopes`](#assertngmodulescopes-modules)).
 
 ## The verification
 
-Queuing the component removes the _usual_ cause of a silent no-op. It does not prove the override
-landed, so the helper checks.
-
-**What is queued.** Each call pushes one entry — component, token, spy — and registers **once** with
-the same `createComponent` seam the [diagnostics](/adapters/angular-diagnostics) use. On the next
-fixture it runs every queued entry, then unregisters and empties the queue. It fires on the first
-fixture and gets out of the way, because the check belongs to the fixture that call built; an
-inspector left registered would run against a later spec's unrelated component.
-
-That seam sits on the `TestBed` **instance**, which every static delegates to, so the fixture is
-verified whichever way the spec built it:
-
-```ts
-const fixture = getTestBed().createComponent(HostComponent); // verified, like TestBed.createComponent
-```
-
-Sharing one seam rather than wrapping `createComponent` a second time also settles the order of the
-two checks that read it, instead of leaving it to whichever installed last.
-
-**How the token is resolved.** Through the component's _own_ injector, not the testing module's:
-
-- if `fixture.debugElement.componentInstance` is an instance of the overridden component, its
-  injector is the one asked;
-- otherwise the fixture root is queried with a plain predicate —
-  `element.componentInstance instanceof component` — and the hosting debug element's injector
-  answers.
-
-No `@angular/platform-browser` import is involved. `By.directive` would have been the idiomatic
-predicate and would have added an import to a package this entry does not otherwise need; the
-`DebugElement` surface is read structurally instead.
-
-**Why the nested case works at all.** On Angular 21.2.17, a child placed by a parent's template is
-already instantiated at `createComponent` time — before any `detectChanges()`. That is a measured
-fact, not an inference: the verification finds the nested component's injector on the fixture the
-call returns, with no change detection run in between.
-
-The failure names all three parties:
+On the next `TestBed.createComponent`, the helper asks the component's own injector for the service.
+If the answer is not the spy it returned, the test fails and names the component, the service and
+the cause:
 
 ```text
 [vitest-auto-spy] overrideComponentProvider(CatalogPageComponent, NavigationBuilderService): the override did not apply — CatalogPageComponent resolved NavigationBuilderService to a NavigationBuilderService instance, not the spy this call returned.
 It got the real service because something configured NavigationBuilderService again after this call — a later TestBed.overrideProvider or configureTestingModule. Keep overrideComponentProvider as the last word on it.
-Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-overrides#the-verification
 ```
 
-A non-object answer is printed as it is (`resolved … to not-a-service`), and a class instance is
-named by its constructor.
+Only a later call that names **the same service** breaks the override: a `TestBed.overrideProvider(UserService, …)`
+or a `configureTestingModule` whose `providers` list `UserService`. Remove it, or move
+`overrideComponentProvider` after it.
 
-### Why it is always on
+The check is always on and needs no setup. It runs only in a test that called
+`overrideComponentProvider`, so other specs are not affected.
 
-This is the design argument, and it is the whole reason the check is not a member of
-[`enableAngularDiagnostics`](/adapters/angular-diagnostics):
+What it does and does not check:
 
-- **The helper exists because the documented alternative fails silently.** An override that did not
-  apply is a bug in the helper, not an optional extra. Shipping the helper with its own correctness
-  check behind a flag would mean shipping the silent failure the helper was written to remove.
-- **It cannot fire in a spec that never called `overrideComponentProvider`.** Nothing is queued, so
-  `createComponent` is never wrapped. A suite that does not use the helper is untouched.
-- **It stays silent when the component was not rendered.** No injector, no check.
-
-Those are exactly the two properties the diagnostics group lacks — that group applies to every spec
-in a suite, including ones written long before it existed, which is why turning a passing suite red
-there is a project's decision rather than a library import's.
-
-### Limitations
-
-- **The first `createComponent` only.** The wrapper unhooks itself after one fixture. A spec that
-  creates a throwaway fixture before the one that renders the overridden component is verified
-  against the throwaway — where the component is absent, so the check is silent, not wrong.
-- **Absent component means silence, not a guess.** When the fixture does not contain the component —
-  behind an `@if`, on a lazy route, or simply a different host — there is nothing to check yet, and
-  guessing would fail a correct spec.
-- **A later competing override still wins.** `TestBed.overrideProvider(Token, …)` called _after_
-  this helper replaces the spy. The check reports that (it is the throw shown above) but cannot
-  prevent it.
-- **No `createComponent` to hook, no verification.** On a `TestBed` without that method nothing is
-  queued at all, so the helper degrades to "no verification" rather than to a stale check on some
-  later fixture. The override itself still applies.
+- **Only the first fixture.** The check runs on the first `createComponent` after the call, then
+  switches itself off for good. If that first fixture does not contain the component, the test
+  passes without a check: the helper does not wait for a later fixture.
+- **A component that did not render is skipped.** Behind an `@if`, on a lazy route, or when the fixture
+  renders some other component, there is no injector to ask yet, so the check does nothing rather than guess.
+- **It reports a later override but cannot stop it.** A `TestBed.overrideProvider(Class, …)` after
+  this call still replaces the spy; the check then fails with the message above.
+- **Nothing carries over between tests.** A test that called the helper but never rendered leaves no
+  pending check behind for the next test.
+- `getTestBed().createComponent(…)` is checked the same way as `TestBed.createComponent(…)`.
 
 ## `overrideAutoSpy(Class, config?)`
 
-The `{ useValue }` shape `TestBed.overrideProvider` expects, carrying an auto-spy:
+Returns the `{ useValue: spy }` object that `TestBed.overrideProvider` expects. Unlike `providers` in
+`configureTestingModule`, `TestBed.overrideProvider` also replaces a component's own provider. Use
+`overrideAutoSpy` when the component is already in the testing module and you do not need the check;
+use `overrideComponentProvider` otherwise.
 
 ```ts
+import { TestBed } from '@angular/core/testing';
+import { overrideAutoSpy } from 'vitest-auto-spy/angular';
+
 const payments = overrideAutoSpy(PaymentMethodService);
 
 TestBed.configureTestingModule({ imports: [CheckoutComponent] }).overrideProvider(PaymentMethodService, payments);
 payments.useValue.charge.resolveWith({ ok: true });
 ```
 
-Use it when the component is **already** in the testing module and only the provider needs replacing;
-use `overrideComponentProvider` when the component has to be queued as well. It takes the same second
-argument as [`createSpyFromClass`](/core/create-spy-from-class).
+The second argument is the same as for [`createSpyFromClass`](/core/create-spy-from-class). The spy
+is `payments.useValue`.
 
-`overrideAutoSpy` carries no verification of its own — the queue and the `createComponent` wrapper
-belong to `overrideComponentProvider`.
+**Common mistake:** expecting a check. `overrideAutoSpy` does not verify that the override applied;
+only `overrideComponentProvider` does. `overrideProvider(X, provideAutoSpy(X))` also works, but
+`overrideAutoSpy` says what it does.
 
 ## `assertNgModuleScopes(...modules)`
 
-Also exported from this module, and covered in full on the
-[Angular adapter page](/adapters/angular#an-ngmodule-that-contributes-nothing): it fails early when
-an NgModule imported into the TestBed has an empty runtime scope, which under an AOT test bundle
-means `ɵɵsetNgModuleScope` was stripped and the import contributes no directives, components or
-pipes at all.
+Fails early, naming the module, when an `NgModule` you import into `TestBed` brings no components,
+directives or pipes. Use it when a spec imports a module for its declarations and the template
+fails with `NG0303` or `NG0304`.
 
 ```ts
+import { TestBed } from '@angular/core/testing';
+import { assertNgModuleScopes } from 'vitest-auto-spy/angular';
+
 assertNgModuleScopes(DirectivesModule, PipesModule);
 TestBed.configureTestingModule({ imports: [DirectivesModule, PipesModule] });
 ```
 
-Pass only modules you import **for their declarations** — a providers-only module is legitimately
-scope-empty and would be reported as a false positive. The
-[`ngModuleScopes` diagnostic](/adapters/angular-diagnostics#ngmodulescopes) is the automatic form,
-and it filters much harder for exactly that reason.
+Why it happens: the test bundle of `@angular/build:unit-test` is compiled ahead of time (AOT) and
+drops the runtime record of what a module declares. `TestBed` reads that record, so the imported
+module is empty there. Angular then reports it in ways that do not name the module:
+
+```text
+NG0303: Can't bind to 'appTruncate' since it isn't a known property of 'div'
+NG0301: Export of name 'focusable' not found!
+NG0304: 'ui-smart-row' is not a known element
+(or nothing at all — an attribute directive simply never runs)
+```
+
+The fix is to import the components, directives and pipes the spec needs directly, or declare them
+in `TestBed`.
+
+**Common mistake:** passing a providers-only module. It declares nothing on purpose, so it is
+reported too; leave it out of the call. The
+[`ngModuleScopes` diagnostic](/adapters/angular-diagnostics#ngmodulescopes) does the same check for
+every testing module automatically, and skips providers-only modules.
 
 ## `assertComponentDefIntact(...components)`
 
-The other half of the same bundle problem. A component's providers and its compiled scope are
-**baked into `ɵcmp` when the component's module executes** — not read at `createComponent` time. When
-a bundler splits a barrel into a chunk that has not run yet, the definition is built with `undefined`
-in those lists, and Angular discovers it much later, from inside itself:
-
-```text
-TypeError: Cannot read properties of undefined (reading 'provide')
-  ❯ resolveProvider render3/di_setup.ts:95
-```
-
-The stack names neither the barrel, nor the symbol, nor the component. Worse, the spec it breaks is
-usually one nobody touched: chunk boundaries move with file _contents_, so editing a type in a
-neighbouring file is enough to move a symbol across one. Both obvious cures fail for the same reason
-— an `await import()` at the top of `beforeEach` is already too late, and a static import at the top
-of the spec does not fix the order this bundler emits.
+Fails early, naming the component and the list, when a component was compiled with `undefined` in
+its `providers`, `viewProviders` or compiled `imports`. Use it when `createComponent` fails with
+`Cannot read properties of undefined (reading 'provide')` and the stack points into Angular.
 
 ```ts
+import { TestBed } from '@angular/core/testing';
+import { assertComponentDefIntact } from 'vitest-auto-spy/angular';
+
 assertComponentDefIntact(HoverMenuComponent);
 const fixture = TestBed.createComponent(HoverMenuComponent);
 ```
@@ -183,17 +188,21 @@ HoverMenuComponent baked that list in when its file ran, before the chunk holdin
 In HoverMenuComponent's source, import the symbol at that position from its own file rather than through the barrel.
 ```
 
-It walks `providers`, `viewProviders` and `dependencies`, including lists nested inside them and the
-thunk Angular emits for a forward reference. The same call answers the related
-`Cannot read properties of undefined (reading 'ɵcmp')` from `imports: [Cmp]`, where the class
-reference itself is what never arrived — there the message names the argument position instead.
-Directives work too: a type carrying `ɵdir` is checked the same way.
+Why it happens: Angular fixes a component's lists when the component's file runs. If the bundler put
+an imported symbol in a chunk that has not run yet — usually one imported through a barrel
+(`index.ts`) — the list gets `undefined` in its place. Editing a neighbouring file can move chunk
+boundaries, so the spec that breaks is often one nobody touched.
 
-This does not fix the build; that is a bundler configuration question. It replaces a half-hour
-investigation with one line, and points it away from the spec.
+The fix is in the component's source: import that symbol from its own file, not through the barrel.
+Importing it earlier in the spec does not help.
+
+The same call also catches `Cannot read properties of undefined (reading 'ɵcmp')` from
+`imports: [Cmp]`, where the class itself arrived as `undefined`; the message then names the argument
+position. Directives are checked the same way.
 
 ## Related
 
-- [Angular adapter](/adapters/angular) — why a component-level provider beats a module-level one.
-- [Angular diagnostics](/adapters/angular-diagnostics) — the opt-in group, and why this check is not
-  part of it.
+- [Angular](/adapters/angular) — `provideAutoSpy`, `injectSpy` and why a component's own provider
+  wins over a module-level one.
+- [Angular diagnostics](/adapters/angular-diagnostics) — opt-in checks that run on every testing
+  module.

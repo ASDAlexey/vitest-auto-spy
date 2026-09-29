@@ -1,144 +1,265 @@
 ---
 title: Signal forms
-description: createForm and toHaveFieldErrors — Angular's signal forms in a spec, past the injection context that makes form() throw NG0203 and past reading errors() by hand.
+description: createForm builds an Angular signal form inside a test without the NG0203 injection error; toHaveFieldErrors checks a field's validation errors in one line.
 ---
 
 # Signal forms
 
-Signal forms are stable since Angular 22, and a spec that touches one meets the same two things
-every time — an error message about `inject()` that never mentions forms, and an `errors()` array
-that does not compare the way it looks like it should. This entry is those two, and nothing else.
+`vitest-auto-spy/signal-forms` has two helpers for testing Angular signal forms (`form()` from
+`@angular/forms/signals`). `createForm` builds a form in a test, so you can check your validation
+rules without rendering a component. `toHaveFieldErrors` checks which validation errors a field has.
 
 ```ts
-import { minLength, required } from '@angular/forms/signals';
-import { createForm, registerFormMatchers } from 'vitest-auto-spy/signal-forms';
+import { email, minLength, required } from '@angular/forms/signals';
+import { describe, expect, it } from 'vitest';
+import { createForm } from 'vitest-auto-spy/signal-forms';
 
-registerFormMatchers(); // once, in the setup file
+describe('sign-up form', () => {
+  it('checks email and name', () => {
+    const user = createForm({ email: '', name: 'A' }, (path) => {
+      required(path.email);
+      email(path.email);
+      minLength(path.name, 2);
+    });
 
-const user = createForm({ email: '', name: '' }, (path) => {
-  required(path.email, { message: 'Email is required' });
-  minLength(path.name, 2);
+    expect(user.email).toHaveFieldErrors('required');
+    expect(user.name).toHaveFieldErrors('minLength');
+
+    user.email().value.set('not-an-email');
+    expect(user.email).toHaveFieldErrors('email');
+
+    user.email().value.set('ada@example.test');
+    expect(user.email).toHaveFieldErrors([]);
+  });
 });
-
-expect(user.email).toHaveFieldErrors([{ kind: 'required', message: 'Email is required' }]);
-
-user.email().value.set('ada@example.test');
-
-expect(user.email).toHaveFieldErrors([]);
 ```
 
-::: info `@angular/forms` is an optional peer, and this is the only entry that reaches it
-Like `@angular/router` behind [`/angular-router`](./angular-router) and `@angular/common` behind
-[`/angular-http`](./angular-http), the forms peer is paid for by the suites that import this entry.
-`vitest-auto-spy/angular` keeps loading in a project that never installed it. Signal forms need
-Angular 22 or newer; the package's own floor stays at 20.
-:::
+In the example, `user` is the form. `user.email` is its `email` field. Calling a field gives its
+**state**: `user.email()` has `value`, `errors()`, `dirty()` and the rest. `user()` is the state of
+the whole form.
+
+`createForm` uses `TestBed`'s injector, but you do not have to call
+`TestBed.configureTestingModule`. On the `@angular/build:unit-test` builder, `createForm` needs no other setup.
+On a plain `vitest.config.ts`, set up the Angular test environment first, as shown in
+[Installation](/core/installation). Configure `TestBed` only if a validator injects a service.
+
+## Set up the matcher
+
+Add two things to your test setup file: the import, which gives `expect` the `toHaveFieldErrors`
+type, and the `registerFormMatchers()` call, which makes the matcher work at run time:
+
+```ts
+// src/test-setup.ts
+import { registerFormMatchers } from 'vitest-auto-spy/signal-forms';
+
+registerFormMatchers();
+```
+
+List the file in `setupFiles`. With the Angular builder, that is the `test` target in `angular.json`:
+
+```jsonc
+// angular.json → projects.<app>.architect
+"test": {
+  "builder": "@angular/build:unit-test",
+  "options": {
+    "setupFiles": ["src/test-setup.ts"]
+  }
+}
+```
+
+On a plain Vitest config, use `test: { setupFiles: ['src/test-setup.ts'] }` in `vitest.config.ts`.
+
+For the type to reach your specs, TypeScript must compile the setup file too. Add it to
+`tsconfig.spec.json`:
+
+```jsonc
+// tsconfig.spec.json
+"include": ["src/**/*.spec.ts", "src/**/*.d.ts", "src/test-setup.ts"]
+```
+
+**Requirements:** Angular 22 or newer, and `@angular/forms` installed (it is an optional peer
+dependency that only `vitest-auto-spy/signal-forms` needs).
+
+| Import                     | What it gives you                                        |
+| -------------------------- | -------------------------------------------------------- |
+| `createForm`               | a real signal form, built inside `TestBed`'s injector    |
+| `registerFormMatchers`     | adds `expect(field).toHaveFieldErrors(…)` to Vitest      |
+| `CreateFormOptions` (type) | the options object of `createForm`                       |
+| `FieldErrorMatch` (type)   | one expected error: `'required'` or `{ kind, message? }` |
+
+## Error kinds of Angular's validators
+
+`toHaveFieldErrors` matches errors by `kind`. The built-in validators from `@angular/forms/signals`
+use these kinds:
+
+| Validator            | Kind          | On an empty value |
+| -------------------- | ------------- | ----------------- |
+| `required(path)`     | `'required'`  | reports the error |
+| `email(path)`        | `'email'`     | stays silent      |
+| `minLength(path, n)` | `'minLength'` | stays silent      |
+
+So an empty email with `required` and `email` has one error, `required`.
 
 ## The injection context — `createForm`
 
-`form()` injects, so calling it in a `beforeEach` throws:
+`createForm` builds a signal form inside `TestBed`'s injector. Use it to test a form's validation
+rules without rendering a component.
+
+Why you need it: `form()` calls `inject()`. Called directly in a test or a `beforeEach`, it throws an
+error that never mentions forms:
 
 ```
 NG0203: The `Injector` token injection failed. `inject()` function must be called from an injection context…
 ```
 
-Nothing in that message says "form", and the repair is either an options bag
-(`{ injector: TestBed.inject(Injector) }`) or a `TestBed.runInInjectionContext` wrapped around the
-call. Angular's own testing guide calls the isolated schema test the default way to test a form —
-most forms need no rendering at all — so this is the step between a reader and the recommended
-pattern. `createForm` is that step taken.
+`createForm` passes `TestBed`'s injector to `form()` for you.
 
-| Call                                          | Does                                                                   |
-| --------------------------------------------- | ---------------------------------------------------------------------- |
-| `createForm(model, schema?, options?)`        | `form()` in the `TestBed`'s injection context; `model` is a `signal()` |
-| `createForm(initialValue, schema?, options?)` | the same, with the model signal made for you                           |
-| `registerFormMatchers()`                      | adds `expect(field).toHaveFieldErrors(…)` to the runner                |
+```ts
+import { signal } from '@angular/core';
+import { required } from '@angular/forms/signals';
+import { expect, it } from 'vitest';
+import { createForm } from 'vitest-auto-spy/signal-forms';
 
-What comes back is Angular's own `FieldTree`, with nothing wrapped or proxied: the states, the
-validators, the schema and the write-through to the model are the framework's.
+it('writes the typed value into the model', () => {
+  const model = signal({ email: '' });
+  const user = createForm(model, (path) => required(path.email));
 
-Three things to know:
+  user.email().value.set('ada@example.test');
 
-- **The model is the source of truth, both ways.** `form()` writes into the signal it was given, so
-  a spec that passes its own `signal()` can assert on it directly; pass the plain value instead and
-  the signal is made here, because `user().value()` reads it back either way.
-- **A `computed()` is refused by name.** A form writes into its model, and a derived signal cannot
-  take a write — without the check it would be wrapped as a value and every write would vanish
-  silently.
-- **`options.injector` is for the validator that injects.** A schema is a function, so
-  `inject(SomeService)` inside it resolves against whichever injector built the form. Pass
-  `fixture.debugElement.injector` when the service is in a component's own `providers`.
+  expect(model().email).toBe('ada@example.test');
+});
+```
+
+| Call                                          | What it does                                                  |
+| --------------------------------------------- | ------------------------------------------------------------- |
+| `createForm(model, schema?, options?)`        | `form()` inside `TestBed`'s injector; `model` is a `signal()` |
+| `createForm(initialValue, schema?, options?)` | the same, but `createForm` makes the model signal for you     |
+
+| Option     | Type       | Default                    | Meaning                       |
+| ---------- | ---------- | -------------------------- | ----------------------------- |
+| `injector` | `Injector` | `TestBed.inject(Injector)` | the injector `form()` runs in |
+
+The result is Angular's own `FieldTree`, not a wrapper. States, validators, the schema and writes
+into the model all behave exactly as in the app.
+
+- **Pass a `signal()` when you want to check the model.** The form writes every change into that
+  signal. If you pass a plain value, `createForm` creates the signal for you. In both cases,
+  `user().value()` returns the whole model.
+- **A validator that calls `inject()`** gets its services from `TestBed`'s injector. Providers in
+  `TestBed.configureTestingModule` are enough.
+- **Pass `options.injector` when the service is in a component's own `providers`.** Create
+  the component with `TestBed.createComponent`, then pass
+  `{ injector: fixture.debugElement.injector }`.
+
+**Common mistake:** passing a `computed()`, an `input()` or another read-only signal as the model. A
+form writes into its model, so `createForm` throws:
+`[vitest-auto-spy] createForm(): the model is a computed(), which cannot be written, and a form writes back into its model.`
+Pass `signal(initialValue)` or the initial value itself.
 
 ## The errors — `toHaveFieldErrors`
 
-`field().errors()` answers `RequiredValidationError` instances rather than `{ kind, message }`
-objects, and each one carries a `fieldTree` back-reference to the field it came from. So the
-assertion that looks right fails on a property nobody wrote:
+`toHaveFieldErrors` checks that a field has exactly the errors you list: no more, no fewer. It
+compares them by `kind`, and by `message` when you give one. Register it once with `registerFormMatchers()` (see the setup file above).
+
+```ts
+expect(user.email).toHaveFieldErrors(['required']); // exactly these kinds
+expect(user.email).toHaveFieldErrors('required'); // one kind, no array needed
+expect(user.email).toHaveFieldErrors([{ kind: 'minLength', message: 'Too short' }]); // kind and message
+expect(user.email).toHaveFieldErrors([]); // no errors at all
+```
+
+How it compares:
+
+- **The whole list, in any order.** If the field has two errors and you name one, the check fails.
+  The failure prints both sides, for example
+  `expected field 'email' to have required, got email`.
+- **The message only when you name it.** `'required'` still matches after someone edits the error
+  text. Write `{ kind, message }` when the wording matters.
+- **A field or its state.** `expect(user.email)` and `expect(user.email())` are the same check.
+  Any other value throws:
+  `[vitest-auto-spy] toHaveFieldErrors: expected a field of a signal form — form.email or form.email() — received …`
+  instead of passing.
+
+Why not `toEqual`: `errors()` returns objects such as `RequiredValidationError`, not plain
+`{ kind, message }`. Each one also has a `fieldTree` property that points back to its field. So a
+plain `toEqual` fails on a property you never wrote:
 
 ```ts
 expect(user.email().errors()).toEqual([{ kind: 'required' }]); // fails: `fieldTree` is not in the expected object
 ```
 
-What suites write instead is `errors().some((error) => error.kind === 'required')`, which passes
-just as happily when the field has three other errors nobody expected — a validator that started
-firing is invisible to it.
+**Common mistake:** checking one error with
+`errors().some((error) => error.kind === 'required')`. It still passes when the field has three
+other errors you did not expect. Use `toHaveFieldErrors(['required'])`: it fails on extra errors.
 
-```ts
-expect(user.email).toHaveFieldErrors(['required']); // the whole set, by kind
-expect(user.email).toHaveFieldErrors('required'); // one kind needs no array
-expect(user.email).toHaveFieldErrors([{ kind: 'minLength', message: 'Too short' }]); // and its message
-expect(user.email).toHaveFieldErrors([]); // nothing at all
-```
-
-- **The whole set is compared, order-free.** Two errors where the spec named one is a failure, and
-  the message prints both sides by kind.
-- **A message is compared only where the spec names one**, so `'required'` keeps matching after a
-  copy edit, while a spec that cares about the wording says so.
-- **A field tree and its state both read.** `expect(user.email)` and `expect(user.email())` are the
-  same assertion — anything else fails with what it received rather than passing on `undefined`.
-- **Register it once**, in the setup file, next to
-  [`registerSignalMatchers()`](./angular#asserting-a-signal). The two are separate calls because this
-  one's types reach `@angular/forms` and the other's must not.
+For form fields, `registerFormMatchers()` is all you need. Matchers for plain signals come from a
+different call, [`registerSignalMatchers()`](./angular#asserting-a-signal); add it only if you also
+check plain signals.
 
 ## A form the component owns
 
-The other half of a real suite: the component builds the form itself, so the spec drives it through
-the component rather than building one.
+When the component builds the form itself, test it through the component. You do not need
+`createForm` here, because the component already built the form in its own injection context. The
+matcher still works on the component's fields.
 
 ```ts
-const fixture = TestBed.createComponent(ReviewFormComponent);
+import { TestBed } from '@angular/core/testing';
+import { expect, it } from 'vitest';
+import { stable } from 'vitest-auto-spy/angular';
 
-fixture.componentInstance.form.tags().value.set([tag]);
+import { ReviewFormComponent } from './review-form.component';
 
-await stable(fixture);
+it('accepts a tag', async () => {
+  const fixture = TestBed.createComponent(ReviewFormComponent);
 
-expect(fixture.componentInstance.form.tags).toHaveFieldErrors([]);
-expect(fixture.componentInstance.form.tags().dirty()).toBe(true);
+  fixture.componentInstance.form.tags().value.set(['angular']);
+
+  await stable(fixture);
+
+  expect(fixture.componentInstance.form.tags).toHaveFieldErrors([]);
+  expect(fixture.componentInstance.form.tags().dirty()).toBe(true);
+});
 ```
 
-`createForm` has nothing to add there — the component already built the form in its own injection
-context — but the matcher does, and so does
-[`setInputs`](./angular#changing-an-input-mid-test) for the inputs the
-form reacts to.
+If the form reacts to component inputs, change them with
+[`setInputs`](./angular#changing-an-input-mid-test).
 
 ## Custom controls
 
-A component implementing `FormValueControl<T>` or `FormCheckboxControl` is a plain component: the
-contract is `value = model<T>()` plus whatever state inputs it reads. No double is needed, and none
-is shipped — it is `renderShallow` and `setInputs`:
+A custom control implements `FormValueControl<T>` or `FormCheckboxControl`. It is an ordinary
+component: a `value = model<T>()` plus any state inputs it reads. You need no special helper; render
+it with `renderShallow` and change its inputs with `setInputs`:
 
 ```ts
-const fixture = renderShallow(PublishCheckboxComponent, { inputs: { label: 'Published' } });
+import { expect, it } from 'vitest';
+import { renderShallow, setInputs } from 'vitest-auto-spy/angular';
 
-await setInputs(fixture, { value: true });
+import { PublishCheckboxComponent } from './publish-checkbox.component';
 
-expect(fixture.componentInstance.value()).toBe(true);
+it('takes a value', async () => {
+  const fixture = renderShallow(PublishCheckboxComponent, { inputs: { label: 'Published' } });
+
+  await setInputs(fixture, { value: true });
+
+  expect(fixture.componentInstance.value()).toBe(true);
+});
 ```
 
-::: info There is no `FieldTree` double here, on purpose
-A double would stand in for a form a component receives as an input — and across the suites this
-package is measured against, no component takes one: forms are built by the component that owns
-them, and controls take a `value` model instead. A double for a shape nobody writes is a shape
-nobody tests. If yours is different, the issue tracker is the place — measured shapes are what this
-package ships.
-:::
+## In depth
+
+**Why test the schema without rendering.** Angular's own testing guide recommends the isolated
+schema test as the default way to test a form; most forms need no rendering. Without `createForm`,
+you would pass `{ injector: TestBed.inject(Injector) }` to `form()` yourself, or wrap the call in
+`TestBed.runInInjectionContext`.
+
+**Why `registerFormMatchers()` is a separate call.** Its types need `@angular/forms`, and
+`registerSignalMatchers()` must work in projects without it.
+
+**Why a `computed()` is refused.** A derived signal cannot take a write. Without the check,
+`createForm` would treat it as a plain value, and every write from the form would be lost without an
+error.
+
+**Why there is no `FieldTree` stand-in.** A stand-in for a form would only help a component that
+receives a form as an input. In the Angular projects this package is tested against, no component
+does that: the component that owns a form builds it, and controls take a `value` model. If your
+project passes forms as inputs, open an issue.

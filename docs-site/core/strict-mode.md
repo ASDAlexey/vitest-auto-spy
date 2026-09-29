@@ -1,187 +1,42 @@
 ---
 title: Strict mode
-description: strict and onUnstubbedCall — fail on a method nobody configured, naming the class, the method and the arguments instead of returning undefined.
+description: strict and onUnstubbedCall - a spy method nobody configured throws and names the class, the method and the arguments, instead of returning undefined.
 ---
 
 # Strict mode
 
-A double answers every method it has. A method nobody configured answers `undefined` — which is a
-legal value, so nothing fails there. It fails wherever `undefined` is finally used, which on a wide
-collaborator is several frames away and in a different file:
+With `strict: true`, a spy method that the test never configured throws when it is called, instead of
+returning `undefined`. Turn it on when a test fails far from the real cause, or passes on an empty
+answer.
 
 ```ts
-const users = createSpyFromClass(UserService); // 40 methods
+import { createSpyFromClass } from 'vitest-auto-spy';
 
-users.load.resolveWith([]); // one configured
-// … the component under test also calls users.currentTenant()
-// TypeError: Cannot read properties of undefined (reading 'id')   ← in production code
-```
-
-The only tool for this before was
-[`onlyMethodsToSpyOn`](/core/create-spy-from-class#configuration), and it answers a different
-question: it _removes_ every method not on the list, so the failure reads
-`users.currentTenant is not a function` and blames the spy rather than the spec. Strict mode leaves
-the method in place and makes the omission say so:
-
-```ts
 const users = createSpyFromClass(UserService, { strict: true });
 
-users.load.resolveWith([]);
-users.currentTenant(); // throws, on the line that called it
+users.load.resolveWith([]); // configured
+users.currentTenant(); // throws: UserService.currentTenant() was called; this strict double has nothing configured for it.
 ```
 
-## The message
+Without `strict`, `users.currentTenant()` returns `undefined`. The code under test then fails a few
+calls later, in another file: `TypeError: Cannot read properties of undefined (reading 'id')`. Strict
+mode moves the failure to the line that made the call and names the method you forgot.
 
-Verbatim, from a `Cart` whose `checkout(id, when)` nothing configured, called from `cart.component.ts`:
+"Configured" means the test told the method what to answer: `resolveWith`, `calledWith`, the `returns`
+option and so on. The full list is in [What counts as configured](#what-counts-as-configured).
 
-```
-[vitest-auto-spy] Cart.checkout(1, 'now') was called; this strict double has nothing configured for it.
-Called from src/app/cart.component.ts:41:12
-Configure it in the test: cart.checkout.calledWith(1, 'now').mockReturnValue(…) for these arguments, or .mockReturnValue(…) for any — .resolveWith(…) / .nextWith(…) when it returns a Promise / Observable.
-Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#the-message
-```
-
-It prints the call, not just the name, because on a wide service the same method is called several
-times with different arguments and _which_ call is half the diagnosis. `Called from` is the first
-frame of the calling code — past the double, the library and anything under `node_modules` — with
-the path relative to the project root; a call with no such frame on the stack leaves the line out. The
-suggested `calledWith(…)` repeats the arguments of the call, so it can be pasted as it stands; a
-no-argument call suggests `.mockReturnValue(…)` alone. The name in front of it (`cart`) is the class
-name in lower camel case, a guess at the variable a spec holds the double in; a double whose name is
-not an identifier gets `double`.
-
-Plain data prints in full up to 200 characters per argument; a class instance or a DOM node prints as
-its class — `[HTMLDivElement]`, `[Session]` — because rendering one in full walks everything it can
-reach, and a run with hundreds of strict failures could take a worker's heap through the message
-strings alone.
-
-**A double built from a type has no class to name**, so it is named by the line that built it —
-`createAutoMock(users.spec.ts:12).getName(1) was called` — which is what keeps two unnamed
-doubles of one file apart. A `name` replaces that:
-`createAutoMock<T>(undefined, { strict: true, name: 'USERS' })`, and `provideAutoSpyForToken` passes the
-token's description on its own (`InjectionToken CAROUSEL_RESIZE_OBSERVER.observe(…) was called`).
-The **fully abstract class** fallback in `createSpyFromClass`, which hands back the same type-driven
-proxy when the prototype named nothing, carries the class name into it — `Storage.read('k') was
-called` — along with strict mode: a DI token whose members are all `abstract` is exactly the
-wide-collaborator shape this exists for.
-
-## What counts as configured
-
-Anything that configures the method **at all**. The guard is a question about the _method_, asked
-once per call before any argument matching happens:
-
-| Configured by                                                                 | Reaches the guard |
-| ----------------------------------------------------------------------------- | ----------------- |
-| `calledWith(…)` / `mustBeCalledWith(…)` — **any** chain, any arguments        | no                |
-| `resolveWith` / `rejectWith` / `resolveWithPerCall`                           | no                |
-| `nextWith` / `throwWith` / `complete` / `returnSubject`                       | no                |
-| the `returns:` option — a default in the spy's own container                  | no                |
-| `mockReturnValue` / `mockImplementation` — the host runner's own              | never — see below |
-| `overrides` on `createAutoMock` — a seed, no longer a spy                     | never — see below |
-| a function in `overrides` for a `createSpyFromClass` method — the spy runs it | no                |
-| nothing                                                                       | **yes**           |
-
-The non-obvious half is the fifth and sixth rows. `mockReturnValue` and `mockImplementation` do
-not _register_ configuration — they **replace the library's dispatch** on the host mock. A spy
-configured that way never runs the code the guard lives in, so it is not that strict mode makes an
-exception for them; there is nothing to make an exception in. It also means a `calledWith` added
-after them is never consulted.
-
-`vi.when` (Vitest 5) is the exception that is not one. It reads the spy's implementation and wraps
-it: the calls it has a row for get its answer, every other call reaches the library's dispatch, so a
-`calledWith` on the same method keeps deciding — in either order, with no warning. After
-`vi.when(spy)[Symbol.dispose]()` or `mockReset()` the dispatch answers alone again. A `vi.when` over a
-`mockReturnValue` is still reported: the `mockReturnValue` had already replaced the dispatch.
-`vi.when(spy, { onUnmatched: 'throw' })` is the per-method counterpart of `strict: true`.
-
-That has one visible edge. `mockReturnValueOnce` installs a one-shot implementation that is
-_shifted off a queue_, and Vitest falls back to the standing implementation — the library dispatch —
-once the queue is empty. So the call after the last `Once` reaches the guard and is reported as
-unstubbed:
-
-```ts
-const cart = createSpyFromClass(Cart, { strict: true });
-
-cart.total.mockReturnValueOnce(5);
-cart.total(); // 5
-cart.total(); // throws: Cart.total() was called; this strict double has nothing configured for it.
-```
-
-Seed the standing value too (`cart.total.mockReturnValue(0)`) when a `Once` sequence is meant to run
-out.
-
-`returns:` is different since it stopped doing the same: the value is the spy's default, so a
-`calledWith` configured later wins for its arguments, a later `resolveWith` or `failWith` replaces
-it, and `returns: { save: undefined }` is how a `void` call is declared expected.
-
-The same `undefined` reaches a defensive branch — `camera.translate(…) ?? of(null)` — on a method
-typed to return an `Observable`, where `mockReturnValue(undefined)` is a type error. `returns` takes
-it for any method; after construction, `camera.translate.mockReturnValue(outOfType(undefined))` says
-at the call that the value is outside the type on purpose. Both count as configured, so the double
-can stay strict.
-
-A reset puts the method back to unconfigured, so the guard fires again after `resetAutoSpy(users)`
-or at the end of a [`using` block](./create-spy-from-class#using) —
-which is the correct answer, not a wrinkle: the configuration really is gone.
-
-## What it deliberately does not do
-
-**A `calledWith` chain configured for other arguments does not trip it.**
-
-```ts
-const cart = createSpyFromClass(Cart, { strict: true });
-
-cart.checkout.calledWith(1, 'now').mockReturnValue('one');
-
-cart.checkout(9, 'later'); // undefined — no throw
-```
-
-`calledWith(1, 'now')` is a statement that this method is stubbed. Argument-level strictness already
-has a name — [`mustBeCalledWith`](./control-helpers#what-a-mustbecalledwith-failure-prints), which
-throws printing wanted next to actual. Making `strict` throw on an argument miss would silently
-reclassify every existing `calledWith` in a suite into `mustBeCalledWith`, and print a worse message
-than the tool that already does that job. Strict mode answers _"nobody configured this method"_,
-never _"nobody configured this call"_.
-
-**Angular's lifecycle hooks never trip it.** `ngOnDestroy`, `ngOnInit`, `ngOnChanges`, `ngDoCheck` and
-the four `ngAfter…` hooks answer `undefined` on a strict double, configured or not. Angular calls
-`ngOnDestroy` itself on every provided value that has one when the testing module is torn down — a
-`createAutoMock` proxy has every member, so a token double always does — and no spec asked for that
-call. Throwing there broke the teardown, which skipped every `afterEach` after it and failed the tests
-that followed; under a suite-wide `strict: true` that was hundreds of failures from one source. The
-calls are still recorded: `expect(double.ngOnDestroy).toHaveBeenCalled()` works.
-
-## `onUnstubbedCall` — the general form
-
-`strict: true` is sugar for a handler that throws. The handler itself is the option, and whatever it
-returns becomes the call's return value:
-
-```ts
-type UnstubbedCallHandler = (call: { className: string | undefined; method: string; args: unknown[] }) => unknown;
-```
-
-Two uses earn it. **Record, don't fail** — for finding out how big the gap is before turning the
-throw on across a suite:
-
-```ts
-const unstubbed: string[] = [];
-
-const users = createSpyFromClass(UserService, {
-  onUnstubbedCall: ({ className, method }) => void unstubbed.push(`${className}.${method}`),
-});
-```
-
-And a **blanket fallback value**, which is `vitest-mock-extended`'s `fallbackMockImplementation`
-under another name:
-
-```ts
-createAutoMock<Api>(undefined, { onUnstubbedCall: () => null }); // never undefined, never a throw
-```
-
-`className` on a type-driven double is the same name the message prints: its `name`, or
-`createAutoMock(file:line)` for one given none.
+| Option                 | Where                       | Type                                             | Default                                     | Meaning                                                          |
+| ---------------------- | --------------------------- | ------------------------------------------------ | ------------------------------------------- | ---------------------------------------------------------------- |
+| `strict`               | any factory, `setupAutoSpy` | `boolean` (`setupAutoSpy` also takes `'survey'`) | `false`                                     | an unconfigured call throws                                      |
+| `onUnstubbedCall`      | any factory, `setupAutoSpy` | `({ className, method, args }) => unknown`       | none                                        | runs instead of returning `undefined`; its result is the answer  |
+| `name`                 | `createAutoMock`            | `string`                                         | none                                        | the name the message prints for a spy built from a type          |
+| `swallowedStrictCalls` | `setupAutoSpy`              | `'throw' \| 'warn' \| 'off'`                     | `'throw'` with `strict: true`, else `'off'` | fail a test whose strict throw was caught by the code under test |
+| `unconfiguredReads`    | `setupAutoSpy`              | `'off' \| 'warn' \| 'throw'`                     | `'off'`                                     | report getters read and streams never fed on a strict spy        |
+| `onUnstubbedRead`      | any factory, `setupAutoSpy` | `({ className, member, kind, count }) => void`   | none                                        | receive those reads instead of the report                        |
 
 ## Turning it on for a whole suite
+
+Add one line to the setup file. Every spy created after it is strict.
 
 ```ts
 // vitest.setup.ts
@@ -190,94 +45,265 @@ import { setupAutoSpy } from 'vitest-auto-spy/setup';
 setupAutoSpy({ strict: true });
 ```
 
-Every double built afterwards is strict, so adopting it is one line rather than an edit per factory
-call. The default is armed only when the option is actually passed, and released in `afterAll` of the
-file that armed it — under `isolate: false` the module holding it is shared by every file in the
-worker, and a default left armed would fail a spec that never opted in. See
-[Test-run hygiene → strict doubles](/utilities/setup#_10-strict-doubles-for-the-whole-suite).
+The setup file is the one listed in `test.setupFiles` of `vitest.config.ts`; see
+[Installation](./installation).
 
-Before switching it on, `setupAutoSpy({ strict: 'survey' })` — or `VITEST_AUTO_SPY_STRICT=survey` for
-one run — counts every call strict mode would refuse instead of throwing, and prints each file's list
-when the file is over.
+- **Try it first.** `setupAutoSpy({ strict: 'survey' })` throws nothing. It counts every call strict
+  mode would refuse and prints the list at the end of each file. For one run without editing the file,
+  set `VITEST_AUTO_SPY_STRICT=survey` (`true`/`1` and `false`/`0` also work).
+- **Exempt one spy** with `strict: false` on that spy: `createSpyFromClass(Cart, { strict: false })`.
+- **The setting stays in its file.** `setupAutoSpy` turns the default on only when you pass the option,
+  and turns it off in `afterAll` of the file that turned it on. With `isolate: false` several files
+  share one module, so a default left on would fail a spec that never asked for it.
+
+More setup switches: [Test-run hygiene → strict doubles](/utilities/setup#_10-strict-doubles-for-the-whole-suite).
 
 ### A throw that never reached the test
 
-A strict throw is only as loud as the code between it and the test. A `try`/`catch` in the code
-under test turns it into that code's error branch; an RxJS operator with no error handler rethrows
-it through a `setTimeout` that a fake clock never runs. Either way the test goes on without the
-answer it depended on, and may well pass.
+The code under test can swallow a strict throw. A `try`/`catch` turns it into an error branch. An RxJS
+operator without an error handler rethrows it inside a `setTimeout`, and a fake clock never runs that
+timer. The test then goes on without the answer it needed, and may pass.
 
-So `setupAutoSpy({ strict: true })` also records every strict throw and, after each test, fails the
-test with the ones the runner was never told about (`swallowedStrictCalls`: `'throw'` by default
-with `strict: true` and the strict preset, `'warn'`, `'off'`). A test that provokes one on purpose
-takes it, which doubles as the assertion:
+So `setupAutoSpy({ strict: true })` records every strict throw. After each test it fails the test with
+the throws the runner never saw. The option is `swallowedStrictCalls`: `'throw'` (the default with
+`strict: true` and the strict preset), `'warn'` or `'off'`.
+
+If a test triggers a strict throw on purpose, take it with `takeStrictViolations()`. That also works
+as an assertion:
 
 ```ts
+import { takeStrictViolations } from 'vitest-auto-spy/setup';
+
 expect(() => cart.total()).toThrow('Cart.total() was called');
-expect(takeStrictViolations()).toHaveLength(1); // from 'vitest-auto-spy/setup'
+expect(takeStrictViolations()).toHaveLength(1);
 ```
 
 ### Precedence
 
-Most specific first, and the resolution stops at the first one that is set:
+The most specific setting wins. The library checks them in this order and stops at the first one that
+is set:
 
-1. the double's own `onUnstubbedCall`
-2. the double's explicit **`strict: false`** — the only way to exempt one collaborator from a
-   suite-wide default, whether that default is `strict: true` or a handler
+1. the spy's own `onUnstubbedCall`
+2. the spy's own `strict: false` (the only way to exempt one spy from a suite-wide default)
 3. the global `onUnstubbedCall` from `setupAutoSpy`
-4. the double's own `strict: true`
+4. the spy's own `strict: true`
 5. the global `strict`
 
 ```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
 setupAutoSpy({ strict: true });
 
 createSpyFromClass(Cart).total(); // throws
-createSpyFromClass(Cart, { strict: false }).total(); // undefined — opted out
+createSpyFromClass(Cart, { strict: false }).total(); // undefined: this spy opted out
 ```
 
-A handler beats `strict: true` at every level, so `{ strict: true, onUnstubbedCall: record }` on one
-double records and does not throw; `strict: false` beats every handler but the double's own.
+In short: a handler, global or the spy's own, always beats `strict: true`. So
+`{ strict: true, onUnstubbedCall: record }` on one spy records the call and does not throw. The spy's
+own `strict: false` beats the global handler.
 
 ### `passthrough` sits above all five {#passthrough}
 
 [`createSpyFromInstance(obj, { passthrough: true })`](./create-spy-from-class#passthrough) gives an
-unconfigured call a third answer: run the real method. For every member that has a real method it
-wins over the whole list above — a suite-wide `strict: true`, a global handler, a strict
-`registerAutoSpyDefaults` for the class. The alternative is a suite that turns strict on and silently
-turns every passthrough double into a throwing one.
+unconfigured call a third answer: run the real method. For every member with a real method,
+`passthrough` wins over the whole list above. That includes a suite-wide `strict: true`, a global
+handler and a strict `registerAutoSpyDefaults` for the class. Otherwise turning strict on for a suite
+would silently turn every passthrough spy into a throwing one.
 
 ```ts
+import { createSpyFromInstance } from 'vitest-auto-spy';
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
 setupAutoSpy({ strict: true });
 
 createSpyFromInstance(new Cart(), { passthrough: true }).total(); // the real total
 createSpyFromInstance(new Cart()).total(); // throws: Cart.total() was called; …
 ```
 
-Two things keep it from overriding anything silently:
+Two rules keep this explicit:
 
-- **Naming both on one call throws.** `{ passthrough: true, strict: true }` and
-  `{ passthrough: true, onUnstubbedCall }` are refused when the double is built: each decides what
-  an unconfigured call does, so one of them would be dead configuration. `strict: false` beside it
-  is fine — it says the same thing.
-- **A member with nothing real behind it stays under the list.** A name from `methodsToSpyOn` that
-  the object does not carry has no real method to run, so the suite-wide `strict` still throws for
-  it.
+- **You cannot combine them on one call.** `{ passthrough: true, strict: true }` and
+  `{ passthrough: true, onUnstubbedCall }` throw when the spy is created. Both decide what an
+  unconfigured call does, so one of them would never run. `strict: false` next to `passthrough` is
+  fine: it says the same thing.
+- **A member with no real method stays strict.** A name from `methodsToSpyOn` that the object does not
+  have has nothing to run, so a suite-wide `strict` still throws for it.
+
+## The message
+
+This is the exact text for a `Cart` whose `checkout(id, when)` nobody configured, called from
+`cart.component.ts`:
+
+```
+[vitest-auto-spy] Cart.checkout(1, 'now') was called; this strict double has nothing configured for it.
+Called from src/app/cart.component.ts:41:12
+Configure it in the test: cart.checkout.calledWith(1, 'now').mockReturnValue(…) for these arguments, or .mockReturnValue(…) for any — .resolveWith(…) / .nextWith(…) when it returns a Promise / Observable.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#the-message
+```
+
+How to read it:
+
+- **The first line shows the whole call with its arguments.** A service often calls one method several
+  times, and the arguments tell you which call is missing.
+- **`Called from`** is the first line of your code on the stack. It skips the spy, the library and
+  `node_modules`, and the path is relative to the project root. If there is no such line, the message
+  leaves it out.
+- **The suggested `calledWith(…)` repeats the call's arguments**, so you can paste it as it is. A call
+  without arguments suggests only `.mockReturnValue(…)`.
+- **`cart` is a guess at your variable name**: the class name in lower camel case. If the class name
+  is not a valid identifier, the message says `double`.
+
+Plain data prints in full, up to 200 characters per argument. A class instance or a DOM node prints as
+its class name: `[HTMLDivElement]`, `[Session]`. Printing such objects in full could run a worker out
+of memory when a run has hundreds of strict failures.
+
+**A spy built from a type has no class name.** It is named after the line that created it:
+`createAutoMock(users.spec.ts:12).getName(1) was called`. That keeps two unnamed spies in one file
+apart. To choose the name yourself, pass `name`:
+
+```ts
+import { createAutoMock } from 'vitest-auto-spy';
+
+const users = createAutoMock<UserApi>(undefined, { strict: true, name: 'USERS' });
+```
+
+`provideAutoSpyForToken` uses the token's description on its own:
+`InjectionToken CAROUSEL_RESIZE_OBSERVER.observe(…) was called`.
+
+`createSpyFromClass` on a **fully abstract class** (a class whose members are all `abstract`) builds the
+spy from the type instead. It still prints the class name, `Storage.read('k') was called`, and it
+still supports strict mode.
+
+## What counts as configured
+
+A method counts as configured if the test configured it **in any way**. The check asks about the
+method, not about the arguments, and runs before any argument matching.
+
+| Configured by                                                                 | Unconfigured-call check runs |
+| ----------------------------------------------------------------------------- | ---------------------------- |
+| `calledWith(…)` / `mustBeCalledWith(…)`: **any** chain, any arguments         | no                           |
+| `resolveWith` / `rejectWith` / `resolveWithPerCall`                           | no                           |
+| `nextWith` / `throwWith` / `complete` / `returnSubject`                       | no                           |
+| the `returns:` option (a default stored in the spy)                           | no                           |
+| the `selfReturning:` / `returnsUndefined:` lists (the same kind of default)   | no                           |
+| `mockReturnValue` / `mockImplementation` from your test runner                | never runs (see below)       |
+| `overrides` on `createAutoMock` (the member is a plain value, not a spy)      | never runs (see below)       |
+| a function in `overrides` for a `createSpyFromClass` method (the spy runs it) | no                           |
+| nothing                                                                       | **yes**                      |
+
+**`mockReturnValue` and `mockImplementation` replace the library's own handling of the call.** The
+check lives in that handling, so strict mode never fires for that method. A `calledWith` added to the
+same method afterwards is ignored too.
+
+**`vi.when` (Vitest 5) works together with the library.** It wraps the spy's implementation: calls that
+match a `vi.when` row get its answer, and every other call reaches the library. So a `calledWith` on
+the same method keeps working, in either order, with no warning. After `vi.when(spy)[Symbol.dispose]()`
+or `mockReset()`, the library answers alone again. A `vi.when` on top of a `mockReturnValue` is still
+reported, because the `mockReturnValue` already replaced the library's handling.
+`vi.when(spy, { onUnmatched: 'throw' })` is the per-method version of `strict: true`.
+
+**Common mistake:** a `mockReturnValueOnce` sequence that runs out. Each `Once` value is used once.
+When the queue is empty, the next call reaches the check and throws:
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+const cart = createSpyFromClass(Cart, { strict: true });
+
+cart.total.mockReturnValueOnce(5);
+cart.total(); // 5
+cart.total(); // throws: Cart.total() was called; this strict double has nothing configured for it.
+```
+
+If the sequence is meant to run out, also set a standing value: `cart.total.mockReturnValue(0)`.
+
+`returns:` sets a default. A later `calledWith` wins for its arguments, and a later `resolveWith` or
+`failWith` replaces the default. To say that a `void` call is expected, write
+`returns: { save: undefined }`.
+
+Sometimes the code under test has a defensive branch for `undefined`, such as
+`camera.translate(…) ?? of(null)`, on a method typed to return an `Observable`.
+`mockReturnValue(undefined)` is a type error there. Use `returns: { translate: undefined }`, or after
+creation `camera.translate.mockReturnValue(outOfType(undefined))`, which marks the value as outside
+the type on purpose. Both count as configured, so the spy can stay strict.
+
+A reset makes the method unconfigured again. After `resetAutoSpy(users)`, or at the end of a
+[`using` block](./create-spy-from-class#using), the check fires again, because the configuration is
+really gone.
+
+## What it deliberately does not do
+
+**A `calledWith` for other arguments does not make it throw.**
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+const cart = createSpyFromClass(Cart, { strict: true });
+
+cart.checkout.calledWith(1, 'now').mockReturnValue('one');
+
+cart.checkout(9, 'later'); // undefined, no throw
+```
+
+Strict mode answers "nobody configured this method", not "nobody configured this call". To fail on
+unexpected arguments, use [`mustBeCalledWith`](./control-helpers#what-a-mustbecalledwith-failure-prints):
+it throws and prints the expected arguments next to the actual ones.
+
+**Angular lifecycle hooks never throw.** `ngOnInit`, `ngOnChanges`, `ngDoCheck`, `ngOnDestroy` and the
+four `ngAfter…` hooks answer `undefined` on a strict spy, configured or not. Angular calls `ngOnDestroy`
+itself on every provided value when `TestBed` is torn down, and no test asked for that call. A throw
+there would break the teardown and fail the tests that follow. The calls are still recorded, so
+`expect(spy.ngOnDestroy).toHaveBeenCalled()` works.
+
+## `onUnstubbedCall` — the general form
+
+`strict: true` is a shortcut for a handler that throws. With `onUnstubbedCall` you write the handler
+yourself. Whatever it returns becomes the call's return value.
+
+```ts
+type UnstubbedCallHandler = (call: { className: string | undefined; method: string; args: unknown[] }) => unknown;
+```
+
+**Record instead of failing.** Use this to see how many calls are unconfigured before you turn strict
+on for a whole suite:
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+const unstubbed: string[] = [];
+
+const users = createSpyFromClass(UserService, {
+  onUnstubbedCall: ({ className, method }) => void unstubbed.push(`${className}.${method}`),
+});
+```
+
+**Return one fallback value for every unconfigured call** (the same idea as `fallbackMockImplementation`
+in `vitest-mock-extended`):
+
+```ts
+import { createAutoMock } from 'vitest-auto-spy';
+
+createAutoMock<Api>(undefined, { onUnstubbedCall: () => null }); // never undefined, never a throw
+```
+
+For a spy built from a type, `className` is the name the message prints: its `name`, or
+`createAutoMock(file:line)` if it has none.
 
 ## Reads nobody configured
 
-The guard above fires on a **call**. A strict double's spied getter nobody configured still answers
-`undefined`, and its observable property nobody fed is a stream that never emits — the same class of
-failure strict mode exists for, since the code under test goes down its "no data" branch and the test
-stays green. A registration makes it common: `registerAutoSpyDefaults(Router, { gettersToSpyOn: ['url'],
-observablePropsToSpyOn: ['events'] })` puts both members on every `Router` double in the suite, and on
-a consumer suite of ~1 760 spec files 77 of the 119 files doubling `Router` never configured `url` and
-100 never fed `events`.
+The check above runs on a **call**. Two kinds of member on a strict spy are not calls:
 
-A read cannot throw where it happens: when a double lands in a failure diff the formatter reads it, and
-a throw there would break the message it belongs to. So reads are counted while the test runs and
-reported after it:
+- a spied getter (from `gettersToSpyOn`) that nobody configured still answers `undefined`;
+- an observable property (from `observablePropsToSpyOn`) that nobody fed is a stream that never emits.
+
+Both let the code under test take its "no data" branch while the test stays green. A read cannot throw
+on the spot: when a spy appears in a failure diff, the diff reads its getters, and a throw there would
+break the message. So `setupAutoSpy` counts such reads during the test and reports them after it:
 
 ```ts
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
 setupAutoSpy({ strict: true, unconfiguredReads: 'throw' }); // 'off' (default) | 'warn' | 'throw'
 ```
 
@@ -289,20 +315,30 @@ Feed it in the test: events.nextWith(…), or seed overrides: { events: new Subj
 Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#reads-nobody-configured
 ```
 
-- **What counts.** A read of a getter from `gettersToSpyOn` / `settersToSpyOn` / `autoSpyAccessors`
-  that reached the scaffold nothing replaced, and a subscription to an `observablePropsToSpyOn` stream
-  that nothing had fed **by the end of the test** — subscribing in `beforeEach` and calling `nextWith`
-  in the test is the ordinary way to drive a stream and is not a finding. A getter read is judged
-  when it happens: configuring the getter after the code under test read it does not take the read
-  back.
-- **When.** From `setupAutoSpy`'s `beforeEach`, which runs before any hook of the spec file, to its
-  `afterEach`, which runs after them. The spec's own `beforeEach` is inside on purpose — that is where
-  most suites run the code under test — and collection, `beforeAll` and `afterAll` are outside.
-- **Under `test.concurrent`.** Each concurrent test keeps its own window, so a neighbour starting
-  can no longer clear what another has read. A read carries nothing that says which test made it:
-  one made while only one test was in flight is charged to that test, and one made while several
-  were waits for the last of them, is judged once — a stream any of them fed by then is not a
-  finding — and names them all:
+The details:
+
+- **What counts.** A read of a getter from `gettersToSpyOn`, `settersToSpyOn` or `autoSpyAccessors`
+  that nothing configured. A subscription to an `observablePropsToSpyOn` stream that nothing fed **by
+  the end of the test**. Subscribing in `beforeEach` and calling `nextWith` in the test is normal and is
+  not reported. A getter read is judged when it happens: configuring the getter after the code read it
+  does not undo the read.
+- **When.** From the `beforeEach` of `setupAutoSpy`, which runs before the spec's own hooks, to its
+  `afterEach`, which runs after them. The spec's own `beforeEach` is included, because many tests run
+  the code under test there. Test collection, `beforeAll` and `afterAll` are not included.
+- **How to configure a getter:** `accessorSpies.getters.x.mockReturnValue(…)` or
+  `mockImplementation(…)`, `overrides: { x: … }` (at the call or in a `registerAutoSpyDefaults` entry),
+  or `mockReadonlyProp(spy, 'x', …)`. A `mockReturnValueOnce` counts until its queue runs out. If
+  `undefined` is the answer you mean, say so: `accessorSpies.getters.x.mockReturnValue(undefined)`.
+- **How to feed a stream:** `nextWith`, `nextOneTimeWith`, `nextWithValues` with at least one value,
+  `throwWith`, `complete`, `returnSubject`, or a real stream in `overrides`. Listing a member in a
+  registered default configures nothing by itself.
+- **Which spies.** Strict ones (`strict: true` on the spy or for the whole suite) built by
+  `createSpyFromClass`, `provideAutoSpy`, `createSpyFromInstance`, and, for their observable
+  properties, `createAutoMock` and `provideAutoSpyForToken`. `strict: false` on a spy exempts it.
+  `mockDeep` nodes are not covered ([Where it does not reach](#where-it-does-not-reach)).
+- **Under `test.concurrent`.** Each concurrent test has its own window. A read does not say which test
+  made it. A read made while only one test was running is charged to that test. A read made while
+  several were running waits for the last of them, is judged once, and names all of them:
 
   ```text
   [vitest-auto-spy] Router.url was read 1 time on a strict double and nothing configured it, so the code under test got undefined.
@@ -310,26 +346,20 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#reads-nobody-
   It happened while 2 concurrent tests were in flight ("Cart > loads", "Cart > saves"), and a read does not say which test made it; it is reported once, as the last of them finishes.
   ```
 
-  Under `'throw'` it is the last of them to finish that fails.
+  Under `'throw'`, the last of those tests to finish is the one that fails.
 
-- **Configured by** `accessorSpies.getters.x.mockReturnValue(…)` / `mockImplementation(…)` (a
-  `mockReturnValueOnce` counts until its queue runs out, as for a method), `overrides: { x: … }` — on
-  the call site or in a `registerAutoSpyDefaults` row — and `mockReadonlyProp(double, 'x', …)`; a
-  stream by `nextWith`, `nextOneTimeWith`, `nextWithValues` with at least one entry, `throwWith`,
-  `complete`, `returnSubject`, or a real stream seeded through `overrides`. A registered _list_ alone
-  configures nothing. `undefined` meant as the answer is said out loud, like `returns: { save:
-undefined }` for a method: `accessorSpies.getters.x.mockReturnValue(undefined)`.
-- **Which doubles.** Strict ones — `strict: true` on the double or suite-wide — built by
-  `createSpyFromClass`, `provideAutoSpy`, `createSpyFromInstance`, and `createAutoMock` /
-  `provideAutoSpyForToken` for their observable properties. `strict: false` on a double exempts it.
-  `mockDeep` nodes are not covered, for the reason [below](#where-it-does-not-reach).
-- **Not in `preset: 'strict'`.** It extends `strict` — a decision about how a suite writes its
-  doubles — rather than grading a report of something already broken, and turning it on across an
-  existing suite is a survey first.
+- **Not part of `preset: 'strict'`.** It extends `strict` itself, and on an existing suite you should
+  survey first (next section).
 
 ### Surveying first — `onUnstubbedRead`
 
+`onUnstubbedRead` receives the same findings the report would print, instead of the report. It sees
+every spy not built with `strict: false`, strict or not, so the numbers predict what the report will
+fail once you turn it on.
+
 ```ts
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
 const unread = new Map<string, number>();
 
 setupAutoSpy({
@@ -341,42 +371,54 @@ setupAutoSpy({
 });
 ```
 
-The handler receives exactly what the report would print, from **every** double not built with
-`strict: false`, strict or not — so the numbers predict what turning the report on will fail. It is
-called after each test, once per member, and takes those findings instead of the report. A double
-can carry its own: `createSpyFromClass(X, { onUnstubbedRead })`. Precedence mirrors
-`onUnstubbedCall`: the double's own handler, the double's `strict: false`, the suite-wide handler,
-then `strict`. Both handlers need `setupAutoSpy` in the setup file — a test is what it marks out —
-and the read itself still answers `undefined`.
+- It is called after each test, once per member. The read itself still answers `undefined`.
+- One spy can have its own handler: `createSpyFromClass(X, { onUnstubbedRead })`.
+- The order is the same as for `onUnstubbedCall`: the spy's own handler, the spy's `strict: false`, the
+  suite-wide handler, then `strict`.
+- Both handlers need `setupAutoSpy` in the setup file, because it marks where each test starts and
+  ends.
 
 ## Where it does not reach
 
-The guard is carried by the function spies the two class/type factories build, and handed to them at
-construction. Everything below builds its spies elsewhere and is **never** strict, whatever is
-configured:
+The unconfigured-call check lives in the method spies that `createSpyFromClass` and `createAutoMock`
+build. Spies built elsewhere are **never** strict, whatever you configure:
 
-| Double                                                  | Why                                                                                      |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **accessor spies** (`gettersToSpyOn`, …)                | a read cannot throw — reported after the test instead, [above](#reads-nobody-configured) |
-| **observable property spies**                           | the same — a subscription nothing fed is reported after the test                         |
-| **`mockDeep<T>()` nodes**                               | `mockDeep` takes no strict configuration at all                                          |
-| **`console-spy`** and **`mockResourceProp`'s `reload`** | internal spies, not doubles of your collaborator                                         |
-| **standalone `createFunctionSpy(name)`**                | the guard is its optional second argument, and no caller passes one                      |
+| Spy                                                     | Why                                                                                   |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **accessor spies** (`gettersToSpyOn`, …)                | a read cannot throw; it is reported after the test, [above](#reads-nobody-configured) |
+| **observable property spies**                           | the same: a subscription nothing fed is reported after the test                       |
+| **`mockDeep<T>()` nodes**                               | `mockDeep` takes no strict option at all                                              |
+| **`console-spy`** and **`mockResourceProp`'s `reload`** | the library's own spies, not spies of your dependency                                 |
+| **standalone `createFunctionSpy(name)`**                | the check is its optional second argument, and nothing passes it                      |
 
-`fillMissing` members are the exception that had to be closed rather than documented: a member the
-prototype never named is by definition one nobody configured, so leaving it lenient would have
-excused exactly the case strict mode exists for. The guard is threaded through, and
-`createSpyFromClass(X, { strict: true, fillMissing: true })` throws for a filled-in member the same
-way it throws for a declared one.
+**`fillMissing` members are strict.** A member the class never declared is, by definition, one nobody
+configured. So `createSpyFromClass(X, { strict: true, fillMissing: true })` throws for a filled-in member
+just as it does for a declared one.
 
-The first two are worth stating twice, because they sit on a double that _is_ strict:
+**The first two rows apply even on a strict spy.**
 `createSpyFromClass(X, { strict: true, gettersToSpyOn: ['theme'], observablePropsToSpyOn: ['items$'] })`
-throws for an unconfigured **method** and still answers `undefined` for an unconfigured `theme` or
-`items$` — which `setupAutoSpy({ unconfiguredReads })` reports once the test is over.
+throws for an unconfigured **method** but still answers `undefined` for `theme` and `items$`.
+`setupAutoSpy({ unconfiguredReads })` reports those after the test.
 
-## Prior art
+## In depth
+
+### Why not `onlyMethodsToSpyOn`
+
+[`onlyMethodsToSpyOn`](/core/create-spy-from-class#configuration) answers a different question. It
+_removes_ every method not on the list, so the failure reads `users.currentTenant is not a function`
+and blames the spy rather than the test. Strict mode keeps the method and says that nobody configured
+it.
+
+### Why reads matter
+
+A registered default makes unconfigured reads common. `registerAutoSpyDefaults(Router, {
+gettersToSpyOn: ['url'], observablePropsToSpyOn: ['events'] })` puts both members on every `Router`
+spy in the suite. In one consumer suite of about 1 760 spec files, 77 of the 119 files that spied on
+`Router` never configured `url`, and 100 never fed `events`.
+
+### Prior art
 
 `vitest-mock-extended` has `fallbackMockImplementation`, `@golevelup` has `{ strict: true }`, and
-testdouble is strict by default. This is off by default: a suite already written against
-`undefined`-returning doubles would fail wholesale the day it upgraded, and the reason a method is
-unconfigured is often that nothing under test calls it.
+testdouble is strict by default. Here strict mode is off by default. A suite written against spies
+that return `undefined` would fail everywhere on the day it upgraded, and a method is often
+unconfigured simply because nothing under test calls it.

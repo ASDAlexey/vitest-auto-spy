@@ -5,12 +5,68 @@ description: llms.txt, llms-full.txt, a bundled AGENTS.md and a Claude Code skil
 
 # For AI agents
 
-Most tests are now written with an assistant in the loop. Documentation an agent has to _infer_ the
-API from costs tokens on every task and produces the same handful of mistakes each time, so this
-package ships a second, compressed form of its documentation written for a machine reader: the
-decision tree, the configuration semantics, an error→fix table and the anti-patterns.
+This page makes your coding agent (Claude Code, Codex, Cursor, Copilot and others) write correct
+specs with this library. Run one command in your project:
+
+```bash
+npx vitest-auto-spy init
+```
+
+It adds a short pointer to the instruction files your agents read (`AGENTS.md`, `CLAUDE.md`,
+`GEMINI.md` and a few tool-specific files; [full list](#one-command)). The pointer sends the agent to `node_modules/vitest-auto-spy/AGENTS.md`, a reference
+that ships in the package and matches the installed version. On Claude Code you can install the
+plugin instead; see [Claude Code plugin](#claude-code-plugin).
+
+The package ships a compressed form of its documentation for agents: a decision tree, what each
+option means, an error → fix table and the common mistakes.
+
+## One command
+
+```bash
+npx vitest-auto-spy init
+```
+
+It writes [the pointer below](#point-your-agent-at-it-once) into the instruction files of _this_
+repository and fills in the details for your project:
+
+- which entry point matches your test runner;
+- which adapter matches your framework;
+- the real path of the setup file that needs `import 'vitest-auto-spy/rxjs'` (the line is left out
+  when rxjs is not installed).
+
+Everything it writes sits between markers and is regenerated on the next run. An upgrade is a
+one-hunk diff, and `init --uninstall` restores the file.
+
+| Command                                | What it does                                                      |
+| -------------------------------------- | ----------------------------------------------------------------- |
+| `npx vitest-auto-spy init`             | write or refresh the block                                        |
+| `npx vitest-auto-spy init --check`     | for CI: fail when the block differs from what this version writes |
+| `npx vitest-auto-spy init --uninstall` | remove the block                                                  |
+
+What it writes:
+
+| File                                                          | For                                      | When                                             |
+| ------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------ |
+| `AGENTS.md`                                                   | Codex, Cursor, Copilot and most others   | always (created if missing)                      |
+| `CLAUDE.md`                                                   | Claude Code                              | always (created if missing)                      |
+| `GEMINI.md`                                                   | Gemini CLI                               | always (created if missing)                      |
+| `.claude/skills/vitest-auto-spy/SKILL.md`                     | Claude Code skill stub                   | always                                           |
+| `.cursor/rules/vitest-auto-spy.mdc`                           | Cursor, spec files only                  | only if `.cursor/` exists                        |
+| `.github/instructions/vitest-auto-spy.instructions.md`        | GitHub Copilot, spec files only          | only if `.github/` exists                        |
+| `.windsurf/rules/…`, `.devin/rules/…`, `.clinerules/…`, `.roo/rules/…` | Windsurf, Devin, Cline, Roo      | only if that directory exists                    |
+| `.rules`, `.cursorrules`, `.windsurfrules`                    | legacy files                             | appended to only if the file already exists      |
+
+The three root files each get the same block between markers. Cursor's rule file is written only when
+`.cursor/` already exists, so create that directory first if you want it. After you upgrade the package, run
+`init` again: `init --check` fails in CI until the block matches the installed version.
+
+The full command is on [The CLI](/utilities/cli). The rest of this page is what it writes, and how to
+do it by hand.
 
 ## The five entry points
+
+Here "entry point" means a form of the documentation, not an import path. The same documentation
+reaches an agent in five forms:
 
 | What                                                                              | Where                                                                     | Best for                                                   |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------- |
@@ -20,86 +76,57 @@ decision tree, the configuration semantics, an error→fix table and the anti-pa
 | [Spec patterns](/recipes)                                                         | the docs site                                                             | the shapes a real suite converged on, with the frequencies |
 | A Claude Code skill                                                               | the [plugin](#claude-code-plugin), or `.claude/skills/` written by `init` | Claude Code, loaded only when a spec mentions the library  |
 
-[`llms.txt`](https://llmstxt.org) is the convention an LLM-facing crawler looks for at a docs site
-root: a link-only map, so an agent fetches one page instead of scraping the rendered HTML of ten.
-Both files are generated from this site's sidebar and checked in CI, so they cannot drift.
+[`llms.txt`](https://llmstxt.org) is a convention: a link-only map at the site root, so an agent
+fetches one page instead of scraping ten. Both `llms` files are generated from this site's sidebar
+and checked in CI, so they stay in sync.
 
 ## What reaches an agent with no setup
 
-Two channels reach an agent the moment `npm install` finishes, with nothing written into your
+Two things reach an agent as soon as `npm install` finishes, with nothing written into your
 repository:
 
-- **Errors that name their own fix.** Every throw and warning this package emits ends with a
-  `Docs:` line pointing at the page that explains it. An agent reads a stack trace far more often
-  than it reads a README, so this is the channel that actually lands —
-  [examples below](#errors-that-name-their-own-fix).
-- **TSDoc in `dist/*.d.ts`.** Every export is documented where the editor, the language server and
-  the agent's "go to definition" already look, and the types are the authority when any document
-  and the code disagree.
+- **Errors that name their own fix.** Every error and warning ends with a `Docs:` line that links
+  the page explaining it. Agents read stack traces far more often than READMEs, so this channel
+  works best. See [examples below](#errors-that-name-their-own-fix).
+- **TSDoc in `dist/*.d.ts`.** Every export is documented where the editor and "go to definition"
+  already look. When a document and the code disagree, the types win.
 
-Everything else needs one line written somewhere, and it is worth being plain about why.
+Everything else needs one line written somewhere. Here is why.
 
 ::: warning A skill shipped in a tarball is not auto-discovered
-`skills/vitest-auto-spy/SKILL.md` ships inside the npm package, and Claude Code never finds it
-there: `node_modules/**/skills/` is not one of the locations it scans for skills (they are
-`~/.claude/skills/`, a project's own `.claude/skills/`, and the `skills/` of an installed plugin). No packaging
-trick changes that, and the same holds for every other tool's rule directory — **a dependency has
-no zero-setup path into an agent's instruction context.** So the skill arrives one of two ways:
-through [the plugin](#claude-code-plugin), or through the stub `npx vitest-auto-spy init` writes to
-`.claude/skills/vitest-auto-spy/SKILL.md` — the shipped skill's frontmatter (the part that decides
-whether it loads) over a body that only points at the tarball, so the copy cannot go stale.
+`skills/vitest-auto-spy/SKILL.md` ships inside the npm package, but Claude Code never finds it
+there. It looks for skills only in `~/.claude/skills/`, the project's `.claude/skills/`, and the
+`skills/` of an installed plugin. Other tools' rule directories work the same way: **a dependency
+cannot reach an agent's instructions without setup.** So the skill arrives in one of two ways:
+
+- through [the plugin](#claude-code-plugin);
+- through the stub `npx vitest-auto-spy init` writes to `.claude/skills/vitest-auto-spy/SKILL.md`.
+  It copies the shipped skill's frontmatter (which decides when it loads), and its body only points
+  at the package, so it cannot go stale.
 :::
 
-`AGENTS.md` is the cheapest of the rest: it ships in the tarball too, so
-`node_modules/vitest-auto-spy/AGENTS.md` is on disk with no network and at the version actually
-installed. But something still has to tell the agent to read it. That one line is what `init`
-writes.
+`AGENTS.md` also ships in the package, so `node_modules/vitest-auto-spy/AGENTS.md` is on disk,
+offline, at the installed version. Something still has to tell the agent to read it; that one line
+is what `init` writes.
 
-The reference is long — every export, every configuration option and every error this package
-throws — so it is split. `AGENTS.md` itself is a map of about 30 kB, under the 32 KB a Codex chain
-holds and small enough to read whole: the entry points, the 90% recipe, `Spy<T>` against `T`,
-resetting and `fakeAsync`, plus a stub for every other section that says when to open it. The rest —
-the factories, the configuration, the return-type helpers, the setup file, Angular, the ESLint
-plugin, Error → fix, the checklist before reporting success and the others — ship next to it in
-`node_modules/vitest-auto-spy/agent-docs/`, one file per section with the same section numbers.
-Error → fix is a table to grep by the message rather than read. The shipped skill and the stub `init`
-writes send the agent to that map first.
+The reference covers every export, option and error, so it is split in two levels:
 
-## Cheaper run output — `--reporter=agent`
+- `AGENTS.md` is a map of about 30 kB, under Codex's 32 KB budget and small enough to read whole. It
+  has the entry points, the common recipe, `Spy<T>` against `T`, resetting and `fakeAsync`, and a
+  stub for every other section saying when to open it.
+- `node_modules/vitest-auto-spy/agent-docs/` holds the rest, one file per section with the same
+  numbers: factories, configuration, return-type helpers, the setup file, Angular, the ESLint plugin,
+  Error → fix (a table to search by message), the checklist before reporting success, and others.
 
-Vitest 4.1 ships a reporter written for this: the same failures, without the passing-test roll call
-and the repeated banners that make a run's output expensive for an agent to read and expensive to
-carry in context.
-
-```bash
-npx vitest run --reporter=agent src/app/cart.component.spec.ts
-```
-
-It is Vitest's own, not this package's — nothing here has to be configured for it. Combine it with a
-path filter: an agent almost never needs the whole suite, and the file it just edited is the one that
-answers the question it has.
-
-## One command
-
-```bash
-npx vitest-auto-spy init
-```
-
-It writes the pointer below into the files the agents in _this_ repository actually read, and
-specialises it: which subpath matches this runner, which adapter matches the framework, the real
-path of the setup file that needs `import 'vitest-auto-spy/rxjs'` — and it omits the rxjs line
-entirely when rxjs is not installed. Everything it writes sits between markers and is regenerated
-on the next run, so an upgrade is a one-hunk diff and `init --uninstall` puts the file back.
-
-`npx vitest-auto-spy init --check` is the CI form: it fails when the block on disk is not the
-block the installed version would write. The whole command is documented on
-[The CLI](/utilities/cli); the rest of this page is what it writes, and how to do it by hand.
+The shipped skill and the `init` stub send the agent to the map first.
 
 ## Point your agent at it once
 
-The single highest-leverage line, in the instruction file your agent actually reads — a root
-`AGENTS.md` for Codex, Cursor, Copilot and most of the field, `CLAUDE.md` for Claude Code and for
-GLM or Kimi running inside it, `GEMINI.md` for the Gemini CLI:
+Add this to the instruction file your agent reads:
+
+- a root `AGENTS.md` for Codex, Cursor, Copilot and most other tools;
+- `CLAUDE.md` for Claude Code, and for GLM or Kimi running inside it;
+- `GEMINI.md` for the Gemini CLI.
 
 ```md
 When writing or fixing tests that use `vitest-auto-spy`, first read
@@ -107,19 +134,22 @@ When writing or fixing tests that use `vitest-auto-spy`, first read
 `agent-docs/` it names for the task.
 ```
 
-That file is already on disk in every project that installs the package, so the agent pays no
-network round-trip and gets the version it actually has installed rather than whatever the web
-returned.
+That file is on disk in every project that installs the package. The agent needs no network and
+reads the version you actually have installed.
 
 ## Which file your agent reads
 
-The snippet above is the same for every tool; only the filename changes. **Three root files cover
-the whole field, and only one of them holds anything: `AGENTS.md` is the source, `CLAUDE.md` and
-`GEMINI.md` are pointers at it.** `AGENTS.md` won the format war — Codex, Cursor, Copilot, Cline,
-Windsurf/Cascade, Zed, OpenCode, Qwen, Junie, Roo and Aider all read it. The two holdouts each
-insist on their own filename: Claude Code reads `CLAUDE.md` and not `AGENTS.md`, and the Gemini CLI
-reads `GEMINI.md` unless `context.fileName` names the other. Write the block once, point twice, and
-every agent in this table is served — including the ones your teammates use and you do not.
+The snippet is the same for every tool; only the file name changes. **Three root files cover every
+tool.** `init` writes its block into all three. By hand, keep the text in `AGENTS.md` and make
+`CLAUDE.md` and `GEMINI.md` point at it.
+
+- Most tools read `AGENTS.md`: Codex, Cursor, Copilot, Cline, Windsurf/Cascade, Zed, OpenCode, Qwen,
+  Junie, Roo and Aider.
+- Claude Code reads `CLAUDE.md`, not `AGENTS.md`.
+- The Gemini CLI reads `GEMINI.md` unless `context.fileName` names another file.
+
+Write the block once and point to it twice. Every agent in the table is then covered, including the
+ones your teammates use.
 
 | Agent                                                               | Instruction file it reads                                                                                                                                                                 | Reads `AGENTS.md`?                                                |
 | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
@@ -140,15 +170,15 @@ every agent in this table is served — including the ones your teammates use an
 | **Jules, Factory, goose, Amp, Warp, Devin, Kilo, Augment, VS Code** | root `AGENTS.md`                                                                                                                                                                          | native                                                            |
 
 ::: warning Never create a legacy rules file just to hold the snippet
-Zed resolves `.rules` → `.cursorrules` → `.windsurfrules` → `.clinerules` → … **first-match-wins,
-with no merging**, so a newly created legacy file silently shadows the `AGENTS.md` the rest of the
-project relies on. Append to one only if it already exists.
+Zed reads `.rules` → `.cursorrules` → `.windsurfrules` → `.clinerules` → … and **the first match
+wins, with no merging**. A new legacy file would silently hide the `AGENTS.md` the rest of the
+project relies on. Append to such a file only if it already exists.
 :::
 
 ## Install it in your agent
 
-`npx vitest-auto-spy init` writes all of this. By hand, three files at the repository root cover
-every tool in that table:
+`npx vitest-auto-spy init` writes all of this. By hand, three files at the repository root cover every
+tool in the table above:
 
 ```bash
 # 1 — AGENTS.md: the source. Codex, Cursor, Copilot, Cline, Windsurf, Zed, OpenCode, Qwen, Roo, Junie, Aider…
@@ -168,13 +198,13 @@ printf '\n@AGENTS.md\n' >> CLAUDE.md
 printf '\nRead `AGENTS.md` in this directory — it is the single source.\n' >> GEMINI.md
 ```
 
-`@AGENTS.md` is Claude Code's own import syntax, so the instructions live in exactly one file. A
-symlink (`ln -s AGENTS.md CLAUDE.md`) does the same job if you would rather not have the second file
-at all. Gemini CLI has no import syntax, so `GEMINI.md` either carries the pointer sentence above or
-is replaced by the `.gemini/settings.json` patch [below](#gemini-cli). Whichever form you pick, keep
-the content in one place: two copies of an API reference disagree within a release.
+`@AGENTS.md` is Claude Code's import syntax, so the instructions live in one file. A symlink
+(`ln -s AGENTS.md CLAUDE.md`) works too, if you prefer no second file. Gemini CLI has no import
+syntax: `GEMINI.md` carries the pointer sentence above, or you use the `.gemini/settings.json` patch
+[below](#gemini-cli). Either way, keep the content in one place: two copies of an API reference
+drift apart within a release.
 
-Then, per tool — everything in the right-hand column is optional on top of those two files:
+Then, per tool. Everything in the "Install" column is optional on top of the three root files:
 
 | Agent                                       | Install                                                                                                                                                                  |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -190,8 +220,8 @@ Then, per tool — everything in the right-hand column is optional on top of tho
 | **Aider**                                   | `.aider.conf.yml`: `read: [AGENTS.md]`                                                                                                                                   |
 | **Zed, OpenCode, Qwen Code, Junie, Jules…** | nothing — the root `AGENTS.md` is the whole install                                                                                                                      |
 
-The glob-scoped variants, for the three tools whose format is not plain Markdown. Each body is the
-same pointer; only the frontmatter differs:
+Three tools can load the rule only for spec files. Each body is the same pointer; only the
+frontmatter differs:
 
 <!-- prettier-ignore-start -->
 
@@ -233,27 +263,25 @@ Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec th
 
 <!-- prettier-ignore-end -->
 
-Cursor's `globs` is a **comma-separated string, not a YAML array**, and a Windsurf rule file is
-capped at 12 000 characters — both are reasons the rule points at the reference instead of copying
-it.
+Cursor's `globs` is a **comma-separated string, not a YAML array**. A Windsurf rule file is limited to
+12 000 characters. Both are reasons the rule points at the reference instead of copying it.
 
 ## OpenAI Codex
 
-Codex — the `codex` CLI, the IDE extension and Codex cloud — reads the open `AGENTS.md` convention,
-so a root `AGENTS.md` is the whole integration. Two details decide whether it reaches the model at
-all:
+Codex (the `codex` CLI, the IDE extension and Codex cloud) reads `AGENTS.md`, so a root `AGENTS.md`
+is all you need. Two details decide whether it reaches the model:
 
-- **The chain is git-root→cwd, at most one file per directory** (`AGENTS.override.md` wins over
-  `AGENTS.md`), concatenated. In a monorepo, put the block in the package's own `AGENTS.md` as well
-  when that package runs a different runner — it is the only way to say "this one is `bun test`, the
-  one next door is Vitest", which is exactly the distinction that decides
-  [which entry point](#point-it-at-the-subpath-not-only-at-the-package) the agent imports.
-- **The whole chain is capped** by `project_doc_max_bytes`, **32 768 bytes by default**; anything
-  over budget is truncated with a warning. If your `AGENTS.md` is already long, keep the pointer near
-  the top of it.
+- **It reads one file per directory, from the git root down to the current directory**, and joins
+  them. `AGENTS.override.md` wins over `AGENTS.md`. In a monorepo, if a package uses a different test
+  runner, put the block in that package's `AGENTS.md` too. That is the only way to tell the agent
+  "this package uses `bun test`, the next one uses Vitest", which decides
+  [which entry point](#point-it-at-the-subpath-not-only-at-the-package) it imports.
+- **The whole chain is capped** by `project_doc_max_bytes`, **32 768 bytes by default**. Anything
+  over the limit is cut with a warning. If your `AGENTS.md` is already long, put the pointer near the
+  top.
 
-For a repo that keeps its instructions in `CLAUDE.md`, teach Codex to fall back. This is global
-config on your own machine, so there is nothing to commit:
+If a repository keeps its instructions in `CLAUDE.md`, tell Codex to fall back to it. This is global
+config on your machine, so there is nothing to commit:
 
 ```toml
 # ~/.codex/config.toml
@@ -261,25 +289,22 @@ project_doc_fallback_filenames = ["CLAUDE.md"]   # per directory, when no AGENTS
 project_doc_max_bytes = 65536                    # raise the 32 KB budget for a monorepo chain
 ```
 
-Codex cloud reads the same root `AGENTS.md`, and its agent has **no internet access by default** —
-which is precisely why the reference ships inside the tarball rather than only on this site.
-`node_modules/vitest-auto-spy/AGENTS.md` is on disk the moment the setup script has installed
-dependencies, so nothing has to be fetched.
+Codex cloud reads the same root `AGENTS.md`, and has **no internet access by default**. That is why
+the reference ships inside the package and not only on this site: once dependencies are installed,
+`node_modules/vitest-auto-spy/AGENTS.md` is on disk.
 
 ## GLM (z.ai), Kimi K3 and other Claude-compatible models
 
-GLM is a **model**, not an agent — the thing that reads files is the client you run it in.
+GLM is a **model**, not an agent. The client you run it in decides which files it reads.
 
-The z.ai coding plan runs GLM **inside Claude Code**, by pointing `ANTHROPIC_BASE_URL` (with
-`ANTHROPIC_AUTH_TOKEN`) at z.ai's Anthropic-compatible endpoint. File discovery is untouched by
-that: `CLAUDE.md`, `.claude/skills/` and the [plugin](#claude-code-plugin) below behave exactly as
-they do on Claude, because it is the same client. Kimi K3 driven through Claude Code is the same
-story — and there the skill and the plugin are worth more than a pasted snippet, because they load
-only when a spec actually mentions the library and cost no context the rest of the time.
+The z.ai coding plan runs GLM **inside Claude Code**: `ANTHROPIC_BASE_URL` (with
+`ANTHROPIC_AUTH_TOKEN`) points at z.ai's Anthropic-compatible endpoint. File discovery does not
+change: `CLAUDE.md`, `.claude/skills/` and the [plugin](#claude-code-plugin) work exactly as on
+Claude, because it is the same client. The same holds for Kimi K3 inside Claude Code. There the skill
+and the plugin are better than a pasted snippet: they load only when a spec mentions the library.
 
-Run GLM through a different client and that client decides: OpenCode, Cline, Roo Code and Kilo Code
-all read the root `AGENTS.md`. Moonshot's own `kimi-cli` reads its own `AGENTS.md` chain, including
-`.kimi/AGENTS.md`.
+In another client, that client decides. OpenCode, Cline, Roo Code and Kilo Code read the root
+`AGENTS.md`. Moonshot's `kimi-cli` reads its own `AGENTS.md` chain, including `.kimi/AGENTS.md`.
 
 ## Gemini CLI
 
@@ -291,14 +316,14 @@ into `GEMINI.md`, or name both files once:
 { "context": { "fileName": ["GEMINI.md", "AGENTS.md"] } }
 ```
 
-Qwen Code is derived from Gemini CLI and takes the same `context.fileName` setting, but already
-falls back to `AGENTS.md` on its own.
+Qwen Code is based on Gemini CLI and accepts the same `context.fileName` setting, but it already
+falls back to `AGENTS.md` by itself.
 
 ## Claude Code plugin
 
-The repository doubles as a Claude Code plugin marketplace. This is the route that needs no files in
-your project at all — and, together with the `.claude/skills/` stub `init` writes, one of only two
-ways the skill is ever discovered, since [the copy in the tarball is not](#what-reaches-an-agent-with-no-setup):
+The repository is also a Claude Code plugin marketplace. This route needs no files in your project.
+It is one of the two ways Claude Code finds the skill; the other is the `.claude/skills/` stub from
+`init`. [The copy inside the package is not found](#what-reaches-an-agent-with-no-setup).
 
 ```
 /plugin marketplace add ASDAlexey/vitest-auto-spy
@@ -306,14 +331,15 @@ ways the skill is ever discovered, since [the copy in the tarball is not](#what-
 ```
 
 The skill's description lists the library's exports and its four most common error messages, so it
-loads when a task is actually about this package and stays out of the way otherwise. Its body is a
-short decision tree plus a "reach for this before hand-rolling" table keyed by the _symptom_ — the
-error text or the failing shape — because that is what an agent has in hand when it starts.
+loads only when a task is about this package. Its body is a short decision tree and a table of "use
+this instead of writing it by hand", indexed by the _symptom_: the error text or the failing code.
+That is what an agent has when it starts.
 
 ## Point it at the subpath, not only at the package
 
-Each entry registers its own mock adapter on import, and three of them are opt-in on purpose. An
-agent that knows only the bare specifier writes a spec that throws at the first helper:
+Each import path connects the library to its test runner or framework when imported, and several,
+such as `/rxjs` and `/zone`, are opt-in on purpose. `init` names the right one for your project in
+the block it writes. An agent that knows only `vitest-auto-spy` writes a spec that throws at the first helper:
 
 | Subpath                                   | Needed for                                                                                                    |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -327,26 +353,44 @@ agent that knows only the bare specifier writes a spec that throws at the first 
 
 ## Errors that name their own fix
 
-An agent reads a stack trace far more often than it reads a README, so every error and warning this
-package throws names what went wrong in this case and the one fix, and ends with a link to the
-section that explains it:
+Agents read stack traces far more often than READMEs. So every error and warning from this package
+says what went wrong, gives the fix, and ends with a link to the section that explains it:
 
 ```
 [vitest-auto-spy] Observable spies require rxjs, and 'vitest-auto-spy/rxjs' was not imported in this run. Add `import 'vitest-auto-spy/rxjs';` once to the setup file.
 Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
 ```
 
-The same applies to a missing mock adapter, a method that is not on the prototype, `advanceTimers()`
-without fake timers, a `bun-angular` preload with no DOM package, an unresolvable `templateUrl`, a
-`mustBeCalledWith` violation and the duplicate-install report. Under
-[`setupAutoSpy({ strayConsole: 'throw' })`](/utilities/setup) console output nothing absorbed fails
-the test with the method, the first lines written and the frame that wrote them — which is where an
-agent should look first when a spec it did not touch goes red after the guard is turned on.
+The same holds for:
+
+- a missing mock adapter;
+- a method that is not on the class;
+- `advanceTimers()` without fake timers;
+- a `bun-angular` preload with no DOM package;
+- a `templateUrl` that cannot be resolved;
+- a `mustBeCalledWith` violation;
+- a duplicate install of the package.
+
+Under [`setupAutoSpy({ strayConsole: 'throw' })`](/utilities/setup), console output that no spy
+caught fails the test. The error names the console method, the first lines written and the code that
+wrote them. When a spec the agent did not touch turns red after this guard is enabled, look there
+first.
+
+## Cheaper run output — `--reporter=agent`
+
+Vitest 4.1 has a reporter made for agents. It prints the same failures without the list of passing
+tests and the repeated banners, so the output costs the agent less to read and keep in context.
+
+```bash
+npx vitest run --reporter=agent src/app/cart.component.spec.ts
+```
+
+It is part of Vitest, not of this package, so there is nothing to configure. Add a path filter too:
+an agent rarely needs the whole test run, only the file it just edited.
 
 ## What agents get wrong most often
 
-These account for the large majority of broken specs, and every one of them is covered in
-`AGENTS.md`:
+These cause most broken specs. `AGENTS.md` covers every one:
 
 1. **`let s: MyService = createSpyFromClass(MyService)`.** `Spy<T>` is a mapped type and drops
    private members. Declare it as `Spy<T>`, or bridge with [`asInstance` / `asSpy`](/core/spy-typing) —

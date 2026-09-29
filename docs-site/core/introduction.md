@@ -1,72 +1,151 @@
 ---
-title: Introduction
-description: What vitest-auto-spy does — a typed spy of every method of a class, on Vitest, Bun, node:test or Rstest.
+title: Getting started
+description: Install vitest-auto-spy and write your first Angular spec with a typed spy of a whole service, on Vitest.
 ---
 
-# Introduction
+# Getting started
 
-`vitest-auto-spy` reads a class and generates a typed spy for **every** method, powered by this
-library's own mock function — the default spy engine since 4.1, leaner than `vi.fn()` and identical
-to it everywhere a spec can observe. `setSpyEngine('runner')` builds the spies on your test runner's
-primitive instead (`vi.fn()` on Vitest, and the equivalents on Bun, `node:test` and Rstest).
-It is a drop-in successor to [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies):
-the same API, but spying on Vitest-compatible runners instead of Jest.
+`vitest-auto-spy` turns a class into a test stand-in where every method is a typed spy. You use it
+when the code you test depends on a service and you do not want to write one `vi.fn()` per method by
+hand. This page takes you from install to a passing Angular spec in three steps.
 
-Manually mocking a service is tedious and brittle — one `vi.fn()` line per method, kept in sync
-by hand. Instead:
+## 1. Install
+
+```bash
+npm i -D vitest-auto-spy
+```
+
+This page assumes an Angular project that runs Vitest through `ng test` (the
+`@angular/build:unit-test` builder). You do not need to change any config. Plain Vitest, Bun and
+other setups are on [Installation](./installation#wiring-it-up).
+
+## 2. Write the spec
+
+Say `UserService` loads a user through `ApiService`:
 
 ```ts
-import { type Spy, createSpyFromClass } from 'vitest-auto-spy';
+// user.service.ts
+import { Injectable, inject } from '@angular/core';
 
-let userService: Spy<UserService>;
+export interface User {
+  id: number;
+  name: string;
+}
 
-beforeEach(() => {
-  userService = createSpyFromClass(UserService);
+@Injectable({ providedIn: 'root' })
+export class ApiService {
+  async get(url: string): Promise<User> {
+    const response = await fetch(url);
+    return response.json();
+  }
+}
+
+@Injectable({ providedIn: 'root' })
+export class UserService {
+  private readonly api = inject(ApiService);
+
+  load(id: number): Promise<User> {
+    return this.api.get(`/users/${id}`);
+  }
+}
+```
+
+The spec replaces `ApiService` with spies and tests the real `UserService`:
+
+```ts
+// user.service.spec.ts
+import { TestBed } from '@angular/core/testing';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+
+import { ApiService, UserService } from './user.service';
+
+describe('UserService', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideAutoSpy(ApiService)],
+    });
+  });
+
+  it('loads the user from the API', async () => {
+    const api = injectSpy(ApiService);
+    api.get.resolveWith({ id: 1, name: 'Ada' });
+
+    const user = await TestBed.inject(UserService).load(1);
+
+    expect(user.name).toBe('Ada');
+    expect(api.get).toHaveBeenCalledTimes(1);
+    expect(api.get).toHaveBeenCalledWith('/users/1');
+  });
 });
 ```
 
-`Spy<UserService>` exposes each method as a mock **plus** the right helpers based on the method's
-return type: `resolveWith` / `rejectWith` for `Promise`s, `nextWith` / `throwWith` for RxJS
-`Observable`s, and `calledWith` / `mustBeCalledWith` for argument matching.
+What each line does:
 
-No class to hand? Mock straight from a **type or interface** with `createAutoMock<T>()`, or build a
-recursive, self-seeding mock with `mockDeep<T>()`. For a double the code under test only **reads** —
-a DTO, a route snapshot, a config object — `createMock<T>(partial?)` returns a plain, spy-free `T`
-instead, and `createFixtureFactory<T>(defaults)` is where the model a whole suite shares gets written
-out and checked once. See [Auto-mock by type](./auto-mock-by-type) and
-[Fixtures without casts](/utilities/fixtures).
+- `provideAutoSpy(ApiService)` registers a stand-in for `ApiService` in `TestBed`. Every method on it
+  is a spy, and the real `ApiService` never runs.
+- `injectSpy(ApiService)` gets that stand-in from `TestBed`, typed as `Spy<ApiService>`. Call it
+  inside a test or `beforeEach`, after `configureTestingModule`.
+- `api.get.resolveWith(...)` makes `get` return a `Promise` that resolves with that value. Only
+  methods that return a `Promise` have `resolveWith`; methods that return an `Observable` have
+  `nextWith` instead.
+- `toHaveBeenCalledTimes` and `toHaveBeenCalledWith` are the usual Vitest assertions: every spy
+  records its calls.
+- `TestBed` builds a new module for every test, so each test starts with fresh spies and no
+  recorded calls.
+
+## 3. Run it
+
+```bash
+ng test
+```
+
+On plain Vitest the same spec runs with `npx vitest`.
+
+## Next steps
+
+- [Angular](/adapters/angular): components, signals and the rest of the `TestBed` helpers.
+- [`createSpyFromClass`](./create-spy-from-class): the same spies without `TestBed`, and every option.
+- [Control helpers](./control-helpers): `resolveWith`, `nextWith`, `calledWith` and the rest.
+- [Auto-mock by type](./auto-mock-by-type): spies from an interface when there is no class.
+- [Fixtures without casts](/utilities/fixtures): test data objects with `createMock` and
+  `createFixtureFactory`.
+- [Installation](./installation): other runners, the setup file and the entry point list.
+- [Migrating from jest-auto-spies](/migrating): the API is the same, so migration is mostly a
+  change of import.
+- [How it works](./how-it-works): why the constructor never runs and how the helpers follow the
+  return type.
 
 ## Spy, stub or mock
 
-The words come from Gerard Meszaros's test-double vocabulary, and tutorials use them loosely. In
-that vocabulary a **stub** answers with canned values, a **spy** records how it was called, a
-**mock** is told in advance which calls to expect and fails on the others, and a **fake** is a
-working, simplified implementation.
+A **spy** records how it was called. A **stub** answers with preset values. A **mock** is told which
+calls to expect and fails on the others. A **fake** is a simplified working implementation.
 
-What `createSpyFromClass` returns is a stub and a spy at once, for every method. Each call is
-recorded (`toHaveBeenCalledWith` reads it), and each method answers what the spec configured
-(`mockReturnValue`, `resolveWith`, `calledWith(…)`), or `undefined` when nothing was configured. It
-becomes a mock only where you ask: `mustBeCalledWith(…)` throws on a call with other arguments, and
-[strict mode](./strict-mode) fails on a method nobody configured. It is never a fake, because the
-real class never runs. A `vi.spyOn(realObject, 'm')` is the other kind of spy: it wraps one method
-of a real object and calls through to it. `createMock<T>()` is a plain stub with no spies in it, for
-values the code under test only reads.
+Outside `TestBed`, `createSpyFromClass(ApiService)` builds the same object directly. Both it and
+`provideAutoSpy` give you a spy and a stub at once, for every method:
+
+- each call is recorded, so `toHaveBeenCalledWith` works;
+- each method answers what you configured (`mockReturnValue`, `resolveWith`, `calledWith(...)`), or
+  `undefined` when you configured nothing.
+
+It acts as a mock only when you ask. `mustBeCalledWith(...)` throws on a call with other arguments,
+and [strict mode](./strict-mode) throws on a method you did not configure. It is never a fake,
+because the real class never runs.
+
+Two related tools: `vi.spyOn(realObject, 'method')` wraps one method of a real object and calls the
+real code. `createMock<T>()` builds a plain stub with no spies, for values the code only reads. The
+[Glossary](/glossary) has the full list of terms.
 
 ## Where it runs
 
-The core never imports your test runner directly: `vi.fn()` and its equivalents sit behind a
-`MockAdapter` that each entry point registers on import. Pick the one that matches your runner and
-the rest of the API is identical.
+Your Angular spec imports from `vitest-auto-spy/angular`. Outside Angular, the library works the same
+on four test runners; import from the entry point for yours:
 
 ```ts
-import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest (default, zero-config)
-import { createSpyFromClass } from 'vitest-auto-spy/bun'; // Bun — bun:test
+import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest
+import { createSpyFromClass } from 'vitest-auto-spy/bun'; // Bun (bun:test)
 import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
 import { createSpyFromClass } from 'vitest-auto-spy/rstest'; // Rstest
 ```
 
-Angular's `TestBed` runs on Bun too, which nothing else offers — see
-[Angular on Bun](/runtimes/bun-angular).
-
-Next: [Installation](./installation) for the wiring, or
-[`createSpyFromClass`](./create-spy-from-class) for the full configuration surface.
+Angular's `TestBed` also runs on Bun: see [Angular on Bun](/runtimes/bun-angular).

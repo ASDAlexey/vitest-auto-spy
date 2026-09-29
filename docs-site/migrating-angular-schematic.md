@@ -1,26 +1,33 @@
 ---
 title: After Angular's refactor-jasmine-vitest
-description: Angular's own ng generate @schematics/angular:refactor-jasmine-vitest rewrites jasmine.createSpyObj into a hand-written object literal of vi.fn() and emits three TODO comments it cannot resolve. createSpyFromClass closes all three by construction — it reads the class prototype, not the call site — and this page shows the schematic's real output beside the one line that replaces it, plus the Karma and Vitest record with version numbers.
+description: Angular's refactor-jasmine-vitest schematic turns jasmine.createSpyObj into hand-written vi.fn() literals and leaves three TODOs. createSpyFromClass closes all three in one line; this page shows the real output beside the fix.
 ---
 
 # After Angular's `refactor-jasmine-vitest`
 
-`ng generate @schematics/angular:refactor-jasmine-vitest` moves an Angular suite's **syntax** from
-jasmine to Vitest. It does that job well, and it is honest about the parts it cannot do: it leaves a
-`// TODO: vitest-migration:` comment on every call it declined. This page is for the diff that comes
-out of it — specifically the `jasmine.createSpyObj` lines, which it expands into a hand-written
-object literal, and the three shapes it leaves untouched.
+You ran Angular's `refactor-jasmine-vitest` schematic, and your specs now contain hand-written
+objects of `vi.fn()` plus `// TODO: vitest-migration:` comments. This page replaces each
+`jasmine.createSpyObj` leftover with one line that reads the class instead of a method list:
 
-It is **not** [the codemod](/utilities/codemod). `npx vitest-auto-spy codemod --from jasmine` takes
-a `jasmine-auto-spies` suite onto this library; this page takes the output of Angular's schematic
-onto it. Different input, same destination. If the suite is on `jasmine-auto-spies`, start at
-[Migrating from jasmine-auto-spies](/migrating-jasmine) instead.
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+api = createSpyFromClass(Api); // every method of Api, typed, with helpers per return type
+```
+
+The schematic moves the **syntax** from Jasmine to Vitest, and it does that well. Where it cannot
+decide, it leaves a TODO. The three TODOs it leaves on `createSpyObj` are covered
+[below](#the-three-todos-and-the-line-beside-each).
+
+This is **not** [the codemod](/utilities/codemod). `npx vitest-auto-spy codemod --from jasmine`
+moves a `jasmine-auto-spies` project; this page starts from the schematic's output. If your project
+uses `jasmine-auto-spies`, start at [Migrating from jasmine-auto-spies](/migrating-jasmine) instead.
 
 ## What the schematic does to `createSpyObj`
 
-Everything below is the real output of `@schematics/angular` **22.1.6**, run on a one-file project
-with `npx schematics @schematics/angular:refactor-jasmine-vitest --project=app --no-dry-run`
-(`@angular-devkit/schematics-cli` 22.x). Nothing was edited afterwards except stripping the imports.
+Below is the real output of `@schematics/angular` **22.1.6** on a one-file project. The command was
+`npx schematics @schematics/angular:refactor-jasmine-vitest --project=app --no-dry-run`
+(`@angular-devkit/schematics-cli` 22.x). Only the imports were removed afterwards.
 
 Before:
 
@@ -100,17 +107,21 @@ describe('Orders', () => {
 });
 ```
 
-The rewrite of the literal case is correct and carefully done: `jasmine.SpyObj<Api>` becomes
-`MockedObject<Api>`, `.and.returnValue(v)` becomes `.mockReturnValue(v)`, each `vi.fn()` is named
-`Api.get` for failure output, and `spyOn(o, 'm').and.callThrough()` becomes a bare `vi.spyOn(o, 'm')`
-— which is right, because `vi.spyOn` calls through by default where jasmine's `spyOn` stubs
-([the inverted default](/migrating-jasmine#spyon-means-the-opposite-thing-on-the-two-sides)). It
-reprints the file through the TypeScript printer, so indentation moves to four spaces and quotes
-flip; Prettier puts that back. `vi` is not imported because `addImports` defaults to `false` — the
+For literal arguments, the rewrite is correct:
+
+- `jasmine.SpyObj<Api>` becomes `MockedObject<Api>`;
+- `.and.returnValue(v)` becomes `.mockReturnValue(v)`;
+- each `vi.fn()` gets a name like `Api.get` for failure messages;
+- `spyOn(o, 'm').and.callThrough()` becomes a bare `vi.spyOn(o, 'm')`. That is right: `vi.spyOn`
+  calls through by default, while Jasmine's `spyOn` replaces the method
+  ([the inverted default](/migrating-jasmine#spyon-means-the-opposite-thing-on-the-two-sides)).
+
+It reprints the file with the TypeScript printer, so indentation becomes four spaces and quotes
+change; Prettier restores them. `vi` is not imported, because `addImports` defaults to `false` and the
 `@angular/build:unit-test` builder turns Vitest globals on.
 
-The summary it prints, and the `jasmine-vitest-<date>.md` report it writes to the project root, count
-what it declined:
+It counts what it skipped in the console summary and in the `jasmine-vitest-<date>.md` report in the
+project root:
 
 ```
 - 3 TODO(s) added for manual review:
@@ -121,10 +132,9 @@ what it declined:
 
 ## The three TODOs, and the line beside each
 
-The messages are quoted verbatim from `refactor/jasmine-vitest/utils/todo-notes.js` in
-`@schematics/angular` 22.1.6, and all three link to `vi.fn()` as the way forward. Every one of them
-has the same answer here, because [`createSpyFromClass`](/core/create-spy-from-class) never sees a
-method list — it reads the class.
+The messages below are quoted from `@schematics/angular` 22.1.6. All three point to `vi.fn()`. Here
+all three have the same answer: [`createSpyFromClass`](/core/create-spy-from-class) needs no method
+list, because it reads the class.
 
 ```ts
 import { createSpyFromClass } from 'vitest-auto-spy';
@@ -144,21 +154,20 @@ api = injectSpy(Api);
 
 > jasmine.createSpyObj called with a single argument is not supported for transformation.
 
-`jasmine.createSpyObj('Api')` names the double and lists nothing, so there is no method list to
-expand. The schematic leaves the call alone, and the line fails at runtime under Vitest with
-`ReferenceError: jasmine is not defined`. `createSpyFromClass(Api)` is the single-argument form
-that works: the name is the class, and the methods are whatever its prototype has.
+`jasmine.createSpyObj('Api')` gives a name and no methods, so there is nothing to expand. The
+schematic leaves the call as it is, and under Vitest it fails with
+`ReferenceError: jasmine is not defined`. `createSpyFromClass(Api)` is the one-argument form that
+works: you pass the class, and the spy gets every method the class has.
 
 ### `createSpyObj-dynamic-variable`
 
 > Cannot transform jasmine.createSpyObj with a dynamic variable. Please migrate this manually.
 
-`jasmine.createSpyObj('Api', methods)` with `methods` declared elsewhere — a shared `const`, a
-helper's parameter, a list built by `Object.keys` — cannot be expanded by a transformer that only
-sees this call. Here there is nothing to expand: `createSpyFromClass(Api)` spies on every method the
-prototype has. If the list existed to _restrict_ the double, that is
-[`onlyMethodsToSpyOn`](/core/create-spy-from-class#configuration), and it can stay a variable, typed
-as the class's method keys rather than `string[]`:
+Here `methods` is declared somewhere else: a shared `const`, a helper's parameter, or a list built by
+`Object.keys`. A tool that sees only this call cannot expand it. `createSpyFromClass(Api)` needs no
+list: it spies on every method of the class. If the list was there to _limit_ the spy, use
+[`onlyMethodsToSpyOn`](/core/create-spy-from-class#configuration). It can stay a variable, typed as
+the class's method names instead of `string[]`:
 
 ```ts
 const methods = ['get'] satisfies Array<keyof Api>;
@@ -170,73 +179,69 @@ api = createSpyFromClass(Api, { onlyMethodsToSpyOn: methods });
 
 > Cannot transform jasmine.createSpyObj with a dynamic property map. Please migrate this manually.
 
-This is the one to read the diff for, because the schematic **does** rewrite the call and drops the
-third argument on the floor: `jasmine.createSpyObj('Api', ['get'], props)` became
-`{ get: vi.fn().mockName('Api.get') }`, and `withProps.baseUrl` on the next line is now `undefined`
-— a compile error where `MockedObject<Api>` is declared, and a silent `undefined` where it is not.
-The comment is the only thing that says so.
+Read the diff carefully for this one. The schematic **does** rewrite the call, but it drops the
+third argument. `jasmine.createSpyObj('Api', ['get'], props)` became
+`{ get: vi.fn().mockName('Api.get') }`, so `withProps.baseUrl` on the next line is now `undefined`.
+Where `MockedObject<Api>` is declared, that is a compile error; elsewhere it is a silent `undefined`.
+Only the TODO comment tells you.
 
-The honest answer depends on what the property is on the class:
+The fix depends on what the property is on the class:
 
-- a **plain field** keeps its declared type on `Spy<Api>`, so assign it, or hand the map to
-  `overrides` in the provider — `provideAutoSpy(Api, { overrides: props })`;
-- a **`readonly` field** or a **signal** is
-  [`mockReadonlyProp(api, 'baseUrl', '/api')`](/adapters/angular#signal-readonly-property-mocking),
-  which records the descriptor it replaced so `restoreMockedProps()` can undo it;
-- a **getter** is
-  [`gettersToSpyOn: ['baseUrl']`](/core/create-spy-from-class#accessor-spies-—-accessorspies), and
-  the value is set on `api.accessorSpies.getters.baseUrl.mockReturnValue('/api')` — the property
-  itself stays typed as the class declares it.
+- a **plain field** keeps its type on `Spy<Api>`. Assign it, or pass the map to `overrides` in the
+  provider: `provideAutoSpy(Api, { overrides: props })`;
+- a **`readonly` field** or a **signal**: use
+  [`mockReadonlyProp(api, 'baseUrl', '/api')`](/adapters/angular#signal-readonly-property-mocking).
+  It remembers what it replaced, so `restoreMockedProps()` can undo it;
+- a **getter**: use
+  [`gettersToSpyOn: ['baseUrl']`](/core/create-spy-from-class#accessor-spies-—-accessorspies) and set
+  the value with `api.accessorSpies.getters.baseUrl.mockReturnValue('/api')`. The property itself
+  keeps the type the class declares.
 
 ## Why the two dynamic cases cannot exist here
 
-The schematic transforms the **call site**: it has to see the method names as a literal array or
-object in the argument list, because a string in a variable could come from anywhere. So a list that
-is not a literal is not transformable, and there is no single-argument form to transform at all.
+The schematic rewrites the **call site**. It must see the method names as a literal array or object
+in the arguments, because a variable could hold anything. So a non-literal list cannot be rewritten,
+and a call with no list has nothing to rewrite.
 
-`createSpyFromClass` reads the **prototype**: it walks `Api.prototype` (and its chain) at runtime
-and spies on what it finds, and `Spy<Api>` is a mapped type over the same class at compile time.
-There is no list at the call site — literal or otherwise — for anything to be dynamic. A method added
-to `Api` next month is on the double the next time the test runs; a method removed is a compile
-error on the line that still calls it.
+`createSpyFromClass` reads the **class**. At runtime it walks `Api.prototype` and its parents and
+spies on what it finds. At compile time, `Spy<Api>` is built from the same class. There is no list at
+the call site, so nothing can be dynamic. A method added to `Api` next month is on the spy at the next
+test run. A removed method is a compile error on the line that still calls it.
 
-The same holds for `createSpyObj` on the [`vitest-auto-spy/jasmine`](/migrating-jasmine) entry, which
-keeps jasmine's call shape for a suite that is not ready to name a class yet: it reads the names at
-runtime, so a variable list works there, and the object it returns is typed by whatever names the
-compiler can see — a `string[]` variable gives it `string` keys. It also refuses the single-argument
-form with a message that names the fix. Prefer the class where there is one.
+[`vitest-auto-spy/jasmine`](/migrating-jasmine) also has a `createSpyObj`, for specs that are not
+ready to name a class. It keeps Jasmine's call shape and reads the names at runtime, so a variable
+list works there. Its return type uses whatever names the compiler can see: a `string[]` variable
+gives `string` keys. It refuses the one-argument form with an error that names the fix. Where a
+class exists, prefer the class.
 
 ## What the literal costs afterwards
 
-The literal the schematic writes is exactly what
-[angular.dev's testing guide](https://angular.dev/guide/testing/services) recommends by hand, so
-nothing about it is wrong. It is a maintenance shape, and the bill arrives later:
+The literal the schematic writes is what
+[angular.dev's testing guide](https://angular.dev/guide/testing/services) recommends writing by hand.
+Nothing is wrong with it. It just costs more to maintain:
 
-- **It is edited on every change to the class.** `MockedObject<Api>` demands every member of `Api`,
-  so adding a method to the service is a compile error in every spec that carries the literal, and
-  each one is fixed by typing another `name: vi.fn().mockName('Api.name')` line. `Spy<Api>` follows
-  the class.
-- **No return-type helpers.** `api.get.mockReturnValue(of([...]))` is the only shape a `vi.fn()`
-  knows. Here `api.get` returns an `Observable`, so it has
+- **You edit it on every change to the class.** `MockedObject<Api>` requires every member of `Api`.
+  Add a method to the service, and every spec with the literal fails to compile until you add another
+  `name: vi.fn().mockName('Api.name')` line. `Spy<Api>` follows the class.
+- **No helpers per return type.** A `vi.fn()` knows only `api.get.mockReturnValue(of([...]))`. Here
+  `api.get` returns an `Observable`, so it has
   [`nextWith` / `throwWith`](/core/control-helpers#observable-methods-properties-—-nextwith) and
-  `calledWith('/orders').nextWith([...])`; a `Promise`-returning method has
-  [`resolveWith` / `rejectWith`](/core/control-helpers#promise-returning-methods-—-resolvewith); every
-  method has [`mustBeCalledWith`](/core/control-helpers#synchronous-methods), which fails the test on
-  an argument mismatch instead of returning `undefined`.
+  `calledWith('/orders').nextWith([...])`. A method returning a `Promise` has
+  [`resolveWith` / `rejectWith`](/core/control-helpers#promise-returning-methods-—-resolvewith).
+  Every method has [`mustBeCalledWith`](/core/control-helpers#synchronous-methods), which fails the
+  test on wrong arguments instead of returning `undefined`.
 - **An unconfigured method is silent in both.** `vi.fn()` returns `undefined`, and so does an
-  unconfigured spy here; [`strict: true`](/core/strict-mode) turns that into a failure on the call
-  that produced it, per double or for the whole suite.
-- **Naming is a wash, in one direction.** With a base name the schematic names each mock `Api.get`,
-  which is good failure output; the form without a base name (`jasmine.createSpyObj(['get'])`) gets
-  bare `vi.fn()`s. Here every method spy is named after its method on every runner that supports a
-  name.
+  unconfigured spy here. [`strict: true`](/core/strict-mode) makes such a call fail, for one spy or
+  for all tests.
+- **Names are about equal.** With a base name, the schematic names each mock `Api.get`, which reads
+  well in failures. Without a base name (`jasmine.createSpyObj(['get'])`) you get bare `vi.fn()`s.
+  Here every method spy is named after its method, on every runner that supports names.
 
 ## If you would rather stop at jasmine syntax first
 
-The schematic's own output is already past jasmine's syntax, so this is the alternative to running
-it on the spies at all — the runner moves, the specs do not, and the doubles are rewritten later,
-one at a time. [`vitest-auto-spy/jasmine`](/migrating-jasmine#jasmine-s-own-globals) is that
-step:
+This is the alternative to running the schematic on your spies at all. The test runner changes, the
+specs stay as they are, and you rewrite the spies later, one at a time.
+[`vitest-auto-spy/jasmine`](/migrating-jasmine#jasmine-s-own-globals) makes that possible:
 
 ```ts
 import { jasmine } from 'vitest-auto-spy/jasmine';
@@ -245,16 +250,15 @@ const api = jasmine.createSpyObj('Api', ['get', 'post']); // unchanged, runs und
 api.get.and.returnValue(of([])); // .and, .calls, .withArgs are back
 ```
 
-Nothing is installed on `globalThis` — it is an import per file, which
-[the codemod](/utilities/codemod) deletes at the end. On `bun test` or `node --test`, where the
-entry cannot be loaded, `enableJasmineCompat()` from `vitest-auto-spy/jasmine-compat` turns the
-namespaces on from a setup file instead; see
+Nothing is added to `globalThis`: you import it in each file, and [the codemod](/utilities/codemod)
+removes the import at the end. On `bun test` or `node --test`, where this entry cannot load, call
+`enableJasmineCompat()` from `vitest-auto-spy/jasmine-compat` in a setup file instead; see
 [On Bun and `node:test`](/migrating-jasmine#on-bun-and-node-test).
 
 ## The record, with versions
 
-Three things are repeated about this migration that are not quite what happened. Each line below was
-checked against a primary source on 2026-09-02.
+A few common claims about this migration are not quite accurate. Each line below was checked against
+a primary source on 2026-09-02.
 
 - **Angular did not deprecate Karma. Karma's own maintainers did, in 2023.** The notice — "Karma is
   deprecated and is not accepting new features or general bug fixes" — was added to the Karma README
