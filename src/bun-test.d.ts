@@ -43,6 +43,8 @@ declare module 'bun:test' {
   export function beforeAll(body: () => Promise<void> | void): void;
   export function beforeEach(body: () => Promise<void> | void): void;
   export function afterEach(body: () => Promise<void> | void): void;
+  /** Absent before the Bun release that added it, hence read off the namespace. */
+  export const onTestFinished: ((body: () => Promise<void> | void) => void) | undefined;
 }
 
 declare module 'bun' {

@@ -10,11 +10,24 @@
  * (`calledWith`, `resolveWith`, …) work unchanged; native mock methods are
  * Bun's (`spy.method.mock.calls`, `mockReturnValue`, …).
  */
-import { mock } from 'bun:test';
+import * as bunTest from 'bun:test';
 
 import { createBunMockAdapter } from './lib/bun-adapter';
 import { registerMockAdapter } from './lib/mock-adapter';
+import { registerRunnerHooks } from './lib/runner-hooks';
+
+const { afterEach, beforeEach, mock, onTestFinished } = bunTest;
 
 registerMockAdapter(createBunMockAdapter({ mock }));
+// Off the namespace: on a Bun without `onTestFinished` a named import fails to link.
+registerRunnerHooks(onTestFinished ? { beforeEach, afterEach, onTestFinished } : { beforeEach, afterEach });
 
 export * from './auto-spy';
+export {
+  createNestUnit,
+  type CreateNestUnitOptions,
+  type NestUnit,
+  type NestUnitClass,
+  type NestUnitProvider,
+  type NestUnitSpies,
+} from './lib/nest-unit';
