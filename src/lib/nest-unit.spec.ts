@@ -239,13 +239,10 @@ describe('createNestUnit: sociable', () => {
   });
 
   it('lets `providers` win over `expose`', () => {
-    const cart = { checkout: vi.fn() };
-    const { unit, spies } = createNestUnit(CheckoutFacade, {
-      expose: [CartService],
-      providers: [{ provide: CartService, useValue: cart }],
-    });
+    const cart = provideAutoSpy(CartService);
+    const { unit, spies } = createNestUnit(CheckoutFacade, { expose: [CartService], providers: [cart] });
 
-    expect(unit.cart).toBe(cart);
+    expect(unit.cart).toBe(cart.useValue);
     expect(spies.exposedTokens()).toEqual([]);
   });
 
@@ -277,6 +274,7 @@ describe('createNestUnit: providers', () => {
 
   it('calls a `useFactory` once and shares the result across the graph', () => {
     const useFactory = vi.fn(() => new PricingService());
+    // eslint-disable-next-line vitest-auto-spy/prefer-provide-auto-spy -- the factory is under test, and it builds the real class
     const { unit } = createNestUnit(CheckoutFacade, { expose: [CartService], providers: [{ provide: PricingService, useFactory }] });
 
     expect(useFactory).toHaveBeenCalledTimes(1);
