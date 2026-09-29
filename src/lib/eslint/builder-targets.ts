@@ -13,6 +13,10 @@
  * Every target whose project root contains the file counts, and every configuration of it: the rule
  * may call a reset dead only where each of them makes it so. The workspace files are read as plain
  * JSON; one that does not parse contributes no target, which leaves the rule where it was before.
+ *
+ * Each run also carries the `externalDependencies` of its `buildTarget` (options merged with the named
+ * configurations, as `context.getTargetOptions` does): the builder leaves those specifiers out of the
+ * bundle, so Vitest resolves them and a `vi.mock` of one replaces the module.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -29,8 +33,14 @@ type Json = Record<string, unknown>;
 /** The runner config each builder run of a file reads: an absolute path, or `undefined` for none. */
 export type BuilderConfigs = readonly (string | undefined)[];
 
+/** One unit-test builder run: the runner config it reads and the specifiers its build leaves external. */
+export interface BuilderRun {
+  readonly config: string | undefined;
+  readonly externals: readonly string[];
+}
+
 /** One answer per directory for the length of the lint run. */
-const runsCache = new Map<string, BuilderConfigs>();
+const runsCache = new Map<string, readonly BuilderRun[]>();
 
 function isJson(value: unknown): value is Json {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -75,34 +85,65 @@ function configOf(value: unknown, projectRoot: string, workspaceRoot: string): s
   return typeof value === 'string' ? resolve(workspaceRoot, value) : undefined;
 }
 
-/** The runner config of the target's options, and of each configuration that overrides it. */
-function targetConfigs(target: Json, name: string, defaults: Json | undefined, projectRoot: string, workspaceRoot: string): BuilderConfigs {
-  const byName = recordAt(defaults, name);
+/** The workspace a run is read in: where paths resolve, nx `targetDefaults`, and the projects by name for `buildTarget`. */
+interface Workspace {
+  readonly root: string;
+  readonly defaults: Json | undefined;
+  readonly projects: ReadonlyMap<string, Json>;
+}
+
+function targetsOf(project: Json | undefined): Json {
+  return recordAt(project, 'architect') ?? recordAt(project, 'targets') ?? {};
+}
+
+function stringsAt(value: Json | undefined, key: string): string[] {
+  const found = value?.[key];
+
+  return Array.isArray(found) ? found.filter((entry): entry is string => typeof entry === 'string') : [];
+}
+
+/** `externalDependencies` of `project:target[:configuration,…]`: the target's options, then each named configuration over them. */
+function externalsOf(buildTarget: unknown, workspace: Workspace): readonly string[] {
+  if (typeof buildTarget !== 'string') {
+    return [];
+  }
+
+  const [projectName = '', targetName = '', configurationNames = ''] = buildTarget.split(':');
+  const target = recordAt(targetsOf(workspace.projects.get(projectName)), targetName);
+  const configurations = recordAt(target, 'configurations');
+
+  return [recordAt(target, 'options'), ...configurationNames.split(',').map((name) => recordAt(configurations, name.trim()))].reduce<
+    readonly string[]
+  >((externals, block) => (block !== undefined && 'externalDependencies' in block ? stringsAt(block, 'externalDependencies') : externals), []);
+}
+
+/** The last block that sets `key`, or `fallback`. */
+function lastSet(blocks: readonly (Json | undefined)[], key: string, fallback: unknown): unknown {
+  return blocks.reduce<unknown>((value, block) => (block !== undefined && key in block ? block[key] : value), fallback);
+}
+
+/** The run of the target's options, and of each configuration that overrides its runner config or build target. */
+function targetRuns(target: Json, name: string, projectRoot: string, workspace: Workspace): readonly BuilderRun[] {
+  const byName = recordAt(workspace.defaults, name);
   const builder = target['builder'] ?? target['executor'] ?? byName?.['executor'];
 
   if (typeof builder !== 'string' || !UNIT_TEST_BUILDERS.has(builder)) {
     return [];
   }
 
-  const blocks = [recordAt(recordAt(defaults, builder), 'options'), recordAt(byName, 'options'), recordAt(target, 'options')];
-  const base = blocks.reduce<unknown>(
-    (value, block) => (block !== undefined && 'runnerConfig' in block ? block['runnerConfig'] : value),
-    false,
-  );
+  const blocks = [recordAt(recordAt(workspace.defaults, builder), 'options'), recordAt(byName, 'options'), recordAt(target, 'options')];
   const overrides = Object.values(recordAt(target, 'configurations') ?? {})
     .filter(isJson)
-    .filter((configuration) => 'runnerConfig' in configuration)
-    .map((configuration) => configuration['runnerConfig']);
+    .filter((configuration) => 'runnerConfig' in configuration || 'buildTarget' in configuration);
 
-  return [base, ...overrides].map((value) => configOf(value, projectRoot, workspaceRoot));
+  return [blocks, ...overrides.map((configuration) => [...blocks, configuration])].map((chain) => ({
+    config: configOf(lastSet(chain, 'runnerConfig', false), projectRoot, workspace.root),
+    externals: externalsOf(lastSet(chain, 'buildTarget', undefined), workspace),
+  }));
 }
 
-function projectConfigs(project: Json, defaults: Json | undefined, projectRoot: string, workspaceRoot: string): BuilderConfigs {
-  const targets = recordAt(project, 'architect') ?? recordAt(project, 'targets') ?? {};
-
-  return Object.entries(targets).flatMap(([name, target]) =>
-    isJson(target) ? targetConfigs(target, name, defaults, projectRoot, workspaceRoot) : [],
-  );
+function projectRuns(project: Json, projectRoot: string, workspace: Workspace): readonly BuilderRun[] {
+  return Object.entries(targetsOf(project)).flatMap(([name, target]) => (isJson(target) ? targetRuns(target, name, projectRoot, workspace) : []));
 }
 
 /** Walk up to the workspace root, noting the nearest `project.json` on the way. */
@@ -124,32 +165,42 @@ function locate(directory: string): { projectDir: string | undefined; workspaceR
   }
 }
 
-function runsFor(directory: string): BuilderConfigs {
+function runsFor(directory: string): readonly BuilderRun[] {
   const { projectDir, workspaceRoot = projectDir } = locate(directory);
 
   if (workspaceRoot === undefined) {
     return [];
   }
 
-  const defaults = recordAt(readJson(join(workspaceRoot, 'nx.json')), 'targetDefaults');
   const projects = WORKSPACE_FILES.map((name) => recordAt(readJson(join(workspaceRoot, name)), 'projects')).find(
     (found) => found !== undefined,
   );
+  const ownProject = projectDir === undefined ? undefined : (readJson(join(projectDir, 'project.json')) ?? {});
+  const byName = new Map(Object.entries(projects ?? {}).filter((entry): entry is [string, Json] => isJson(entry[1])));
+
+  if (ownProject !== undefined && typeof ownProject['name'] === 'string' && !byName.has(ownProject['name'])) {
+    byName.set(ownProject['name'], ownProject);
+  }
+
+  const workspace: Workspace = {
+    root: workspaceRoot,
+    defaults: recordAt(readJson(join(workspaceRoot, 'nx.json')), 'targetDefaults'),
+    projects: byName,
+  };
   const fromWorkspace = Object.values(projects ?? {})
     .filter(isJson)
     .flatMap((project) => {
       const root = resolve(workspaceRoot, typeof project['root'] === 'string' ? project['root'] : '');
 
-      return contains(root, directory) ? projectConfigs(project, defaults, root, workspaceRoot) : [];
+      return contains(root, directory) ? projectRuns(project, root, workspace) : [];
     });
-  const fromProject =
-    projectDir === undefined ? [] : projectConfigs(readJson(join(projectDir, 'project.json')) ?? {}, defaults, projectDir, workspaceRoot);
+  const fromProject = projectDir === undefined || ownProject === undefined ? [] : projectRuns(ownProject, projectDir, workspace);
 
   return [...fromWorkspace, ...fromProject];
 }
 
-/** The runner config every unit-test builder run serving this file reads; empty where no such target serves it. */
-export function builderConfigs(filename: string): BuilderConfigs {
+/** Every unit-test builder run serving this file; empty where no such target serves it. */
+export function builderRuns(filename: string): readonly BuilderRun[] {
   const directory = resolve(dirname(filename));
   const cached = runsCache.get(directory);
 
@@ -162,4 +213,9 @@ export function builderConfigs(filename: string): BuilderConfigs {
   runsCache.set(directory, runs);
 
   return runs;
+}
+
+/** The runner config every unit-test builder run serving this file reads; empty where no such target serves it. */
+export function builderConfigs(filename: string): BuilderConfigs {
+  return builderRuns(filename).map((run) => run.config);
 }
