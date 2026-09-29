@@ -16,8 +16,8 @@
  * The patch itself imports nothing from zone.js either: it reads `globalThis.Zone`, which the
  * consumer has already loaded, and says so plainly when it has not.
  */
-import { installProxyZonePatch } from './lib/proxy-zone';
+import { installDefaultProxyZonePatch } from './lib/proxy-zone';
 
-installProxyZonePatch();
+installDefaultProxyZonePatch();
 
 export { installProxyZonePatch, type ProxyZonePatchOptions, type ProxyZoneScope } from './lib/proxy-zone';
