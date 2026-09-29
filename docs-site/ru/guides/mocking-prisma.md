@@ -1,65 +1,17 @@
 ---
 title: Мок Prisma Client в Vitest
-description: Типизированный дубль PrismaClient из mockDeep — findMany и create, настроенные через resolveWith, rejectWith, resolveWithPerCall и calledWith, сброс через resetAutoSpy и интерактивный $transaction, который выполняется на том же дубле.
+description: Типизированный мок PrismaClient из mockDeep - ответы findMany и create через resolveWith, rejectWith, resolveWithPerCall и calledWith, сброс между тестами через resetAutoSpy и интерактивный $transaction на том же моке.
 ---
 
 # Мок Prisma Client в Vitest
 
-Обычный рецепт юнит-теста для кода, который говорит с Prisma, — глубокий мок `PrismaClient`:
-`prisma.user.findMany` — это два чтения свойств и вызов, а глубокий мок делает так, что каждый шаг
-существует без того, чтобы его выписывать. [`mockDeep`](/ru/core/auto-mock-by-type#recursive-deep-mocks-—-mockdeep)
-— ровно это, плюс хелперы, которые каждый метод Prisma получает по своему типу возврата: запрос
-отвечает типизированным значением, а отказ — это один вызов, а не рукописная реализация.
-
-Всё ниже выполнено на клиенте, сгенерированном Prisma 7.10 из такой схемы:
-
-```prisma
-model User {
-  id    Int     @id @default(autoincrement())
-  email String  @unique
-  name  String?
-  posts Post[]
-}
-
-model Post {
-  id       Int    @id @default(autoincrement())
-  title    String
-  authorId Int
-  author   User   @relation(fields: [authorId], references: [id])
-}
-```
-
-## Сервис и его шов {#the-service-and-its-seam}
+[`mockDeep<PrismaClient>()`](/ru/core/auto-mock-by-type#recursive-deep-mocks-—-mockdeep) даёт
+типизированный фейковый клиент Prisma для юнит-тестов. Каждая модель и каждый метод запроса
+появляются, как только вы к ним обращаетесь, например `prisma.user.findMany`. Каждый метод — спай,
+поэтому ответ задаётся одним вызовом.
 
 ```ts
-import type { PrismaClient } from './generated/client';
-
-export class UserService {
-  constructor(private readonly db: PrismaClient) {}
-
-  async listNames(): Promise<string[]> {
-    const users = await this.db.user.findMany({ orderBy: { id: 'asc' } });
-    return users.map((user) => user.name ?? user.email);
-  }
-
-  async register(email: string): Promise<number> {
-    try {
-      const user = await this.db.user.create({ data: { email } });
-      return user.id;
-    } catch {
-      return -1;
-    }
-  }
-}
-```
-
-Клиент приходит через конструктор — провайдером NestJS, аргументом фабрики, чем угодно, кроме
-синглтона уровня модуля, который код импортирует сам. Это единственное проектное решение, которого
-требует рецепт, и именно оно позволяет спеке отдать дубль вообще без `vi.mock`.
-
-## Спека {#the-spec}
-
-```ts
+import { beforeEach, describe, expect, it } from 'vitest';
 import { asInstance, mockDeep, resetAutoSpy } from 'vitest-auto-spy';
 
 import type { PrismaClient } from './generated/client';
@@ -93,24 +45,92 @@ describe('UserService', () => {
 });
 ```
 
-Что делает каждая строка:
+Тестируемый сервис получает клиент через конструктор. Это единственное, что рецепт требует от
+вашего кода: клиент должен приходить снаружи (аргументом конструктора, провайдером NestJS, аргументом
+фабрики), а не импортироваться на уровне модуля. Тогда спека передаёт мок напрямую, и `vi.mock` не
+нужен.
 
-- **`mockDeep<PrismaClient>()`** — ни сгенерированного файла мока, ни списка моделей. `prisma.user`,
-  `prisma.post` и каждый метод делегата появляются при первом чтении, и каждый метод — спай с полным
-  набором хелперов.
-- **`resolveWith(rows)`** типизирован тем, что возвращает метод. Значение обязано быть строками,
-  которые вернула бы Prisma, так что устаревшая фикстура — переименованная колонка, строка там, где
-  схема говорит `Int`, — это ошибка компиляции в спеке, а не зелёный тест на данных, которых база
-  никогда бы не выдала.
-- **`rejectWith(error)`** заставляет запрос отклониться. Без `mockImplementation` и без каста.
-- **`resetAutoSpy(prisma)`** в `beforeEach` обходит всё дерево — каждый делегат, каждый тронутый
-  метод — и сбрасывает и записанные вызовы, и конфигурацию. Один дубль на файл, чистый для каждого
-  теста. [`using`](/ru/core/create-spy-from-class#using) делает то же в конце блока, если вы
-  предпочитаете собирать дубль внутри теста.
-- **`asInstance(prisma)`** отдаёт дубль коду, типизированному настоящим `PrismaClient`; собственный
-  тип глубокого мока — маппед-тип и как есть ему не присваивается.
+```ts
+// users.ts
+import type { PrismaClient, User } from './generated/client';
 
-## Свой ответ на каждый вызов {#a-different-answer-per-call}
+export class UserService {
+  constructor(private readonly db: PrismaClient) {}
+
+  async listNames(): Promise<string[]> {
+    const users = await this.db.user.findMany({ orderBy: { id: 'asc' } });
+    return users.map((user) => user.name ?? user.email);
+  }
+
+  async findByEmail(email: string): Promise<User | null> {
+    return this.db.user.findUnique({ where: { email } });
+  }
+
+  async register(email: string): Promise<number> {
+    try {
+      const user = await this.db.user.create({ data: { email } });
+      return user.id;
+    } catch {
+      return -1;
+    }
+  }
+}
+```
+
+Что делает каждый вызов:
+
+- **`mockDeep<PrismaClient>()`** не требует сгенерированного файла мока и списка моделей.
+  `prisma.user`, `prisma.post` и все методы запросов появляются при первом обращении.
+- **`resolveWith(rows)`** — запрос завершается успешно и возвращает `rows`. Тип записей берётся из того,
+  что возвращает метод. Устаревшая фикстура (переименованная колонка, текст там, где в схеме `Int`)
+  — ошибка компиляции, а не зелёный тест.
+- **`rejectWith(error)`** — запрос завершается ошибкой. Без `mockImplementation` и приведений типов.
+- **`resetAutoSpy(prisma)`** очищает записанные вызовы и заданные ответы во всех моделях и методах.
+  Один мок служит всему файлу и в каждом тесте начинает с чистого листа. Если удобнее создавать мок
+  внутри теста, объявите его через `using` (явное управление ресурсами из TypeScript 5.2), и он
+  сбросится в конце блока: см. [`using`](/ru/core/create-spy-from-class#using).
+- **`asInstance(prisma)`** передаёт мок туда, где ждут настоящий `PrismaClient`. Без него TypeScript
+  не даст передать мок как `PrismaClient`.
+
+Примеры на странице проверены на клиенте, сгенерированном Prisma 7.10 по такой схеме:
+
+```prisma
+model User {
+  id    Int     @id @default(autoincrement())
+  email String  @unique
+  name  String?
+  posts Post[]
+}
+
+model Post {
+  id       Int    @id @default(autoincrement())
+  title    String
+  authorId Int
+  author   User   @relation(fields: [authorId], references: [id])
+}
+```
+
+## Ответить на `findUnique` записью или `null` {#answer-findunique-with-a-row-or-null}
+
+`findUnique` возвращает запись или `null`, если ничего не найдено. Отвечайте на него так же:
+
+```ts
+it('returns null for an unknown email', async () => {
+  prisma.user.findUnique.resolveWith(null);
+
+  await expect(service.findByEmail('nobody@example.test')).resolves.toBeNull();
+  expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: 'nobody@example.test' } });
+});
+
+it('returns the user it finds', async () => {
+  const ada = { id: 1, email: 'ada@example.test', name: 'Ada' };
+  prisma.user.findUnique.resolveWith(ada);
+
+  await expect(service.findByEmail('ada@example.test')).resolves.toEqual(ada);
+});
+```
+
+## Разный ответ на каждый вызов {#return-a-different-answer-on-each-call}
 
 ```ts
 it('answers per call', async () => {
@@ -121,10 +141,12 @@ it('answers per call', async () => {
 });
 ```
 
-`resolveWithPerCall` отдаёт n-му вызову n-й элемент — форма опроса, повтора или цикла пагинации — и
-типизирован так же, как `resolveWith`.
+`resolveWithPerCall` отдаёт первому вызову первый элемент, второму — второй и так далее. Подходит
+для опроса, повторов и постраничной загрузки. Каждый элемент — объект: `value` — то, что вернёт этот
+вызов, а необязательный `delay` (в миллисекундах) откладывает ответ. `value` типизирован так же, как
+в `resolveWith`.
 
-## Ответ, привязанный к аргументам {#an-answer-keyed-on-the-arguments}
+## Ответ в зависимости от аргументов {#answer-based-on-the-arguments}
 
 ```ts
 it('only the conflicting email fails', async () => {
@@ -136,20 +158,31 @@ it('only the conflicting email fails', async () => {
 });
 ```
 
-Отказ случается на этом аргументе и ни на каком другом, поэтому тест может пройти только если код
-отправил тот запрос, который должен был, — почему это сильнее безусловного ответа плюс
-`toHaveBeenCalledWith` в конце, разобрано в
-[причине и следствии](/ru/core/control-helpers#cause-and-effect-why-calledwith-and-not-mockreturnvalue).
-Аргументы сравниваются по значению с отсортированными ключами, а асимметричные матчеры работают на
+Запрос падает только для этого аргумента. Значит, тест пройдёт, только если код отправил правильный
+запрос. Почему это надёжнее одного общего ответа и `toHaveBeenCalledWith` в конце —
+[причина и следствие](/ru/core/control-helpers#cause-and-effect-why-calledwith-and-not-mockreturnvalue).
+
+Аргументы сравниваются по значению, порядок ключей не важен. Асимметричные матчеры работают на
 любой глубине: `calledWith({ where: { email: expect.stringContaining('@') } })`.
 
-## Интерактивные транзакции — `$transaction` {#interactive-transactions-—-transaction}
-
-Колбэчная форма `$transaction` передаёт колбэку транзакционный клиент, и код под тестом выполняет
-свои запросы через него. В юнит-тесте транзакционным клиентом должен быть тот же дубль, чтобы запросы
-попадали туда, где спека их настроила и проверяет:
+Вызов, аргументы которого не подошли ни к одному `calledWith`, получает общий ответ метода (обычный
+`resolveWith` выше). Если обычного `resolveWith` нет, он возвращает `undefined`. Чтобы любые другие аргументы
+приводили к ошибке, используйте [`mustBeCalledWith`](/ru/core/control-helpers):
 
 ```ts
+prisma.user.findUnique.mustBeCalledWith({ where: { email: 'ada@example.test' } }).resolveWith(null);
+
+await expect(service.findByEmail('bob@example.test')).rejects.toThrow(); // arguments do not match
+```
+
+## Мок интерактивной `$transaction` {#mock-an-interactive-transaction}
+
+В форме с колбэком `$transaction` передаёт колбэку клиент транзакции, и ваш код выполняет запросы
+через него. В юнит-тесте сделайте клиентом транзакции тот же мок. Тогда запросы попадут туда, где
+спека их настроила:
+
+```ts
+// users.ts
 async moveTitle(fromId: number, toId: number): Promise<void> {
   await this.db.$transaction(async (tx) => {
     const post = await tx.post.delete({ where: { id: fromId } });
@@ -159,7 +192,7 @@ async moveTitle(fromId: number, toId: number): Promise<void> {
 ```
 
 ```ts
-it('runs the transaction callback against the same double', async () => {
+it('runs the transaction callback against the same mock', async () => {
   prisma.$transaction.mockImplementation((callback) => callback(asInstance(prisma)));
   prisma.post.delete.resolveWith({ id: 1, title: 'Hello', authorId: 1 });
 
@@ -169,15 +202,21 @@ it('runs the transaction callback against the same double', async () => {
 });
 ```
 
-`mockImplementation` типизирован по колбэчной перегрузке, поэтому `callback` не нужна аннотация.
-Массивная форма — `$transaction([query, query])` — принимает промисы, которые код уже построил из
-дубля; отвечайте ей через `resolveWith([...results])`.
+`mockImplementation` типизирован по форме с колбэком, поэтому аннотация у `callback` не нужна.
 
-## Запрос, который никто не замокал {#a-query-nobody-mocked}
+Форма с массивом, `$transaction([query, query])`, получает промисы, которые код уже взял у мока.
+Мок эти промисы игнорирует: код получит ровно то, что вы передали в `resolveWith([...results])`, по
+одному результату на запрос, по порядку:
 
-По умолчанию запрос, который спека не настроила, отвечает `undefined`, и проверяемый код падает
-где-то после него. Чтобы он падал прямо на вызове, передайте `fallbackMockImplementation` — во
-**втором** аргументе, рядом с остальными опциями:
+```ts
+// code under test: const [user, total] = await db.$transaction([db.user.create(...), db.user.count()]);
+prisma.$transaction.resolveWith([{ id: 7, email: 'new@example.test', name: null }, 3]);
+```
+
+## Уронить незамоканный запрос {#make-an-unmocked-query-fail}
+
+По умолчанию запрос, который спека не настроила, возвращает `undefined`, и код падает где-то
+позже. Чтобы падать прямо на вызове, передайте `fallbackMockImplementation` **вторым** аргументом:
 
 ```ts
 const prisma = mockDeep<PrismaClient>(
@@ -190,53 +229,63 @@ const prisma = mockDeep<PrismaClient>(
 );
 ```
 
-Имя опции взято у `vitest-mock-extended`, но там она идёт в первом аргументе; перенесённый
-`mockDeep<PrismaClient>({ fallbackMockImplementation })` здесь — ошибка компиляции, потому что первый
-аргумент — это заготовка значений. Запасная реализация отвечает за член, который **никто не
-настроил**. Как только на запросе стоит `calledWith`, список аргументов, не совпавший ни с одним
-правилом, отвечает `undefined`, а не запасной реализацией; падать на любом другом `where` умеет
-[`mustBeCalledWith`](/ru/core/control-helpers). С бросающей запасной реализацией настроенный
-`$transaction` всё равно выполняет свой колбэк, и каждый запрос внутри него попадает на запасную
-реализацию, если спека его не настроила. `resetAutoSpy(prisma)` сбрасывает то, что настроил тест, и
-запасная реализация снова в силе.
+**Частая ошибка:** `mockDeep<PrismaClient>({ fallbackMockImplementation })` не компилируется. Первый
+аргумент — начальные значения членов мока. (`vitest-mock-extended` принимает эту опцию первым
+аргументом, поэтому при переезде с него это место нужно поправить.)
 
-Два пункта помельче. Отвечать строками по-прежнему через `findMany.resolveWith([row])`: член
-`mockDeep`, прочитанный по индексу, становится настоящим массивом, но это для чтения членов-массивов
-с дубля, а не для результатов запросов. А `vi.spyOn(prisma.user, 'findMany')` работает и на члене,
-который ещё никто не читал, — он возвращает собственный спай этого члена.
+Как работает запасной ответ:
 
-## В сравнении с `vitest-mock-extended` {#compared-with-vitest-mock-extended}
+- Он срабатывает только для членов, которые **никто не настроил**.
+- Если у запроса задан `calledWith`, запрос считается настроенным. Вызов с другими аргументами
+  подчиняется правилам `calledWith` из раздела
+  [Ответ в зависимости от аргументов](#answer-based-on-the-arguments), а не запасному ответу.
+- Настроенная `$transaction` всё равно выполняет колбэк. Запросы внутри попадают в запасной ответ,
+  если спека их не настроила.
+- `resetAutoSpy(prisma)` очищает то, что настроил тест, и запасной ответ снова работает.
 
-Собственная серия статей Prisma о тестировании использует
-[`vitest-mock-extended`](https://github.com/eratio08/vitest-mock-extended), и структура спеки та же:
-глубокий мок `PrismaClient`, сбрасываемый перед каждым тестом. Меняется слой хелперов поверх:
+`vi.spyOn(prisma.user, 'findMany')` тоже работает, даже если к этому члену ещё никто не обращался.
+Он возвращает тот же спай, что и `prisma.user.findMany`, поэтому настройка одного настраивает и
+другой.
 
-|                                 | `vitest-mock-extended`                                          | `mockDeep` из `vitest-auto-spy`                                                    |
-| ------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Разрешить запрос                | `mockResolvedValue(rows)`                                       | `resolveWith(rows)`                                                                |
-| Отклонить запрос                | `mockRejectedValue(error)`                                      | `rejectWith(error)`                                                                |
-| Исключение из не-async члена    | `mockThrow(error)` на Vitest 4.1+, до него `mockImplementation` | `failWith(error)`, на любом раннере                                                |
-| Значение на каждый вызов        | цепочка `mockResolvedValueOnce`                                 | `resolveWithPerCall([...])`                                                        |
-| Ответ по аргументам             | `calledWith(…).mockResolvedValue(…)`                            | `calledWith(…).resolveWith(…)`, `mustBeCalledWith`, чтобы падать на всём остальном |
-| Сброс между тестами             | `mockReset(prisma)`                                             | `resetAutoSpy(prisma)` или `using`                                                 |
-| Падение на незамоканном запросе | `mockDeep({ fallbackMockImplementation })`                      | `mockDeep({}, { fallbackMockImplementation })`                                     |
-| Диапазон Vitest                 | peer `vitest >=4.0.0`                                           | peer `vitest >=2.1.0`; работает также на `bun:test` и `node:test`                  |
+## Переезд с `vitest-mock-extended` {#coming-from-vitest-mock-extended}
 
-Если `vitest-mock-extended` уже справляется, переезд — это в основном переименование. Причины его
-сделать — те, что в таблице: хелперы, описывающие исход запроса одним вызовом, и одна зависимость,
-которая заодно покрывает классы, потоки и адаптеры фреймворков в остальной сюите. Сравнение по
-возможностям — на странице [Сравнение](/ru/comparison#the-double-itself).
+Собственное руководство Prisma по тестированию использует
+[`vitest-mock-extended`](https://github.com/eratio08/vitest-mock-extended). Структура спеки та же:
+глубокий мок `PrismaClient`, сброс перед каждым тестом. Отличаются хелперы:
 
-## Где это заканчивается {#where-this-stops}
+|                               | `vitest-mock-extended`                                          | `mockDeep` из `vitest-auto-spy`                                                    |
+| ----------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Успешный ответ запроса        | `mockResolvedValue(rows)`                                       | `resolveWith(rows)`                                                                |
+| Ошибка запроса                | `mockRejectedValue(error)`                                      | `rejectWith(error)`                                                                |
+| Исключение из не-async члена  | `mockThrow(error)` в Vitest 4.1+, раньше — `mockImplementation` | `failWith(error)`, в любом раннере                                                 |
+| Своё значение на каждый вызов | цепочка `mockResolvedValueOnce`                                 | `resolveWithPerCall([...])`                                                        |
+| Ответ по аргументам           | `calledWith(…).mockResolvedValue(…)`                            | `calledWith(…).resolveWith(…)`, `mustBeCalledWith`, чтобы падать на всём остальном |
+| Сброс между тестами           | `mockReset(prisma)`                                             | `resetAutoSpy(prisma)` или `using`                                                 |
+| Уронить незамоканный запрос   | `mockDeep({ fallbackMockImplementation })`                      | `mockDeep({}, { fallbackMockImplementation })`                                     |
+| Поддерживаемые раннеры        | peer `vitest >=4.0.0`                                           | peer `vitest >=2.1.0`; также `bun:test` и `node:test`                              |
 
-Замоканный клиент проверяет, как _ваш_ код пользуется Prisma: какой запрос он отправил и что сделал с
-ответом. Сам запрос он не проверяет: `where`, который в настоящей базе ничего не находит, связь,
-которой нужен `include`, ограничение, которое навязывает схема. Для этого держите небольшую
-интеграционную сюиту на настоящей базе, а юнит-тесты пусть остаются быстрыми.
+Если `vitest-mock-extended` вас устраивает, переезд — в основном переименование. Зачем переезжать:
+хелперы, которые описывают результат запроса одним вызовом, и одна зависимость, которая покрывает
+ещё и классы, потоки и адаптеры фреймворков в остальных тестах. Подробное сравнение — на странице
+[Сравнение](/ru/comparison#the-double-itself).
+
+## Чего мок клиента не проверяет {#what-a-mocked-client-does-not-test}
+
+Мок клиента проверяет, как _ваш_ код использует Prisma: какой запрос отправлен и что сделано с
+ответом. Сам запрос он не проверяет: `where`, который в настоящей базе ничего не находит; связь,
+которой нужен `include`; ограничение, которое проверяет схема. Для этого держите несколько
+интеграционных тестов на настоящей базе, а юнит-тесты пусть остаются быстрыми.
+
+## Подробнее {#in-depth}
+
+Член `mockDeep`, который читают по индексу (`mock.items[0]`), становится настоящим массивом. Это
+нужно для членов мока, которые сами являются массивами. Результаты запросов по-прежнему задаются через
+`resolveWith([row])`: не пытайтесь собрать результат `findMany`, обращаясь к моку по индексу.
 
 ## Смотрите также {#related}
 
-- [Автомок по типу](/ru/core/auto-mock-by-type) — `mockDeep`, `createAutoMock` и `createMock`, и чего
-  не умеет дубль на Proxy.
-- [Управляющие хелперы](/ru/core/control-helpers) — каждый хелпер с этой страницы.
-- [NestJS](/ru/adapters/nestjs) — передача дубля в Nest-юнит, где обычный шов — `PrismaService`.
+- [Автомок по типу](/ru/core/auto-mock-by-type): `mockDeep`, `createAutoMock` и `createMock`, и чего
+  не умеет мок на основе Proxy.
+- [Управляющие хелперы](/ru/core/control-helpers): все хелперы с этой страницы.
+- [NestJS](/ru/adapters/nestjs): как отдать мок юниту Nest, где `PrismaService` — обычная точка
+  внедрения.

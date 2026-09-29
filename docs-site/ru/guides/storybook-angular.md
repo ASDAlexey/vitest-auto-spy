@@ -5,58 +5,11 @@ description: Запуск Angular-стори как тестов Vitest чере
 
 # Стори Storybook с авто-спаями (Angular)
 
-Стори рендерит компонент так же, как спека на `TestBed`, — через настоящий Angular DI, — а с
-[аддоном Storybook Vitest](https://storybook.js.org/docs/writing-tests/integrations/vitest-addon) её
-функция `play` выполняется как тест Vitest в настоящем браузере. Это делает стори естественным местом
-для интерактивного теста, и оставляет тот же вопрос, что и у спеки: что компоненту инжектится?
-`provideAutoSpy` отвечает на него одинаково в обоих местах.
-
-Всё на этой странице выполнено на Storybook 10.6 (`@storybook/angular-vite`,
-`@storybook/addon-vitest`), Angular 22 и Vitest 4.1 в browser mode с Chromium от Playwright.
-
-::: warning Пока что Vitest 4
-`@storybook/addon-vitest` 10.6 объявляет peer-диапазон `vitest ^3.0.0 || ^4.0.0`. Проект, уже
-переехавший на Vitest 5, пока не может гонять через него стори; сама библиотека работает на обоих.
-:::
-
-## Компонент {#the-component}
-
-```ts
-@Injectable({ providedIn: 'root' })
-export class CartService {
-  total(): number {
-    /* читает настоящую корзину */
-  }
-
-  checkout(token: string): Promise<Order> {
-    /* списывает с настоящей карты */
-  }
-}
-
-@Component({
-  selector: 'app-cart',
-  template: `
-    <p>Total: {{ total }}</p>
-    <button type="button" (click)="checkout()">Check out</button>
-    @if (orderId()) {
-      <p role="status">Order {{ orderId() }}</p>
-    }
-  `,
-})
-export class CartComponent {
-  readonly #cart = inject(CartService);
-
-  readonly total = this.#cart.total();
-  readonly orderId = signal<string | null>(null);
-
-  async checkout(): Promise<void> {
-    const order = await this.#cart.checkout('tok_abc');
-    this.orderId.set(order.orderId);
-  }
-}
-```
-
-## Стори {#the-stories}
+С [аддоном Storybook Vitest](https://storybook.js.org/docs/writing-tests/integrations/vitest-addon)
+функция `play` у стори выполняется как тест Vitest в настоящем браузере. Стори создаёт компонент
+через настоящий Angular DI, поэтому сервисы подменяются так же, как в спеке на `TestBed`: через
+`provideAutoSpy`. Провайдер передайте в `applicationConfig`, спай сохраните в константу файла со
+стори, а настраивайте и проверяйте его в самих стори.
 
 ```ts
 // cart.test.stories.ts
@@ -69,7 +22,7 @@ import { CartComponent } from './cart.component';
 import { CartService } from './cart.service';
 
 const cartProvider = provideAutoSpy(CartService);
-const cart = cartProvider.useValue;
+const cart = cartProvider.useValue; // Spy<CartService>
 
 const meta = {
   title: 'Cart/Interactions',
@@ -105,61 +58,112 @@ export const ChecksOut: Story = {
 };
 ```
 
-Что делает каждая часть:
+Проверено на Storybook 10.6 (`@storybook/angular-vite`, `@storybook/addon-vitest`), Angular 22 и
+Vitest 4.1 в browser mode с Chromium от Playwright.
 
-- **`provideAutoSpy(CartService)`** возвращает обычный провайдер `{ provide, useValue }`, и `useValue`
-  — это спай, типизированный `Spy<CartService>`. Провайдер уходит в Angular через
-  `applicationConfig`; спай остаётся в файле, чтобы стори его настраивали и проверяли. `TestBed` здесь
-  нет, так что `injectSpy` читать нечего: его заменяет сохранённая ссылка.
-- **Один спай на файл, сброс на каждую стори.** Декоратор собирается один раз при загрузке файла,
-  поэтому спай переживает каждую стори. `resetAutoSpy(cart)` в `beforeEach` меты сбрасывает вызовы и
-  конфигурацию предыдущей стори до того, как отрендерится следующая.
-- **Настройка в `beforeEach`, а не в `play`.** `play` выполняется после рендера компонента, а этот
-  компонент читает `total()` в инициализаторе поля — во время конструирования. Storybook выполняет
-  `beforeEach` меты, затем стори, и только потом рендерит, так что и значение по умолчанию, и ответ
-  конкретной стори уже на месте, когда о них спрашивает конструктор. `calledWith('tok_abc')` делает
-  оплату успешной только для того токена, который компонент обязан отправить.
-- **`expect` из `vitest`.** См. [ниже](#why-expect-comes-from-vitest).
-- **`tags: ['!dev', '!autodocs']`** убирает эти стори из сайдбара Storybook и со страницы документации,
-  оставляя их в тестовом прогоне: они существуют, чтобы выполняться, и импортируют `vitest`, который
-  разрешается только внутри прогона Vitest. Держите их в отдельном файле — здесь `*.test.stories.ts`,
-  — чтобы стори, которые люди листают, оставались от него свободны.
+::: warning Пока что Vitest 4
+`@storybook/addon-vitest` 10.6 поддерживает только `vitest ^3.0.0 || ^4.0.0`. На Vitest 5 запускать
+через него стори пока нельзя. Сама библиотека работает на обеих версиях.
+:::
+
+## Компонент {#the-component}
+
+Стори выше тестируют этот компонент. Он читает `total()` в инициализаторе поля, то есть пока
+создаётся, и вызывает `checkout()` по клику.
+
+```ts
+@Injectable({ providedIn: 'root' })
+export class CartService {
+  total(): number {
+    /* reads the real cart */
+  }
+
+  checkout(token: string): Promise<Order> {
+    /* charges the real card */
+  }
+}
+
+@Component({
+  selector: 'app-cart',
+  template: `
+    <p>Total: {{ total }}</p>
+    <button type="button" (click)="checkout()">Check out</button>
+    @if (orderId()) {
+      <p role="status">Order {{ orderId() }}</p>
+    }
+  `,
+})
+export class CartComponent {
+  readonly #cart = inject(CartService);
+
+  readonly total = this.#cart.total();
+  readonly orderId = signal<string | null>(null);
+
+  async checkout(): Promise<void> {
+    const order = await this.#cart.checkout('tok_abc');
+    this.orderId.set(order.orderId);
+  }
+}
+```
+
+## Стори {#the-stories}
+
+Что делает каждая часть файла со стори:
+
+- **`provideAutoSpy(CartService)`** возвращает обычный провайдер `{ provide, useValue }`. `useValue` —
+  типизированный спай `Spy<CartService>`. Провайдер уходит в Angular через `applicationConfig`, а спай
+  хранится в константе `cart`, через неё его используют стори.
+- **Один спай на файл, сброс перед каждой стори.** `provideAutoSpy` выполняется один раз, при
+  загрузке файла, и все стори работают с одним спаем. Поэтому `beforeEach` у `meta` вызывает
+  `resetAutoSpy(cart)`: он стирает вызовы и ответы предыдущей стори. После сброса метод возвращает
+  `undefined`, пока вы снова не зададите ему ответ.
+- **Настраивайте в `beforeEach`, а не в `play`.** `play` запускается после рендера, а этот компонент
+  вызывает `total()` ещё при создании. Storybook выполняет `beforeEach` у `meta` (он настраивает `total`), затем у
+  стори (он настраивает `checkout`) и только потом рендерит компонент.
+- **`cart.checkout.resolveWith(order)`** отвечает `order` на любой вызов. С **`calledWith('tok_abc')`**
+  перед ним ответ получает только вызов с этим токеном; любой другой вернёт `undefined`.
+- **`findByRole` ждёт**, пока элемент появится, поэтому подходит и для данных, которые компонент
+  загружает асинхронно, например в `ngOnInit`. `getBy…` — только для того, что есть при первом рендере.
+- **`expect` берётся из `vitest`**, а не из `storybook/test`. Работают все привычные матчеры спаев:
+  `toHaveBeenCalledWith`, `toHaveBeenCalledTimes`, `toHaveBeenCalled`. Почему — в
+  [следующем разделе](#why-expect-comes-from-vitest).
+- **`tags: ['!dev', '!autodocs']`** прячет эти стори из боковой панели и страницы документации
+  Storybook, но оставляет их в прогоне тестов. Они импортируют `vitest`, который не загружается в `storybook dev`,
+  поэтому без этих тегов стори сломали бы интерфейс Storybook. Держите их в отдельном файле, например `*.test.stories.ts`, чтобы стори для
+  просмотра оставались чистыми.
 
 ## Почему `expect` берётся из `vitest` {#why-expect-comes-from-vitest}
 
-У `storybook/test` есть свой `expect`, и именно его используют примеры Storybook: он
-инструментирован, поэтому каждая проверка появляется в панели Interactions. С этими спаями он падает:
+У `storybook/test` есть свой `expect`, и примеры Storybook используют его. Со спаями этой библиотеки
+он падает:
 
 ```text
 TypeError: [Function] is not a spy or a call to a spy!
 ```
 
-Инструментатор оборачивает каждый аргумент-функцию инструментированного вызова в свежую стрелку,
-если у функции нет собственных перечислимых ключей, — эвристика, которая узнаёт `vi.fn()`, чьи
-методы `mock*` — собственные свойства. Спаи этой библиотеки держат эти методы на общем прототипе —
-отсюда и их экономия памяти, — так что проверка их не видит, и матчер получает обёртку. `expect` из
-`vitest` не инструментирован и получает сам спай. Обойти можно двумя способами:
+`expect` из Storybook оборачивает спай в новую функцию, и матчер получает обёртку. `expect` из
+`vitest` передаёт спай как есть.
 
-- **Импортируйте `expect` из `vitest` в этих стори**, как выше. Стори скрыты из интерфейса, так что
-  панель Interactions, которую кормит инструментированный `expect`, всё равно не то место, где их
-  читают.
-- **Переключите файл на моки раннера** через `setSpyEngine('runner')` из `vitest-auto-spy/setup`,
-  вызванный до сборки спаев: каждый метод тогда — `vi.fn()`, и инструментированный `expect` его
-  принимает. Это обмен скорости и памяти движка на панель, пофайлово.
+Два способа обойти:
+
+- **Импортировать `expect` из `vitest`**, как в примере. Вы теряете записи в панели Interactions, но
+  эти стори и так скрыты из интерфейса.
+- **Перевести файл на моки раннера:** вызвать `setSpyEngine('runner')` из `vitest-auto-spy/setup` в
+  начале файла со стори, до `provideAutoSpy`. Тогда каждый метод — `vi.fn()`, и `expect` из Storybook его принимает. Вы платите за
+  панель частью скорости и памяти.
 
 ## Чем это не является {#what-this-is-not}
 
-- **Не адаптер `/storybook`.** Собственный `fn()` Storybook из `storybook/test` не тронут; ничто здесь
-  не подключает его к движку этой библиотеки. Рецепт использует Angular-точку входа ровно так же, как
-  спека.
-- **Не мок модуля.** `sb.mock()` в `.storybook/preview.ts` подменяет модуль для всей сборки Storybook
-  ещё до того, как выполнится хоть одна стори. Провайдер подменяет один инжектируемый класс для стори
-  одного файла — ту гранулярность, которую уже даёт компонент, собранный через DI.
+- **Не адаптер Storybook.** Отдельного `vitest-auto-spy/storybook` нет, а собственный `fn()` из
+  `storybook/test` работает как прежде. `vitest-auto-spy/angular` используется ровно так же, как в
+  спеке.
+- **Не мок модуля.** `sb.mock()` в `.storybook/preview.ts` подменяет модуль на всю сборку Storybook.
+  Провайдер подменяет один сервис для стори одного файла.
 
 ## Смотрите также {#related}
 
-- [Angular](/ru/adapters/angular) — `provideAutoSpy`, `injectSpy` и сторона `TestBed` у тех же
-  провайдеров.
-- [Управляющие хелперы](/ru/core/control-helpers) — `calledWith`, `resolveWith`, `resetAutoSpy`.
-- [Паттерны спек](/ru/recipes) — соглашения, к которым пришла большая Angular-сюита; большинство
-  из них верны и для стори.
+- [Angular](/ru/adapters/angular) — `provideAutoSpy`, `injectSpy` и те же провайдеры со стороны
+  `TestBed`.
+- [Хелперы управления](/ru/core/control-helpers) — `calledWith`, `resolveWith`, `resetAutoSpy`.
+- [Паттерны спек](/ru/recipes) — соглашения больших наборов тестов на Angular; большинство подходит и
+  для стори.

@@ -1,15 +1,62 @@
 ---
 title: Моки классов в Vitest
-description: createSpyFromClass против vi.spyOn(Class.prototype) и фабрики vi.mock — что выбрать, почему спай на прототипе не видит поле-стрелку и как задублировать класс, который код под тестом создаёт сам.
+description: Как подменить класс в спеке Vitest - createSpyFromClass в сравнении с vi.spyOn на прототипе и фабрикой vi.mock, поля-стрелки и классы, которые код под тестом создаёт через new.
 ---
 
 # Моки классов в Vitest
 
-Подменить класс в спеке Vitest можно тремя способами, и тот, с которого начинает большинство
-руководств, — тот, что протекает. Эта страница ставит их рядом на одном классе, а затем разбирает
-ловушку, общую для всех трёх: члены, которых нет на прототипе.
+`createSpyFromClass` строит из класса типизированный объект-спай. Каждый метод становится спаем, а
+настоящий класс остаётся нетронутым. Подходит, когда код под тестом получает экземпляр класса
+аргументом конструктора, параметром функции или через DI.
 
 ```ts
+import { beforeEach, describe, expect, it } from 'vitest';
+import { type Spy, asInstance, createSpyFromClass } from 'vitest-auto-spy';
+
+import { Checkout } from './checkout';
+import { PaymentClient } from './payment-client';
+
+describe('Checkout', () => {
+  let payments: Spy<PaymentClient>;
+  let checkout: Checkout;
+
+  beforeEach(() => {
+    payments = createSpyFromClass(PaymentClient);
+    checkout = new Checkout(asInstance(payments));
+  });
+
+  it('returns the receipt id', async () => {
+    payments.charge.calledWith(5).resolveWith({ id: 'r_1', amount: 5 });
+
+    await expect(checkout.pay(5)).resolves.toBe('r_1');
+    expect(payments.refund).not.toHaveBeenCalled();
+  });
+
+  it('reports a declined card', async () => {
+    payments.charge.rejectWith(new Error('card declined'));
+
+    await expect(checkout.pay(5)).resolves.toBe('declined');
+  });
+
+  it('refunds a receipt', async () => {
+    payments.refund.resolveWith();
+
+    await checkout.cancel('r_1');
+
+    expect(payments.refund).toHaveBeenCalledWith('r_1');
+  });
+});
+```
+
+Классы из примера:
+
+```ts
+// payment-client.ts
+export interface Receipt {
+  id: string;
+  amount: number;
+}
+
 export class PaymentClient {
   constructor(readonly apiKey: string) {}
 
@@ -17,20 +64,64 @@ export class PaymentClient {
     /* настоящий HTTP-вызов */
   }
 
-  readonly refund = async (id: string): Promise<void> => {
-    /* поле-стрелка — живёт на экземпляре, а не на прототипе */
-  };
+  async refund(id: string): Promise<void> {
+    /* настоящий HTTP-вызов */
+  }
 }
 
+// checkout.ts
 export class Checkout {
   constructor(private readonly payments: PaymentClient) {}
-  // pay(amount) зовёт payments.charge, cancel(id) зовёт payments.refund
+  // pay(amount) вызывает payments.charge и возвращает id чека или 'declined', если запрос упал
+  // cancel(id) вызывает payments.refund
 }
 ```
 
-## 1. `vi.spyOn(Class.prototype, 'method')` {#_1-vi-spyon-class-prototype-method}
+Что делает каждая часть:
+
+- **`createSpyFromClass(PaymentClient)`** создаёт новый объект на каждый тест. Он читает методы
+  класса, не запуская конструктор, поэтому после теста ничего восстанавливать не нужно.
+- **Каждый метод — спай**, даже если тест его не настраивал. В первом тесте `payments.refund` уже
+  есть, поэтому `expect(payments.refund).not.toHaveBeenCalled()` работает.
+- **`Spy<PaymentClient>`** даёт каждому методу хелперы под его тип возврата. `charge` возвращает
+  `Promise<Receipt>`, поэтому у него есть `resolveWith` и `rejectWith`, а `resolveWith` принимает
+  только `Receipt`.
+- **`calledWith(5).resolveWith(...)`** отвечает, только если аргумент равен `5`. Вызов с другими
+  аргументами получит общий ответ метода, заданный без `calledWith` (например,
+  `payments.charge.resolveWith(receipt)`). Если его нет — `undefined`. Поэтому тест
+  упадёт, если код отправит не ту сумму. Чтобы любой другой аргумент сразу бросал ошибку, используйте
+  `mustBeCalledWith(5)`. Почему это надёжнее `mockResolvedValue` —
+  [причина и следствие](/ru/core/control-helpers#cause-and-effect-why-calledwith-and-not-mockreturnvalue).
+- **`asInstance(payments)`** передаёт спай туда, где ждут `PaymentClient`. Он нужен, только если у
+  класса есть приватные или защищённые члены: в `Spy<T>` их нет, и TypeScript не примет спай как
+  `PaymentClient`. В остальных случаях он не мешает. Подробнее — в разделе [Мост между `Spy<T>` и `T`](/ru/core/spy-typing).
+
+Если метод записан как поле-стрелка (`refund = async () => {}`), спаю нужна одна опция. См.
+[Мок поля-стрелки](#mock-an-arrow-function-field).
+
+## Выбрать подход {#choose-an-approach}
+
+|                                   | `vi.spyOn(prototype)`           | Фабрика `vi.mock`                | `createSpyFromClass`                       |
+| --------------------------------- | ------------------------------- | -------------------------------- | ------------------------------------------ |
+| Что подменяет                     | все экземпляры класса           | модуль, на весь файл             | один объект, на один тест                  |
+| Нужно восстанавливать             | да                              | нет                              | нет                                        |
+| Какие методы покрыты              | те, что вы назвали              | те, что вы написали              | все, настроенные и нет                     |
+| Типизирован по классу             | только подменённый метод        | нет                              | каждый метод и его хелперы                 |
+| Новый метод в классе              | настоящий, пока его не подменят | отсутствует: `is not a function` | сразу спай, спеки не меняются              |
+| Видит поля-стрелки                | нет                             | только если их написать          | если указать их в `instanceMethodsToSpyOn` |
+| Код должен получать класс снаружи | нет                             | нет                              | да: аргументом или через DI                |
+
+Последняя строка — единственное настоящее ограничение `createSpyFromClass`. Если код под тестом сам
+вызывает `new PaymentClient()`, см. [Мок класса, который код создаёт через `new`](#mock-a-class-the-code-creates-with-new).
+
+## Спай на прототипе через `vi.spyOn` {#spy-on-the-prototype-with-vi-spyon}
 
 ```ts
+import { afterEach, expect, it, vi } from 'vitest';
+
+import { Checkout } from './checkout';
+import { PaymentClient } from './payment-client';
+
 afterEach(() => vi.restoreAllMocks());
 
 it('returns the receipt id', async () => {
@@ -42,17 +133,17 @@ it('returns the receipt id', async () => {
 });
 ```
 
-Это работает, и у этого три цены:
+Это работает, но есть три минуса:
 
-- **Патчится настоящий класс, для всех.** Каждый экземпляр в realm отвечает заглушкой, пока её кто-то
-  не снимет, — поэтому `afterEach` не опционален, и поэтому забытое восстановление под
-  `isolate: false` роняет тест в другом файле.
-- **По одному методу.** Все остальные методы настоящие, так что настоящий конструктор выполняется, а
-  незаглушённая половина класса делает настоящую работу. Новый метод в классе — это новый настоящий
-  вызов из каждой спеки, которая о нём не знала.
-- **Поле экземпляра он не видит.** См. [ниже](#the-trap-arrow-function-fields).
+- **Меняется настоящий класс, для всех.** Каждый экземпляр получает подмену, пока её не снимут.
+  Поэтому `afterEach` обязателен. Если его забыть, а тесты делят одно окружение (`isolate: false` — файлы тестов выполняются в одном
+  общем окружении, без изоляции),
+  упадёт тест в другом файле.
+- **По одному методу.** Остальные методы остаются настоящими, и настоящий конструктор выполняется.
+  Метод, добавленный в класс позже, станет настоящим вызовом во всех спеках, которые его не подменили.
+- **Не видит поля-стрелки.** См. [Мок поля-стрелки](#mock-an-arrow-function-field).
 
-## 2. Фабрика `vi.mock` {#_2-a-vi-mock-factory}
+## Подменить модуль через `vi.mock` {#replace-the-module-with-vi-mock}
 
 ```ts
 vi.mock('./payment-client', () => ({
@@ -62,121 +153,75 @@ vi.mock('./payment-client', () => ({
 }));
 ```
 
-Подменяется весь модуль, так что ничего не протекает, — но дубль не типизирован
-(`{ charge: vi.fn() }` ни с чем не сверяется), держать его в ногу с классом приходится руками, и у
-него своя ловушка: Vitest передаёт `new` только реализации, которую саму можно вызвать через `new`.
-Напишите ту же фабрику со стрелкой — и каждое конструирование падает:
+Модуль подменяется целиком, поэтому между файлами ничего не протекает. Но:
+
+- фейк не типизирован: `{ charge: vi.fn() }` ни с чем не сверяется;
+- синхронизировать его с классом приходится вручную;
+- внутри нужна `function`, а не стрелка. Vitest вызывает `new` только у реализации, которую можно
+  вызвать как конструктор. Со стрелкой каждый `new PaymentClient()` падает:
 
 ```text
 TypeError: () => ({ charge: __vite_ssr_import_0__.vi.fn() }) is not a constructor
 ```
 
-со стеком в продакшен-коде и одним предупреждением в stderr («The vi.fn() mock did not use
-'function' or 'class' in its implementation»), которое легко пропустить в большом прогоне. Вся
-история — на странице [дублей конструкторов](/ru/utilities/constructor-doubles).
+Стек указывает в продакшен-код. Ещё Vitest печатает одно предупреждение в stderr ("The vi.fn() mock
+did not use 'function' or 'class' in its implementation"), и в большом прогоне его легко пропустить.
+Подробнее — на странице [Подмены конструкторов](/ru/utilities/constructor-doubles).
 
-## 3. `createSpyFromClass` {#_3-createspyfromclass}
+## Мок поля-стрелки {#mock-an-arrow-function-field}
+
+Пусть `refund` записан не методом, а полем-стрелкой:
 
 ```ts
-import { type Spy, asInstance, createSpyFromClass } from 'vitest-auto-spy';
-
-describe('Checkout', () => {
-  let payments: Spy<PaymentClient>;
-  let checkout: Checkout;
-
-  beforeEach(() => {
-    payments = createSpyFromClass(PaymentClient, { instanceMethodsToSpyOn: ['refund'] });
-    checkout = new Checkout(asInstance(payments));
-  });
-
-  it('returns the receipt id', async () => {
-    payments.charge.calledWith(5).resolveWith({ id: 'r_1', amount: 5 });
-
-    await expect(checkout.pay(5)).resolves.toBe('r_1');
-  });
-
-  it('reports a declined card', async () => {
-    payments.charge.rejectWith(new Error('card declined'));
-
-    await expect(checkout.pay(5)).resolves.toBe('declined');
-  });
-
-  it('refunds through the arrow field', async () => {
-    payments.refund.resolveWith();
-
-    await checkout.cancel('r_1');
-
-    expect(payments.refund).toHaveBeenCalledWith('r_1');
-  });
-});
+export class PaymentClient {
+  // ...
+  readonly refund = async (id: string): Promise<void> => {
+    /* настоящий HTTP-вызов */
+  };
+}
 ```
 
-Спай — новый объект на каждый тест, собранный с прототипа класса без запуска его конструктора:
-
-- **Нечего восстанавливать.** Настоящий `PaymentClient` не трогается, так что нет глобального
-  состояния, которое надо вернуть, и нечего унаследовать следующему файлу.
-- **Каждый метод, типизированно.** `Spy<PaymentClient>` даёт каждому методу хелперы по его типу
-  возврата — `resolveWith` / `rejectWith` у `charge`, потому что он возвращает `Promise`, причём
-  аргумент `resolveWith` обязан быть `Receipt`. Метод, добавленный в класс, становится спаем в каждой
-  спеке на следующем же прогоне.
-- **Ответы по аргументам.** `calledWith(5)` настраивает, что вернёт именно этот вызов, а это более
-  сильный контракт, чем безусловный `mockResolvedValue`, — см.
-  [причину и следствие](/ru/core/control-helpers#cause-and-effect-why-calledwith-and-not-mockreturnvalue).
-
-`asInstance` нужен потому, что `Spy<T>` — маппед-тип, он отбрасывает приватные члены и как есть не
-присваивается `PaymentClient`; компромисс разобран в [Мосте между `Spy<T>` и `T`](/ru/core/spy-typing).
-
-|                       | `vi.spyOn(prototype)`    | фабрика `vi.mock`          | `createSpyFromClass`                        |
-| --------------------- | ------------------------ | -------------------------- | ------------------------------------------- |
-| Охват патча           | каждый экземпляр в realm | модуль, на весь файл       | один объект, один тест                      |
-| Нужно восстанавливать | да                       | нет                        | нет                                         |
-| Какие методы покрыты  | те, что вы назвали       | те, что вы написали        | все, лениво                                 |
-| Типизирован по классу | только заглушённый метод | нет                        | каждый метод и его хелперы                  |
-| Видит поля-стрелки    | нет                      | только если вы их написали | если названы                                |
-| Нужен шов             | нет                      | нет                        | да — класс приходит аргументом или через DI |
-
-Последняя строка — честная цена. `createSpyFromClass` требует, чтобы код под тестом _получал_
-экземпляр: аргументом конструктора, параметром функции, DI-провайдером. Код, который сам выполняет
-`new PaymentClient()`, разобран [ниже](#a-class-the-code-under-test-constructs).
-
-## Ловушка: поля-стрелки {#the-trap-arrow-function-fields}
+Спай на прототипе до него не дотянется:
 
 ```ts
 vi.spyOn(PaymentClient.prototype, 'refund');
 // Error: The property "refund" is not defined on the object.
 ```
 
-`refund = async () => {}` — не метод. TypeScript компилирует его в присваивание внутри конструктора,
-поэтому он существует только на экземплярах и только после того, как конструктор отработал. То же
-верно для всего, что присваивается в инициализаторе поля: привязанных обработчиков, полей Angular
-`signal()` / `computed()`, членов ngrx `signalStore()`. На прототипе спаить нечего.
+`refund = async () => {}` — поле, а не метод. TypeScript превращает его в присваивание внутри
+конструктора, поэтому оно есть только у экземпляров и только после конструктора. На прототипе
+следить не за чем. То же верно для всего, что задаётся в инициализаторе поля: привязанных
+обработчиков, полей Angular `signal()` и `computed()`, членов ngrx `signalStore()`.
 
-`createSpyFromClass` тоже собирает с прототипа и тоже не запускает конструктор — именно это делает
-его безопасным на классе, чей конструктор открывает сокет, — поэтому сам поле найти не может.
-Назовите его:
+`createSpyFromClass` тоже читает прототип. В отличие от `new PaymentClient()`, он никогда не
+запускает конструктор, поэтому безопасен для класса, чей конструктор открывает сокет. Сам он поле не
+найдёт. Назовите его:
 
 ```ts
 createSpyFromClass(PaymentClient, { instanceMethodsToSpyOn: ['refund'] });
 ```
 
-Забудете — и у спая не будет `refund`: упадёт строка самой спеки с `Cannot read properties of
-undefined (reading 'resolveWith')`, а не код под тестом, тихо позвавший что-то настоящее. Если же
-положить поле в `onlyMethodsToSpyOn`, библиотека сообщит, что такого имени нет на прототипе класса, —
-предупреждением или исключением под пресетом `strict`, — и назовёт исправление:
-`instanceMethodsToSpyOn`. Рассуждение — на странице
-[createSpyFromClass](/ru/core/create-spy-from-class#instancemethodstospyon-—-callables-that-are-not-on-the-prototype).
+Если забыть, у спая не будет `refund`. Упадёт сама спека, на строке, где вы настраиваете `refund`:
+`Cannot read properties of undefined (reading 'resolveWith')`. Код под тестом ничего настоящего не
+вызовет.
 
-Классу, который у вас есть только как **тип**, — или состоящему из одних полей экземпляра — список не
-нужен вовсе: [`createAutoMock<PaymentClient>()`](/ru/core/auto-mock-by-type) лениво собирает каждый
-член из того, что читает спека.
+Если вместо этого указать поле в `onlyMethodsToSpyOn`, библиотека сообщит, что такого имени нет на
+прототипе класса, и предложит `instanceMethodsToSpyOn`. По умолчанию это предупреждение. Ошибкой оно
+становится, если сетап-файл вызывает `setupAutoSpy({ preset: 'strict' })` (или
+`setupAutoSpy({ misconfiguration: 'throw' })`). Подробности —
+[`instanceMethodsToSpyOn`](/ru/core/create-spy-from-class#instancemethodstospyon-—-callables-that-are-not-on-the-prototype).
 
-## Класс, который код под тестом создаёт сам {#a-class-the-code-under-test-constructs}
+Если класс есть только как **тип** или он весь состоит из полей экземпляра, список не нужен:
+[`createAutoMock<PaymentClient>()`](/ru/core/auto-mock-by-type) создаёт каждый член, который читает
+спека.
 
-Когда вызов конструктора живёт внутри кода под тестом, класс приходится подменять там, где его
-находит код, — в модуле. Мок модуля остаётся, но вместо рукописного литерала в нём авто-спаящий
-конструктор:
+## Мок класса, который код создаёт через `new` {#mock-a-class-the-code-creates-with-new}
+
+Если код под тестом сам вызывает `new PaymentClient()`, класс подменяют в его модуле. Оставьте
+`vi.mock`, но верните из фабрики автоспай-конструктор `createSpyClass` вместо рукописного объекта:
 
 ```ts
+import { expect, it, vi } from 'vitest';
 import type { ConstructorSpy } from 'vitest-auto-spy';
 
 import { payOnce } from './checkout';
@@ -204,28 +249,29 @@ it('charges through the client it builds', async () => {
 });
 ```
 
-[`createSpyClass`](/ru/utilities/constructor-doubles) — настоящий конструктор, `new` работает на любой
-версии раннера, и каждый экземпляр — полноценный авто-спай исходного класса. Две детали несут
-нагрузку:
+[`createSpyClass`](/ru/utilities/constructor-doubles) возвращает настоящий конструктор, поэтому `new`
+работает всегда. Каждый экземпляр — полный спай исходного класса. В `calls` лежат аргументы каждого
+`new`, в `instances` — спай, созданный каждым `new`.
 
-- **Значение по умолчанию — в `returns`.** Экземпляра нет, пока код под тестом не вызвал `new`, а
-  `payOnce` зовёт `charge` тут же, так что у спеки нет момента, чтобы его настроить. `returns` —
-  значение, с которым начинает каждый экземпляр; экземпляр, полученный через `instances`, всё ещё
-  можно перенастроить для последующих вызовов.
-- **Настоящий класс приходит из `importOriginal`.** Внутри фабрики собственный импорт модуля
-  разрешился бы в строящийся мок, поэтому `importOriginal` — единственный способ добраться до класса,
-  с прототипа которого читает `createSpyClass`.
+Две важные детали:
 
-Единственный `as unknown as` — цена того, чтобы прочитать экспорт модуля как дубль, которым его
-заменили: собственный тип модуля по-прежнему говорит `PaymentClient`. Если эта строка появляется во
-многих спеках, классу нужен шов — передавайте его снаружи или инжектите фабрику, — и тогда работает
-раздел выше.
+- **Ответы по умолчанию — в `returns`.** Экземпляра нет, пока код не вызовет `new`, а `payOnce`
+  сразу после этого вызывает `charge`. Между ними у спеки нет момента что-то настроить. `returns`
+  задаёт то, с чем стартует каждый новый экземпляр. Экземпляр из `instances` можно перенастроить
+  для следующих вызовов.
+- **Настоящий класс — из `importOriginal`.** Внутри фабрики обычный импорт модуля вернёт
+  строящийся мок. `importOriginal` — единственный способ добраться до настоящего класса, из которого
+  `createSpyClass` читает методы.
+
+Приведение `as unknown as` нужно, потому что тип модуля по-прежнему говорит `PaymentClient`. Если
+такое приведение встречается во многих спеках, измените код так, чтобы он получал класс снаружи:
+аргументом или через фабрику в DI. Тогда подойдёт способ из начала страницы.
 
 ## Смотрите также {#related}
 
-- [createSpyFromClass](/ru/core/create-spy-from-class) — все опции, включая `onlyMethodsToSpyOn`,
-  спаи на аксессоры и ленивые спаи.
-- [Дубли конструкторов](/ru/utilities/constructor-doubles) — `createSpyClass`, `mockConstructor` и
-  `stubConstructor` для всего, что код под тестом собирает через `new`.
-- [Моки модулей, которые ничего не сделали](/ru/utilities/module-mocks) — `assertMocked` для
+- [createSpyFromClass](/ru/core/create-spy-from-class): все опции, включая `onlyMethodsToSpyOn`,
+  спаи на аксессорах и ленивые спаи.
+- [Подмены конструкторов](/ru/utilities/constructor-doubles): `createSpyClass`, `mockConstructor` и
+  `stubConstructor` для всего, что код под тестом создаёт через `new`.
+- [Моки модулей, которые ничего не сделали](/ru/utilities/module-mocks): `assertMocked` для
   `vi.mock`, который молча не применился.
