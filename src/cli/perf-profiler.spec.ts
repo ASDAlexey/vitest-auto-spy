@@ -7,13 +7,14 @@
  * not parse, names no spec or carries no profile is removed too, because a leftover would be read
  * again by the next pass and attributed to whatever that pass measured.
  */
-import { readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { writeTextFile } from './fs-scan';
+import { summariseProfile } from './perf-profile';
 import type { FileHooks, InspectorSession } from './perf-profiler';
-import { profileEachFile, takeProfiles } from './perf-profiler';
+import { profileEachFile, profileFileName, takeProfiles } from './perf-profiler';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
 afterEach(() => {
@@ -93,7 +94,7 @@ describe('profileEachFile', () => {
       'Profiler.stop {}',
       'disconnect',
     ]);
-    expect([...takeProfiles(dir)]).toEqual([['/repo/src/a.spec.ts', PROFILE]]);
+    expect([...takeProfiles(dir, '/repo')]).toEqual([['/repo/src/a.spec.ts', summariseProfile(PROFILE, '/repo/src/a.spec.ts', '/repo')]]);
   });
 
   it('writes a file that names no spec and carries no profile when neither is known, and the reader skips it', async () => {
@@ -106,7 +107,7 @@ describe('profileEachFile', () => {
     await captured.after();
 
     expect(readdirSync(dir)).toHaveLength(1);
-    expect(takeProfiles(dir).size).toBe(0);
+    expect(takeProfiles(dir, '/repo').size).toBe(0);
     expect(readdirSync(dir)).toEqual([]);
   });
 
@@ -122,7 +123,7 @@ describe('profileEachFile', () => {
 
 describe('takeProfiles', () => {
   it('returns nothing for a directory that was never created', () => {
-    expect(takeProfiles(join(createTempRepo({}), 'missing')).size).toBe(0);
+    expect(takeProfiles(join(createTempRepo({}), 'missing'), '/repo').size).toBe(0);
   });
 
   it('keeps a valid profile, skips every malformed one, and removes all of them', () => {
@@ -140,7 +141,43 @@ describe('takeProfiles', () => {
     write('nodes-not-an-array.json', JSON.stringify({ file: '/repo/src/e.spec.ts', profile: { ...PROFILE, nodes: {} } }));
     write('samples-not-an-array.json', JSON.stringify({ file: '/repo/src/f.spec.ts', profile: { ...PROFILE, samples: {} } }));
 
-    expect([...takeProfiles(dir).keys()]).toEqual(['/repo/src/a.spec.ts']);
+    expect([...takeProfiles(dir, '/repo').keys()]).toEqual(['/repo/src/a.spec.ts']);
     expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('keeps each valid profile as a .cpuprofile named after its spec when asked to', () => {
+    const root = createTempRepo({ 'profiles/': '' });
+    const dir = join(root, 'profiles');
+    const keep = join(root, 'kept');
+
+    writeTextFile(join(dir, 'good.json'), JSON.stringify({ file: '/repo/src/a.spec.ts', profile: PROFILE }));
+    writeTextFile(join(dir, 'bad.json'), JSON.stringify({ file: '/repo/src/b.spec.ts' }));
+
+    expect(takeProfiles(dir, '/repo', keep).size).toBe(1);
+    expect(readdirSync(keep)).toEqual(['src__a.spec.ts.cpuprofile']);
+    expect(JSON.parse(readFileSync(join(keep, 'src__a.spec.ts.cpuprofile'), 'utf8'))).toEqual(PROFILE);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+});
+
+describe('profileFileName', () => {
+  it('flattens the repository path, and a spec outside the repository keeps its own path without the climb', () => {
+    expect(profileFileName('/repo/src/deep/a.spec.ts', '/repo')).toBe('src__deep__a.spec.ts.cpuprofile');
+    expect(profileFileName('/elsewhere/b.spec.ts', '/repo')).toBe('elsewhere__b.spec.ts.cpuprofile');
+  });
+});
+
+describe('summariseProfile on a malformed tree', () => {
+  it('skips a child id no node carries instead of failing the card', () => {
+    const broken = {
+      nodes: [
+        { id: 1, callFrame: { functionName: '(root)', url: '' }, children: [2, 9] },
+        { id: 2, callFrame: { functionName: 'render', url: '/repo/src/a.spec.ts' } },
+      ],
+      samples: [2],
+      timeDeltas: [2_000],
+    };
+
+    expect(summariseProfile(broken, '/repo/src/a.spec.ts', '/repo').spec).toEqual([{ name: 'render', ms: 2, share: 1 }]);
   });
 });

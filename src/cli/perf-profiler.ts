@@ -9,11 +9,12 @@
  * `setupFiles` only for the pass that asked for a profile, and an ordinary run never loads it.
  */
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { threadId } from 'node:worker_threads';
 
-import { removeFile, writeTextFile } from './fs-scan';
-import type { CpuProfile } from './perf-profile';
+import { removeFile, toPosix, writeTextFile } from './fs-scan';
+import type { CpuProfile, ProfileSummary } from './perf-profile';
+import { summariseProfile } from './perf-profile';
 import { isRecord } from './profile';
 
 /** The subset of `node:inspector`'s `Session` this uses, callback form, so a test can hand in its own. */
@@ -63,9 +64,20 @@ function isProfile(value: unknown): value is CpuProfile {
   return isRecord(value) && Array.isArray(value['nodes']) && Array.isArray(value['samples']) && Array.isArray(value['timeDeltas']);
 }
 
-/** Every profile the pass left, by the absolute path of its spec file, and the directory emptied behind it. */
-export function takeProfiles(dir: string): Map<string, CpuProfile> {
-  const found = new Map<string, CpuProfile>();
+/** A `.cpuprofile` name for a spec: its repository path, flattened, which DevTools and speedscope open as they are. */
+export function profileFileName(spec: string, cwd: string): string {
+  return `${toPosix(relative(cwd, spec))
+    .replace(/^(?:\.\.\/)+/, '')
+    .replace(/[/:\\]/g, '__')}.cpuprofile`;
+}
+
+/**
+ * What every profile the pass left says, by the absolute path of its spec file, and the directory
+ * emptied behind it. One profile is parsed at a time and dropped once summarised; with `keep` it is
+ * first written there as a `.cpuprofile`.
+ */
+export function takeProfiles(dir: string, cwd: string, keep?: string): Map<string, ProfileSummary> {
+  const found = new Map<string, ProfileSummary>();
   let names: string[];
 
   try {
@@ -81,7 +93,13 @@ export function takeProfiles(dir: string): Map<string, CpuProfile> {
       const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
 
       if (isRecord(parsed) && typeof parsed['file'] === 'string' && parsed['file'] !== '' && isProfile(parsed['profile'])) {
-        found.set(parsed['file'], parsed['profile']);
+        const spec = parsed['file'];
+
+        if (keep !== undefined) {
+          writeTextFile(join(keep, profileFileName(spec, cwd)), JSON.stringify(parsed['profile']));
+        }
+
+        found.set(spec, summariseProfile(parsed['profile'], spec, cwd));
       }
     } catch {
       // A profile cut off by a crashed worker explains nothing; the finding is printed without it.
