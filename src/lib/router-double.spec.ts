@@ -21,11 +21,16 @@ import {
   provideRouter,
 } from '@angular/router';
 import { filter, map, skip } from 'rxjs';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 import '../angular';
 import { provideActivatedRoute } from './angular-router';
 import { collectRouterEvents, createRouterDouble, injectRouterDouble, provideRouterDouble } from './router-double';
+import { registerSignalMatchers } from './signal-matchers';
+
+beforeAll(() => {
+  registerSignalMatchers();
+});
 
 @Component({
   selector: 'vas-nav',
@@ -211,7 +216,7 @@ describe('emitNavigation', () => {
     await emitNavigation('/checkout');
 
     expect(router.url).toBe('/checkout');
-    expect(router.currentNavigation()).toBeNull();
+    expect(router.currentNavigation).toHaveSignalValue(null);
   });
 
   it('resolves for an event that ends no navigation too, with the state it left', async () => {
@@ -351,7 +356,7 @@ describe('the navigation in flight', () => {
   it('is null on a router that is standing still, which is what the real one answers', () => {
     const { router } = createRouterDouble({ url: '/products/7' });
 
-    expect(router.currentNavigation()).toBeNull();
+    expect(router.currentNavigation).toHaveSignalValue(null);
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- the double answering the deprecated method as well is the assertion
     expect(router.getCurrentNavigation()).toBeNull();
   });
@@ -392,11 +397,11 @@ describe('the navigation in flight', () => {
     const { router, emitNavigation, setCurrentNavigation } = createRouterDouble();
 
     setCurrentNavigation();
-    expect(router.currentNavigation()).not.toBeNull();
+    expect(router.currentNavigation).not.toHaveSignalValue(null);
 
     emitNavigation('/products/9');
 
-    expect(router.currentNavigation()).toBeNull();
+    expect(router.currentNavigation).toHaveSignalValue(null);
   });
 
   it('is still in flight while the NavigationEnd is being delivered, the way the real router has it', () => {
@@ -419,7 +424,7 @@ describe('the navigation in flight', () => {
     // it, so a synchronous subscriber reads the navigation that just finished — not null.
     expect(seen).toHaveLength(1);
     expect(seen[0]?.extras.state).toEqual({ from: 'the card' });
-    expect(router.currentNavigation()).toBeNull();
+    expect(router.currentNavigation).toHaveSignalValue(null);
   });
 
   it('is in flight while a cancel, an error or a skip is being delivered too', () => {
@@ -464,7 +469,7 @@ describe('the navigation in flight', () => {
     setCurrentNavigation();
     emitNavigation(new NavigationCancel(5, '/products/9', 'a guard said no'));
 
-    expect(router.currentNavigation()).toBeNull();
+    expect(router.currentNavigation).toHaveSignalValue(null);
   });
 
   it('ends on a failed navigation, and on one the router skipped', () => {
@@ -473,12 +478,12 @@ describe('the navigation in flight', () => {
     setCurrentNavigation();
     emitNavigation(new NavigationError(5, '/products/9', new Error('a resolver threw')));
 
-    expect(router.currentNavigation()).toBeNull();
+    expect(router.currentNavigation).toHaveSignalValue(null);
 
     setCurrentNavigation();
     emitNavigation(new NavigationSkipped(6, '/products/9', 'the URL did not change'));
 
-    expect(router.currentNavigation()).toBeNull();
+    expect(router.currentNavigation).toHaveSignalValue(null);
   });
 
   it('stands through an event that neither starts a navigation nor ends one', () => {
@@ -526,11 +531,11 @@ describe('the navigation in flight', () => {
     const { router, setCurrentNavigation } = createRouterDouble();
     const state = computed(() => router.currentNavigation()?.extras.state);
 
-    expect(state()).toBeUndefined();
+    expect(state).toHaveSignalValue(undefined);
 
     setCurrentNavigation({ extras: { state: { id: 7 } } });
 
-    expect(state()).toEqual({ id: 7 });
+    expect(state).toHaveSignalValue({ id: 7 });
   });
 
   it('is cleared by null, and the router is idle again', () => {
@@ -539,7 +544,7 @@ describe('the navigation in flight', () => {
     setCurrentNavigation({ trigger: 'popstate' });
     setCurrentNavigation(null);
 
-    expect(router.currentNavigation()).toBeNull();
+    expect(router.currentNavigation).toHaveSignalValue(null);
   });
 });
 

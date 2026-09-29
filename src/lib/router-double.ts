@@ -45,13 +45,13 @@ import {
   createUrlTreeFromSnapshot,
 } from '@angular/router';
 import { BehaviorSubject, type Observable, skip } from 'rxjs';
-import { onTestFinished } from 'vitest';
 
 import { type ActivatedRouteDouble, type ActivatedRouteInit, createActivatedRoute } from './angular-router';
 import * as DOCS_LINKS from './docs-links';
 import { createFunctionSpy } from './function-spy';
 import { withDocs } from './message-link';
 import { count } from './message-text';
+import { getTestFinishedHook } from './runner-hooks';
 import type { AddSpyMethodsByReturnTypes } from './types';
 
 /** What a spec names about the navigation in flight; every other field is derived from where the router stands. */
@@ -489,13 +489,14 @@ export interface RouterEventsHandle {
  *
  * The recording starts empty: the double's `events` is a `BehaviorSubject`, and the value it replays
  * on subscribe is where the router stands, not something it emitted. The subscription ends with the
- * test that started the recording.
+ * test that started the recording, on a runner with a per-test teardown (Vitest, Bun).
  */
 export function collectRouterEvents(source: Router['events']): RouterEventsHandle {
   const recorded: RouterNavigationEvent[] = [];
   const subscription = source.pipe(skip(1)).subscribe((event: RouterNavigationEvent) => recorded.push(event));
 
-  onTestFinished(() => subscription.unsubscribe());
+  // node:test has no per-test teardown: the subscription then lives exactly as long as the double.
+  getTestFinishedHook()?.(() => subscription.unsubscribe());
 
   return {
     events: recorded,
