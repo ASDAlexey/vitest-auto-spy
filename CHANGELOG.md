@@ -10,6 +10,20 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Fixed
+
+- **`no-relative-mock-under-builder` reads `externalDependencies` of the target's `buildTarget`.** The
+  builder builds with the options `context.getTargetOptions` returns for `buildTarget` (the target's
+  options, then each named configuration over them) and leaves those specifiers out of the bundle, so
+  a `vi.mock` of such a path alias does replace the module. The rule now reports an alias only when
+  some unit-test run of the file builds without it; esbuild's matching applies (exact name, a subpath,
+  one `*`). A relative specifier is still reported: the builder throws on it whatever is external. On
+  an 886-file Angular suite that externalises its mocked utilities this removes 69 false reports.
+- **`no-outer-binding-in-mock-factory` treats an instance field initialiser as deferred.**
+  `class { listen = mockListen; }` returned from a factory reads `mockListen` when a test constructs
+  the class, not while the factory runs. A static field, a computed key and a static block still run
+  with the class declaration and are reported.
+
 ## [5.52.0] - 2026-09-29
 
 ### Added
