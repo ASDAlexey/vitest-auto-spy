@@ -12,6 +12,7 @@ import { writeTextFile } from './fs-scan';
 import { runCli } from './main';
 import { analysePerf, renderPerf } from './perf';
 import { abIsolateFindings } from './perf-ab';
+import { DOM_SHARE_DEFAULTS } from './perf-advice.mock';
 import { BASELINE_DEFAULTS } from './perf-baseline';
 import { poolFindings } from './perf-config';
 import type { PerfFile, PerfRun, Phase } from './perf-data';
@@ -167,10 +168,7 @@ describe('the setup-file split', () => {
     const shared = run({
       root,
       wall: 1_000,
-      files: [
-        file(join(root, 'src/case-0.spec.ts'), { environment: 9_000, tests: 10 }),
-        file(join(root, 'src/dom.spec.ts'), { environment: 9_000, tests: 10 }),
-      ],
+      files: [file(join(root, 'src/case-0.spec.ts'), DOM_SHARE_DEFAULTS), file(join(root, 'src/dom.spec.ts'), DOM_SHARE_DEFAULTS)],
     });
 
     expect(analysePerf(shared, readProfile(root)).findings[0]?.fix).toContain(
@@ -196,7 +194,7 @@ describe('the setup-file split', () => {
 
   it('says the split frees nothing when every spec reaches a DOM of its own', () => {
     const root = setupRepo({ 'src/case-0.spec.ts': "it('x', () => { document.title = 'a'; });\n" });
-    const heavy = run({ root, wall: 1_000, files: [file(join(root, 'src/case-0.spec.ts'), { environment: 9_000, tests: 10 })] });
+    const heavy = run({ root, wall: 1_000, files: [file(join(root, 'src/case-0.spec.ts'), DOM_SHARE_DEFAULTS)] });
 
     expect(analysePerf(heavy, readProfile(root)).findings[0]?.fix).toContain(
       'With the DOM part moved out, still no spec would be free of the DOM, so the split frees nothing yet.',

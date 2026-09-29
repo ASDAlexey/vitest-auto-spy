@@ -25,6 +25,7 @@ import { checkOrphanRunnerConfig, referencedPaths } from './checks/orphan-runner
 import { checkSpecImports } from './checks/spec-imports';
 import { checkTsconfigGlobs, expandInclude, globToRegExp, isExemptPattern, literalTail } from './checks/tsconfig-globs';
 import { runDoctor } from './doctor';
+import { VERSION_22_1_5 } from './doctor.mock';
 import type { Profile } from './profile';
 import { readProfile } from './profile';
 import { createTempRepo, removeTempRepos } from './temp-repo';
@@ -517,12 +518,12 @@ describe('checkAngularBuild', () => {
   });
 
   it('compares versions the way semver would, prerelease suffix ignored', () => {
-    expect(parseVersion('22.1.5-next.0')).toEqual([22, 1, 5]);
+    expect(parseVersion('22.1.5-next.0')).toEqual(VERSION_22_1_5);
     expect(parseVersion('22.1')).toBeUndefined();
     expect(compareVersions([22, 2], [22, 1, 9])).toBeGreaterThan(0);
     expect(compareVersions([22, 1, 9], [22, 2])).toBeLessThan(0);
     expect(compareVersions([22, 1], [22, 1])).toBe(0);
-    expect(compareVersions([22, 1, 5], [22, 1, 5])).toBe(0);
+    expect(compareVersions(VERSION_22_1_5, VERSION_22_1_5)).toBe(0);
     expect(isAffectedVersion([22, 1, 6])).toBe(true);
   });
 });

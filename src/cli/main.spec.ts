@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pathExists, readTextFile, writeTextFile } from './fs-scan';
 import { guardBrokenPipe, runCli } from './main';
 import type { CliIo } from './main';
+import { doctorArgs, initArgs, initCheckArgs, ordinaryPerfFiles, perfReportJson } from './main.mock';
 import { ESC, TERMINAL } from './paint';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
@@ -111,7 +112,7 @@ describe('runCli', () => {
     expect(io.stderr.join('\n')).toContain('is not a directory');
     // A file is the other way to get an empty scan out of a path that exists.
     expect(runCli(['perf', '--cwd', join(root, 'package.json')], recorder())).toBe(2);
-    expect(runCli(['doctor', '--cwd', root], recorder())).toBe(0);
+    expect(runCli(doctorArgs(root), recorder())).toBe(0);
   });
 
   it('takes every flag its own command documents, and the common ones on any command', async () => {
@@ -143,7 +144,7 @@ describe('doctor', () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
 
-    expect(runCli(['doctor', '--cwd', root], io)).toBe(0);
+    expect(runCli(doctorArgs(root), io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('No problems found.');
     expect(io.stdout.join('\n')).toContain('runner: vitest');
   });
@@ -152,7 +153,7 @@ describe('doctor', () => {
     const io = recorder();
     const root = createTempRepo({ ...HEALTHY, 'tsconfig.json': JSON.stringify({ include: ['src*.ts'] }) });
 
-    expect(runCli(['doctor', '--cwd', root], io)).toBe(1);
+    expect(runCli(doctorArgs(root), io)).toBe(1);
     expect(io.stdout.join('\n')).toContain('1 error, 0 warnings, 0 notes');
   });
 
@@ -168,7 +169,7 @@ describe('doctor', () => {
     const io = recorder();
     const root = createTempRepo({ 'package.json': '{}' });
 
-    expect(runCli(['doctor', '--cwd', root], io)).toBe(0);
+    expect(runCli(doctorArgs(root), io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('no-agent-instructions');
   });
 
@@ -270,9 +271,9 @@ describe('init', () => {
     const first = recorder();
     const second = recorder();
 
-    expect(runCli(['init', '--cwd', root], first)).toBe(0);
+    expect(runCli(initArgs(root), first)).toBe(0);
     expect(first.stdout.join('\n')).toContain('created  ');
-    expect(runCli(['init', '--cwd', root, '--check'], second)).toBe(0);
+    expect(runCli(initCheckArgs(root), second)).toBe(0);
     expect(second.stdout.join('\n')).toContain('Up to date.');
   });
 
@@ -280,7 +281,7 @@ describe('init', () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
 
-    expect(runCli(['init', '--cwd', root, '--check'], io)).toBe(1);
+    expect(runCli(initCheckArgs(root), io)).toBe(1);
     expect(io.stderr.at(-1)).toMatch(/^\nAGENTS\.md, CLAUDE\.md, .* are out of date\. Run `npx vitest-auto-spy init` to update them\.$/);
 
     const one = recorder();
@@ -295,10 +296,10 @@ describe('init', () => {
     const plain = recorder();
     const check = recorder();
 
-    expect(runCli(['init', '--cwd', root], plain)).toBe(0);
+    expect(runCli(initArgs(root), plain)).toBe(0);
     expect(plain.stdout.join('\n')).toContain(`stale     ${skill}`);
     expect(plain.stderr.join('\n')).toContain('Delete it and re-run `npx vitest-auto-spy init`');
-    expect(runCli(['init', '--cwd', root, '--check'], check)).toBe(1);
+    expect(runCli(initCheckArgs(root), check)).toBe(1);
     expect(check.stdout.join('\n')).not.toContain('Up to date.');
     expect(check.stderr).not.toContainEqual(expect.stringContaining('out of date'));
     expect(check.stderr.at(-1)).toBe(`\n${skill} is a stale copy of the shipped skill. Delete it, then run \`npx vitest-auto-spy init\`.`);
@@ -317,7 +318,7 @@ describe('init', () => {
     const io = recorder();
     const root = createTempRepo({ ...HEALTHY, 'AGENTS.md': 'x'.repeat(33_000) });
 
-    expect(runCli(['init', '--cwd', root], io)).toBe(0);
+    expect(runCli(initArgs(root), io)).toBe(0);
     expect(io.stderr.join('\n')).toContain('warning');
   });
 
@@ -410,7 +411,7 @@ describe('color in a CI job log', () => {
     const text = recorder();
     const json = recorder();
 
-    expect(runCli(['doctor', '--cwd', root], text)).toBe(1);
+    expect(runCli(doctorArgs(root), text)).toBe(1);
     expect(text.stdout.join('\n')).toContain(`${TERMINAL.red('error')}  tsconfig-glob-matches-nothing`);
 
     expect(runCli(['doctor', '--cwd', root, '--format', 'json', '--code-quality', 'quality.json'], json)).toBe(1);
@@ -446,9 +447,6 @@ describe('color in a CI job log', () => {
 });
 
 describe('perf flags', () => {
-  const report = (root: string, files: readonly Record<string, unknown>[]): string =>
-    JSON.stringify({ version: 2, root, transform: 0, wall: 1_000, failed: 0, files });
-
   const measured = (root: string, name: string, tests: number): Record<string, unknown> => ({
     file: `${root}/${name}`,
     environment: 0,
@@ -467,7 +465,7 @@ describe('perf flags', () => {
       measured(root, 'src/slow.spec.ts', 9_000),
     ];
 
-    writeTextFile(join(root, 'perf.json'), report(root, files));
+    writeTextFile(join(root, 'perf.json'), perfReportJson(root, files));
 
     return { root, json: join(root, 'perf.json') };
   };
@@ -506,7 +504,7 @@ describe('perf flags', () => {
 
     writeTextFile(
       join(root, 'perf.json'),
-      report(root, [measured(root, 'src/ran.spec.ts', 100), { ...measured(root, 'src/empty.spec.ts', 0), testCount: 0 }]),
+      perfReportJson(root, [measured(root, 'src/ran.spec.ts', 100), { ...measured(root, 'src/empty.spec.ts', 0), testCount: 0 }]),
     );
 
     const io = recorder();
@@ -560,12 +558,9 @@ describe('--format json', () => {
   it('prints perf as one JSON document: the run, the budgets, the gate and the findings', () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
-    const files = [
-      ...Array.from({ length: 9 }, (_unused, index) => ({ file: `${root}/o-${index}.spec.ts`, tests: 100, testCount: 40 })),
-      { file: `${root}/slow.spec.ts`, tests: 9_000, testCount: 4 },
-    ];
+    const files = [...ordinaryPerfFiles(root), { file: `${root}/slow.spec.ts`, tests: 9_000, testCount: 4 }];
 
-    writeTextFile(join(root, 'perf.json'), JSON.stringify({ version: 2, root, transform: 0, wall: 1_000, failed: 0, files }));
+    writeTextFile(join(root, 'perf.json'), perfReportJson(root, files));
 
     expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm', '--format', 'json'], io)).toBe(1);
     expect(io.stdout).toHaveLength(1);
@@ -622,12 +617,9 @@ describe('--format markdown', () => {
   it('prints perf with the phases, the slowest files and the gate, and keeps the suite off stdout', () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
-    const files = [
-      ...Array.from({ length: 9 }, (_unused, index) => ({ file: `${root}/o-${index}.spec.ts`, tests: 100, testCount: 40 })),
-      { file: `${root}/slow.spec.ts`, tests: 9_000, testCount: 4 },
-    ];
+    const files = [...ordinaryPerfFiles(root), { file: `${root}/slow.spec.ts`, tests: 9_000, testCount: 4 }];
 
-    writeTextFile(join(root, 'perf.json'), JSON.stringify({ version: 2, root, transform: 0, wall: 1_000, failed: 0, files }));
+    writeTextFile(join(root, 'perf.json'), perfReportJson(root, files));
 
     expect(
       runCli(
@@ -652,7 +644,7 @@ describe('doctor text', () => {
     const io = recorder();
     const root = createTempRepo({ ...HEALTHY, 'src/a.spec.ts': '' });
 
-    expect(runCli(['doctor', '--cwd', root], io)).toBe(0);
+    expect(runCli(doctorArgs(root), io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('4 files scanned, 1 of them spec files — runner: vitest');
     expect(io.stdout.at(-1)).toBe('0 errors, 0 warnings, 0 notes');
   });
@@ -663,7 +655,7 @@ describe('doctor text', () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
 
-    expect(runCli(['doctor', '--cwd', root], io)).toBe(1);
+    expect(runCli(doctorArgs(root), io)).toBe(1);
     expect(io.stdout.join('\n')).toContain('warn   scan-cap-reached');
   });
 });
@@ -673,11 +665,11 @@ describe('perf budgets without --gate', () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
     const files = [
-      ...Array.from({ length: 9 }, (_unused, index) => ({ file: `${root}/o-${index}.spec.ts`, tests: 100, testCount: 40 })),
+      ...ordinaryPerfFiles(root),
       { file: `${root}/busy.spec.ts`, tests: 600, testCount: 4, cases: [{ name: 'waits', ms: 400 }] },
     ];
 
-    writeTextFile(join(root, 'perf.json'), JSON.stringify({ version: 2, root, transform: 0, wall: 1_000, failed: 0, files }));
+    writeTextFile(join(root, 'perf.json'), perfReportJson(root, files));
 
     expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--max-test-ms', '300'], io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('test bodies over budget — 1, each over --max-test-ms 300ms');

@@ -233,8 +233,10 @@ describe('runInit --check and --dry-run', () => {
 
     install(root);
 
-    expect(runInit(readProfile(root), '9.9.9', { ...OPTIONS, check: true }).ok).toBe(true);
-    expect(statusOf(runInit(readProfile(root), '9.9.9', { ...OPTIONS, check: true }), 'AGENTS.md')).toBe('unchanged');
+    const checkOptions = { ...OPTIONS, check: true };
+
+    expect(runInit(readProfile(root), '9.9.9', checkOptions).ok).toBe(true);
+    expect(statusOf(runInit(readProfile(root), '9.9.9', checkOptions), 'AGENTS.md')).toBe('unchanged');
 
     const stampNotes = [{ check: true }, { dryRun: true }].map(
       (mode) => runInit(readProfile(root), '9.9.9', { ...OPTIONS, ...mode }).actions.find((action) => action.path === 'AGENTS.md')?.note,
@@ -246,7 +248,7 @@ describe('runInit --check and --dry-run', () => {
 
     writeTextFile(join(root, 'AGENTS.md'), stale);
 
-    const result = runInit(readProfile(root), '9.9.9', { ...OPTIONS, check: true });
+    const result = runInit(readProfile(root), '9.9.9', checkOptions);
 
     expect(statusOf(result, 'AGENTS.md')).toBe('updated');
     expect(result.ok).toBe(false);
