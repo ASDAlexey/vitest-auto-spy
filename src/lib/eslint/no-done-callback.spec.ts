@@ -39,6 +39,7 @@ describe('no-done-callback', () => {
     ['ctx.skip()', "it('skips', (ctx) => ctx.skip());"],
     ['a member read of the context', "it('names', (ctx) => { expect(ctx.task.name).toBe('names'); });"],
     ['a hook taking the context whole', 'beforeEach((ctx) => { ctx.onTestFinished(reset); });'],
+    ['a member read, and handed on whole', 'afterEach((ctx) => { if (ctx.task.concurrent) { report(ctx); } });'],
   ])('leaves an undestructured TestContext used through %s alone', (_label, code) => {
     expect(lint(code)).toEqual([]);
   });
@@ -48,6 +49,8 @@ describe('no-done-callback', () => {
     ['a parameter handed to something that calls it', "it('emits', (done) => source$.subscribe(done));"],
     ['a parameter nothing in the body uses', "it('emits', (done) => { expect(1).toBe(1); });"],
     ['a parameter whose only member is jasmine’s fail', "it('emits', (done) => { source$.subscribe({ error: () => done.fail() }); });"],
+    ['a parameter handed on and failed through', "it('emits', (done) => { register(done); source$.subscribe({ error: done.fail }); });"],
+    ['a parameter with a member read that is still called', "it('emits', (done) => { log(done.name); done(); });"],
   ])('still reports %s', (_label, code) => {
     expect(lint(code)).toContain('vitest-auto-spy/no-done-callback');
   });

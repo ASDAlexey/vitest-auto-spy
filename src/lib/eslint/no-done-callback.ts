@@ -39,7 +39,8 @@ function isTestCallbackParameter(context: RuleContext, node: EsNode, callbacks: 
  * carried over from Jest where it is *called* (`done()`), handed to something that will call it
  * (`.subscribe(done)`, `setTimeout(done)`) or never used at all. A member read is the context being
  * used: `ctx.task`, `ctx.expect`, `ctx.onTestFinished`. Except `fail`, which the context has no
- * member for — that one is jasmine's failure channel and this rule's second message.
+ * member for — that one is jasmine's failure channel and this rule's second message. Once one member
+ * is read, the name may also be handed on whole (`openReadWindow(ctx)`), as long as it is never called.
  */
 function readsTheTestContext(context: RuleContext, callback: EsFunction, parameter: EsIdentifier): boolean {
   // The callback's own scope, not the chain above it: the parameter is declared right here, and a
@@ -47,14 +48,14 @@ function readsTheTestContext(context: RuleContext, callback: EsFunction, paramet
   const scope = context.sourceCode.getScope(callback);
   const references = scope.variables.flatMap((variable) => (variable.name === parameter.name ? variable.references : []));
 
-  return (
-    references.length > 0 &&
-    references.every(({ identifier }) => {
-      const member = identifier.parent;
+  const members = references.flatMap(({ identifier }) => {
+    const member = identifier.parent;
 
-      return isMemberExpression(member) && member.object === identifier && memberName(member) !== 'fail';
-    })
-  );
+    return isMemberExpression(member) && member.object === identifier ? [memberName(member)] : [];
+  });
+
+  // Handed on whole (`openReadWindow(ctx)`) is fine once some other line reads a member: a `done` has no `.task`.
+  return members.length > 0 && !members.includes('fail') && !references.some(({ identifier }) => isCallee(identifier));
 }
 
 export const noDoneCallback = defineRule({

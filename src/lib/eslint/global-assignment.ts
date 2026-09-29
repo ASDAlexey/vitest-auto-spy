@@ -97,6 +97,10 @@ function insidePerTest(node: EsNode): boolean {
 
 /** The message a double on this global gets, when nothing in the file restores it. */
 function messageFor(name: string): string {
+  if (name === 'fetch') {
+    return 'fetchGlobal';
+  }
+
   if (NETWORK_GLOBALS.has(name)) {
     return 'networkGlobal';
   }
@@ -235,6 +239,8 @@ export const noHandAssignedGlobal: RuleModule = defineRule({
   messages: {
     networkGlobal:
       '`{{name}}` is replaced by assignment and nothing puts the real one back, so under `isolate: false` the fake answers every later test in the worker. Install it with `{{fix}}`, which restores the original after the test.',
+    fetchGlobal:
+      "`fetch` is replaced by assignment and nothing puts the real one back, so under `isolate: false` the fake answers every later test in the worker. Install it with `mockValueProp(globalThis, 'fetch', vi.fn(async () => stubResponse({ body })))`, which restores the original after the test; `stubResponse` from `vitest-auto-spy/setup` builds a real `Response`, so no cast.",
     webStorage:
       "`{{name}}` is replaced by assignment and nothing puts the real one back, so the fake storage, and whatever the test wrote into it, leaks into every later test. Use `stubWebStorage('{{name}}')` from `vitest-auto-spy/dom-stubs`, which is restored after every test.",
     workerGlobal:
