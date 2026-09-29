@@ -6,20 +6,63 @@
  * it, so `experimental: { fsModuleCache: true }` reads as `experimental.fsModuleCache` and a
  * `projects: [{ test: { … } }]` entry as `test.…`; comments and string contents never count.
  */
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { compareVersions, parseVersion } from '../../lib/angular-build-notice';
-import { parseJsonc, readTextFile } from '../fs-scan';
+import { parseJsonc, pathExists, readTextFile } from '../fs-scan';
 import type { Profile } from '../profile';
 import { isRecord } from '../profile';
 import type { SourceGraph } from './graph';
 import { isInsideLiteral, literalSpans } from './literals';
 
+/** Node's own lookup: the nearest `node_modules` up the tree, so a workspace package sees the hoisted install. */
 export function installedVersionOf(cwd: string, packageName: string): string | undefined {
-  const manifest = parseJsonc(readTextFile(join(cwd, 'node_modules', packageName, 'package.json')) ?? '');
+  const text = upTree(cwd, (directory) => readTextFile(join(directory, 'node_modules', packageName, 'package.json')));
+  const manifest = text === undefined ? undefined : parseJsonc(text);
   const version = isRecord(manifest) ? manifest['version'] : undefined;
 
   return typeof version === 'string' ? version : undefined;
+}
+
+function upTree<T>(cwd: string, read: (directory: string) => T | undefined): T | undefined {
+  for (let directory = resolve(cwd); ; directory = dirname(directory)) {
+    const found = read(directory);
+
+    if (found !== undefined || dirname(directory) === directory) {
+      return found;
+    }
+  }
+}
+
+function declares(manifest: unknown, packageName: string): boolean {
+  return (
+    isRecord(manifest) &&
+    ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].some((field) => {
+      const block = manifest[field];
+
+      return isRecord(block) && block[packageName] !== undefined;
+    })
+  );
+}
+
+/** A workspace package whose runner is declared once, in the workspace root's manifest, declares it too. */
+export function declaredUpTree(profile: Profile, packageName: string): boolean {
+  return (
+    profile.dependencies[packageName] !== undefined ||
+    upTree(profile.cwd, (directory) => {
+      const manifest = parseJsonc(readTextFile(join(directory, 'package.json')) ?? '');
+
+      return declares(manifest, packageName) ? true : isWorkspaceRoot(directory, manifest) ? false : undefined;
+    }) === true
+  );
+}
+
+/** Where the walk stops: a manifest above the repository's own root speaks for somebody else's project. */
+function isWorkspaceRoot(directory: string, manifest: unknown): boolean {
+  return (
+    (isRecord(manifest) && manifest['workspaces'] !== undefined) ||
+    ['.git', 'pnpm-workspace.yaml'].some((marker) => pathExists(join(directory, marker)))
+  );
 }
 
 /** `false` for a version that cannot be read: an unknown version holds nothing back. */
@@ -35,7 +78,7 @@ export function vitestMajor(cwd: string): number | undefined {
 
 /** The installed major, for a repository that declares Vitest itself rather than getting it transitively. */
 export function declaredVitestMajor(profile: Profile): number | undefined {
-  return profile.dependencies['vitest'] === undefined ? undefined : vitestMajor(profile.cwd);
+  return declaredUpTree(profile, 'vitest') ? vitestMajor(profile.cwd) : undefined;
 }
 
 export interface ConfigKey {
@@ -94,8 +137,17 @@ export function configKeys(file: string, text: string): ConfigKey[] {
   return found;
 }
 
+/** The texts of the files a predicate picks by name, so the rest are never read. */
+export function textsOf(graph: SourceGraph, picks: (file: string) => boolean): TextFile[] {
+  return [...graph.texts.keys()].filter(picks).flatMap((file) => {
+    const text = graph.texts.get(file);
+
+    return text === undefined ? [] : [{ file, text }];
+  });
+}
+
 export function runnerConfigKeys(graph: SourceGraph): ConfigKey[] {
-  return [...graph.texts].filter(([file]) => isRunnerConfig(file)).flatMap(([file, text]) => configKeys(file, text));
+  return textsOf(graph, isRunnerConfig).flatMap(({ file, text }) => configKeys(file, text));
 }
 
 /** The key is `name` itself or ends in `.name`, wherever the config nests it. */

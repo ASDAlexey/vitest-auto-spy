@@ -16,13 +16,16 @@
 import { join, posix } from 'node:path';
 
 import type { DirectoryFilter } from '../fs-scan';
-import { isSkippedDirectory, parseJsonc, readTextFile } from '../fs-scan';
+import { isSkippedDirectory, parseJsonc, pathExists, readTextFile } from '../fs-scan';
 import type { Profile } from '../profile';
 import { isRecord } from '../profile';
 import type { Finding } from '../report';
 
 /** The extensions TypeScript adds to an `include` entry that does not name one itself. */
 const IMPLIED_EXTENSIONS = ['.ts', '.tsx', '.d.ts', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
+
+/** `vue-tsc` and `svelte-check` add their own through `extraFileExtensions`, so a directory of components is not empty. */
+const FRAMEWORK_EXTENSIONS = ['.vue', '.svelte'];
 
 const TSCONFIG_NAME = /(^|\/)tsconfig[^/]*\.json$/;
 
@@ -72,7 +75,7 @@ export function expandInclude(pattern: string): string[] {
 
   const base = last === '*' ? trimmed : `${trimmed}${last === '**' ? '/*' : '/**/*'}`;
 
-  return IMPLIED_EXTENSIONS.map((extension) => `${base}${extension}`);
+  return [...IMPLIED_EXTENSIONS, ...FRAMEWORK_EXTENSIONS].map((extension) => `${base}${extension}`);
 }
 
 /**
@@ -83,6 +86,11 @@ export function expandInclude(pattern: string): string[] {
  */
 export function isExemptPattern(pattern: string, isIgnored: DirectoryFilter = () => false): boolean {
   return /\.d\.[cm]?ts$/.test(pattern) || isOutsideScan(pattern, isIgnored);
+}
+
+/** Above the scanned root: `../shared/**` + `/*.ts` names files this scan never lists. */
+function isAboveRoot(resolved: string): boolean {
+  return resolved === '..' || resolved.startsWith('../');
 }
 
 /** A directory need not exist to be ignored: output a build step has not generated yet is exempt as well. */
@@ -149,7 +157,12 @@ function checkInclude(configPath: string, entry: string, profile: Profile): Find
 
   const resolved = resolveFromConfig(configPath, entry);
 
-  if (isExemptPattern(resolved, profile.isIgnoredDirectory) || matchesAnyFile(resolved, files)) {
+  if (
+    isAboveRoot(resolved) ||
+    isExemptPattern(resolved, profile.isIgnoredDirectory) ||
+    matchesAnyFile(resolved, files) ||
+    profile.filesTruncated
+  ) {
     return undefined;
   }
 
@@ -187,7 +200,8 @@ function checkOne(profile: Profile, configPath: string): Finding[] {
   for (const entry of stringList(parsed['files'])) {
     const resolved = resolveFromConfig(configPath, entry);
 
-    if (!profile.files.includes(resolved) && !isOutsideScan(resolved, profile.isIgnoredDirectory)) {
+    // Read off the disk, not the scan: a capped scan or a gitignored file is absent from one and not the other.
+    if (!pathExists(join(profile.cwd, resolved)) && !isExemptPattern(resolved, profile.isIgnoredDirectory)) {
       findings.push({
         check: 'tsconfig-file-missing',
         severity: 'error',
