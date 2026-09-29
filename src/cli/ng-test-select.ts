@@ -5,9 +5,7 @@
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 
-import { readAliases } from './checks/dom-free';
-import type { Alias } from './checks/dom-free';
-import { buildGraph, extractSpecifiers, isSourceFile, isSpecFile, resolveRelative } from './checks/graph';
+import { buildGraph, isSourceFile, isSpecFile } from './checks/graph';
 import type { Profile } from './profile';
 
 export interface Shard {
@@ -118,33 +116,13 @@ const RUN_EVERYTHING =
 
 export type Affected = { readonly all: false; readonly specs: ReadonlySet<string> } | { readonly all: true; readonly reason: string };
 
-function aliasTarget(specifier: string, aliases: readonly Alias[], known: ReadonlySet<string>): string | undefined {
-  const alias = aliases.find((entry) => specifier.startsWith(entry.prefix));
-
-  return alias === undefined
-    ? undefined
-    : resolveRelative('package.json', `./${alias.target}${specifier.slice(alias.prefix.length)}`, known);
-}
-
-/** Imported file → importers, relative specifiers and `compilerOptions.paths` aliases alike. */
+/** Imported file → importers; the graph already follows `compilerOptions.paths` aliases, `extends` included. */
 function importers(profile: Profile): { readonly by: Map<string, string[]>; readonly texts: ReadonlyMap<string, string> } {
   const graph = buildGraph(profile);
-  const known = new Set(profile.files);
-  const aliases = readAliases(profile.cwd);
   const by = new Map<string, string[]>();
 
   for (const [file, list] of graph.importedBy) {
     by.set(file, [...list]);
-  }
-
-  for (const [importer, text] of graph.texts) {
-    for (const specifier of extractSpecifiers(text)) {
-      const target = specifier.startsWith('.') ? undefined : aliasTarget(specifier, aliases, known);
-
-      if (target !== undefined && target !== importer) {
-        by.set(target, [...(by.get(target) ?? []), importer]);
-      }
-    }
   }
 
   return { by, texts: graph.texts };
@@ -195,8 +173,15 @@ export function affectedSpecs(profile: Profile, changed: readonly string[], setu
     }
 
     const name = posix.basename(file);
+    const naming: string[] = [];
 
-    return [file, ...[...texts].filter(([, text]) => text.includes(name)).map(([source]) => source)];
+    for (const [source, text] of texts) {
+      if (text.includes(name)) {
+        naming.push(source);
+      }
+    }
+
+    return [file, ...naming];
   });
   const reached = closure(seeds, (file) => by.get(file) ?? []);
 
