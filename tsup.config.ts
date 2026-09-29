@@ -1,6 +1,6 @@
 import type { Plugin } from 'esbuild';
 import { rmSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { defineConfig } from 'tsup';
 
 // One list, shared with the scripts that measure this build — see scripts/externals.mjs for why it
@@ -166,6 +166,10 @@ function useSharedState(): Plugin {
   };
 }
 
+function declarationEntries(sources: readonly string[]): Record<string, string> {
+  return Object.fromEntries(sources.map((source) => [basename(source, '.ts'), source]));
+}
+
 const hosted = await planHostedEntries({
   root: '.',
   host: HOST_ENTRY,
@@ -206,7 +210,16 @@ export default defineConfig([
     // build has no reason to follow the JavaScript split — one pass over every entry keeps the
     // shared `.d.ts` chunks shared, where letting the unsplit pass below emit its own gave
     // `index.d.ts` and `angular.d.ts` a private copy of the type graph and cost ~106 kB.
-    dts: { entry: [...CHUNKED_ENTRIES, HOST_ENTRY, ...HOSTED_ENTRIES, ...SOLO_ENTRIES, ...WRAPPED_CJS_ENTRIES] },
+    //
+    // `core` is not an entry anyone imports: naming the core barrel here is what names the shared
+    // declaration chunk. Left to rollup it took the first entry that re-exports all of it, `bun`, so
+    // go-to-definition from the root landed in `bun.d.ts` and size audits booked ~58 kB to Bun.
+    dts: {
+      entry: {
+        core: 'src/auto-spy.ts',
+        ...declarationEntries([...CHUNKED_ENTRIES, HOST_ENTRY, ...HOSTED_ENTRIES, ...SOLO_ENTRIES, ...WRAPPED_CJS_ENTRIES]),
+      },
+    },
     esbuildPlugins: [useSharedState()],
   },
   {
@@ -318,6 +331,11 @@ export default defineConfig([
     dts: false,
     clean: false,
     banner: { js: '#!/usr/bin/env node' },
+    // `codemod` is loaded with `import()`, so `--version`, `doctor` and `init` do not parse it. Its
+    // chunks are named for the CLI, apart from the library's `chunk-*` that `sideEffects` covers.
+    esbuildOptions(options): void {
+      options.chunkNames = 'cli-[hash]';
+    },
     // npm sets the executable bit on `bin` targets at install time, but not for a local
     // `./dist/cli.js` or a `npm link`. One `chmod` here and both work.
     onSuccess: async (): Promise<void> => {
