@@ -89,7 +89,7 @@ function configOf(value: unknown, projectRoot: string, workspaceRoot: string): s
 interface Workspace {
   readonly root: string;
   readonly defaults: Json | undefined;
-  readonly projects: ReadonlyMap<string, Json>;
+  readonly projects: ReadonlyMap<string | undefined, Json>;
 }
 
 function targetsOf(project: Json | undefined): Json {
@@ -108,13 +108,16 @@ function externalsOf(buildTarget: unknown, workspace: Workspace): readonly strin
     return [];
   }
 
-  const [projectName = '', targetName = '', configurationNames = ''] = buildTarget.split(':');
+  const [projectName, targetName = '', configurationNames = ''] = buildTarget.split(':');
   const target = recordAt(targetsOf(workspace.projects.get(projectName)), targetName);
   const configurations = recordAt(target, 'configurations');
 
   return [recordAt(target, 'options'), ...configurationNames.split(',').map((name) => recordAt(configurations, name.trim()))].reduce<
     readonly string[]
-  >((externals, block) => (block !== undefined && 'externalDependencies' in block ? stringsAt(block, 'externalDependencies') : externals), []);
+  >(
+    (externals, block) => (block !== undefined && 'externalDependencies' in block ? stringsAt(block, 'externalDependencies') : externals),
+    [],
+  );
 }
 
 /** The last block that sets `key`, or `fallback`. */
@@ -143,7 +146,9 @@ function targetRuns(target: Json, name: string, projectRoot: string, workspace: 
 }
 
 function projectRuns(project: Json, projectRoot: string, workspace: Workspace): readonly BuilderRun[] {
-  return Object.entries(targetsOf(project)).flatMap(([name, target]) => (isJson(target) ? targetRuns(target, name, projectRoot, workspace) : []));
+  return Object.entries(targetsOf(project)).flatMap(([name, target]) =>
+    isJson(target) ? targetRuns(target, name, projectRoot, workspace) : [],
+  );
 }
 
 /** Walk up to the workspace root, noting the nearest `project.json` on the way. */

@@ -73,7 +73,7 @@ export const noRelativeMockUnderBuilder = defineRule({
     noRelativeMockUnderBuilder:
       '`vi.{{method}}(\'{{specifier}}\')` throws under `@angular/build:unit-test`: the builder patches `vi.{{method}}` to reject every relative specifier (`The "vi.mock" and related methods are not supported for relative imports`), and no option lifts it. Replace the dependency through TestBed instead — `provideAutoSpy(Service)`, or `overrideComponentProvider` for a component’s own provider.',
     aliasMockUnderBuilder:
-      "`vi.{{method}}('{{specifier}}')` does nothing under `@angular/build:unit-test`: `{{specifier}}` is the tsconfig path alias `{{alias}}` for a file of this workspace, which the builder compiles into the test bundle before Vitest could replace it — no error, and the real module runs. List it in `externalDependencies` of the target's `buildTarget`, or replace the dependency through TestBed instead — `provideAutoSpy(Service)`, or `overrideComponentProvider` for a component’s own provider.",
+      "`vi.{{method}}('{{specifier}}')` does nothing under `@angular/build:unit-test`: `{{specifier}}` is the tsconfig path alias `{{alias}}` for a file of this workspace, so the builder bundles it before Vitest can replace it, and the real module runs without an error. List it in `externalDependencies` of the `buildTarget`, or replace it through TestBed: `provideAutoSpy(Service)`, or `overrideComponentProvider` for a component’s own provider.",
   },
   create: (context) =>
     runsUnderBuilder(context)

@@ -144,6 +144,21 @@ describe('no-relative-mock-under-builder', () => {
     expect(lint("vi.mock('@app/cart.service');", { filename })).toHaveLength(1);
   });
 
+  it('reads externalDependencies only when it is a list, from a buildTarget without a configuration', () => {
+    const filename = externalsWorkspace('externals-malformed', {
+      build: { options: { externalDependencies: '@app/cart.service' } },
+      test: { builder: '@angular/build:unit-test', options: { buildTarget: 'shop:build' } },
+    });
+
+    expect(lint("vi.mock('@app/cart.service');", { filename })).toHaveLength(1);
+
+    const bare = externalsWorkspace('externals-bare', {
+      test: { builder: '@angular/build:unit-test', options: { buildTarget: 'shop' } },
+    });
+
+    expect(lint("vi.mock('@app/cart.service');", { filename: bare })).toHaveLength(1);
+  });
+
   it('reads no alias where no tsconfig above the spec declares paths', () => {
     const filename = workspace('no-paths', '@angular/build:unit-test');
 
