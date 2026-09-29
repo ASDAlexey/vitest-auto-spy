@@ -1,11 +1,14 @@
 import { Injectable, type Signal, type WritableSignal, computed, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import '../angular';
 import { injectSpy, provideAutoSpy } from './angular';
 import { restoreMockedProps } from './prop-mock';
 import { type ResourceDoubleSnapshot, mockResourceProp } from './resource-prop';
+import { registerSignalMatchers } from './signal-matchers';
+
+beforeAll(() => registerSignalMatchers());
 
 /** The slice of `ResourceRef` a component reads — declared locally so the spec needs no HTTP. */
 interface ProductResource {
@@ -58,11 +61,11 @@ describe('mockResourceProp', () => {
 
     mockResourceProp(service, 'products', ['a']);
 
-    expect(service.products.value()).toEqual(['a']);
-    expect(service.products.status()).toBe('resolved');
+    expect(service.products.value).toHaveSignalValue(['a']);
+    expect(service.products.status).toHaveSignalValue('resolved');
     expect(service.products.hasValue()).toBe(true);
-    expect(service.products.isLoading()).toBe(false);
-    expect(service.products.error()).toBeUndefined();
+    expect(service.products.isLoading).toHaveSignalValue(false);
+    expect(service.products.error).toHaveSignalValue(undefined);
   });
 
   it('set() resolves with a new value and clears a previous error', () => {
@@ -72,9 +75,9 @@ describe('mockResourceProp', () => {
     products.fail('offline');
     products.set(['b']);
 
-    expect(service.products.value()).toEqual(['b']);
-    expect(service.products.status()).toBe('resolved');
-    expect(service.products.error()).toBeUndefined();
+    expect(service.products.value).toHaveSignalValue(['b']);
+    expect(service.products.status).toHaveSignalValue('resolved');
+    expect(service.products.error).toHaveSignalValue(undefined);
     expect(service.products.hasValue()).toBe(true);
   });
 
@@ -84,7 +87,7 @@ describe('mockResourceProp', () => {
 
     products.fail('offline');
 
-    expect(service.products.status()).toBe('error');
+    expect(service.products.status).toHaveSignalValue('error');
     expect(service.products.error()?.message).toBe('offline');
     expect(service.products.hasValue()).toBe(false);
 
@@ -117,7 +120,7 @@ describe('mockResourceProp', () => {
 
     // Everything a spec asserts on a failed resource still reads.
     expect(service.products.hasValue()).toBe(false);
-    expect(service.products.snapshot()).toEqual({ status: 'error', error: cause });
+    expect(service.products.snapshot).toHaveSignalValue({ status: 'error', error: cause });
     expect(service.products.error()).toBe(cause);
   });
 
@@ -130,7 +133,7 @@ describe('mockResourceProp', () => {
     products.loading();
 
     // `fail()` and `loading()` leave the value alone; only `idle()` goes back to the initial one.
-    expect(service.products.value()).toEqual(['a', 'b']);
+    expect(service.products.value).toHaveSignalValue(['a', 'b']);
   });
 
   it('answers reload() the way Angular does: false while there is nothing to re-issue', () => {
@@ -161,9 +164,9 @@ describe('mockResourceProp', () => {
     products.fail('offline');
     products.loading();
 
-    expect(service.products.status()).toBe('loading');
-    expect(service.products.isLoading()).toBe(true);
-    expect(service.products.error()).toBeUndefined();
+    expect(service.products.status).toHaveSignalValue('loading');
+    expect(service.products.isLoading).toHaveSignalValue(true);
+    expect(service.products.error).toHaveSignalValue(undefined);
   });
 
   it('stays reactive, so a computed downstream recomputes', () => {
@@ -172,15 +175,15 @@ describe('mockResourceProp', () => {
     // The shape a component actually holds: one derivation over value and status together.
     const label = computed(() => (service.products.isLoading() ? 'loading' : `${service.products.value().length} products`));
 
-    expect(label()).toBe('1 products');
+    expect(label).toHaveSignalValue('1 products');
 
     products.loading();
 
-    expect(label()).toBe('loading');
+    expect(label).toHaveSignalValue('loading');
 
     products.set(['a', 'b']);
 
-    expect(label()).toBe('2 products');
+    expect(label).toHaveSignalValue('2 products');
   });
 
   it('spies reload(), which answers true until the spec says otherwise', () => {
@@ -203,7 +206,7 @@ describe('mockResourceProp', () => {
 
     restoreMockedProps();
 
-    expect(service.products.status()).toBe('idle');
+    expect(service.products.status).toHaveSignalValue('idle');
   });
 
   describe('hasValue', () => {
@@ -213,7 +216,7 @@ describe('mockResourceProp', () => {
 
       products.loading();
 
-      expect(service.products.status()).toBe('loading');
+      expect(service.products.status).toHaveSignalValue('loading');
       expect(service.products.hasValue()).toBe(true);
     });
 
@@ -239,11 +242,11 @@ describe('mockResourceProp', () => {
       const products = mockResourceProp(service, 'products', ['a']);
       const shown = computed(() => (service.products.hasValue() ? 'list' : 'spinner'));
 
-      expect(shown()).toBe('list');
+      expect(shown).toHaveSignalValue('list');
 
       products.fail('offline');
 
-      expect(shown()).toBe('spinner');
+      expect(shown).toHaveSignalValue('spinner');
     });
   });
 
@@ -255,9 +258,9 @@ describe('mockResourceProp', () => {
       products.fail('offline');
       service.products.set(['optimistic']);
 
-      expect(service.products.value()).toEqual(['optimistic']);
-      expect(service.products.status()).toBe('local');
-      expect(service.products.error()).toBeUndefined();
+      expect(service.products.value).toHaveSignalValue(['optimistic']);
+      expect(service.products.status).toHaveSignalValue('local');
+      expect(service.products.error).toHaveSignalValue(undefined);
     });
 
     it('writes through value.set and value.update the same way', () => {
@@ -267,13 +270,13 @@ describe('mockResourceProp', () => {
 
       service.products.value.set(['b']);
 
-      expect(service.products.value()).toEqual(['b']);
-      expect(service.products.status()).toBe('local');
+      expect(service.products.value).toHaveSignalValue(['b']);
+      expect(service.products.status).toHaveSignalValue('local');
 
       service.products.value.update((current) => [...current, 'c']);
 
-      expect(service.products.value()).toEqual(['b', 'c']);
-      expect(service.products.status()).toBe('local');
+      expect(service.products.value).toHaveSignalValue(['b', 'c']);
+      expect(service.products.status).toHaveSignalValue('local');
     });
 
     it('update() reads the current value and goes local', () => {
@@ -283,8 +286,8 @@ describe('mockResourceProp', () => {
       products.loading();
       service.products.update((current) => [...current, 'b']);
 
-      expect(service.products.value()).toEqual(['a', 'b']);
-      expect(service.products.status()).toBe('local');
+      expect(service.products.value).toHaveSignalValue(['a', 'b']);
+      expect(service.products.status).toHaveSignalValue('local');
     });
 
     it('hands back a readonly view of the value, the way Angular assembles one', () => {
@@ -294,7 +297,7 @@ describe('mockResourceProp', () => {
 
       // `BaseWritableResource` puts `set`, `update` and `asReadonly` on its own `value` computation;
       // a service exposing `products.value.asReadonly()` calls this before the spec starts.
-      expect(service.products.value.asReadonly()()).toEqual(['a']);
+      expect(service.products.value.asReadonly()).toHaveSignalValue(['a']);
     });
 
     it('asReadonly() hands back the same double', () => {
@@ -312,14 +315,14 @@ describe('mockResourceProp', () => {
       service.products.set(['b']);
       service.products.destroy();
 
-      expect(service.products.status()).toBe('idle');
-      expect(service.products.value()).toEqual(['a']);
-      expect(service.products.error()).toBeUndefined();
+      expect(service.products.status).toHaveSignalValue('idle');
+      expect(service.products.value).toHaveSignalValue(['a']);
+      expect(service.products.error).toHaveSignalValue(undefined);
 
       service.products.set(['late']);
 
-      expect(service.products.value()).toEqual(['a']);
-      expect(service.products.status()).toBe('idle');
+      expect(service.products.value).toHaveSignalValue(['a']);
+      expect(service.products.status).toHaveSignalValue('idle');
     });
 
     it('lets the spec arrange a destroyed double again', () => {
@@ -330,23 +333,23 @@ describe('mockResourceProp', () => {
       products.set(['b']);
       service.products.set(['c']);
 
-      expect(service.products.value()).toEqual(['c']);
-      expect(service.products.status()).toBe('local');
+      expect(service.products.value).toHaveSignalValue(['c']);
+      expect(service.products.status).toHaveSignalValue('local');
     });
 
     it('snapshot() carries the value, and the error when it failed', () => {
       const service = new ProductService();
       const products = mockResourceProp(service, 'products', ['a']);
 
-      expect(service.products.snapshot()).toEqual({ status: 'resolved', value: ['a'] });
+      expect(service.products.snapshot).toHaveSignalValue({ status: 'resolved', value: ['a'] });
 
       products.loading();
 
-      expect(service.products.snapshot()).toEqual({ status: 'loading', value: ['a'] });
+      expect(service.products.snapshot).toHaveSignalValue({ status: 'loading', value: ['a'] });
 
       products.fail('offline');
 
-      expect(service.products.snapshot()).toEqual({ status: 'error', error: new Error('offline') });
+      expect(service.products.snapshot).toHaveSignalValue({ status: 'error', error: new Error('offline') });
     });
   });
 
@@ -358,10 +361,10 @@ describe('mockResourceProp', () => {
       products.fail('offline');
       products.idle();
 
-      expect(service.products.status()).toBe('idle');
-      expect(service.products.value()).toEqual(['a']);
-      expect(service.products.isLoading()).toBe(false);
-      expect(service.products.error()).toBeUndefined();
+      expect(service.products.status).toHaveSignalValue('idle');
+      expect(service.products.value).toHaveSignalValue(['a']);
+      expect(service.products.isLoading).toHaveSignalValue(false);
+      expect(service.products.error).toHaveSignalValue(undefined);
     });
 
     it('installs the double in a status the options name', () => {
@@ -369,14 +372,14 @@ describe('mockResourceProp', () => {
 
       mockResourceProp(service, 'products', ['a'], { status: 'idle' });
 
-      expect(service.products.status()).toBe('idle');
-      expect(service.products.value()).toEqual(['a']);
+      expect(service.products.status).toHaveSignalValue('idle');
+      expect(service.products.value).toHaveSignalValue(['a']);
 
       const other = new ProductService();
 
       mockResourceProp(other, 'products', [], { status: 'loading' });
 
-      expect(other.products.isLoading()).toBe(true);
+      expect(other.products.isLoading).toHaveSignalValue(true);
     });
   });
 });
