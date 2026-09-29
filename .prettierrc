@@ -4,6 +4,7 @@
   "importOrderParserPlugins": ["typescript", "decorators-legacy"],
   "importOrderSeparation": true,
   "importOrderSortSpecifiers": true,
+  "overrides": [{ "files": "*.md", "options": { "importOrderSideEffects": false } }],
   "plugins": ["@trivago/prettier-plugin-sort-imports", "prettier-plugin-sort-json"],
   "printWidth": 140,
   "semi": true,

@@ -15,19 +15,6 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
 
 ## Types
 
-- [ ] **Structural types in place of Vitest's `Mock` / `MockInstance` — the breaking half of making
-      `vitest` an optional peer.** The non-breaking half shipped:
-      `peerDependenciesMeta.vitest.optional` is set, so a `/bun` or `/node` consumer no longer
-      installs the runner, and `check-dist` reports a declaration file that names `vitest`. The
-      report is a warning because `dist/bun.d.ts` still carries `import { Mock } from 'vitest'`,
-      from `src/lib/types.ts`, `src/lib/jasmine-types.ts` and `src/lib/constructor-spy.ts`. Writing
-      the call, `mock*` and `calls` surfaces out structurally would let `/bun` and `/node` stop
-      naming Vitest at all — and it is breaking for everyone who assigns a spy into a `Mock` or a
-      `MockInstance` annotation, which is the ordinary way to hold one in a variable. So it is a
-      major, it needs the type tests rewritten on both sides of the boundary, and it has to stay
-      inside `types:budget`. The last line of it is already written: flipping
-      `reportVitestInTheTypes()` in `scripts/check-dist.mjs` from a warning to a failure.
-
 - [ ] **A typed partial matcher, so a nested `expect.objectContaining` stops leaking `any`.** Vitest
       types `expect.objectContaining()` / `expect.stringContaining()` as returning `any`. As a direct
       argument of `toHaveBeenCalledWith` that passes a strict lint, but nested in an object literal
