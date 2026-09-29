@@ -28,7 +28,8 @@ import {
   readBaseline,
   writeBaseline,
 } from './perf-baseline';
-import type { PerfFile, PerfRun } from './perf-data';
+import { NO_TEST_BODY, baselineRequest, measuredRun, perfSource } from './perf-baseline.mock';
+import type { PerfFile } from './perf-data';
 import { cleanRepo, file, ordinary, recorder, run } from './perf-fixtures';
 import { GATE_DEFAULTS } from './perf-gate';
 import type { PerfSource } from './perf-run';
@@ -88,10 +89,7 @@ describe('buildBaseline', () => {
   });
 
   it('does not record a file that ran no test body: zero is not evidence that it is fast', () => {
-    const baseline = buildBaseline(
-      run({ files: [...ordinary(ROOT), file(join(ROOT, 'src/skipped.spec.ts'), { tests: 0, testCount: 0 })] }),
-      ROOT,
-    );
+    const baseline = buildBaseline(run({ files: [...ordinary(ROOT), file(join(ROOT, 'src/skipped.spec.ts'), NO_TEST_BODY)] }), ROOT);
 
     expect(Object.keys(baseline.files)).not.toContain('src/skipped.spec.ts');
   });
@@ -232,7 +230,7 @@ describe('baselineRegressions', () => {
   });
 
   it('reports nothing about a file that ran no test body, whatever the thresholds are', () => {
-    const measured = run({ files: [...ordinary(ROOT), file(join(ROOT, 'src/skipped.spec.ts'), { tests: 0, testCount: 0 })] });
+    const measured = run({ files: [...ordinary(ROOT), file(join(ROOT, 'src/skipped.spec.ts'), NO_TEST_BODY)] });
 
     expect(baselineRegressions(measured, ROOT, baselineOf({ 'src/skipped.spec.ts': 3 }), { factor: 0, floorMs: 0 })).toEqual([]);
   });
@@ -296,7 +294,7 @@ describe('baselineDrift', () => {
 
   it('counts a file that ran nothing as neither added nor measured', () => {
     const measured = run({
-      files: [file(join(ROOT, 'src/kept.spec.ts'), { tests: 100 }), file(join(ROOT, 'src/skipped.spec.ts'), { tests: 0, testCount: 0 })],
+      files: [file(join(ROOT, 'src/kept.spec.ts'), { tests: 100 }), file(join(ROOT, 'src/skipped.spec.ts'), NO_TEST_BODY)],
     });
 
     expect(baselineDrift(measured, ROOT, baselineOf({ 'src/kept.spec.ts': 1, 'src/skipped.spec.ts': 1 }))).toEqual({
@@ -307,26 +305,12 @@ describe('baselineDrift', () => {
 });
 
 describe('renderPerf --baseline', () => {
-  const measured = (root: string, slow: number): PerfRun =>
-    run({
-      root,
-      wall: 5_000,
-      files: [
-        ...Array.from({ length: 9 }, (_unused, index) => file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 100, testCount: 10 })),
-        file(join(root, 'src/grew.spec.ts'), { tests: slow, testCount: 10 }),
-      ],
-    });
-
   it('records a baseline and says what it wrote, without judging anything', () => {
     const root = cleanRepo(1);
     const io = recorder();
     const path = join(root, 'perf-baseline.json');
 
-    expect(
-      renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), io, {
-        baseline: { path, update: true, options: BASELINE_DEFAULTS },
-      }),
-    ).toBe(0);
+    expect(renderPerf(perfSource(root), readProfile(root), io, { baseline: baselineRequest(path, true) })).toBe(0);
     expect(pathExists(path)).toBe(true);
     expect(io.stdout.join('\n')).toContain('perf baseline: recorded 10 files');
   });
@@ -336,12 +320,10 @@ describe('renderPerf --baseline', () => {
     const path = join(root, 'perf-baseline.json');
     const recording = recorder();
 
-    renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), recording, {
-      baseline: { path, update: true, options: BASELINE_DEFAULTS },
-    });
+    renderPerf(perfSource(root), readProfile(root), recording, { baseline: baselineRequest(path, true) });
 
     const io = recorder();
-    const grown = measured(root, 3_000);
+    const grown = measuredRun(root, 3_000);
     const remeasure = (): PerfSource => ({
       ok: true,
       run: run({ root, files: [file(join(root, 'src/grew.spec.ts'), { tests: 2_900 })] }),
@@ -350,7 +332,7 @@ describe('renderPerf --baseline', () => {
 
     expect(
       renderPerf({ ok: true, run: grown, runFailed: false }, readProfile(root), io, {
-        baseline: { path, update: false, options: BASELINE_DEFAULTS },
+        baseline: baselineRequest(path, false),
         gate: { options: GATE_DEFAULTS, remeasure, trustSingle: false },
       }),
     ).toBe(1);
@@ -367,26 +349,22 @@ describe('renderPerf --baseline', () => {
     const io = recorder();
     const path = join(root, 'perf-baseline.json');
 
-    renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), recorder(), {
-      baseline: { path, update: true, options: BASELINE_DEFAULTS },
-    });
+    renderPerf(perfSource(root), readProfile(root), recorder(), { baseline: baselineRequest(path, true) });
 
     const withNewFile = run({
       root,
-      files: [...measured(root, 300).files, file(join(root, 'src/new.spec.ts'), { tests: 100, testCount: 3 })],
+      files: [...measuredRun(root, 300).files, file(join(root, 'src/new.spec.ts'), { tests: 100, testCount: 3 })],
     });
 
     expect(
-      renderPerf({ ok: true, run: withNewFile, runFailed: false }, readProfile(root), io, {
-        baseline: { path, update: false, options: BASELINE_DEFAULTS },
-      }),
+      renderPerf({ ok: true, run: withNewFile, runFailed: false }, readProfile(root), io, { baseline: baselineRequest(path, false) }),
     ).toBe(0);
     expect(io.stdout.join('\n')).toContain('1 files this run measured are not in it');
 
     const missing = recorder();
 
     expect(
-      renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), missing, {
+      renderPerf(perfSource(root), readProfile(root), missing, {
         baseline: { path: join(root, 'nowhere.json'), update: false, options: BASELINE_DEFAULTS },
       }),
     ).toBe(0);
@@ -397,17 +375,11 @@ describe('renderPerf --baseline', () => {
     const root = cleanRepo(1);
     const path = join(root, 'perf-baseline.json');
 
-    renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), recorder(), {
-      baseline: { path, update: true, options: BASELINE_DEFAULTS },
-    });
+    renderPerf(perfSource(root), readProfile(root), recorder(), { baseline: baselineRequest(path, true) });
 
     const io = recorder();
 
-    expect(
-      renderPerf({ ok: true, run: measured(root, 3_000), runFailed: false }, readProfile(root), io, {
-        baseline: { path, update: false, options: BASELINE_DEFAULTS },
-      }),
-    ).toBe(0);
+    expect(renderPerf(perfSource(root, 3_000), readProfile(root), io, { baseline: baselineRequest(path, false) })).toBe(0);
     expect(io.stdout.join('\n')).toContain('perf-gate-regression');
   });
 });

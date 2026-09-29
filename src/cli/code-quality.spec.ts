@@ -2,12 +2,12 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { toCodeQuality } from './code-quality';
+import { measuredRun } from './code-quality.mock';
 import { readTextFile, writeTextFile } from './fs-scan';
 import type { CliIo } from './main';
 import { runCli } from './main';
 import { renderPerf } from './perf';
 import { BASELINE_DEFAULTS } from './perf-baseline';
-import type { PerfFile, PerfRun } from './perf-data';
 import { GATE_DEFAULTS } from './perf-gate';
 import { readProfile } from './profile';
 import type { Finding } from './report';
@@ -99,41 +99,10 @@ describe('--code-quality', () => {
 
   const perfRepo = (): string => createTempRepo({ 'package.json': JSON.stringify({ devDependencies: { vitest: '^4' } }) });
 
-  const measured = (root: string, slow: Partial<PerfFile>): PerfRun => ({
-    version: 2,
-    root,
-    transform: 0,
-    wall: 1_000,
-    failed: 0,
-    files: [
-      ...Array.from({ length: 9 }, (_unused, index) => ({
-        file: join(root, `src/ordinary-${index}.spec.ts`),
-        environment: 0,
-        prepare: 0,
-        setup: 0,
-        imports: 0,
-        tests: 100,
-        testCount: 10,
-        cases: [],
-      })),
-      {
-        file: join(root, 'src/slow.spec.ts'),
-        environment: 0,
-        prepare: 0,
-        setup: 0,
-        imports: 0,
-        tests: 100,
-        testCount: 10,
-        cases: [],
-        ...slow,
-      },
-    ],
-  });
-
   it('writes what the gate found, through runCli, next to the working directory', () => {
     const root = perfRepo();
 
-    writeTextFile(join(root, 'perf.json'), JSON.stringify(measured(root, { cases: [{ name: 'slow > waits', ms: 3_000 }] })));
+    writeTextFile(join(root, 'perf.json'), JSON.stringify(measuredRun(root, { cases: [{ name: 'slow > waits', ms: 3_000 }] })));
 
     expect(runCli(['perf', '--cwd', root, '--json', 'perf.json', '--gate', '--no-confirm', '--code-quality', 'cq.json'], io)).toBe(1);
     expect(parsed(join(root, 'cq.json'))).toEqual([
@@ -150,14 +119,14 @@ describe('--code-quality', () => {
     const baseline = join(root, 'perf-baseline.json');
     const path = join(root, 'cq.json');
 
-    renderPerf({ ok: true, run: measured(root, { tests: 100 }), runFailed: false }, readProfile(root), io, {
+    renderPerf({ ok: true, run: measuredRun(root, { tests: 100 }), runFailed: false }, readProfile(root), io, {
       baseline: { path: baseline, update: true, options: BASELINE_DEFAULTS },
       codeQuality: path,
     });
 
     expect(parsed(path)).toEqual([]);
 
-    renderPerf({ ok: true, run: measured(root, { tests: 3_000 }), runFailed: false }, readProfile(root), io, {
+    renderPerf({ ok: true, run: measuredRun(root, { tests: 3_000 }), runFailed: false }, readProfile(root), io, {
       baseline: { path: baseline, update: false, options: BASELINE_DEFAULTS },
       codeQuality: path,
     });
@@ -170,7 +139,7 @@ describe('--code-quality', () => {
 
     expect(readTextFile(untouched)).toBeUndefined();
 
-    renderPerf({ ok: true, run: { ...measured(root, {}), failed: 1 }, runFailed: true }, readProfile(root), io, {
+    renderPerf({ ok: true, run: { ...measuredRun(root, {}), failed: 1 }, runFailed: true }, readProfile(root), io, {
       gate: { options: GATE_DEFAULTS, remeasure: undefined, trustSingle: false },
       codeQuality: untouched,
     });
