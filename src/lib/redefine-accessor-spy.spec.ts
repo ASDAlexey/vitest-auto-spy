@@ -28,20 +28,19 @@ function makeMockFactory(): { create: (impl?: Func) => MockFn; callsOf: (mock: M
   return { create, callsOf: (mock: MockFn): unknown[][] => callLog.get(mock) ?? [] };
 }
 
-function defineEmptyAccessors(target: Record<string, unknown>, property: string): void {
-  Object.defineProperty(target, property, {
-    get: (): undefined => undefined,
-    set: (_value: unknown): void => undefined,
-    configurable: true,
-    enumerable: true,
-  });
+function withEmptyAccessors(): Record<string, unknown> {
+  return {
+    get value(): undefined {
+      return undefined;
+    },
+    set value(_value: unknown) {},
+  };
 }
 
 describe('spyOnAccessorByRedefine', () => {
   it('wraps the getter while preserving the existing setter', () => {
     const { create, callsOf } = makeMockFactory();
-    const target: Record<string, unknown> = {};
-    defineEmptyAccessors(target, 'value');
+    const target = withEmptyAccessors();
 
     const getter = spyOnAccessorByRedefine(create, target, 'value', 'get');
 
@@ -54,8 +53,7 @@ describe('spyOnAccessorByRedefine', () => {
 
   it('wraps the setter while preserving the existing getter', () => {
     const { create, callsOf } = makeMockFactory();
-    const target: Record<string, unknown> = {};
-    defineEmptyAccessors(target, 'value');
+    const target = withEmptyAccessors();
 
     const setter = spyOnAccessorByRedefine(create, target, 'value', 'set');
 
