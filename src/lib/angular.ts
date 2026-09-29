@@ -9,6 +9,7 @@ import type { InjectionToken } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
 import { mergeTokenDefaults } from './angular-spy-defaults';
+import { withTestBedSplitExplained } from './angular-testbed-split';
 import { type AutoMockConfiguration, createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
 import * as DOCS_LINKS from './docs-links';
@@ -17,7 +18,10 @@ import { sourceClassName } from './message-text';
 import { misconfigurationThrows, reportMisconfiguration } from './misconfiguration';
 import { currentSpecFile } from './spec-file';
 import { isAutoSpyLike } from './spy-mark';
+import { armCleanTestBedCheck } from './testbed-clean-bed';
 import type { ClassSpyConfiguration, ClassType, DeepPartial, OnlyMethodKeysOf, Spy, SpyOptions } from './types';
+
+armCleanTestBedCheck();
 
 type NoMemberInferredNever<T> = true extends { [K in keyof T]-?: [T[K]] extends [never] ? true : false }[keyof T] ? never : unknown;
 
@@ -74,10 +78,56 @@ export function provideAutoSpy<T = any>(
   ObjectClass: ClassType<T>,
   methodsToSpyOnOrConfig?: NoInfer<ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[]>,
 ): AngularValueProvider<T> {
+  assertInjectable(ObjectClass);
+
   return {
     provide: ObjectClass,
     useValue: createSpyFromClass(ObjectClass, methodsToSpyOnOrConfig),
   };
+}
+
+// Own properties only: reading an inherited `ɵcmp` runs the JIT compiler for the base class.
+function declarationKind(ObjectClass: object): string | undefined {
+  if (Object.hasOwn(ObjectClass, 'ɵcmp')) {
+    return 'component';
+  }
+
+  return Object.hasOwn(ObjectClass, 'ɵdir') ? 'directive' : undefined;
+}
+
+function assertInjectable(ObjectClass: ClassType<unknown>): void {
+  const kind = declarationKind(ObjectClass);
+
+  if (kind === undefined) {
+    return;
+  }
+
+  const name = sourceClassName(ObjectClass.name);
+
+  throw new Error(
+    withDocs(
+      `[vitest-auto-spy] provideAutoSpy(${name}): ${name} is a ${kind}. Angular declares or imports a ${kind}, it never ` +
+        `injects one, so this provider is never read and the double replaces nothing.\n` +
+        `To keep it out of the render, swap it for a stand-in (createComponentStub for a child component) or render the ` +
+        `host with renderShallow; to test ${name} itself, create it through TestBed.`,
+      DOCS_LINKS.angularComponentStub,
+    ),
+  );
+}
+
+const LAZY_DOUBLE = Symbol.for('vitest-auto-spy.lazy-double');
+
+/** A provider whose double is built on first injection; `shadowedProviders` still knows it for one. */
+export function lazyDoubleProvider(token: unknown, build: () => unknown): { provide: unknown; useFactory: () => unknown } {
+  const useFactory = (): unknown => build();
+
+  Reflect.set(useFactory, LAZY_DOUBLE, true);
+
+  return { provide: token, useFactory };
+}
+
+export function isLazyDoubleFactory(value: unknown): boolean {
+  return typeof value === 'function' && Reflect.get(value, LAZY_DOUBLE) === true;
 }
 
 /** `{ provide, useValue }` for a token, where the spy is built from the token's own type. */
@@ -178,7 +228,8 @@ export function injectSpy<T, Options extends SpyOptions = SpyOptions>(
   token: ClassType<T> | InjectionToken<T> | (abstract new (...args: never[]) => T),
 ): Spy<T, Options> {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `TestBed.inject`'s overloads do not accept our broadened `ClassType<T> | abstract ctor` token union, and it returns the real instance `T`, not the augmented `Spy<T>`; both assertions bridge the public token/return types to the spy surface.
-  const injected = TestBed.inject(token as never) as Spy<T, Options>;
+  const inject = (): Spy<T, Options> => TestBed.inject(token as never) as Spy<T, Options>;
+  const injected = withTestBedSplitExplained(() => `injectSpy(${tokenLabel(token)})`, inject);
 
   reportWhenNotASpy(token, injected);
 
@@ -222,11 +273,20 @@ export function failOnUnspiedProvider(fail: boolean): void {
   globalThis.__vitestAutoSpyFailOnUnspiedProvider__ = fail;
 }
 
+function tokenLabel(token: object): string {
+  if (typeof token === 'function') {
+    return sourceClassName(token.name);
+  }
+
+  const description: unknown = Reflect.get(token, '_desc');
+
+  return typeof description === 'string' && description.length > 0 ? description : String(token);
+}
+
 /** What the injector handed back, named after the kind of token it was asked for. */
 function describeUnspied(token: object, injected: unknown): string {
   if (typeof token !== 'function') {
-    const description: unknown = Reflect.get(token, '_desc');
-    const name = typeof description === 'string' && description.length > 0 ? description : String(token);
+    const name = tokenLabel(token);
 
     return (
       `[vitest-auto-spy] injectSpy(${name}): got a plain value, not an auto-spy — the token is provided for real.\n` +

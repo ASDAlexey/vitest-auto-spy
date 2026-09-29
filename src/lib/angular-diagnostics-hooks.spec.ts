@@ -2,6 +2,7 @@
  * The group's per-test hooks, where they belong and in which order they run: once per file under
  * `isolate: false`, and whichever way `sequence.hooks` orders them against the suite's own resets.
  */
+/* eslint-disable vitest-auto-spy/prefer-render-shallow -- the stale-double check under test sits on TestBed.createComponent itself */
 import { HttpClient, provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { Component, Injectable, InjectionToken, inject } from '@angular/core';
@@ -45,7 +46,9 @@ function openRequest(url: string): void {
 function resetBehindTheWrapper(): void {
   const testBed = getTestBed();
 
-  Reflect.apply(Reflect.get(Object.getPrototypeOf(testBed), 'resetTestingModule'), testBed, []);
+  const prototype: TestBed = Object.getPrototypeOf(testBed);
+
+  prototype.resetTestingModule.call(testBed);
 }
 
 // Collection enables the group for every block before any test runs, so it is switched off once, at the end.
@@ -148,7 +151,7 @@ describe('a TestBed with no resetTestingModule of its own', () => {
 
     enableAngularDiagnostics();
 
-    expect(Reflect.get(testBed, 'resetTestingModule')).toBeUndefined();
+    expect(testBed.resetTestingModule).toBeUndefined();
 
     restore();
   });

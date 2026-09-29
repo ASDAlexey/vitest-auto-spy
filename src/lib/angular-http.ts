@@ -62,7 +62,8 @@ export interface ExpectRequestOptions {
   method?: string;
   /**
    * `false` skips the `TestBed.tick()` before the lookup and after the answer, for a module whose
-   * doubled `DOCUMENT` the app's tick cannot run against. The request must already be out. Default `true`.
+   * doubled `DOCUMENT` the app's tick cannot run against. The request must already be out, and
+   * `flush` / `error` answer synchronously. Default `true`.
    */
   tick?: boolean;
 }
@@ -108,20 +109,23 @@ export type RequestErrorOptions = Omit<NonNullable<Parameters<TestRequest['error
   error?: Parameters<TestRequest['error']>[0];
 };
 
-/** The one request {@link expectRequest} found, and the two ways to answer it. */
-export interface RequestExpectation {
+/**
+ * The one request {@link expectRequest} found, and the two ways to answer it. `RequestExpectation<void>`
+ * is what `{ tick: false }` hands back: nothing to settle, so both answers return synchronously.
+ */
+export interface RequestExpectation<Answered extends Promise<void> | void = Promise<void>> {
   /** The request as the code under test sent it — URL, method, headers, body. */
   readonly request: HttpRequest<unknown>;
   /**
    * Answer the request, then settle: on the next line the resource has its value and the view that
    * reads it has been ticked.
    */
-  flush(body: ResponseBody, options?: FlushOptions): Promise<void>;
+  flush(body: ResponseBody, options?: FlushOptions): Answered;
   /**
    * Fail the request with an HTTP status, then settle the same way {@link RequestExpectation.flush} does.
    * Status `0` is a network failure: no response reached the client.
    */
-  error(status: number, options?: RequestErrorOptions): Promise<void>;
+  error(status: number, options?: RequestErrorOptions): Answered;
 }
 
 /**
@@ -140,7 +144,7 @@ let armedTest: unknown;
 /** Requests a reset took off a module the armed test had built — read by the check that runs after it. */
 const openAtReset: TestRequest[] = [];
 
-const snapshottingInstances = new WeakSet<object>();
+const resetOwner = {};
 
 /** The live module's controller, or `null` once it is reset: `inject` would build a fresh module the next configure refuses. */
 function liveController(): HttpTestingController | null {
@@ -154,7 +158,7 @@ function takeLiveRequests(): TestRequest[] {
 // On the instance, which the static method, `getTestBed()` and Angular's cleanup hook all reset through,
 // so a check that runs after any of them still sees what was open.
 function snapshotOnReset(): void {
-  beforeTestBedReset(snapshottingInstances, () => {
+  beforeTestBedReset(resetOwner, () => {
     if (armedTest !== undefined) {
       openAtReset.push(...takeLiveRequests());
     }
@@ -406,13 +410,10 @@ function tooMany(matched: TestRequest[], matcher: RequestMatcher, options: Expec
  * is what the view reading the resource needs. Both, in that order, are the two steps this helper
  * exists to stop people rediscovering.
  */
-async function settle(tick: boolean): Promise<void> {
+async function settle(): Promise<void> {
   for (let round = 0; round < SETTLE_ROUNDS; round += 1) {
     await Promise.resolve();
-
-    if (tick) {
-      tickApp('expectRequest');
-    }
+    tickApp('expectRequest');
   }
 }
 
@@ -475,7 +476,9 @@ function tickApp(caller: string): void {
  * @param matcher The URL, a pattern for it, or a predicate over the request.
  * @param options `{ method }`, for a URL that is both read and written in the same test; `{ tick: false }` for a doubled `DOCUMENT`.
  */
-export function expectRequest(matcher: RequestMatcher, options: ExpectRequestOptions = {}): RequestExpectation {
+export function expectRequest(matcher: RequestMatcher, options: ExpectRequestOptions & { tick: false }): RequestExpectation<void>;
+export function expectRequest(matcher: RequestMatcher, options?: ExpectRequestOptions): RequestExpectation;
+export function expectRequest(matcher: RequestMatcher, options: ExpectRequestOptions = {}): RequestExpectation<Promise<void> | void> {
   const controller = readController('expectRequest');
   const tick = options.tick ?? true;
 
@@ -493,17 +496,22 @@ export function expectRequest(matcher: RequestMatcher, options: ExpectRequestOpt
     throw tooMany([first, ...rest], matcher, options);
   }
 
+  const answered = (): Promise<void> | undefined => (tick ? settle() : undefined);
+
   return {
     request: first.request,
-    flush: async (body: ResponseBody, flushOptions?: FlushOptions): Promise<void> => {
+    flush: (body: ResponseBody, flushOptions?: FlushOptions): Promise<void> | undefined => {
       first.flush(body, flushOptions);
 
-      await settle(tick);
+      return answered();
     },
-    error: async (status: number, { error = new ProgressEvent('error'), ...errorOptions }: RequestErrorOptions = {}): Promise<void> => {
+    error: (
+      status: number,
+      { error = new ProgressEvent('error'), ...errorOptions }: RequestErrorOptions = {},
+    ): Promise<void> | undefined => {
       first.error(error, { ...errorOptions, status });
 
-      await settle(tick);
+      return answered();
     },
   };
 }

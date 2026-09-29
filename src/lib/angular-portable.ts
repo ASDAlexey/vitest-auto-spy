@@ -18,6 +18,7 @@ export {
   type ComponentInputs,
   type PreparedShallow,
   type RenderShallowOptions,
+  type ShallowOverrides,
   type ShallowRender,
 } from './render-shallow';
 export { runEffect } from './run-effect';

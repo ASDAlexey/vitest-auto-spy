@@ -171,3 +171,37 @@ describe('extendWithAutoSpies — runner check', () => {
     expect(() => extendWithAutoSpies(builder as never, { cart: CartService })).not.toThrow();
   });
 });
+
+/**
+ * `provideAutoSpy` asks a class whether it is a component before building its double, so a class seen
+ * through a proxy tells, by that one question, whether its double was ever built.
+ */
+describe('extendWithAutoSpies — laziness', () => {
+  let built = 0;
+
+  const Counted = new Proxy(ApiService, {
+    getOwnPropertyDescriptor(target, key) {
+      if (key === 'ɵcmp') {
+        built += 1;
+      }
+
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+  });
+
+  const lazy = extendWithAutoSpies(base, { cart: CartService, counted: Counted });
+
+  beforeEach(() => {
+    built = 0;
+  });
+
+  lazy('never builds an entry the test does not destructure', ({ cart }) => {
+    expect(cart.checkout).toBeDefined();
+    expect(built).toBe(0);
+  });
+
+  lazy('builds an entry once when the test destructures it', ({ counted }) => {
+    expect(counted.get).toBeDefined();
+    expect(built).toBe(1);
+  });
+});

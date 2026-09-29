@@ -5,15 +5,16 @@
  * configured HTTP testing at all. The false positives are what would make a project turn the whole
  * group back off.
  */
+/* eslint-disable vitest-auto-spy/prefer-render-shallow -- shadowedProviders under test is raised by TestBed.createComponent itself */
 import { HttpClient, provideHttpClient } from '@angular/common/http';
 import { HttpClientTestingModule, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Component, Injectable, InjectionToken, NO_ERRORS_SCHEMA, NgModule, inject } from '@angular/core';
 import { TestBed, getTestBed } from '@angular/core/testing';
-import { afterAll, describe, expect, it, onTestFinished, vi } from 'vitest';
+import { afterAll, describe, expect, it, onTestFinished } from 'vitest';
 
 import '../angular';
 import { injectSpy } from './angular';
-import { provideAutoSpy, provideAutoSpyForToken } from './angular';
+import { lazyDoubleProvider, provideAutoSpy, provideAutoSpyForToken } from './angular';
 import {
   assertNoPendingRequests,
   assertNoShadowedProviders,
@@ -23,6 +24,8 @@ import {
 import { provideHttpTesting } from './angular-http';
 import { overrideComponentProvider } from './angular-overrides';
 import { createAutoMock } from './auto-mock';
+import { installConsoleSpies, restoreConsole } from './console-spy';
+import { createSpyFromClass } from './create-spy-from-class';
 
 @Injectable()
 class RealService {
@@ -153,13 +156,13 @@ describe('enableAngularDiagnostics', () => {
 
     enableAngularDiagnostics({ deadSchemas: false, ngModuleScopes: false, pendingRequests: false, unspiedProviders: false });
 
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { consoleWarnSpy } = installConsoleSpies();
 
+    onTestFinished(restoreConsole);
     injectSpy(RealService);
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('got a real RealService'));
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('got a real RealService'));
 
-    warn.mockRestore();
     enableAngularDiagnostics();
   });
 
@@ -373,6 +376,26 @@ describe('enableAngularDiagnostics', () => {
       // itself a double, so the question has been decided and the answer is deliberate.
       TestBed.resetTestingModule();
       overrideComponentProvider(OwnProvidersComponent, RealService);
+
+      expect(() => TestBed.createComponent(OwnProvidersComponent)).not.toThrow();
+    });
+
+    it('knows a lazily built double on the module, and reports it shadowed the same way', () => {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        imports: [OwnProvidersComponent],
+        providers: [lazyDoubleProvider(RealService, () => createSpyFromClass(RealService))],
+      });
+
+      expect(() => TestBed.createComponent(OwnProvidersComponent)).toThrow(/declares its own providers[\s\S]*RealService →/);
+    });
+
+    it('says nothing when a later real provider replaced the lazy double on the module too', () => {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        imports: [OwnProvidersComponent],
+        providers: [lazyDoubleProvider(RealService, () => createSpyFromClass(RealService)), RealService],
+      });
 
       expect(() => TestBed.createComponent(OwnProvidersComponent)).not.toThrow();
     });

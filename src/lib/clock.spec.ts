@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { mockNow, mockSystemTime, useCountingClock, withSystemTime } from './clock';
-import { restoreMockedProps } from './prop-mock';
+import { mockValueProp, restoreMockedProps } from './prop-mock';
 
 describe('mockSystemTime', () => {
   afterEach(() => {
+    restoreMockedProps();
+
     if (vi.isFakeTimers()) {
       vi.useRealTimers();
     }
@@ -100,18 +102,14 @@ describe('mockSystemTime', () => {
     // The happy-dom failure, reproduced by hand because this file does not run under it: there
     // `Date` is inherited from the realm rather than owned by `globalThis`, so `@sinonjs/fake-timers`
     // deletes it on uninstall and the next file dies inside Vitest's own `useFakeTimers`.
-    vi.useRealTimers = () => {
+    mockValueProp(vi, 'useRealTimers', () => {
       const result = realUseRealTimers();
       Reflect.deleteProperty(globalThis, 'Date');
 
       return result;
-    };
+    });
 
-    try {
-      restore();
-    } finally {
-      vi.useRealTimers = realUseRealTimers;
-    }
+    restore();
 
     expect(globalThis.Date).toBeDefined();
     expect(new Date(0).toISOString()).toBe('1970-01-01T00:00:00.000Z');

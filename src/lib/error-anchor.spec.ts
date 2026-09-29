@@ -79,6 +79,7 @@ describe('captureAnchor', () => {
     let reads = 0;
     const host = {
       captureStackTrace: (target: object): void => {
+        // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- a stand-in for V8's captureStackTrace, which defines this lazy getter the same way
         Object.defineProperty(target, 'stack', {
           get: (): string => {
             reads += 1;
@@ -101,7 +102,7 @@ describe('captureAnchor', () => {
   });
 
   it('trims nothing for an anonymous boundary rather than dropping an arbitrary frame', () => {
-    const anonymous = Object.defineProperty((): void => undefined, 'name', { value: '' });
+    const [anonymous] = [(): void => undefined];
     const failure = captureAnchor(anonymous, {})(ownFailure('did not emit'));
 
     expect(firstFrame(failure)).toContain('error-anchor.ts');

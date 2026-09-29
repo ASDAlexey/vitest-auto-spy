@@ -307,6 +307,7 @@ describe('createActivatedRoute — resolve and title', () => {
     const resolve: ResolveData = { user: () => 'resolved' };
     const { route } = createActivatedRoute({ data: { kind: 'list' }, resolve });
 
+    // eslint-disable-next-line vitest-auto-spy/no-reflect-member-access -- Angular keeps the record on the internal `_resolve`, which no public type declares
     expect(Reflect.get(route.snapshot, '_resolve')).toBe(resolve);
     expect(route.snapshot.data).toEqual({ kind: 'list' });
   });
@@ -544,12 +545,14 @@ describe('injectActivatedRoute — what it says when it cannot help', () => {
   });
 
   it('names a hand-written useValue', () => {
+    // eslint-disable-next-line vitest-auto-spy/prefer-provide-activated-route -- the hand-written route is the case under test
     TestBed.configureTestingModule({ providers: [{ provide: ActivatedRoute, useValue: { snapshot: {} } }] });
 
     expect(() => injectActivatedRoute()).toThrow(/is a plain object/);
   });
 
   it('names a prototype-less value as a plain object too', () => {
+    // eslint-disable-next-line vitest-auto-spy/prefer-provide-activated-route -- the hand-written route is the case under test
     TestBed.configureTestingModule({ providers: [{ provide: ActivatedRoute, useValue: Object.create(null) }] });
 
     expect(() => injectActivatedRoute()).toThrow(/is a plain object/);

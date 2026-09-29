@@ -37,7 +37,7 @@ import type { Provider } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { TestAPI } from 'vitest';
 
-import { injectSpy, provideAutoSpy, provideAutoSpyForToken } from './angular';
+import { injectSpy, lazyDoubleProvider, provideAutoSpy, provideAutoSpyForToken } from './angular';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
@@ -120,21 +120,26 @@ function isToken(fixture: AutoSpyFixture): fixture is InjectionToken<unknown> {
   return fixture instanceof InjectionToken;
 }
 
-/** The provider one entry contributes. */
-function providerFor(fixture: AutoSpyFixture): Provider {
+/** The double one entry stands for, built only when something injects it. */
+function doubleFor(fixture: AutoSpyFixture): unknown {
   if (isToken(fixture)) {
-    return provideAutoSpyForToken(fixture);
+    return provideAutoSpyForToken(fixture).useValue;
   }
 
   if (Array.isArray(fixture)) {
     const [ObjectClass, config] = fixture;
 
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the tuple's second member is declared `unknown` so the map can hold entries for unrelated classes; it is the configuration of *this* entry's class, which the tuple type cannot say.
-    return provideAutoSpy(ObjectClass, config as ClassSpyConfiguration<unknown> | OnlyMethodKeysOf<unknown>[]);
+    return provideAutoSpy(ObjectClass, config as ClassSpyConfiguration<unknown> | OnlyMethodKeysOf<unknown>[]).useValue;
   }
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- narrowed by elimination: not a token, not a tuple.
-  return provideAutoSpy(fixture as ClassType<unknown>);
+  return provideAutoSpy(fixture as ClassType<unknown>).useValue;
+}
+
+/** A factory rather than `useValue`, so an entry a test never destructures is never built. */
+function providerFor(fixture: AutoSpyFixture): Provider {
+  return lazyDoubleProvider(tokenFor(fixture), () => doubleFor(fixture));
 }
 
 /** The token an entry is injected by. */

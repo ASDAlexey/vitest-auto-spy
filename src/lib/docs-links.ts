@@ -31,7 +31,8 @@ export const angularHttpPending = 'https://asdalexey.github.io/vitest-auto-spy/a
 export const angularInjectSpyReal =
   'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#injectspy-says-when-it-got-the-real-thing';
 export const angularInputs = 'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#changing-an-input-mid-test';
-export const angularInternals = 'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#when-an-angular-internal-moves';
+export const angularInternals =
+  'https://asdalexey.github.io/vitest-auto-spy/adapters/angular-troubleshooting#when-an-angular-internal-moves';
 export const angularKeepTemplate =
   'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#keeptemplate-and-a-declaration-an-ngmodule-owns';
 export const angularLocationDouble = 'https://asdalexey.github.io/vitest-auto-spy/adapters/angular-router#the-location-double';
@@ -54,10 +55,12 @@ export const angularMockResource =
 export const angularResources = 'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#resources-httpresource-and-resource';
 export const angularSignalProp = 'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#signal-readonly-property-mocking';
 export const angularStable = 'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#zoneless-waiting';
+export const angularTestBedCopies =
+  'https://asdalexey.github.io/vitest-auto-spy/adapters/angular-troubleshooting#two-copies-of-angular-core-testing';
 export const angularTypedElements = 'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#typed-elements-under-a-strict-lint';
 export const angularTrackRuns = 'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#counting-recomputations-and-effect-runs';
 export const angularSplittingOff =
-  'https://asdalexey.github.io/vitest-auto-spy/adapters/angular#when-the-unit-test-build-has-code-splitting-off';
+  'https://asdalexey.github.io/vitest-auto-spy/guides/angular-unit-test-builder#when-the-unit-test-build-has-code-splitting-off';
 export const angularUnreadResource =
   'https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular#a-template-or-stylesheet-that-cannot-be-read';
 export const autoMockByType = 'https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type';
@@ -79,6 +82,8 @@ export const createSpyFromClassReturns =
 export const mockConstructor = 'https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles#mockconstructor-factory-name';
 export const controlHelpers = 'https://asdalexey.github.io/vitest-auto-spy/core/control-helpers';
 export const mustBeCalledWith = 'https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#what-a-mustbecalledwith-failure-prints';
+export const lenientCalledWithMiss =
+  'https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#cause-and-effect-why-calledwith-and-not-mockreturnvalue';
 export const eventLoopUntil = 'https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop#flusheventloopuntil-isdone-options';
 export const advanceTimers = 'https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers#advancetimers-ms';
 export const installationEntries = 'https://asdalexey.github.io/vitest-auto-spy/core/installation#entry-points';

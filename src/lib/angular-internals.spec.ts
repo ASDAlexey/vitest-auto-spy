@@ -5,6 +5,7 @@
  * or reshapes `ɵcmp.inputs` turns a handful of behavioural specs red — or, worse, leaves them green
  * with one fewer check inside them. With it, the upgrade fails here, next to the name that moved.
  */
+/* eslint-disable vitest-auto-spy/no-reflect-member-access -- these are Angular's private members, which have no typed surface to read them through */
 import { Component, VERSION, input, signal, ɵSIGNAL } from '@angular/core';
 import { TestBed, getTestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -46,6 +47,7 @@ describe('the shapes this package reads off Angular', () => {
   it('an input node is told apart by `applyValueToInputSignal`', () => {
     TestBed.configureTestingModule({ imports: [PinnedComponent] });
 
+    // eslint-disable-next-line vitest-auto-spy/prefer-render-shallow -- the canary must not go through the helpers it guards
     const component = TestBed.createComponent(PinnedComponent).componentInstance;
     const node: object = Object(Reflect.get(component.heading, ɵSIGNAL));
 

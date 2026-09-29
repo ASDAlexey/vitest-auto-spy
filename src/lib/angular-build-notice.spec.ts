@@ -186,7 +186,9 @@ describe('noticeAngularBuildSplitting', () => {
     );
     expect(written[0]).toContain('reports this as angular-build-splitting-off');
     expect(written[0]).toContain('setupAutoSpy({ angularBuildHint: false })');
-    expect(written[0]).toContain('Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular');
+    expect(written[0]).toContain(
+      'Docs: https://asdalexey.github.io/vitest-auto-spy/guides/angular-unit-test-builder#when-the-unit-test-build-has-code-splitting-off',
+    );
   });
 
   it('reads the version once per process, whatever it finds', () => {

@@ -25,7 +25,7 @@
 import { getTestBed } from '@angular/core/testing';
 import { afterEach, beforeEach } from 'vitest';
 
-import { failOnUnspiedProvider } from './angular';
+import { failOnUnspiedProvider, isLazyDoubleFactory } from './angular';
 import { assertAngularInternals } from './angular-internals';
 import { componentInjector, describeResolved, failDeadNgModuleImports, isDeadNgModuleImport, readProperty } from './angular-overrides';
 import { HTTP_TESTING_BRAND, type PendingRequest, pendingRequestsReport } from './angular-pending-requests';
@@ -33,6 +33,7 @@ import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { count, sourceClassName, taskName } from './message-text';
 import { isAutoSpyLike } from './spy-mark';
+import { onTestBedFileEnd } from './testbed-clean-bed';
 import { instrumentTestBed, onComponentCreated, onTestingModuleConfigured, verifyOnTeardown } from './testbed-diagnostics';
 import { beforeTestBedReset } from './testbed-reset';
 
@@ -400,18 +401,24 @@ const SELF_ONLY = { self: true };
  */
 function rememberModuleDouble(provider: unknown): void {
   const token = readProperty(provider, 'provide');
-  const useValue = readProperty(provider, 'useValue');
+  const useFactory = readProperty(provider, 'useFactory');
+  const double = isLazyDoubleFactory(useFactory) ? useFactory : readProperty(provider, 'useValue');
 
   // A `multi` provider resolves to an array, which can never be the double itself — comparing
   // them would report every multi registration in the suite.
-  if (token !== undefined && isAutoSpyLike(useValue) && readProperty(provider, 'multi') !== true) {
-    moduleDoubles.set(token, useValue);
+  if (token !== undefined && (isLazyDoubleFactory(double) || isAutoSpyLike(double)) && readProperty(provider, 'multi') !== true) {
+    moduleDoubles.set(token, double);
   }
 }
 
 /** Collect the doubles a configuration registers, keeping the last per token, as Angular does. */
 function collectModuleDoubles(config: unknown): void {
   forEachProvider(readProperty(config, 'providers'), rememberModuleDouble);
+}
+
+// A lazy double has no identity until the module builds it, so any double the module answers with is it.
+function answersWith(fromModule: unknown, spy: unknown): boolean {
+  return isLazyDoubleFactory(spy) ? isAutoSpyLike(fromModule) : fromModule === spy;
 }
 
 /** How a token reads in the failure — its class name, or whatever an `InjectionToken` calls itself. */
@@ -459,7 +466,7 @@ export function assertNoShadowedProviders(component: unknown, fixture: unknown):
     .map(([token, spy]) => ({ token, spy, resolved: Reflect.apply(injector.get, injector, [token, null, SELF_ONLY]) }))
     .filter(({ spy, resolved }) => resolved !== null && resolved !== spy && !isAutoSpyLike(resolved))
     // A double the module no longer answers with lost to a later provider or an override, not to the component.
-    .filter(({ token, spy }) => injectFromModule(token) === spy);
+    .filter(({ token, spy }) => answersWith(injectFromModule(token), spy));
 
   if (shadowed.length === 0) {
     return;
@@ -497,11 +504,11 @@ let removeComponentInspector: (() => void) | undefined;
 
 // On the instance, which the static method, `getTestBed()` and Angular's cleanup hook all reset through; inert while the
 // group is off, so it never has to be unlinked from under a wrapper installed after it.
-const snapshottingInstances = new WeakSet<object>();
+const resetOwner = {};
 
 /** Snapshot the open requests and forget the module's doubles at every reset, whichever `afterEach` runs first. */
 function wrapResetTestingModule(): void {
-  beforeTestBedReset(snapshottingInstances, () => {
+  beforeTestBedReset(resetOwner, () => {
     if (active) {
       openAtReset.push(...readOpenRequests());
       moduleDoubles.clear();
@@ -605,6 +612,7 @@ export function enableAngularDiagnostics(options: AngularDiagnosticsOptions = {}
   }
 
   wrapResetTestingModule();
+  onTestBedFileEnd(forgetFileState);
 
   // The hooks read `active`, so a call from inside a test only re-configures the group.
   if (!insideTest()) {
@@ -625,10 +633,16 @@ export function disableAngularDiagnostics(): void {
   removeInspector = undefined;
   removeComponentInspector?.();
   removeComponentInspector = undefined;
+  forgetFileState();
+  failOnUnspiedProvider(false);
+}
+
+/** What one file's tests left behind; `setupAutoSpy` drops it at every file end, so the doubles go with the file. */
+function forgetFileState(): void {
   moduleDoubles.clear();
   controllerToken = undefined;
   httpTestingInUse = false;
   openAtReset.length = 0;
+  preparedTest = undefined;
   resetTally();
-  failOnUnspiedProvider(false);
 }

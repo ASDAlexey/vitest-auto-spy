@@ -296,6 +296,7 @@ describe('createSpyFromInstance — passthrough with the jasmine namespaces', ()
     const cart = spyOn(new CartStore(), { passthrough: true });
     const count = cart.count as unknown as JasmineMethodSpy<() => number>;
 
+    // eslint-disable-next-line vitest-auto-spy/prefer-native-spy-api -- this block tests passthrough under the jasmine compatibility layer
     count.and.returnValue(7);
 
     expect(cart.count()).toBe(7);

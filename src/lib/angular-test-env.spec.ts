@@ -33,6 +33,7 @@ function stubResetTestEnvironment(): void {
 }
 
 function options(zoneless: boolean, seenPaths: string[] = []): AngularTestEnvOptions {
+  // eslint-disable-next-line vitest-auto-spy/prefer-create-spy-from-class -- an options bag of callbacks, with no class behind it to stay in step with
   return {
     zoneless: (testPath) => {
       seenPaths.push(testPath);

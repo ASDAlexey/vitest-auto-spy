@@ -16,10 +16,11 @@
  * `assertRouteWiring` in `angular-router.ts` is the same idea for the router's constructors; this is
  * the shared one for `@angular/core`.
  */
-import { signal, ɵSIGNAL } from '@angular/core';
+import { signal } from '@angular/core';
 import { getTestBed } from '@angular/core/testing';
 
 import { angularInternalsError } from './angular-internals-error';
+import { readSignalSymbol } from './signal-symbol';
 
 /** One shape, the check behind it, and what its absence would cost. */
 interface Probe {
@@ -42,7 +43,7 @@ const PROBES: Probe[] = [
       '`mockSignalProp()` can no longer see whether a signal has been read, nor write through a read-only one, so a ' +
       'patch applied after the first read would be accepted and quietly change nothing.',
     ok: (): boolean => {
-      const node: object = Object(Reflect.get(signal(0), ɵSIGNAL));
+      const node: object = Object(readSignalSymbol(signal(0)));
 
       return 'consumers' in node && Reflect.get(node, 'kind') === 'signal';
     },

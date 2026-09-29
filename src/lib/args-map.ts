@@ -228,6 +228,24 @@ export class ArgsMap {
     return this.#findByMatcher(key);
   }
 
+  /** The value registered for exactly this argument list — not what a call with these arguments would match. */
+  configuredFor(key: unknown[]): unknown {
+    if (hasStructuralArg(key)) {
+      const candidate = this.#buildMatcherConfig(key, undefined);
+
+      return this.#matcherConfigs.find((existing) => this.#sameConfigArgs(existing, candidate))?.value;
+    }
+
+    const serialized = this.#serialize(key);
+
+    return serialized in this.#map ? this.#map[serialized] : undefined;
+  }
+
+  /** Whether any config takes this many arguments. */
+  hasArity(length: number): boolean {
+    return this.#exactShapes.has(length) || this.#matcherConfigs.some((config) => config.args.length === length);
+  }
+
   /**
    * Every configured argument list, rendered the way a lookup key is — the *wanted* half of a
    * `mustBeCalledWith` failure.

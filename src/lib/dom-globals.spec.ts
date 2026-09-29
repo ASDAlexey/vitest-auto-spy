@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
+import { useConsoleSpies } from '../console';
 import {
   type DomRegistrar,
   type JsdomModule,
@@ -88,6 +89,8 @@ describe('registerDomGlobals', () => {
 });
 
 describe('copyWindowGlobals', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   it('overwrites the forced globals and fills in the rest', () => {
     const source = { window: 'w', document: 'd', fetch: 'window-fetch', extra: 'e' };
     const target: Record<string, unknown> = { document: 'stale', fetch: 'native-fetch' };
@@ -113,38 +116,29 @@ describe('copyWindowGlobals', () => {
   it('stays quiet when the refused key is not one of the five the DOM needs', () => {
     // Reachable only through a locked property whose value is `undefined`: any other locked key is
     // already `!== undefined` and skipped before the define is attempted.
-    const target: Record<string, unknown> = {};
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const target: Record<string, unknown> = Object.freeze({ fetch: undefined });
 
-    Object.defineProperty(target, 'fetch', { value: undefined, configurable: false, writable: false });
     copyWindowGlobals({ fetch: 'from-window' }, target);
 
-    expect(warn).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
     expect(target['fetch']).toBeUndefined();
-
-    warn.mockRestore();
   });
 
   it('names a forced global the host refused, instead of coming up half-installed in silence', () => {
     // The five forced keys are the ones the DOM is useless without. A refusal used to be swallowed
     // whole, and the run then failed in the first spec that touched `document` — naming neither this
     // helper nor the property.
-    const target: Record<string, unknown> = {};
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const target: Record<string, unknown> = Object.freeze({ document: 'host' });
 
-    Object.defineProperty(target, 'document', { value: 'host', configurable: false, writable: false });
     copyWindowGlobals({ document: 'from-window' }, target);
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('the host refused to redefine document ('));
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('the host refused to redefine document ('));
     expect(target['document']).toBe('host');
-
-    warn.mockRestore();
   });
 
   it('leaves a global the host has locked down', () => {
-    const target: Record<string, unknown> = {};
+    const target: Record<string, unknown> = Object.freeze({ frozen: 'host' });
 
-    Object.defineProperty(target, 'frozen', { value: 'host', configurable: false, writable: false });
     copyWindowGlobals({ frozen: 'from-window' }, target);
 
     expect(target['frozen']).toBe('host');

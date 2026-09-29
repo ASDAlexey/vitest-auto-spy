@@ -20,6 +20,7 @@
  * disposed next to it then resolve the same key, and a second copy of this package installing the
  * shim in another realm agrees with the first instead of quietly using a different symbol.
  */
+import type { SpyDisposable } from './types';
 
 /** The key Node 22 registers its own `Symbol.dispose` under. */
 export const NODE_DISPOSE_KEY = 'nodejs.dispose';
@@ -59,4 +60,4 @@ export function installDisposeSymbol(host: object): symbol {
  * {@link ObserverSpy} declares its `[DISPOSE]()` that way.
  */
 // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `installDisposeSymbol` takes any host, so it can only promise `symbol`; called on the global `Symbol` it returns that realm's own `Symbol.dispose`, or the registered shim standing in for it. The `unique symbol` type is what lets the constant key a class member — see {@link DISPOSE}.
-export const DISPOSE: typeof Symbol.dispose = installDisposeSymbol(Symbol) as typeof Symbol.dispose;
+export const DISPOSE: keyof SpyDisposable = installDisposeSymbol(Symbol) as keyof SpyDisposable;

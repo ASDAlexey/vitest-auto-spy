@@ -12,10 +12,15 @@ import { DOCUMENT } from '@angular/common';
 import { HttpClient, HttpErrorResponse, type HttpRequest, httpResource, provideHttpClient } from '@angular/common/http';
 import { Component, effect, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { expectNoRequest, expectRequest, injectHttpTesting, provideHttpTesting, verifyNoPendingRequests } from './angular-http';
 import { provideDocumentDouble } from './platform-doubles';
+import { registerSignalMatchers } from './signal-matchers';
+
+beforeAll(() => {
+  registerSignalMatchers();
+});
 
 interface Product {
   id: number;
@@ -40,8 +45,8 @@ describe('provideHttpTesting', () => {
 
     await expectRequest('/api/products').flush([{ id: 1 }]);
 
-    expect(products.status()).toBe('resolved');
-    expect(products.value()).toEqual([{ id: 1 }]);
+    expect(products.status).toHaveSignalValue('resolved');
+    expect(products.value).toHaveSignalValue([{ id: 1 }]);
   });
 
   it('settles the view that reads the resource, without a detectChanges of its own', async () => {
@@ -111,7 +116,7 @@ describe('provideHttpTesting', () => {
 
     await expectRequest('/api/products').error(503, { statusText: 'Service Unavailable' });
 
-    expect(products.status()).toBe('error');
+    expect(products.status).toHaveSignalValue('error');
   });
 
   it('fails an HttpClient call with the status and statusText the spec asked for', async () => {
@@ -334,7 +339,7 @@ describe('a TestBed whose DOCUMENT is a double', () => {
     injectHttpTesting().expectOne('/api/token').flush('t');
   });
 
-  it('answers without ticking on { tick: false }', async () => {
+  it('answers synchronously without ticking on { tick: false }', () => {
     const received: string[] = [];
     const failures: number[] = [];
     const http = TestBed.inject(HttpClient);
@@ -342,8 +347,8 @@ describe('a TestBed whose DOCUMENT is a double', () => {
     http.get('/api/token', { responseType: 'text' }).subscribe((token) => received.push(token));
     http.get('/api/other').subscribe({ error: (error: HttpErrorResponse) => failures.push(error.status) });
 
-    await expectRequest('/api/token', { tick: false }).flush('t');
-    await expectRequest('/api/other', { tick: false }).error(401);
+    expect(expectRequest('/api/token', { tick: false }).flush('t')).toBeUndefined();
+    expect(expectRequest('/api/other', { tick: false }).error(401)).toBeUndefined();
     expectNoRequest(undefined, { tick: false });
 
     expect(received).toStrictEqual(['t']);
