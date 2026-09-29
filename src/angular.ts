@@ -1,3 +1,5 @@
+import { useVitestAdapter } from './lib/use-vitest-adapter';
+
 /**
  * `vitest-auto-spy/angular` — optional Angular TestBed helpers.
  *
@@ -13,7 +15,7 @@
  * through Angular DI, `stable` awaits `fixture.whenStable()`. Nothing stops a spec from dropping
  * back to `@angular/core/testing` for the step a helper does not cover.
  */
-import { useVitestAdapter } from './lib/use-vitest-adapter';
+export type {} from './lib/vitest-mock-types';
 
 useVitestAdapter();
 
@@ -58,7 +60,7 @@ export {
   type ResourceDoubleSnapshot,
   type ResourceDoubleStatus,
 } from './lib/resource-prop';
-export { mockSignalProp } from './lib/signal-prop';
+export { mockSignalProp, mockSignalProps, type SignalPropHandles, type SignalPropValues } from './lib/signal-prop';
 
 export {
   expectAllEmissions,
@@ -74,3 +76,4 @@ export {
   type EmissionSource,
   type SubscribableLike,
 } from './lib/expect-emission';
+export { expectNoEmissionSync } from './lib/emission-sync';

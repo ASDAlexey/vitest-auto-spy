@@ -30,6 +30,7 @@ export {
   type ActivatedRouteChange,
   type ActivatedRouteDouble,
   type ActivatedRouteInit,
+  type RouteResources,
 } from './lib/angular-router';
 export {
   collectRouterEvents,

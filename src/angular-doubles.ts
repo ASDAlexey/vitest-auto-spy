@@ -1,3 +1,5 @@
+import { useVitestAdapter } from './lib/use-vitest-adapter';
+
 /**
  * `vitest-auto-spy/angular/doubles` — ready-made platform and Material dialog doubles.
  *
@@ -12,7 +14,7 @@
  * The dialog ref is built through the library's own spy engine, so this entry registers the
  * Vitest mock adapter on import, exactly as `vitest-auto-spy/angular` does.
  */
-import { useVitestAdapter } from './lib/use-vitest-adapter';
+export type {} from './lib/vitest-mock-types';
 
 useVitestAdapter();
 
@@ -36,5 +38,26 @@ export {
   createWindowDouble,
   provideDocumentDouble,
   provideWindowDouble,
+  providePlatform,
+  type PlatformFlagTokens,
+  type PlatformName,
   type PlatformOverrides,
 } from './lib/platform-doubles';
+
+export { createDomSanitizerDouble, provideDomSanitizerDouble } from './lib/sanitizer-double';
+
+export { createChangeDetectorRefDouble, provideChangeDetectorRefDouble } from './lib/change-detector-double';
+
+// The CDK overlay, structurally: as with the dialog, the class is an argument so `@angular/cdk` stays out.
+export {
+  createOverlayDouble,
+  injectOverlayDouble,
+  provideOverlayDouble,
+  type AttachedComponent,
+  type OverlayDouble,
+  type OverlayDoubleInit,
+  type OverlayLike,
+  type OverlayRefDouble,
+  type OverlayRefStub,
+  type PositionCall,
+} from './lib/overlay-double';
