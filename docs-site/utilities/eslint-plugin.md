@@ -1,9 +1,13 @@
 ---
 title: ESLint plugin
-description: Fifty-one flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the nine that report a cost or a heuristic, with the dial documented and the false-positive cases named.
+description: Fifty-six lint rules for spec files. They catch tests that pass without checking anything, doubles that drift from the real class, and setup that leaks between tests. Flat config, part of the package.
 ---
 
 # ESLint plugin
+
+The plugin finds test code that passes while checking nothing, and hand-written doubles that drift
+from the class they replace. It is part of `vitest-auto-spy`, so there is nothing else to install.
+Add it to `eslint.config.js` for your spec files:
 
 ```js
 // eslint.config.js
@@ -12,32 +16,18 @@ import autoSpy from 'vitest-auto-spy/eslint-plugin';
 export default [{ files: ['**/*.spec.ts'], ...autoSpy.configs.recommended }];
 ```
 
-Scope it to spec files yourself: every rule is about test code, and `Object.defineProperty` or an
-object of `vi.fn()`s is perfectly reasonable in application code.
+The plugin needs flat config (`eslint.config.js`). The legacy `.eslintrc` format cannot load it: it
+looks for a package named `eslint-plugin-*`, and this plugin is a subpath of another package.
 
-::: warning Flat config only
-The legacy `.eslintrc` `plugins: ['…']` form resolves plugin names to `eslint-plugin-*` packages,
-which a subpath export of this package can never be.
-:::
-
-**How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
-config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the fifty-one are about a dialect you may not speak.
-[Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
-every dial, including the three rules that can report on correct code. Everything after that is
-_why_ — one section per rule, for when a report has arrived and you want to know what it saved you
-from.
+Each rule has its own section in [ESLint rules](/utilities/eslint-rules): what it reports, a
+before/after example, its options, and when to turn it off. This page covers setup and tuning.
 
 ## Adding it to your project
 
-Nothing to install — the plugin is a subpath of the package you already have, so it is always on the
-version of the API it recommends.
-
 ### 1. The config block
 
-`configs.recommended` is a plain object with two keys, `plugins` and `rules`, and spreading it is
-all the wiring there is. Put it **after** your other configs so its severities are the ones that
-survive:
+Spread one of the ready configs into a block for your spec files. In flat config a later block
+overrides an earlier one, so put this block **after** your other configs:
 
 ```js
 // eslint.config.js
@@ -53,56 +43,65 @@ export default [
 ];
 ```
 
-There is a second config, `configs.typeErrors` — the subset whose findings are compile errors, for
-[landing the plugin on a large suite](#land-it-on-a-large-existing-suite-without-a-red-ci) without a
-red CI. Both of its rules are already `error` in `recommended`, so a project adopting the plugin
-outright needs only the one above.
+Each config is a plain object with two keys, `plugins` and `rules`. Spreading it into your block
+brings both keys with it.
 
-`configs.strict` is `recommended` with its nine `warn` rules raised to `error` — the config for a
-suite that has adopted the plugin and wants every finding to stop the build. `no-compile-components`
-and `no-redundant-mock-reset` still report nothing until their options describe the builder and the
-runner.
+| Config                | What it turns on                                   | Use it when                                                                                                     |
+| --------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `configs.recommended` | all 56 rules: 45 at `error`, 11 at `warn`          | you start with the plugin; this is the default                                                                  |
+| `configs.strict`      | all 56 rules at `error`                            | your specs are clean, and every finding should stop the build                                                   |
+| `configs.typeErrors`  | `prefer-as-spy` and `no-mocked-for-spy` at `error` | together with `recommended`, in the [large-project recipe](#land-it-on-a-large-existing-suite-without-a-red-ci) |
+
+Both `typeErrors` rules are already `error` in `recommended`. You need `typeErrors` only in the
+recipe that lowers every rule to `warn` and then raises these two back; see
+[Land it on a large existing suite without a red CI](#land-it-on-a-large-existing-suite-without-a-red-ci).
+
+Some rules report nothing until they know how your project builds and runs tests:
+
+- [`no-compile-components`](/utilities/eslint-rules#no-compile-components) waits for its `builder`
+  option.
+- [`no-redundant-mock-reset`](/utilities/eslint-rules#no-redundant-mock-reset) waits for its options,
+  or for a Vitest config it can find and read.
+- [`no-relative-mock-under-builder`](/utilities/eslint-rules#no-relative-mock-under-builder) waits for
+  its option, or for an Angular unit-test builder target in `angular.json`, `project.json` or
+  `nx.json` that runs the file.
 
 ### 2. The `files` glob is not optional
 
-There is no default glob, and that is deliberate: only you know where your specs live. Get it wrong
-in the two directions and the failures look nothing alike — too **narrow** and the plugin is silently
-inert (the commonest support question, and `npx eslint --print-config path/to/a.spec.ts` settles it
-in one command); too **wide** and `no-object-define-property` starts reporting on application code
-that is entitled to call it.
+The plugin has no default glob, because only you know where your specs live. A wrong glob fails in
+one of two ways:
 
-Common shapes:
+- **Too narrow:** the plugin checks nothing and reports nothing. This is the most common setup
+  problem. [Check what actually applies](#check-what-actually-applies) with one command.
+- **Too wide:** rules start reporting application code. For example, `Object.defineProperty` is fine
+  in application code, but `no-object-define-property` reports it.
+
+Common globs:
 
 ```js
-files: ['**/*.spec.ts'],                                  // Angular, Karma-era layout
+files: ['**/*.spec.ts'],                                  // Angular
 files: ['**/*.test.ts', '**/*.test.tsx'],                 // React / Vue / Node
 files: ['**/*.{spec,test}.{ts,tsx}', '**/test/**/*.ts'],  // both, plus a test folder
 ```
 
-In a monorepo, one block at the root covers every package as long as the glob is not anchored —
-`'**/*.spec.ts'` matches `packages/*/src/**` fine. Add a second block only where one package's specs
+In a monorepo, one block at the root covers every package if the glob starts with `**/`:
+`'**/*.spec.ts'` matches `packages/*/src/**` too. Add a second block only for a package whose specs
 need different severities.
 
-### 3. Type information is optional, and four rules want it {#_3-type-information-is-optional-and-one-rule-wants-it}
+### 3. Type information: only four rules need it {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Forty-seven of the fifty-one are syntactic: they read the file's own AST and never ask the type checker.
-So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
-does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
-not.
+Fifty-two rules read only the file itself. They work without `parserOptions.project`, add no
+noticeable lint time, and work even when your specs are not in any `tsconfig`.
 
-The cost of that is the honest limit of [the three rules that can report on correct
-code](#the-three-rules-that-can-report-on-correct-code): what a rule cannot see in one file, it
-cannot know.
-
-[`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types),
+Four rules read TypeScript types:
+[`no-private-member-access`](/utilities/eslint-rules#no-private-member-access),
 [`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value),
 [`no-unknown-use-value-key`](/utilities/eslint-rules#no-unknown-use-value-key) and
-[`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value) are the exceptions, and
-all four **need** a program: without one they report nothing at all rather than falling back to the
-syntax. Half of the first — the `Object.getPrototypeOf` escape — keeps working either way.
-[`no-compile-components`](/utilities/eslint-rules#no-compile-components) is syntactic, and waits the
-same way for a fact no file holds — which builder the project has — until `{ builder:
-'inline-resources' }` states it. Turn the type-aware four on where your specs are already in a project:
+[`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value). Without type
+information they report nothing. The one exception is the `Object.getPrototypeOf` check of
+`no-private-member-access`, which works either way.
+
+To turn the four on, give the parser your project, where your specs are already in a `tsconfig`:
 
 ```js
 languageOptions: {
@@ -112,52 +111,69 @@ languageOptions: {
 
 ### 4. What the first run looks like
 
-Every rule but nine is an `error`, so on an existing suite the first run is likely to be red — that
-is the point of the default, not a misconfiguration. The exceptions are
-[`prefer-render-shallow`](#the-render-nobody-reads), which reports a cost rather than a defect, and
-[`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double),
-[`no-structural-double`](/utilities/eslint-rules#no-structural-double) and
-[`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy), which report a
-defect on heuristic evidence, and [`prefer-create-mock`](/utilities/eslint-rules#prefer-create-mock),
-[`prefer-set-inputs`](/utilities/eslint-rules#prefer-set-inputs) and
-[`no-unasserted-argument`](/utilities/eslint-rules#no-unasserted-argument), whose
-repair is a migration rather than a line to swap, and [`prefer-spy-on-own-method`](/utilities/eslint-rules#prefer-spy-on-own-method), which names a shorter spelling of a correct call, and [`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value), which names a matcher that fails more legibly; all nine show up in the output without holding the build. Two things make the
-first pass short:
+On an existing project, expect the first run to be red. Forty-five rules are `error`, and that is
+the intended default.
+
+Eleven rules are `warn`. They show up in the output but do not fail the build:
+
+- **A cost, not a defect:** [`prefer-render-shallow`](/utilities/eslint-rules#prefer-render-shallow).
+- **Evidence is a guess from one file:**
+  [`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double),
+  [`no-structural-double`](/utilities/eslint-rules#no-structural-double),
+  [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy).
+- **The fix is a migration, not a one-line swap:**
+  [`prefer-create-mock`](/utilities/eslint-rules#prefer-create-mock),
+  [`prefer-set-inputs`](/utilities/eslint-rules#prefer-set-inputs),
+  [`no-unasserted-argument`](/utilities/eslint-rules#no-unasserted-argument),
+  [`no-real-wait-in-test`](/utilities/eslint-rules#no-real-wait-in-test).
+- **A shorter or clearer spelling of correct code:**
+  [`prefer-spy-on-own-method`](/utilities/eslint-rules#prefer-spy-on-own-method),
+  [`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value).
+- **Only the author knows the fix:**
+  [`no-unasserted-console-spy`](/utilities/eslint-rules#no-unasserted-console-spy).
+
+A rule that reads one file cannot know everything about your project, so three rules can report
+correct code. If a finding looks wrong, check
+[The three rules that can report on correct code](#the-three-rules-that-can-report-on-correct-code).
+
+Two commands make the first pass short:
 
 ```bash
-npx eslint . --fix          # prefer-as-spy, no-mocked-for-spy and prefer-native-spy-api rewrite themselves
-npx eslint . --format stylish | tail -30   # the summary tells you which rule dominates
+npx eslint . --fix                         # rules with an autofix rewrite the code themselves
+npx eslint . --format stylish | tail -30   # the summary shows which rule reports the most
 ```
 
-Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
-answered below.
+What is left is either a real finding or a rule you do not want yet. [Tuning it for your
+project](#tuning-it-for-your-project) covers both. If the first run is too large to fix at once,
+follow [Land it on a large existing suite without a red CI](#land-it-on-a-large-existing-suite-without-a-red-ci).
 
-## Which of the fifty-one apply to you {#which-of-the-twenty-apply-to-you}
+## Which rules apply to you {#which-of-the-twenty-apply-to-you}
 
-Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
-of these rules are about a dialect you do not speak.** They are still on, and the reason is not
-principle — it is that they cannot fire on your code.
+Four rules are about Jasmine. If you never used Jasmine, they cannot fire on your code, so you can
+leave them on.
 
-| You are                                    | What the plugin does for you                                                                            |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| writing Vitest, never used Jasmine or Jest | the forty-five core rules work; **the four jasmine rules are inert** — leave them on and never see them |
-| migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                           |
-| migrating off `jasmine-auto-spies`         | all fifty-one, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                     |
+| You are                                    | What the plugin does for you                                                                       |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| writing Vitest, never used Jasmine or Jest | the 52 core rules work; the four Jasmine rules never fire                                          |
+| moving off `jest-auto-spies` / Jest        | the core rules do the work; `no-done-callback` and `prefer-as-spy` catch the most                  |
+| moving off `jasmine-auto-spies`            | all 56 rules; set `prefer-native-spy-api` to `'off'` until the Jasmine compatibility layer is gone |
 
 ### If you never used Jasmine
 
-Each of the four keys on syntax a Vitest suite does not contain, so there is nothing for them to
-report:
+Each Jasmine rule looks for code a Vitest suite does not contain:
 
-| Rule                              | Keys on                                                                          | In your suite                                                                                                    |
-| --------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `no-jasmine-globals`              | `jasmine.*` and the bare globals `spyOn(`, `spyOnProperty(`, `fail(`, `pending(` | you write `vi.spyOn` and `expect.fail`; the bare forms are a `ReferenceError` under Vitest, so they do not exist |
-| `jasmine-namespace-without-entry` | `.and` / `.calls` / `.withArgs` **on a spy this library built**                  | you write `.mockReturnValue`, `.mock.calls` and `calledWith`                                                     |
-| `no-save-arguments-by-value`      | `spy.calls.saveArgumentsByValue()`                                               | jasmine's own API; no Vitest suite has the call                                                                  |
-| `prefer-native-spy-api`           | the same `.and` / `.calls` namespaces                                            | same as above                                                                                                    |
+| Rule                              | Looks for                                                                        | In your specs                                                                              |
+| --------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `no-jasmine-globals`              | `jasmine.*` and the bare globals `spyOn(`, `spyOnProperty(`, `fail(`, `pending(` | you write `vi.spyOn` and `expect.fail`; the bare forms throw `ReferenceError` under Vitest |
+| `jasmine-namespace-without-entry` | `.and` / `.calls` / `.withArgs` on a spy this library built                      | you write `.mockReturnValue`, `.mock.calls` and `calledWith`                               |
+| `no-save-arguments-by-value`      | `spy.calls.saveArgumentsByValue()`                                               | a Jasmine-only API; Vitest code never calls it                                             |
+| `prefer-native-spy-api`           | the same `.and` / `.calls` namespaces                                            | same as above                                                                              |
 
-So turning them off is allowed and buys nothing measurable — a rule with no matching node does no
-work beyond the AST visit every rule already makes. If you would rather see a shorter config anyway:
+`jasmine-namespace-without-entry` ignores anything under `.mock`, so `spy.mock.calls[0]` is never
+reported.
+
+Turning the four off is allowed, but it saves nothing: a rule with nothing to match does no extra
+work. If you prefer a shorter config anyway:
 
 ```js
 export default [
@@ -176,215 +192,127 @@ export default [
 ];
 ```
 
-::: warning One of them used to fire on a Vitest suite anyway — fixed in 4.0.0
-`jasmine-namespace-without-entry` matched `spy.mock.calls[0]`, `spy.mock.calls.length` and
-`spy.mock.calls[0]?.[0]` — the way every Vitest suite reads its recorded arguments. The member is
-named `calls`, the `[0]` makes it read _through_, and the chain walks down to one of this library's
-factories, which was all three conditions the rule had. Bare `spy.mock.calls` passed while
-`spy.mock.calls[0]` was reported, a difference no message could explain, and at `warn` nobody chased
-it. The rule now refuses any namespace hanging off `.mock`, which is the runner's bookkeeping and
-never jasmine's.
-:::
-
 ### If you are coming from Jest
 
-There is no separate Jest rule set, because most of what a Jest suite has to unlearn is already in
-the core forty — these are the ones that carry a migration:
+There is no separate Jest rule set. These core rules catch most of what a Jest suite has to change:
 
-| Rule                           | What it catches in a Jest suite                                                                                                                                                                                                                               |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `no-done-callback`             | `it('x', (done) => …)`. Vitest passes a callable `TestContext` there, so `done()` throws — and where it sits at the bottom of a callback the test [passes having run almost none of itself](#no-done-callback-%E2%80%94-what-the-first-parameter-actually-is) |
-| `prefer-as-spy`                | `TestBed.inject(X) as Spy<X>`, written once per double in a `jest-auto-spies` suite and `TS2352` under this library — [the commonest compile error a migrated Angular suite produces](/migrating#reading-a-spy-back-out-of-the-container)                     |
-| `no-mocked-for-spy`            | `Mocked<T>` declarations, which demand the private fields a spy does not have                                                                                                                                                                                 |
-| `no-shared-module-level-mock`  | an exported `{ save: jest.fn() }` fixture — one object per **worker** under `isolate: false`, not one per test                                                                                                                                                |
-| `prefer-create-spy-from-class` | the object-of-`fn()`s double, which drifts from the class the day it grows a method                                                                                                                                                                           |
-| `no-floating-assertion`        | `expect()` in a `.then()` nobody awaits                                                                                                                                                                                                                       |
+| Rule                           | What it catches in a Jest suite                                                                                                                                                                     |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `no-done-callback`             | `it('x', (done) => …)`. Vitest passes a context object there, so `done()` throws. When the call sits inside a callback, the test [passes without running](/utilities/eslint-rules#no-done-callback) |
+| `prefer-as-spy`                | `TestBed.inject(X) as Spy<X>`. It fails with `TS2352` under this library, and it is [the most common compile error after an Angular migration](/migrating#reading-a-spy-back-out-of-the-container)  |
+| `no-mocked-for-spy`            | `Mocked<T>` declarations, which require private fields a spy does not have                                                                                                                          |
+| `no-shared-module-level-mock`  | an exported `{ save: jest.fn() }` fixture. Under `isolate: false` (test files share modules within a worker) it is one object per worker, not per test                                              |
+| `prefer-create-spy-from-class` | an object of `fn()`s used as a double. It falls behind the class as soon as the class gets a new method                                                                                             |
+| `no-floating-assertion`        | `expect()` in a `.then()` nobody awaits                                                                                                                                                             |
 
-`no-jasmine-globals` is worth leaving on here too, and not for the reason the name suggests: Jest ran
-on **jest-jasmine2** until Jest 27, and that runner installed `spyOn`, `fail` and `pending` as
-globals — so a suite old enough to predate `jest-circus` really can contain them. The dangerous one
-is `spyOn`: jasmine's installs a stub, `vi.spyOn` calls through, so the rename compiles, the spec
-runs, and the code under test starts talking to its collaborator for real.
+Keep `no-jasmine-globals` on here too. Before Jest 27, Jest ran on `jest-jasmine2`, which installed
+`spyOn`, `fail` and `pending` as globals, so an old Jest suite can contain them. `spyOn` is the
+dangerous one: Jasmine's version replaces the method, while `vi.spyOn` calls the real method. After a
+plain rename, the spec compiles and runs, and the code under test talks to the real collaborator.
 
-The bulk edit is a command rather than a lint pass — `npx vitest-auto-spy codemod --from jest`
-(`--from jasmine` for the other dialect, and the default `auto` reads each file and applies the set
-that file needs). See [Migrating from jest-auto-spies](/migrating).
+For the bulk edit, run the codemod instead of a lint pass: `npx vitest-auto-spy codemod --from jest`.
+`--from jasmine` handles the other dialect, and the default `auto` picks the right set per file. See
+[Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All fifty-one apply, and the four in the last group are the ones written for you. Two are pure
-diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
-survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
-installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
-config a migration wants until the suite is green:
+All 56 rules apply, and the four Jasmine rules are written for you:
+
+- `no-jasmine-globals` and `no-save-arguments-by-value` report behaviour that silently changes after
+  a rename.
+- `jasmine-namespace-without-entry` reports a spy built before the compatibility layer was
+  installed.
+- `prefer-native-spy-api` reports the compatibility layer itself. Turn it off while you migrate:
 
 ```js
 'vitest-auto-spy/prefer-native-spy-api': 'off', // delete this for the last mile
 ```
 
-The bulk edit is `npx vitest-auto-spy codemod --from jasmine`, which does what the rule declines to
-autofix. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
-
-## Rules
-
-Every rule is an `error` bar nine. Until 4.0.0 this table was a graded mix of `error` / `warn` / `off`,
-which meant the plugin decided how much each project cared; a `warn` that nothing reads is `off` with
-extra output, and which findings block a merge is a project's call, not a library's. Turning one down
-is [one line](#turn-one-rule-down).
-
-One of the nine exceptions is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a
-**`warn`**, and its reason is the kind of thing it says rather than how much it matters. Every other rule in these
-tables names something wrong or dead — a double that drifts from its class, an assertion that never
-runs, a provider the container already dropped, a schema guarding nothing. That one names a file that
-could render more cheaply, which is a choice a suite makes and not a defect in the file: moving onto
-`renderShallow` is a migration a project either takes or does not, and at `error` the plugin would be
-gating it. On the 1759-file suite the rule was measured against it reports **491 times across 398
-files** — a first run every consumer would have to answer with a project-wide `warn` of its own. So the
-default is the `warn`, and a project that has decided to make the move sets it to `'error'` in the same
-[one line](#turn-one-rule-down) that turns the others down.
-
-[`prefer-spy-on-own-method`](/utilities/eslint-rules#prefer-spy-on-own-method) is graded on the same reading. The
-`createSpyFromInstance` call it reports is correct and does exactly what `spyOnOwnMethod` / `spyOnVoidMethod` does:
-the rule names a shorter spelling, not a defect, and its exact shapes carry a fix.
-
-The other two, `no-stub-class-double` and `no-structural-double` (5.5.0), are graded on the
-_evidence_ rather than on the kind of finding. Both report the same drift
-`prefer-create-spy-from-class` reports at `error` — a double whose shape was written by hand and is
-free to fall behind the class — but neither has a `provide:` beside it to settle the question, so
-each decides on a heuristic: a class whose fields are `vi.fn()`s, an object whose _declared type_ is
-an object of Vitest `Mock`s. Neither would be defensible at `error`, and that judgement does not move
-with the count — which is worth saying because the counts moved a lot inside this release. On the same
-1759-file suite the two started at 12 reports across 8 files and 115 across 74; once
-`prefer-provide-auto-spy` learnt to follow a name into a `useValue` and a stub class through a
-`useExisting:`, they are 10 in 7 and 5 in 4, because 112 of those doubles turned out to be handed to
-Angular DI one name away, where a `provide:` settles the question and the answer is
-`provideAutoSpy(X)` rather than `createAutoMock<T>()`. That rule now reports **154 times across 87
-files** on the same suite, all of it at `error` and all of it `provide:`-backed. It is also why these
-are rules of their own rather than arms of the count-based one: a project that disagrees with either
-reading switches it off without losing the rule that reads a count.
-
-The fourth, [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy), is graded
-on the evidence too. Angular never calls a spy put on an instance's `ngOnInit`, but a spec that calls
-`component.ngOnInit()` itself does, and so does the injector for a service's `ngOnDestroy` — and one
-file's syntax cannot tell those apart.
-
-The **Without it** column is what the run does when the rule is not there, and it is the reason the
-list is worth reading rather than skimming: over half of these guard against a test that is _green
-and wrong_, which is the only failure mode a suite cannot report on itself. Eleven of them were
-[probed](#measured-what-each-rule-is-worth); the rest are read off the source and marked _(by
-construction)_.
-
-### Assertions that never run
-
-The test passes because the assertion was never reached — the stream stayed silent, the promise was
-never awaited, the callback returned first — or was reached and could not fail.
-
-| Rule                                                                                            | Flags                                                                                                                       | Fix     | Without it |
-| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------- | :--------: |
-| [`no-expect-in-subscribe`](#no-expect-in-subscribe-reports-one-shape-and-three-different-edits) | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`                                            | suggest |   green    |
-| [`no-vacuous-absence-assertion`](#a-test-a-silent-stream-already-satisfies)                     | a test whose every assertion holds on "nothing arrived" → `expectNoEmission` / `expectEmission`                             | —       |   green    |
-| [`no-floating-assertion`](#an-assertion-in-a-then-nobody-awaits)                                | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                                                           | —       |   green    |
-| [`no-done-callback`](#a-done-parameter-is-not-a-style-question)                                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site                                | —       |   green    |
-| [`no-bare-called-with`](#no-bare-called-with-%E2%80%94-one-word-two-opposite-meanings)          | `spy.m.calledWith(1);` as a statement of its own — a stub nobody continued, asserting nothing                               | —       |   green    |
-| [`no-constant-expect`](/utilities/eslint-rules#no-constant-expect)                              | `expect(true).toBe(true)` — a value the spec spelled out, under a matcher that value decides                                | —       |   green    |
-| [`no-redundant-smoke-test`](/utilities/eslint-rules#no-redundant-smoke-test)                    | `it('should create', () => expect(pipe).toBeTruthy())` beside tests that already build the same subject → delete it         | suggest |   green    |
-| [`prefer-settle-dynamic-import`](#a-module-the-code-under-test-loads-lazily)                    | `await import('./thing')` in a test body → `await settleDynamicImport(() => import('./thing'))`                             | suggest |   green    |
-| [`no-self-called-spy`](/utilities/eslint-rules#no-self-called-spy)                              | `vi.spyOn(obj, 'm')`, then `obj.m(…)` by the test itself, then `expect(spy).toHaveBeenCalled()` → drive the real trigger    | —       |   green    |
-| [`no-unasserted-argument`](/utilities/eslint-rules#no-unasserted-argument)                      | a bare `expect(spy).toHaveBeenCalled()` where the file itself shows the arguments are the point → `toHaveBeenCalledWith(…)` |
-
-### Doubles, and the modules that hold them
-
-Not about a single test but about what one file leaves behind for the next.
-
-| Rule                                                                                                 | Flags                                                                                                                                                                                                            | Fix                       |       Without it        |
-| ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | :---------------------: |
-| [`prefer-create-spy-from-class`](#two-things-these-rules-learned-the-hard-way)                       | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed                                                                                         | —                         |           red           |
-| [`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double)                               | a class whose fields are `vi.fn()`s → `createSpyFromClass` / `provideAutoSpy`, the stub class deleted; `warn`                                                                                                    | —                         |           red           |
-| [`no-structural-double`](/utilities/eslint-rules#no-structural-double)                               | an object of `vi.fn()`s bound to a name declared `{ load: Mock }` → `createAutoMock<T>()`; `warn`                                                                                                                | —                         |           red           |
-| [`prefer-spy-on-own-method`](/utilities/eslint-rules#prefer-spy-on-own-method)                       | a one-method `createSpyFromInstance` → `spyOnOwnMethod(x, 'm')` / `spyOnVoidMethod(x, 'm')`; a bare void seed only on a real event or element; `warn`                                                            | `--fix` / suggest         |          green          |
-| [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | an **exported** value holding `vi.fn()`s → export a factory that returns it                                                                                                                                      | —                         |          green          |
-| [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                                                                                         | suggest                   |          green          |
-| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError`, or a silently empty object, while the bundle loads                                                                                             | suggest                   | red _(by construction)_ |
-| [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends                                                                    | —                         |          green          |
-| [`no-hand-assigned-global`](#a-global-assigned-by-hand)                                              | `global.fetch = vi.fn(…)` and any other double assigned to a global with no teardown restore → `mockValueProp` / `vi.stubGlobal` / `blockNetwork()`; any value written into an imported object → `mockValueProp` | `--fix` (imported object) |          green          |
-| [`prefer-stub-response`](#a-response-written-by-hand)                                                | an object literal cast to `Response`, or `createMock<Response>(…)` → `stubResponse({ body })`                                                                                                                    | —                         |          green          |
-| [`no-redundant-mock-reset`](/utilities/eslint-rules#no-redundant-mock-reset)                         | a reset in a hook the runner already performs between tests → delete it; silent until the flags are known                                                                                                        |
-
-### Angular DI and the TestBed
-
-The ways a provider — or a spy on the component itself — ends up not being what the spec thinks it registered.
-
-| Rule                                                                                               | Flags                                                                                                                                                                                                                                                                                                                               | Fix     |        Without it         |
-| -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | :-----------------------: |
-| [`prefer-provide-auto-spy`](#two-things-these-rules-learned-the-hard-way)                          | a hand-rolled `useValue`, `useFactory`, `useClass` or `useExisting`, in a provider or a `TestBed.overrideProvider` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`, and `provideActivatedRoute()` for the `ActivatedRoute` token; and `{ provide: X, useValue: createSpyFromClass(X) }`, which is that call written out | fix     |            red            |
-| [`prefer-provide-activated-route`](/utilities/eslint-rules#prefer-provide-activated-route)         | a hand-built `ActivatedRoute` — any slot, and `provideAutoSpy(ActivatedRoute)` too → `provideActivatedRoute({ … })`; the double knows either the streams or the snapshot, never both                                                                                                                                                | —       |            red            |
-| [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                                                                                                                                                                                                                                      | suggest |            red            |
-| [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                                                                                                                                                                                                            | —       |  red _(by construction)_  |
-| [`no-real-component-provider`](/utilities/eslint-rules#no-real-component-provider)                 | `fixture.debugElement.injector.get(X)` for a component-level provider nothing replaced → the real store under a component spec; `overrideComponentProvider(Component, X)`                                                                                                                                                           |
-| [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                                                                                                                                                                                                                              | suggest |           green           |
-| [`prefer-set-inputs`](/utilities/eslint-rules#prefer-set-inputs)                                   | `fixture.componentRef.setInput('title', v)` → `await setInputs(fixture, { title: v })`, which resolves the name before it writes and types the value                                                                                                                                                                                | suggest |           green           |
-| [`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value)               | `expect(component.total()).toBe(3)` → `expect(component.total).toHaveSignalValue(3)`, which names the signal in the failure and refuses a non-signal; **type-aware**                                                                                                                                                                | `--fix` |            red            |
-| [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array, or one a `TestBed.overrideProvider` replaces → the earlier one never runs; the exact duplicate can be deleted                                                                                                                                                                             | suggest |           green           |
-| [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                                                                                                                                                                                                                           | —       |            red            |
-| [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                     | `schemas` on a testing module that declares nothing → the schema applies to nothing                                                                                                                                                                                                                                                 | —       | green _(by construction)_ |
-| [`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value)                           | `{ provide: TOKEN, useValue }` whose value does not fit the primitive `TOKEN` declares — `useValue` is `any`; **type-aware**                                                                                                                                                                                                        | —       | green _(by construction)_ |
-| [`no-unknown-use-value-key`](/utilities/eslint-rules#no-unknown-use-value-key)                     | a key of an object `useValue` the provided type (`InjectionToken<T>`'s `T`, a class's instance) does not have — keys only; **type-aware**                                                                                                                                                                                           | —       | green _(by construction)_ |
-| [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy)                   | `vi.spyOn(component, 'ngOnInit')` — Angular calls the hook it read off the prototype, never the instance spy; `warn`                                                                                                                                                                                                                | —       |    green _(the stub)_     |
-| [`no-compile-components`](/utilities/eslint-rules#no-compile-components)                           | `compileComponents()` under a builder that inlines `templateUrl` / `styleUrls`; silent until `{ builder: 'inline-resources' }`                                                                                                                                                                                                      | suggest |     — _(a dead line)_     |
-| [`no-sync-testbed-await`](/utilities/eslint-rules#no-sync-testbed-await)                           | `await` on `configureTestingModule` / `override*` / `createComponent` — each answers the TestBed or the fixture, never a promise                                                                                                                                                                                                    | suggest |    — _(a dead await)_     |
-
-### Reaching past the public surface
-
-The one type-aware rule of the three that is about visibility, and the syntactic rule that covers the
-door it cannot see.
-
-| Rule                                                                                            | Flags                                                                                                                                                  | Fix     |        Without it         |
-| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- | :-----------------------: |
-| [`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types) | `instance['privateMember']`, `(instance as any).privateMember` and `vi.spyOn(Object.getPrototypeOf(x), 'm')` → drive the member through the public API | —       | green _(by construction)_ |
-| [`no-reflect-member-access`](/utilities/eslint-rules#no-reflect-member-access)                  | `Reflect.get(component, 'x')` / `Reflect.set(service, 'x', v)` — the same escape with a string key no compiler reads                                   | suggest | green _(by construction)_ |
-
-### Types
-
-Two whose absence the compiler reports — loudly, but in the vocabulary of the class rather than of
-the mistake — and three that switch the compiler off: a cast over a fixture, a cast over a member of
-a double, and a directive over a stub.
-
-| Rule                                                                                   | Flags                                                                                                                                                                          | Fix               |         Without it          |
-| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- | :-------------------------: |
-| [`no-mocked-for-spy`](#the-two-type-rules)                                             | `Mocked<T>` in any type position → `Spy<T>`, import and all — a suggestion where the value assigned is not one of this library's factories                                     | `--fix` / suggest |           compile           |
-| [`prefer-as-spy`](#the-two-type-rules)                                                 | `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`, import and all                                                                                                     | `--fix`           | compile _(by construction)_ |
-| [`prefer-create-mock`](#a-fixture-the-compiler-was-never-allowed-to-read)              | an object literal under `as SomeType` → `createMock<SomeType>({ … })`; a cast passes an excess key **and** a missing required one; `warn`                                      |
-| [`no-mock-cast`](#a-fixture-the-compiler-was-never-allowed-to-read)                    | `TestBed.inject(S).m as Mock` → `injectSpy(S).m`; `Mock` is `Mock<any>`, so `toHaveBeenCalledWith` stops comparing arguments                                                   |
-| [`no-ts-expect-error-on-double`](/utilities/eslint-rules#no-ts-expect-error-on-double) | `@ts-expect-error` / `@ts-ignore` above a double's `nextWith`, `mockReturnValue`, `calledWith(…)` → `Spy<X, { overload: { m: 'first' } }>`, or a fixture of the declared shape | —                 |            green            |
-
-### The console
-
-Output a spec leaves behind that no absorbing spy will see — the pair [`setupAutoSpy({ strayConsole })`](/utilities/setup)
-fails at run time, reported where it is written.
-
-| Rule                                                                                   | Flags                                                                                                                                                  | Fix     |        Without it         |
-| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- | :-----------------------: |
-| [`no-passthrough-console-spy`](/utilities/eslint-rules#no-passthrough-console-spy)     | `vi.spyOn(console, 'error')` nothing gives an implementation — it calls through and prints → `installConsoleSpies()`                                   | suggest | green _(by construction)_ |
-| [`no-console-in-spec`](/utilities/eslint-rules#no-console-in-spec)                     | a spec that calls `console.x(…)`, or replaces a method with `console.x = …`, which nothing puts back                                                   | —       | green _(by construction)_ |
-| [`no-import-time-console-spies`](/utilities/eslint-rules#no-import-time-console-spies) | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()` or `useConsoleSpies()` — the import installs once per worker | —       | green _(by construction)_ |
-
-### Coming off jasmine
-
-Written for a suite that has not arrived yet — one running on
-[`vitest-auto-spy/jasmine`](/migrating-jasmine), or one that thinks it is. **Inert in a suite that
-never used jasmine** — see [which apply to you](#if-you-never-used-jasmine).
-
-| Rule                                                                                                            | Flags                                                                                                            | Fix               |         Without it         |
-| --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------- | :------------------------: |
-| [`no-jasmine-globals`](#no-jasmine-globals-%E2%80%94-the-one-that-pays-for-itself-on-the-first-run)             | `jasmine.*`, bare `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, and `.withContext(` | —                 | green _(the `spyOn` case)_ |
-| [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry-%E2%80%94-the-one-that-needs-setupmodules) | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compatibility layer nowhere         | —                 |  red _(by construction)_   |
-| [`no-save-arguments-by-value`](#no-save-arguments-by-value-%E2%80%94-the-purest-silent-case-on-this-page)       | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state           | —                 | green _(by construction)_  |
-| [`prefer-native-spy-api`](#prefer-native-spy-api-%E2%80%94-the-one-to-switch-off-while-you-migrate)             | `.and` / `.calls` where the spy's own API says the same thing — the last mile off the jasmine shim               | `--fix` / suggest | — _(reports working code)_ |
+For the bulk edit, run `npx vitest-auto-spy codemod --from jasmine`. It also does the rewrites the
+rule does not autofix. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Tuning it for your project
 
-The config is a plain object, so every dial is one line in **your** `eslint.config.js` — nothing
-here needs a fork or a wrapper.
+Each config is a plain object, so every setting below is one line in **your** `eslint.config.js`.
+
+### Land it on a large existing suite without a red CI
+
+On a large existing project, the first run can report hundreds of findings. This recipe keeps CI
+green while you fix them, and still fails on findings that are compile errors.
+
+1. Run `npx eslint . --fix` once. It fixes most findings of the two type-error rules
+   (`prefer-as-spy` and `no-mocked-for-spy`), which step 2 keeps at `error`. Fix the rest of those
+   by hand; your editor offers each fix as a suggestion. `--fix` applies the autofix of every
+   fixable rule, not only these two, so review the diff before you commit it.
+2. Lower every rule to `warn`, then raise the type-error rules back with `configs.typeErrors`:
+
+```js
+// eslint.config.js
+import tseslint from 'typescript-eslint';
+import autoSpy from 'vitest-auto-spy/eslint-plugin';
+
+const asWarnings = Object.fromEntries(Object.keys(autoSpy.configs.recommended.rules).map((rule) => [rule, 'warn']));
+
+export default [
+  ...tseslint.configs.recommended,
+  {
+    files: ['**/*.spec.ts'],
+    ...autoSpy.configs.recommended,
+    rules: {
+      ...autoSpy.configs.recommended.rules,
+      ...asWarnings,
+      ...autoSpy.configs.typeErrors.rules, // the findings that are compile errors stay errors
+      'vitest-auto-spy/prefer-create-spy-from-class': 'off', // your own changes go after the spreads
+    },
+  },
+];
+```
+
+3. Fix the warnings in batches. When they are gone, delete `asWarnings` and the `typeErrors` line.
+
+Warnings do not fail `eslint` unless you run it with `--max-warnings`. If your CI passes
+`--max-warnings 0`, drop that flag while you use this recipe. Put your own rule changes after the
+last spread, as in the example, or the spreads overwrite them.
+
+Before you downgrade everything, look at what the first run really contains:
+
+- The eleven `warn` rules are already warnings. `prefer-render-shallow` is often the loudest rule on
+  a component project, so check how much of the first run it accounts for.
+- `no-compile-components`, `no-redundant-mock-reset` and `no-relative-mock-under-builder` stay
+  silent until their option (or, for the last two, your config or a builder target) tells them how
+  your project runs.
+- What remains is mostly rules about a test being wrong. A red CI is what those are for.
+
+**An alternative that holds up better over time,** when the failing files fit in a list you can
+maintain by hand: keep every rule at its
+default, and turn the failing rules `off` only for the files you have not fixed yet. A shrinking list
+of paths shows progress. A project-wide `warn` tends to stay forever.
+
+```js
+export default [
+  { files: ['**/*.spec.ts'], ...autoSpy.configs.recommended },
+  {
+    files: ['src/app/legacy/**/*.spec.ts', 'src/app/cart/cart.component.spec.ts'], // not fixed yet
+    rules: { 'vitest-auto-spy/prefer-provide-auto-spy': 'off', 'vitest-auto-spy/no-done-callback': 'off' },
+  },
+];
+```
+
+**Why exactly these two stay at `error`.** The set is not "the important rules"; that choice is
+yours. It is the rules whose findings **do not compile**:
+
+- `TestBed.inject(X) as Spy<X>` fails with `TS2352`.
+- `let s: Mocked<T>` fails with `TS2322`.
+
+Every other rule reports code that compiles and runs, so fixing it in batches is a real plan. For
+these two it is not: the build is already red. A migrated `jest-auto-spies` file often has ten such
+casts, one per injected double. Under a blanket `warn` it lints clean, then fails the type check with
+ten errors that mention `accessorSpies` (a property that `Spy<T>` adds) and never mention the rule.
+Both rules have `--fix`, so keeping them at `error` costs one `eslint --fix` run.
+
+Today the set is `prefer-as-spy` and `no-mocked-for-spy`, the two from the [Types](#types) table.
+Spread the config instead of copying the two names: the package keeps the list current, and a copy
+in your config goes stale without warning.
 
 ### Turn one rule down
 
@@ -402,87 +330,36 @@ export default [
 ];
 ```
 
-Spread `autoSpy.configs.recommended.rules` before your overrides — a bare `rules` key next to the
-spread config **replaces** the whole map rather than merging into it, and the result is a config with
-two rules in it and no error to say so.
+Spread `autoSpy.configs.recommended.rules` first, then your overrides; in an object, a later key
+wins. `...autoSpy.configs.recommended` already brings a `rules` key, and a `rules` key you write
+after it **replaces** that whole map. Without the inner spread you get a config with only your two
+rules in it, and no error tells you so.
 
-### Land it on a large existing suite without a red CI
-
-Take the findings as warnings first, fix them in batches, then delete the block:
-
-```js
-const asWarnings = Object.fromEntries(Object.keys(autoSpy.configs.recommended.rules).map((rule) => [rule, 'warn']));
-
-export default [
-  {
-    files: ['**/*.spec.ts'],
-    ...autoSpy.configs.recommended,
-    rules: { ...autoSpy.configs.recommended.rules, ...asWarnings },
-  },
-];
-```
-
-Four rules need no downgrading: `prefer-render-shallow`, `no-stub-class-double`,
-`no-structural-double` and `prefer-set-inputs` are already `warn`, and the first is usually the loudest rule on a component
-suite. If the reason you reached for this recipe was the size of the first
-run, check how much of it that one accounts for before downgrading the rest — the rules that survive
-its removal are the ones about a test being wrong, and a red CI is what those are for.
-
-A middle road that ages better: keep every rule at the severity it ships with and put the not-yet-fixed
-files behind a second block with the offending rules `off` in it. A shrinking list of paths is visible
-progress; a suite-wide `warn` is a decision nobody revisits.
-
-**Some rules should keep their severity through that block, and `autoSpy.configs.typeErrors` is
-them.** Spread it after the downgrade:
-
-```js
-rules: {
-  ...autoSpy.configs.recommended.rules,
-  ...asWarnings,
-  ...autoSpy.configs.typeErrors.rules, // the findings that are compile errors stay errors
-},
-```
-
-It is a flat config like `recommended`, so it also works as its own block in the array
-(`autoSpy.configs.typeErrors` after the downgraded one) when the two are scoped to different files.
-
-The set is not "the important ones" — that is your call, and the dial above is one line. It is the
-rules whose findings **do not compile**, which is a fact about the finding rather than a preference:
-`TestBed.inject(X) as Spy<X>` is `TS2352` and `let s: Mocked<T>` is `TS2322`, by construction rather
-than by luck. Every other rule here reports code that compiles and runs — a preference about how a
-double is built — so "fix them in batches" is a real plan for it, and for these it is not: the batch
-is the build, already red. A file carrying ten of the first shape — which is what one file of a
-`jest-auto-spies` suite carries, one per injected double — lints clean under the blanket `warn` and
-then fails the type gate with ten errors that name `accessorSpies` and never name the rule that
-already found them. Both are `--fix`, so keeping them at `error` costs one `eslint --fix` run rather
-than a batch of manual edits.
-
-Today that is `prefer-as-spy` and `no-mocked-for-spy`, the two in the [Types](#types) table. Spread
-the config rather than copying the two names: the list is the package's to keep in step, and a copy
-in your config goes stale silently.
+To raise a `warn` rule to `error`, use the same line: `'vitest-auto-spy/prefer-render-shallow': 'error'`.
 
 ### The three rules that can report on correct code
 
-Every rule here is syntactic, and three of them are asked a question one file cannot always answer.
-They are still errors — being wrong about your project is fixable in one line, and each line is
-below — but these are the ones to look at first if the first run surprises you.
+These three rules answer a question that one file cannot always answer. They are still `error`,
+because each has a one-line fix when it is wrong about your project. If the first run surprises you,
+look at these first.
 
-| Rule                              | When it is wrong about you                                                                                                                                                | The line that fixes it                                                         |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `jasmine-namespace-without-entry` | `enableJasmineCompat()` lives in a Vitest `setupFiles` entry that no spec imports, so a file using `.and` looks like a file with no layer installed                       | `['error', { setupModules: ['./test-setup'] }]`                                |
-| `no-unregistered-inject-spy`      | the file registers some doubles in a shape the rule reads **and** obtains another through a helper it does not follow — a shared `beforeEach` that configures the TestBed | no option; a scoped `'off'` or a per-line disable                              |
-| `prefer-native-spy-api`           | you are **mid-migration** off `jasmine-auto-spies`; it reports working bridge code, so on day one it fires on every line of the bridge                                    | `'off'` until the suite is green, then `'error'` and `--fix` for the last mile |
+| Rule                              | When it is wrong about you                                                                                                                       | The line that fixes it                                                         |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| `jasmine-namespace-without-entry` | `enableJasmineCompat()` runs in a Vitest `setupFiles` entry that no spec imports, so a file using `.and` looks like it has no layer              | `['error', { setupModules: ['./test-setup'] }]`                                |
+| `no-unregistered-inject-spy`      | the file registers some doubles in a way the rule reads, **and** gets another through a helper it does not follow, such as a shared `beforeEach` | no option; a scoped `'off'` or a per-line disable                              |
+| `prefer-native-spy-api`           | you are **in the middle of** moving off `jasmine-auto-spies`; it reports working compatibility code on every line                                | `'off'` until the suite is green, then `'error'` and `--fix` for the last mile |
 
-Only the first has an option, and there `setupModules` is the fix rather than the severity: it tells
-the rule where the layer is installed and it stops guessing. Importing an entry that _cannot_ load
-the jasmine one (`vitest-auto-spy/bun`, `…/node`, `…/rstest`) silences it for that file too.
+`setupModules` tells `jasmine-namespace-without-entry` where the layer is installed, so it stops
+guessing. Importing `vitest-auto-spy/bun`, `…/node` or `…/rstest` also silences it for that file.
+Those entry points cannot load `vitest-auto-spy/jasmine`, so on those runtimes the layer always comes
+from a setup file.
 
-`no-unregistered-inject-spy` needs no option in most projects because it is **already** conservative:
-it says nothing unless the file calls `provideAutoSpy` at least once, and it goes quiet the moment it
-meets something it cannot read — a spread or an unknown provider factory in `providers`,
-`createWithAutoSpies`, `renderShallow`, or `TestBed.overrideProvider`. What survives that filter is
-usually a real finding: `injectSpy(X)` handing back the real service, with spy helpers that are there
-for the compiler and throw on the first `.mockReturnValue(…)`.
+`no-unregistered-inject-spy` rarely needs anything, because it is already cautious. It says nothing
+unless the file calls `provideAutoSpy` at least once. It also goes quiet when it meets something it
+cannot read: a spread or an unknown provider factory in `providers`, `createWithAutoSpies`,
+`renderShallow`, or `TestBed.overrideProvider`. What is left is usually a real finding:
+`injectSpy(X)` returns the real service, and its spy helpers throw on the first
+`.mockReturnValue(…)`.
 
 ### Silence one line, not one rule
 
@@ -491,8 +368,8 @@ for the compiler and throw on the first `.mockReturnValue(…)`.
 Object.defineProperty(target, 'clientWidth', { value: 100 });
 ```
 
-Worth preferring over a config-level `off` wherever the exception is genuinely local: the rule keeps
-working for the other four hundred files, and the comment records why this one is different.
+Prefer this to turning the rule `off` when the exception is local. The rule keeps working for every
+other file, and the comment records why this line is different.
 
 ### Check what actually applies
 
@@ -500,36 +377,36 @@ working for the other four hundred files, and the comment records why this one i
 npx eslint --print-config src/app/cart.spec.ts | grep vitest-auto-spy
 ```
 
-If that prints nothing, the `files` glob does not match — which is the same symptom as "the plugin
-found no problems", and the reason to check it before concluding the suite is clean.
+If this prints nothing, the `files` glob does not match that file. That looks the same as "the
+plugin found no problems", so check it before you conclude the specs are clean.
 
 ### Alongside `vitest/expect-expect`
 
-Nothing here duplicates it: `expect-expect` reports a test with **no** assertion, and every rule in
-this plugin reports an assertion that is there. They are worth running together, and the one thing
-that makes the pairing work in a real suite is how `assertFunctionNames` is written.
+The two do not overlap. `expect-expect` reports a test with **no** assertion. This plugin reports an
+assertion that is there but checks nothing. Run both.
 
-Naming the helpers one by one does not survive: the list has to grow with every new helper, and in a
-suite measured for this it could not have been written at all — one of the real assertion helpers was
-called `find`, and putting `find` in the list swallows every `Array.prototype.find`. A convention
-works instead:
+Configure `assertFunctionNames` with patterns, not with a list of names:
 
 ```js
 'vitest/expect-expect': ['error', { assertFunctionNames: ['expect*', 'assert*', '**.expect*'] }],
 ```
 
-`expect*` covers `expectEmission`, `expectEmissions`, `expectNoEmission`, `expectCompletion` and
-`expectError` from this package along with the project's own; `assert*` covers
-`assertNoPendingRequests`, `assertNoShadowedProviders` and `assertMocked`; `**.expect*` covers a
-helper reached through an object. Measured over 1759 spec files: **zero** false positives.
+- `expect*` covers `expectEmission`, `expectEmissions`, `expectNoEmission`, `expectCompletion` and
+  `expectError` from this package, plus your own `expect…` helpers.
+- `assert*` covers `assertNoPendingRequests`, `assertNoShadowedProviders` and `assertMocked`.
+- `**.expect*` covers a helper called through an object.
+
+A list of names has to grow with every new helper. It can also break outright: in one suite an
+assertion helper was called `find`, and listing `find` accepts every `Array.prototype.find` as an
+assertion. The patterns above produced **zero** false positives over 1759 spec files.
 
 ### Alongside `vitest/require-hook`
 
-`require-hook` reports any call in a `describe` body or at the top of a spec that is not a hook, and
-it cannot know that `useConsoleSpies()` or `setupFakeTimers()` registers hooks of its own. The plugin
-exports the list of such helpers — every public function of this package that calls `beforeEach`,
-`afterEach`, `beforeAll` or `afterAll` when it runs, checked against the source by a spec, so a new
-helper cannot be left out:
+`require-hook` reports any call in a `describe` body or at the top of a spec that is not a hook. It
+cannot know that `useConsoleSpies()` or `setupFakeTimers()` register hooks themselves. The plugin
+exports the list of such helpers: every public function of this package that calls `beforeEach`,
+`afterEach`, `beforeAll` or `afterAll`. A test in this package checks the list, so a new helper cannot
+be missing from it.
 
 ```js
 import autoSpy from 'vitest-auto-spy/eslint-plugin';
@@ -537,120 +414,42 @@ import autoSpy from 'vitest-auto-spy/eslint-plugin';
 'vitest/require-hook': ['error', { allowedFunctionCalls: [...autoSpy.hookRegisteringHelpers] }],
 ```
 
-Calls that register no hook — `registerSignalMatchers()`, `trackStrayTimers()` — are not in it; a
-project that calls them at the top of a linted file appends them to the spread.
+Calls that register no hook, such as `registerSignalMatchers()` and `trackStrayTimers()`, are not in
+the list. If you call them at the top of a linted file, add them after the spread.
 
 ### Rule options
 
-`prefer-render-shallow` takes one, and it turns a cost finding into a policy:
+Ten rules take options. Each rule's section in [ESLint rules](/utilities/eslint-rules) has the full
+options table.
+
+| Rule                                                                                         | Options                                                                | What they do                                                                                                                    |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| [`prefer-create-spy-from-class`](/utilities/eslint-rules#prefer-create-spy-from-class)       | `minRunnerFns` (default `2`)                                           | how many `vi.fn()`s make an object a double                                                                                     |
+| [`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double)                       | `minRunnerFns` (default `1`)                                           | how many `vi.fn()` fields make a class a double                                                                                 |
+| [`no-structural-double`](/utilities/eslint-rules#no-structural-double)                       | `minRunnerFns` (default `2`)                                           | reports only below this count; keep it equal to `prefer-create-spy-from-class`, or raise it (say, to `100`) if that rule is off |
+| [`prefer-render-shallow`](/utilities/eslint-rules#prefer-render-shallow)                     | `templates`: `'as-needed'` (default) or `'never'`                      | `'never'` bans real templates in unit specs                                                                                     |
+| [`prefer-inject-spy`](/utilities/eslint-rules#prefer-inject-spy)                             | `ignoreTokens`                                                         | tokens whose injected instance stays real                                                                                       |
+| [`no-real-component-provider`](/utilities/eslint-rules#no-real-component-provider)           | `ignoreTokens`, `childInjectors` (default `false`)                     | tokens to skip; also read child injectors                                                                                       |
+| [`no-redundant-mock-reset`](/utilities/eslint-rules#no-redundant-mock-reset)                 | `clearMocks`, `mockReset`, `restoreMocks`, `configFile`, `configFlags` | what the runner resets between tests                                                                                            |
+| [`no-compile-components`](/utilities/eslint-rules#no-compile-components)                     | `builder: 'inline-resources'`, `ignoreComponents`                      | says the builder inlines templates; the rule is silent without it                                                               |
+| [`no-relative-mock-under-builder`](/utilities/eslint-rules#no-relative-mock-under-builder)   | `builder: 'unit-test'`                                                 | says the Angular unit-test builder runs these specs, when the rule cannot find the target itself                                |
+| [`jasmine-namespace-without-entry`](/utilities/eslint-rules#jasmine-namespace-without-entry) | `setupModules`                                                         | setup files that install the Jasmine compatibility layer                                                                        |
+
+The array form sets the severity too. `['error', { templates: 'never' }]` raises
+`prefer-render-shallow` from `warn`, its severity in `recommended`, to `error`. Write
+`['warn', { … }]` to keep it at `warn`.
 
 ```js
 'vitest-auto-spy/prefer-render-shallow': ['error', { templates: 'never' }],
-```
-
-`'as-needed'` — the default — reports only a render whose template nothing reads. `'never'` reports
-every `TestBed.createComponent` and every `keepTemplate: true`, for a project that has decided markup
-belongs to e2e. It costs a 100 % coverage threshold on components; the measurement is in
-[the render nobody reads](#the-render-nobody-reads).
-
-Note the `'error'` in that line: the array form carries the severity as well as the option, so it
-raises the rule off the `warn` it ships with. That is the right way round — a project spelling out
-`{ templates: 'never' }` has taken the decision the default declines to take for it — but write
-`['warn', { templates: 'never' }]` if you want the policy reported without blocking a merge.
-
-`no-compile-components` takes one, and says nothing without it:
-
-```js
 'vitest-auto-spy/no-compile-components': ['error', { builder: 'inline-resources' }],
-```
-
-`compileComponents()` fetches `templateUrl` / `styleUrls` at run time, so whether it does anything
-depends on the build rather than on the spec: under a builder that inlines them — the Angular CLI's
-test builders, `jest-preset-angular` — it is a promise already settled; under a JIT setup reading
-those files when the test runs it is load-bearing. The option is the project saying which it has.
-On one 1759-file suite it reports 449 calls in 411 files, and offers the edit for 435 of them.
-
-`prefer-create-spy-from-class` takes one:
-
-```js
-'vitest-auto-spy/prefer-create-spy-from-class': ['error', { minRunnerFns: 1 }],
-```
-
-The default is `2`, and the reason is what the rule cannot see: an object holding one `vi.fn()` is
-indistinguishable from an options bag with a callback in it, and the rule fires on every object
-literal in a file. Seven batches nonetheless tripped over the asymmetry — two doubles on adjacent
-lines, one flagged and one not — so the threshold is named in the message and configurable here. The
-case those reports were actually about is covered from the side that can prove it:
-`prefer-provide-auto-spy` has a `provide:` next to the object, so it fires at **one**, and since it
-learnt to follow a name to the `const` above the TestBed it reaches the same doubles.
-
-A rule must not punish its own fix, and `prefer-create-spy-from-class` used to. The object handed
-to one of this library's factories is a **seed**, not a hand-rolled double, and there is no other
-form it could take:
-
-```ts
-const xhr = createAutoMock<XhrLike>({ send: vi.fn(), abort: vi.fn() }); // ✅ never flagged
-const api = mockDeep<Api>({ api: { load: vi.fn(), save: vi.fn() } }); // ✅ nor at any depth
-```
-
-Anything inside a call to `autoMocked`, `createActivatedRoute`, `createAutoMock`, `createComponentStub`,
-`createDirectiveHost`, `createDocumentDouble`, `createMock`, `createRouterDouble`,
-`createSpyClass`, `createSpyFromClass`, `createWindowDouble`, `mockConstructor`, `mockDeep`,
-`provideActivatedRoute`, `provideAutoSpy`, `provideAutoSpyForToken`, `provideDocumentDouble`,
-`provideRouterDouble` or `provideWindowDouble`
-is exempt — the built-in doubles and stubs included, whose second argument is an overrides bag or a
-per-instance seed rather than a hand-rolled service. `prefer-provide-auto-spy` needs no such exemption: a `useValue` a factory built is a
-call, and it only ever looked at object literals — a name it follows one step lands on that same
-call and stops there.
-
-`prefer-inject-spy` takes one, and it names the tokens whose injected instance a spec keeps real:
-
-```js
-'vitest-auto-spy/prefer-inject-spy': ['error', { ignoreTokens: ['MapRendererService', 'WINDOW_REF'] }],
-```
-
-`ApplicationRef`, `DestroyRef`, `EnvironmentInjector`, `HttpClient` and `Injector` are exempt
-already, and `ignoreTokens` extends that list rather than replacing it. The built-in five are not a
-style allowance: for each of them the rule's own advice either cannot be carried out —
-`{ provide: DestroyRef, useValue }` is silently ignored, because `R3Injector.get()` short-circuits
-on `__NG_ENV_ID__` before it reads its providers — or removes the reason the object was injected, as
-an `ApplicationRef` whose `injector` supplies the renderer does. The per-token argument is in
-[the rule reference](./eslint-rules.md#prefer-inject-spy).
-
-`no-redundant-mock-reset` takes one, and it is the fact the rule cannot read off a spec:
-
-```js
 'vitest-auto-spy/no-redundant-mock-reset': ['error', { clearMocks: true, restoreMocks: true }],
 ```
 
-Whether a reset written in a hook is dead depends on what the **runner** does between tests, and
-that lives in the runner config rather than in the file being linted. Given at all, these three are
-the answer. With no options the rule searches upwards from the linted file for `vitest.config.*` /
-`vite.config.*` and reads the first one it finds as text, looking for a literal
-`clearMocks: true` and its two siblings — nothing is evaluated and no module is loaded;
-`{ configFile: 'tools/unit-test-bench/vitest-runner.config.ts' }` names a runner config the search
-cannot find, and it is read the same way; `configFlags: { clearMocks: true }` beside it adds what a
-factory-built config sets beyond its text. With neither an option nor a config found it reports nothing, which is the point: on the call alone it would be
-wrong in every project that leaves those options off, where the hook is the only reset there is.
-
-A flag a config gives counts only where every `@angular/build:unit-test` / `@nx/angular:unit-test`
-target serving the spec applies it too: without `runnerConfig` the builder reads no config and runs
-on Vitest's defaults, so a `restoreMocks: true` it never sees does not make a reset dead there. The
-rule finds those targets in `angular.json` / `project.json` itself —
-[the rule reference](./eslint-rules.md#no-redundant-mock-reset) has the resolution.
-
-Name the flags the runner actually sets and no others. `restoreMocks` is not a stronger
-`clearMocks`: `vi.restoreAllMocks()` walks the spies `vi.spyOn` installed and never reaches a plain
-`vi.fn()`, so under `restoreMocks: true` alone a `vi.clearAllMocks()` in a hook is still doing
-something. Passing a flag the runner does not set is the one way to make this rule delete a line a
-suite needs.
-
 ### Picking rules by hand
 
-Skip `configs.recommended` entirely and name the rules you want — the plugin object is exported on
-its own, so this is a supported shape rather than a workaround. Prefer
-[Tuning it for your project](#tuning-it-for-your-project) if you want the whole set with a few dials
-turned; prefer this if you want a short list and nothing else:
+You can skip `configs.recommended` and list only the rules you want. The plugin object is exported
+on its own, so this is a supported setup. Use [Tuning it for your project](#tuning-it-for-your-project)
+if you want the whole set with a few changes. Use this if you want a short list:
 
 ```js
 import autoSpy from 'vitest-auto-spy/eslint-plugin';
@@ -667,1293 +466,234 @@ export default [
 ];
 ```
 
-Every message names what the rule found in this file — the class, token, member or call — says in
-one sentence why it breaks, and gives one repair: a rule that only says "don't" moves the problem
-rather than solving it. It ends with `Docs:` and a link to the rule's own section of
-[ESLint rules](/utilities/eslint-rules), which is also the rule's `meta.docs.url`, so an editor links
-it from the rule name; the reasoning behind the repair lives there. The rules travel with the API they
-recommend, so they are versioned together and stop being re-written in every project that installs
-the package.
-
-## Why the rules exist
-
-One section per rule, in the order of the table above, for when a report has arrived and the question
-is what it saved you from. The [four jasmine rules](#the-four-jasmine-rules) have their own section
-after this one; the [measurements](#measured-what-each-rule-is-worth) that back the _Without it_
-column are at the end.
-
-### `no-bare-called-with` — one word, two opposite meanings
-
-`calledWith` is this library's **stub** configurator. Since Vitest 4.1 it is also, in chai's
-bundle, an **assertion**:
-
-```ts
-expect(fn).to.have.been.calledWith('example'); // chai: checks that the call happened
-cart.checkout.calledWith(1); // this library: configures what a call answers
-```
-
-The second line asserts nothing. It registers "for the argument `1`, answer `undefined`" — which is
-what an unconfigured spy already does — so the test passes whether or not `checkout` was ever
-called. The rule reports it and names both repairs: continue the chain
-(`.mockReturnValue(v)`, `.resolveWith(v)`, `.nextWith(v)`, `.failWith(err)`), or assert with
-`expect(spy.method).toHaveBeenCalledWith(...)`. Chains rooted at `expect(...)` are left alone, so
-chai's own form never trips it.
-
-`mustBeCalledWith` on its own gets a different message, because it is wrong in a different way: with
-nothing configured for the arguments it was given, it rejects **every** call — the matching one
-included.
-
-### `no-expect-in-subscribe` reports one shape and three different edits
-
-Five migration batches split this work by hand, and the proportions move per _file_, not per suite:
-110 of 111 places were a mechanical inversion in one, 36 of 119 in another. Reading one message for
-all of them is what cost the time, so the rule now says which of the three it is looking at.
-
-```ts
-// 1. the subscription is the last thing the test does — invert it
-const value = await firstValueFrom(source$);
-expect(value).toBe(1);
-
-// 2. something after it is what makes the stream emit — hold the promise instead.
-//    `await firstValueFrom(...)` deadlocks here: the await never returns, so the trigger
-//    never runs. `expectEmission` subscribes when you call it, not when you await it.
-const emission = expectEmission(service.getCurrentLevel());
-httpMock.expectOne(url).flush(payload);
-await expect(emission).resolves.toEqual(payload);
-
-// 3. the assertion is in the failure branch — `expectEmission` resolves on a value
-await expect(firstValueFrom(source$)).rejects.toBeInstanceOf(UpstreamStatusError);
-```
-
-The signal for the second is entirely syntactic: there is another statement after the one holding
-the `subscribe`. The third is which handler the assertion sits in, positional or named — and it is
-worth saying that `subscribe({ next: () => expect.unreachable(…), error: (e) => expect(e).toBe(err) })`
-collapses to the single `rejects` line as well, because guarding against an emission is what
-`rejects` already does.
-
-It also reads assertions the callback reaches through a helper:
-
-```ts
-const assertShape = (data: Content): void => {
-  expect(data.items).toHaveLength(3);
-};
-
-source$.subscribe((data) => assertShape(data)); // still an assertion that may never run
-```
-
-One step through a name bound in the same file, which needs no type information and covers the
-shape. A helper declared _inside_ the callback is counted once, not twice.
-
-### A test a silent stream already satisfies
-
-`no-vacuous-absence-assertion` is the other half of the rule above. That one reports the assertion a
-silent stream never reaches; this one reports the assertion a silent stream **satisfies**:
-
-```ts
-it('yields an empty list when no sub-genre resolved to an address', () => {
-  let chips: GenreChip[] = [];
-
-  load$(quickLinks).subscribe((result) => (chips = result));
-
-  expect(chips).toEqual([]); // ❌ true whether the stream produced `[]` or produced nothing
-  expect(catalog.getSectionById).not.toHaveBeenCalled();
-});
-```
-
-`chips` is written by one thing — the `subscribe` callback — and both assertions hold on the value
-its declaration left there. "The result is empty" and "there is no result" are different outcomes,
-and nothing in this test tells them apart. `await expectNoEmission(load$(quickLinks))` makes the
-first claim and fails the moment something arrives; `expect(await expectEmission(load$(…)))` makes
-the second and fails when nothing does.
-
-The report is made only where **nothing else in the test could fail** — one assertion a silent
-source could fail is what makes the rest of them meaningful — which is what keeps the rule off the
-shape a suite writes far more often: assert the absence, trigger the source, assert the value. The
-full reading, and what it deliberately does not report, is on the
-[rule's page](/utilities/eslint-rules#no-vacuous-absence-assertion).
-
-### An assertion in a `.then()` nobody awaits
-
-`no-floating-assertion` catches the same failure as `no-expect-in-subscribe`, one queue over.
-`compileComponents().then(() => expect(…))` as a statement of its own runs its callback after the
-test that wrote it has finished, so the assertion cannot fail it — and under zone.js the resulting
-rejection is drained into `console.error` rather than reported, leaving a green test and a line of
-stderr. The rule looks only at the _immediately_ enclosing callback, because that is the scope where
-awaiting the chain is the actual fix: an `expect()` parked in a `subscribe()` or a `setTimeout()`
-inside the `.then()` is left to `no-expect-in-subscribe` and to
-[`setupAutoSpy({ strayRejections: true })`](/utilities/setup#_8-failing-on-a-rejection-zone-js-swallowed),
-which catches at runtime what no selector can see.
-
-### A module the code under test loads lazily
-
-`prefer-settle-dynamic-import` reports the line a spec writes when production code lazy-loads on an
-interaction and hands it no promise to hold on to:
-
-```ts
-button.click(); // the handler does `await import('./exit-from-app.component')`
-await import('./exit-from-app.component'); // ❌ waits for the module, not for the handler
-expect(dialog.open).toHaveBeenCalled();
-```
-
-The module registry is shared, so awaiting the same specifier really does wait for the module. What
-it does not wait for is the handler's **own continuation** — the lines after _its_ `await`, which
-are the ones that open the dialog or set the state. Those are queued behind the loader's microtask,
-so the assertion reads the state one turn early, and the test is green only while that continuation
-is short enough to drain by accident.
-
-```ts
-await settleDynamicImport(() => import('./exit-from-app.component'));
-```
-
-[`settleDynamicImport`](/utilities/event-loop#settledynamicimport-load-turns) is that `await` plus
-`flushEventLoop(1)`, and it returns the module namespace, so `const { Thing } = await import(…)`
-keeps reading the same way.
-
-The rule reports only where the innermost function around the `import()` is the runner's own
-callback, which is one test that settles every exemption at once: a `vi.mock` factory, a lazy
-route's `loadComponent`, a callback the spec hands to production code and `settleDynamicImport`'s
-own `() => import(…)` each put a function of their own in between. The same reading is what costs it
-a real finding — a spec-local `const load = async () => { await import('…'); }` is not reported,
-because that is written identically whether the spec calls it or hands it to the code under test.
-
-### A `done` parameter is not a style question
-
-Vitest passes a callable `TestContext` as the first parameter of a test, so calling it throws —
-`done() callback is deprecated, use promise instead` on Vitest 4,
-[measured below](#no-done-callback-%E2%80%94-what-the-first-parameter-actually-is). That is the
-harmless case. In the
-shape a Jasmine suite is actually full of, the call sits at the bottom of a callback, the body
-returns `undefined` before it runs, and the test **passes** having run almost none of itself. Four such tests sat green for years in the suite this
-rule came from; nothing but a type-checker ever noticed, and only indirectly.
-
-The parameter being a plain name is not by itself the finding, because the `TestContext` arrives
-there whether or not it is destructured — `it('x', (ctx) => ctx.skip())` is Vitest's own example.
-What separates the two is what the body does with the name: read it through a member and it is the
-context, call it or hand it to something that will call it and it is a `done`. The rule reads that,
-so the context form is silent and an unused parameter is not.
-
-### A double built once per worker, not once per test
-
-`no-shared-module-level-mock` exists because an exported double is built once per **module**, not
-once per test:
-
-```ts
-// ❌ every importing spec shares these spies, for the whole worker
-export const actionContext = { actions: { navigateToSection: vi.fn() } };
-
-// ✅ one set per caller
-export const createActionContext = () => ({ actions: { navigateToSection: vi.fn() } });
-```
-
-Under `isolate: false` a module is evaluated once per worker, so every importing file shares one
-object. `clearMocks: true` does reach the spies inside it — [measured](#no-shared-module-level-mock-%E2%80%94-one-module-two-files) — and
-clears their calls; what it cannot clear is the state the fixture keeps next to them, which crosses
-from whichever file ran first into all the rest. The rule
-stops at every function boundary, so the factory form — the fix — is not flagged along with the
-problem. Scope it to fixture modules and spec files alike; a spec file
-[should export nothing at all](/utilities/setup#shared-fixtures-are-functions-not-constants).
-
-### The spread that only fails under a bundler
-
-`no-import-time-spread` exists for a `TypeError` raised while a spec bundle _loads_, on a tree whose
-every test passes:
-
-```
-Spread syntax requires ...iterable[Symbol.iterator] to be a function
-```
-
-The shape is a module-scope spread whose operand is a value another module owns:
-
-```ts
-import { BaseEvents } from './base-events';
-
-export const platformEvents = [...BaseEvents]; // ❌ safe under tsc, a TypeError inside a bundle
-```
-
-Under `tsc` and under a browser's ESM loader this cannot fail — a module never runs before its
-dependency. Inside one bundle it can: the builder emits shared chunks, a chunk may be evaluated while
-a binding it re-exports is still `undefined`, and `[...undefined]` throws. It is the same root cause
-as the [barrel-initialisation note](/migrating) in the migration guide, but the symptom names neither
-a module nor a barrel, so nothing connects the two.
-
-The scan is worth having because the population it finds is small: an AST pass for module-level
-spreads of an imported identifier found exactly **seven** sites in an 8 673-file workspace, two of
-them spreading a workspace barrel. That is small enough to flag at the cursor, and it is decidable
-from the imports in the same file.
-
-An **object** spread is the same bug with no error to go on, and the rule says so in a message of its
-own. `[...undefined]` and `f(...undefined)` throw; `{ ...undefined }` is `{}`. So this one loads
-clean and leaves a constant missing every key it meant to copy:
-
-```ts
-import { SectionItemType } from '@acme/api';
-
-// ❌ nothing throws; `ItemType.COVER` simply reads `undefined` for the rest of the run
-export const ItemType = { ...SectionItemType, ...LocalItemType } as const;
-```
-
-Separating the messages is the point of the rule rather than a detail of it: a reader sent looking
-for `Spread syntax requires …` in an object spread finds no such error in the log, concludes the
-report is a false positive, and leaves the silent one in place. The object message opens by saying
-there is nothing to find.
-
-::: warning The same message has a second cause the rule cannot see
-`Spread syntax requires ...iterable[Symbol.iterator] to be a function` is also what a spec bundle
-says when the **builder** has laid its entry points out differently, and then no spread in the source
-is at fault at all. Measured on one shard of an Angular workspace, unchanged tree, three
-configurations in a row: with `@angular/build:unit-test`'s own `isolate` key unset, 860 files green;
-with `"isolate": false`, 39 files red with this message and **zero tests collected**; with
-`"isolate": true`, 860 files green again. The runner-level `isolate` and the builder option of the
-same name are not the same setting.
-
-The tell is the test count. A module-scope spread that really is broken takes the file down _after_
-the tests are collected; the builder case collects none, has no stack at all, and the list of failing
-files does not repeat between runs. Read that as "not a spread" and leave the builder's `isolate` key
-unset — let coverage turn isolation on — rather than writing `false`. Those numbers come from a
-single series and are not reproduced here.
-:::
-
-Three things are deliberately not reported, because they run later than the module does:
-
-```ts
-export const make = () => [...BaseEvents]; // a function body
-class Events {
-  all = [...BaseEvents]; // an instance field — runs at construction
-  static all = [...BaseEvents]; // …but a static one is flagged: it runs with the class declaration
-}
-```
-
-And the operand has to be the imported binding itself. `[...BaseEvents.slice()]` is a call, and
-whatever that throws is a different problem.
-
-### Two things these rules learned the hard way
-
-**A configured spy is still a spy.** `vi.fn()` and `vi.fn().mockReturnValue(of([]))` are the same
-double, one of them tuned — but the check behind `prefer-provide-auto-spy` and
-`prefer-create-spy-from-class` read the immediate callee and stopped, so it saw the bare form and
-missed every configured one. In one `providers` array that meant the double on one line was flagged
-and the one on the next was not:
-
-```ts
-{ provide: A, useValue: { getProductCardData: vi.fn() } },              // flagged
-{ provide: B, useValue: {                                              // silent, until now
-    getProducts: vi.fn().mockReturnValue(of([])),
-    getProductById: vi.fn().mockReturnValue(of(null)),
-} },
-```
-
-Exactly backwards: the more a hand-rolled double has been tuned, the further it has drifted from the
-class it stands in for, and the more it was worth reporting. The chain is now unwound to the call
-that created the mock, however long it is.
-
-**A double is usually one name away from the provider.** `prefer-provide-auto-spy` reads a `useValue`
-that is written in place, and follows a name that is not. Which spellings of "a name" it follows is
-the whole of the rule's reach, and it took two migrations to get right: a `const` above the TestBed
-first, and then the shape a migrated suite writes by default —
-
-```ts
-let nav: { go: Mock };
-beforeEach(() => {
-  nav = { go: vi.fn() };
-  TestBed.configureTestingModule({ providers: [{ provide: NavService, useValue: nav }] });
-});
-```
-
-— which is how _every_ `provideAutoSpy` opportunity in one 170-file shard was written, and which the
-rule read as nothing. Both directions had to learn it at once: `no-structural-double` stands on that
-literal and asks where it ends up, so a reading that only looked at the enclosing property made the
-shape above two reports rather than one, recommending two different factories. From the **second**
-write on the name is left alone: what it holds at the use site then depends on run order.
-
-**A token is not a class.** `prefer-provide-auto-spy` used to recommend `provideAutoSpy(Token)` for
-everything, and on an `InjectionToken` that advice does not compile — `provideAutoSpy` reads a class
-prototype, and a token has none. Three migration batches reported it independently; in one of them
-six of eight reports were on tokens. The rule now tells the two apart — by the declaration when
-`new InjectionToken(…)` is within the resolver's reach, by the `SCREAMING_SNAKE_CASE` spelling
-otherwise — and names `provideAutoSpyForToken(TOKEN)` for a token, while the class message mentions
-the token form too.
-
-`ActivatedRoute` is the third answer, and it is a class the rule reads by name. A spy over its
-prototype is not a route: `snapshot`, `params`, `queryParams`, `data`, `fragment` and `url` are
-instance fields, so the double has none of them. A provider of that token is pointed at
-`provideActivatedRoute()` from `vitest-auto-spy/angular-router` instead — the same repair
-[`prefer-provide-activated-route`](/utilities/eslint-rules#prefer-provide-activated-route) names, so
-a descriptor both rules read now says one thing twice rather than two opposite things once each.
-
-### The trap this plugin's own advice sets
-
-`TestBed.inject()` and `TestBed.createComponent()` **instantiate** the testing module, and after
-that every `TestBed.override*` throws. Migrating to `provideAutoSpy` walks people into it: a
-hand-rolled `useValue` configured its return values inside the literal, and the replacement has
-nowhere to put them, so the line goes into `beforeEach`.
-
-```ts
-beforeEach(() => {
-  TestBed.configureTestingModule({ providers: [provideAutoSpy(Api)] });
-  asSpy(TestBed.inject(Api)).load.mockReturnValue(of(page)); // ❌ the module is now instantiated
-});
-```
-
-Every `override*` in the suite then throws — including one written _above_ this line, inside a
-`createComponent` helper the tests call. Found twice independently after a migration, once for
-sixteen tests at a stroke. Two repairs, both in the message:
-
-```ts
-it('renders', () => {
-  TestBed.overrideProvider(Other, { useValue: x });
-  injectSpy(Api).load.mockReturnValue(of(page)); // ✅ configured after every override
-});
-
-const api = () => injectSpy(Api); // ✅ or keep the access lazy, so that
-//    instantiation happens in the first test
-```
-
-The check is deliberately **order-free**, because lexical order is not run order — the helper above
-is the case that proves it. It asks whether the suite overrides at all, with the one exemption that
-can be read off the source: an `override*` sitting in the same hook body ahead of the injection
-really does run first. A suite calling `TestBed.resetTestingModule()` is exempt outright.
-
-### Two providers, one token
-
-Angular keeps the **last** provider registered for a token, so everything above it is dead. In a
-testing module that is not tidiness:
-
-```ts
-providers: [
-  provideAutoSpy(DisplaySettingsService), // ❌ never runs
-  { provide: DisplaySettingsService, useValue: mockDisplaySettingsService }, // this is what DI hands out
-];
-```
-
-Eight tokens in one spec file were registered both ways at once. It misleads from both sides: the
-author believes there is an auto-spy and writes assertions against one, while the double actually
-injected is the hand-rolled object drifting from the class — and whoever later comes to replace that
-object sees `provideAutoSpy` beside it and reads the migration as already done.
-
-Tokens are compared as written, not resolved: in a `providers` array a token appears by name, once,
-next to the double it stands for, so there is nothing for a resolver to add.
-
-**A `TestBed.overrideProvider` buries a registration the same way**, from a statement of its own
-(5.5.0). The two halves are never in one expression, so they are collected across the file and
-matched at the end — and on three conditions, each of which a consumer file made necessary: the same
-suite compared by identity (an override in a nested `describe` decides for that block alone), an
-override written directly in a `beforeEach` / `beforeAll` so that every test of the suite reaches it
-(one file overrides three tokens from a helper three of its thirty-four tests call), and a
-`providers` array that is not a decorated class's own — reaching a component-level provider is the
-documented use of `overrideProvider`, not a defect. Measured on the 1759-file suite: 9 reports in 5
-files, and every one of them a configured `provideAutoSpy(X, { … })` buried by a barer provider for
-the same token.
-
-#### The pair is classified, because the two halves are not the same defect
-
-The first field data for this rule — 20 reports across an 8 673-file workspace — split in two, and
-the rule now says which half it is looking at.
-
-**Most were literal duplicates.** The same provider written twice, in the same words:
-
-```ts
-providers: [provideAutoSpy(SafeModeService), provideRouter([]), provideAutoSpy(SafeModeService)];
-```
-
-Angular had already ignored the first one, so deleting it cannot change what the test gets. That is
-the one shape here that comes with an edit — offered as a **suggestion**, and never as `--fix`,
-because a run that deletes lines of a `providers` array unattended is not something to discover in a
-diff. The message names the token and the line the surviving copy is on.
-
-**The rest are the interesting kind: the survivor is the _barer_ of the two.**
-
-```ts
-providers: [
-  provideAutoSpy(AccountService, { gettersToSpyOn: ['plan'], instanceMethodsToSpyOn: ['refresh'] }),
-  provideAutoSpy(AccountService), // ← this is the one DI hands out
-];
-```
-
-Everything the first line configured is gone, and the assertions below run against a poorer spy
-answering to the same name — the double the spec set up is not the double it got. There is nothing
-to delete for you here, because which of the two to keep is the entire question, so the message says
-that instead: move the configuration onto the surviving provider, or delete that one.
-
-Anything that is neither — an auto-spy buried by a configured hand-rolled `useValue`, the
-eight-tokens case above — keeps the original wording, plus the line number of the provider that wins.
-
-**`multi: true` is exempt, and has to be.** Angular _accumulates_ multi providers for a token rather
-than keeping the last, so a second one is not an override at all:
-
-```ts
-providers: [
-  { provide: BEFORE_INIT, useValue: first, multi: true },
-  { provide: BEFORE_INIT, useValue: second, multi: true }, // both run, in this order
-];
-```
-
-A spec asserting that its hooks run in registration order needs both, and reporting either can only
-be silenced with an `eslint-disable` over a working test. Mixing the two modes for one token stays a
-report: Angular refuses that pair at runtime with
-`Cannot mix multi providers and regular providers`, so it is a defect whichever half was meant. A
-value the rule cannot resolve (`multi: flag`) is read as multi — a missed report costs nothing, a
-false one costs a disable comment over correct code.
-
-`prefer-provide-auto-spy` steps back from the same shape for a different reason: `provideAutoSpy`
-builds one double for a token and takes no registration mode, so the replacement it would recommend
-does not exist and following it would quietly turn an accumulating provider into an overriding one.
-
-### The spy that only the compiler can see
-
-`no-unregistered-inject-spy` reports an `injectSpy(X)` for a token nothing in the file registered as
-an auto-spy:
-
-```ts
-TestBed.configureTestingModule({
-  imports: [RouterTestingModule], // provides a real ActivatedRoute
-  providers: [provideAutoSpy(UserService)],
-});
-
-const route = injectSpy(ActivatedRoute); // ❌ the real one, with spy helpers that are not there
-```
-
-What comes back is whatever Angular DI already had — the real service, or an object an imported
-testing module put there. The compiler has no objection, and that is the whole defect: `injectSpy`
-is declared to return a `Spy<T>`, so every helper on it type-checks against that declaration rather
-than against the value, and the helpers are therefore present for `tsc` and absent at run time. The
-first `.mockReturnValue(…)` or `.calledWith(…)` lands on a real method and throws there, as a
-`TypeError` on a line that reads like ordinary spy setup.
-
-The library already says this at run time: `injectSpy` checks what the injector handed back and
-warns that it is a plain instance. A warning on stderr is the weakest place to say it. It does not
-fail the run, it scrolls past in a suite of a thousand files, and it arrives only for the tests that
-actually executed the line — in one consumer monorepo dozens of spec files print it on every CI run
-and it has never been acted on. Nothing about the check needs type information, so it belongs where
-the mistake is written: the whole question is which tokens this file registered, and which token is
-being asked for.
-
-**The rule is quiet unless it can see the whole picture**, because a false positive here costs more
-than the warning it replaces. It reports nothing when:
-
-- the file never calls `provideAutoSpy` — then it configures DI in some way this does not model, and
-  a token missing from the tally says nothing;
-- any `providers` array holds a spread or a provider factory other than `provideAutoSpy`.
-  `providers: [...sharedMocks]` is the ordinary way to pull in a shared mock module, and what it
-  registers is out of sight. One unreadable entry hides an unknown number of tokens, so it silences
-  the **file** rather than one line;
-- the file calls `createWithAutoSpies`, `renderShallow` or `TestBed.overrideProvider`, each of which
-  registers doubles somewhere this scan does not look.
-
-A token provided by hand — `{ provide: X, useValue: someObject }` — is recorded as provided and left
-alone. `prefer-provide-auto-spy` is the rule for that shape, and two rules firing on one line would
-only teach people to disable both. A `useValue` that is a call to `createAutoMock`,
-`createSpyFromClass`, `createMock` or `mockDeep` counts as a registration, the same as
-`provideAutoSpy` does. Tokens are compared as source text, the way `no-overridden-provider` already
-compares them, and there is no fix and no suggestion: the repair is either a provider this file does
-not have, or a `TestBed.inject(X)` that says the real implementation was the point.
-
-### The render nobody reads
-
-`prefer-render-shallow` reports a `TestBed.createComponent` in a file where nothing ever reads the
-rendered template — no `nativeElement`, no `debugElement`, no `By.css`, no `querySelector`. The code
-works; the run is green either way. What the rule is about is the bill.
-
-Which is why it is the one rule in `recommended` that ships as a **`warn`** rather than an `error`:
-what it reports is a suite's choice about how it renders, not a mistake in the file — see
-[Rules](#rules).
-
-`TestBed.createComponent` compiles the component's template and instantiates the whole child
-subtree. A spec that only sets inputs and asserts on signals or plain state buys nothing with that
-subtree, and pays for it once per test. `renderShallow(X)` is the same `TestBed`, the same real
-`ComponentFixture`, with the children dropped and the template blank — inputs, signals, lifecycle
-hooks and DI all stay.
-
-How much that saves is not a matter of opinion; `bench-angular/` measures it, and the numbers are
-gated against a committed baseline. Per-test cycle, relative to `TestBed.createComponent`:
-
-| Children the component renders | `renderShallow()` |
-| ------------------------------ | ----------------- |
-| 0                              | level — see below |
-| 25                             | 0.57×             |
-| 100                            | 0.24×             |
-| 400                            | 0.05×             |
-
-**Read the first row before the last one.** At zero children there is nothing to save and the two
-measurements straddle 1.0 — that row is the noisiest in the benchmark (±16 % against ±3 % for the
-100-child one), and `overrideComponent` forces a JIT recompile that a leaf component was not paying
-for. The rule earns its place in a suite whose components render other components, and the deeper
-the tree the more it earns. Blanking the template alone — the step from
-`renderShallow({ keepTemplate: true })` to `renderShallow()` on the 100-child component — is worth
-about **3.8×** on its own.
-
-Two things the rule cannot see, both of which are the same fix:
-
-- A component that reads its own template through `viewChild`, `contentChild` or content
-  projection needs the template to exist. The rule reads the spec, not the component, so it will
-  report this one; `renderShallow(X, { keepTemplate: true })` keeps the template and still drops the
-  children.
-- A component whose behaviour is driven from its own template — an event bound in the markup, a
-  `@defer` block — is in the same position.
-
-The question the rule asks is deliberately about the **file**, not about one fixture: a component
-suite parks the fixture in a `let`, fills it in `beforeEach` and reads `debugElement` three helpers
-away. One template read anywhere silences the whole file, so the rule under-reports rather than
-guesses.
-
-One shape is subtracted before that question is asked, because it silenced the rule on exactly the
-file it exists for. A spec that swaps `location` or `defaultView` provides a `DOCUMENT` stand-in
-delegating the rest to the real document — `querySelector: document.querySelector.bind(document)` —
-and every key it copies over is one of the words above. Only the `name: document.name` shape is
-dropped, and only where the two names match: that is a delegation and can be nothing else. A bare
-`document.querySelector('.row')` still counts, because a fixture attached to the document is read
-exactly that way.
-
-#### The rewrite is offered, not applied
-
-The rule ships a **suggestion** — `TestBed.createComponent(X)` → `renderShallow(X).fixture`, with
-the import added when the name is free — and deliberately no `--fix`. `renderShallow` calls
-`configureTestingModule` itself, adds `NO_ERRORS_SCHEMA` and runs the first change detection: the
-right module for a spec that reads no markup, but not the module the file had. `--fix` runs
-unattended across a repository, and a spec that already instantiated the module — any
-`TestBed.inject` above this line — would start throwing _Cannot configure the test module when the
-test module has already been instantiated_. A suggestion is pressed one call at a time, with the
-diff in front of you.
-
-It is offered only for `TestBed.createComponent(X)` with the component alone. The two-argument form
-carries options `renderShallow` spells differently, and a rewrite that dropped them would be silent
-damage.
-
-#### `{ templates: 'never' }` — the policy switch
-
-The default is `'as-needed'`: report the render nobody reads. A project that has decided markup
-belongs to e2e can say so instead, and then no spec renders a real template at all:
-
-```js
-'vitest-auto-spy/prefer-render-shallow': ['error', { templates: 'never' }],
-```
-
-Under `'never'` every `TestBed.createComponent` is reported whether or not the file reads the DOM,
-and so is `keepTemplate: true`. One render is exempt: a host built by
-[`createDirectiveHost`](/adapters/angular). A directive attaches to an element, so something has to
-render that element — the host's template is the harness, not the markup under test, and banning it
-would ban testing directives at all, including the way this package's own documentation recommends.
-
-The report reads differently under the two settings, and it has to. `'as-needed'` found no template
-read and may say so; `'never'` never asked, and under it the file reported loudest is usually the one
-that reads the template hardest. So the policy setting states the policy instead of claiming
-something about the file it did not check.
-
-**Know the bill before you turn it on.** Measured on one consumer suite: `'never'` took **18 of 40**
-tests in a component spec red and coverage from **100 % to 95.7 %**. Nothing was excluded from the
-report — with `templateUrl` the compiled template maps back to the `.html`, which a `*.ts` coverage
-glob never matched in the first place. What stopped executing was ordinary TypeScript: the body of a
-method whose entry condition is a `viewChild` the template supplies. That code does not disappear
-from the report when it stops running, and no coverage setting can hide it, because it is not
-template code — it is the component's own. A project taking this option gives up a 100 % line
-threshold on its components, and that is the trade, stated plainly.
-
-### The two type rules
-
-`no-mocked-for-spy` reports the **declaration** form, not every use: `Mocked<T>` still has a place
-next to `vi.mocked()`, and the rule leaves that alone. What it is for is the declaration whose
-assignment then fails with a list of private field names that says nothing about the real cause.
-
-`prefer-as-spy` is the same question one line down, and it is the one a migration meets in bulk:
-`hardwareService = TestBed.inject(DeviceListService) as Spy<DeviceListService>` is written once per injected
-double in a `jest-auto-spies` suite, and every one of them fails with `TS2352` under this library —
-[the most common compile error a migrated Angular suite produces](/migrating#reading-a-spy-back-out-of-the-container).
-`asSpy(...)` is the same assertion without the cast, so the rule fixes it under `--fix`.
-
-## The four jasmine rules
-
-They steer in the opposite direction from the rest of the plugin. The other thirty-five push a Vitest
-suite towards this library's API; these four are about a suite that has not arrived yet — one
-running on [`vitest-auto-spy/jasmine`](/migrating-jasmine), or one that thinks it is.
-
-### `no-jasmine-globals` — the one that pays for itself on the first run
-
-`jasmine`, `spyOn`, `spyOnProperty`, `spyOnAllFunctions`, `fail` and `pending` are globals jasmine's
-own runner installs. Nothing installs them here, so most of them fail loudly on the first run with a
-`ReferenceError`. **One does not, and it is the reason this is a rule rather than a line in a
-migration guide:**
-
-```diff
-- spyOn(analytics, 'track');        // jasmine: track() never runs
-+ vi.spyOn(analytics, 'track');     // Vitest: track() runs on every call
-```
-
-jasmine's `spyOn` installs a **stub**; `vi.spyOn` **calls through**. The rename compiles, the spec
-runs, and the code under test now really talks to its collaborator — which is how a migrated suite
-ends up making network calls, or passing while asserting on a value the real implementation happened
-to return. The message says `vi.spyOn(obj, 'm').mockImplementation(() => undefined)` where the
-jasmine line meant "stub it", and points at `createSpyFromClass` / `provideAutoSpy`, which stub every
-method by construction.
-
-The rule extends the same courtesy every other rule here does to a name that turns out to be
-somebody else's: a `jasmine` the file declares itself, or an `import { spyOn } from 'bun:test'` —
-a different function with the same name, and the right one on that runtime — is left alone.
-`.withContext(` is reported from the same rule, because
-[Vitest's chai layer swallows it silently](/migrating-jasmine#withcontext-does-not-throw-it-loses-the-message)
-rather than throwing.
-
-### `jasmine-namespace-without-entry` — the one that needs `setupModules`
-
-`.and`, `.calls` and `.withArgs` are not members of a spy this library builds; they are installed by
-`vitest-auto-spy/jasmine`, or by `enableJasmineCompat()` on a runtime that cannot import it. A spy
-built before that call has none of them, and the spec dies on
-`Cannot read properties of undefined (reading 'returnValue')` — which names neither the missing
-import nor the spy.
-
-Whether the **project** installs the layer is not knowable from one file: the call usually sits in a
-Vitest `setupFiles` entry that no spec imports. So the question is narrowed until one file can answer
-it honestly — "this file uses a namespace on a spy **this file built**, and this file installs
-nothing". That is still a narrowing, not a proof, and it is why this rule and
-`no-unregistered-inject-spy` are the two that can report on a correct project. Until 4.0.0 the
-answer to that was a `warn`; it is an `error` now, because a warning nothing reads is not a safety
-margin, and the actual fix is one option away. Two escape hatches: importing any entry that _cannot_
-load the jasmine one (`vitest-auto-spy/bun`, `…/node`, `…/rstest`, which necessarily install the
-layer from a setup file) silences the file, and a project can name its own setup module:
-
-```js
-{
-  rules: {
-    'vitest-auto-spy/jasmine-namespace-without-entry': ['error', { setupModules: ['./test-setup'] }],
-  },
-}
-```
-
-### `no-save-arguments-by-value` — the purest silent case on this page
-
-`spy.calls.saveArgumentsByValue()` is a **no-op** here, deliberately: jasmine copies every call's
-arguments defensively, Vitest, Bun and `node:test` all keep the reference, and snapshotting every
-argument of every call to match would tax every spy in the suite. The call still runs. Nothing
-fails. And the spec, which asked for the arguments _as they were passed_, now reads whatever the code
-under test left in the object afterwards — an assertion about the state at call time has become one
-about the state at assertion time, with no diff, no warning and no failing run to point at it.
-
-### `prefer-native-spy-api` — the one to switch off while you migrate
-
-It reports code that **works**. The compatibility layer is what a suite runs on _while_ it is being
-migrated, so on day one of a migration it fires on every line of the bridge. It shipped `off` until
-4.0.0 for that reason; it is an `error` now, because most suites are not mid-migration and the ones
-that are need exactly one line for as long as the bridge is needed:
-
-```js
-{ rules: { 'vitest-auto-spy/prefer-native-spy-api': 'off' } } // until the suite is green
-```
-
-Delete that line for the last mile, and the rule becomes the tool that finishes the job:
-
-`eslint --fix` then does the renames whose receiver it can trace to one of this library's factories
-— `.and.returnValue(x)` → `.mockReturnValue(x)`, `.and.callFake(f)` → `.mockImplementation(f)`,
-`.and.nextWith(v)` → `.nextWith(v)` and the nine other delegated helpers,
-`.withArgs(a).and.returnValue(v)` → `.calledWith(a).mockReturnValue(v)`, `.calls.count()` →
-`.mock.calls.length`, `.calls.reset()` → `.mockClear()`, `.calls.argsFor(i)` → `.mock.calls[i]`.
-Everywhere else the identical edit is offered as a **suggestion**, because a `.calls` on somebody
-else's object is somebody else's method — the same licence
-[`no-mocked-for-spy`](#which-rules-fix-and-why-so-few) draws.
-
-Three things it deliberately will not rewrite. A strategy with no equivalent — `.and.returnValues`,
-`.and.callThrough`, `.and.stub`, `.and.throwError`, `.and.resolveTo` — is not in its table at all,
-because there is no rename that says the same thing. `.calls.mostRecent()` and `.calls.all()` are
-out for the same reason: the native shape is not one expression. And a chain carrying an **optional
-link** is left alone entirely — the replacement is built from the receiver's source text plus a
-member name, so `spy?.and.returnValue(1)` would come back as `spy.mockReturnValue(1)`: the same call
-with the guard silently removed.
-
-`npx vitest-auto-spy codemod --from jasmine` does the whole suite in one pass, including the parts
-this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
+### What a message contains
+
+Every message:
+
+1. names what the rule found in this file: the class, token, member or call;
+2. says in one sentence why it breaks;
+3. gives one fix;
+4. ends with `Docs:` and a link to the rule's section in [ESLint rules](/utilities/eslint-rules).
+
+That link is also the rule's `meta.docs.url`, so your editor links the rule name to it. The rules
+ship with the API they recommend, so they always match the version you have installed.
+
+## Rules
+
+The tables below give each rule one line. The rule name links to its full section in
+[ESLint rules](/utilities/eslint-rules).
+
+- **Default:** the severity in `configs.recommended`. [Turn one rule down](#turn-one-rule-down) to
+  change it.
+- **Fix:** `--fix` means `eslint --fix` rewrites the code. _suggestion_ means your editor offers the
+  rewrite and you accept it by hand. [Which rules fix, and why so few](#which-rules-fix-and-why-so-few)
+  explains the split.
+- **Without it:** what the test run shows if the rule is off. _green_ is the bad case: the broken
+  test still passes, and nothing else tells you. _red_ means the run fails, but with a less helpful
+  message.
+  _compile_ means the type check fails. _—_ means the rule reports dead code or a cost, not a failure.
+  _(by construction)_ means the value follows from how the runner and the code work, and was not
+  checked with a [probe run](#measured-what-each-rule-is-worth).
+
+### Assertions that never run
+
+The test passes because the assertion never ran, or ran but could not fail. For example, the stream
+stayed silent, or nobody awaited the promise.
+
+| Rule                                                                                   | Reports                                                                                                         | Default | Fix        | Without it |
+| -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------- | ---------- | :--------: |
+| [`no-expect-in-subscribe`](/utilities/eslint-rules#no-expect-in-subscribe)             | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`                                | `error` | suggestion |   green    |
+| [`no-vacuous-absence-assertion`](/utilities/eslint-rules#no-vacuous-absence-assertion) | a test whose every assertion also holds when the stream sends nothing → `expectNoEmission` / `expectEmission`   | `error` | —          |   green    |
+| [`no-floating-assertion`](/utilities/eslint-rules#no-floating-assertion)               | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                                               | `error` | —          |   green    |
+| [`no-done-callback`](/utilities/eslint-rules#no-done-callback)                         | `it('x', (done) => …)` and `done.fail(…)` → an `async` test with an awaited assertion                           | `error` | —          |   green    |
+| [`no-bare-called-with`](/utilities/eslint-rules#no-bare-called-with)                   | `spy.m.calledWith(1);` on its own line: an unfinished stub that asserts nothing                                 | `error` | —          |   green    |
+| [`no-constant-expect`](/utilities/eslint-rules#no-constant-expect)                     | `expect(true).toBe(true)`: a value written in the spec that decides the matcher                                 | `error` | —          |   green    |
+| [`no-redundant-smoke-test`](/utilities/eslint-rules#no-redundant-smoke-test)           | `it('should create', () => expect(pipe).toBeTruthy())` next to tests that already build the subject → delete it | `error` | suggestion |   green    |
+| [`prefer-settle-dynamic-import`](/utilities/eslint-rules#prefer-settle-dynamic-import) | `await import('./thing')` in a test body → `await settleDynamicImport(() => import('./thing'))`                 | `error` | suggestion |   green    |
+| [`no-real-wait-in-test`](/utilities/eslint-rules#no-real-wait-in-test)                 | `await new Promise((r) => setTimeout(r, 300))`: a real sleep → `advanceTimers(300)` or `vi.waitFor(…)`          | `warn`  | —          |   green    |
+| [`no-self-called-spy`](/utilities/eslint-rules#no-self-called-spy)                     | the test calls the spied method itself, then asserts it was called → call the real trigger                      | `error` | —          |   green    |
+| [`no-unasserted-argument`](/utilities/eslint-rules#no-unasserted-argument)             | a bare `toHaveBeenCalled()` where the file shows the arguments matter → `toHaveBeenCalledWith(…)`               | `warn`  | —          |     —      |
+
+### Doubles, and the modules that hold them
+
+These rules are about what one file leaves behind for the next one.
+
+| Rule                                                                                           | Reports                                                                                                                         | Default | Fix                       |       Without it        |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------- | :---------------------: |
+| [`prefer-create-spy-from-class`](/utilities/eslint-rules#prefer-create-spy-from-class)         | an object of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`                                                   | `error` | —                         |           red           |
+| [`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double)                         | a class whose fields are `vi.fn()`s → `createSpyFromClass` / `provideAutoSpy`                                                   | `warn`  | —                         |           red           |
+| [`no-structural-double`](/utilities/eslint-rules#no-structural-double)                         | an object of `vi.fn()`s whose declared type is `{ load: Mock }` → `createAutoMock<T>()`                                         | `warn`  | —                         |           red           |
+| [`prefer-spy-on-own-method`](/utilities/eslint-rules#prefer-spy-on-own-method)                 | a one-method `createSpyFromInstance` → `spyOnOwnMethod(x, 'm')` / `spyOnVoidMethod(x, 'm')`                                     | `warn`  | `--fix` / suggestion      |          green          |
+| [`no-shared-module-level-mock`](/utilities/eslint-rules#no-shared-module-level-mock)           | an **exported** value holding `vi.fn()`s → export a factory that returns it                                                     | `error` | —                         |          green          |
+| [`no-outer-binding-in-mock-factory`](/utilities/eslint-rules#no-outer-binding-in-mock-factory) | a `vi.mock` factory that reads a top-level `const` / `let` / `class` → declare it with `vi.hoisted`                             | `error` | —                         |           red           |
+| [`no-object-define-property`](/utilities/eslint-rules#no-object-define-property)               | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                        | `error` | suggestion                |          green          |
+| [`no-import-time-spread`](/utilities/eslint-rules#no-import-time-spread)                       | `export const x = [...Imported]` at module scope: a `TypeError`, or an empty object, when a bundle loads                        | `error` | suggestion                | red _(by construction)_ |
+| [`prefer-observer-stub`](/utilities/eslint-rules#prefer-observer-stub)                         | a hand-written `IntersectionObserver` / `ResizeObserver` / `MutationObserver` global → `stubIntersectionObserver()` and friends | `error` | —                         |          green          |
+| [`no-hand-assigned-global`](/utilities/eslint-rules#no-hand-assigned-global)                   | `global.fetch = vi.fn(…)` with no restore → `mockValueProp` / `vi.stubGlobal` / `blockNetwork()`                                | `error` | `--fix` (imported object) |          green          |
+| [`prefer-stub-response`](/utilities/eslint-rules#prefer-stub-response)                         | an object cast to `Response`, or `createMock<Response>(…)` → `stubResponse({ body })`                                           | `error` | —                         |          green          |
+| [`no-redundant-mock-reset`](/utilities/eslint-rules#no-redundant-mock-reset)                   | a reset in a hook that the runner already does between tests → delete it; silent until it knows the runner's flags              | `error` | `--fix` / suggestion      |            —            |
+
+### Angular DI and the TestBed
+
+These rules catch a provider, or a spy on the component, that is not what the spec thinks it
+registered.
+
+| Rule                                                                                       | Reports                                                                                                                                  | Default | Fix        |        Without it         |
+| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ------- | ---------- | :-----------------------: |
+| [`prefer-provide-auto-spy`](/utilities/eslint-rules#prefer-provide-auto-spy)               | a hand-written `useValue` / `useFactory` / `useClass` / `useExisting` double → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)` | `error` | `--fix`    |            red            |
+| [`prefer-provide-activated-route`](/utilities/eslint-rules#prefer-provide-activated-route) | a hand-built `ActivatedRoute`, or `provideAutoSpy(ActivatedRoute)` → `provideActivatedRoute({ … })`                                      | `error` | —          |            red            |
+| [`prefer-inject-spy`](/utilities/eslint-rules#prefer-inject-spy)                           | `vi.spyOn(TestBed.inject(X), 'm')` → `injectSpy(X).m`                                                                                    | `error` | suggestion |            red            |
+| [`no-unregistered-inject-spy`](/utilities/eslint-rules#no-unregistered-inject-spy)         | `injectSpy(X)` for a token this file never registered: you get the real instance                                                         | `error` | —          |  red _(by construction)_  |
+| [`no-real-component-provider`](/utilities/eslint-rules#no-real-component-provider)         | a component-level provider read from the fixture while nothing replaced it → `overrideComponentProvider(Component, X)`                   | `error` | —          |             —             |
+| [`prefer-render-shallow`](/utilities/eslint-rules#prefer-render-shallow)                   | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                                   | `warn`  | suggestion |           green           |
+| [`prefer-set-inputs`](/utilities/eslint-rules#prefer-set-inputs)                           | `fixture.componentRef.setInput('title', v)` → `await setInputs(fixture, { title: v })`                                                   | `warn`  | suggestion |           green           |
+| [`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value)       | `expect(component.total()).toBe(3)` → `expect(component.total).toHaveSignalValue(3)`; **needs types**                                    | `warn`  | `--fix`    |            red            |
+| [`no-overridden-provider`](/utilities/eslint-rules#no-overridden-provider)                 | two providers for one token, or one that `TestBed.overrideProvider` replaces: the earlier one never runs                                 | `error` | suggestion |           green           |
+| [`no-inject-before-override`](/utilities/eslint-rules#no-inject-before-override)           | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                                | `error` | —          |            red            |
+| [`no-dead-schemas`](/utilities/eslint-rules#no-dead-schemas)                               | `schemas` on a testing module that declares nothing: the schema applies to nothing                                                       | `error` | —          | green _(by construction)_ |
+| [`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value)                   | a `useValue` that does not fit the primitive type its token declares; **needs types**                                                    | `error` | —          | green _(by construction)_ |
+| [`no-unknown-use-value-key`](/utilities/eslint-rules#no-unknown-use-value-key)             | a key in an object `useValue` that the provided type does not have; **needs types**                                                      | `error` | —          | green _(by construction)_ |
+| [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy)           | `vi.spyOn(component, 'ngOnInit')`: Angular never calls a hook spy on the instance                                                        | `warn`  | —          |    green _(the stub)_     |
+| [`no-compile-components`](/utilities/eslint-rules#no-compile-components)                   | `compileComponents()` under a builder that inlines templates; silent until `{ builder: 'inline-resources' }`                             | `error` | suggestion |     — _(a dead line)_     |
+| [`no-relative-mock-under-builder`](/utilities/eslint-rules#no-relative-mock-under-builder) | `vi.mock('./x')` in a spec that `@angular/build:unit-test` runs → `provideAutoSpy(X)` / `overrideComponentProvider`                      | `error` | —          |            red            |
+| [`no-disabled-testbed-teardown`](/utilities/eslint-rules#no-disabled-testbed-teardown)     | `teardown: { destroyAfterEach: false }` → delete it; each fixture outlives its test                                                      | `error` | —          |           green           |
+| [`no-sync-testbed-await`](/utilities/eslint-rules#no-sync-testbed-await)                   | `await` on `configureTestingModule` / `override*` / `createComponent`, which return no promise                                           | `error` | suggestion |    — _(a dead await)_     |
+
+### Reaching past the public surface
+
+These rules report tests that read private members of the class under test.
+
+| Rule                                                                           | Reports                                                                                                                    | Default | Fix        |        Without it         |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ------- | ---------- | :-----------------------: |
+| [`no-private-member-access`](/utilities/eslint-rules#no-private-member-access) | `instance['privateMember']`, `(instance as any).privateMember`, `vi.spyOn(Object.getPrototypeOf(x), 'm')`; **needs types** | `error` | —          | green _(by construction)_ |
+| [`no-reflect-member-access`](/utilities/eslint-rules#no-reflect-member-access) | `Reflect.get(component, 'x')` / `Reflect.set(service, 'x', v)`: the same thing with a key no compiler checks               | `error` | suggestion | green _(by construction)_ |
+
+### Types
+
+Two rules report a cast or type the compiler rejects with a confusing message. Three report code
+that switches the compiler off: a cast over a fixture, a cast over a spy method, and a comment over a
+stub.
+
+| Rule                                                                                   | Reports                                                                                        | Default | Fix                  |         Without it          |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------- | -------------------- | :-------------------------: |
+| [`no-mocked-for-spy`](/utilities/eslint-rules#no-mocked-for-spy)                       | `Mocked<T>` in a type position → `Spy<T>`, with the import                                     | `error` | `--fix` / suggestion |           compile           |
+| [`prefer-as-spy`](/utilities/eslint-rules#prefer-as-spy)                               | `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`, with the import                    | `error` | `--fix`              | compile _(by construction)_ |
+| [`prefer-create-mock`](/utilities/eslint-rules#prefer-create-mock)                     | an object literal under `as SomeType` → `createMock<SomeType>({ … })`                          | `warn`  | suggestion           |              —              |
+| [`no-mock-cast`](/utilities/eslint-rules#no-mock-cast)                                 | `TestBed.inject(S).m as Mock` → `injectSpy(S).m`                                               | `error` | suggestion           |              —              |
+| [`no-ts-expect-error-on-double`](/utilities/eslint-rules#no-ts-expect-error-on-double) | `@ts-expect-error` / `@ts-ignore` above a spy's `nextWith`, `mockReturnValue`, `calledWith(…)` | `error` | —                    |            green            |
+
+### The console
+
+These rules report console output that no console spy will see. They are the lint-time partner of
+[`setupAutoSpy({ strayConsole })`](/utilities/setup), which fails the test at run time.
+
+| Rule                                                                                   | Reports                                                                                                          | Default | Fix        |        Without it         |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------- | ---------- | :-----------------------: |
+| [`no-passthrough-console-spy`](/utilities/eslint-rules#no-passthrough-console-spy)     | `vi.spyOn(console, 'error')` with no implementation: it still prints → `installConsoleSpies()`                   | `error` | suggestion | green _(by construction)_ |
+| [`no-console-in-spec`](/utilities/eslint-rules#no-console-in-spec)                     | a spec that calls `console.x(…)`, or assigns `console.x = …` without putting it back                             | `error` | —          | green _(by construction)_ |
+| [`no-import-time-console-spies`](/utilities/eslint-rules#no-import-time-console-spies) | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()` or `useConsoleSpies()` | `error` | —          | green _(by construction)_ |
+| [`no-unasserted-console-spy`](/utilities/eslint-rules#no-unasserted-console-spy)       | a console spy the file never asserts on → assert on it, or let `useConsoleSpies()` silence the console           | `warn`  | —          |           green           |
+
+### Coming off jasmine
+
+These rules are for a suite that still runs on [`vitest-auto-spy/jasmine`](/migrating-jasmine), or
+still contains Jasmine code. **They never fire in a suite that never used Jasmine**; see
+[If you never used Jasmine](#if-you-never-used-jasmine).
+
+| Rule                                                                                         | Reports                                                                                                      | Default | Fix                  |         Without it         |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------- | -------------------- | :------------------------: |
+| [`no-jasmine-globals`](/utilities/eslint-rules#no-jasmine-globals)                           | `jasmine.*`, bare `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(` | `error` | —                    | green _(the `spyOn` case)_ |
+| [`jasmine-namespace-without-entry`](/utilities/eslint-rules#jasmine-namespace-without-entry) | `.and` / `.calls` / `.withArgs` on a library spy in a file that never installs the compatibility layer       | `error` | —                    |  red _(by construction)_   |
+| [`no-save-arguments-by-value`](/utilities/eslint-rules#no-save-arguments-by-value)           | `spy.calls.saveArgumentsByValue()`: it does nothing here, so the spec asserts on changed state               | `error` | —                    | green _(by construction)_  |
+| [`prefer-native-spy-api`](/utilities/eslint-rules#prefer-native-spy-api)                     | `.and` / `.calls` where the spy's own API does the same                                                      | `error` | `--fix` / suggestion | — _(reports working code)_ |
 
 ## Which rules fix, and why so few
 
-Eight of the fifty-one rewrite the source on their own, nineteen offer the rewrite as a suggestion, and
-the split is about what a wrong guess costs rather than about how hard the rewrite is.
+Eight of the 56 rules rewrite code under `--fix`. Nineteen offer the rewrite as an editor suggestion
+that you accept by hand: four of them also have `--fix` for some shapes (in the table below), and
+fifteen offer only a suggestion. The split depends on what a wrong guess costs, not on how hard the rewrite
+is.
 
-`no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
-compiling — the loudest and cheapest failure a codebase has — so it is one of the four rules that run
-under `--fix`, and it does the whole edit:
+| Rule                          | `--fix`                                                                                      | Suggestion      |
+| ----------------------------- | -------------------------------------------------------------------------------------------- | --------------- |
+| `prefer-as-spy`               | always                                                                                       | —               |
+| `no-mocked-for-spy`           | a parameter, return type or cast; a variable whose value comes from this library's factories | other variables |
+| `prefer-provide-auto-spy`     | yes                                                                                          | —               |
+| `prefer-to-have-signal-value` | yes                                                                                          | —               |
+| `no-hand-assigned-global`     | a value written into an imported object                                                      | —               |
+| `no-redundant-mock-reset`     | a reset the runner provably already did                                                      | the other cases |
+| `prefer-spy-on-own-method`    | the exact shapes                                                                             | the rest        |
+| `prefer-native-spy-api`       | when the spy provably comes from this library                                                | everywhere else |
 
-```ts
-// before
-import { Mocked } from 'vitest';
-let cart: Mocked<CartService>;
+Fifteen rules offer only a suggestion: `no-expect-in-subscribe`, `prefer-inject-spy`,
+`no-object-define-property`, `no-overridden-provider`, `no-reflect-member-access`,
+`no-import-time-spread`, `prefer-render-shallow`, `prefer-settle-dynamic-import`,
+`prefer-create-mock`, `no-mock-cast`, `no-passthrough-console-spy`, `no-compile-components`,
+`no-sync-testbed-await`, `no-redundant-smoke-test` and `prefer-set-inputs`.
 
-// after --fix
-import type { Spy } from 'vitest-auto-spy';
-let cart: Spy<CartService>;
-```
+**A fix runs unattended, so it must be safe to be wrong.** A rule gets `--fix` when a wrong rewrite
+fails loudly, or cannot happen:
 
-The `Mocked` import goes when the rename orphans it — with the declaration when it was the last
-specifier, out of the braces when it was not. And the rule stands back where it cannot prove the
-rename: a `Mocked` the file declares itself is not Vitest's, a `Spy` already bound to something
-else is not free, and `Mocked<{ total: Mock }>` asks a different question of the type system than
-`Spy<T>` answers. Those are still reported, without a fix.
+- `no-mocked-for-spy` and `prefer-as-spy` change only types. A wrong rewrite stops the file from
+  compiling, which is the loudest and cheapest failure there is.
+- `prefer-as-spy` keeps your own cast: `asSpy` is a typed identity function, so the new line asserts
+  exactly what the old one did.
 
-::: warning "Decidable from the declaration" is not the same as "decidable from the file"
-That licence was read too loosely once, and the rule shipped code that did not compile. A
-declaration is decidable; what the name is _assigned_ a few lines below is a separate question:
+**A suggestion is for a rewrite that changes behaviour.** You see the diff and accept it one call at
+a time:
 
-```ts
-let register: Spy<Pick<Registry, 'metrics'>> & { contentType: string }; // ← what --fix wrote
-register = { contentType: '…', metrics: vi.fn().mockResolvedValue(payload) }; // ← what it left
-// TS2322: Type 'Mock<Procedure>' is not assignable to type
-//   'AddSpyMethodsByReturnTypes<() => Promise<string>>'
-```
+- Whether `injectSpy(X)` finds a spy depends on a `provideAutoSpy(X)` that usually lives in another
+  file.
+- `mockValueProp` leaves the property writable where `Object.defineProperty` sealed it.
+- `no-expect-in-subscribe` rewrites a whole test.
+- `no-overridden-provider` deletes a provider line; `no-import-time-spread` turns a constant into a
+  function, and every use needs a `()`.
 
-`eslint --fix` reported clean and the type gate failed afterwards — the worst shape an autofix has,
-because the rule's own check passes and nothing points back at it. So the plain fix survives only
-where the value came out of one of this library's own factories (`createSpyFromClass`,
-`createAutoMock`, `createMock`, `mockDeep`, `injectSpy`, `asSpy`, …), which return a `Spy<T>`
-already. Everywhere else the same edit is offered as a **suggestion**, to be accepted together with
-the repair to the creation site — usually `createAutoMock<T>()` in place of the literal.
+**No fix at all** where the repair spans the file, not one node. `createSpyFromClass` needs a class
+the object literal never names. `provideAutoSpy` drops the return values the `useValue` set up.
+`Object.defineProperties` becomes one `mockValueProp` per entry.
 
-An annotation that belongs to no variable — a parameter, a return type, an `as` expression — keeps
-the plain fix, which is also what stops `--fix` from rewriting a declaration and leaving the cast
-beneath it still spelled `Mocked`.
-:::
-
-`prefer-as-spy` earns the same licence from the other end: the cast it reports is the developer's own
-assertion that this value is a `Spy<X>`, and `asSpy` is a typed identity function — so the rewrite
-keeps that assertion whole, changes nothing but how it is spelled, and lives entirely at the level of
-types. Nothing has to be known about another file, because the rule decides nothing: the cast decided
-it, and a wrong fix fails to compile.
-
-```ts
-// after --fix
-import { asSpy } from 'vitest-auto-spy';
-
-// before
-hardwareService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
-
-hardwareService = asSpy<DeviceListService>(TestBed.inject(DeviceListService));
-```
-
-The type arguments are carried across rather than left to inference. `Spy<T, Options>` and
-`asSpy<T, Options>` take the same parameter list, so moving them is a transposition and the line
-after the fix asserts exactly what the line before it did — including `Spy<Cinemas, { overload:
-'first' }>`, which inference would silently drop. It also keeps the one case where inference is
-actively wrong: on a **generic** class `TestBed.inject` answers `Service<any>`, and that `any`
-surfaces eight levels down as a mismatch between `AddPromiseSpyMethods<unknown>` and
-`WithMockReturnValue<…>`, with nothing in the message pointing at the spec.
-
-Two shapes are left alone on purpose. A `Spy` the file declares itself is not this library's type,
-and a cast that hops through `unknown` — `{} as unknown as Spy<CartService>` — says outright that the
-value is _not_ a `CartService`, so `asSpy<CartService>(...)` could not compile; that shape wants a
-real double (`createAutoMock<T>()`), not a rename. The one exception is
-`TestBed.inject(X) as unknown as Spy<X>`, where the container returns `X` by construction and the
-`as unknown` was only there to silence `TS2352` — that one is fixed, hop and all.
-
-The other three change **behaviour**, which is exactly what they are for, and that is why they only
-suggest. Whether `injectSpy(X)` finds a spy at all is decided by a `provideAutoSpy(X)` that usually
-lives in another file. `mockValueProp` leaves the property writable and configurable where
-`Object.defineProperty` sealed it — and the suggestion picks the helper the descriptor asks for,
-`mockValueProp` for a `{ value }` and `mockReadonlyPropGetter` for a `{ get }`. And
-`no-expect-in-subscribe` rewrites a whole test:
-
-```ts
-// ❌ what a mechanical migration off Jasmine's done callback produced
-it('maps the products', () =>
-  new Promise<void>((done) => {
-    service.getProducts(id).subscribe((products) => {
-      expect(products).toEqual(expected);
-      done();
-    });
-  }));
-
-// ✅ what accepting the suggestion produces
-it('maps the products', async () => {
-  const products = await firstValueFrom(service.getProducts(id));
-
-  expect(products).toEqual(expected);
-});
-```
-
-That one template was 111 of the 133 violations in a batch of 22 migrated files, so it is worth the
-recogniser. It is offered only for the exact frame above — one `subscribe` statement in the promise
-executor, one block-bodied callback, `done` mentioned once and called last — because anything else
-in the executor is usually the statement that _triggers_ the source, and that has to run while
-something is already listening. An editor offers all three; a human accepts them.
-
-`no-overridden-provider` and `no-import-time-spread` suggest for the same reason from the other end:
-each has exactly one shape whose repair is local. For the first that is the verbatim duplicate,
-where the deletion is provably inert ([above](#the-pair-is-classified-because-the-two-halves-are-not-the-same-defect));
-for the second it is deferring the value:
-
-```ts
-// ❌ evaluated while the module loads — `[...undefined]` inside a bundle
-export const platformEvents = [...BaseEvents];
-
-// ✅ what accepting the suggestion produces; every use of the name gains a `()`
-export const platformEvents = () => [...BaseEvents];
-```
-
-That last one is a suggestion in the strongest sense: accepting it makes the type checker name every
-call site that has to change, which is precisely why no `--fix` may do it unattended. The other safe
-repair — inlining the constant so nothing has to be imported for that line — cannot be written from
-one file at all.
-
-The remaining five have no per-node edit to offer. `createSpyFromClass` needs the class an object
-literal never names, `provideAutoSpy` discards the return values the `useValue` body was setting
-up, and `Object.defineProperties` is one `mockValueProp` statement per entry. Each of those is an
-edit across a file, not across a node.
+Each rule's section in [ESLint rules](/utilities/eslint-rules) says exactly when its fix or
+suggestion is offered, and which shapes it leaves alone.
 
 ## Measured: what each rule is worth
 
-Every rationale above is a claim about what a run does, so each one was run. Vitest 4.1.9, this
-repository's own configs — the default project, `vitest.shared-env.config.mts` for `isolate: false`,
-the zone project for the zone.js half — with one probe spec per rule, each containing an assertion
-that cannot be true.
+The _Without it_ column in [Rules](#rules) comes from real runs. Each rule got one probe spec with
+an assertion that cannot be true. The probes ran on Vitest 4.1.9, with `isolate: false` where it
+matters and under zone.js for the zone half.
 
-| Rule                           | Without it, the run says                                                                                                                                                                                                                                         | Verdict |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-----: |
-| `no-expect-in-subscribe`       | nothing — [4 of 4 forms green across 4 stream behaviours](/core/observable-assertions#measured-four-forms-against-four-streams)                                                                                                                                  |  green  |
-| `no-done-callback`             | nothing, when `done()` sits in a callback: the body returns `undefined`, the test ends, the assertion lands after it                                                                                                                                             |  green  |
-| `no-floating-assertion`        | zoneless: `Unhandled Rejection`, exit 1, no test named. Under zone.js: one of two rejections vanishes entirely                                                                                                                                                   |  green  |
-| `no-bare-called-with`          | nothing — the spy answers `undefined` for those arguments, which is what it did before, and the test that meant to assert a call asserts none                                                                                                                    |  green  |
-| `no-shared-module-level-mock`  | nothing — the fixture's own state crosses files under `isolate: false`                                                                                                                                                                                           |  green  |
-| `no-object-define-property`    | nothing in the file that patched; the **next** file reads the patched value                                                                                                                                                                                      |  green  |
-| `no-mocked-for-spy`            | `TS2322 … missing the following properties from type 'CartService': http, cache`                                                                                                                                                                                 | compile |
-| `prefer-create-spy-from-class` | `TypeError: cart.applyCoupon is not a function`                                                                                                                                                                                                                  |   red   |
-| `prefer-provide-auto-spy`      | the same, one DI hop away                                                                                                                                                                                                                                        |   red   |
-| `prefer-inject-spy`            | `spy.getPlans.nextWith is not a function`                                                                                                                                                                                                                        |   red   |
-| `no-inject-before-override`    | `Cannot override provider when the test module has already been instantiated. Make sure you are not using \`inject\` before \`overrideProvider\``                                                                                                                |   red   |
-| `no-overridden-provider`       | nothing, where the hand-rolled double happens to answer: the `provideAutoSpy` beside it is dead and the assertions pass. Read back with `injectSpy` instead, it is red — and [`injectSpy` says why](/adapters/angular#injectspy-says-when-it-got-the-real-thing) |  green  |
+| Rule                           | Without the rule, the run says                                                                                                                                                               | Verdict |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-----: |
+| `no-expect-in-subscribe`       | nothing: [4 of 4 forms green across 4 stream behaviours](/core/observable-assertions#measured-four-forms-against-four-streams)                                                               |  green  |
+| `no-done-callback`             | nothing, when `done()` sits in a callback: the body returns `undefined`, the test ends, the assertion runs after it                                                                          |  green  |
+| `no-floating-assertion`        | zoneless: `Unhandled Rejection`, exit 1, no test named. Under zone.js: one of two rejections disappears                                                                                      |  green  |
+| `no-bare-called-with`          | nothing: the spy answers `undefined` for those arguments, as before, and the test asserts no call                                                                                            |  green  |
+| `no-shared-module-level-mock`  | nothing: the fixture's own state crosses files under `isolate: false`                                                                                                                        |  green  |
+| `no-object-define-property`    | nothing in the file that patched; the **next** file reads the patched value                                                                                                                  |  green  |
+| `no-mocked-for-spy`            | `TS2322 … missing the following properties from type 'CartService': http, cache`                                                                                                             | compile |
+| `prefer-create-spy-from-class` | `TypeError: cart.applyCoupon is not a function`                                                                                                                                              |   red   |
+| `prefer-provide-auto-spy`      | the same, one DI step away                                                                                                                                                                   |   red   |
+| `prefer-inject-spy`            | `spy.getPlans.nextWith is not a function`                                                                                                                                                    |   red   |
+| `no-inject-before-override`    | `Cannot override provider when the test module has already been instantiated. Make sure you are not using \`inject\` before \`overrideProvider\``                                            |   red   |
+| `no-overridden-provider`       | nothing, when the hand-written double happens to answer. Read back with `injectSpy`, the run is red, and [`injectSpy` says why](/adapters/angular#injectspy-says-when-it-got-the-real-thing) |  green  |
 
-The column that matters is the last one. Six of the eleven probed here guard against a test that is
-**green and wrong**, which is the only failure mode a suite cannot report on itself; four guard
-against a red test whose message is already clear; one is a compiler error. That split is what the
-_Without it_ column in [Rules](#rules) reports, and it used to be what severity followed too — until
-4.0.0 graded the config `error` / `warn` / `off` along it. It does not any more: how loud a finding
-is belongs to the project, and this table is the evidence for deciding rather than the decision. The
-severities the config does still grade are not on this axis: `prefer-render-shallow` reports no
-failure mode at all, only a bill, `no-stub-class-double` and `no-structural-double` report a
-failure mode that is red without them — they are graded on how the evidence is obtained, not on what
-happens without them — and `prefer-set-inputs`, `prefer-create-mock` and `no-unasserted-argument` are graded on what their
-repair costs or needs, which is a measurement of the repair rather than of the finding.
+Seven of these twelve guard against a test that is **green and wrong**. A test run cannot report that
+failure on its own. Four guard against a red test whose message is already clear, and one against a
+compile error.
 
-The [four jasmine rules](#the-four-jasmine-rules) are not in this table because they were not probed
-the same way — their subject is a migration, not a runner behaviour. Two of them belong on the green
-side by construction and the source says so plainly: `saveArgumentsByValue()` is a function whose
-body is `undefined`, and `vi.spyOn`'s call-through default is documented behaviour, not a defect.
+This column is evidence, not severity. The config does not set severity from it; how loud a
+finding is belongs to your project. The eleven `warn` rules are graded on other grounds, listed in
+[What the first run looks like](#_4-what-the-first-run-looks-like).
 
-`no-overridden-provider` is the one whose verdict depends on the rest of the file, which is why it
-is worth having as a rule rather than a runtime check. Read the token back with `injectSpy` and the
-run is red with a diagnostic naming the cause; read it back with `TestBed.inject` and assert against
-the hand-rolled double, which is what the file that prompted this rule did, and everything passes
-while the `provideAutoSpy` above it never ran.
+The four Jasmine rules were not probed this way, because their subject is a migration, not runner
+behaviour. Two of them are green by construction: `saveArgumentsByValue()` does nothing here, and
+`vi.spyOn` calling the real method is documented Vitest behaviour.
+
+`no-overridden-provider` is the one whose verdict depends on the rest of the file. With
+`TestBed.inject` and assertions against the hand-written double, everything passes, while the
+`provideAutoSpy` above it never ran.
 
 ### What the plugin costs to run
 
-The other thing worth measuring is the plugin itself, because every rule here runs over every spec
-file. Over this repository's own 173 specs, `recommended` as a whole takes **56 ms**; over a single
-1.7 MB spec, **68 ms**.
-
-Most of what those numbers used to be was three rules asking a whole-file question once per node.
-`no-inject-before-override` and `no-overridden-provider` now collect the `override*` and
-`resetTestingModule` calls in one pass and decide the ordering by range, instead of walking the
-suite again for every injection — 1 028 ms to 0.13 ms on a 249 kB spec. `prefer-render-shallow` asks
-whether the file reads a rendered template once per file rather than once per `createComponent` —
-2 528 ms to 12.8 ms on the 1.7 MB one. `no-redundant-smoke-test` indexes identifiers only in the
-blocks where a smoke test needs them, and builds no index at all in a file that has none — 46 ms to
-9.7 ms over the 173 specs, where it had been the single largest cost in the plugin. Together that is
-93 → 56 ms over the suite and 3.3 s → 68 ms over the large spec, with not one message or position
-moved: none of it changes what any rule decides, only how many times it asks.
-
-### `no-done-callback` — what the first parameter actually is
-
-The parameter is not `undefined` and not a plain object. Vitest 4 passes a **callable** `TestContext`:
-
-```text
-typeof done                → 'function'
-Object.keys(done)          → signal, task, skip, annotate, onTestFailed, onTestFinished
-done()                     → Error: done() callback is deprecated, use promise instead
-```
-
-So the synchronous call is caught, loudly and by name. That is the shape nobody writes. The shape
-every Jasmine suite is full of puts `done()` at the bottom of a callback:
-
-```ts
-it('loads', (done) => {
-  setTimeout(() => {
-    expect(1).toBe(999); // ← throws here, so done() is never even reached
-    done();
-  }, 0);
-});
-```
-
-The body returns `undefined`, so the test is over before the timer fires. Measured: **green**, with
-the `AssertionError` arriving afterwards as one of the run's unhandled errors, and the deprecation
-error never reached at all. The rule exists because the loud case is the rare one.
-
-`done.fail(…)` is reported too, at the call site rather than at the parameter. It is jasmine's
-failure channel, and the `TestContext` Vitest passes has no `fail` on it, so the line throws
-`done.fail is not a function` — and it throws _where it sits_, which is almost always an `error`
-callback or a `.catch()`, i.e. inside a promise nobody awaits. The rejection is unhandled, the test
-body returned long ago, and the run is **green on the exact path that was supposed to fail it**.
-Assert on the failure instead:
-`await expect(firstValueFrom(source$)).rejects.toMatchObject({ status: 404 })`, or
-`expect.fail(message)` where the line is simply unreachable.
-
-### `no-floating-assertion` — three runners, three different silences
-
-The same two tests — an `expect()` in a `.then()` nobody awaits, and an `async` helper called without
-`await` — under three configurations:
-
-|                                                     |          tests           | what the runner reports                                       |
-| --------------------------------------------------- | :----------------------: | ------------------------------------------------------------- |
-| zoneless                                            |       **2 passed**       | 2 `Unhandled Rejection`, exit 1, neither attributed to a test |
-| zone.js                                             |       **2 passed**       | 1 error — zone.js drained the other into `console.error`      |
-| zone.js + `setupAutoSpy({ strayRejections: true })` | **1 failed \| 1 passed** | the swallowed one is now a named failure on the right test    |
-
-Read down the middle column: the assertion is false in every row and the test is green in every row
-but the last. `strayRejections` is what turns the case no selector can see — an `expect()` parked in a
-`setTimeout` inside the `.then()` — back into a failure with a test name on it.
-
-### `no-shared-module-level-mock` — one module, two files
-
-The fixture carries a stable id, so there is no need to argue about whether the module is shared:
-
-```ts
-// probe fixture, imported by two spec files
-export const analytics = { sent: [] as string[], track: vi.fn((e: string) => analytics.sent.push(e)) };
-export const moduleLoadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-```
-
-```text
-isolate: true    file 1: load=…-mdncyn     file 2: load=…-ywp3q0   sent=[]
-isolate: false   file 1: load=…-n0v4yh     file 2: load=…-n0v4yh   sent=[from-file-1]
-```
-
-Same id, so one evaluation, and file 2 reads what file 1 pushed. Note **what** leaked: not the spy's
-calls — `clearMocks: true` does reach a module-level `vi.fn()` and does clear them, three separate
-probes said so. What leaks is everything else a fixture holds next to its spies, which is why the fix
-is a factory rather than a `beforeEach` that clears harder. Which file runs first is the runner's
-choice, so the failure arrives as flakiness.
-
-### The observer stub everybody writes again
-
-jsdom ships no `IntersectionObserver`, no `ResizeObserver` and no `MutationObserver`, so the first
-spec that renders a component which builds one dies on `IntersectionObserver is not defined`. The
-repair is the same nineteen lines every time:
-
-```ts
-let originalIntersectionObserver: typeof IntersectionObserver;
-
-beforeEach(() => {
-  disconnectSpy = vi.fn();
-  originalIntersectionObserver = global.IntersectionObserver;
-  global.IntersectionObserver = class {
-    observe(): void {}
-    unobserve(): void {}
-    disconnect(): void {
-      disconnectSpy();
-    }
-  } as unknown as typeof IntersectionObserver;
-});
-
-afterEach(() => {
-  global.IntersectionObserver = originalIntersectionObserver;
-});
-```
-
-[`stubIntersectionObserver()`](/utilities/observer-stubs) is those nineteen lines, and
-`observers.last.disconnected` is that `disconnectSpy` — so the whole block is one call. The rule
-exists because the person writing the block does not know that: one of the ones this was measured on
-carried a comment saying there was no other way.
-
-**The save and the restore are not the author's to write, and that half is a defect rather than
-verbosity.** The stub goes on through `mockValueProp`, whose undo `restoreMockedProps()` runs after
-every test. A hand-written restore parked at the end of an `it` runs only if every assertion above it
-passed, so the first red test leaves the stub installed for the rest of the file — and, under
-`isolate: false`, for every later file the worker picks up, where it surfaces as `observe is not a
-function` in a component nobody edited.
-
-Measured over an Angular monorepo of 1 758 spec files: **16 places** replace one of the three globals
-by hand — 14 assignments and 2 `vi.spyOn(globalThis, 'MutationObserver')`, across five libraries and
-both applications, one of them behind a cast that a grep for `global.IntersectionObserver =` does not
-find. Fifteen are reported (the sixteenth sits under a file-wide `/* eslint-disable */`), and
-**fourteen of the fifteen are test code**; the one that is not is an SSR shim under `apps/web/server`,
-which is outside the spec glob this plugin asks you to scope it to. Three lines match the shape and
-are deliberately silent: the two `afterEach` restores, because the value assigned is a name rather
-than a double, and `window.ResizeObserver = ResizeObserver` in an application module, because the
-value came from an import.
-
-`vi.stubGlobal('IntersectionObserver', RecordingObserver)` is reported as well — the same fake, and
-`vi.unstubAllGlobals()` is off by default. `Object.defineProperty(globalThis, 'ResizeObserver', …)`
-is not, because
-[`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back)
-already reports every `defineProperty` in a spec and names the same helper family; two reports on one
-line saying the same thing is how a rule gets switched off.
-
-### A global assigned by hand
-
-`global.fetch = vi.fn(() => Promise.resolve({ json: () => … }))` is the first thing most `fetch`
-tutorials show, and generated cheat sheets copy it without a restore. It is also the one mock no
-cleanup reaches: `vi.restoreAllMocks()` restores spies, `vi.unstubAllGlobals()` restores
-`vi.stubGlobal`, `restoreMockedProps()` restores `mockValueProp`, and a bare assignment is none of
-the three. The fake then answers every later test of the file, and under `isolate: false` every later
-file of the worker.
-
-[`no-hand-assigned-global`](/utilities/eslint-rules#no-hand-assigned-global) reports the assignment
-unless the same file puts the original back in `afterEach`, `afterAll` or `onTestFinished`. That
-spelling is correct and stays silent. A restore written as the last line of the `it` is reported,
-because the first red assertion skips it. The repair is one line that carries its own undo:
-
-```ts
-mockValueProp(globalThis, 'fetch', vi.fn().mockResolvedValue(Response.json(user)));
-```
-
-For a spec that only needs to stay off the network, [`blockNetwork()`](/utilities/setup#_5-keeping-the-run-off-the-network)
-closes `fetch`, `XMLHttpRequest` and `sendBeacon` for every test. `localStorage` and `sessionStorage`
-have [`stubWebStorage()`](/utilities/setup#stub-web-storage). The three observer globals stay with
-`prefer-observer-stub`, so one line never draws two reports.
-
-### A `Response` written by hand
-
-The other half of the same spec. Once `fetch` is replaced, something has to be handed back, and the
-line every tutorial shows is a cast over two members:
-
-```ts
-vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => user } as Response); // ❌
-```
-
-Everything the author did not think of answers `undefined` — `status`, `statusText`, `headers`,
-`url`, `text()`, `clone()` — and the cast is what makes that compile. The code under test then
-branches on a value the real response could never have produced, and the test is green on a path
-that does not exist. It is the same defect the strict preset catches on a double the library built;
-a plain object literal is not one, so nothing was watching.
-
-[`prefer-stub-response`](/utilities/eslint-rules#prefer-stub-response) reports the cast, the
-`as unknown as Response` spelling of it, and `createMock<Response>(…)`. The repair builds the
-platform's own:
-
-```ts
-vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body: user }));
-```
-
-`Response` has to resolve to the **global** for the rule to fire, so an Express handler's
-`Response` or a generated client's envelope of the same name is left alone — `stubResponse` builds
-the wrong object for those, and naming it would be wrong advice.
-
-### A fixture the compiler was never allowed to read
-
-Two rules of one family, and the family is a cast standing between a value and its type.
-
-```ts
-const device = { id: '1', name: 'TV', isOffline: false } as Device; // ❌ `Device` has no `isOffline`
-(TestBed.inject(Metrics).send as Mock).mockReturnValue(undefined); // ❌ `Mock` is `Mock<any>`
-```
-
-`as T` asks whether the two types _overlap_, not whether the value is one of them. On an object
-literal that means the excess-property check is skipped, so a key the type does not declare goes
-through — and a required field the fixture never sets goes through as well, in the other direction.
-Both type gates stay silent, which is what the cast is for, and the fixture then reaches an
-assertion: spread into an expected payload, it pins a key the contract does not have.
-[`prefer-create-mock`](/utilities/eslint-rules#prefer-create-mock) reports it and names
-`createMock<Device>({ … })`, which takes a `DeepPartial<Device>` and answers a `Device`.
-
-On a member of a double the same move costs the signature.
-[`no-mock-cast`](/utilities/eslint-rules#no-mock-cast) reports it: `Mock` with no parameters is
-`Mock<any>`, so `mockReturnValue` accepts anything and `toHaveBeenCalledWith` stops comparing
-arguments — the assertion keeps passing when the code under test calls the method with the wrong
-ones. The member already _is_ a spy, typed from the real signature, so the repair is to read it as
-it is: `injectSpy(Metrics).send`, which the suggestion writes whenever the token is in view.
-
-Measured on an Angular monorepo of 2 032 spec files: **1 200** casts over a literal in 327 files, and
-**24** casts to `Mock` in 21. The gap is why they carry different severities — the second is a
-sitting, the first is a migration, because accepting the suggestion hands the literal to the
-compiler and every fixture that has drifted goes red the same day. None of the 1 200 literals
-contains a `vi.fn()`, so neither rule ever collides with
-[`prefer-create-spy-from-class`](#two-things-these-rules-learned-the-hard-way) on that suite: those
-are about collaborators, these are about data.
-
-### `no-dead-schemas` — the charm that protects nobody
-
-A schema is a property of the module's **`declarations`**. `NO_ERRORS_SCHEMA` tells the compiler to
-stop complaining about unknown elements in the templates of the components this module _declares_; a
-standalone component brought in through `imports` carries its own dependency scope, and the schema
-never reaches it.
-
-```ts
-await TestBed.configureTestingModule({
-  imports: [FooterComponent], // standalone — carries its own scope
-  schemas: [NO_ERRORS_SCHEMA], // applies to nothing
-}).compileComponents();
-```
-
-Measured over one Angular suite: of 333 files mentioning a schema, **230 entries in 204 files** are
-dead — `apps/portal` 63, `libs/checkout` 61, `apps/web` 22, `libs/rewards` 22, the rest a tail.
-
-Nothing is being silenced, so this is not a green-and-wrong test: whatever the schema was added for
-is still unresolved and still fails. What the line costs is **a false sense of protection**.
-`NO_ERRORS_SCHEMA` is the commonest way to make `NG8001` go away, so a spec carrying it reads as
-"unknown elements are excused here" to everyone who opens it — and the day somebody adds
-`declarations`, the same line starts working and a typo in a template quietly stops being an error.
-
-It is the static twin of [`enableAngularDiagnostics({ deadSchemas })`](/adapters/angular-diagnostics#deadschemas),
-and both are worth having. The diagnostic knows more — it can see that an `imports` entry really is a
-standalone component — but it throws inside `it()`, so a suite yields its list one red run at a time.
-The rule reads one object and hands over all 204 files at once, which is what a cleanup is planned
-from.
-
-**The file decides, not the call.** Angular merges successive `configureTestingModule` calls before
-the module is instantiated, so a schema in one hook and the declarations in another is one live
-configuration written twice. The rule stays silent for the whole file as soon as any configuration in
-it declares something, and it treats a list it cannot count — a spread, a name, a helper call — as
-present rather than empty.
-
-**`overrideComponent` and `overrideModule` are outside the rule**, and that is a decision rather
-than a side effect of where it looks — the tests pin it. A schema added there compensates a real
-removal the spec made on purpose:
-
-```ts
-TestBed.overrideComponent(TicketQrCode, {
-  remove: { imports: [QRCodeComponent] }, // draws on a canvas; jsdom cannot
-  add: { schemas: [NO_ERRORS_SCHEMA] }, // so the element it left behind needs excusing
-});
-```
-
-Take that schema away and the template stops compiling. Checked over the whole suite: of 41 specs
-that combine an override call with a schema, the rule reports **none** of the override blocks. The
-signal of a live schema on a standalone component is **any interference with the component's own
-`imports`** — `set: { imports: [] }`, `set: { imports: [MockThing] }`, `remove: { imports: [X] }` —
-never the module's `declarations`.
-
-A `remove: { imports }` is deliberately not read as "this file declares something" either. In every
-such file the module-level `schemas` was dead _as well_, and removing it left the spec green — so
-letting an override silence the whole file would hide exactly the findings the cleanup confirmed.
-
-::: warning Check the removal with a run, not with a green lint
-There is no autofix here on purpose, and this is why. Applied to one suite the rule cleaned **85
-files and 107 entries with no spec failing**, which is the accuracy it was built for — but the one
-edit that went wrong went wrong silently: a `schemas:` line inside an `overrideComponent` block was
-deleted along with the reported one because the two lines read identically, and six tests died on
-`NG0303: Can't bind to 'collapsed' since it isn't a known property of 'present-button'`. Neither the
-compiler nor ESLint had anything to say about it. Drop the `NO_ERRORS_SCHEMA` import only when
-nothing else in the file still uses it, and run the file.
-:::
-
-### `no-private-member-access` — the first rule to read types {#no-private-member-access-—-the-one-rule-that-reads-types}
-
-`instance['privateMember']` is not a loophole TypeScript forgot to close. Bracket access is how an
-index signature is read, so the visibility check is spelled only on the dotted form — and a spec
-written the other way compiles, runs, and pins a member the class never promised anybody. Rename it
-and the refactor is green everywhere except a test file, which is the wrong place to learn that a
-name was load-bearing.
-
-```ts
-// what the rule reports
-expect(component['recalculate']()).toBe(3);
-(component as any).recalculate();
-vi.spyOn(Object.getPrototypeOf(component), 'recalculate');
-
-// what it asks for instead
-component.onResize(); // the public call that reaches it
-expect(component.total()).toBe(3); // and the effect it has
-```
-
-**Why it has to be type-aware, in one number.** Measured over a 1759-file Angular spec corpus:
-a syntax-only version — every `obj['literal']` — reports **511 sites in 85 files**. Of those,
-**324 in 45 files** resolve to a member declared `private` or `protected`. The other **187 (37 %)**
-are correct code the rule must not touch: `process.env['APP_FEATURE_ENABLED']`, `dataset['error']`, a
-route's `queryParams['id']`, `req.headers['x-request-id']`, `form.controls['profileName']`,
-`errors?.['required']` — index signatures, all of them. **41 of those 85 files hold no private
-access at all**, which is the number to keep: matching a key against a list of names declared
-`private` somewhere inflates the file count more than the site count. A plain grep is worse still:
-~1726 bracket reads against the same 324 findings.
-
-So the resolution goes through the checker, and the name comes from the **type** of the key rather
-than from the source text — `const KEY = 'secret'; card[KEY]` resolves the same as the inline
-string, and `card[key]` where `key` is a plain `string` resolves to nothing and is left alone.
-Without a program the rule reports nothing rather than falling back to the syntax; the other two
-forms need no types and keep working either way.
-
-**The third form is a cast, and it is the one the checker is most needed for**, because the access
-itself is dotted and therefore _was_ visibility-checked — against a type the spec substituted a line
-earlier:
-
-```ts
-(service as any).privateMember;
-(service as unknown as { privateMember: T }).privateMember;
-(service as DecoyDeclaredInTheSpec).privateMember;
-```
-
-All three ask the same question, so the rule walks a cast chain to the bottom — the middle of
-`as unknown as …` is `unknown` and answers nothing — and reads the member off the expression that
-still carries the real type. A dotted access with **no** cast in front of it is never resolved,
-which is both correct (the compiler checked it) and what keeps the rule off every `a.b` in the file.
-On the same corpus: **50 casts in 10 files**, against 324 bracket reads and 9 prototype spies —
-**383 findings in 55 files** in total, 204 of them in two files.
-
-**There is deliberately no helper for this.** A `readPrivate(instance, 'x')` export would legitimise
-exactly what the rule is for, and the repair is never mechanical: drive the member through the
-public API that uses it and assert the effect. On a component the rendered template is the other
-public surface, and it is the one `protected` exists for — `renderShallow(Cmp)` and read the DOM.
-When nothing public reaches the member at all, that is a fact about the design rather than a reason
-to step around the modifier: it either wants to be public, or wants to move into a collaborator the
-spec can provide a double for.
-
-### `no-object-define-property` — nothing puts the descriptor back
-
-One file patches a global the way a spec usually does, then calls everything the runner offers for
-undoing things:
-
-```ts
-Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
-
-vi.restoreAllMocks();
-vi.resetAllMocks();
-vi.unstubAllGlobals();
-```
-
-```text
-after every restore the runner offers: onLine=false   ← same file
-onLine=false                                          ← the next file
-after restoreMockedProps: onLine=true                 ← mockValueProp, run on its own
-```
-
-The third line is the fix, and it is measured on its own for a reason: run it **after** the
-`defineProperty` file in the same worker and it reads `false` too. The original descriptor was gone
-before the correct helper ever saw the property — a suite cannot recover from this one file-by-file,
-which is what makes it an `error` rather than a `warn`.
-
-### The three `prefer-*` rules — drift, and one line that undoes a provider
-
-A hand-written double is correct on the day it is written. The class then grows a method:
-
-```text
-F1  hand-written { total: vi.fn() }        → TypeError: cart.applyCoupon is not a function
-F2  createSpyFromClass(CartService)        → follows the class, no edit
-```
-
-And the type system does not help, because the double never satisfied the class in the first place —
-which is what the `as unknown as CartService` in front of it is hiding:
-
-```text
-TS2741: Property 'rate' is missing in type '{ total: Mock<Procedure>; add: Mock<Procedure>; }'
-        but required in type 'CartService'.
-```
-
-`no-mocked-for-spy` is the same message one step over. `Mocked<T>` demands the private fields a spy
-does not have, and says so in the vocabulary of the class rather than of the mistake:
-
-```text
-TS2322: Type 'Spy<CartService, SpyOptions>' is not assignable to type 'Mocked<CartService>'.
-        Type 'Spy<CartService, SpyOptions>' is missing the following properties
-        from type 'CartService': http, cache
-```
-
-Nothing in that names `Mocked`, which is why the rule fixes the declaration rather than explaining
-the error.
-
-`prefer-inject-spy` is the sharpest of the three, because it is one line that quietly undoes a
-provider:
-
-```ts
-TestBed.configureTestingModule({ providers: [provideAutoSpy(BillingPlansService)] });
-
-const service = TestBed.inject(BillingPlansService);
-vi.spyOn(service, 'getPlans'); // ← replaces the auto-spy's method with a plain vi.fn()
-
-injectSpy(BillingPlansService).getPlans.nextWith(['PRO']);
-// TypeError: spy.getPlans.nextWith is not a function
-```
-
-The provider is still an auto-spy; the method on it is no longer one, so every observable and promise
-helper on it is gone. Read the same dependency with `injectSpy(BillingPlansService)` and `nextWith` works —
-that is the second probe, and it emits `["PRO"]`.
+The whole `recommended` config adds little to lint time: **56 ms** over 173 spec files, and **68 ms**
+over a single 1.7 MB spec. More measurements are on the [Performance](/core/performance) page.
