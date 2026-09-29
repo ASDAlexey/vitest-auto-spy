@@ -17,6 +17,7 @@ import { runInit } from './init';
 import type { InitAction, InitResult } from './init';
 import { captureProcess, changedRef, resolveNg, runNgTest } from './ng-test';
 import { parseShard } from './ng-test-select';
+import { outputWidth, painterFor } from './paint';
 import type { BaselineRequest, GateRequest, OutputFormat } from './perf';
 import { renderPerf } from './perf';
 import { BASELINE_DEFAULTS, DEFAULT_BASELINE_FILE } from './perf-baseline';
@@ -90,7 +91,7 @@ function doctorCommand(cwd: string, argv: readonly string[], io: CliIo): number 
   io.out(`vitest-auto-spy doctor — ${cwd}`);
   io.out(`${profile.files.length} files scanned, ${specFiles} of them spec files — runner: ${profile.runner}, entry: ${profile.entry}\n`);
 
-  const report = findings.length === 0 ? 'No problems found.' : formatFindings(findings, minSeverity);
+  const report = findings.length === 0 ? 'No problems found.' : formatFindings(findings, minSeverity, outputWidth(), painterFor(undefined));
 
   if (report !== '') {
     io.out(`${report}\n`);

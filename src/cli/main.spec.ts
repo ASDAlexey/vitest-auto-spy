@@ -4,14 +4,21 @@
  * an instruction block that has drifted from the installed version.
  */
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pathExists, readTextFile, writeTextFile } from './fs-scan';
 import { guardBrokenPipe, runCli } from './main';
 import type { CliIo } from './main';
+import { ESC, TERMINAL } from './paint';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
+// Golden text: color is off here whatever terminal or CI runs the suite.
+beforeEach(() => {
+  vi.stubEnv('NO_COLOR', '1');
+});
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   removeTempRepos();
 });
 
@@ -320,6 +327,37 @@ describe('init', () => {
   });
 });
 
+/** Nine ordinary files and one far over the file budget, which the gate warns about and `--no-confirm` fails. */
+function slowRepo(): string {
+  const root = createTempRepo(HEALTHY);
+  const measured = (name: string, tests: number): Record<string, unknown> => ({
+    file: `${root}/${name}`,
+    environment: 0,
+    prepare: 0,
+    setup: 0,
+    imports: 0,
+    tests,
+    testCount: 4,
+    cases: [],
+  });
+
+  writeTextFile(
+    join(root, 'perf.json'),
+    JSON.stringify({
+      version: 2,
+      root,
+      transform: 0,
+      wall: 1_000,
+      files: [
+        ...Array.from({ length: 9 }, (_unused, index) => ({ ...measured(`ordinary-${index}.spec.ts`, 100), testCount: 40 })),
+        measured('slow.spec.ts', 9_000),
+      ],
+    }),
+  );
+
+  return root;
+}
+
 describe('perf', () => {
   /** The rules and the rendering are pinned in `perf.spec.ts`; this is the dispatch and the flags. */
   it('reads the report --json names and exits 0', () => {
@@ -343,31 +381,7 @@ describe('perf', () => {
 
   it('gates a report it was handed, and fails only when told one reading is enough', () => {
     const io = recorder();
-    const root = createTempRepo(HEALTHY);
-    const measured = (name: string, tests: number): Record<string, unknown> => ({
-      file: `${root}/${name}`,
-      environment: 0,
-      prepare: 0,
-      setup: 0,
-      imports: 0,
-      tests,
-      testCount: 4,
-      cases: [],
-    });
-
-    writeTextFile(
-      join(root, 'perf.json'),
-      JSON.stringify({
-        version: 2,
-        root,
-        transform: 0,
-        wall: 1_000,
-        files: [
-          ...Array.from({ length: 9 }, (_unused, index) => ({ ...measured(`ordinary-${index}.spec.ts`, 100), testCount: 40 })),
-          measured('slow.spec.ts', 9_000),
-        ],
-      }),
-    );
+    const root = slowRepo();
 
     expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate'], io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('warn   perf-gate-slow-file slow.spec.ts');
@@ -376,6 +390,56 @@ describe('perf', () => {
 
     expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm'], trusted)).toBe(1);
     expect(trusted.stdout.join('\n')).toContain('error  perf-gate-slow-file slow.spec.ts');
+  });
+});
+
+describe('color in a CI job log', () => {
+  const inGitLab = (): void => {
+    vi.stubEnv('NO_COLOR', undefined);
+    vi.stubEnv('FORCE_COLOR', undefined);
+    vi.stubEnv('TERM', 'xterm');
+    vi.stubEnv('GITLAB_CI', 'true');
+  };
+
+  it('paints doctor findings by severity, and keeps the JSON and the Code Quality report free of escapes', () => {
+    inGitLab();
+
+    const root = createTempRepo({ ...HEALTHY, 'tsconfig.json': JSON.stringify({ include: ['src*.ts'] }) });
+    const text = recorder();
+    const json = recorder();
+
+    expect(runCli(['doctor', '--cwd', root], text)).toBe(1);
+    expect(text.stdout.join('\n')).toContain(`${TERMINAL.red('error')}  tsconfig-glob-matches-nothing`);
+
+    expect(runCli(['doctor', '--cwd', root, '--format', 'json', '--code-quality', 'quality.json'], json)).toBe(1);
+    expect(json.stdout.join('\n')).not.toContain(ESC);
+    expect(readTextFile(join(root, 'quality.json'))).not.toContain(ESC);
+  });
+
+  it('paints the gate: warning yellow, error red, a failing verdict red, and nothing in its JSON', () => {
+    inGitLab();
+
+    const root = slowRepo();
+    const report = join(root, 'perf.json');
+    const warned = recorder();
+    const failed = recorder();
+    const json = recorder();
+
+    expect(runCli(['perf', '--cwd', root, '--json', report, '--gate'], warned)).toBe(0);
+    expect(warned.stdout.join('\n')).toContain(`${TERMINAL.yellow('warn')}   perf-gate-slow-file slow.spec.ts`);
+
+    expect(runCli(['perf', '--cwd', root, '--json', report, '--gate', '--no-confirm'], failed)).toBe(1);
+    expect(failed.stdout.join('\n')).toContain(`${TERMINAL.red('error')}  perf-gate-slow-file slow.spec.ts`);
+    expect(failed.stdout.join('\n')).toContain(TERMINAL.red('perf gate verdict — 1 judged, 1 fails the run'));
+
+    expect(
+      runCli(
+        ['perf', '--cwd', root, '--json', report, '--gate', '--no-confirm', '--format', 'json', '--code-quality', 'quality.json'],
+        json,
+      ),
+    ).toBe(1);
+    expect(json.stdout.join('\n')).not.toContain(ESC);
+    expect(readTextFile(join(root, 'quality.json'))).not.toContain(ESC);
   });
 });
 
@@ -599,8 +663,6 @@ describe('doctor text', () => {
 
     expect(runCli(['doctor', '--cwd', root], io)).toBe(1);
     expect(io.stdout.join('\n')).toContain('warn   scan-cap-reached');
-
-    vi.unstubAllEnvs();
   });
 });
 

@@ -279,7 +279,7 @@ function reportFindings(analysis: PerfAnalysis, io: CliIo, minSeverity?: Severit
 
 /** The findings the threshold lets through, or nothing; the one tally for the whole run comes last. */
 function reportOnly(findings: readonly Finding[], io: CliIo, minSeverity?: Severity): void {
-  const report = formatFindings(findings, minSeverity);
+  const report = formatFindings(findings, minSeverity, outputWidth(), painterFor(undefined));
 
   if (report !== '') {
     io.out(`\n${report}`);
