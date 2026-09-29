@@ -18,15 +18,22 @@ import {
   input,
   makeEnvironmentProviders,
   signal,
+  ɵNG_COMP_DEF,
+  ɵNG_MOD_DEF,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { FormControl, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { By } from '@angular/platform-browser';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { injectSpy, provideAutoSpy } from '../angular';
 import { disableAngularDiagnostics, enableAngularDiagnostics } from '../angular-diagnostics';
 import { prepareShallow, renderShallow } from './render-shallow';
+import { registerSignalMatchers } from './signal-matchers';
+
+beforeAll(() => {
+  registerSignalMatchers();
+});
 
 @Injectable({ providedIn: 'root' })
 class LabelService {
@@ -144,8 +151,8 @@ describe('renderShallow', () => {
   it('sets inputs before the first change detection', () => {
     const { component } = renderShallow(HostComponent, { inputs: { id: 42 } });
 
-    expect(component.id()).toBe(42);
-    expect(component.label()).toBe('real-42');
+    expect(component.id).toHaveSignalValue(42);
+    expect(component.label).toHaveSignalValue('real-42');
   });
 
   it('sets an aliased input by its class-field name, which is how the type is keyed', () => {
@@ -153,7 +160,7 @@ describe('renderShallow', () => {
     // used to render the default — silently, and invisibly under a console stub.
     const { component } = renderShallow(AliasedComponent, { inputs: { heading: 'shipped' } });
 
-    expect(component.heading()).toBe('shipped');
+    expect(component.heading).toHaveSignalValue('shipped');
   });
 
   it('refuses an input the component does not declare, instead of setting nothing', () => {
@@ -241,7 +248,7 @@ describe('renderShallow', () => {
     injectSpy(LabelService).resolve.mockReturnValue('stubbed');
     fixture.detectChanges();
 
-    expect(component.label()).toBe('stubbed');
+    expect(component.label).toHaveSignalValue('stubbed');
     expect(injectSpy(LabelService).resolve).toHaveBeenCalledWith(0);
   });
 
@@ -254,7 +261,7 @@ describe('renderShallow', () => {
     injectSpy(LabelService).resolve.mockReturnValue('from-environment');
     component.ngOnInit();
 
-    expect(component.label()).toBe('from-environment');
+    expect(component.label).toHaveSignalValue('from-environment');
   });
 
   it('runs `beforeCreate` after the module is configured and before the component exists', () => {
@@ -269,7 +276,7 @@ describe('renderShallow', () => {
     });
 
     expect(order).toEqual(['beforeCreate']);
-    expect(component.label()).toBe('early');
+    expect(component.label).toHaveSignalValue('early');
   });
 
   it('declares a non-standalone component instead of importing it', () => {
@@ -289,7 +296,7 @@ describe('renderShallow', () => {
  * returns, and `null` is what `defineComponent` stores for a component that imports nothing.
  */
 function forceDependencyShape(component: Type<unknown>, shape: 'array' | 'none'): () => void {
-  const definition = Reflect.get(component, 'ɵcmp') as Record<string, unknown>;
+  const definition = Reflect.get(component, ɵNG_COMP_DEF) as Record<string, unknown>;
   const compiled = definition['dependencies'];
   const resolved: unknown = typeof compiled === 'function' ? (compiled as () => unknown)() : compiled;
 
@@ -362,7 +369,7 @@ class WithFormComponent {
 
 /** What ngtsc flattens `ReactiveFormsModule` into: its exports, through the modules it re-exports. */
 function reactiveFormsExports(module: unknown = ReactiveFormsModule, into: Set<unknown> = new Set()): Set<unknown> {
-  const definition = Reflect.get(Object(module), 'ɵmod') as { exports: unknown } | undefined;
+  const definition = Reflect.get(Object(module), ɵNG_MOD_DEF) as { exports: unknown } | undefined;
   const exported = typeof definition?.exports === 'function' ? (definition.exports as () => unknown[])() : definition?.exports;
 
   (Array.isArray(exported) ? exported : []).forEach((entry: unknown) => {
@@ -383,7 +390,7 @@ describe('a template dependency an NgModule declares', () => {
    * reachable in this suite only by writing it.
    */
   function forceFlattenedScope(component: Type<unknown>, flattened: Type<unknown>[]): () => void {
-    const definition = Reflect.get(component, 'ɵcmp') as Record<string, unknown>;
+    const definition = Reflect.get(component, ɵNG_COMP_DEF) as Record<string, unknown>;
     const compiled = definition['dependencies'];
 
     definition['dependencies'] = flattened;
@@ -435,7 +442,7 @@ describe('a template dependency an NgModule declares', () => {
 
   const withExports = (exports: unknown, check: () => void): void => {
     const restore = forceFlattenedScope(WithModulePipeComponent, [WhisperPipe]);
-    const definition = Reflect.get(WhisperModule, 'ɵmod') as Record<string, unknown>;
+    const definition = Reflect.get(WhisperModule, ɵNG_MOD_DEF) as Record<string, unknown>;
     const compiled = definition['exports'];
 
     definition['exports'] = exports;
@@ -530,14 +537,14 @@ describe('prepareShallow', () => {
 
     expect(fixture.componentInstance).toBe(component);
     expect(component.initialized).toBe(true);
-    expect(component.label()).toBe('real-42');
+    expect(component.label).toHaveSignalValue('real-42');
     expect(childInstances).toBe(0);
   });
 
   it('applies per-create overrides by key', () => {
     const prepare = prepareShallow(HostComponent, { inputs: { id: 1 } });
 
-    expect(prepare.create({ inputs: { id: 42 } }).component.label()).toBe('real-42');
+    expect(prepare.create({ inputs: { id: 42 } }).component.label).toHaveSignalValue('real-42');
   });
 
   it('lets a create skip the first change detection', () => {

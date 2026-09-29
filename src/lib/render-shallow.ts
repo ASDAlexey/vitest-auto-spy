@@ -22,9 +22,10 @@ import {
   type Provider,
   type Type,
 } from '@angular/core';
-import { type ComponentFixture, TestBed } from '@angular/core/testing';
+import { type ComponentFixture, TestBed, type TestModuleMetadata } from '@angular/core/testing';
 
 import { resolveInputs } from './angular-inputs';
+import { withTestBedSplitExplained } from './angular-testbed-split';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { sourceClassName } from './message-text';
@@ -89,7 +90,10 @@ export interface RenderShallowOptions<T> {
    * `imports`; a module named here replaces every declaration it exports, so the scope is importable.
    */
   keepModules?: Type<unknown>[];
-  /** Child components/directives/pipes to keep resolvable in the template (everything else is dropped). */
+  /**
+   * Child components/directives/pipes to keep resolvable in the template (everything else is dropped).
+   * For a `standalone: false` component a standalone child is imported and any other is declared.
+   */
   keepChildren?: Type<unknown>[];
   /**
    * `false` drops the component's `hostDirectives`, and with them every service they inject — the
@@ -109,6 +113,12 @@ export interface RenderShallowOptions<T> {
   beforeCreate?: () => void;
   /** Run the first change detection (and therefore `ngOnInit`). Default `true`. */
   detectChanges?: boolean;
+  /**
+   * The rest of `configureTestingModule`'s metadata — `deferBlockBehavior`, `errorOnUnknownElements`,
+   * `errorOnUnknownProperties`, `teardown`. `schemas` are added to the permissive one a
+   * `standalone: false` component gets, never swapped for it.
+   */
+  testBed?: Omit<TestModuleMetadata, 'declarations' | 'imports' | 'providers'>;
 }
 
 /** What {@link renderShallow} hands back: the real fixture plus its component instance. */
@@ -302,6 +312,63 @@ function buildOverride<T>(component: Type<unknown>, definition: unknown, options
 }
 
 /**
+ * Where a component of the other kind goes: a `standalone: false` component's children are compiled
+ * in the testing module's scope, so what it keeps has to be declared there, or imported when it is standalone.
+ */
+function splitKeptChildren(keepChildren: readonly Type<unknown>[]): { declared: Type<unknown>[]; imported: Type<unknown>[] } {
+  const declared = keepChildren.filter((child) => refusedInImports(child) !== undefined);
+
+  return { declared, imported: keepChildren.filter((child) => !declared.includes(child)) };
+}
+
+function moduleFor<T>(component: Type<T>, standalone: boolean, options: RenderShallowOptions<T>): TestModuleMetadata {
+  const { schemas = NOTHING, ...metadata } = options.testBed ?? {};
+  const imports = options.imports ?? NOTHING;
+  const providers = options.providers ?? NOTHING;
+
+  if (standalone) {
+    // No permissive schema here: a standalone component carries its own dependency scope, so a
+    // module-level one never reaches its template, and `deadSchemas` is right to report it.
+    return { ...metadata, imports: [component, ...imports], declarations: NOTHING, providers, ...(schemas.length > 0 ? { schemas } : {}) };
+  }
+
+  const kept = splitKeptChildren(options.keepChildren ?? NOTHING);
+
+  return {
+    ...metadata,
+    imports: [...imports, ...kept.imported],
+    declarations: [component, ...kept.declared],
+    providers,
+    schemas: schemas.length > 0 ? [...PERMISSIVE_SCHEMAS, ...schemas] : PERMISSIVE_SCHEMAS,
+  };
+}
+
+const ALREADY_INSTANTIATED = 'already been instantiated';
+
+/** Angular's refusal of a late configuration, rethrown naming the call and the seam that avoids it. */
+function configureBeforeInstantiation(name: string, configure: () => void): void {
+  try {
+    configure();
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes(ALREADY_INSTANTIATED)) {
+      throw error;
+    }
+
+    throw new Error(
+      withDocs(
+        `[vitest-auto-spy] renderShallow(${name}): the testing module was already instantiated, so it can no longer be ` +
+          'configured. Something read the injector first — TestBed.inject or injectSpy in a beforeEach, or an earlier ' +
+          'render in the same test.\n' +
+          `Move that read into beforeCreate, which runs once the module is configured: renderShallow(${name}, { beforeCreate: () => { … injectSpy(…) … } }). ` +
+          'A second render in one test needs TestBed.resetTestingModule() before it.',
+        DOCS_LINKS.angularOverrideLate,
+      ),
+      { cause: error },
+    );
+  }
+}
+
+/**
  * The first values, through the same name resolution `setInputs` uses.
  *
  * `ComponentInputs<T>` is keyed by the class **field** and `setInput` answers to the **public**
@@ -333,27 +400,25 @@ function applyInputs<T>(fixture: ComponentFixture<T>, inputs: ComponentInputs<T>
 export function renderShallow<T>(component: Type<T>, options: RenderShallowOptions<T> = {}): ShallowRender<T> {
   const definition: unknown = Reflect.get(component, 'ɵcmp');
   const standalone = isStandalone(definition);
+  const name = sourceClassName(component.name);
 
-  TestBed.configureTestingModule({
-    imports: standalone ? [component, ...(options.imports ?? [])] : (options.imports ?? []),
-    declarations: standalone ? [] : [component],
-    providers: options.providers ?? [],
-    // Only where it can do something. A standalone component carries its own dependency scope, so a
-    // module-level schema never reaches its template — and `enableAngularDiagnostics({ deadSchemas })`
-    // is right to report one, which made these two features of the same package cancel each other out.
-    ...(standalone ? {} : { schemas: PERMISSIVE_SCHEMAS }),
+  configureBeforeInstantiation(name, () => {
+    TestBed.configureTestingModule(moduleFor(component, standalone, options));
+
+    const override = buildOverride(component, definition, options);
+
+    // An override recompiles the component under JIT for the rest of the file, and the AOT factory,
+    // template and host-binding branches then drop out of coverage — so none is issued that changes nothing.
+    if (Object.keys(override).length > 0) {
+      TestBed.overrideComponent(component, { set: override });
+    }
   });
-
-  const override = buildOverride(component, definition, options);
-
-  // An override recompiles the component under JIT for the rest of the file, and the AOT factory,
-  // template and host-binding branches then drop out of coverage — so none is issued that changes nothing.
-  if (Object.keys(override).length > 0) {
-    TestBed.overrideComponent(component, { set: override });
-  }
   options.beforeCreate?.();
 
-  const fixture = TestBed.createComponent(component);
+  const fixture = withTestBedSplitExplained(
+    () => `renderShallow(${name})`,
+    () => TestBed.createComponent(component),
+  );
   applyInputs(fixture, options.inputs);
 
   if (options.detectChanges ?? true) {
@@ -363,17 +428,29 @@ export function renderShallow<T>(component: Type<T>, options: RenderShallowOptio
   return { fixture, component: fixture.componentInstance };
 }
 
+/**
+ * What one {@link PreparedShallow.create} call may change: any option, replaced outright, plus two
+ * that add to the shared lists instead of replacing them.
+ */
+export interface ShallowOverrides<T> extends RenderShallowOptions<T> {
+  /** Providers added after the prepared ones — and, being later, winning over them for the same token. */
+  extraProviders?: (EnvironmentProviders | Provider)[];
+  /** Imports added after the prepared ones. */
+  extraImports?: unknown[];
+}
+
 /** What {@link prepareShallow} hands back: a bound component plus its shared options. */
 export interface PreparedShallow<T> {
   /** Create one instance from the prepared options, with `overrides` applied per key. */
-  create(overrides?: RenderShallowOptions<T>): ShallowRender<T>;
+  create(overrides?: ShallowOverrides<T>): ShallowRender<T>;
 }
 
 /**
  * Bind a component and the options every test of a suite repeats, and create one instance per test.
  *
  * `create()` runs the same sequence `renderShallow` does, with the per-call `overrides` replacing a
- * key outright — `inputs` for an `it.each`, `providers` for a one-off case. The runner resets the
+ * key outright — `inputs` for an `it.each`, `providers` for a one-off case. To add to the shared
+ * lists rather than replace them, pass `extraProviders` / `extraImports`. The runner resets the
  * TestBed between tests on its own; two `create()` calls inside a single test need a manual
  * `TestBed.resetTestingModule()`, because Angular refuses a second `configureTestingModule` on an
  * already-instantiated module.
@@ -384,12 +461,26 @@ export interface PreparedShallow<T> {
  * it.each([{ id: 1 }, { id: 2 }])('loads task $id', ({ id }) => {
  *   const { component } = prepare.create({ inputs: { taskId: id } });
  * });
+ *
+ * it('reads the feature flag', () => {
+ *   prepare.create({ extraProviders: [provideAutoSpy(FlagService)] });
+ * });
  * ```
  */
 export function prepareShallow<T>(component: Type<T>, options: RenderShallowOptions<T> = {}): PreparedShallow<T> {
   return {
-    create(overrides: RenderShallowOptions<T> = {}): ShallowRender<T> {
-      return renderShallow(component, { ...options, ...overrides });
+    create({ extraProviders, extraImports, ...overrides }: ShallowOverrides<T> = {}): ShallowRender<T> {
+      const merged: RenderShallowOptions<T> = { ...options, ...overrides };
+
+      if (extraProviders !== undefined) {
+        merged.providers = [...(merged.providers ?? NOTHING), ...extraProviders];
+      }
+
+      if (extraImports !== undefined) {
+        merged.imports = [...(merged.imports ?? NOTHING), ...extraImports];
+      }
+
+      return renderShallow(component, merged);
     },
   };
 }
