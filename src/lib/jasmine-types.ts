@@ -10,15 +10,15 @@
  * The runtime half lives in `jasmine-namespaces.ts` and is installed only by the
  * `vitest-auto-spy/jasmine` entry.
  */
-import type { Mock } from 'vitest';
-
 import type { JasmineCallInfo } from './jasmine-namespaces';
+import type { Mock } from './mock-types';
 import type {
   AddObservableSpyMethods,
   AddPromiseSpyMethods,
   AddSpyMethodsByReturnTypes,
   Func,
   ObservableLike,
+  ObservablePropSpyMethods,
   SpyDisposable,
   ValueConfig,
   ValueConfigPerCall,
@@ -194,7 +194,7 @@ export type JasmineSpy<T> = JasmineAccessorSpies<T> &
     [K in keyof T]: T[K] extends Func
       ? JasmineMethodSpy<T[K]>
       : T[K] extends ObservableLike<infer O>
-        ? AddObservableSpyMethods<O> & T[K]
+        ? AddObservableSpyMethods<O> & ObservablePropSpyMethods & T[K]
         : T[K];
   };
 

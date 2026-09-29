@@ -33,7 +33,7 @@ import { misconfigurationThrows, reportMisconfiguration } from './misconfigurati
 import { type ObservableStream, type UnfedSubscriptionListener } from './observable-support';
 import { attachHelpers, decorate, detachedHelperError } from './spy-decoration';
 import { hooksOf } from './spy-mark';
-import type { AddObservableSpyMethods, ValueConfig, ValueConfigPerCall } from './types';
+import type { AddObservableSpyMethods, ObservablePropSpyMethods, ValueConfig, ValueConfigPerCall } from './types';
 import { isCompleteConfig, isErrorConfig, isNextValueConfig } from './value-config-guards';
 
 function createReplaySubject<T>(): ReplaySubject<T> {
@@ -442,24 +442,32 @@ class PropObservableTarget<T> extends ObservableTarget<T> {
 export function createObservablePropSpy<T>(
   onUnfedSubscription?: UnfedSubscriptionListener,
   name?: string,
-): AddObservableSpyMethods<T> & Observable<T> {
+): AddObservableSpyMethods<T> & Observable<T> & ObservablePropSpyMethods {
   const target = new PropObservableTarget<T>(name);
+  let active = 0;
   // Read back as the plain `Observable<T>` it is at the type level: a prop spy carries the six
   // stream helpers but not `nextWithPerCall`, and the public type below claims the full set.
   const observableSpy: Observable<T> = decorate(
-    defer(() => {
+    new Observable<T>((subscriber) => {
       if (onUnfedSubscription && !target.fed) {
         onUnfedSubscription(() => !target.fed);
       }
 
-      return target.published$;
+      active += 1;
+
+      const inner = target.published$.subscribe(subscriber);
+
+      return (): void => {
+        active -= 1;
+        inner.unsubscribe();
+      };
     }),
-    observableHelpers<Observable<T>, T>(() => target),
+    { ...observableHelpers<Observable<T>, T>(() => target), subscriberCount: (): number => active },
   );
 
   // `observableHelpers` attaches the `AddObservableSpyMethods<T>` helpers onto the deferred
   // observable at runtime, as methods that read `this`; the assertion restates them as the
   // public interface, whose methods carry no `this` parameter.
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the helpers are assembled at runtime via `decorate`; their `this`-typed signatures cannot be stated as the public interface without an assertion.
-  return observableSpy as AddObservableSpyMethods<T> & Observable<T>;
+  return observableSpy as AddObservableSpyMethods<T> & Observable<T> & ObservablePropSpyMethods;
 }

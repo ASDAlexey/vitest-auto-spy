@@ -9,6 +9,7 @@ import { type Observable, firstValueFrom } from 'rxjs';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { createSpyFromClass } from './create-spy-from-class';
+import { advanceTimers, withFakeTimers } from './fake-timers';
 import { createFunctionSpy } from './function-spy';
 import { setMisconfigurationReaction } from './misconfiguration';
 import { registerMockAdapter } from './mock-adapter';
@@ -349,11 +350,13 @@ describe('nextWithValues on a falsy value', () => {
 
     flags.isEnabled.nextWithValues([{ delay: 1, value: false }]);
 
-    const seen = collect(flags.isEnabled());
+    await withFakeTimers(async () => {
+      const seen = collect(flags.isEnabled());
 
-    expect(seen.values).toEqual([]);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    expect(seen.values).toEqual([false]);
+      expect(seen.values).toEqual([]);
+      await advanceTimers(1);
+      expect(seen.values).toEqual([false]);
+    });
   });
 
   it('throws a falsy error value instead of ignoring the entry', () => {
@@ -405,5 +408,38 @@ describe('stream helpers are methods of their spy', () => {
 
     await expect(firstValueFrom(load(2))).resolves.toBe('bound');
     await expect(firstValueFrom(load(1))).resolves.toBe('chained');
+  });
+});
+
+describe('subscriberCount on an observable property spy', () => {
+  class Feed {
+    items$!: Observable<number>;
+  }
+
+  it('counts the subscriptions still open, and drops the ones that ended or let go', () => {
+    const feed = createSpyFromClass(Feed, { observablePropsToSpyOn: ['items$'] });
+
+    expect(feed.items$.subscriberCount()).toBe(0);
+
+    const first = feed.items$.subscribe();
+    const second = feed.items$.subscribe();
+
+    expect(feed.items$.subscriberCount()).toBe(2);
+
+    first.unsubscribe();
+    expect(feed.items$.subscriberCount()).toBe(1);
+
+    feed.items$.complete();
+    expect(second.closed).toBe(true);
+    expect(feed.items$.subscriberCount()).toBe(0);
+  });
+
+  it('does not count a subscription the stream ended synchronously', async () => {
+    const feed = createSpyFromClass(Feed, { observablePropsToSpyOn: ['items$'] });
+
+    feed.items$.nextOneTimeWith(1);
+
+    await expect(firstValueFrom(feed.items$)).resolves.toBe(1);
+    expect(feed.items$.subscriberCount()).toBe(0);
   });
 });
