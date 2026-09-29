@@ -7,7 +7,7 @@ export const NOTHING_TO_READ_DOCS = `${CLI_DOCS}#when-there-is-nothing-to-read`;
 export const GATE_DOCS = `${CLI_DOCS}#the-gate`;
 export const MIGRATION_TABLE_DOCS = `${DOCS}/migrating#mapping-table`;
 export const JASMINE_MIGRATION_TABLE_DOCS = `${DOCS}/migrating-jasmine#the-auto-spies-api`;
-export const COVERAGE_MATCHING_DOCS = `${DOCS}/adapters/angular#coverage-matching-costs-more-than-coverage`;
+export const COVERAGE_MATCHING_DOCS = `${DOCS}/guides/angular-unit-test-builder#coverage-matching-costs-more-than-coverage`;
 export const VITEST_5_PERF_DOCS = `${DOCS}/core/performance#vitest-5-under-the-angular-unit-test-builder`;
 
 /** Every check `doctor` can report. Each one has a heading of the same name on the CLI page. */
@@ -20,6 +20,8 @@ export const DOCTOR_CHECKS: readonly string[] = [
   'angular-build-istanbul-module-cache',
   'angular-build-splitting-deprecated',
   'angular-build-splitting-off',
+  'angular-cache-off-in-ci',
+  'angular-testbed-split',
   'builder-setup-unreached',
   'coverage-all-removed',
   'coverage-include-misses-bundle',
@@ -29,6 +31,7 @@ export const DOCTOR_CHECKS: readonly string[] = [
   'fs-module-cache-not-persisted',
   'helper-from-wrong-entry',
   'jasmine-era-project',
+  'mock-registry-capture-drops-sentinel',
   'mock-reset-config-unread',
   'module-mock-leak',
   'no-agent-instructions',
@@ -36,14 +39,25 @@ export const DOCTOR_CHECKS: readonly string[] = [
   'orphan-runner-file',
   'runner-dom-differs-from-builder',
   'scan-cap-reached',
+  'shared-env-without-restore',
   'spec-exports-fixture',
   'spec-imported-by-non-spec',
   'tsconfig-file-missing',
   'tsconfig-glob-matches-nothing',
   'vitest-5-available',
+  'vitest-5-bundled-package',
   'vitest-5-clear-mocks',
   'vitest-5-deprecated',
+  'vitest-5-empty-throw-message',
+  'vitest-5-extends-restated',
+  'vitest-5-matchers-augmentation',
+  'vitest-5-nested-hoist',
+  'vitest-5-project-own-server',
+  'vitest-5-prune-mock-registry',
   'vitest-5-removed',
+  'vitest-5-report-path',
+  'vitest-5-vite-peer',
+  'vitest-entry-without-vitest',
 ];
 
 const PERF_SECTIONS: Readonly<Record<string, string>> = {
@@ -53,6 +67,10 @@ const PERF_SECTIONS: Readonly<Record<string, string>> = {
   'perf-import': 'perf-import',
   'perf-import-barrel': 'perf-import',
   'perf-isolation': 'perf-isolation',
+  'perf-isolation-ab': 'perf-isolation',
+  'perf-pool': 'perf-pool',
+  'perf-coverage': 'perf-coverage',
+  'perf-hung': 'perf-hung',
   'perf-workers': 'perf-workers',
   'perf-flaky': 'perf-flaky',
   'perf-heap': 'perf-heap',
