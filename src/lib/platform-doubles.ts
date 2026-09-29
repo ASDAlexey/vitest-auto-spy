@@ -33,7 +33,7 @@
  * handed that one. It is generic over the token's type, so an app whose token is
  * `InjectionToken<AppWindow>` gets its own members checked in the overrides too.
  */
-import { DOCUMENT, type FactoryProvider, type ProviderToken } from '@angular/core';
+import { DOCUMENT, type FactoryProvider, PLATFORM_ID, type ProviderToken, type ValueProvider } from '@angular/core';
 
 /** How many levels of slicing the type follows. Beyond it a member takes its whole type. */
 type Levels = [never, 0, 1, 2, 3];
@@ -298,4 +298,39 @@ export function provideDocumentDouble(
   token: ProviderToken<Document> = DOCUMENT,
 ): FactoryProvider {
   return { provide: token, useFactory: (): Document => createDocumentDouble(overrides) };
+}
+
+/** The two platforms `isPlatformBrowser()` / `isPlatformServer()` tell apart. */
+export type PlatformName = 'browser' | 'server';
+
+/** The application's own boolean tokens that derive from `PLATFORM_ID`, provided to agree with it. */
+export interface PlatformFlagTokens {
+  readonly isBrowser?: ProviderToken<boolean>;
+  readonly isServer?: ProviderToken<boolean>;
+}
+
+/**
+ * Run the code under test on one platform: `PLATFORM_ID`, and the app's own flags beside it.
+ *
+ * ```ts
+ * TestBed.configureTestingModule({ providers: [providePlatform('server', { isBrowser: IS_PLATFORM_BROWSER })] });
+ * ```
+ *
+ * The hand-written `{ provide: PLATFORM_ID, useValue: 'server' }` is the most repeated provider in a
+ * suite with SSR guards, and its companion — a boolean token the app computes from `PLATFORM_ID` —
+ * is where it goes wrong: a spec that sets one and forgets the other runs half on each platform. Named
+ * here, the flags are provided with the value `PLATFORM_ID` implies, so they cannot disagree.
+ */
+export function providePlatform(platform: PlatformName, flags: PlatformFlagTokens = {}): ValueProvider[] {
+  const providers: ValueProvider[] = [{ provide: PLATFORM_ID, useValue: platform }];
+
+  if (flags.isBrowser !== undefined) {
+    providers.push({ provide: flags.isBrowser, useValue: platform === 'browser' });
+  }
+
+  if (flags.isServer !== undefined) {
+    providers.push({ provide: flags.isServer, useValue: platform === 'server' });
+  }
+
+  return providers;
 }

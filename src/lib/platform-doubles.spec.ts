@@ -4,12 +4,17 @@
  * back off `globalThis` rather than off a value written here, which is what would still pass if the
  * double had quietly stopped forwarding.
  */
-import { Component, DOCUMENT, InjectionToken, inject } from '@angular/core';
+import { isPlatformBrowser, isPlatformServer } from '@angular/common';
+import { Component, DOCUMENT, InjectionToken, PLATFORM_ID, inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 
-import { createDocumentDouble, createWindowDouble, provideDocumentDouble, provideWindowDouble } from './platform-doubles';
-import { mockValueProp } from './prop-mock';
+import { registerMockAdapter } from './mock-adapter';
+import { createDocumentDouble, createWindowDouble, provideDocumentDouble, providePlatform, provideWindowDouble } from './platform-doubles';
+import { mockAccessorsProp, mockValueProp } from './prop-mock';
+import { vitestMockAdapter } from './vitest-adapter';
+
+registerMockAdapter(vitestMockAdapter);
 
 interface AppWindow extends Window {
   appBuildId: string;
@@ -214,10 +219,12 @@ describe('createWindowDouble', () => {
     const win = createWindowDouble();
     const written: number[] = [];
 
-    Object.defineProperty(win, 'scrollY', {
+    const restore = mockAccessorsProp(win, 'scrollY', {
       get: (): number => 40,
       set: (value: number): void => void written.push(value),
     });
+
+    onTestFinished(restore);
 
     expect(win.scrollY).toBe(40);
 
@@ -328,5 +335,39 @@ describe('provideDocumentDouble', () => {
     TestBed.configureTestingModule({ providers: [provideDocumentDouble()] });
 
     expect(TestBed.inject(DOCUMENT).title).toBe(globalThis.document.title);
+  });
+});
+
+describe('providePlatform', () => {
+  const IS_BROWSER = new InjectionToken<boolean>('IS_BROWSER');
+  const IS_SERVER = new InjectionToken<boolean>('IS_SERVER');
+
+  @Component({ selector: 'vas-platform-probe', standalone: true, template: '' })
+  class PlatformProbeComponent {
+    readonly platform = inject(PLATFORM_ID);
+    readonly browser = inject(IS_BROWSER);
+    readonly server = inject(IS_SERVER);
+  }
+
+  it('puts the component on the server, with the app flags agreeing', () => {
+    TestBed.configureTestingModule({ providers: [providePlatform('server', { isBrowser: IS_BROWSER, isServer: IS_SERVER })] });
+
+    const probe = TestBed.createComponent(PlatformProbeComponent).componentInstance;
+
+    expect(isPlatformServer(probe.platform)).toBe(true);
+    expect(probe).toMatchObject({ browser: false, server: true });
+  });
+
+  it('puts it in the browser just as well', () => {
+    TestBed.configureTestingModule({ providers: [providePlatform('browser', { isBrowser: IS_BROWSER, isServer: IS_SERVER })] });
+
+    const probe = TestBed.createComponent(PlatformProbeComponent).componentInstance;
+
+    expect(isPlatformBrowser(probe.platform)).toBe(true);
+    expect(probe).toMatchObject({ browser: true, server: false });
+  });
+
+  it('provides only PLATFORM_ID when no flag is named', () => {
+    expect(providePlatform('server')).toEqual([{ provide: PLATFORM_ID, useValue: 'server' }]);
   });
 });
