@@ -9,17 +9,20 @@
  */
 import { join, relative, resolve } from 'node:path';
 
-import { SCAN_CAP_ENV, readTextFile, scanCap, toPosix, writeTextFile } from '../fs-scan';
+import { writeFileAtomic } from '../atomic-write';
+import { SCAN_CAP_ENV, readTextFile, scanCap, toPosix } from '../fs-scan';
 import type { CliIo } from '../main';
 import { readProfile } from '../profile';
 import type { Finding } from '../report';
-import { formatFindings, summarize } from '../report';
-import { ownPackageRoot } from '../self';
+import { REPORT_SCHEMA, findingJson, formatFindings, sortFindings, summarize, tallyOf } from '../report';
+import { ownPackageRoot, ownVersion } from '../self';
 import type { FileResult, FromMode } from './codemod';
 import { FROM_ACCEPTED, TRANSFORMS, residueOf, resolveFrom, runTransforms, selectTransforms, transformsFor } from './codemod';
 import { unifiedDiff } from './diff';
+import { note } from './edits';
 import type { EntryMap } from './entry-map';
 import { buildEntryMap, findPackageRoot } from './entry-map';
+import { vitestGlobals } from './globals';
 import type { SyntaxParser } from './syntax-check';
 import { brokeSyntax, brokeSyntaxNote, loadParser } from './syntax-check';
 import type { TransformSpec } from './transform-context';
@@ -34,6 +37,8 @@ export interface CodemodOptions {
   readonly from: string | undefined;
   /** Repository-relative paths to restrict the run to. Empty means every spec file. */
   readonly paths: readonly string[];
+  /** `--format`; `text` when absent. */
+  readonly format?: string | undefined;
 }
 
 // JavaScript spec files count: the mask and the transforms are language-independent, and a Jest
@@ -148,8 +153,46 @@ export function readAll(cwd: string, files: readonly string[]): [string, string]
   });
 }
 
-function verifyCommand(cwd: string, files: readonly string[], selected: readonly TransformSpec[], mode: FromMode, io: CliIo): number {
-  const findings = readAll(cwd, files).flatMap(([file, text]) => residueOf(file, text, transformsFor(mode, selected, text)));
+function failureNote(file: string, error: unknown, writing: boolean): Finding {
+  const reason = error instanceof Error ? error.message : String(error);
+
+  return note({
+    check: writing ? 'codemod-write-failed' : 'codemod-file-failed',
+    severity: 'error',
+    file,
+    line: 1,
+    message: writing ? `The rewrite could not be written: ${reason}` : `The codemod stopped on this file: ${reason}`,
+    fix: writing
+      ? 'The file on disk is unchanged. Fix the permission or the disk and run again.'
+      : 'Nothing in this file was changed and the rest of the run went on. Migrate it by hand, and report the file shape that did this.',
+  });
+}
+
+/** One file's work, with a failure turned into a finding so the other files still run. */
+function guarded<T>(file: string, work: () => T, failed: (finding: Finding) => T): T {
+  try {
+    return work();
+  } catch (error) {
+    return failed(failureNote(file, error, false));
+  }
+}
+
+function verifyCommand(cwd: string, files: readonly string[], plan: RunPlan, io: CliIo): number {
+  const { selected, mode } = plan;
+  const findings = readAll(cwd, files).flatMap(([file, text]) =>
+    guarded(
+      file,
+      () => residueOf(file, text, transformsFor(mode, selected, text)),
+      (finding) => [finding],
+    ),
+  );
+  const exitCode = findings.length === 0 ? 0 : 1;
+
+  if (plan.options.format === 'json') {
+    io.out(JSON.stringify(codemodDocument(plan, cwd, { results: [], findings }, exitCode), undefined, 2));
+
+    return exitCode;
+  }
 
   io.out(`${files.length} files matched against ${selected.length} transform patterns.\n`);
 
@@ -175,6 +218,7 @@ interface RunPlan {
   readonly selected: readonly TransformSpec[];
   readonly mode: FromMode;
   readonly profileEntry: string;
+  readonly globals: boolean | undefined;
 }
 
 /**
@@ -201,31 +245,67 @@ export function verified(parser: SyntaxParser | undefined, result: FileResult): 
   };
 }
 
+function failedResult(file: string, source: string, finding: Finding): FileResult {
+  return { file, before: source, after: source, fired: new Map(), importLines: [], notes: [finding], residue: [] };
+}
+
+function transformOne(
+  file: string,
+  source: string,
+  plan: RunPlan,
+  entries: EntryMap | undefined,
+  parser: SyntaxParser | undefined,
+): FileResult[] {
+  const selected = transformsFor(plan.mode, plan.selected, source);
+
+  if (!selected.some((transform) => transform.residue.test(source))) {
+    return [];
+  }
+
+  return [verified(parser, runTransforms({ file, source, entries, preferredEntry: plan.profileEntry, selected, globals: plan.globals }))];
+}
+
+/** Writes one result; a failure keeps the file as it was and says so. */
+function written(cwd: string, result: FileResult): FileResult {
+  try {
+    writeFileAtomic(join(cwd, result.file), result.after);
+
+    return result;
+  } catch (error) {
+    return {
+      ...result,
+      after: result.before,
+      fired: new Map(),
+      importLines: [],
+      notes: [...result.notes, failureNote(result.file, error, true)],
+    };
+  }
+}
+
 function transformAll(cwd: string, files: readonly string[], plan: RunPlan): RunTotals {
-  const { options, profileEntry } = plan;
   const entries = buildEntryMap(findPackageRoot(cwd, ownPackageRoot()));
   const parser = loadParser(cwd);
-  const results = readAll(cwd, files).flatMap(([file, source]) => {
-    const selected = transformsFor(plan.mode, plan.selected, source);
-
-    return selected.some((transform) => transform.residue.test(source))
-      ? [verified(parser, runTransforms({ file, source, entries, preferredEntry: profileEntry, selected }))]
-      : [];
-  });
-  const touched = results.filter((result) => result.before !== result.after || result.notes.length > 0 || result.residue.length > 0);
-
-  if (options.write) {
-    for (const result of touched) {
-      writeTextFile(join(cwd, result.file), result.after);
-    }
-  }
+  const results = readAll(cwd, files).flatMap(([file, source]) =>
+    guarded(
+      file,
+      () => transformOne(file, source, plan, entries, parser),
+      (finding) => [failedResult(file, source, finding)],
+    ),
+  );
+  const touched = results
+    .filter((result) => result.before !== result.after || result.notes.length > 0 || result.residue.length > 0)
+    .map((result) => (plan.options.write && result.before !== result.after ? written(cwd, result) : result));
 
   return { results: touched, findings: touched.flatMap((result) => [...result.notes, ...result.residue]) };
 }
 
+function editCount(result: FileResult): number {
+  return [...result.fired.values()].reduce((sum, count) => sum + count, 0);
+}
+
 function summary(totals: RunTotals, write: boolean): string {
   const changed = totals.results.filter((result) => result.before !== result.after);
-  const edits = changed.reduce((sum, result) => sum + [...result.fired.values()].reduce((inner, count) => inner + count, 0), 0);
+  const edits = changed.reduce((sum, result) => sum + editCount(result), 0);
   const verb = write ? 'written' : 'would change';
 
   return `${changed.length} file${changed.length === 1 ? '' : 's'} ${verb}, ${edits} edit${edits === 1 ? '' : 's'}`;
@@ -249,6 +329,12 @@ export function runCodemod(cwd: string, options: CodemodOptions, io: CliIo): num
     return 2;
   }
 
+  if (options.format === 'markdown') {
+    io.err('codemod prints text or json; --format markdown is for doctor and perf. Nothing ran.');
+
+    return 2;
+  }
+
   const profile = readProfile(cwd);
 
   if (profile.filesTruncated) {
@@ -258,8 +344,11 @@ export function runCodemod(cwd: string, options: CodemodOptions, io: CliIo): num
   }
 
   const selection = selectFiles(cwd, profile.files, options.paths);
+  const json = options.format === 'json';
 
-  io.out(`vitest-auto-spy codemod — ${cwd}`);
+  if (!json) {
+    io.out(`vitest-auto-spy codemod — ${cwd}`);
+  }
 
   if (selection.missing.length > 0 && !options.list) {
     io.err(`\nNo file under ${cwd} matches ${selection.missing.join(', ')}. Nothing was read, so nothing here is a clean result.`);
@@ -270,19 +359,75 @@ export function runCodemod(cwd: string, options: CodemodOptions, io: CliIo): num
   if (options.list) {
     // `auto` decides per file, so the listing shows every transform it might reach; a named
     // dialect narrows the table to what this run would actually apply.
-    io.out(listing(buildEntryMap(findPackageRoot(cwd, ownPackageRoot())), mode === 'auto' ? selected : transformsFor(mode, selected, '')));
+    const entries = buildEntryMap(findPackageRoot(cwd, ownPackageRoot()));
+    const shown = mode === 'auto' ? selected : transformsFor(mode, selected, '');
+
+    io.out(json ? JSON.stringify(listingDocument(entries, shown), undefined, 2) : listing(entries, shown));
 
     return 0;
   }
 
+  const plan: RunPlan = { options, selected, mode, profileEntry: profile.entry, globals: vitestGlobals(profile) };
+
   if (options.verify) {
-    return verifyCommand(cwd, selection.files, selected, mode, io);
+    return verifyCommand(cwd, selection.files, plan, io);
   }
 
-  return report(transformAll(cwd, selection.files, { options, selected, mode, profileEntry: profile.entry }), options, io);
+  return report(transformAll(cwd, selection.files, plan), plan, cwd, io);
 }
 
-function report(totals: RunTotals, options: CodemodOptions, io: CliIo): number {
+export function listingDocument(entries: EntryMap | undefined, selected: readonly TransformSpec[]): object {
+  return {
+    schema: REPORT_SCHEMA,
+    command: 'codemod',
+    version: ownVersion(),
+    transforms: TRANSFORMS.map((transform) => ({
+      id: transform.id,
+      family: transform.family,
+      summary: transform.summary,
+      selected: selected.includes(transform),
+    })),
+    entries:
+      entries === undefined
+        ? null
+        : { source: entries.source, byName: Object.fromEntries([...entries.byName].sort(([a], [b]) => a.localeCompare(b))) },
+  };
+}
+
+/** `--format json`: the whole run as one document, for CI to read instead of scraping the text. */
+function codemodDocument(plan: RunPlan, cwd: string, totals: RunTotals, exitCode: number): object {
+  return {
+    schema: REPORT_SCHEMA,
+    command: 'codemod',
+    version: ownVersion(),
+    cwd,
+    run: plan.options.verify ? 'verify' : plan.options.write ? 'write' : 'dry-run',
+    exitCode,
+    tally: tallyOf(totals.findings),
+    files: totals.results.map((result) => ({
+      file: result.file,
+      changed: result.before !== result.after,
+      edits: editCount(result),
+      fired: Object.fromEntries([...result.fired].sort(([a], [b]) => a.localeCompare(b))),
+      imports: result.importLines,
+      diff: unifiedDiff(result.file, result.before, result.after),
+    })),
+    findings: sortFindings(totals.findings).map(findingJson),
+  };
+}
+
+function report(totals: RunTotals, plan: RunPlan, cwd: string, io: CliIo): number {
+  const { options } = plan;
+  // Every note this command produces is a warning or an error — it only writes one when a span was
+  // left alone — so a non-empty report is always something a person still has to do.
+  const exitCode = totals.findings.length === 0 ? 0 : 1;
+
+  if (options.format === 'json') {
+    io.out(JSON.stringify(codemodDocument(plan, cwd, totals, exitCode), undefined, 2));
+
+    return exitCode;
+  }
+
   io.out(options.write ? 'Writing files.\n' : 'Dry run — nothing is written. Re-run with --write to apply.\n');
 
   for (const result of totals.results) {
@@ -291,14 +436,12 @@ function report(totals: RunTotals, options: CodemodOptions, io: CliIo): number {
 
   io.out(`\n${summary(totals, options.write)}`);
 
-  if (totals.findings.length === 0) {
+  if (exitCode === 0) {
     return 0;
   }
 
   io.out(`\n${formatFindings(totals.findings)}`);
   io.out(`\n${summarize(totals.findings)}`);
 
-  // Every note this command produces is a warning or an error — it only writes one when a span was
-  // left alone — so a non-empty report is always something a person still has to do.
-  return 1;
+  return exitCode;
 }
