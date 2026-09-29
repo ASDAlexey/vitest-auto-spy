@@ -39,7 +39,7 @@ Each section below follows the same order:
 ## The fifty-seven rules {#the-twenty-five-rules}
 
 The rules are grouped by subject, as on the [plugin page](/utilities/eslint-plugin#rules). Every
-rule is `error` except eleven.
+rule is `error` except twelve.
 
 | Rule                                                                    | Default | Reports                                                                                                                                                    |
 | ----------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1963,8 +1963,10 @@ are never reported:
 - the return value of a `vi.mock` factory;
 - a literal that holds a function, such as a hand-written double.
 
-**Repeats** are compared by source text with whitespace ignored. Copies count only when the literal holds at least `minValues` values, and at least one of them is a string, number or boolean. So `[node]`, `{ property }` and
-`{ method: 'GET' }` are not reported. When a repeated literal contains other repeated literals, only the outer one is reported.
+**Repeats** are compared by source text with whitespace ignored. A literal needs at least `minValues`
+values before its copies count, and one of them must be a string, number or boolean written out.
+`[node]`, `{ property }` and `{ method: 'GET' }` hold one value each, so they are not reported. If an
+order written three times contains an address also written three times, only the order is reported.
 
 **Mock files are skipped:** `*.mock.ts`, `*.mocks.ts`, `*.fixture.ts`, `*.fixtures.ts` and files
 under `__mocks__/`.
@@ -4065,7 +4067,10 @@ silent:
 "test": { "builder": "@angular/build:unit-test", "options": { "buildTarget": "shop:build" } }
 ```
 
-A configuration named in `buildTarget` (`shop:build:development`) that sets its own `externalDependencies` replaces the list in `options`, so add the alias there as well. The same goes for a test configuration that points `buildTarget` at another target.
+If `buildTarget` names a configuration (`shop:build:development`) that sets its own
+`externalDependencies`, that list replaces the one in `options`: add the alias to it as well. A
+configuration without its own list uses the one in `options`. If a configuration of the test target
+points `buildTarget` somewhere else, add the alias to the list that target reads.
 
 **Why it is recommended.** The line throws when the file is collected, and nothing lifts the guard.
 

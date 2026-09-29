@@ -90,7 +90,7 @@ need different severities.
 
 ### 3. Type information: only four rules need it {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Fifty-two rules read only the file itself. They work without `parserOptions.project`, add no
+Fifty-three rules read only the file itself. They work without `parserOptions.project`, add no
 noticeable lint time, and work even when your specs are not in any `tsconfig`.
 
 Four rules read TypeScript types:
@@ -114,7 +114,7 @@ languageOptions: {
 On an existing project, expect the first run to be red. Forty-five rules are `error`, and that is
 the intended default.
 
-Eleven rules are `warn`. They show up in the output but do not fail the build:
+Twelve rules are `warn`. They show up in the output but do not fail the build:
 
 - **A cost, not a defect:** [`prefer-render-shallow`](/utilities/eslint-rules#prefer-render-shallow).
 - **Evidence is a guess from one file:**

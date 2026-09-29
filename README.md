@@ -48,7 +48,7 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 - **One API on every runner**: Vitest, Bun, `node:test` and Rstest; helpers for Angular, NestJS,
   React, Vue / Pinia and Svelte.
 - **Checks that make silent tests fail**: strict mode, Observable assertions, cleanup between tests,
-  56 ESLint rules.
+  57 ESLint rules.
 - **Zero runtime dependencies.**
 
 ## Contents
@@ -3515,7 +3515,7 @@ Full page: [Observer stubs](https://asdalexey.github.io/vitest-auto-spy/utilitie
 
 ## ESLint plugin
 
-`vitest-auto-spy/eslint-plugin` has 56 lint rules that catch test code which passes but checks
+`vitest-auto-spy/eslint-plugin` has 57 lint rules that catch test code which passes but checks
 nothing, or drifts from the real class. Each message links to the fix.
 
 ```js

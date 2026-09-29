@@ -243,7 +243,7 @@ request в GitLab.
 <div class="vas-fact"><b>0</b><span>runtime-зависимостей</span></div>
 <div class="vas-fact"><b>4</b><span>среды, одно ядро</span></div>
 <div class="vas-fact"><b>5</b><span>адаптеров фреймворков</span></div>
-<div class="vas-fact"><b>56</b><span>правил линтера</span></div>
+<div class="vas-fact"><b>57</b><span>правил линтера</span></div>
 <div class="vas-fact"><b>100%</b><span>покрытие ядра</span></div>
 
 </div>

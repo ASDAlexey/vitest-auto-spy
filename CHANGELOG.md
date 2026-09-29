@@ -17,7 +17,7 @@ The latest released version here must always match the one published on
   `maxLines`, `repeats` and `minValues` tune it. Module wiring (`providers`, `imports`…), `it.each`
   tables, `vi.mock` factories, literals holding a function and the mock files themselves are never
   reported. On an 886-file Angular suite it flags 215 files at the defaults.
-  `/eslint-plugin` grows by 1.51 kB (50.96 → 52.48 kB, +3.0 %): 1.08 kB for this rule, the rest for
+  `/eslint-plugin` grows by 1.50 kB (50.96 → 52.46 kB, +2.9 %): 1.08 kB for this rule, the rest for
   reading `externalDependencies` below.
 
 ### Fixed
