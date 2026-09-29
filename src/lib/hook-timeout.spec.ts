@@ -12,6 +12,8 @@ import { describe, expect, it } from 'vitest';
 
 import { annotateHookTimeout, describeHookTimeout, readRunnerTimeouts } from './hook-timeout';
 
+const ASYMMETRIC_TIMEOUTS = { testTimeout: 30_000, hookTimeout: 10_000 };
+
 /** The runner's wording, reproduced exactly — the regexp keys on it. */
 function hookTimeoutError(limit: number): Error {
   return new Error(
@@ -21,9 +23,9 @@ function hookTimeoutError(limit: number): Error {
 
 describe('readRunnerTimeouts', () => {
   it('reads the pair off the worker the runner installed', () => {
-    const host = { __vitest_worker__: { config: { testTimeout: 30_000, hookTimeout: 10_000 } } };
+    const host = { __vitest_worker__: { config: ASYMMETRIC_TIMEOUTS } };
 
-    expect(readRunnerTimeouts(host)).toEqual({ testTimeout: 30_000, hookTimeout: 10_000 });
+    expect(readRunnerTimeouts(host)).toEqual(ASYMMETRIC_TIMEOUTS);
   });
 
   it('gives up on a host with no worker at all, rather than throwing', () => {
@@ -45,7 +47,7 @@ describe('readRunnerTimeouts', () => {
 
 describe('describeHookTimeout', () => {
   it('names both budgets and the field to set', () => {
-    const message = describeHookTimeout({ testTimeout: 30_000, hookTimeout: 10_000 });
+    const message = describeHookTimeout(ASYMMETRIC_TIMEOUTS);
 
     expect(message).toContain('hookTimeout is 10000ms while testTimeout is 30000ms');
     expect(message).toContain('Vitest resolves `hookTimeout` on its own and defaults it to 10000ms');
@@ -55,12 +57,10 @@ describe('describeHookTimeout', () => {
 });
 
 describe('annotateHookTimeout', () => {
-  const asymmetric = { testTimeout: 30_000, hookTimeout: 10_000 };
-
   it('appends the reason to a hook that ran out of the run-wide budget', () => {
     const error = hookTimeoutError(10_000);
 
-    annotateHookTimeout([error], asymmetric);
+    annotateHookTimeout([error], ASYMMETRIC_TIMEOUTS);
 
     expect(error.message).toContain('Hook timed out in 10000ms.');
     expect(error.message).toContain('[vitest-auto-spy] hookTimeout is 10000ms while testTimeout is 30000ms');
@@ -69,8 +69,8 @@ describe('annotateHookTimeout', () => {
   it('appends once, however often the teardown runs', () => {
     const error = hookTimeoutError(10_000);
 
-    annotateHookTimeout([error], asymmetric);
-    annotateHookTimeout([error], asymmetric);
+    annotateHookTimeout([error], ASYMMETRIC_TIMEOUTS);
+    annotateHookTimeout([error], ASYMMETRIC_TIMEOUTS);
 
     expect(error.message.match(/\[vitest-auto-spy] hookTimeout/g)).toHaveLength(1);
   });
@@ -78,7 +78,7 @@ describe('annotateHookTimeout', () => {
   it('leaves a hook that named its own timeout alone — the config is not to blame for that one', () => {
     const error = hookTimeoutError(300);
 
-    annotateHookTimeout([error], asymmetric);
+    annotateHookTimeout([error], ASYMMETRIC_TIMEOUTS);
 
     expect(error.message).not.toContain('[vitest-auto-spy]');
   });
@@ -87,7 +87,7 @@ describe('annotateHookTimeout', () => {
     const assertion = new Error('expected 404 to be 401');
     const testTimeout = new Error('Test timed out in 30000ms.');
 
-    annotateHookTimeout([assertion, testTimeout], asymmetric);
+    annotateHookTimeout([assertion, testTimeout], ASYMMETRIC_TIMEOUTS);
 
     expect(assertion.message).toBe('expected 404 to be 401');
     expect(testTimeout.message).toBe('Test timed out in 30000ms.');
@@ -112,6 +112,6 @@ describe('annotateHookTimeout', () => {
   it('survives an entry the runner serialised into something without a string message', () => {
     const entries = [null, 'a bare string', { message: 42 }];
 
-    expect(() => annotateHookTimeout(entries, asymmetric)).not.toThrow();
+    expect(() => annotateHookTimeout(entries, ASYMMETRIC_TIMEOUTS)).not.toThrow();
   });
 });
