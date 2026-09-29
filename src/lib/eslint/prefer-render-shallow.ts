@@ -3,7 +3,7 @@
  * counts every rule it still defines inline against its own line budget.
  */
 import { defineRule } from './define-rule';
-import { RENDER_MESSAGES, rendersOnlyWhatIsRead, templatePolicy } from './dom-reads';
+import { RENDER_MESSAGES, rendersOnlyWhatIsRead, templateFreeListeners, templatePolicy } from './dom-reads';
 import { argumentList } from './message-data';
 import { renderShallowSuggestion } from './render-shallow-fold';
 import type { EsCallExpression, EsNode, RuleModule } from './rule-types';
@@ -20,6 +20,7 @@ export const preferRenderShallow: RuleModule = defineRule({
     let exempt: boolean | undefined;
 
     return {
+      ...(templatePolicy(context) === 'never' ? templateFreeListeners(context) : {}),
       'CallExpression[callee.object.name="TestBed"][callee.property.name="createComponent"]': (node: EsCallExpression): void => {
         exempt ??= rendersOnlyWhatIsRead(context);
 

@@ -12,8 +12,18 @@
  * object the spec builds itself (`{ getAttribute: 'nope' }`) all spell the word and read nothing, and
  * each of them used to silence every `createComponent` in the file.
  */
-import { anyInSubtree, isCallExpression, isIdentifier, isMemberExpression, propertyName } from './rule-types';
-import type { EsNode, RuleContext } from './rule-types';
+import { DOCS } from '../message-link';
+import { findBinding } from './bindings';
+import {
+  anyInSubtree,
+  isCallExpression,
+  isFunctionNode,
+  isIdentifier,
+  isMemberExpression,
+  propertyName,
+  propertyValue,
+} from './rule-types';
+import type { EsNode, RuleContext, RuleListener } from './rule-types';
 
 /**
  * Members and helpers that only mean something against a rendered template.
@@ -61,8 +71,14 @@ export function templatePolicy(context: RuleContext): 'as-needed' | 'never' {
   return Reflect.get(Object(context.options[0]), 'templates') === 'never' ? 'never' : 'as-needed';
 }
 
+/** The recipe every `{ templates: 'never' }` finding links to: what a spec asserts once the DOM is gone. */
+export const TESTING_WITHOUT_THE_DOM = `${DOCS}/guides/testing-without-the-dom`;
+
 /** What `prefer-render-shallow` reports, kept here so `rules.ts` stays inside its line budget. */
 export const RENDER_MESSAGES = {
+  domAccess: `\`{{read}}\` reads the DOM, and this project set \`{ templates: 'never' }\`, which leaves markup to e2e. Assert on the component instead — its signals, outputs and the doubles it called: ${TESTING_WITHOUT_THE_DOM}`,
+  templateInSpec: `This \`@Component\` renders a template of its own, and this project set \`{ templates: 'never' }\`. Render the component under test with \`renderShallow\`; a directive gets \`createDirectiveHost\`, the one host the policy allows: ${TESTING_WITHOUT_THE_DOM}`,
+  shallowTemplate: `\`template:\` puts markup back into the shallow render, and this project set \`{ templates: 'never' }\`. Drop it and assert on the component's state; a directive gets \`createDirectiveHost\`: ${TESTING_WITHOUT_THE_DOM}`,
   keepTemplate:
     "`keepTemplate: true` puts the real template back, and this project set `{ templates: 'never' }`. Drop it, unless the component reads its own template through `viewChild` or content projection.",
   templatesNever:
@@ -173,4 +189,127 @@ export function rendersOnlyWhatIsRead(context: RuleContext): boolean {
   return templatePolicy(context) === 'as-needed'
     ? anyInSubtree(context, context.sourceCode.ast, readsTemplate, true)
     : buildsDirectiveHarness(context);
+}
+
+/** The calls that resolve a token — where `DOCUMENT` hands a spec the real document. */
+const INJECTORS = new Set(['inject', 'injectSpy']);
+
+/** The shallow-render helpers whose `template:` option is markup of the spec's own. */
+const SHALLOW_RENDERS = new Set(['renderShallow', 'prepareShallow']);
+
+/** `document` itself, as a value the spec reads — not a key, not a member, not a local of that name. */
+function isGlobalDocument(context: RuleContext, node: EsNode): boolean {
+  const { parent } = node;
+
+  if (!isIdentifier(node) || node.name !== 'document' || declaresMember(node)) {
+    return false;
+  }
+
+  if (isMemberExpression(parent) && parent.property === node && !parent.computed) {
+    return false;
+  }
+
+  return (findBinding(context.sourceCode.getScope(node), 'document')?.defs.length ?? 0) === 0;
+}
+
+/** `inject(DOCUMENT)`, `TestBed.inject(DOCUMENT)`. */
+function injectsDocument(node: EsNode): boolean {
+  const { parent } = node;
+
+  if (!isIdentifier(node) || node.name !== 'DOCUMENT' || !isCallExpression(parent) || parent.callee === node) {
+    return false;
+  }
+
+  const callee = isMemberExpression(parent.callee) ? parent.callee.property : parent.callee;
+
+  return isIdentifier(callee) && INJECTORS.has(callee.name);
+}
+
+/** Any `By.*` predicate — under the policy `By.all()` is as much a DOM query as `By.css()`. */
+function isByQuery(node: EsNode): boolean {
+  return isIdentifier(node) && node.name === 'By' && isMemberExpression(node.parent) && node.parent.object === node;
+}
+
+/** The node types whose children are statements. */
+const STATEMENT_LISTS = new Set(['Program', 'BlockStatement', 'StaticBlock', 'SwitchCase', 'ClassBody']);
+
+/** The statement a node belongs to, so a line reading three DOM members is reported once. */
+function statementOf(node: EsNode): EsNode {
+  let current = node;
+
+  while (!STATEMENT_LISTS.has(current.parent.type) && !(isFunctionNode(current.parent) && current.parent.body === current)) {
+    current = current.parent;
+  }
+
+  return current;
+}
+
+/** Whether a `template:` value renders something: anything but an empty string. */
+function rendersMarkup(value: EsNode): boolean {
+  const text: unknown = value.type === 'Literal' ? Reflect.get(value, 'value') : undefined;
+  const quasis: unknown = value.type === 'TemplateLiteral' ? Reflect.get(value, 'quasis') : undefined;
+  const blankTemplate =
+    Array.isArray(quasis) && quasis.length === 1 && Reflect.get(Object(Reflect.get(Object(quasis[0]), 'value')), 'raw') === '';
+
+  return text !== '' && !blankTemplate;
+}
+
+/** Whether a property is an option of a `renderShallow(Cmp, { … })` call, written inline. */
+function isShallowOption(property: EsNode): boolean {
+  const call = property.parent.parent;
+
+  return (
+    isCallExpression(call) && isIdentifier(call.callee) && SHALLOW_RENDERS.has(call.callee.name) && call.arguments[1] === property.parent
+  );
+}
+
+/** Whether a property is the metadata of a `@Component({ … })` decorator. */
+function isComponentMetadata(property: EsNode): boolean {
+  const call = property.parent.parent;
+
+  return isCallExpression(call) && call.parent.type === 'Decorator' && isIdentifier(call.callee) && call.callee.name === 'Component';
+}
+
+/**
+ * The `{ templates: 'never' }` half that is about the whole spec rather than one render: every DOM
+ * read, a `@Component` with markup of its own, and a shallow render handed a `template:`. A directive
+ * harness file is exempt from all of it, for the reason `buildsDirectiveHarness` gives.
+ */
+export function templateFreeListeners(context: RuleContext): RuleListener {
+  let exempt: boolean | undefined;
+  const reported = new Set<EsNode>();
+
+  const exempted = (): boolean => (exempt ??= buildsDirectiveHarness(context));
+
+  const readOf = (node: EsNode): void => {
+    const statement = statementOf(node);
+
+    if (reported.has(statement) || exempted()) {
+      return;
+    }
+
+    if (readsTemplate(node) || isGlobalDocument(context, node) || injectsDocument(node) || isByQuery(node)) {
+      reported.add(statement);
+      context.report({ node, messageId: 'domAccess', data: { read: context.sourceCode.getText(node) } });
+    }
+  };
+
+  return {
+    Identifier: readOf,
+    'MemberExpression > Literal.property': readOf,
+    Property: (node: EsNode): void => {
+      const name = propertyName(node);
+      const markup = name === 'templateUrl' || (name === 'template' && rendersMarkup(propertyValue(node)));
+
+      if (!markup || exempted()) {
+        return;
+      }
+
+      if (isComponentMetadata(node)) {
+        context.report({ node, messageId: 'templateInSpec' });
+      } else if (name === 'template' && isShallowOption(node)) {
+        context.report({ node, messageId: 'shallowTemplate' });
+      }
+    },
+  };
 }

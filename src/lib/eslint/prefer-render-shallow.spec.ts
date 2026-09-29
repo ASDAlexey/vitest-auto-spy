@@ -280,7 +280,8 @@ describe('prefer-render-shallow, { templates: "never" }', () => {
     `;
 
     expect(lint(reads)).toEqual([]);
-    expect(lintWith(reads, NEVER)).toEqual([`vitest-auto-spy/${RULE}`]);
+    // The render, and the DOM read on the line below it.
+    expect(lintWith(reads, NEVER)).toEqual([`vitest-auto-spy/${RULE}`, `vitest-auto-spy/${RULE}`]);
   });
 
   it('reports the policy, not a claim that the file reads nothing', () => {
