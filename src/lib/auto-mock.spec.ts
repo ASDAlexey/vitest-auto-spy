@@ -5,20 +5,18 @@
  * (`mockReturnValue`/`calledWith` for sync, `resolveWith` for promises),
  * `overrides` seeding wins over spy creation, and plain property access is sane.
  */
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { autoMocked, callSiteName, createAutoMock } from './auto-mock';
+import { useConsoleSpies } from './console-spy';
 import { takeStrictViolations } from './function-spy';
 import { registerMockAdapter } from './mock-adapter';
 import { mockValueProp, restoreMockedProps } from './prop-mock';
 import { resetAutoSpy } from './reset-auto-spy';
 import { vitestMockAdapter } from './vitest-adapter';
 
-// Self-contained: register the default Vitest adapter so the runtime-agnostic
-// core can create mock fns regardless of test-file isolation/order.
-beforeAll(() => {
-  registerMockAdapter(vitestMockAdapter);
-});
+// Self-contained, and before collection: useConsoleSpies() builds its spies while the describes run.
+registerMockAdapter(vitestMockAdapter);
 
 interface UserService {
   getName(id: number): string;
@@ -277,6 +275,8 @@ describe('the auto-spy brand', () => {
 });
 
 describe('createAutoMock returns configuration', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   interface Products {
     getProducts(): string[];
     label: string;
@@ -341,47 +341,38 @@ describe('createAutoMock returns configuration', () => {
   });
 
   it('says so when `returns` names a member the double never spies', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     // `then` is held back on purpose so the mock is not treated as a Promise — which also means a
     // return value configured for it could never be handed back.
     createAutoMock<{ then(): void }>(undefined, { returns: { then: undefined } });
 
-    expect(warn).toHaveBeenCalledWith(
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
       expect.stringContaining(
         "returns names 'then', which this double never turns into a spy: a double with a then would be awaited as a Promise. " +
           'Seed it through the overrides argument instead: { then: … }.\n' +
           'Docs: https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type#it-answers-everything-so-it-must-not-answer-these',
       ),
     );
-    warn.mockRestore();
   });
 
   it('names the probe a deny-listed key would have answered', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     createAutoMock<{ schedule(): void }>(undefined, { returns: { schedule: undefined } });
 
-    expect(warn).toHaveBeenCalledWith(
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
       expect.stringContaining("names 'schedule', which this double never turns into a spy: a library probes that key"),
     );
-    warn.mockRestore();
   });
 
   it('says so for constructor too, which answers Object rather than a spy', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     createAutoMock<{ constructor: () => void }>(undefined, { returns: { constructor: undefined } });
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("returns names 'constructor'"));
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining("returns names 'constructor'"));
   });
 
   it('answers constructor with Object, so an error path reading constructor.name works', () => {
     const users = createAutoMock<UserService>();
 
-    expect(Reflect.get(users, 'constructor')).toBe(Object);
-    expect(`${Reflect.get(Object(Reflect.get(users, 'constructor')), 'name')}`).toBe('Object');
+    expect(users.constructor).toBe(Object);
+    expect(users.constructor.name).toBe('Object');
   });
 
   it('still lets a seed or a delete decide constructor', () => {
@@ -390,8 +381,8 @@ describe('createAutoMock returns configuration', () => {
 
     Reflect.deleteProperty(deleted, 'constructor');
 
-    expect(Reflect.get(seeded, 'constructor')).toBe('seeded');
-    expect(Reflect.get(deleted, 'constructor')).toBeUndefined();
+    expect(seeded.constructor).toBe('seeded');
+    expect(deleted.constructor).toBeUndefined();
   });
 });
 
@@ -478,6 +469,8 @@ describe('createAutoMock — strict mode', () => {
 });
 
 describe('createAutoMock — selfReturning', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   interface EventLogger {
     info(message: string): void;
   }
@@ -536,12 +529,9 @@ describe('createAutoMock — selfReturning', () => {
   });
 
   it('says so, naming the option, when it names a member the double never spies', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     createAutoMock<{ then(): void }>(undefined, { selfReturning: ['then'] });
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("createAutoMock: selfReturning names 'then'"));
-    warn.mockRestore();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining("createAutoMock: selfReturning names 'then'"));
   });
 
   it('gives way to a seeded override that is a plain function, rather than configuring it as a mock', () => {
@@ -553,6 +543,8 @@ describe('createAutoMock — selfReturning', () => {
 });
 
 describe('createAutoMock — returns against a seeded override', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
   interface ProductService {
     getProducts(): string[];
   }
@@ -564,11 +556,61 @@ describe('createAutoMock — returns against a seeded override', () => {
   });
 
   it('leaves the seed alone without reporting it as a member the double never spies', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     createAutoMock<ProductService>({ getProducts: () => ['seeded'] }, { returns: { getProducts: ['registered'] } });
 
-    expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('createAutoMock — toString and valueOf', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
+  it('answers them with Object.prototype, so printing the double adds no spy', () => {
+    const mock = createAutoMock<UserService>();
+
+    expect(`${String(mock)}`).toBe('[object Object]');
+    expect(mock.valueOf()).toBe(mock);
+    expect(Reflect.ownKeys(mock)).toEqual([]);
+  });
+
+  it('keeps a seed or an assignment under either name', () => {
+    const mock = createAutoMock<{ toString(): string }>({ toString: () => 'seeded' });
+    const valueOf = vi.fn(() => 3);
+
+    mock.valueOf = valueOf;
+
+    expect(String(mock)).toBe('seeded');
+    expect(mock.valueOf).toBe(valueOf);
+  });
+
+  it('answers undefined for a deleted toString', () => {
+    const mock = createAutoMock<UserService>();
+
+    Reflect.deleteProperty(mock, 'toString');
+
+    expect(mock.toString).toBeUndefined();
+  });
+
+  it('reports returns naming toString instead of dropping it silently', () => {
+    createAutoMock<{ toString(): string }>(undefined, { returns: { toString: 'x' } });
+
+    expect(String(consoleWarnSpy.mock.calls[0]?.[0])).toContain(
+      "returns names 'toString', which this double never turns into a spy: it answers Object.prototype.toString",
+    );
+  });
+});
+
+describe('createAutoMock — returnsUndefined', () => {
+  interface CartStore {
+    add(id: number): void;
+    total(): number;
+  }
+
+  it('configures the named methods, so strict mode accepts the calls', () => {
+    const store = createAutoMock<CartStore>(undefined, { strict: true, returnsUndefined: ['add', 'total'], returns: { total: 2 } });
+
+    expect(store.add(1)).toBeUndefined();
+    expect(store.total()).toBe(2);
+    expect(takeStrictViolations()).toEqual([]);
   });
 });

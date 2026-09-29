@@ -34,6 +34,7 @@ import {
   dropStoredProp,
   hasStoredProp,
   isDeletedProp,
+  isObjectMethodKey,
   isProtocolKey,
   readStoredAccessor,
   storeDefinedProp,
@@ -137,6 +138,12 @@ function buildAutoMock<T, Options extends SpyOptions>(
     seeded,
     'selfReturning',
   );
+  applyMockReturns(
+    mock,
+    config?.returnsUndefined && Object.fromEntries(config.returnsUndefined.map((name) => [name, undefined])),
+    seeded,
+    'returnsUndefined',
+  );
   applyMockReturns(mock, config?.returns, seeded);
 
   return mock;
@@ -224,6 +231,11 @@ export interface AutoMockConfiguration<T> extends StrictSpyConfiguration {
    * `calledWith` / `mockReturnValue` still wins; a method also named in `returns` answers that value.
    */
   selfReturning?: OnlyMethodKeysOf<T>[];
+  /**
+   * Methods whose answer is `undefined`, counted as configured under `strict` — the list form of
+   * `returns: { m: undefined }`. A method also named in `returns` answers that value.
+   */
+  returnsUndefined?: OnlyMethodKeysOf<T>[];
 }
 
 /** Narrow an unknown member to the callable the adapter needs, without an assertion. */
@@ -234,6 +246,10 @@ function isCallable(value: unknown): value is Func {
 function heldBackReason(name: string): string {
   if (name === 'then') {
     return 'a double with a then would be awaited as a Promise. ';
+  }
+
+  if (isObjectMethodKey(name)) {
+    return `it answers Object.prototype.${name}, so printing the double does not add a spy to it. `;
   }
 
   return name === 'constructor'
@@ -270,7 +286,7 @@ function applyMockReturns(
     // value goes into the library's own container and no host mock API is reached for.
     const spy: unknown = Reflect.get(mock, name);
 
-    if (name === 'constructor' || !isCallable(spy)) {
+    if (name === 'constructor' || isObjectMethodKey(name) || !isCallable(spy)) {
       // Reachable for exactly the keys the proxy refuses to make a spy of — `then` and
       // `constructor`, held back so an auto-mock is not mistaken for a Promise. Silently dropping
       // the configuration is the one thing not to do: the value would simply never be returned.
@@ -384,6 +400,10 @@ function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown,
   // What every other double of this library answers, and what `value.constructor.name` in an error path needs.
   if (key === 'constructor' && !isDeletedProp(store, key)) {
     return Object;
+  }
+
+  if (isObjectMethodKey(key) && !isDeletedProp(store, key)) {
+    return Reflect.get(Object.prototype, key);
   }
 
   if (typeof key === 'symbol' || key === 'then' || isProtocolKey(key) || isDeletedProp(store, key)) {

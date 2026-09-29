@@ -17,10 +17,9 @@
  * `installConsoleSpies()` in a `beforeEach` and `restoreConsole()` in an `afterEach` yourself; the
  * entry also installs them on import, unless the stray-console guard owns the console.
  */
-import { afterEach, beforeEach } from 'vitest';
-
-import { createFunctionSpy } from './function-spy';
-import { getMockAdapter } from './mock-adapter';
+import { createFunctionSpy, reinstallDispatch } from './function-spy';
+import { getMockAdapter, hasMockAdapter } from './mock-adapter';
+import { getRunnerHooks } from './runner-hooks';
 import type { AddSpyMethodsByReturnTypes, Func } from './types';
 
 /** The call shape shared by every spied console method. */
@@ -75,6 +74,19 @@ function sharedOriginals(): Map<string, Func> {
 const originalMethods = new Map<SpiedConsoleMethod, Func>();
 const activeSpies = new Map<SpiedConsoleMethod, ConsoleMethodSpy>();
 let installedSpies: ConsoleSpies | undefined;
+// The channel of every call in the order they came, for `consoleLines()`: no runner keeps an order across mocks.
+let callOrder: ConsoleChannel[] = [];
+
+// Live bindings: where the runner's adapter registers after the entry is imported, the spies are
+// built by the first install and these pick them up.
+export let consoleDebugSpy: ConsoleMethodSpy;
+export let consoleErrorSpy: ConsoleMethodSpy;
+export let consoleInfoSpy: ConsoleMethodSpy;
+export let consoleLogSpy: ConsoleMethodSpy;
+export let consoleTimeEndSpy: ConsoleMethodSpy;
+export let consoleTimeSpy: ConsoleMethodSpy;
+export let consoleTraceSpy: ConsoleMethodSpy;
+export let consoleWarnSpy: ConsoleMethodSpy;
 
 function getConsoleMethod(method: SpiedConsoleMethod): Func {
   // eslint-disable-next-line no-console -- capturing the original implementation so `restoreConsole()` can put it back
@@ -87,7 +99,17 @@ function setConsoleMethod(method: SpiedConsoleMethod, implementation: Func): voi
 }
 
 function createMethodSpy(method: SpiedConsoleMethod): ConsoleMethodSpy {
-  const spy = createFunctionSpy<ConsoleMethodFn>(`console.${method}`);
+  const spy = createFunctionSpy<ConsoleMethodFn>(`console.${method}`, {
+    className: undefined,
+    implementation: true,
+    handle: (): undefined => {
+      if (isChannel(method)) {
+        callOrder.push(method);
+      }
+
+      return undefined;
+    },
+  });
 
   Object.defineProperty(spy, CONSOLE_SPY_MARK, { value: true });
   activeSpies.set(method, spy);
@@ -135,6 +157,9 @@ function createConsoleSpies(): ConsoleSpies {
     consoleWarnSpy: createMethodSpy('warn'),
   };
 
+  ({ consoleDebugSpy, consoleErrorSpy, consoleInfoSpy, consoleLogSpy, consoleTimeEndSpy, consoleTimeSpy, consoleTraceSpy, consoleWarnSpy } =
+    installedSpies);
+
   return installedSpies;
 }
 
@@ -169,7 +194,7 @@ function detachConsoleSpies(): void {
  * const spies = installConsoleSpies();
  *
  * service.doWork();
- * expect(spies.warn).toHaveBeenCalledWith('deprecated');
+ * expect(spies.consoleWarnSpy).toHaveBeenCalledWith('deprecated');
  * ```
  */
 export function installConsoleSpies(): ConsoleSpies {
@@ -184,8 +209,8 @@ export function installConsoleSpies(): ConsoleSpies {
  * Install the console spies before every test of the enclosing block and restore the console after
  * each. The bag is the same object in every test, so it is returned directly.
  *
- * Registers Vitest hooks (Bun resolves them to its own); on `node:test` and Rstest pair
- * `installConsoleSpies()` with `restoreConsole()` in that runner's hooks instead.
+ * Registers the hooks of the runner whose entry was imported (`vitest-auto-spy/node`, `/bun`,
+ * `/rstest`), or Vitest's own.
  *
  * @example
  * ```ts
@@ -200,10 +225,12 @@ export function installConsoleSpies(): ConsoleSpies {
  * ```
  */
 export function useConsoleSpies(): ConsoleSpies {
-  beforeEach(() => {
+  const hooks = getRunnerHooks('useConsoleSpies()');
+
+  hooks.beforeEach(() => {
     installConsoleSpies();
   });
-  afterEach(() => {
+  hooks.afterEach(() => {
     restoreConsole();
   });
 
@@ -212,9 +239,14 @@ export function useConsoleSpies(): ConsoleSpies {
 
 /**
  * The `/console` entry's import: installed unless the stray-console guard owns the console, since under
- * `isolate: false` an import runs once per worker and cannot scope itself to a file.
+ * `isolate: false` an import runs once per worker and cannot scope itself to a file. Before any runner
+ * entry registered an adapter, nothing is built: the first install does it.
  */
-export function consoleSpiesForImport(): ConsoleSpies {
+export function consoleSpiesForImport(): ConsoleSpies | undefined {
+  if (!hasMockAdapter()) {
+    return undefined;
+  }
+
   const spies = createConsoleSpies();
 
   if (Reflect.get(globalThis, '__vitestAutoSpyStrayConsole__') === undefined) {
@@ -230,7 +262,9 @@ export type ConsoleChannel = 'debug' | 'error' | 'info' | 'log' | 'trace' | 'war
 /** What a test wrote, per channel: the arguments of each call. A channel nothing wrote to is absent; keys come in alphabetical order. */
 export type ConsoleOutput = Partial<Record<ConsoleChannel, unknown[][]>>;
 
-const CHANNELS: ReadonlySet<string> = new Set<ConsoleChannel>(['debug', 'error', 'info', 'log', 'trace', 'warn']);
+const CHANNEL_LIST: readonly ConsoleChannel[] = ['debug', 'error', 'info', 'log', 'trace', 'warn'];
+
+const CHANNELS: ReadonlySet<string> = new Set<ConsoleChannel>(CHANNEL_LIST);
 
 function isChannel(method: string): method is ConsoleChannel {
   return CHANNELS.has(method);
@@ -249,29 +283,97 @@ function isChannel(method: string): method is ConsoleChannel {
  * ```
  */
 export function consoleOutput(): ConsoleOutput {
-  const adapter = getMockAdapter();
   const output: ConsoleOutput = {};
+
+  for (const [channel, calls] of recordedCalls('consoleOutput()')) {
+    if (calls.length > 0) {
+      output[channel] = calls.map((args) => [...args]);
+    }
+  }
+
+  return output;
+}
+
+/** One call to a console channel: the channel, then the arguments it was called with. */
+export type ConsoleLine = [channel: ConsoleChannel, ...args: unknown[]];
+
+/**
+ * Everything the console spies recorded, as one list in call order across channels — what
+ * `consoleOutput()` cannot say, since it groups per channel.
+ *
+ * @example
+ * ```ts
+ * cli.run(['--dry-run']);
+ * expect(consoleLines()).toStrictEqual([['warn', 'deprecated flag'], ['info', 'done']]);
+ * ```
+ */
+export function consoleLines(): ConsoleLine[] {
+  const calls: Record<ConsoleChannel, readonly unknown[][]> = { debug: [], error: [], info: [], log: [], trace: [], warn: [] };
+
+  for (const [channel, recorded] of recordedCalls('consoleLines()')) {
+    calls[channel] = recorded;
+  }
+
+  const left = {
+    debug: calls.debug.length,
+    error: calls.error.length,
+    info: calls.info.length,
+    log: calls.log.length,
+    trace: calls.trace.length,
+    warn: calls.warn.length,
+  };
+  const lines: ConsoleLine[] = [];
+  const kept: ConsoleChannel[] = [];
+
+  // A clear the spies went through without this module (`vi.clearAllMocks()`, `clearMocks: true`)
+  // drops a channel's oldest calls, so the calls still recorded are its last entries here.
+  for (const channel of [...callOrder].reverse()) {
+    const args = calls[channel][left[channel] - 1];
+
+    if (args !== undefined) {
+      left[channel] -= 1;
+      lines.push([channel, ...args]);
+      kept.push(channel);
+    }
+  }
+
+  callOrder = kept.reverse();
+
+  const unordered = CHANNEL_LIST.filter((channel) => left[channel] > 0).map((channel) => `console.${channel}`);
+
+  if (unordered.length > 0) {
+    throw new Error(
+      `[vitest-auto-spy] consoleLines() cannot order the calls of ${unordered.join(', ')}: a mockImplementation or ` +
+        'mockReturnValue on that spy answered them instead of the spy itself. Assert on consoleOutput(), or drop the override.',
+    );
+  }
+
+  return lines.reverse();
+}
+
+/** The recorded calls of every written channel's spy, refusing while no spy is on `console`. */
+function recordedCalls(reader: string): [ConsoleChannel, readonly unknown[][]][] {
+  const adapter = getMockAdapter();
+  const recorded: [ConsoleChannel, readonly unknown[][]][] = [];
   let installed = false;
 
   for (const [method, spy] of activeSpies) {
     installed ||= getConsoleMethod(method) === spy;
 
-    const calls = adapter.getCalls(spy);
-
-    if (isChannel(method) && calls.length > 0) {
-      output[method] = calls.map((args) => [...args]);
+    if (isChannel(method)) {
+      recorded.push([method, adapter.getCalls(spy)]);
     }
   }
 
   // Spies that are not on `console` recorded nothing, and an empty result would read as silence.
   if (!installed) {
     throw new Error(
-      '[vitest-auto-spy] consoleOutput() reads the console spies, and none is on console now. Call useConsoleSpies() in ' +
+      `[vitest-auto-spy] ${reader} reads the console spies, and none is on console now. Call useConsoleSpies() in ` +
         'the describe, or installConsoleSpies() in a beforeEach, first (under setupAutoSpy({ strayConsole }) importing the entry installs nothing).',
     );
   }
 
-  return output;
+  return recorded;
 }
 
 /**
@@ -283,10 +385,18 @@ export function consoleOutput(): ConsoleOutput {
  * ```
  */
 export function resetConsoleSpies(): void {
+  callOrder = [];
+
+  if (activeSpies.size === 0) {
+    return;
+  }
+
   const adapter = getMockAdapter();
 
+  // Bun's `mockReset` drops the spy's own implementation, and `consoleLines()` learns the order from it.
   for (const spy of activeSpies.values()) {
     adapter.reset(spy);
+    reinstallDispatch(spy);
   }
 }
 

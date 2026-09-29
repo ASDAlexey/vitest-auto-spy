@@ -7,7 +7,9 @@
 import { type Observable, firstValueFrom } from 'rxjs';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { useConsoleSpies } from './console-spy';
 import { createSpyFromInstance, restoreSpiedInstance } from './create-spy-from-instance';
+import { takeStrictViolations } from './function-spy';
 import { setMisconfigurationReaction } from './misconfiguration';
 import { registerMockAdapter } from './mock-adapter';
 import {
@@ -23,8 +25,10 @@ import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
 import { vitestMockAdapter } from './vitest-adapter';
 
+// At load, not in `beforeAll`: `useConsoleSpies()` builds its spies while the describes are collected.
+registerMockAdapter(vitestMockAdapter);
+
 beforeAll(() => {
-  registerMockAdapter(vitestMockAdapter);
   registerObservableSupport({
     addToFunctionSpy: addObservableHelpersToFunctionSpy,
     streamForFunctionSpy: createFunctionSpyStream,
@@ -75,6 +79,8 @@ function spyOn<T extends object>(instance: T, config?: ClassSpyConfiguration<T> 
 
 afterEach(() => {
   spied.splice(0).forEach(restoreSpiedInstance);
+  // Strict throws provoked on purpose stay recorded until taken, where a later file of a shared worker reads them.
+  takeStrictViolations();
 });
 
 describe('createSpyFromInstance — discovery', () => {
@@ -202,141 +208,89 @@ describe('createSpyFromInstance — configuration', () => {
 });
 
 describe('createSpyFromInstance — misconfiguration reports', () => {
+  const { consoleWarnSpy: warn } = useConsoleSpies();
+
   it('suggests the member a misspelled onlyMethodsToSpyOn entry most likely meant', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    spyOn(new PaymentsClient(), { onlyMethodsToSpyOn: ['refnud'] as unknown as ['refund'] });
 
-    try {
-      spyOn(new PaymentsClient(), { onlyMethodsToSpyOn: ['refnud'] as unknown as ['refund'] });
-
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("onlyMethodsToSpyOn names 'refnud' (did you mean 'refund'?), not a method of PaymentsClient."),
-      );
-      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('instanceMethodsToSpyOn'));
-    } finally {
-      warn.mockRestore();
-    }
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("onlyMethodsToSpyOn names 'refnud' (did you mean 'refund'?), not a method of PaymentsClient."),
+    );
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('instanceMethodsToSpyOn'));
   });
 
   it('suggests the member a misspelled returns key most likely meant', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    spyOn(new PaymentsClient(), { returns: { refnd: 'x' } as never });
 
-    try {
-      spyOn(new PaymentsClient(), { returns: { refnd: 'x' } as never });
-
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "createSpyFromInstance(PaymentsClient): returns names 'refnd', not a method of PaymentsClient — did you mean 'refund'?",
-        ),
-      );
-    } finally {
-      warn.mockRestore();
-    }
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "createSpyFromInstance(PaymentsClient): returns names 'refnd', not a method of PaymentsClient — did you mean 'refund'?",
+      ),
+    );
   });
 
   it('warns when onlyMethodsToSpyOn names a member the object does not have', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    spyOn(new PaymentsClient(), { onlyMethodsToSpyOn: ['refund', 'nope'] as unknown as ['refund'] });
 
-    try {
-      spyOn(new PaymentsClient(), { onlyMethodsToSpyOn: ['refund', 'nope'] as unknown as ['refund'] });
-
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "createSpyFromInstance(PaymentsClient): onlyMethodsToSpyOn names 'nope', not a method of PaymentsClient. " +
-            'The spy is there, but the code under test never calls it. If the constructor assigns it',
-        ),
-      );
-    } finally {
-      warn.mockRestore();
-    }
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "createSpyFromInstance(PaymentsClient): onlyMethodsToSpyOn names 'nope', not a method of PaymentsClient. " +
+          'The spy is there, but the code under test never calls it. If the constructor assigns it',
+      ),
+    );
   });
 
   it('stays quiet when the whitelist names an own callable field the class path cannot see', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const spy = spyOn(new PaymentsClient(), { onlyMethodsToSpyOn: ['charge'] });
 
-    try {
-      const spy = spyOn(new PaymentsClient(), { onlyMethodsToSpyOn: ['charge'] });
-
-      expect(vi.isMockFunction(spy.charge)).toBe(true);
-      expect(warn).not.toHaveBeenCalled();
-    } finally {
-      warn.mockRestore();
-    }
+    expect(vi.isMockFunction(spy.charge)).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('stays quiet on an object with no callable members, where the whitelist is the only description', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const dictionary: Record<string, () => void> = {};
 
-    try {
-      const dictionary: Record<string, () => void> = {};
+    spyOn(dictionary, { onlyMethodsToSpyOn: ['nope'] });
 
-      spyOn(dictionary, { onlyMethodsToSpyOn: ['nope'] });
-
-      expect(warn).not.toHaveBeenCalled();
-    } finally {
-      warn.mockRestore();
-    }
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('warns when a configured accessor names a method of the object', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    spyOn(new PaymentsClient(), { gettersToSpyOn: ['refund'] });
 
-    try {
-      spyOn(new PaymentsClient(), { gettersToSpyOn: ['refund'] });
-
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "createSpyFromInstance(PaymentsClient): gettersToSpyOn/settersToSpyOn names 'refund', a method of PaymentsClient, " +
-            "so the spied accessor put over it leaves nothing to call. Name it in methodsToSpyOn instead; for a signal() field read as a property, mockSignalProp(double, 'refund', initial).",
-        ),
-      );
-    } finally {
-      warn.mockRestore();
-    }
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "createSpyFromInstance(PaymentsClient): gettersToSpyOn/settersToSpyOn names 'refund', a method of PaymentsClient, " +
+          "so the spied accessor put over it leaves nothing to call. Name it in methodsToSpyOn instead; for a signal() field read as a property, mockSignalProp(double, 'refund', initial).",
+      ),
+    );
   });
 
   it('warns when a configured accessor names an own callable field, which the class path could not see', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    spyOn(new PaymentsClient(), { settersToSpyOn: ['charge'] });
 
-    try {
-      spyOn(new PaymentsClient(), { settersToSpyOn: ['charge'] });
-
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("names 'charge', a method of PaymentsClient"));
-    } finally {
-      warn.mockRestore();
-    }
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("names 'charge', a method of PaymentsClient"));
   });
 
   it('warns when returns or selfReturning name a method the call left real, and leaves it real', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const client = new PaymentsClient();
+    const spy = spyOn(client, { onlyMethodsToSpyOn: ['refund'], returns: { ping: 'x', refund: 'done' }, selfReturning: ['charge'] });
 
-    try {
-      const client = new PaymentsClient();
-      const spy = spyOn(client, { onlyMethodsToSpyOn: ['refund'], returns: { ping: 'x', refund: 'done' }, selfReturning: ['charge'] });
-
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "createSpyFromInstance(PaymentsClient): returns / selfReturning names 'ping', 'charge', which this call left as the real PaymentsClient method",
-        ),
-      );
-      expect(client.ping()).toBe('real-ping');
-      expect(client.charge(1)).toBe('real-charge 1');
-      expect(spy.refund('7')).toBe('done');
-    } finally {
-      warn.mockRestore();
-    }
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "createSpyFromInstance(PaymentsClient): returns / selfReturning names 'ping', 'charge', which this call left as the real PaymentsClient method",
+      ),
+    );
+    expect(client.ping()).toBe('real-ping');
+    expect(client.charge(1)).toBe('real-charge 1');
+    expect(spy.refund('7')).toBe('done');
   });
 
   it('stays quiet for names the object carries as accessors', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const spy = spyOn(new PaymentsClient(), { gettersToSpyOn: ['fees'], settersToSpyOn: ['limit'] });
 
-    try {
-      const spy = spyOn(new PaymentsClient(), { gettersToSpyOn: ['fees'], settersToSpyOn: ['limit'] });
-
-      expect(spy.accessorSpies.getters.fees).toBeDefined();
-      expect(warn).not.toHaveBeenCalled();
-    } finally {
-      warn.mockRestore();
-    }
+    expect(spy.accessorSpies.getters.fees).toBeDefined();
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 
@@ -352,7 +306,7 @@ describe('createSpyFromInstance — non-configurable members', () => {
         "[vitest-auto-spy] Cannot spy on 'send' in place: it is a non-configurable, non-enumerable own property",
       );
       expect(() => createSpyFromInstance(target, { onlyMethodsToSpyOn: ['send'] })).toThrow("mockValueProp(target, 'send', vi.fn())");
-      expect(Reflect.get(target, 'send')).toBe(method);
+      expect(target.send).toBe(method);
     } finally {
       restoreSpiedInstance(target);
     }
@@ -392,12 +346,13 @@ describe('createSpyFromInstance — non-configurable members', () => {
 });
 
 describe('createSpyFromInstance — live DOM/BOM objects', () => {
+  const { consoleWarnSpy: warn } = useConsoleSpies();
+
   afterEach(() => {
     setMisconfigurationReaction(undefined);
   });
 
   it('warns when discovery runs unrestricted on a live DOM node', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const el = document.createElement('div');
 
     try {
@@ -411,12 +366,10 @@ describe('createSpyFromInstance — live DOM/BOM objects', () => {
       );
     } finally {
       restoreSpiedInstance(el);
-      warn.mockRestore();
     }
   });
 
   it('stays quiet when onlyMethodsToSpyOn restricts discovery to the named methods', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const el = document.createElement('div');
 
     try {
@@ -425,20 +378,13 @@ describe('createSpyFromInstance — live DOM/BOM objects', () => {
       expect(warn).not.toHaveBeenCalled();
     } finally {
       restoreSpiedInstance(el);
-      warn.mockRestore();
     }
   });
 
   it('stays quiet for a plain object, which is never a live host object', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    spyOn(new PaymentsClient());
 
-    try {
-      spyOn(new PaymentsClient());
-
-      expect(warn).not.toHaveBeenCalled();
-    } finally {
-      warn.mockRestore();
-    }
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('fails at the call site, before anything is patched, when misconfiguration is set to throw', () => {
@@ -541,6 +487,8 @@ describe('createSpyFromInstance — live DOM/BOM objects', () => {
 });
 
 describe('createSpyFromInstance — registered defaults', () => {
+  const { consoleWarnSpy: warn } = useConsoleSpies();
+
   it('applies the registration of the class the instance came from', () => {
     registerAutoSpyDefaults(PaymentsClient, { gettersToSpyOn: ['fees'] });
 
@@ -567,8 +515,6 @@ describe('createSpyFromInstance — registered defaults', () => {
   });
 
   it('keeps every other member real when the call site lists its only methods', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
     registerAutoSpyDefaults(PaymentsClient, {
       gettersToSpyOn: ['fees'],
       settersToSpyOn: ['limit'],
@@ -592,7 +538,6 @@ describe('createSpyFromInstance — registered defaults', () => {
       expect(warn).not.toHaveBeenCalled();
     } finally {
       clearAutoSpyDefaults();
-      warn.mockRestore();
     }
   });
 
