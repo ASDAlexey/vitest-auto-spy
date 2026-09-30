@@ -51,6 +51,20 @@ not with the intersection spelt out. `returns` also takes an optional method wri
 `getMinZoom?: (() => number) | undefined` — the way Leaflet and other third-party typings declare
 them.
 
+**Options alone go in the first argument** when nothing is seeded:
+`createAutoMock<EventSource>({ returnsUndefined: ['close'] })`. The single argument is read as options
+only when every key is an option and at least one is `returnsUndefined`, `selfReturning`,
+`returnsClass`, `observablePropsToSpyOn`, `onUnstubbedCall` or `onUnstubbedRead`; `autoMocked` reads
+it the same way. `{ strict: true }`, `{ name }` or `{ returns }` alone could be members of `T`, so the
+compiler rejects them there — pass them second, `createAutoMock<T>(undefined, { strict: true })`. Any
+second argument (`{}` included) keeps the first a seed.
+
+**A method that returns another class's double is one entry:** `returnsClass: { create: Report }` on
+any factory that takes `returns` builds `createSpyFromClass(Report)` once per outer double and makes
+`create()` answer it. Reach it with `asSpy(factory.create('a'))` — typed `Spy<Report>`, but that read
+is a recorded call, so keep `const report = createSpyFromClass(Report)` +
+`returns: { create: asInstance(report) }` when the spec asserts `create`'s call count.
+
 `createMock<T>()` is the one to reach for on data shapes — it returns a plain `T`, so it satisfies a
 `no-type-assertion` lint rule without an `eslint-disable` on every fixture. `createMock<T>(undefined)`
 is the same call as `createMock<T>()` and answers `{}`, **not** `undefined` — a forwarding helper
@@ -158,7 +172,7 @@ but the last is a _read_. A node that is **called** returns what it was configur
 default that is `undefined`, so `mockDeep<AppLogger>().channel('app').info('x')` is a `TypeError` at
 the second call — while `DeepMockProxy<AppLogger>` types it perfectly, so nothing warns. Pass
 `{ selfReturning: true }` for a fluent API, or use
-`createAutoMock<T>(undefined, { selfReturning: ['channel'] })` when only one method chains:
+`createAutoMock<T>({ selfReturning: ['channel'] })` when only one method chains:
 
 ```ts
 const logger = mockDeep<AppLogger>({}, { selfReturning: true });
@@ -204,7 +218,7 @@ the same path in the assertion, or, for an API where every command answers the *
 `createAutoMock` instead, where `selfReturning` names methods that answer one double:
 
 ```ts
-const chain = createAutoMock<ChainedCommands>(undefined, { selfReturning: ['focus', 'insertContent'] });
+const chain = createAutoMock<ChainedCommands>({ selfReturning: ['focus', 'insertContent'] });
 const editor = createAutoMock<Editor>(undefined, { returns: { chain: asInstance(chain) } });
 
 editor.chain().focus().insertContent('text').run();
