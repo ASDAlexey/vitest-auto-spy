@@ -119,7 +119,7 @@ describe('parsePerfRun', () => {
   it('refuses anything that is not a report of the version it understands', () => {
     expect(parsePerfRun('not json')).toBeUndefined();
     expect(parsePerfRun('[]')).toBeUndefined();
-    expect(parsePerfRun('{"version":6,"files":[]}')).toBeUndefined();
+    expect(parsePerfRun('{"version":7,"files":[]}')).toBeUndefined();
     expect(parsePerfRun('{"version":1}')).toBeUndefined();
     expect(parsePerfRun('{"version":"1","files":[]}')).toBeUndefined();
     expect(parsePerfRun('{"version":1e999,"files":[]}')).toBeUndefined();
@@ -909,6 +909,54 @@ describe('renderPerf', () => {
     expect(rows(0)).toEqual([]);
   });
 
+  it('re-measures a body over budget under the config its report recorded, and fails nothing when it is fast on its own', () => {
+    const root = cleanRepo(1, {
+      'vitest.config.ts': 'export default {};\n',
+      'node_modules/vitest/vitest.mjs': '',
+      'dist/perf-reporter.js': '',
+    });
+    const spec = join(root, 'src/case-0.spec.ts');
+    const body = 'createEslintConfig > parses every TypeScript test file';
+
+    writeTextFile(
+      join(root, 'perf.json'),
+      JSON.stringify(
+        run({ root, configFile: 'vitest.config.ts', files: [file(spec, { tests: 1_020, cases: [{ name: body, ms: 1_020 }] })] }),
+      ),
+    );
+
+    const options: PerfRunOptions = {
+      cwd: root,
+      profile: readProfile(root),
+      json: join(root, 'perf.json'),
+      out: undefined,
+      command: undefined,
+      paths: [],
+    };
+    const seen: string[][] = [];
+    const spawn: Spawn = (request) => {
+      seen.push([...request.args]);
+      writeTextFile(
+        request.env[PERF_OUTPUT_ENV] ?? '',
+        JSON.stringify(run({ root, files: [file(spec, { tests: 350, cases: [{ name: body, ms: 350 }] })] })),
+      );
+
+      return { status: 0 };
+    };
+    const source = readPerfRun(options);
+    const gate = {
+      options: GATE_DEFAULTS,
+      remeasure: perfRemeasure(options, spawn, root, source.ok ? source.run : undefined),
+      trustSingle: false,
+    };
+    const io = recorder();
+
+    expect(renderPerf(source, readProfile(root), io, { gate })).toBe(0);
+    expect(seen.map((args) => args.slice(2, 4))).toEqual([['--config', 'vitest.config.ts']]);
+    expect(io.stdout.join('\n')).toMatch(/Re-measured on its\s+own: 350ms, under budget/);
+    expect(io.stdout.join('\n')).toContain('not reproduced');
+  });
+
   it('prints the phase table and the findings', () => {
     const io = recorder();
 
@@ -1102,13 +1150,13 @@ describe('readPerfRun, the two shapes a handed-over report can have', () => {
     const several = readPerfRun(options(root, { json: 'reports' }));
 
     expect(single.ok ? '' : single.error.split('\n')[0]).toBe(
-      'Cannot read the perf report: reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3, 4, 5.',
+      'Cannot read the perf report: reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3, 4, 5, 6.',
     );
     expect(several.ok ? '' : several.error.split('\n')).toEqual([
       'Cannot read any of the 3 perf reports:',
       '  reports/a.json is not valid JSON',
       '  reports/b.json is JSON, but not a perf report: it has no `files` list',
-      '  reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3, 4, 5',
+      '  reports/c.json is version 9 of the perf report format, and this build reads versions 1, 2, 3, 4, 5, 6',
       'Point --json at the file `perf --out` or the perf reporter wrote.',
       'Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/cli#when-there-is-nothing-to-read',
     ]);

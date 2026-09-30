@@ -29,7 +29,7 @@ import { perfAbIsolate, perfRemeasure, readPerfRun, spawnProcess, spawnToStderr 
 import { readProfile } from './profile';
 import { type Severity, formatFindings, summarize } from './report';
 import { doctorMarkdown } from './report-markdown';
-import { ownVersion } from './self';
+import { ownPackageRoot, ownVersion } from './self';
 import { nearest } from './suggest';
 
 export interface CliIo {
@@ -153,7 +153,7 @@ function baselineRequest(args: ParsedArgs, cwd: string): BaselineRequest | undef
 }
 
 const PROFILE_DIR_UNUSED =
-  "warning  --profile-dir keeps the profiles the gate's confirmation pass records, and this run has no such pass: add --gate, without --no-confirm, on a source it can run again.\n";
+  "warning  --profile-dir keeps the profiles the gate's confirmation pass records, and this run has no such pass: add --gate, without --no-confirm, on a source it can run again — a run, a --command with {paths}, or a report that recorded its Vitest config.\n";
 
 function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
   const args = parseArgs(argv);
@@ -171,8 +171,15 @@ function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
     ...(keepProfiles === undefined ? {} : { keepProfiles: resolve(cwd, keepProfiles) }),
   };
   const trustSingle = flagEnabled(args, 'no-confirm');
+  // A handed-over report is read before the gate is built: the configs it recorded decide whether it can be re-measured.
+  const handed = options.json === undefined ? undefined : readPerfRun(options, spawn);
+  const recorded = handed?.ok === true ? handed.run : undefined;
   const gate: GateRequest | undefined = flagEnabled(args, 'gate')
-    ? { options: gateOptions(args), remeasure: trustSingle ? undefined : perfRemeasure(options, spawn), trustSingle }
+    ? {
+        options: gateOptions(args),
+        remeasure: trustSingle ? undefined : perfRemeasure(options, spawn, ownPackageRoot(), recorded),
+        trustSingle,
+      }
     : undefined;
 
   if (keepProfiles !== undefined && gate?.remeasure === undefined) {
@@ -185,7 +192,7 @@ function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
   const failOn = failOnOf(args);
   const codeQuality = flagValue(args, 'code-quality');
 
-  return renderPerf(readPerfRun(options, spawn), profile, io, {
+  return renderPerf(handed ?? readPerfRun(options, spawn), profile, io, {
     budgets: gateOptions(args),
     ...(format === 'json' || format === 'markdown' ? { format } : {}),
     ...(gate === undefined ? {} : { gate }),

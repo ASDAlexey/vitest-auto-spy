@@ -394,6 +394,44 @@ describe('perf', () => {
     expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm'], trusted)).toBe(1);
     expect(trusted.stdout.join('\n')).toContain('error  perf-gate-slow-file slow.spec.ts');
   });
+
+  it('re-measures a handed report under the config it recorded, and says so when that config is not here', () => {
+    const root = slowRepo();
+    const report = join(root, 'perf.json');
+    const io = recorder();
+
+    writeTextFile(
+      report,
+      JSON.stringify({
+        ...(JSON.parse(readTextFile(report) ?? '{}') as Record<string, unknown>),
+        version: 6,
+        configFile: 'libs/tooling/vitest.config.ts',
+      }),
+    );
+
+    expect(runCli(['perf', '--cwd', root, '--json', report, '--gate', '--profile-dir', 'profiles'], io)).toBe(0);
+    expect(io.stdout.join('\n')).toContain('perf gate: re-measuring 1 file on its own before failing anything.');
+    expect(io.stderr.join('\n')).toContain('The report was measured with the Vitest config libs/tooling/vitest.config.ts');
+    expect(io.stderr.join('\n')).not.toContain('--profile-dir keeps the profiles');
+  });
+
+  it('runs the suite when there is no report to read, and says --profile-dir needs a gate', () => {
+    const io = recorder();
+    const root = createTempRepo(HEALTHY);
+
+    expect(runCli(['perf', '--cwd', root, '--profile-dir', 'profiles'], io)).toBe(2);
+    expect(io.stderr.join('\n')).toContain('--profile-dir keeps the profiles');
+    expect(io.stderr.join('\n')).toContain('No Vitest is installed');
+  });
+
+  it('warns that --profile-dir has nothing to keep when the handed report recorded no config', () => {
+    const io = recorder();
+    const root = slowRepo();
+
+    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--profile-dir', 'profiles'], io)).toBe(0);
+    expect(io.stderr.join('\n')).toContain('--profile-dir keeps the profiles');
+    expect(io.stdout.join('\n')).not.toContain('re-measuring');
+  });
 });
 
 describe('color in a CI job log', () => {

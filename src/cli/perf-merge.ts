@@ -19,6 +19,8 @@
  * per-test data the gate judges. `startup` is summed like `transform`; the run is `partial` when any
  * shard is. Worker and lane ids restart at 1 on every machine, so each shard's are shifted past the
  * previous shard's largest — two shards' worker 1 are two workers, and grouping by id must say so.
+ * `configFile` stays on the run when every report ran the same config; when they differ — two
+ * suites of one repository, each under its own `--config` — it moves onto each file instead.
  *
  * **One root, and the files moved onto it.** GitLab clones each job separately, so the same tree
  * arrives at a different absolute path in every shard. The merged `root` is the first non-empty one
@@ -80,6 +82,17 @@ function reroot(path: string, from: string, to: string): string {
 /** The worst ending wins: one interrupted shard makes the merged run one that did not finish. */
 const END_ORDER: readonly PerfRunEnd[] = ['interrupted', 'failed', 'passed'];
 
+/**
+ * The config every report ran with, or `undefined` when they disagree — and then each file carries its
+ * own, because a confirmation pass has to re-run a file under the config it was measured with.
+ */
+function sharedConfigFile(inputs: readonly MergeInput[]): { readonly shared: boolean; readonly configFile: string | undefined } {
+  const configFiles = new Set(inputs.map((input) => input.run.configFile));
+  const [configFile] = configFiles;
+
+  return { shared: configFiles.size <= 1, configFile };
+}
+
 /** The run-level numbers of the merge; the files are merged separately. */
 function mergedRun(inputs: readonly MergeInput[]): Omit<PerfRun, 'files' | 'root'> {
   const runs = inputs.map((input) => input.run);
@@ -88,6 +101,7 @@ function mergedRun(inputs: readonly MergeInput[]): Omit<PerfRun, 'files' | 'root
   const startups = runs.flatMap((run) => (run.startup === undefined ? [] : [run.startup]));
   const end = END_ORDER.find((reason) => runs.some((run) => run.end === reason));
   const coverages = runs.flatMap((run) => (run.coverage === undefined ? [] : [run.coverage]));
+  const configFile = sharedConfigFile(inputs);
   const startup = startups.reduce((total, each) => ({ ms: total.ms + each.ms, workers: total.workers + each.workers }), {
     ms: 0,
     workers: 0,
@@ -107,6 +121,7 @@ function mergedRun(inputs: readonly MergeInput[]): Omit<PerfRun, 'files' | 'root
     ...(end === undefined ? {} : { end }),
     ...(runs.some((run) => run.hung === true) ? { hung: true } : {}),
     ...(coverages.length === 0 ? {} : { coverage: Math.max(...coverages) }),
+    ...(configFile.shared && configFile.configFile !== undefined ? { configFile: configFile.configFile } : {}),
   };
 }
 
@@ -117,10 +132,12 @@ export function mergeRuns(inputs: readonly MergeInput[]): MergeResult {
   const carriedBy = new Map<string, string[]>();
   const empty: string[] = [];
   const offset: Ids = { workerId: 0, lane: 0 };
+  const perFile = !sharedConfigFile(inputs).shared;
 
   for (const input of inputs) {
     const from = trimRoot(input.run.root);
     const shift = { ...offset };
+    const configFile = perFile ? input.run.configFile : undefined;
 
     if (input.run.files.length === 0) {
       empty.push(input.path);
@@ -128,7 +145,8 @@ export function mergeRuns(inputs: readonly MergeInput[]): MergeResult {
 
     for (const file of input.run.files) {
       const path = reroot(file.file, from, root);
-      const moved = shifted(path === file.file ? file : { ...file, file: path }, shift, offset);
+      const placed = { ...file, file: path, ...(configFile === undefined ? {} : { configFile }) };
+      const moved = shifted(placed, shift, offset);
       const previous = kept.get(path);
 
       carriedBy.set(path, [...(carriedBy.get(path) ?? []), input.path]);

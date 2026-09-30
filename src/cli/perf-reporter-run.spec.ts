@@ -296,3 +296,15 @@ describe('a report with the version 5 fields', () => {
     expect(plain).not.toHaveProperty('coverage');
   });
 });
+
+describe('a report with the version 6 field', () => {
+  it('reads back the config file the run loaded, and drops one that is empty or not a string', () => {
+    expect(parsePerfRun(JSON.stringify({ version: 6, files: [], configFile: 'libs/tooling/vitest.config.ts' }))?.configFile).toBe(
+      'libs/tooling/vitest.config.ts',
+    );
+
+    for (const configFile of ['', 7, null]) {
+      expect(parsePerfRun(JSON.stringify({ version: 6, files: [], configFile }))).not.toHaveProperty('configFile');
+    }
+  });
+});

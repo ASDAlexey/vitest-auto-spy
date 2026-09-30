@@ -374,7 +374,8 @@ export interface GateVerdict {
 }
 
 const UNCONFIRMED = [
-  'Measured once and never confirmed, so it fails nothing. Run the gate where the files can be re-measured,',
+  'Measured once and never confirmed, so it fails nothing. Run the gate where the files can be re-measured —',
+  'a --command with {paths}, or a report whose perf reporter recorded the Vitest config —',
   'or pass --no-confirm to gate on a single reading.',
 ].join(' ');
 

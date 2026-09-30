@@ -14,13 +14,14 @@
  * in from here; its path arrives in the environment and the consumer's config attaches it.
  */
 import { spawnSync } from 'node:child_process';
-import { join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { bareRunWouldMeasureSomethingElse } from './checks/perf-harness';
 import { BARE_RUN_DOCS, NOTHING_TO_READ_DOCS } from './docs';
-import { isDirectory, parseJsonc, pathExists, readTextFile, removeFile } from './fs-scan';
+import { isDirectory, parseJsonc, pathExists, readTextFile, removeFile, toPosix } from './fs-scan';
 import type { PerfRun } from './perf-data';
 import { PERF_ISOLATE_ENV, PERF_OUTPUT_ENV, PERF_PROFILE_ENV, PERF_REPORTER_ENV, parsePerfRun, whyNotAPerfRun } from './perf-data';
+import { measuredFiles } from './perf-gate';
 import { describeMerge, mergeRuns, readRuns, resolveReportPaths } from './perf-merge';
 import type { ProfileSummary } from './perf-profile';
 import { takeProfiles } from './perf-profiler';
@@ -80,6 +81,8 @@ export interface PerfRunOptions {
   readonly keepProfiles?: string;
   /** `--ab-isolate`: run every project with this `isolate`, whatever its config says. */
   readonly isolate?: boolean;
+  /** A bare run under this Vitest config, relative to `cwd`: the one a handed-over report recorded. */
+  readonly config?: string;
 }
 
 export interface PerfMeasured {
@@ -279,13 +282,27 @@ function versionFlags(cwd: string): string[] {
   return (vitestMajor(cwd) ?? 0) >= 5 ? ['--experimental.diagnostics=false'] : [];
 }
 
+/**
+ * `--config` for a run under a recorded config. Coverage is switched off: its thresholds fail a run of
+ * a few files, and a body the gate judges should not pay for instrumentation it cannot fix.
+ */
+function configArgs(config: string | undefined): string[] {
+  return config === undefined ? [] : ['--config', config, '--coverage.enabled=false'];
+}
+
 function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | undefined): PerfSource {
   const entry = join(options.cwd, 'node_modules', 'vitest', 'vitest.mjs');
   const reporter = reporterPath(packageRoot);
-  const mismatch = bareRunWouldMeasureSomethingElse(options.profile);
+  const mismatch = options.config === undefined ? bareRunWouldMeasureSomethingElse(options.profile) : undefined;
 
   if (mismatch !== undefined) {
     return failed(mismatch);
+  }
+
+  if (options.config !== undefined && !pathExists(resolve(options.cwd, options.config))) {
+    return failed(
+      `The report was measured with the Vitest config ${options.config}, and there is no such file in ${options.cwd}. Run the gate in the checkout the report was written for, or pass --command.\nDocs: ${NOTHING_TO_READ_DOCS}`,
+    );
   }
 
   if (!pathExists(entry)) {
@@ -306,7 +323,16 @@ function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | un
 
   const spawned = timed(spawn, {
     command: process.execPath,
-    args: [entry, 'run', '--reporter=default', `--reporter=${reporter}`, '--logHeapUsage', ...versionFlags(options.cwd), ...options.paths],
+    args: [
+      entry,
+      'run',
+      ...configArgs(options.config),
+      '--reporter=default',
+      `--reporter=${reporter}`,
+      '--logHeapUsage',
+      ...versionFlags(options.cwd),
+      ...options.paths,
+    ],
     cwd: options.cwd,
     env: runEnv(options, target, reporter),
     shell: false,
@@ -388,30 +414,109 @@ export function readPerfRun(
   return source.ok ? { ...source, command } : source;
 }
 
+/** The report's root when it is this checkout, or the working directory standing in for another one. */
+function localRoot(root: string, cwd: string): string {
+  const here = relative(cwd, root);
+
+  return root !== '' && !here.startsWith('..') && !isAbsolute(here) ? root : cwd;
+}
+
+/** The `--config` each measured file ran with, relative to `cwd`, by repository-relative path. */
+function recordedConfigs(recorded: PerfRun, cwd: string): Map<string, string> {
+  const root = localRoot(recorded.root, cwd);
+  const configs = new Map<string, string>();
+
+  for (const [path, file] of measuredFiles(recorded, cwd)) {
+    const configFile = file.configFile ?? recorded.configFile;
+
+    if (configFile !== undefined) {
+      configs.set(path, toPosix(relative(cwd, resolve(root, configFile))));
+    }
+  }
+
+  return configs;
+}
+
+/** Several scoped runs read back as one, so the gate sees a single second reading. */
+function mergeMeasured(measured: readonly PerfMeasured[]): PerfMeasured {
+  return {
+    ok: true,
+    run: mergeRuns(measured.map((each, index) => ({ path: String(index), run: each.run }))).run,
+    runFailed: measured.some((each) => each.runFailed),
+    profiles: new Map(measured.flatMap((each) => [...new Map(each.profiles)])),
+  };
+}
+
+/**
+ * One bare run per config the suspects were measured under, each over its own files only. Reports
+ * of two suites that run under two configs cannot be confirmed by one run of either.
+ */
+function underRecordedConfigs(configs: ReadonlyMap<string, string>, remeasure: (paths: string[], config: string) => PerfSource): Remeasure {
+  return (paths) => {
+    const groups = new Map<string, string[]>();
+
+    for (const path of paths) {
+      const config = configs.get(path);
+
+      if (config !== undefined) {
+        groups.set(config, [...(groups.get(config) ?? []), path]);
+      }
+    }
+
+    if (groups.size === 0) {
+      return failed(
+        `None of the files to re-measure is in a report that recorded its Vitest config. Pass --command to re-measure them.\nDocs: ${NOTHING_TO_READ_DOCS}`,
+      );
+    }
+
+    const measured: PerfMeasured[] = [];
+
+    for (const [config, group] of groups) {
+      const source = remeasure(group, config);
+
+      if (!source.ok) {
+        return source;
+      }
+
+      measured.push(source);
+    }
+
+    return mergeMeasured(measured);
+  };
+}
+
 /**
  * How the gate re-measures its suspects, or `undefined` when this source cannot be narrowed.
  *
  * A `--command` decides it on its own: with `{paths}` in it the harness can be asked for a few
- * files, without it the only way to repeat the run is to repeat all of it. `--json` on its own is a
- * past run nobody can go back to — but `--json` **with** a command is the ordinary CI shape, where
- * the first reading is the report the suite already wrote and the second one is a fresh scoped run.
+ * files, without it the only way to repeat the run is to repeat all of it. `--json` **with** a
+ * command is the ordinary CI shape, where the first reading is the report the suite already wrote
+ * and the second one is a fresh scoped run. `--json` alone re-runs Vitest bare under the config
+ * each report `recorded`; a report from before the config was recorded is a past run nobody can go
+ * back to.
  */
 export function perfRemeasure(
   options: PerfRunOptions,
   spawn: Spawn = spawnProcess,
   packageRoot: string | undefined = ownPackageRoot(),
+  recorded?: PerfRun,
 ): Remeasure | undefined {
   if (options.command !== undefined && !commandTakesPaths(options.command)) {
     return undefined;
   }
 
+  const profileDir = join(options.cwd, 'node_modules', '.cache', 'vitest-auto-spy', `profiles-${process.pid}`);
+  const scoped = { ...options, json: undefined, out: undefined, profileDir };
+
   if (options.command === undefined && options.json !== undefined) {
-    return undefined;
+    const configs = recorded === undefined ? new Map<string, string>() : recordedConfigs(recorded, options.cwd);
+
+    return configs.size === 0
+      ? undefined
+      : underRecordedConfigs(configs, (paths, config) => readPerfRun({ ...scoped, paths, config }, spawn, packageRoot));
   }
 
-  const profileDir = join(options.cwd, 'node_modules', '.cache', 'vitest-auto-spy', `profiles-${process.pid}`);
-
-  return (paths) => readPerfRun({ ...options, json: undefined, out: undefined, paths, profileDir }, spawn, packageRoot);
+  return (paths) => readPerfRun({ ...scoped, paths }, spawn, packageRoot);
 }
 
 /**

@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { readTextFile } from './fs-scan';
+import type { PerfRun } from './perf-data';
 import { PERF_OUTPUT_ENV, PERF_PROFILE_ENV, parsePerfRun } from './perf-data';
 import type { PerfProject, PerfTestModule, PerfVitest } from './perf-reporter';
 import PerfReporter, { PARTIAL_WRITE_MS } from './perf-reporter';
@@ -360,6 +361,21 @@ describe('PerfReporter, a measured run', () => {
     expect(report).not.toHaveProperty('vitest');
     expect(report).not.toHaveProperty('startup');
     expect(report).not.toHaveProperty('partial');
+  });
+
+  it('records the config file Vitest loaded, relative to the root, and nothing for a run without one', () => {
+    const recorded = (vite: PerfVitest['vite']): PerfRun => {
+      const reporter = new PerfReporter();
+
+      reporter.onInit({ config: { root: '/repo' }, state: {}, ...(vite === undefined ? {} : { vite }) });
+
+      return reporter.report([]);
+    };
+
+    expect(recorded({ config: { configFile: '/repo/libs/tooling/vitest.config.ts' } }).configFile).toBe('libs/tooling/vitest.config.ts');
+    expect(recorded({ config: { configFile: undefined } })).not.toHaveProperty('configFile');
+    expect(recorded({})).not.toHaveProperty('configFile');
+    expect(recorded(undefined)).not.toHaveProperty('configFile');
   });
 
   it('rewrites a partial report as files finish, at most once per interval, and the whole one at the end', () => {

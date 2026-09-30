@@ -30,15 +30,16 @@ export const PERF_ISOLATE_ENV = 'VITEST_AUTO_SPY_PERF_ISOLATE';
 /** The `task.meta` key `setupAutoSpy` adds its per-test hook time under. Kept in sync with `src/lib/perf-meta.ts`. */
 export const AUTO_SPY_META_KEY = 'autoSpyMs';
 
-export const PERF_FORMAT_VERSION = 5;
+export const PERF_FORMAT_VERSION = 6;
 
 /**
  * Every version this build reads. Version 2 added the per-test data the gate judges, version 3 the
  * flaky tests and the heap, version 4 workers, lanes, fetch waits and the resolved config, version 5
- * per-test heap steps, setup-file imports, library hook time, coverage time and how the run ended; an
- * older report simply carries none of it, which is a report with fewer findings in it rather than a bad one.
+ * per-test heap steps, setup-file imports, library hook time, coverage time and how the run ended, version 6
+ * the Vitest config file the suite ran with; an older report simply carries none of it, which is a report
+ * with fewer findings in it rather than a bad one.
  */
-const READABLE_VERSIONS: readonly number[] = [1, 2, 3, 4, 5];
+const READABLE_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6];
 
 /**
  * Below this, a test body is not evidence of anything: 40 ms is the machine rather than somebody's
@@ -120,6 +121,8 @@ export interface PerfFile {
   readonly setupFetch?: number;
   /** Failed attempts before a pass, summed over the file's tests. */
   readonly retries?: number;
+  /** Set only by `mergeRuns`, when the merged reports ran different configs: this file's, as `PerfRun.configFile`. */
+  readonly configFile?: string;
 }
 
 /** What the run was configured with, read from Vitest's resolved config rather than the config text. */
@@ -163,6 +166,8 @@ export interface PerfRun {
   readonly hung?: boolean;
   /** Milliseconds coverage took after the last file: generating the map, then writing the reports. */
   readonly coverage?: number;
+  /** The Vitest config file the run loaded, relative to `root` with `/` separators; absent without one. */
+  readonly configFile?: string;
 }
 
 export type PhaseName = 'environment' | 'import' | 'prepare' | 'setup' | 'tests' | 'transform';
@@ -365,6 +370,7 @@ export function parsePerfRun(text: string): PerfRun | undefined {
     ...(end === 'failed' || end === 'interrupted' || end === 'passed' ? { end } : {}),
     ...(parsed['hung'] === true ? { hung: true } : {}),
     ...(coverage === undefined ? {} : { coverage }),
+    ...(typeof parsed['configFile'] === 'string' && parsed['configFile'] !== '' ? { configFile: parsed['configFile'] } : {}),
   };
 }
 

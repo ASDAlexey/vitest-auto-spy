@@ -11,7 +11,7 @@
  * per-test rows the gate judges, which is a smaller report rather than a crash inside somebody's
  * suite.
  */
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { toPosix, writeTextFile } from './fs-scan';
@@ -140,6 +140,8 @@ export interface PerfVitest {
     readonly workersSpawned?: number;
   };
   readonly projects?: readonly PerfProject[];
+  /** Vite's resolved config holds the file Vitest loaded, on Vitest 4 and 5 alike; `configFile` is unset without one. */
+  readonly vite?: { readonly config?: { readonly configFile?: string | undefined } };
 }
 
 function profiling(): boolean {
@@ -414,6 +416,13 @@ function configOf(vitest: PerfVitest): PerfConfig {
   };
 }
 
+/** Relative to the root, so a report read in another checkout still names a config that exists there. */
+function configFileOf(vitest: PerfVitest): string | undefined {
+  const file = vitest.vite?.config?.configFile;
+
+  return file === undefined ? undefined : toPosix(relative(vitest.config.root, file));
+}
+
 function startupOf(vitest: PerfVitest): PerfRun['startup'] {
   const { startupTime, workersSpawned } = vitest.state;
 
@@ -461,9 +470,12 @@ export default class PerfReporter {
 
   #hung = false;
 
+  #configFile: string | undefined;
+
   onInit(vitest: PerfVitest): void {
     this.#vitest = vitest;
     this.#start = Date.now();
+    this.#configFile = configFileOf(vitest);
 
     if (target() === undefined && !profiling()) {
       return;
@@ -612,6 +624,7 @@ export default class PerfReporter {
       ...(end === undefined ? {} : { end }),
       ...(this.#hung ? { hung: true } : {}),
       ...(this.#coverage === undefined ? {} : { coverage: this.#coverage }),
+      ...(this.#configFile === undefined ? {} : { configFile: this.#configFile }),
     };
   }
 }

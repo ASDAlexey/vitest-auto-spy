@@ -52,6 +52,34 @@ describe('mergeRuns', () => {
     ).toBe(PERF_FORMAT_VERSION);
   });
 
+  it('keeps one config on the run when every report ran it, and moves each onto its files when they differ', () => {
+    const shared = mergeRuns([
+      input('one.json', { configFile: 'vitest.config.ts', files: [file('/repo/a.spec.ts')] }),
+      input('two.json', { configFile: 'vitest.config.ts', files: [file('/repo/b.spec.ts')] }),
+    ]).run;
+
+    expect(shared.configFile).toBe('vitest.config.ts');
+    expect(shared.files.map((each) => each.configFile)).toEqual([undefined, undefined]);
+
+    const split = mergeRuns([
+      input('libs.json', { configFile: 'vitest.config.ts', files: [file('/repo/libs/a.spec.ts')] }),
+      input('tooling.json', {
+        root: '/builds/repo',
+        configFile: 'libs/tooling/vitest.config.ts',
+        files: [file('/builds/repo/libs/tooling/b.spec.ts')],
+      }),
+      input('old.json', { files: [file('/repo/old.spec.ts')] }),
+    ]).run;
+
+    expect(split).not.toHaveProperty('configFile');
+    expect(split.files.map((each) => [each.file, each.configFile])).toEqual([
+      ['/repo/libs/a.spec.ts', 'vitest.config.ts'],
+      ['/repo/libs/tooling/b.spec.ts', 'libs/tooling/vitest.config.ts'],
+      ['/repo/old.spec.ts', undefined],
+    ]);
+    expect(mergeRuns([input('one.json'), input('two.json')]).run).not.toHaveProperty('configFile');
+  });
+
   it("moves each shard's worker and lane ids past the previous shard's, because every machine counts from 1", () => {
     const merged = mergeRuns([
       input('one.json', { files: [file('/repo/a.spec.ts', { workerId: 1, lane: 1 }), file('/repo/b.spec.ts', { workerId: 3, lane: 2 })] }),
