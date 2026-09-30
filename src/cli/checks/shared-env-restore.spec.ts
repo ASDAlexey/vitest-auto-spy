@@ -4,7 +4,7 @@ import { readProfile } from '../profile';
 import type { Finding } from '../report';
 import { createTempRepo, removeTempRepos } from '../temp-repo';
 import { buildGraph } from './graph';
-import { checkSharedEnvRestore, setupCalls } from './shared-env-restore';
+import { checkSharedEnvRestore } from './shared-env-restore';
 
 afterEach(() => {
   removeTempRepos();
@@ -18,6 +18,8 @@ const findingsIn = (files: Record<string, string>): Finding[] => {
 
   return checkSharedEnvRestore(profile, buildGraph(profile));
 };
+
+const ALL_ON = '{ restoreMocks: true, strayTimers: true, strayListeners: true, restoreGlobals: true }';
 
 const SHARED_CONFIG = { 'vitest.config.ts': 'export default { test: { isolate: false } };' };
 
@@ -44,10 +46,10 @@ describe('checkSharedEnvRestore', () => {
     expect(finding?.message).toContain(': a global assigned by hand survives');
   });
 
-  it('is satisfied by every option across the setup calls, and does not take the preset over an explicit false', () => {
+  it('adds up the calls of the setup files the runner config lists, and does not take the preset over an explicit false', () => {
     expect(
       findingsIn({
-        ...SHARED_CONFIG,
+        'vitest.config.ts': "export default { test: { isolate: false, setupFiles: ['src/a.ts', './src/b.ts'] } };",
         'src/a.ts': 'setupAutoSpy({ restoreMocks: true, strayTimers: true });',
         'src/b.ts': 'setupAutoSpy({ strayListeners: true, restoreGlobals: true });',
       }),
@@ -58,6 +60,68 @@ describe('checkSharedEnvRestore', () => {
         'src/a.ts':
           "setupAutoSpy({ preset: 'strict', strayTimers: false, restoreMocks: true, strayListeners: true, restoreGlobals: true });",
       }).map((finding) => finding.fix),
+    ).toEqual([expect.stringContaining('setupAutoSpy({ strayTimers: true })')]);
+  });
+
+  it('judges a setup file the config does not list on its own calls, and names that file', () => {
+    const findings = findingsIn({
+      'vitest.config.ts': "export default { test: { isolate: false, setupFiles: ['src/test-setup.ts'] } };",
+      'src/test-setup.ts': `setupAutoSpy(${ALL_ON});`,
+      'libs/ui/src/test-setup.ts': 'setupAutoSpy({ restoreMocks: true, strayTimers: { }, strayListeners: true });',
+      'libs/ui/src/button.spec.ts': 'setupAutoSpy({});',
+    });
+
+    expect(findings.map(({ file, message }) => [file, message.slice(message.indexOf('`setupAutoSpy()`'))])).toEqual([
+      [
+        'libs/ui/src/test-setup.ts',
+        expect.stringMatching(/^`setupAutoSpy\(\)` in libs\/ui\/src\/test-setup\.ts leaves `restoreGlobals` off:/),
+      ],
+    ]);
+  });
+
+  it('reads options a setup file declares, imports or spreads, a later key overriding an earlier one', () => {
+    expect(
+      findingsIn({
+        ...SHARED_CONFIG,
+        'src/options.ts': `export const OPTIONS = ${ALL_ON};`,
+        'src/test-setup.ts': "import { OPTIONS } from './options';\nsetupAutoSpy({ ...OPTIONS, blockNetwork: false });",
+        'src/other-setup.ts': `const LOCAL = ${ALL_ON};\nsetupAutoSpy(LOCAL);`,
+      }),
+    ).toEqual([]);
+    expect(
+      findingsIn({
+        ...SHARED_CONFIG,
+        'src/options.ts': `export const OPTIONS = ${ALL_ON};`,
+        'src/test-setup.ts': "import { OPTIONS } from './options';\nsetupAutoSpy({ ...OPTIONS, restoreGlobals: false });",
+      }).map(({ file, fix }) => [file, fix]),
+    ).toEqual([['src/test-setup.ts', expect.stringContaining('setupAutoSpy({ restoreGlobals: true })')]]);
+  });
+
+  it('says nothing about a switch whose value it cannot read, and reports the ones it can', () => {
+    expect(
+      findingsIn({
+        ...SHARED_CONFIG,
+        'src/test-setup.ts': "import { OPTIONS } from '@company/test-config';\nsetupAutoSpy(OPTIONS);",
+      }),
+    ).toEqual([]);
+    expect(
+      findingsIn({
+        ...SHARED_CONFIG,
+        'src/test-setup.ts': [
+          "setupAutoSpy({ restoreMocks: isCi, preset: PRESET, strayListeners: 'yes' });",
+          'setupAutoSpy({ ...base() });',
+          'setupAutoSpy({ preset });',
+        ].join('\n'),
+      }).map(({ fix }) => fix),
+    ).toEqual([]);
+    expect(
+      findingsIn({
+        ...SHARED_CONFIG,
+        'src/test-setup.ts': [
+          "setupAutoSpy({ restoreMocks: isCi, strayListeners: true, restoreGlobals: true, preset: 'relaxed' });",
+          'setupAutoSpy({ restoreMocks: false });',
+        ].join('\n'),
+      }).map(({ fix }) => fix),
     ).toEqual([expect.stringContaining('setupAutoSpy({ strayTimers: true })')]);
   });
 
@@ -86,8 +150,13 @@ describe('checkSharedEnvRestore', () => {
     }
   });
 
-  it('reads each call up to its closing parenthesis, strings and all', () => {
-    expect(setupCalls("setupAutoSpy({ a: ')' }); setupAutoSpy();")).toEqual(["{ a: ')' }", '']);
-    expect(setupCalls('setupAutoSpy({ a: 1')).toEqual(['{ a: 1']);
+  it('does not count a call in a comment or a string, or a spec calling it for itself', () => {
+    const [finding] = findingsIn({
+      ...SHARED_CONFIG,
+      'src/test-setup.ts': `// setupAutoSpy(${ALL_ON});\nconst doc = 'setupAutoSpy(${ALL_ON})';`,
+      'src/a.spec.ts': `setupAutoSpy(${ALL_ON});`,
+    });
+
+    expect(finding?.message).toContain('no setup file calls `setupAutoSpy()`');
   });
 });
