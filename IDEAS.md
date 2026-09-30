@@ -123,6 +123,14 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       reads the inner double before any call, has to stay on the two-step form (the docs say so). A reader
       such as `innerDouble(outer, 'create')` that returns the per-outer double without calling the method
       would let those specs move too. Seen 2026-09-30 on 5.57.0: one consumer spec, 9 tests counting calls.
+- [x] **`returnsClass` needs the class as a runtime value, which some browser APIs are not under every
+      DOM environment.** `returnsClass: { getContext: CanvasRenderingContext2D }` throws a bare
+      `ReferenceError: CanvasRenderingContext2D is not defined` under happy-dom, where the global is
+      missing rather than merely unimplemented — a harder failure than an unconfigured method, and one
+      whose message says nothing about `returnsClass` or the environment. The docs and the error should
+      say that `createAutoMock<T>()` (type-only, no runtime class needed) is the fit for a method
+      returning a type the DOM environment does not define. Seen in a consumer suite, ~13k tests
+      (2026-09-30, 5.57.0).
 
 ## Angular helpers
 
@@ -174,11 +182,31 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       testbed-diagnostics module state in one place.
 - [x] **Candidate doubles with no helper**: `PLATFORM_ID` / `IS_PLATFORM_BROWSER` (156 hand-rolled
       providers in one suite), `DomSanitizer`, `Overlay`, `ChangeDetectorRef`.
+- [x] **`createDomSanitizerDouble()`'s `bypassSecurityTrust*` spies return Angular's real `SafeValue`
+      wrappers, which breaks a migration from a hand-rolled identity mock.** A hand-written
+      `{ bypassSecurityTrustHtml: (v) => v }` and its specs that assert the plain string a component
+      passed in are a common starting point; switching to `createDomSanitizerDouble()` turns every such
+      assertion into a mismatch, because the spy now hands back a wrapper object instead of the string.
+      That is the documented, deliberate behaviour (it is what lets `sanitize()` refuse a value bound in
+      the wrong context), but nothing offers the identity shape as an option for a spec that only cares
+      what string reached the template. An `{ identity: true }` configuration, or a documented recipe
+      for the migration, would close the gap. Seen in a consumer suite, ~13k tests (2026-09-30, 5.57.0).
 - [x] **Docs: `flushEffects()` and `stable()` each cost a full change-detection pass.** One sentence in
       `agent-docs/angular.md` and the site, EN and RU.
 - [x] **Docs page "Material idioms → library"**: `ScrollStrategy`, `MAT_ICON_LOCATION`,
       `MATERIAL_ANIMATIONS`, `ScrollDispatcher` literal doubles turned into `provideAutoSpyForToken` /
       `createSpyFromClass`, plus a partial-double recipe.
+- [x] **A tiny `httpErrorInit(status, statusText?)` helper for an HTTP error-init object.**
+      `{ status: 500, statusText: 'Error' }` recurs as an exact duplicate across many service specs of
+      a consumer suite (~13k tests) — a one-line factory would replace it everywhere (2026-09-30,
+      5.57.0).
+- [x] **The Overlay double's `position()` chain is a generic self-returning proxy, recorded as
+      `{ method, args }`.** A spec that asserts a typed call on `OverlayPositionBuilder` or
+      `FlexibleConnectedPositionStrategy` — and passes the same strategy instance on to `create()` —
+      cannot use it, because nothing about the chain is typed to those classes or keeps one stable
+      instance across calls. Typed position-builder / strategy spies with stable instances would let
+      such a spec assert on the chain directly instead of reading raw call records. Seen in a consumer
+      suite (~13k tests) alongside other Overlay usage (2026-09-30, 5.57.0).
 
 ## Async, timers, HTTP, console
 
@@ -296,6 +324,82 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       (30 lines) the message names the whole `['error', {...}]` tuple, which is the config under test;
       moving the 11-string array alone brings it under the limit. Suggest the smallest part that gets under
       `maxLines`, preferring pure data arrays and strings over mixed config shapes.
+- [x] **`no-inline-test-data`'s duplicate key strips every whitespace character out of the raw source
+      text** (`context.sourceCode.getText(node).replace(/\s+/g, '')` in `inline-test-data.ts`), so two
+      string leaves that differ only by whitespace collapse onto the same key. A pair of trimming-test
+      inputs (`' padded '` next to `'padded'`) is reported as the same literal "written twice", and the
+      "name it once in a shared constant" advice would erase the very difference the test exists to
+      check. The same collapse also buckets two call arguments that differ only by an operator —
+      `inns.join(',')` and `inns.join(', ')` reduce to the same stripped text — as one repeated literal,
+      though a small parametrised helper is the real fix there, not a shared value. Compare string
+      leaves on their parsed value rather than a whitespace-stripped source slice, or skip a pair whose
+      only difference is inside a string. Seen in a consumer suite, ~13k tests (2026-09-30, 5.57.0).
+- [x] **A deliberately malformed fixture built through a type-escape helper is unique by construction,
+      and `no-inline-test-data` does not know that.** A call such as `outOfType<T>({ ...validShape,
+      extra: 1 })` — used to hand-build a value the real type would reject — gets the same
+      repeated/oversized treatment as ordinary test data, though every call is meant to differ from the
+      last. Consider exempting a literal that is the sole argument of such a helper. Seen in a consumer
+      suite, ~13k tests (2026-09-30, 5.57.0).
+- [x] **When a spec already declares a small factory (`createX(overrides)`) and nearby hand-written
+      literals share most of its keys and defaults, `no-inline-test-data` reports each literal on its
+      own instead of pointing at the factory already in scope.** A heuristic of roughly 80% key overlap
+      with an in-scope factory's return shape could suggest reusing it instead of the generic mock-file
+      advice. Seen in a consumer suite, ~13k tests (2026-09-30, 5.57.0).
+- [x] **The "hoist into one shared const" advice is unsafe when the code under test mutates its
+      argument** (`x.order ??= 1`, a plain property assignment on the object passed in): a fixture
+      shared between tests then carries one test's mutation into the next. Worth a line in the rule's
+      docs, a different suggestion when the literal is passed straight into a call under test, and
+      maybe a companion check for a fixture that is shared across tests and also written to. Seen in a
+      consumer suite, ~13k tests (2026-09-30, 5.57.0).
+- [x] **`repeatedLocalLiteral` always suggests "name it once in a const beside `{{binding}}`", even
+      when `{{binding}}` is bound to a different value at each call site** (a `let` reassigned per test,
+      or a parameter of a per-test setup function). Following that advice does not reduce the repeat
+      count, because the const would need a different value each time; a small factory function
+      returning the shape, called at each site, is the actual fix. The message could say "extract a
+      function returning this shape" when the binding is not a stable, single-assignment value. Seen in
+      a consumer suite, ~13k tests (2026-09-30, 5.57.0).
+- [x] **`longLiteral` never says how many times the flagged literal appears**, so a reader cannot tell
+      "just trim this" from "trim this, and it is also worth a shared name because it repeats" without
+      checking separately. Stating "used once" versus "used {{count}} times" would settle that at a
+      glance. `longExpectedFlat`'s fallback ("check only the entries this test is about, or move it …")
+      looks like it may already cover the related case of a long expected value where trimming the
+      largest part is not enough — worth confirming its wording says so plainly before changing
+      anything there. Seen in a consumer suite, ~13k tests (2026-09-30, 5.57.0).
+- [x] **`prefer-create-spy-from-class`'s factory allowlist (`SPY_FACTORIES` / `insideFactorySeed` in
+      `hand-rolled-doubles.ts`) does not include the `dom-stubs` factories.** `createElementStub({
+      overrides: { contains: spy } })` is reported as a hand-rolled single-member fake, though
+      `overrides` is the documented way to seed a member on that helper. Add `createElementStub` (and
+      `fillMissingDomApis`) to the allowlist. Blocked applying `createElementStub` in a click-outside
+      directive spec in a consumer suite, ~13k tests (2026-09-30, 5.57.0).
+- [x] **A `returnsUndefined: [...]` array written the same way at several call sites is data to
+      `no-inline-test-data`, not spy configuration.** The rule's `WIRING_KEYS` exemption
+      (`inline-test-data.ts`) covers testing-module keys (`providers`, `imports`, …) but nothing under a
+      factory's own config keys, so converting a repeated `returns: { a: undefined, b: undefined }` into
+      the shorter `returnsUndefined: ['a', 'b']` the library's own docs recommend can turn into a new
+      `repeatedLiteral` report on the array itself. Mention the trade-off in the `returnsUndefined`
+      recipe, or have the rule ignore an array or object that is itself a spy-factory configuration
+      argument. Seen in a consumer suite, ~13k tests (2026-09-30, 5.57.0).
+- [x] **Two small primitive-valued objects with no relation to each other can share a shape by
+      coincidence** — `{ value: '', isEnabled: true }` as an empty-and-disabled default recurs across
+      unrelated fixtures that happen to both start from it. Neither is a flag bag (not all-boolean) nor
+      inside a matcher's expected argument, so both existing exemptions miss it, and the rule suggests a
+      single shared mock-file export for two values that are only coincidentally identical today. A
+      minimum complexity for the repeat check — more keys, or some nesting — would leave a two-key
+      primitive default alone. Seen in a consumer suite, ~13k tests (2026-09-30, 5.57.0).
+- [x] **Duplicate grouping is sensitive to key order and quote style, so two value-identical literals
+      written differently are missed as a repeat.** `{ a: 1, b: 2 }` and `{ b: 2, a: 1 }`, or the same
+      object spelled with single versus double quotes, take different whitespace-stripped source-text
+      keys and never join the same group, though they are the same data written twice. The fix is the
+      same one that closes the opposite, over-grouping bug above: compare literals on their parsed
+      shape and value rather than a slice of source text. Seen in a consumer suite, ~13k tests
+      (2026-09-30, 5.57.0).
+- [x] **Hoisting a literal that contains a non-idempotent call changes "built fresh for this test" into
+      "one shared instance every test reuses."** `{ angles: createMockAngles(5) }` repeated across tests
+      calls `createMockAngles` once per test today; following the rule's advice to hoist it into one
+      `const` calls it once for the whole file, which is a behaviour change beyond the mutation-through-a-
+      shared-reference case already noted above. When the literal passed to a call under test contains a
+      call expression of its own, the message should suggest a factory function (called at each site)
+      instead of a shared constant. Seen in a consumer suite, ~13k tests (2026-09-30, 5.57.0).
 
 ## CLI: codemod
 
