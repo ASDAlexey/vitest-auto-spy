@@ -3,17 +3,24 @@
  * out again and again. Both belong in a `*.mock.ts` file next to the spec, where one edit reaches every
  * test that uses the value.
  */
+import { findBinding } from './bindings';
 import { defineRule } from './define-rule';
 import { excerpt } from './message-data';
 import {
   type EsArrayExpression,
+  type EsCast,
+  type EsIdentifier,
   type EsNode,
   type EsObjectExpression,
+  type EsSpreadElement,
   type RuleContext,
+  anyInSubtree,
   hasAncestor,
   isArrayExpression,
   isCallExpression,
   isFunctionNode,
+  isIdentifier,
+  isMemberExpression,
   isObjectExpression,
   isRunnerCall,
   memberName,
@@ -43,11 +50,50 @@ const WIRING_KEYS = new Set([
 
 const MOCK_FACTORIES = new Set(['doMock', 'mock']);
 
+/** Calls whose argument is the value the test expects rather than data it feeds in. */
+const EXPECTATIONS = new Set([
+  'arrayContaining',
+  'lastCalledWith',
+  'nthCalledWith',
+  'objectContaining',
+  'toBeCalledWith',
+  'toContainEqual',
+  'toEqual',
+  'toHaveBeenCalledWith',
+  'toHaveBeenLastCalledWith',
+  'toHaveBeenNthCalledWith',
+  'toHaveLastReturnedWith',
+  'toHaveNthReturnedWith',
+  'toHaveReturnedWith',
+  'toMatchObject',
+  'toStrictEqual',
+]);
+
+/** A tuple this short is a coordinate or an id list, not a record worth a name: `[1, 5]`, `['0', '1']`. */
+const TUPLE_LENGTH = 3;
+const TUPLE_ITEM_CHARS = 8;
+const FLAG_KEYS = 3;
+
 /** Types a literal is spelled through without becoming another value: casts, `satisfies`, `!`. */
 const WRAPPERS = new Set(['TSAsExpression', 'TSNonNullExpression', 'TSSatisfiesExpression', 'TSTypeAssertion']);
 
 function isLiteral(node: EsNode): node is EsArrayExpression | EsObjectExpression {
   return isObjectExpression(node) || isArrayExpression(node);
+}
+
+const isSpread = (node: EsNode): node is EsSpreadElement => node.type === 'SpreadElement';
+
+const isWrapper = (node: EsNode): node is EsCast => WRAPPERS.has(node.type);
+
+const unwrap = (node: EsNode): EsNode => (isWrapper(node) ? unwrap(node.expression) : node);
+
+/** The value a member holds: a property's value, a spread's argument, or the element itself. */
+function memberValue(member: EsNode): EsNode {
+  if (member.type === 'Property') {
+    return propertyValue(member);
+  }
+
+  return isSpread(member) ? member.argument : member;
 }
 
 /** What a literal lists: its properties, or its elements without the holes. */
@@ -117,7 +163,79 @@ const isPrimitive = (node: EsNode): boolean =>
 function isRecord(node: EsArrayExpression | EsObjectExpression, minValues: number): boolean {
   const values = leaves(node);
 
-  return values.length >= minValues && values.some(isPrimitive);
+  return values.length >= minValues && values.some(isPrimitive) && !isTuple(node) && !isFlagBag(node);
+}
+
+function isTuple(node: EsArrayExpression | EsObjectExpression): boolean {
+  return (
+    isArrayExpression(node) &&
+    node.elements.length <= TUPLE_LENGTH &&
+    node.elements.every((element) => element !== null && isPrimitive(element) && span(element) <= TUPLE_ITEM_CHARS)
+  );
+}
+
+/** `{ recursive: true, force: true }` switches behaviour on and off; it is an options bag, not a value under test. */
+function isFlagBag(node: EsArrayExpression | EsObjectExpression): boolean {
+  return (
+    isObjectExpression(node) &&
+    node.properties.length <= FLAG_KEYS &&
+    node.properties.every(
+      (property) => propertyName(property) !== undefined && typeof Reflect.get(propertyValue(property), 'value') === 'boolean',
+    )
+  );
+}
+
+function isExpected(node: EsNode): boolean {
+  const call = container(node);
+
+  return isCallExpression(call) && EXPECTATIONS.has(memberName(call.callee) ?? '');
+}
+
+/** The largest literal directly inside `node`: the part of an expectation worth a name of its own. */
+function largestPart(node: EsArrayExpression | EsObjectExpression): EsNode | undefined {
+  const parts = members(node)
+    .map((member) => unwrap(memberValue(member)))
+    .filter(isLiteral);
+
+  return parts.sort((a, b) => span(b) - span(a))[0];
+}
+
+/** An identifier that reads a value: not a property key, not a member name after a dot, not a type. */
+function isValueReference(node: EsNode): node is EsIdentifier {
+  const { parent } = node;
+
+  return (
+    isIdentifier(node) &&
+    !(parent.type === 'Property' && Reflect.get(parent, 'key') === node && Reflect.get(parent, 'computed') === false) &&
+    !(isMemberExpression(parent) && parent.property === node && !parent.computed) &&
+    !(parent.type.startsWith('TS') && !WRAPPERS.has(parent.type))
+  );
+}
+
+/** The first name a literal reads that this file declares, which a `*.mock.ts` could not see. */
+function localBinding(context: RuleContext, node: EsNode): string | undefined {
+  let found: string | undefined;
+
+  anyInSubtree(
+    context,
+    node,
+    (candidate) => {
+      if (!isValueReference(candidate)) {
+        return false;
+      }
+
+      const definitions = findBinding(context.sourceCode.getScope(candidate), candidate.name)?.defs ?? [];
+
+      if (definitions.length > 0 && definitions.every((definition) => definition.type !== 'ImportBinding')) {
+        found = candidate.name;
+      }
+
+      return found !== undefined;
+    },
+    true,
+  );
+
+  return found;
 }
 
 interface Limits {
@@ -144,7 +262,66 @@ const lineCount = (node: EsNode): number => node.loc.end.line - node.loc.start.l
 
 const within = (node: EsNode, outer: EsNode): boolean => node.range[0] >= outer.range[0] && node.range[1] <= outer.range[1];
 
-const span = (node: EsNode): number => node.range[1] - node.range[0];
+function span(node: EsNode): number {
+  return node.range[1] - node.range[0];
+}
+
+/** A long literal outside an expectation is data to move; inside one it is what the test checks. */
+function reportLong(context: RuleContext, node: EsArrayExpression | EsObjectExpression, maxLines: number): void {
+  const data = { lines: String(lineCount(node)), max: String(maxLines) };
+
+  if (!isExpected(node)) {
+    context.report({ node, messageId: 'longLiteral', data });
+
+    return;
+  }
+
+  const part = largestPart(node);
+
+  if (part && lineCount(part) > 1) {
+    context.report({
+      node,
+      messageId: 'longExpected',
+      data: { ...data, part: excerpt(context, part, 40), line: String(part.loc.start.line) },
+    });
+  } else {
+    context.report({ node, messageId: 'longExpectedFlat', data });
+  }
+}
+
+interface Copies {
+  readonly first: EsNode;
+  readonly rest: EsNode[];
+}
+
+function reportRepeats(context: RuleContext, seen: Iterable<Copies>, repeats: number): void {
+  const reported: EsNode[] = [];
+  // Outermost first, so a repeated literal is reported once rather than once per repeated piece of it.
+  const groups = [...seen].filter((group) => group.rest.length + 1 >= repeats).sort((a, b) => span(b.first) - span(a.first));
+
+  for (const group of groups) {
+    // Every copy is checked, not just the first: a copy inside an outer literal already reported moves with it.
+    const [first, ...rest] = [group.first, ...group.rest].filter((node) => !reported.some((outer) => within(node, outer)));
+
+    if (!first || rest.length + 1 < repeats) {
+      continue;
+    }
+
+    reported.push(first, ...rest);
+
+    const binding = localBinding(context, first);
+
+    for (const node of rest) {
+      const data = { literal: excerpt(context, node, 40), count: String(rest.length + 1), first: String(first.loc.start.line) };
+
+      context.report(
+        binding === undefined
+          ? { node, messageId: 'repeatedLiteral', data }
+          : { node, messageId: 'repeatedLocalLiteral', data: { ...data, binding } },
+      );
+    }
+  }
+}
 
 export const noInlineTestData = defineRule({
   name: 'no-inline-test-data',
@@ -163,8 +340,14 @@ export const noInlineTestData = defineRule({
   messages: {
     longLiteral:
       'This literal spans {{lines}} lines of test data (the limit is {{max}}). Move it to a `*.mock.ts` file next to the spec and import it, so the test shows what it checks rather than the data it feeds in.',
+    longExpected:
+      'This expected value spans {{lines}} lines (the limit is {{max}}). It is what the test checks, so keep its shape inline and move its largest part, `{{part}}` at line {{line}}, to a `*.mock.ts` file next to the spec.',
+    longExpectedFlat:
+      'This expected value spans {{lines}} lines (the limit is {{max}}). It is what the test checks, so check only the entries this test is about, or move it to a `*.mock.ts` file next to the spec under a name that says what the test expects.',
     repeatedLiteral:
       '`{{literal}}` is written {{count}} times in this file (first at line {{first}}). Export it once from a `*.mock.ts` file next to the spec and import it, so one edit reaches every test that uses it.',
+    repeatedLocalLiteral:
+      '`{{literal}}` is written {{count}} times in this file (first at line {{first}}) and reads `{{binding}}`, which this spec declares. Name it once in a `const` beside `{{binding}}` and reuse it, so one edit reaches every test that uses it.',
   },
   create: (context) => {
     if (MOCK_FILE.test(context.filename)) {
@@ -173,16 +356,6 @@ export const noInlineTestData = defineRule({
 
     const { maxLines, repeats, minValues } = limits(context);
     const seen = new Map<string, { first: EsNode; rest: EsNode[] }>();
-
-    const visit = (node: EsArrayExpression | EsObjectExpression): void => {
-      if (isLiteral(container(node)) || !isData(node)) {
-        return;
-      }
-
-      if (lineCount(node) > maxLines) {
-        context.report({ node, messageId: 'longLiteral', data: { lines: String(lineCount(node)), max: String(maxLines) } });
-      }
-    };
 
     const collect = (node: EsArrayExpression | EsObjectExpression): void => {
       if (!isData(node) || !isRecord(node, minValues)) {
@@ -201,29 +374,14 @@ export const noInlineTestData = defineRule({
 
     return {
       'ObjectExpression, ArrayExpression': (node: EsArrayExpression | EsObjectExpression): void => {
-        visit(node);
+        if (!isLiteral(container(node)) && isData(node) && lineCount(node) > maxLines) {
+          reportLong(context, node, maxLines);
+        }
+
         collect(node);
       },
       'Program:exit': (): void => {
-        const reported: EsNode[] = [];
-        // Outermost first, so a repeated literal is reported once rather than once per repeated piece of it.
-        const groups = [...seen.values()].filter((group) => group.rest.length + 1 >= repeats).sort((a, b) => span(b.first) - span(a.first));
-
-        for (const { first, rest } of groups) {
-          if (reported.some((outer) => within(first, outer))) {
-            continue;
-          }
-
-          reported.push(first, ...rest);
-
-          for (const node of rest) {
-            context.report({
-              node,
-              messageId: 'repeatedLiteral',
-              data: { literal: excerpt(context, node, 40), count: String(rest.length + 1), first: String(first.loc.start.line) },
-            });
-          }
-        }
+        reportRepeats(context, seen.values(), repeats);
       },
     };
   },

@@ -93,4 +93,120 @@ describe(RULE, () => {
       verify("call({ method: 'GET' });\ncall({ method: 'GET' });\ncall({ method: 'GET' });", { options: { minValues: 1 } }),
     ).toHaveLength(2);
   });
+
+  it('does not count a short tuple as a record, and reports the literal around it once per copy', () => {
+    const ranges = [
+      'select({ from: [1, 1], to: [1, 5] });',
+      'select({ from: [1, 1], to: [2, 3] });',
+      'select({ from: [2, 3], to: [1, 5] });',
+      "expect(ids).toEqual(['0', '1']);",
+      "expect(ids).toEqual(['0', '1']);",
+      "expect(ids).toEqual(['0', '1']);",
+    ];
+
+    expect(verify(ranges.join('\n'))).toEqual([]);
+
+    const repeated = verify('select({ from: [1, 1], to: [1, 5] });\n'.repeat(3));
+
+    expect(repeated.map((message) => [message.line, message.message.slice(0, 12)])).toEqual([
+      [2, '`{ from: [1,'],
+      [3, '`{ from: [1,'],
+    ]);
+  });
+
+  it('still counts a longer array, or one whose items are longer than an id', () => {
+    expect(verify('save([1, 2, 3, 4]);\n'.repeat(3))).toHaveLength(2);
+    expect(verify("save(['first-id', 'second-id']);\n".repeat(3))).toHaveLength(2);
+  });
+
+  it('does not report a copy again when it sits inside a literal already reported', () => {
+    const order = "save({ id: 1, line: { sku: 'a', qty: 2 } });\n".repeat(3);
+    const alone = verify(`check({ sku: 'a', qty: 2 });\n${order}`);
+
+    expect(alone.map((message) => message.line)).toEqual([3, 4]);
+
+    const outside = verify(`${"check({ sku: 'a', qty: 2 });\n".repeat(3)}${order}`);
+
+    expect(outside.map((message) => message.message.slice(0, 9))).toEqual(["`{ sku: '", "`{ sku: '", '`{ id: 1,', '`{ id: 1,']);
+  });
+
+  it('leaves a small bag of boolean flags alone, but not a larger one or one with a value in it', () => {
+    const flags = [
+      'rmSync(dir, { recursive: true, force: true });',
+      "configure({ production: false, enableSentry: true, 'strict': true });",
+    ];
+
+    for (const call of flags) {
+      expect(verify(`${call}\n`.repeat(3))).toEqual([]);
+    }
+
+    expect(verify('configure({ a: true, b: false, c: true, d: true });\n'.repeat(3))).toHaveLength(2);
+    expect(verify("configure({ enabled: true, name: 'x' });\n".repeat(3))).toHaveLength(2);
+  });
+
+  it('asks to move the largest part of a long expected value and keep its shape inline', () => {
+    const expected = `{\n  id: 1,\n  ...base,\n  address: ${literalOf(10)},\n  items: ${literalOf(12)} as Item,\n}`;
+    const [message, ...rest] = verify(`expect(order).toMatchObject(${expected});`);
+
+    expect(rest).toEqual([]);
+    expect(message?.message).toMatch(
+      /^This expected value spans 26 lines \(the limit is 20\)\. It is what the test checks, so keep its shape inline and move its largest part, `\{ field0: 0, field1: 1,[^`]*` at line 14,/,
+    );
+    expect(verify(`expect(api.post).toHaveBeenCalledWith('/orders', expect.objectContaining(${expected}));`)[0]?.message).toContain(
+      'keep its shape inline',
+    );
+    expect(verify(`expect(rows).toEqual([\n${literalOf(8)},\n${literalOf(13)},\n]);`)[0]?.message).toMatch(
+      /largest part, `[^`]*` at line 10,/,
+    );
+  });
+
+  it('asks to check fewer entries of a long expected value that has no large part to move', () => {
+    const flat = `{\n  nested: { id: 1 },\n  ${literalOf(22).slice(2)}`;
+
+    for (const code of [`expect(order).toStrictEqual(${literalOf(25)});`, `expect(order).toEqual(${flat});`]) {
+      expect(verify(code)[0]?.message).toMatch(
+        /^This expected value spans \d+ lines \(the limit is 20\)\. It is what the test checks, so check only the entries/,
+      );
+    }
+  });
+
+  it('keeps calling a long literal data when it is what the test feeds in, even to expect()', () => {
+    for (const code of [`expect(${literalOf(25)}).toBeDefined();`, `expect(order).toEqual(load(${literalOf(25)}));`]) {
+      expect(verify(code)[0]?.message).toMatch(/^This literal spans 25 lines of test data/);
+    }
+  });
+
+  it('suggests a spec-local const for a repeated literal that reads a binding the spec declares', () => {
+    const target = verify(`const TARGET = 'x';\n${"run(['-a', 'Google Chrome', TARGET]);\n".repeat(3)}`);
+
+    expect(target.map((message) => message.line)).toEqual([3, 4]);
+    expect(target[0]?.message).toMatch(
+      /^`\['-a', 'Google Chrome', TARGET\]` is written 3 times in this file \(first at line 2\) and reads `TARGET`, which this spec declares\. Name it once in a `const` beside `TARGET`/,
+    );
+
+    const spread = verify(`const EMPTY = { keys: [] };\n${"check({ ...EMPTY, invalidKeys: ['a', 'b'] });\n".repeat(3)}`);
+
+    expect(spread[0]?.message).toContain('reads `EMPTY`');
+
+    for (const literal of ['{ id: user.id!, name: "Ann" }', '{ [KEY]: 1, name: "Ann" }', '{ id: (user as User).id, n: 1 }']) {
+      const code = `const user = { id: 1 };\nconst KEY = 'k';\n${`save(${literal});\n`.repeat(3)}`;
+
+      expect(verify(code)[0]?.message).toMatch(/which this spec declares/);
+    }
+  });
+
+  it('keeps the mock-file advice when the literal only names imports, globals, keys and types', () => {
+    const cases = [
+      `import { TARGET } from './target';\n${"run(['-a', 'Google Chrome', TARGET]);\n".repeat(3)}`,
+      `const TARGET = 1;\ninterface Local { TARGET: number; name: string }\n${"save({ TARGET: 1, name: 'Ann' } as Local);\n".repeat(3)}`,
+      `const id = 1;\n${"save({ id: config.id, name: 'Ann' });\n".repeat(3)}`,
+    ];
+
+    for (const code of cases) {
+      const messages = verify(code);
+
+      expect(messages).toHaveLength(2);
+      expect(messages[0]?.message).toMatch(/Export it once from a `\*\.mock\.ts` file/);
+    }
+  });
 });
