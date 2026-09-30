@@ -719,4 +719,12 @@ describe('createAutoMock — returnsClass', () => {
     expect(() => innerDouble(factory, 'create')).toThrow("'create' has no returnsClass entry");
     expect(() => innerDouble(factory, 'draft')).toThrow("'draft' has no returnsClass entry");
   });
+
+  it('answers what a builder builds', () => {
+    const report = new Report();
+    const factory = createAutoMock<ReportFactory>({ returnsClass: { create: { build: () => report } } });
+
+    expect(factory.create('a')).toBe(report);
+    expect(innerDouble(factory, 'create')).toBe(report);
+  });
 });

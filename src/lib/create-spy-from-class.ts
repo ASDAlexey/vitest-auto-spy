@@ -448,18 +448,39 @@ function withUndefinedReturns(returns: Record<string, unknown>, names: readonly 
   return names?.length ? { ...Object.fromEntries(names.map((name) => [name, undefined])), ...returns } : returns;
 }
 
-/** One spy of each named class, built with its paired configuration, for the names `answered` does not claim. */
+type ClassDoubleEntry = ClassType<unknown> | readonly [ClassType<unknown>, object] | { readonly build: () => unknown };
+
+/** One double per named entry, for the names `answered` does not claim. */
 export function classDoubles(
-  classes: Partial<Record<string, ClassType<unknown> | readonly [ClassType<unknown>, object]>> | undefined,
+  classes: Partial<Record<string, ClassDoubleEntry>> | undefined,
   answered: (name: string) => boolean,
 ): Record<string, object> {
   return Object.fromEntries(
     Object.entries(classes ?? {}).flatMap(([name, entry]) =>
-      entry === undefined || answered(name)
-        ? []
-        : [[name, typeof entry === 'function' ? createSpyFromClass(entry) : createSpyFromClass(entry[0], entry[1])] as const],
+      entry === undefined || answered(name) ? [] : [[name, classDouble(name, entry)] as const],
     ),
   );
+}
+
+function classDouble(name: string, entry: ClassDoubleEntry): object {
+  if (typeof entry === 'function') {
+    return createSpyFromClass(entry);
+  }
+
+  if (!('build' in entry)) {
+    return createSpyFromClass(entry[0], entry[1]);
+  }
+
+  const built = entry.build();
+
+  if ((typeof built !== 'object' || built === null) && typeof built !== 'function') {
+    throw new TypeError(
+      `[vitest-auto-spy] returnsClass: the build() of '${name}' returned ${String(built)}; it has to return the double the method answers. ` +
+        `For a plain value use returns: { ${name}: value }.`,
+    );
+  }
+
+  return built;
 }
 
 const warnedThenables = new WeakSet<object>();

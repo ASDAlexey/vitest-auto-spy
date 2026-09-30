@@ -32,11 +32,17 @@ export function recordInnerDoubles(outer: object, doubles: Record<string, object
  *
  * The same object every call of the method answers. Throws when the method has no `returnsClass`
  * entry on this double, or when `returns` answers it instead.
+ *
+ * A generic method reads back with its type parameters as `unknown`; name the type instead —
+ * `innerDouble<SnackBarRef<Comp>>(snackBar, 'openFromComponent')` — which, like a cast, is not
+ * checked against the method.
  */
 export function innerDouble<T, K extends OnlyMethodKeysOf<T>>(
   outer: Spy<T>,
   method: K,
-): Required<T>[K] extends Func ? Spy<ReturnType<Required<T>[K]>> : never {
+): Required<T>[K] extends Func ? Spy<ReturnType<Required<T>[K]>> : never;
+export function innerDouble<R = never>(outer: [R] extends [never] ? never : object, method: string): Spy<R>;
+export function innerDouble(outer: object, method: string): object {
   const double = registry().get(outer)?.get(method);
 
   if (double === undefined) {
@@ -46,6 +52,5 @@ export function innerDouble<T, K extends OnlyMethodKeysOf<T>>(
     );
   }
 
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- recorded under this name by the factory that built `outer` from the `returnsClass` entry typed against the method's return.
-  return double as Required<T>[K] extends Func ? Spy<ReturnType<Required<T>[K]>> : never;
+  return double;
 }

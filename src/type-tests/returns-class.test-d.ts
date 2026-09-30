@@ -44,6 +44,21 @@ class SnackBar {
   }
 }
 
+class Ref<C> {
+  instance!: C;
+  close(): void {}
+}
+
+class Popup {
+  open<C>(_component: new () => C): Ref<C> {
+    return new Ref<C>();
+  }
+}
+
+class Banner {
+  shown = true;
+}
+
 interface Stream {
   close(): void;
   send(data: string): number;
@@ -84,6 +99,28 @@ describe('returnsClass', () => {
 
     // @ts-expect-error -- `title` is data
     innerDouble(factory, 'title');
+  });
+
+  it('reads a generic method with the type named, and needs it named to leave the checked form', () => {
+    const popup = createSpyFromClass(Popup, { returnsClass: { open: Ref } });
+
+    expectTypeOf(innerDouble(popup, 'open')).toEqualTypeOf<Spy<Ref<unknown>>>();
+    expectTypeOf(innerDouble<Ref<Banner>>(popup, 'open')).toEqualTypeOf<Spy<Ref<Banner>>>();
+    expectTypeOf(innerDouble<Ref<Banner>>(popup, 'open').instance).toEqualTypeOf<Banner>();
+
+    // @ts-expect-error -- without a type argument the key is checked against the double
+    innerDouble(popup, 'missing');
+  });
+
+  it('takes a builder whose result is the method return type', () => {
+    const built = createSpyFromClass(Ref<Banner>);
+
+    createSpyFromClass(Popup, { returnsClass: { open: { build: () => built } } });
+    createAutoMock<SnackBar>({ returnsClass: { open: { build: () => createSpyFromClass(SnackBarRef) } } });
+    provideAutoSpy(SnackBar, { returnsClass: { open: { build: () => new SnackBarRef() } } });
+
+    // @ts-expect-error -- `open` returns a SnackBarRef
+    createSpyFromClass(SnackBar, { returnsClass: { open: { build: () => new Report() } } });
   });
 
   it('rejects a class the method does not return, and a member that is not a method', () => {

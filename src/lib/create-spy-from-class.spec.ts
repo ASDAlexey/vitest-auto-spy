@@ -940,6 +940,24 @@ describe('createSpyFromClass — returnsClass', () => {
       clearAutoSpyDefaults(ReportFactory);
     }
   });
+
+  it('answers what a builder builds, called once per outer double', () => {
+    const build = vi.fn(() => createSpyFromClass(Report, { returns: { render: 'built' } }));
+    const first = createSpyFromClass(ReportFactory, { returnsClass: { create: { build } } });
+    const second = createSpyFromClass(ReportFactory, { returnsClass: { create: { build } } });
+
+    expect(first.create('a').render()).toBe('built');
+    expect(first.create('b')).toBe(first.create('c'));
+    expect(second.create('a')).not.toBe(first.create('a'));
+    expect(build).toHaveBeenCalledTimes(2);
+    expect(innerDouble(first, 'create')).toBe(first.create('d'));
+  });
+
+  it('throws when a builder returns no object', () => {
+    expect(() => createSpyFromClass(ReportFactory, { returnsClass: { create: { build: () => outOfType<Report>(undefined) } } })).toThrow(
+      "[vitest-auto-spy] returnsClass: the build() of 'create' returned undefined; it has to return the double the method answers.",
+    );
+  });
 });
 
 describe('innerDouble', () => {
@@ -988,5 +1006,21 @@ describe('innerDouble', () => {
     );
     expect(() => innerDouble(factory, 'draft')).toThrow("'draft' has no returnsClass entry");
     expect(() => innerDouble(createSpyFromClass(ReportFactory), 'create')).toThrow("'create' has no returnsClass entry");
+  });
+
+  it('reads a generic method as the type named', () => {
+    class Ref<C> {
+      instance?: C;
+    }
+
+    class Popup {
+      open<C>(_component: C): Ref<C> {
+        return new Ref<C>();
+      }
+    }
+
+    const popup = createSpyFromClass(Popup, { returnsClass: { open: Ref } });
+
+    expect(innerDouble<Ref<string>>(popup, 'open')).toBe(popup.open('a'));
   });
 });

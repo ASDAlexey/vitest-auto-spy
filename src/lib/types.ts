@@ -846,8 +846,11 @@ export type MethodReturnsClass<T> = {
   [K in OnlyMethodKeysOf<T>]?: Required<T>[K] extends Func ? ReturnsClassEntry<ReturnType<Required<T>[K]>> : never;
 };
 
-/** One `returnsClass` entry: the class, or the class and the `createSpyFromClass` configuration for it. */
-export type ReturnsClassEntry<R> = ClassType<R> | readonly [ClassType<R>, ClassSpyConfiguration<R>];
+/**
+ * One `returnsClass` entry: the class, the class and the `createSpyFromClass` configuration for it, or
+ * `{ build }` — a function that builds the double, such as a preset, called once per outer double.
+ */
+export type ReturnsClassEntry<R> = ClassType<R> | readonly [ClassType<R>, ClassSpyConfiguration<R>] | { readonly build: () => R };
 
 // `getMinZoom?: (() => number) | undefined` — a third-party typing's optional method written as a
 // property — keeps its explicit `undefined` through `Required`, so it is not a method key of its own.
@@ -1098,11 +1101,13 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
   /**
    * Methods that answer a spy of the named class — `returns: { m: asInstance(createSpyFromClass(C)) }`
    * in one entry. Every call answers the same double; reach it with `innerDouble(double, 'm')`, which
-   * records no call, or `asSpy(double.m())`. A `[C, config]` pair builds that spy with `config`.
+   * records no call, or `asSpy(double.m())`. A `[C, config]` pair builds that spy with `config`;
+   * `{ build: () => double }` answers what the function builds, called once per outer double.
    *
    * ```ts
    * provideAutoSpy(ReportFactory, { returnsClass: { create: Report } });
    * provideAutoSpy(SnackBar, { returnsClass: { open: [SnackBarRef, { returnsUndefined: ['dismiss'] }] } });
+   * provideAutoSpy(MatDialog, { returnsClass: { open: { build: () => createMatDialogRef(MatDialogRef).ref } } });
    * ```
    *
    * Counts as configured under `strict`; a method also named in `returns` answers that value.
