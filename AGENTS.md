@@ -286,7 +286,8 @@ const cart = asSpy(TestBed.inject(CartService)); // T → Spy<T>, for the helper
 
 Both are the same object at runtime. `injectSpy(X)` already returns `Spy<X>`. The double a
 `returnsClass` method answers is `innerDouble(outer, 'create')`, typed `Spy<Report>` and read
-without recording a call on `create`. Do **not** patch the
+without recording a call on `create`; for a generic method name the type,
+`innerDouble<DialogRef<Comp>>(dialog, 'open')`. Do **not** patch the
 mismatch with `as any`, `as unknown as T` or `@ts-expect-error`.
 
 | Compiler message | Direction | Fix |

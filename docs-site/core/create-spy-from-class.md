@@ -36,25 +36,25 @@ What you can do with each method afterwards (`calledWith`, `resolveWith`, `nextW
 
 The second argument is an options object. Every option is optional.
 
-| Option                   | Type                                                  | Default                                 | Meaning                                                                                                                                   |
-| ------------------------ | ----------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `returns`                | `{ method: value }`                                   | none                                    | what a method answers; it stays a spy ([details](#returns-—-the-value-where-the-spy-is-built))                                            |
-| `overrides`              | `{ member: value }`                                   | none                                    | replace a member with a value ([details](#returns-or-overrides))                                                                          |
-| `returnsUndefined`       | method names                                          | `[]`                                    | these methods answer `undefined` and count as configured ([details](#returns-undefined))                                                  |
-| `selfReturning`          | method names                                          | `[]`                                    | these methods return the spy itself, for chains ([details](#self-returning))                                                              |
-| `returnsClass`           | `{ method: Class }` or `{ method: [Class, options] }` | none                                    | these methods return a spy of that class ([details](#returns-class))                                                                      |
-| `strict`                 | `boolean`                                             | `false`                                 | an unconfigured method throws instead of returning `undefined` ([details](#strict))                                                       |
-| `onUnstubbedCall`        | `(call) => unknown`                                   | none                                    | runs instead of returning `undefined` ([Strict mode](./strict-mode#onunstubbedcall-—-the-general-form))                                   |
-| `onUnstubbedRead`        | `(read) => void`                                      | none                                    | receives unconfigured getter reads ([Strict mode](./strict-mode#reads-nobody-configured))                                                 |
-| `methodsToSpyOn`         | method names                                          | `[]`                                    | spy these **in addition** to the discovered methods                                                                                       |
-| `onlyMethodsToSpyOn`     | method names                                          | none                                    | spy **only** these; skip discovery                                                                                                        |
-| `instanceMethodsToSpyOn` | member names                                          | `[]`                                    | add callables that live on the instance, not the prototype ([details](#instancemethodstospyon-—-callables-that-are-not-on-the-prototype)) |
-| `fillMissing`            | `boolean`                                             | `false` (`true` for ngrx `signalStore`) | answer any undeclared member with a spy ([details](#fill-missing))                                                                        |
-| `observablePropsToSpyOn` | property names                                        | `[]`                                    | make these `Observable` properties controllable with `nextWith` …                                                                         |
-| `gettersToSpyOn`         | accessor names                                        | `[]`                                    | spy these getters ([details](#accessor-spies-—-accessorspies))                                                                            |
-| `settersToSpyOn`         | accessor names                                        | `[]`                                    | spy these setters                                                                                                                         |
-| `autoSpyAccessors`       | `boolean`                                             | `false`                                 | spy every getter and setter on the prototype chain                                                                                        |
-| `lazySpies`              | `boolean \| 'proxy'`                                  | by class width                          | when each method's spy is built ([details](#lazy-spies-—-lazyspies))                                                                      |
+| Option                   | Type                                                                           | Default                                 | Meaning                                                                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------ | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `returns`                | `{ method: value }`                                                            | none                                    | what a method answers; it stays a spy ([details](#returns-—-the-value-where-the-spy-is-built))                                            |
+| `overrides`              | `{ member: value }`                                                            | none                                    | replace a member with a value ([details](#returns-or-overrides))                                                                          |
+| `returnsUndefined`       | method names                                                                   | `[]`                                    | these methods answer `undefined` and count as configured ([details](#returns-undefined))                                                  |
+| `selfReturning`          | method names                                                                   | `[]`                                    | these methods return the spy itself, for chains ([details](#self-returning))                                                              |
+| `returnsClass`           | `{ method: Class }`, `{ method: [Class, options] }` or `{ method: { build } }` | none                                    | these methods return a spy of that class ([details](#returns-class))                                                                      |
+| `strict`                 | `boolean`                                                                      | `false`                                 | an unconfigured method throws instead of returning `undefined` ([details](#strict))                                                       |
+| `onUnstubbedCall`        | `(call) => unknown`                                                            | none                                    | runs instead of returning `undefined` ([Strict mode](./strict-mode#onunstubbedcall-—-the-general-form))                                   |
+| `onUnstubbedRead`        | `(read) => void`                                                               | none                                    | receives unconfigured getter reads ([Strict mode](./strict-mode#reads-nobody-configured))                                                 |
+| `methodsToSpyOn`         | method names                                                                   | `[]`                                    | spy these **in addition** to the discovered methods                                                                                       |
+| `onlyMethodsToSpyOn`     | method names                                                                   | none                                    | spy **only** these; skip discovery                                                                                                        |
+| `instanceMethodsToSpyOn` | member names                                                                   | `[]`                                    | add callables that live on the instance, not the prototype ([details](#instancemethodstospyon-—-callables-that-are-not-on-the-prototype)) |
+| `fillMissing`            | `boolean`                                                                      | `false` (`true` for ngrx `signalStore`) | answer any undeclared member with a spy ([details](#fill-missing))                                                                        |
+| `observablePropsToSpyOn` | property names                                                                 | `[]`                                    | make these `Observable` properties controllable with `nextWith` …                                                                         |
+| `gettersToSpyOn`         | accessor names                                                                 | `[]`                                    | spy these getters ([details](#accessor-spies-—-accessorspies))                                                                            |
+| `settersToSpyOn`         | accessor names                                                                 | `[]`                                    | spy these setters                                                                                                                         |
+| `autoSpyAccessors`       | `boolean`                                                                      | `false`                                 | spy every getter and setter on the prototype chain                                                                                        |
+| `lazySpies`              | `boolean \| 'proxy'`                                                           | by class width                          | when each method's spy is built ([details](#lazy-spies-—-lazyspies))                                                                      |
 
 "Discovery" means the library reads every method on the class prototype, including base classes.
 Every method it finds becomes a spy.
@@ -301,6 +301,22 @@ provideAutoSpy(MatSnackBar, {
   returnsClass: { openFromComponent: [MatSnackBarRef, { returnsUndefined: ['dismiss'] }] },
 });
 ```
+
+When the inner double comes from a preset rather than `createSpyFromClass`, pass `{ build }`. The
+function runs once per outer double, and `innerDouble` returns what it built:
+
+```ts
+import { createMatDialogRef } from 'vitest-auto-spy/angular/doubles';
+
+provideAutoSpy(MatDialog, {
+  returnsClass: { open: { build: () => createMatDialogRef(MatDialogRef, { closedWith: 'ok' }).ref } },
+});
+```
+
+A generic method such as `open<C>(component: C): MatDialogRef<C>` reads back with `C` as `unknown`:
+`innerDouble(dialog, 'open')` is a `Spy<MatDialogRef<unknown>>`. Name the type to get it back,
+`innerDouble<MatDialogRef<SaveDialog>>(dialog, 'open')`. Like a cast, the named type is not checked
+against the method.
 
 **Common mistake:** reading the inner spy with `reports.create()` in a test that asserts
 `toHaveBeenCalledOnce()` on `create`. That read is a call too, so the count is off by one. Read it

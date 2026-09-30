@@ -609,7 +609,7 @@ to 'ClassType<unknown>'`), and `provideAutoSpyForToken(TOKEN)` merges its argume
 `selfReturning` names methods that answer the double itself — a default like `returns`, configured
 under `strict`, on every factory. `returnsClass: { create: Report }` makes a method answer one
 `Spy<Report>` per double, reached without a recorded call as `innerDouble(factory, 'create')`;
-`returnsClass: { open: [SnackBarRef, { returnsUndefined: ['dismiss'] }] }` configures that inner double. With nothing to seed, options go
+`returnsClass: { open: [SnackBarRef, { returnsUndefined: ['dismiss'] }] }` configures that inner double, `{ open: { build: () => preset } }` takes a preset's, and `innerDouble<Ref<C>>(dialog, 'open')` types a generic method's. With nothing to seed, options go
 first: `createAutoMock<T>({ returnsUndefined: ['close'] })`; `strict` / `name` / `returns` alone go
 second.
 Reach for it when the same class carries different configurations in different specs:

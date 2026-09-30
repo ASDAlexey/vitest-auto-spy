@@ -66,7 +66,10 @@ records no call, so a spec asserting `create`'s call count uses it too (`asSpy(f
 is a recorded call). `innerDouble` throws for a method with no `returnsClass` entry. When the inner
 double needs options of its own — a `void` method under `strict` — pass a pair:
 `returnsClass: { open: [SnackBarRef, { returnsUndefined: ['dismiss'] }] }`; the options are typed
-against `SnackBarRef`.
+against `SnackBarRef`. A preset double goes in as a builder, called once per outer double:
+`returnsClass: { open: { build: () => createMatDialogRef(MatDialogRef, { closedWith: 'ok' }).ref } }`.
+A generic method reads back with its type parameters as `unknown` (`Spy<MatDialogRef<unknown>>`);
+name the type, `innerDouble<MatDialogRef<SaveDialog>>(dialog, 'open')` — unchecked, like a cast.
 
 `createMock<T>()` is the one to reach for on data shapes — it returns a plain `T`, so it satisfies a
 `no-type-assertion` lint rule without an `eslint-disable` on every fixture. `createMock<T>(undefined)`

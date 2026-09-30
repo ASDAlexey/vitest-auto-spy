@@ -1146,25 +1146,25 @@ What you can do with each method afterwards (`calledWith`, `resolveWith`, `nextW
 
 The second argument is an options object. Every option is optional.
 
-| Option                   | Type                                                  | Default                                 | Meaning                                                                                                                                   |
-| ------------------------ | ----------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `returns`                | `{ method: value }`                                   | none                                    | what a method answers; it stays a spy ([details](#returns-—-the-value-where-the-spy-is-built))                                            |
-| `overrides`              | `{ member: value }`                                   | none                                    | replace a member with a value ([details](#returns-or-overrides))                                                                          |
-| `returnsUndefined`       | method names                                          | `[]`                                    | these methods answer `undefined` and count as configured ([details](#returns-undefined))                                                  |
-| `selfReturning`          | method names                                          | `[]`                                    | these methods return the spy itself, for chains ([details](#self-returning))                                                              |
-| `returnsClass`           | `{ method: Class }` or `{ method: [Class, options] }` | none                                    | these methods return a spy of that class ([details](#returns-class))                                                                      |
-| `strict`                 | `boolean`                                             | `false`                                 | an unconfigured method throws instead of returning `undefined` ([details](#strict))                                                       |
-| `onUnstubbedCall`        | `(call) => unknown`                                   | none                                    | runs instead of returning `undefined` ([Strict mode](https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#onunstubbedcall-—-the-general-form))                                   |
-| `onUnstubbedRead`        | `(read) => void`                                      | none                                    | receives unconfigured getter reads ([Strict mode](https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#reads-nobody-configured))                                                 |
-| `methodsToSpyOn`         | method names                                          | `[]`                                    | spy these **in addition** to the discovered methods                                                                                       |
-| `onlyMethodsToSpyOn`     | method names                                          | none                                    | spy **only** these; skip discovery                                                                                                        |
-| `instanceMethodsToSpyOn` | member names                                          | `[]`                                    | add callables that live on the instance, not the prototype ([details](#instancemethodstospyon-—-callables-that-are-not-on-the-prototype)) |
-| `fillMissing`            | `boolean`                                             | `false` (`true` for ngrx `signalStore`) | answer any undeclared member with a spy ([details](#fill-missing))                                                                        |
-| `observablePropsToSpyOn` | property names                                        | `[]`                                    | make these `Observable` properties controllable with `nextWith` …                                                                         |
-| `gettersToSpyOn`         | accessor names                                        | `[]`                                    | spy these getters ([details](#accessor-spies-—-accessorspies))                                                                            |
-| `settersToSpyOn`         | accessor names                                        | `[]`                                    | spy these setters                                                                                                                         |
-| `autoSpyAccessors`       | `boolean`                                             | `false`                                 | spy every getter and setter on the prototype chain                                                                                        |
-| `lazySpies`              | `boolean \| 'proxy'`                                  | by class width                          | when each method's spy is built ([details](#lazy-spies-—-lazyspies))                                                                      |
+| Option                   | Type                                                                           | Default                                 | Meaning                                                                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------ | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `returns`                | `{ method: value }`                                                            | none                                    | what a method answers; it stays a spy ([details](#returns-—-the-value-where-the-spy-is-built))                                            |
+| `overrides`              | `{ member: value }`                                                            | none                                    | replace a member with a value ([details](#returns-or-overrides))                                                                          |
+| `returnsUndefined`       | method names                                                                   | `[]`                                    | these methods answer `undefined` and count as configured ([details](#returns-undefined))                                                  |
+| `selfReturning`          | method names                                                                   | `[]`                                    | these methods return the spy itself, for chains ([details](#self-returning))                                                              |
+| `returnsClass`           | `{ method: Class }`, `{ method: [Class, options] }` or `{ method: { build } }` | none                                    | these methods return a spy of that class ([details](#returns-class))                                                                      |
+| `strict`                 | `boolean`                                                                      | `false`                                 | an unconfigured method throws instead of returning `undefined` ([details](#strict))                                                       |
+| `onUnstubbedCall`        | `(call) => unknown`                                                            | none                                    | runs instead of returning `undefined` ([Strict mode](https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#onunstubbedcall-—-the-general-form))                                   |
+| `onUnstubbedRead`        | `(read) => void`                                                               | none                                    | receives unconfigured getter reads ([Strict mode](https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#reads-nobody-configured))                                                 |
+| `methodsToSpyOn`         | method names                                                                   | `[]`                                    | spy these **in addition** to the discovered methods                                                                                       |
+| `onlyMethodsToSpyOn`     | method names                                                                   | none                                    | spy **only** these; skip discovery                                                                                                        |
+| `instanceMethodsToSpyOn` | member names                                                                   | `[]`                                    | add callables that live on the instance, not the prototype ([details](#instancemethodstospyon-—-callables-that-are-not-on-the-prototype)) |
+| `fillMissing`            | `boolean`                                                                      | `false` (`true` for ngrx `signalStore`) | answer any undeclared member with a spy ([details](#fill-missing))                                                                        |
+| `observablePropsToSpyOn` | property names                                                                 | `[]`                                    | make these `Observable` properties controllable with `nextWith` …                                                                         |
+| `gettersToSpyOn`         | accessor names                                                                 | `[]`                                    | spy these getters ([details](#accessor-spies-—-accessorspies))                                                                            |
+| `settersToSpyOn`         | accessor names                                                                 | `[]`                                    | spy these setters                                                                                                                         |
+| `autoSpyAccessors`       | `boolean`                                                                      | `false`                                 | spy every getter and setter on the prototype chain                                                                                        |
+| `lazySpies`              | `boolean \| 'proxy'`                                                           | by class width                          | when each method's spy is built ([details](#lazy-spies-—-lazyspies))                                                                      |
 
 "Discovery" means the library reads every method on the class prototype, including base classes.
 Every method it finds becomes a spy.
@@ -1411,6 +1411,22 @@ provideAutoSpy(MatSnackBar, {
   returnsClass: { openFromComponent: [MatSnackBarRef, { returnsUndefined: ['dismiss'] }] },
 });
 ```
+
+When the inner double comes from a preset rather than `createSpyFromClass`, pass `{ build }`. The
+function runs once per outer double, and `innerDouble` returns what it built:
+
+```ts
+import { createMatDialogRef } from 'vitest-auto-spy/angular/doubles';
+
+provideAutoSpy(MatDialog, {
+  returnsClass: { open: { build: () => createMatDialogRef(MatDialogRef, { closedWith: 'ok' }).ref } },
+});
+```
+
+A generic method such as `open<C>(component: C): MatDialogRef<C>` reads back with `C` as `unknown`:
+`innerDouble(dialog, 'open')` is a `Spy<MatDialogRef<unknown>>`. Name the type to get it back,
+`innerDouble<MatDialogRef<SaveDialog>>(dialog, 'open')`. Like a cast, the named type is not checked
+against the method.
 
 **Common mistake:** reading the inner spy with `reports.create()` in a test that asserts
 `toHaveBeenCalledOnce()` on `create`. That read is a call too, so the count is off by one. Read it
@@ -17306,7 +17322,8 @@ export a factory such as `createOrder(overrides)` instead of several copies.
   is not reported there at all: it reads as well as any name it could get.
 - **The long literal is the expected value** of `toEqual`, `toMatchObject`, `toHaveBeenCalledWith`
   and the like. It is what the test checks, so keep its shape in the test. Move the part the message
-  names to the mock file, or check only the fields this test is about.
+  names to a `const` in the spec when only this test writes it, to the mock file when the file writes
+  it again, or check only the fields this test is about.
 - **The library is built by `tsc`?** Add `**/*.mock.ts` to the `exclude` of its build tsconfig
   (`tsconfig.lib.json`). The usual config excludes only `*.spec.ts`, so the mock files ship in the
   package. `doctor` reports such a config as
@@ -17345,7 +17362,8 @@ checks. The message names the smallest nested part whose move alone brings it un
 prefers a list of plain values or a template string to a mixed shape. In
 `{ 'x/rule': ['error', { words: [/* 11 strings */] }] }` it names the word list, not the
 `['error', {...}]` config the test is about. When no single part is enough, it names the largest
-literal directly inside, or asks to check fewer entries when no part spans more than one line.
+literal directly inside, or asks to check fewer entries when no part spans more than one line. A part
+written nowhere else in the file goes to a `const` in the spec; a mock file is for one written again.
 
 **A value repeated only as an expected value**, every copy inside the argument of one of those
 matchers, gets a message that asks for a `const` in the spec instead of a mock file. An object of at
@@ -21351,7 +21369,9 @@ runs, keyed on the lockfile hash.
 
 It also fires when `environment` is already `all` or `ci` but no CI config caches the directory: every
 run then starts with an empty cache. `environment: none` and `enabled: false` are taken as decisions
-and not reported.
+and not reported. When every CI config only includes jobs from another repository (`include:` with
+`project:`, `remote:`, `component:` or `template:`), doctor cannot see what those jobs cache, so this
+second case is not reported.
 
 #### `builder-setup-unreached`
 
@@ -21757,6 +21777,8 @@ test:
   `node_modules`.
 - `npm ci` deletes `node_modules` before installing. If your CI runs it, point `fsModuleCachePath`
   outside `node_modules` and cache that directory.
+- A `.gitlab-ci.yml` that only includes jobs from another repository (`project:`, `remote:`,
+  `component:`, `template:`) is not judged: what those jobs cache cannot be read here.
 
 #### `vitest-5-bundled-package`
 
@@ -32401,23 +32423,23 @@ Silent typed spies over the global `console`. See [Console spies](https://asdale
 The second argument of `createSpyFromClass`, `createSpyFromInstance` and `provideAutoSpy` is a
 `ClassSpyConfiguration`. All options with examples: [Spies from a class](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#configuration).
 
-| Option                                         | Type                 | What it does                                                                                                                                                                             |
-| ---------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `methodsToSpyOn`                               | `string[]`           | Adds callables to the methods found on the prototype                                                                                                                                     |
-| `onlyMethodsToSpyOn`                           | `string[]`           | Spies only these; nothing is discovered                                                                                                                                                  |
-| `instanceMethodsToSpyOn`                       | `string[]`           | Like `methodsToSpyOn`, for callables on the instance (`signal()` fields, arrow props)                                                                                                    |
-| `observablePropsToSpyOn`                       | `string[]`           | Observable properties that get `nextWith` and friends                                                                                                                                    |
-| `gettersToSpyOn` / `settersToSpyOn`            | `string[]`           | Accessors to spy on, read back through `accessorSpies`                                                                                                                                   |
-| `autoSpyAccessors`                             | `boolean`            | Finds getters and setters by itself                                                                                                                                                      |
-| `returns`                                      | `{ method: value }`  | What a method returns from the start (for an Observable method, pass `of(value)`); the method stays a spy                                                                                |
-| `returnsUndefined`                             | `string[]`           | Methods that answer `undefined`; counts as configured under `strict`                                                                                                                     |
-| `returnsClass`                                 | `{ method: Class }`  | The method answers one spy of that class per double, reached as `innerDouble(double, 'method')`; `[Class, options]` configures it — [details](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#returns-class) |
-| `overrides`                                    | `{ member: value }`  | Replaces a member with a plain value (see [returns or overrides](https://asdalexey.github.io/vitest-auto-spy/core/returns-vs-overrides))                                                                                            |
-| `selfReturning`                                | `string[]`           | Methods that return the double itself, for chained calls                                                                                                                                 |
-| `fillMissing`                                  | `boolean`            | Adds a spy for a name the prototype does not have (`abstract` members)                                                                                                                   |
-| `lazySpies`                                    | `boolean \| 'proxy'` | When method spies are built (`'proxy'`: one proxy object builds them on first use); unset, the number of methods decides                                                                 |
-| `strict`, `onUnstubbedCall`, `onUnstubbedRead` | see below            | [Strict mode](https://asdalexey.github.io/vitest-auto-spy/core/strict-mode)                                                                                                                                                         |
-| `passthrough`                                  | `boolean`            | `createSpyFromInstance` only: unconfigured methods run the real one                                                                                                                      |
+| Option                                         | Type                 | What it does                                                                                                                                                                                                                       |
+| ---------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `methodsToSpyOn`                               | `string[]`           | Adds callables to the methods found on the prototype                                                                                                                                                                               |
+| `onlyMethodsToSpyOn`                           | `string[]`           | Spies only these; nothing is discovered                                                                                                                                                                                            |
+| `instanceMethodsToSpyOn`                       | `string[]`           | Like `methodsToSpyOn`, for callables on the instance (`signal()` fields, arrow props)                                                                                                                                              |
+| `observablePropsToSpyOn`                       | `string[]`           | Observable properties that get `nextWith` and friends                                                                                                                                                                              |
+| `gettersToSpyOn` / `settersToSpyOn`            | `string[]`           | Accessors to spy on, read back through `accessorSpies`                                                                                                                                                                             |
+| `autoSpyAccessors`                             | `boolean`            | Finds getters and setters by itself                                                                                                                                                                                                |
+| `returns`                                      | `{ method: value }`  | What a method returns from the start (for an Observable method, pass `of(value)`); the method stays a spy                                                                                                                          |
+| `returnsUndefined`                             | `string[]`           | Methods that answer `undefined`; counts as configured under `strict`                                                                                                                                                               |
+| `returnsClass`                                 | `{ method: Class }`  | The method answers one spy of that class per double, reached as `innerDouble(double, 'method')`; `[Class, options]` configures it, `{ build }` answers what a preset builds — [details](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#returns-class) |
+| `overrides`                                    | `{ member: value }`  | Replaces a member with a plain value (see [returns or overrides](https://asdalexey.github.io/vitest-auto-spy/core/returns-vs-overrides))                                                                                                                                      |
+| `selfReturning`                                | `string[]`           | Methods that return the double itself, for chained calls                                                                                                                                                                           |
+| `fillMissing`                                  | `boolean`            | Adds a spy for a name the prototype does not have (`abstract` members)                                                                                                                                                             |
+| `lazySpies`                                    | `boolean \| 'proxy'` | When method spies are built (`'proxy'`: one proxy object builds them on first use); unset, the number of methods decides                                                                                                           |
+| `strict`, `onUnstubbedCall`, `onUnstubbedRead` | see below            | [Strict mode](https://asdalexey.github.io/vitest-auto-spy/core/strict-mode)                                                                                                                                                                                                   |
+| `passthrough`                                  | `boolean`            | `createSpyFromInstance` only: unconfigured methods run the real one                                                                                                                                                                |
 
 `createAutoMock`, `autoMocked` and `provideAutoSpyForToken` take an `AutoMockConfiguration` as the
 last argument: `observablePropsToSpyOn`, `returns`, `returnsUndefined`, `returnsClass`, `selfReturning`,
