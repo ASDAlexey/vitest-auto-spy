@@ -90,7 +90,7 @@ Checked against 5.49.0 on 2026-09-29.
       later call, −12…−19 % per double. `fast-mock-state.ts` still pushes both on every call.
 - [x] **`createSpyForToken` forces `lazySpies: true`** (`track-injections.ts:37`), so wide token classes
       never get the `'proxy'` default.
-- [ ] **`createAutoMock` cannot take a config without a placeholder first argument.** The only
+- [x] **`createAutoMock` cannot take a config without a placeholder first argument.** The only
       signature is `createAutoMock<T, Options extends SpyOptions = SpyOptions>(overrides?:
 DeepPartial<T>, config?: AutoMockConfiguration<T>)` (`auto-mock.ts:76`), so a spec that seeds
       nothing but wants `returnsUndefined` — added in 5.51.0 — has to spell
@@ -102,7 +102,7 @@ DeepPartial<T>, config?: AutoMockConfiguration<T>)` (`auto-mock.ts:76`), so a sp
       `returnsUndefined` take a required first argument (`createSpyFromClass(Store, { … })`), so
       the placeholder is `createAutoMock`'s alone. One call site in a consumer suite
       (2026-09-29, 5.51.0).
-- [ ] **A one-call shape for "this factory method returns a double of that class".** Today the
+- [x] **A one-call shape for "this factory method returns a double of that class".** Today the
       pattern is two statements: build what the method returns with `createSpyFromClass(Inner)`,
       then thread it into the outer double's config as `provideAutoSpy(Outer, { returns: { factory:
 asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config's type. A
@@ -228,7 +228,7 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
 - [x] **Two skill trigger strings match no emitted message**: "not on the class prototype" and "strict
       mode is on". Fix both, and a script that checks every trigger is a substring of a literal in
       `src/lib`. The skill description also lacks `adoptMock`, `stubResponse`, `passthrough`.
-- [ ] **`no-real-component-provider` under `{ childInjectors: true }` has no notion of a class the
+- [x] **`no-real-component-provider` under `{ childInjectors: true }` has no notion of a class the
       spec declares itself.** Every exemption is a name set — `replaced`, framework imports, and
       `rendered`, which counts any `By.directive(X)` argument (`real-component-provider.ts:213-217`)
       — so a double component declared in the spec and read through a child injector is safe only
@@ -240,7 +240,7 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       rule exists to catch. The report follows from the exemption sets, not a shape seen yet. Collect
       the file's own `ClassDeclaration` names as one more set: name-level like the rest, no type
       information needed (2026-09-29, 5.51.0).
-- [ ] **`no-inline-test-data` counts every small tuple on its own, so one repeated pair reports
+- [x] **`no-inline-test-data` counts every small tuple on its own, so one repeated pair reports
       several times.** A consumer suite of ~85 specs got 37 reports in 9 specs at the defaults; 16 of
       them came from `{ from: [1, 1], to: [1, 5] }`-style ranges: `[1, 1]` ×5, `[1, 5]` ×4,
       `[2, 3]` ×6, `[2, 20]` ×5 — two real repeated pairs. Each tuple is its own group, so one site
@@ -251,21 +251,21 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       (×5) are the same shape. Group copies by the smallest enclosing literal that repeats and report
       that parent once per site, and/or a size floor: an array of two or three short primitives is a
       coordinate or an id list, not a record `isRecord` (`:117`) should count (2026-09-30, 5.54.0).
-- [ ] **`no-inline-test-data` reports small option bags.**
+- [x] **`no-inline-test-data` reports small option bags.**
       `rmSync(dir, { recursive: true, force: true })` ×3 and
       `configure({ production: false, enableSentry: true })` ×5 in a consumer suite are flags, not
       test data: two booleans pass `minValues: 2` and `isPrimitive` (`:109`). Moving them to
       a `*.mock.ts` makes the spec worse; the consumer fix was a spec-local helper. Exempt a literal
       whose leaves are all booleans with at most three keys, and/or the options argument of well-known
       `node:fs` calls (`rmSync`, `mkdirSync`, `readFileSync`…) (2026-09-30, 5.54.0).
-- [ ] **`no-inline-test-data` pushes the expected value of a matcher out of the test.**
+- [x] **`no-inline-test-data` pushes the expected value of a matcher out of the test.**
       `expect(x).toStrictEqual([…22 lines])` and `toMatchObject({…30 lines})` are reported as
       `longLiteral` (`:182`) with the message "so the test shows what it checks rather than the data it
       feeds in" — but that literal _is_ what the test checks. Inside a matcher argument
       (`toEqual`, `toStrictEqual`, `toMatchObject`, `toHaveBeenCalledWith`…) report the largest nested
       literal instead, or reword the message to suggest extracting the biggest nested constant and
       keeping the shape of the expectation inline (2026-09-30, 5.54.0).
-- [ ] **`no-inline-test-data` suggests a `*.mock.ts` for a literal built from spec-local bindings.**
+- [x] **`no-inline-test-data` suggests a `*.mock.ts` for a literal built from spec-local bindings.**
       `['-a', 'Google Chrome', TARGET]` and `{ ...EMPTY, invalidKeys: […] }` repeated in a consumer
       spec reference a `const` declared in the spec, so following the message means moving that
       `const` too, or repeating the spread base in the mock file. When a repeated literal references a
@@ -326,7 +326,7 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       consumer where `AGENTS.md` / `GEMINI.md` sit in `.git/info/exclude` and `.claude/` in a global
       excludes file, a stamp refresh leaves `git diff` empty and reads as "nothing changed". Mark such
       rows `updated (not tracked by git)` via `git check-ignore`; `src/cli` has no ignore lookup for `init`.
-- [ ] **`shared-env-without-restore` judges the raw text of each `setupAutoSpy(…)` call.** The check
+- [x] **`shared-env-without-restore` judges the raw text of each `setupAutoSpy(…)` call.** The check
       slices the characters between the parentheses (`shared-env-restore.ts:53-72`) and regexes them
       for the literals (`turnsOn`, `:74-79`), so a setup module that exports its options —
       `setupAutoSpy(OPTIONS)` — or spreads them (`setupAutoSpy({ ...OPTIONS, blockNetwork: false })`)
@@ -339,7 +339,7 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       file. Resolve at least an identifier declared in the same file — the pass visits every file's
       text already — follow the import graph the scan builds to the exporting module, and judge each
       setup file on its own calls (2026-09-29, 5.51.0).
-- [ ] **A `*.mock.ts` next to a spec can ship in a published library.** `no-inline-test-data` sends
+- [x] **A `*.mock.ts` next to a spec can ship in a published library.** `no-inline-test-data` sends
       data to `<name>.mock.ts` beside the spec, under `src/`. A library built by `tsc` whose
       `tsconfig.lib.json` excludes only `src/**/*.spec.ts` / `*.test.ts` — the usual generator
       output, and the shape of every tsc-built package in a consumer monorepo — compiles those files
@@ -404,8 +404,9 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       6 through an alias.
 - [x] **Re-measure istanbul vs v8 coverage on Vitest 5**: the trigger fired, the `vitest.config.mts`
       comment still gives the old reason.
-- [ ] **`bench-angular/baseline.json` dates from 2026-09-10**, and `bench.yml` still runs without
-      `--strict`.
+- [x] **`bench-angular/baseline.json` dates from 2026-09-10**, and `bench.yml` still runs without
+      `--strict`. Re-measured 2026-09-30; `--strict` deferred with numbers in `DECISIONS.md`
+      ("Benchmark baselines stay report-only").
 - [x] **Bump the `vitest` devDependency to 5.0.2** (the lock has 5.0.0).
 - [x] **Maintainability**: a shared `MockAdapter` contract spec instead of per-adapter specs; split
       `prototype-members.ts` out of `create-spy-from-class.ts` (470 of 500 lines).
