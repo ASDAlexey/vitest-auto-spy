@@ -10,17 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
-## [5.53.0] - 2026-09-29
-
 ### Added
 
-- **`no-inline-test-data`, in `recommended` as `warn`**: a data literal longer than 20 lines, or
-  the same literal written three times in one spec, belongs in a `*.mock.ts` file next to the spec.
-  `maxLines`, `repeats` and `minValues` tune it. Module wiring (`providers`, `imports`…), `it.each`
-  tables, `vi.mock` factories, literals holding a function and the mock files themselves are never
-  reported. On an 886-file Angular suite it flags 215 files at the defaults.
-  `/eslint-plugin` grows by 1.50 kB (50.96 → 52.46 kB, +2.9 %): 1.08 kB for this rule, the rest for
-  reading `externalDependencies` below.
 - **`perf --json <reports> --gate` re-measures its suspects without `--command`.** The perf reporter
   now records the Vitest config file the suite ran with (`configFile`, relative to `root`), and the
   confirmation pass re-runs each suspect with `vitest run --config <that file>` over the suspects
@@ -32,6 +23,18 @@ The latest released version here must always match the one published on
   than the test's, so a body over budget only because of instrumentation is not reproduced.
   `--command` still takes precedence, and a report without `configFile` is not re-measured, as
   before. The perf report format is version 6; versions 1–6 are read.
+
+## [5.53.0] - 2026-09-29
+
+### Added
+
+- **`no-inline-test-data`, in `recommended` as `warn`**: a data literal longer than 20 lines, or
+  the same literal written three times in one spec, belongs in a `*.mock.ts` file next to the spec.
+  `maxLines`, `repeats` and `minValues` tune it. Module wiring (`providers`, `imports`…), `it.each`
+  tables, `vi.mock` factories, literals holding a function and the mock files themselves are never
+  reported. On an 886-file Angular suite it flags 215 files at the defaults.
+  `/eslint-plugin` grows by 1.50 kB (50.96 → 52.46 kB, +2.9 %): 1.08 kB for this rule, the rest for
+  reading `externalDependencies` below.
 
 ### Fixed
 
