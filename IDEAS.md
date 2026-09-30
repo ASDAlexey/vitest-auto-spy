@@ -131,6 +131,28 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       say that `createAutoMock<T>()` (type-only, no runtime class needed) is the fit for a method
       returning a type the DOM environment does not define. Seen in a consumer suite, ~13k tests
       (2026-09-30, 5.57.0).
+- [ ] **`innerDouble` on a generic method loses the method's type parameter.** Seen 2026-09-30 on
+      5.58.0. The return type is `Spy<ReturnType<Required<T>[K]>>` (`src/lib/inner-double.ts:39`), and
+      `ReturnType` of a generic signature fills its type parameters with `unknown`: a snack-bar service's
+      `openFromComponent<C>(…): SnackBarRef<C>` reads back as `Spy<SnackBarRef<unknown>>`, a dialog
+      service's `open<C, D, R>` as `Spy<DialogRef<unknown, unknown>>`. Assigning it to
+      `Spy<SnackBarRef<Comp>>` fails with TS2322 (on a getter such as `instance`), so the spec keeps the
+      two-step form or a cast. `asSpy(double.openFromComponent(Comp))` stays typed, but it is a recorded
+      call. Proposal: a one-type-parameter overload, `innerDouble<SnackBarRef<Comp>>(snackBar,
+      'openFromComponent')`, with the method key constrained to methods whose return type the argument
+      is assignable to. It has to be its own overload: an explicit type argument turns inference off for
+      `T` and `K` (the `writableProps` entry in `DECISIONS.md` measured that). Both shapes in one consumer
+      suite.
+- [ ] **A preset double cannot be a `returnsClass` entry.** Seen 2026-09-30 on 5.58.0. A spec whose
+      dialog service answers a ref built by `createMatDialogRef(DialogRef, { closedWith })` — the
+      preset, not a plain spy of the class, because it closes and replays `afterClosed()` — stays on
+      `returns: { open: ref }` with `ref` hoisted, and so cannot use `innerDouble`: `ReturnsClassEntry<R>`
+      takes only a class or a `[Class, config]` pair (`src/lib/types.ts:850`), and `innerDouble` throws
+      when `returns` answers the method. Letting `innerDouble` read a `returns` value is not the fix: that
+      value need not be a spy, and `innerDouble` promises `Spy<R>`. A builder form, say
+      `returnsClass: { open: { build: () => createMatDialogRef(DialogRef, { closedWith: 'ok' }).ref } }`,
+      called once per double, would be; a bare function cannot be told from a class at runtime. Low value:
+      one consumer spec, which already holds `ref` and asserts `toBe(ref)` without `innerDouble`.
 
 ## Angular helpers
 
@@ -324,6 +346,14 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       (30 lines) the message names the whole `['error', {...}]` tuple, which is the config under test;
       moving the 11-string array alone brings it under the limit. Suggest the smallest part that gets under
       `maxLines`, preferring pure data arrays and strings over mixed config shapes.
+- [ ] **`longExpected` sends a part used once to a `*.mock.ts`, where a spec-local `const` passes.** Seen
+      2026-09-30 on 5.58.0. Since 5.58.0 the message names the right part — the 11-word list inside a
+      rule-config `toMatchObject` — but still says to move it "to a `*.mock.ts` file next to the spec"
+      (`src/lib/eslint/inline-test-data.ts:396`). A `const` in the spec passes lint too and keeps the
+      expectation readable in one file, but the consumer followed the message and kept the mock; a mock file for a value one
+      test uses is the extra hop the repeated-expected fix in 5.58.0 already avoids by asking for a
+      spec-local `const`. Proposal: when the named part occurs once in the file, suggest a spec-local
+      `const` (or name both), and keep the mock file for `longLiteral` input data. One consumer spec.
 - [x] **`no-inline-test-data`'s duplicate key strips every whitespace character out of the raw source
       text** (`context.sourceCode.getText(node).replace(/\s+/g, '')` in `inline-test-data.ts`), so two
       string leaves that differ only by whitespace collapse onto the same key. A pair of trimming-test
@@ -336,7 +366,7 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       only difference is inside a string. Seen in a consumer suite, ~13k tests (2026-09-30, 5.57.0).
 - [x] **A deliberately malformed fixture built through a type-escape helper is unique by construction,
       and `no-inline-test-data` does not know that.** A call such as `outOfType<T>({ ...validShape,
-      extra: 1 })` — used to hand-build a value the real type would reject — gets the same
+extra: 1 })` — used to hand-build a value the real type would reject — gets the same
       repeated/oversized treatment as ordinary test data, though every call is meant to differ from the
       last. Consider exempting a literal that is the sole argument of such a helper. Seen in a consumer
       suite, ~13k tests (2026-09-30, 5.57.0).
@@ -367,7 +397,7 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       anything there. Seen in a consumer suite, ~13k tests (2026-09-30, 5.57.0).
 - [x] **`prefer-create-spy-from-class`'s factory allowlist (`SPY_FACTORIES` / `insideFactorySeed` in
       `hand-rolled-doubles.ts`) does not include the `dom-stubs` factories.** `createElementStub({
-      overrides: { contains: spy } })` is reported as a hand-rolled single-member fake, though
+overrides: { contains: spy } })` is reported as a hand-rolled single-member fake, though
       `overrides` is the documented way to seed a member on that helper. Add `createElementStub` (and
       `fillMissingDomApis`) to the allowlist. Blocked applying `createElementStub` in a click-outside
       directive spec in a consumer suite, ~13k tests (2026-09-30, 5.57.0).
