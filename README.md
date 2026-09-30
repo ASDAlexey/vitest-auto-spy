@@ -15,7 +15,7 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-29.8%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-30.0%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -1295,6 +1295,7 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `tsconfig-glob-matches-nothing`        | An `include` pattern that matches no file, so it type-checks nothing                                      |
 | `tsconfig-file-missing`                | A `files` entry naming a file that is gone                                                                |
+| `tsconfig-ships-mock-file`             | A build tsconfig that excludes the specs but compiles the `*.mock.ts` next to them into the package       |
 | `spec-imported-by-non-spec`            | A production module importing a `*.spec.ts`                                                               |
 | `spec-exports-fixture`                 | A spec importing another spec, whose hooks then run in the wrong file                                     |
 | `foreign-runner-pragma`                | `@jest-config` or a bare `@jest-environment` that no runner here reads                                    |
@@ -3812,6 +3813,7 @@ Helpers on each spied member, by return type:
 | `instanceMethodsToSpyOn`            | same as `methodsToSpyOn`, for callables on the instance (`signal()` fields, arrow props, `signalStore()` methods)     |
 | `observablePropsToSpyOn`            | Observable properties to spy                                                                                          |
 | `returnsUndefined`                  | methods that answer `undefined`, counted as configured under `strict`                                                 |
+| `returnsClass`                      | `{ create: Report }`: the method answers one spy of that class per double, reached as `asSpy(double.create())`        |
 | `gettersToSpyOn` / `settersToSpyOn` | accessors to spy                                                                                                      |
 | `autoSpyAccessors`                  | spies every getter and setter on the prototype                                                                        |
 | `fillMissing`                       | answers a name the prototype never had with a spy (a partially abstract class)                                        |
