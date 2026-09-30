@@ -51,7 +51,7 @@ and Vitest 5 ratios agree inside the (large) spread this benchmark already has. 
 their baseline limit in **both** Vitest 4 and Vitest 5 on Angular 22 — `per-render cycle — 0 children`
 and `renderShallow({ keepTemplate: true })` — so that move belongs to the Angular upgrade, not to the
 harness, and re-measuring it is a deliberate act for whoever owns those published numbers. It was
-re-measured on 2026-09-10 and again on 2026-09-29; [the gate](#the-gate) has the second.
+re-measured on 2026-09-10, on 2026-09-29 and on 2026-09-30; [the gate](#the-gate) has the last.
 
 One more thing that follows from the spread: a single pass of this file is not evidence. Two
 consecutive five-pass runs of the same tree put `renderShallow` at 100 children at `0.352×` and
@@ -75,9 +75,10 @@ baseline — a four-fold "regression" in a working tree with no changes in it, r
 by the run itself. Five passes merged by median put the same arm back at `0.174×`.
 
 `bench.yml` runs it **report-only** (no `--strict`), and noise is not the reason. The baseline was
-re-taken on 2026-09-29 as the median of four five-pass runs on one laptop, and each of those runs
-passes `--strict` against it: the widest move from the median was +22 % against a 43 % limit, and
-the tightest margin was `createComponent + CD` at +17.5 % against 27 %. Three CI runs agree with each
+re-taken on 2026-09-30 as the median of four five-pass runs on one laptop, and each of those runs
+passes `--strict` against it: the widest move from the median was +13 % (`renderShallow` at 400
+children), and the tightest margin was `renderShallow` at 100 children, +3.8 % against 15 %. The same
+four runs also pass against the 2026-09-29 baseline they replaced. Three CI runs agree with each
 other about as well. They do not agree with the laptop: on `ubuntu-latest`, `renderShallow` costs
 0.10× of a plain cycle at 400 children against 0.06× here, 0.38× against 0.24× in the three-rungs
 block, and 0.35× against 0.23× for `configureTestingModule + … + CD`. A ratio cancels how fast the
@@ -85,10 +86,11 @@ machine is, not how its CPU and allocator weigh one arm against another, so a la
 every CI run under `--strict`. No tolerance fixes that, and `bench:check` has no tolerance flag
 anyway (`max(15 %, 2 × rme)` is fixed). Turning `--strict` on takes a baseline measured on the
 runner: download `bench-results.angular.json` from a `workflow_dispatch` run of `bench.yml` on
-`master` (merge several runs by median first) and run `--update` on it. That run cannot happen yet:
-since 2026-09-19 every `bench.yml` run dies out of heap in the head-to-head's `calledWith` dispatch
-case, which alone fills a 4 GB heap in 14 s at `--precise` scale. The Angular and self-comparison
-steps now run even when the head-to-head fails, so the next run on `master` produces their results.
+`master` (merge several runs by median first) and run `--update` on it. No run has produced one
+since 2026-09-18: from 2026-09-19 every `bench.yml` run died out of heap in the head-to-head's
+`calledWith` dispatch case, which alone fills a 4 GB heap in 14 s at `--precise` scale, and took
+these steps down with it. They run even when the head-to-head fails since 2026-09-29, so the next
+run on `master` produces their results.
 
 Two arms are left out of the gate for good, through the case's `ungated` list in `baseline.json`:
 `resetTestingModule() alone` and `resetTestingModule() + configureTestingModule()`. Each costs under

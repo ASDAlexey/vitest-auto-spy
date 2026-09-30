@@ -8,6 +8,24 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## Benchmark baselines stay report-only in `bench.yml`, 2026-09-30
+
+Both `bench:check` steps in `bench.yml` run without `--strict`.
+
+- **Angular.** The baseline is measured on a laptop (re-taken 2026-09-30: four five-pass runs, each
+  within 13 % of the median and green under `--strict`). The three runner results on record
+  (2026-09-18) fail `--strict` against it on 3-4 arms each: `renderShallow` at 400 children costs
+  0.10-0.12× of a plain cycle on `ubuntu-latest` against 0.06× on the laptop, the three-rungs arm
+  0.36-0.41× against 0.25×. A ratio cancels machine speed, not how a CPU weighs one arm against
+  another, and `bench:check` has no tolerance flag. Strict needs a baseline measured on the runner.
+- **Self-benchmark.** The current baseline (2026-09-27) has never been compared on a runner: every
+  run since 2026-09-19 died in the head-to-head before the gate steps ran. The three older runs failed
+  `--strict` on two lazy-vs-eager arms (+60-68 % and +28-34 % against 15 %), in a window where the
+  lazy reference arm itself changed.
+
+Revisit when three `workflow_dispatch` runs on `master` have produced results: flip the self step if
+all three pass; re-baseline Angular from the merged runner artifacts, then flip it.
+
 ## The `IDEAS.md` round, 2026-09-29
 
 - **Coverage stays on istanbul under Vitest 5.0.2.** Re-measured on 326 spec files, 3 runs each, M4

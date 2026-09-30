@@ -3,56 +3,56 @@
     "per-render cycle — 0 children": {
       "reference": "TestBed.createComponent, full cycle",
       "ratios": {
-        "renderShallow, full cycle": 1.3632,
+        "renderShallow, full cycle": 1.2661,
         "TestBed.createComponent, full cycle": 1
       }
     },
     "per-render cycle — 100 children": {
       "reference": "TestBed.createComponent, full cycle",
       "ratios": {
-        "renderShallow, full cycle": 0.2591,
+        "renderShallow, full cycle": 0.2614,
         "TestBed.createComponent, full cycle": 1
       }
     },
     "per-render cycle — 25 children": {
       "reference": "TestBed.createComponent, full cycle",
       "ratios": {
-        "renderShallow, full cycle": 0.6891,
+        "renderShallow, full cycle": 0.6373,
         "TestBed.createComponent, full cycle": 1
       }
     },
     "per-render cycle — 400 children": {
       "reference": "TestBed.createComponent, full cycle",
       "ratios": {
-        "renderShallow, full cycle": 0.0598,
+        "renderShallow, full cycle": 0.06202,
         "TestBed.createComponent, full cycle": 1
       }
     },
     "the three rungs — 100 children": {
       "reference": "TestBed.createComponent, full cycle",
       "ratios": {
-        "renderShallow(), full cycle": 0.2441,
-        "renderShallow({ keepTemplate: true }), full cycle": 0.8586,
+        "renderShallow(), full cycle": 0.2542,
+        "renderShallow({ keepTemplate: true }), full cycle": 0.8531,
         "TestBed.createComponent, full cycle": 1
       }
     },
     "where the cycle spends its time — 100 children": {
       "reference": "full per-test cycle (reset + configure + createComponent + CD)",
       "ratios": {
-        "compileComponents() on a standalone AOT bed": 0.0012,
-        "configureTestingModule + overrideComponent + createComponent + CD": 0.234,
-        "createComponent + CD on an already-configured module": 0.7544,
+        "compileComponents() on a standalone AOT bed": 0.001105,
+        "configureTestingModule + overrideComponent + createComponent + CD": 0.2433,
+        "createComponent + CD on an already-configured module": 0.7802,
         "full per-test cycle (reset + configure + createComponent + CD)": 1,
-        "resetTestingModule() + configureTestingModule()": 0.0006,
-        "resetTestingModule() alone": 0.0004
+        "resetTestingModule() + configureTestingModule()": 0.000692,
+        "resetTestingModule() alone": 0.0004043
       },
       "ungated": ["resetTestingModule() + configureTestingModule()", "resetTestingModule() alone"]
     }
   },
   "generated": {
-    "date": "2026-09-29",
+    "date": "2026-09-30",
     "node": "v24.19.0",
     "command": "npm run bench:angular -- --repeat 5 --json bench-results.angular.json && npm run bench:check -- bench-results.angular.json --baseline bench-angular/baseline.json --update",
-    "note": "Re-measured on Angular 22.2, TypeScript 6.0 and Vitest 5.0.2, on an Apple M4 Max laptop: four runs of the command below (five passes each), merged by median before --update. Every one of the four runs passes --strict against the result, the widest at +22 % from the median against a 43 % limit. These are laptop ratios, not CI ratios: `ubuntu-latest` puts renderShallow at 0.10x rather than 0.06x of a plain cycle at 400 children, which is why bench.yml compares against this file report-only. See bench-angular/README.md."
+    "note": "Re-measured on 2026-09-30 at e3809c8 on Node 24.19.0, Angular 22.2, TypeScript 6.0 and Vitest 5.0.2, on an Apple M4 Max laptop: four runs of the command below (five passes each), merged by median before --update. Every one of the four runs passes --strict against the result, the widest at +13 % from the median (400 children); the 2026-09-29 baseline also passed all four. These are laptop ratios, not CI ratios: `ubuntu-latest` puts renderShallow at 0.10-0.12x rather than 0.06x of a plain cycle at 400 children, which is why bench.yml compares against this file report-only. See bench-angular/README.md."
   }
 }

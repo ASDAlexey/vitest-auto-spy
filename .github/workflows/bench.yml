@@ -102,9 +102,9 @@ jobs:
         if: ${{ !cancelled() && steps.smoke.outcome == 'success' }}
         run: npm run bench -- --json bench-results.self.json --no-memory
 
-      # Report-only on purpose: the first runs are calibrating the baseline rather than catching
-      # regressions, and this must not turn the workflow red until those ratios have settled. Add
-      # `--strict` once they have.
+      # Report-only: no runner has checked the current baseline yet. The only runs that produced this
+      # file (2026-09-18, three) predate it and failed `--strict` on two lazy-vs-eager arms (+60-68 %,
+      # +28-34 % against a 15 % limit). Add `--strict` after three runs on `master` pass it.
       - name: Compare against the committed baseline
         if: ${{ !cancelled() && steps.smoke.outcome == 'success' }}
         run: npm run bench:check -- bench-results.self.json >> "$GITHUB_STEP_SUMMARY"
@@ -119,9 +119,9 @@ jobs:
         if: ${{ !cancelled() && steps.smoke.outcome == 'success' }}
         run: npm run bench:angular -- --repeat 5 --json bench-results.angular.json
 
-      # Report-only, and not for noise: run to run on one machine stays well inside the limit. The
-      # baseline is measured on a laptop, and this runner's ratios differ by up to 1.75x at 400
-      # children, so `--strict` here would fail every run. See bench-angular/README.md, "The gate".
+      # Report-only, and not for noise: the baseline is a laptop's, and against it `--strict` fails
+      # all three runner results on record (3-4 arms each, renderShallow at 400 children 0.10-0.12x
+      # against a 0.06x baseline). See bench-angular/README.md, "The gate".
       - name: Compare against the Angular baseline
         if: ${{ !cancelled() && steps.smoke.outcome == 'success' }}
         run: npm run bench:check -- bench-results.angular.json --baseline bench-angular/baseline.json >> "$GITHUB_STEP_SUMMARY"
