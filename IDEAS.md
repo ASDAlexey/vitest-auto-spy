@@ -240,6 +240,36 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       rule exists to catch. The report follows from the exemption sets, not a shape seen yet. Collect
       the file's own `ClassDeclaration` names as one more set: name-level like the rest, no type
       information needed (2026-09-29, 5.51.0).
+- [ ] **`no-inline-test-data` counts every small tuple on its own, so one repeated pair reports
+      several times.** A consumer suite of ~85 specs got 37 reports in 9 specs at the defaults; 16 of
+      them came from `{ from: [1, 1], to: [1, 5] }`-style ranges: `[1, 1]` ×5, `[1, 5]` ×4,
+      `[2, 3]` ×6, `[2, 20]` ×5 — two real repeated pairs. Each tuple is its own group, so one site
+      reports twice (`from` and `to`), and while the `{ from, to }` parent has fewer than `repeats`
+      copies the tuples inside it keep reporting until the other copies move out. The outermost-first
+      pass (`inline-test-data.ts:210-213`) skips a group only when its _first_ copy lies inside a
+      reported literal, so a later copy inside one is reported twice as well. `['0', '1']` id lists
+      (×5) are the same shape. Group copies by the smallest enclosing literal that repeats and report
+      that parent once per site, and/or a size floor: an array of two or three short primitives is a
+      coordinate or an id list, not a record `isRecord` (`:117`) should count (2026-09-30, 5.54.0).
+- [ ] **`no-inline-test-data` reports small option bags.** `rmSync(dir, { recursive: true, force:
+      true })` ×3 and `configure({ production: false, enableSentry: true })` ×5 in a consumer suite are
+      flags, not test data: two booleans pass `minValues: 2` and `isPrimitive` (`:109`). Moving them to
+      a `*.mock.ts` makes the spec worse; the consumer fix was a spec-local helper. Exempt a literal
+      whose leaves are all booleans with at most three keys, and/or the options argument of well-known
+      `node:fs` calls (`rmSync`, `mkdirSync`, `readFileSync`…) (2026-09-30, 5.54.0).
+- [ ] **`no-inline-test-data` pushes the expected value of a matcher out of the test.**
+      `expect(x).toStrictEqual([…22 lines])` and `toMatchObject({…30 lines})` are reported as
+      `longLiteral` (`:182`) with the message "so the test shows what it checks rather than the data it
+      feeds in" — but that literal _is_ what the test checks. Inside a matcher argument
+      (`toEqual`, `toStrictEqual`, `toMatchObject`, `toHaveBeenCalledWith`…) report the largest nested
+      literal instead, or reword the message to suggest extracting the biggest nested constant and
+      keeping the shape of the expectation inline (2026-09-30, 5.54.0).
+- [ ] **`no-inline-test-data` suggests a `*.mock.ts` for a literal built from spec-local bindings.**
+      `['-a', 'Google Chrome', TARGET]` and `{ ...EMPTY, invalidKeys: […] }` repeated in a consumer
+      spec reference a `const` declared in the spec, so following the message means moving that
+      `const` too, or repeating the spread base in the mock file. When a repeated literal references a
+      binding declared in the same file, or spreads one, suggest a spec-local `const` (a second
+      message id); or compare only the literal's own non-spread leaves (2026-09-30, 5.54.0).
 
 ## CLI: codemod
 
@@ -308,6 +338,15 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       file. Resolve at least an identifier declared in the same file — the pass visits every file's
       text already — follow the import graph the scan builds to the exporting module, and judge each
       setup file on its own calls (2026-09-29, 5.51.0).
+- [ ] **A `*.mock.ts` next to a spec can ship in a published library.** `no-inline-test-data` sends
+      data to `<name>.mock.ts` beside the spec, under `src/`. A library built by `tsc` whose
+      `tsconfig.lib.json` excludes only `src/**/*.spec.ts` / `*.test.ts` — the usual generator
+      output, and the shape of every tsc-built package in a consumer monorepo — compiles those files
+      into its output. Neither the rule docs (`docs-site/utilities/eslint-rules.md`, "How to fix") nor
+      `doctor` mention it; no check in `src/cli/checks` reads mock files against a build tsconfig. Add
+      one docs line (exclude `**/*.mock.ts` from the build config), and/or a `doctor` finding for a
+      `*.mock.ts` that a non-spec tsconfig's `include` matches and its `exclude` does not
+      (2026-09-30, 5.54.0).
 
 ## CLI: perf
 
