@@ -254,8 +254,11 @@ test bodies, and the gate prints the slowest tests, the share in hooks against b
 time went in the spec, in your code and by package. The report ends in two tables of what is over
 budget and nothing else. And every candidate is re-measured on its own before it may fail anything: a
 file that is fast when it has the machine to itself is reported as _not reproduced_, an `info` rather
-than a finding. Without a way to re-measure, findings are warnings that fail nothing unless
-`--no-confirm` says one reading is enough. Exit `1` is "over budget", exit `2` is "there was nothing
+than a finding. `--json` without `--command` re-measures too: the report records its Vitest config
+file, and the gate runs `vitest run --config <it>` over the suspects, one run per config when the
+reports came from several, with coverage off. Without a way to re-measure (a `--command` without
+`{paths}`, a report from before the config was recorded), findings are warnings that fail nothing
+unless `--no-confirm` says one reading is enough. Exit `1` is "over budget", exit `2` is "there was nothing
 to judge" — including a red or unfinished (`partial`) suite, which the gate will not judge at all, since a failed test is
 measured until its timeout and 30 s of timeout looks exactly like 30 s of slow code.
 
