@@ -21921,6 +21921,10 @@ an `index` or `public-api` module that only re-exports.
 + import { CartService } from '../shared/cart.service';
 ```
 
+Not reported when the fix would save nothing: another import of the spec, usually its subject, loads
+the same barrel anyway, or the barrel is another package's entry point — the target of a tsconfig
+`paths` alias, imported from outside its directory.
+
 On Vitest 5 the transform wait counts as `transform`, so `import` here is only running the modules.
 Off under `@angular/build:unit-test`: the builder resolves barrels into its bundle before Vitest
 imports anything.
