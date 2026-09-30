@@ -147,25 +147,42 @@ export function sharedEnvRestorePass(profile: Profile, graph: SourceGraph): Text
   };
 }
 
-/** A switch no call turns on and every call provably leaves off; one that cannot be read is not reported. */
+function unreadable(because: string, options: readonly (readonly [string, string])[], files: readonly string[]): Finding {
+  const names = options.map(([option]) => `\`${option}\``).join(', ');
+
+  return {
+    check: 'shared-env-without-restore',
+    severity: 'info',
+    file: String(files[0]),
+    message: `This Angular suite shares one environment across its files (${because}), and the options \`setupAutoSpy()\` gets in ${files.join(', ')} are not statically readable, so \`doctor\` cannot tell whether ${names} ${options.length === 1 ? 'is' : 'are'} on: if off, ${options.map(([, leak]) => leak).join(', ')} survives into the next file.`,
+    fix: `Pass an object literal, or one declared in the setup file or imported from a module of the repository, so ${names} can be read; a function call, a condition or an import from a package cannot.`,
+  };
+}
+
+/** A switch no call turns on and every call provably leaves off; one that cannot be read gets a note of its own. */
 function withoutRestore(sites: readonly SetupSite[], declared: ReadonlySet<string>, because: string): Finding[] {
   if (sites.length === 0) {
     return [finding(because, RESTORE_OPTIONS, 'no setup file calls `setupAutoSpy()`')];
   }
 
   return groupsOf(sites, declared).flatMap((group) => {
-    const missing = RESTORE_OPTIONS.filter((_, index) => group.map(({ switches }) => switches[index]).reduce(either) === false);
+    const verdicts = RESTORE_OPTIONS.map((_, index) => group.map(({ switches }) => switches[index]).reduce(either));
+    const missing = RESTORE_OPTIONS.filter((_, index) => verdicts[index] === false);
+    const unknown = RESTORE_OPTIONS.filter((_, index) => verdicts[index] === undefined);
     const files = group.map(({ file }) => file);
 
-    return missing.length === 0
-      ? []
-      : [
-          finding(
-            because,
-            missing,
-            `\`setupAutoSpy()\` in ${files.join(', ')} leaves ${missing.map(([option]) => `\`${option}\``).join(', ')} off`,
-            files[0],
-          ),
-        ];
+    return [
+      ...(missing.length === 0
+        ? []
+        : [
+            finding(
+              because,
+              missing,
+              `\`setupAutoSpy()\` in ${files.join(', ')} leaves ${missing.map(([option]) => `\`${option}\``).join(', ')} off`,
+              files[0],
+            ),
+          ]),
+      ...(unknown.length === 0 ? [] : [unreadable(because, unknown, files)]),
+    ];
   });
 }

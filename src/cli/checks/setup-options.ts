@@ -36,6 +36,8 @@ const MAX_DEPTH = 12;
 
 const IDENTIFIER = /^[$A-Z_a-z][\w$]*/;
 const KEY = /^(?:[$A-Z_a-z][\w$]*|(["'])[^\n"']*\1)/;
+/** A parenthesis or `Object.freeze(…)`: both hand back the object they wrap. */
+const WRAPPER = /^(?:Object\s*\.\s*freeze\s*)?\(/;
 const TYPE_TRAILER = /^(?:\s+(?:as|satisfies)\s+[\w$.]+(?:<[^\n;]*>)?(?:\[[^\n\]]*])*)*/;
 const IMPORT_CLAUSE = /(?<![\w$.])import\s+(?!type\b)([\s\w$,{}]*?)\s*from\s*["']/g;
 const EXPORT_CLAUSE = /(?<![\w$.])export\s+(?!type\b)({[^}]*})(?:\s*from\s*["'])?/g;
@@ -134,6 +136,14 @@ export class SettingsReader {
 
     if (code.charAt(at) === ')') {
       return EMPTY;
+    }
+
+    const wrapper = WRAPPER.exec(code.slice(at))?.[0];
+
+    if (wrapper !== undefined) {
+      const close = closingOf(code, at + wrapper.length - 1);
+
+      return close !== -1 && endsCleanly(code, close + 1) ? this.valueAt(source, at + wrapper.length, depth) : OPAQUE;
     }
 
     if (code.charAt(at) === '{') {

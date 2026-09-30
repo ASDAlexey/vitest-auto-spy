@@ -32,8 +32,36 @@ describe('checkTsconfigMockFiles', () => {
       file: 'libs/ui/tsconfig.lib.json',
       message:
         'This build config leaves the specs out but compiles their test data into the output: libs/ui/src/button.mock.ts ships with the package.',
-      fix: 'Exclude the test data beside the specs: `"exclude": ["**/*.mock.ts"]`, next to the spec patterns already there.',
+      fix: 'Exclude the test data beside the specs: `"exclude": ["src/**/*.mock.ts"]`, next to the spec patterns already there.',
     });
+  });
+
+  it('reports the specs and the test data a library config without any exclude compiles, in the style of its include', () => {
+    const [finding] = findingsIn({
+      'libs/data/tsconfig.lib.json': JSON.stringify({ include: ['src/**/*.ts'] }),
+      'libs/data/src/lib/x.ts': '',
+      'libs/data/src/lib/x.spec.ts': '',
+      'libs/data/src/lib/x.mock.ts': '',
+      'libs/data/src/__tests__/helpers.ts': '',
+    });
+
+    expect(finding).toMatchObject({ check: 'tsconfig-ships-mock-file', severity: 'warning', file: 'libs/data/tsconfig.lib.json' });
+    expect(finding?.message).toBe(
+      'This build config has no `exclude`, so it compiles the specs and their test data into the output: libs/data/src/__tests__/helpers.ts, libs/data/src/lib/x.spec.ts, libs/data/src/lib/x.mock.ts ship with the package.',
+    );
+    expect(finding?.fix).toBe(
+      'Leave the tests out of the build: `"exclude": ["src/**/__tests__/**", "src/**/*.spec.ts", "src/**/*.mock.ts"]`.',
+    );
+  });
+
+  it('derives the glob prefix from a file or directory include, and from none', () => {
+    const fixOf = (config: object): string | undefined =>
+      findingsIn({ 'tsconfig.build.json': JSON.stringify(config), 'src/a.spec.ts': '' })[0]?.fix;
+
+    expect(fixOf({ include: ['src/index.ts', 'src/a.spec.ts'] })).toContain('["src/**/*.spec.ts"]');
+    expect(fixOf({ include: ['./src/'] })).toContain('["src/**/*.spec.ts"]');
+    expect(fixOf({})).toContain('["**/*.spec.ts"]');
+    expect(shippedBy({ 'tsconfig.json': JSON.stringify({ include: ['src'] }), 'src/a.spec.ts': '' })).toEqual([]);
   });
 
   it('lists the first few files and one exclude glob per kind of test data', () => {
@@ -64,6 +92,7 @@ describe('checkTsconfigMockFiles', () => {
     const mock = { 'src/a.mock.ts': '' };
 
     expect(shippedBy({ 'tsconfig.lib.json': LIB_CONFIG, 'src/a.ts': '' })).toEqual([]);
+    expect(shippedBy({ 'tsconfig.lib.json': LIB_CONFIG, 'src/a.spec.ts': '' })).toEqual([]);
     expect(shippedBy({ ...mock, 'tsconfig.app.json': LIB_CONFIG, 'tsconfig.spec.json': LIB_CONFIG })).toEqual([]);
     expect(
       shippedBy({ ...mock, 'tsconfig.lib.json': JSON.stringify({ compilerOptions: { noEmit: true }, exclude: ['**/*.spec.ts'] }) }),

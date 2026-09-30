@@ -64,6 +64,18 @@ describe('SettingsReader', () => {
     expect(read({ 'src/setup.ts': 'setup({ a: true' }, ['a'])).toEqual({ a: 'unknown' });
   });
 
+  it('sees through Object.freeze and parentheses, and nothing chained after them', () => {
+    const declared = (declaration: string, call = 'setup(OPTIONS)'): string =>
+      String(read({ 'src/setup.ts': `${declaration}\n${call};` }, ['a'])['a']);
+
+    expect(declared('const OPTIONS = Object.freeze({ a: true }) as const')).toBe('true');
+    expect(declared('const OPTIONS = ({ a: true } satisfies Options)')).toBe('true');
+    expect(declared('const OPTIONS = { a: true }', 'setup(Object . freeze(( OPTIONS )))')).toBe('true');
+    expect(declared('const OPTIONS = Object.freeze({ a: true }).a')).toBe('unknown');
+    expect(declared('const OPTIONS = (a) => a')).toBe('unknown');
+    expect(read({ 'src/setup.ts': 'setup(Object.freeze({ a: true }' }, ['a'])).toEqual({ a: 'unknown' });
+  });
+
   it('follows an import to the module that exports the value, through re-exports and a default', () => {
     const imported = (files: Record<string, string>): string => String(read(files, ['a'])['a']);
 

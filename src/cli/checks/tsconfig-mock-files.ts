@@ -6,7 +6,8 @@
  * so `tsc` (or a declaration plugin) emits every mock file into the published output.
  *
  * A config counts as a build config when its `exclude` names spec files: it was written to ship the
- * code without the tests. An app config is left alone, because a bundler ships only what the entry
+ * code without the tests. A `tsconfig.lib.json` or `tsconfig.build.json` with no `exclude` at all is
+ * one too, and ships the specs as well. An app config is left alone, because a bundler ships only what the entry
  * imports, and so is a config beside `ng-package.json`: ng-packagr builds from the entry file.
  */
 import { join, posix } from 'node:path';
@@ -20,6 +21,8 @@ import { expandInclude, globToRegExp } from './tsconfig-globs';
 /** The files `no-inline-test-data` treats as test data, the same expression the rule uses. */
 const MOCK_FILE = /(?:^|\/)__mocks__\/|\.(?:fixtures?|mocks?)\.[cm]?[jt]sx?$/;
 const TSCONFIG_NAME = /(?:^|\/)tsconfig[^/]*\.json$/;
+const SPEC_FILE = /(?:^|\/)__tests__\/|\.(?:spec|test)\.[cm]?[jt]sx?$/;
+const BUILD_NAME = /(?:^|[.-])(?:lib|build)(?=[.-])/;
 const NOT_A_BUILD = /(?:^|[.-])(?:app|spec|test|tests|e2e|cypress|playwright|storybook)(?=[.-])/;
 /** A glob for spec files, not one named file: `src/type-tests/x.test-d.ts` is excluded for other reasons. */
 const SPEC_GLOB = /\*.*\.(?:spec|test)\.(?:[cm]?[jt]sx?|\*)$|(?:^|\/)__tests__(?:\/|$)/;
@@ -75,11 +78,25 @@ function matcher(patterns: readonly string[], expand: (pattern: string) => strin
   return (file) => expressions.some((expression) => expression.test(file));
 }
 
-/** The glob that leaves one kind of test data out: `**` + `/*.mock.ts`, or a whole `__mocks__` directory. */
-function excludeGlob(file: string): string {
-  const suffix = /\.(?:fixtures?|mocks?)\.[cm]?[jt]sx?$/.exec(file)?.[0];
+/** The literal directories a pattern starts with, relative to the config: `src/` for `src/**` + `/*.spec.ts`. */
+function literalPrefix(pattern: string, directory: string): string {
+  const segments = pattern.split('/').filter((segment) => segment !== '');
+  const wildcard = segments.findIndex((segment) => /[*?]/.test(segment));
+  const literal =
+    wildcard === -1
+      ? segments.filter((segment, index) => index < segments.length - 1 || !segment.includes('.'))
+      : segments.slice(0, wildcard);
+  const joined = literal.map((segment) => `${segment}/`).join('');
 
-  return suffix === undefined ? '**/__mocks__/**' : `**/*${suffix}`;
+  return joined.startsWith(directory) ? joined.slice(directory.length) : '';
+}
+
+/** The glob that leaves one kind of file out, under `prefix`: `**` + `/*.mock.ts`, or a whole `__mocks__` directory. */
+function excludeGlob(file: string, prefix: string): string {
+  const suffix = /\.(?:fixtures?|mocks?|spec|test)\.[cm]?[jt]sx?$/.exec(file)?.[0];
+  const directory = /(?:^|\/)(__mocks__|__tests__)\//.exec(file)?.[1];
+
+  return `${prefix}**/${directory === undefined ? `*${String(suffix)}` : `${directory}/**`}`;
 }
 
 function checkConfig(
@@ -87,6 +104,7 @@ function checkConfig(
   path: string,
   own: Record<string, unknown> | undefined,
   mocks: readonly string[],
+  specs: readonly string[],
 ): Finding | undefined {
   const directory = posix.dirname(path);
   const compilerOptions: unknown = own?.['compilerOptions'];
@@ -99,37 +117,51 @@ function checkConfig(
     return undefined;
   }
 
-  const { include, exclude = [] } = patternsOf(profile, path, own);
+  const { include, exclude } = patternsOf(profile, path, own);
+  const specGlob = exclude?.find((pattern) => SPEC_GLOB.test(pattern));
 
-  if (!exclude.some((pattern) => SPEC_GLOB.test(pattern))) {
+  if (exclude === undefined ? !BUILD_NAME.test(posix.basename(path)) : specGlob === undefined) {
     return undefined;
   }
 
   const prefix = directory === '.' ? '' : `${directory}/`;
   const included = matcher(include ?? [`${prefix}**/*`], expandInclude);
-  const excluded = matcher(exclude, (pattern) => [pattern, `${pattern}/**/*`]);
-  const shipped = mocks.filter((file) => file.startsWith(prefix) && included(file) && !excluded(file));
+  const excluded = matcher(exclude ?? [], (pattern) => [pattern, `${pattern}/**/*`]);
+  const shipped = [...(exclude === undefined ? specs : []), ...mocks].filter(
+    (file) => file.startsWith(prefix) && included(file) && !excluded(file),
+  );
 
   if (shipped.length === 0) {
     return undefined;
   }
 
-  const globs = [...new Set(shipped.map(excludeGlob))];
+  const globPrefix = literalPrefix(specGlob ?? include?.[0] ?? '', prefix);
+  const globs = [...new Set(shipped.map((file) => excludeGlob(file, globPrefix)))];
   const more = shipped.length > LISTED ? ` and ${shipped.length - LISTED} more` : '';
+  const listed = `${shipped.slice(0, LISTED).join(', ')}${more} ${shipped.length === 1 ? 'ships' : 'ship'} with the package`;
+  const exclusion = `\`"exclude": [${globs.map((glob) => JSON.stringify(glob)).join(', ')}]\``;
 
   return {
     check: 'tsconfig-ships-mock-file',
     severity: 'warning',
     file: path,
-    message: `This build config leaves the specs out but compiles their test data into the output: ${shipped.slice(0, LISTED).join(', ')}${more} ${shipped.length === 1 ? 'ships' : 'ship'} with the package.`,
-    fix: `Exclude the test data beside the specs: \`"exclude": [${globs.map((glob) => JSON.stringify(glob)).join(', ')}]\`, next to the spec patterns already there.`,
+    ...(exclude === undefined
+      ? {
+          message: `This build config has no \`exclude\`, so it compiles the specs and their test data into the output: ${listed}.`,
+          fix: `Leave the tests out of the build: ${exclusion}.`,
+        }
+      : {
+          message: `This build config leaves the specs out but compiles their test data into the output: ${listed}.`,
+          fix: `Exclude the test data beside the specs: ${exclusion}, next to the spec patterns already there.`,
+        }),
   };
 }
 
 export function checkTsconfigMockFiles(profile: Profile): Finding[] {
   const mocks = profile.files.filter((file) => MOCK_FILE.test(file));
+  const specs = profile.files.filter((file) => SPEC_FILE.test(file) && !MOCK_FILE.test(file));
 
-  if (mocks.length === 0) {
+  if (mocks.length === 0 && specs.length === 0) {
     return [];
   }
 
@@ -137,5 +169,5 @@ export function checkTsconfigMockFiles(profile: Profile): Finding[] {
   // A config another one extends is a base to build on, not a build of its own.
   const extended = new Set(configs.flatMap(([path, config]) => parentsOf(path, config)));
 
-  return configs.flatMap(([path, config]) => (extended.has(path) ? [] : (checkConfig(profile, path, config, mocks) ?? [])));
+  return configs.flatMap(([path, config]) => (extended.has(path) ? [] : (checkConfig(profile, path, config, mocks, specs) ?? [])));
 }
