@@ -447,26 +447,32 @@ Angular `TestBed` под `bun test`. Реэкспортирует `/bun` (всё
 Второй аргумент `createSpyFromClass`, `createSpyFromInstance` и `provideAutoSpy` —
 `ClassSpyConfiguration`. Все опции с примерами: [Спаи из класса](/ru/core/create-spy-from-class#configuration).
 
-| Опция                                          | Тип                  | Что делает                                                                                                                           |
-| ---------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `methodsToSpyOn`                               | `string[]`           | Добавляет вызываемые члены к методам, найденным на прототипе                                                                         |
-| `onlyMethodsToSpyOn`                           | `string[]`           | Спаит только эти; поиск методов не выполняется                                                                                       |
-| `instanceMethodsToSpyOn`                       | `string[]`           | Как `methodsToSpyOn`, для вызываемых членов экземпляра (поля `signal()`, стрелочные свойства)                                        |
-| `observablePropsToSpyOn`                       | `string[]`           | Свойства-Observable, которые получают `nextWith` и остальные                                                                         |
-| `gettersToSpyOn` / `settersToSpyOn`            | `string[]`           | Аксессоры под спай; читаются через `accessorSpies`                                                                                   |
-| `autoSpyAccessors`                             | `boolean`            | Сам находит геттеры и сеттеры                                                                                                        |
-| `returns`                                      | `{ method: value }`  | Что метод возвращает с самого начала (методу с Observable передайте `of(value)`); метод остаётся спаем                               |
-| `returnsUndefined`                             | `string[]`           | Методы, которые отвечают `undefined`; под `strict` считаются настроенными                                                            |
-| `overrides`                                    | `{ member: value }`  | Заменяет член обычным значением (см. [returns или overrides](/ru/core/returns-vs-overrides))                                         |
-| `selfReturning`                                | `string[]`           | Методы, которые возвращают саму подмену, для цепочек вызовов                                                                         |
-| `fillMissing`                                  | `boolean`            | Добавляет спай для имени, которого нет на прототипе (`abstract`-члены)                                                               |
-| `lazySpies`                                    | `boolean \| 'proxy'` | Когда собираются спаи методов (`'proxy'`: один прокси-объект собирает их при первом обращении); если не задано, решает число методов |
-| `strict`, `onUnstubbedCall`, `onUnstubbedRead` | см. ниже             | [Строгий режим](/ru/core/strict-mode)                                                                                                |
-| `passthrough`                                  | `boolean`            | Только `createSpyFromInstance`: ненастроенные методы вызывают настоящий                                                              |
+| Опция                                          | Тип                  | Что делает                                                                                                                                             |
+| ---------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `methodsToSpyOn`                               | `string[]`           | Добавляет вызываемые члены к методам, найденным на прототипе                                                                                           |
+| `onlyMethodsToSpyOn`                           | `string[]`           | Спаит только эти; поиск методов не выполняется                                                                                                         |
+| `instanceMethodsToSpyOn`                       | `string[]`           | Как `methodsToSpyOn`, для вызываемых членов экземпляра (поля `signal()`, стрелочные свойства)                                                          |
+| `observablePropsToSpyOn`                       | `string[]`           | Свойства-Observable, которые получают `nextWith` и остальные                                                                                           |
+| `gettersToSpyOn` / `settersToSpyOn`            | `string[]`           | Аксессоры под спай; читаются через `accessorSpies`                                                                                                     |
+| `autoSpyAccessors`                             | `boolean`            | Сам находит геттеры и сеттеры                                                                                                                          |
+| `returns`                                      | `{ method: value }`  | Что метод возвращает с самого начала (методу с Observable передайте `of(value)`); метод остаётся спаем                                                 |
+| `returnsUndefined`                             | `string[]`           | Методы, которые отвечают `undefined`; под `strict` считаются настроенными                                                                              |
+| `returnsClass`                                 | `{ method: Class }`  | Метод отвечает одним спаем этого класса на подмену, доступным как `asSpy(double.method())` — [подробнее](/ru/core/create-spy-from-class#returns-class) |
+| `overrides`                                    | `{ member: value }`  | Заменяет член обычным значением (см. [returns или overrides](/ru/core/returns-vs-overrides))                                                           |
+| `selfReturning`                                | `string[]`           | Методы, которые возвращают саму подмену, для цепочек вызовов                                                                                           |
+| `fillMissing`                                  | `boolean`            | Добавляет спай для имени, которого нет на прототипе (`abstract`-члены)                                                                                 |
+| `lazySpies`                                    | `boolean \| 'proxy'` | Когда собираются спаи методов (`'proxy'`: один прокси-объект собирает их при первом обращении); если не задано, решает число методов                   |
+| `strict`, `onUnstubbedCall`, `onUnstubbedRead` | см. ниже             | [Строгий режим](/ru/core/strict-mode)                                                                                                                  |
+| `passthrough`                                  | `boolean`            | Только `createSpyFromInstance`: ненастроенные методы вызывают настоящий                                                                                |
 
 `createAutoMock`, `autoMocked` и `provideAutoSpyForToken` последним аргументом принимают
-`AutoMockConfiguration`: `observablePropsToSpyOn`, `returns`, `returnsUndefined`, `selfReturning`,
-`name` (как подмену называет отчёт строгого режима) и поля строгого режима.
+`AutoMockConfiguration`: `observablePropsToSpyOn`, `returns`, `returnsUndefined`, `returnsClass`,
+`selfReturning`, `name` (как подмену называет отчёт строгого режима) и поля строгого режима. Если
+засевать нечего, опции можно передать первым аргументом:
+`createAutoMock<EventSource>({ returnsUndefined: ['close'] })`. Так работает, когда в объекте есть хотя
+бы одна из опций `returnsUndefined`, `selfReturning`, `returnsClass`, `observablePropsToSpyOn`,
+`onUnstubbedCall`, `onUnstubbedRead`; `strict`, `name` или `returns` сами по себе по-прежнему идут
+вторым аргументом — [опции без значений](/ru/core/auto-mock-by-type#options-without-values).
 
 **`StrictSpyConfiguration`**: принимает каждая фабрика, а `setupAutoSpy(options?)` — как общее
 значение для всех тестов. См. [приоритет](/ru/core/strict-mode#precedence).

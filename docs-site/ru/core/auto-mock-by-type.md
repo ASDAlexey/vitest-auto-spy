@@ -85,9 +85,27 @@ users.load.resolveWith({ id: 1 });
 | `observablePropsToSpyOn` | имена членов          | `[]`         | строить эти члены как потоки (`nextWith` …), а не спаи-функции; нужен `vitest-auto-spy/rxjs` |
 | `selfReturning`          | имена методов         | `[]`         | эти методы возвращают сам спай, для цепочек вызовов                                          |
 | `returnsUndefined`       | имена методов         | `[]`         | эти методы отвечают `undefined` и считаются настроенными под `strict`                        |
+| `returnsClass`           | `{ метод: Класс }`    | нет          | эти методы возвращают спай этого класса ([подробнее](./create-spy-from-class#returns-class)) |
 | `strict`                 | `boolean`             | `false`      | ненастроенный метод бросает ошибку ([Строгий режим](./strict-mode))                          |
 | `onUnstubbedCall`        | `(call) => unknown`   | нет          | вызывается вместо возврата `undefined` для ненастроенного метода                             |
 | `name`                   | `string`              | нет          | имя в сообщениях строгого режима                                                             |
+
+### Опции без значений {#options-without-values}
+
+Если заранее задавать нечего, передайте одни опции:
+
+```ts
+const stream = createAutoMock<EventSource>({ returnsUndefined: ['close'] });
+```
+
+Единственный аргумент читается как опции, когда в нём только имена опций и хотя бы одна из
+`returnsUndefined`, `selfReturning`, `returnsClass`, `observablePropsToSpyOn`, `onUnstubbedCall` или
+`onUnstubbedRead`. `autoMocked` читает его так же.
+
+**Частая ошибка:** `createAutoMock<UserService>({ strict: true })`. `strict`, `name` и `returns` сами по
+себе могут оказаться настоящими членами `T`, поэтому TypeScript такой вызов не пропустит. Передайте их
+вторым аргументом: `createAutoMock<UserService>(undefined, { strict: true })`. Если у типа есть члены с
+именами опций, передайте второй аргумент (хватит `{}`), и первый останется значениями.
 
 С `strict` метод, который никто не настроил, бросает ошибку вместо того, чтобы вернуть `undefined`:
 
@@ -119,7 +137,7 @@ interface StatusSource {
   status$: Observable<'up' | 'down'>;
 }
 
-const source = createAutoMock<StatusSource>(undefined, { observablePropsToSpyOn: ['status$'] });
+const source = createAutoMock<StatusSource>({ observablePropsToSpyOn: ['status$'] });
 source.status$.nextWith('up'); // подписчики получат 'up'
 ```
 
@@ -298,7 +316,7 @@ asSpy<QueryBuilder>(query.where('id')).limit.mockReturnValue(query);
 boot(asInstance(mockDeep<AppLogger>({}, { selfReturning: true })));
 ```
 
-Если цепочку продолжает только один метод, проще `createAutoMock<T>(undefined, { selfReturning: ['channel'] })`.
+Если цепочку продолжает только один метод, проще `createAutoMock<T>({ selfReturning: ['channel'] })`.
 Этот метод возвращает сам спай, остаётся спаем и считается настроенным под `strict`.
 
 **Частая ошибка:** `selfReturning: true` на билдере с `return this`. Вызванный узел возвращает _себя_, а
@@ -322,7 +340,7 @@ expect(chain.insertContent).toHaveBeenCalled(); // падает: вызов по
 ```ts
 import { asInstance, createAutoMock } from 'vitest-auto-spy';
 
-const chain = createAutoMock<ChainedCommands>(undefined, { selfReturning: ['focus', 'insertContent'] });
+const chain = createAutoMock<ChainedCommands>({ selfReturning: ['focus', 'insertContent'] });
 const editor = createAutoMock<Editor>(undefined, { returns: { chain: asInstance(chain) } });
 
 editor.chain().focus().insertContent('text').run();

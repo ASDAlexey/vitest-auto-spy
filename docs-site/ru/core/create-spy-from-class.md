@@ -42,6 +42,7 @@ expect(users.save).toHaveBeenCalledWith({ id: 1, name: 'Bob' });
 | `overrides`              | `{ член: значение }`  | нет                                     | заменить член значением ([подробнее](#returns-or-overrides))                                                                                      |
 | `returnsUndefined`       | имена методов         | `[]`                                    | эти методы отвечают `undefined` и считаются настроенными ([подробнее](#returns-undefined))                                                        |
 | `selfReturning`          | имена методов         | `[]`                                    | эти методы возвращают сам спай, для цепочек ([подробнее](#self-returning))                                                                        |
+| `returnsClass`           | `{ метод: Класс }`    | нет                                     | эти методы возвращают спай этого класса ([подробнее](#returns-class))                                                                             |
 | `strict`                 | `boolean`             | `false`                                 | ненастроенный метод бросает ошибку вместо `undefined` ([подробнее](#strict))                                                                      |
 | `onUnstubbedCall`        | `(call) => unknown`   | нет                                     | вызывается вместо возврата `undefined` ([Строгий режим](./strict-mode#onunstubbedcall-—-the-general-form))                                        |
 | `onUnstubbedRead`        | `(read) => void`      | нет                                     | получает ненастроенные чтения геттеров ([Строгий режим](./strict-mode#reads-nobody-configured))                                                   |
@@ -267,6 +268,33 @@ provideAutoSpy(CartStore, { strict: true, returnsUndefined: ['add', 'remove', 'c
 названный ещё и в `returns`, отвечает значением оттуда. Его принимают и `createSpyFromInstance`,
 `createAutoMock`, `provideAutoSpyForToken` и `registerAutoSpyDefaults`; регистрации объединяют его, как
 любой другой список.
+
+## `returnsClass` — метод, который возвращает спай другого класса {#returns-class}
+
+Перечисленные методы возвращают спай класса, который вы назвали. Это нужно для метода-фабрики, результат
+которого тест тоже настраивает:
+
+```ts
+import { asSpy, createSpyFromClass } from 'vitest-auto-spy';
+
+const reports = createSpyFromClass(ReportFactory, { returnsClass: { create: Report } });
+
+asSpy(reports.create('a')).render.mockReturnValue('<p>stub</p>');
+```
+
+Это заменяет две инструкции: `const report = createSpyFromClass(Report)` и
+`returns: { create: asInstance(report) }`.
+
+- Каждый вызов отвечает одним и тем же спаем, и у каждого внешнего спая он свой. `asSpy(reports.create(…))`
+  достаёт его с типом `Spy<Report>`.
+- Метод считается настроенным под `strict`; метод, названный ещё и в `returns`, отвечает значением оттуда.
+- Его принимают все фабрики: `createSpyFromClass`, `createSpyFromInstance`, `createAutoMock`,
+  `provideAutoSpy`, `provideAutoSpyForToken`, `registerAutoSpyDefaults`. Внутренний спай строится с
+  учётом регистрации внутреннего класса.
+
+**Частая ошибка:** доставать внутренний спай через `reports.create()` в тесте, который проверяет
+`toHaveBeenCalledOnce()` на `create`. Такое чтение — тоже вызов. Достаньте спай после проверки или
+оставьте форму из двух инструкций, когда важно число вызовов.
 
 ## `selfReturning` — метод, который отвечает самим двойником {#self-returning}
 
