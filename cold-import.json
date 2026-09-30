@@ -116,7 +116,7 @@
     }
   },
   "released": {
-    "version": "5.52.0",
+    "version": "5.53.0",
     "entries": {
       ".": {
         "modules": 2,
@@ -168,7 +168,7 @@
       },
       "./eslint-plugin": {
         "modules": 2,
-        "bytes": 295436
+        "bytes": 303444
       },
       "./jasmine": {
         "modules": 18,
