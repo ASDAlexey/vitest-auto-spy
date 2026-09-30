@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.59.0] - 2026-09-30
+
 ### Added
 
 - **`returnsClass` takes a builder, `{ method: { build: () => double } }`.** A factory method whose
@@ -10053,7 +10055,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.58.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.59.0...HEAD
+[5.59.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.58.0...v5.59.0
 [5.58.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.57.0...v5.58.0
 [5.57.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.56.0...v5.57.0
 [5.56.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.55.0...v5.56.0
