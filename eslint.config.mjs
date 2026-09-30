@@ -142,6 +142,12 @@ export default defineConfig([
     },
   },
 
+  // Grows by a line per public export; `export-map:check` guards it, not a line budget.
+  {
+    files: ['src/**/*.generated.ts'],
+    rules: { 'max-lines': 'off' },
+  },
+
   // ===== Tests =====
   {
     files: [
