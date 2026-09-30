@@ -21,10 +21,11 @@
  *    method keys and property keys are indistinguishable at runtime. Seed plain
  *    properties through `overrides` (or assign them) when you need real values.
  */
-import { withClassReturns } from './create-spy-from-class';
+import { classDoubles } from './create-spy-from-class';
 import { DISPOSE } from './dispose-symbol';
 import * as DOCS_LINKS from './docs-links';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedReturnValue } from './function-spy';
+import { recordInnerDoubles } from './inner-double';
 import { withDocs } from './message-link';
 import { reportMisconfiguration } from './misconfiguration';
 import {
@@ -204,8 +205,12 @@ function buildAutoMock<T, Options extends SpyOptions>(
     seeded,
     'returnsUndefined',
   );
-  applyMockReturns(mock, config?.returnsClass && withClassReturns({}, config.returnsClass), seeded, 'returnsClass');
+  const inner =
+    config?.returnsClass && classDoubles(config.returnsClass, (name) => seeded.has(name) || Object.hasOwn(config.returns ?? {}, name));
+
+  applyMockReturns(mock, inner, seeded, 'returnsClass');
   applyMockReturns(mock, config?.returns, seeded);
+  recordInnerDoubles(mock, inner);
 
   return mock;
 }
@@ -299,7 +304,8 @@ export interface AutoMockConfiguration<T> extends StrictSpyConfiguration {
   returnsUndefined?: OnlyMethodKeysOf<T>[];
   /**
    * Methods that answer a spy of the named class, one double per method; reach it with
-   * `asSpy(mock.m())`. A method also named in `returns` answers that value.
+   * `innerDouble(mock, 'm')` or `asSpy(mock.m())`. A `[C, config]` pair builds that spy with `config`.
+   * A method also named in `returns` answers that value.
    */
   returnsClass?: MethodReturnsClass<T>;
 }

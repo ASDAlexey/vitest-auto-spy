@@ -24,6 +24,7 @@ import {
 import { DISPOSE } from './dispose-symbol';
 import * as DOCS_LINKS from './docs-links';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
+import { recordInnerDoubles } from './inner-double';
 import { withDocs } from './message-link';
 import { reportMisconfiguration } from './misconfiguration';
 import { type RestoreProp, mockAccessorsProp, mockValueProp } from './prop-mock';
@@ -103,6 +104,7 @@ function withoutRealMembers(instance: object, label: string, config: ResolvedSpy
   return {
     ...config,
     returns: Object.fromEntries(Object.entries(config.returns).filter(([name]) => kept(name))),
+    classReturns: Object.fromEntries(Object.entries(config.classReturns).filter(([name]) => kept(name))),
     selfReturning: config.selfReturning.filter(kept),
   };
 }
@@ -447,7 +449,10 @@ export function createSpyFromInstance<T extends object, Options extends SpyOptio
   installAccessorSpies(instance, config, restores, reads);
   const label = `createSpyFromInstance(${className ?? 'object'})`;
 
-  applyConfiguredReturns(instance, label, withoutRealMembers(instance, label, config), () => getCallableMemberNames(instance));
+  const applied = withoutRealMembers(instance, label, config);
+
+  applyConfiguredReturns(instance, label, applied, () => getCallableMemberNames(instance));
+  recordInnerDoubles(instance, applied.classReturns);
 
   for (const key of Reflect.ownKeys(config.overrides)) {
     installMember(instance, key, Reflect.get(config.overrides, key), restores);

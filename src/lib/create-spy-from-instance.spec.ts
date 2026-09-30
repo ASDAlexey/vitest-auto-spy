@@ -10,6 +10,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { useConsoleSpies } from './console-spy';
 import { createSpyFromInstance, restoreSpiedInstance } from './create-spy-from-instance';
 import { takeStrictViolations } from './function-spy';
+import { innerDouble } from './inner-double';
 import { setMisconfigurationReaction } from './misconfiguration';
 import { registerMockAdapter } from './mock-adapter';
 import {
@@ -705,6 +706,8 @@ describe('createSpyFromInstance — an object with no Object.prototype above it'
 });
 
 describe('createSpyFromInstance — returnsClass', () => {
+  const { consoleWarnSpy: warn } = useConsoleSpies();
+
   class Receipt {
     print(): string {
       return 'real';
@@ -733,5 +736,29 @@ describe('createSpyFromInstance — returnsClass', () => {
     } finally {
       clearAutoSpyDefaults();
     }
+  });
+
+  it('hands the inner double to innerDouble without recording a call, for the methods it spied', () => {
+    registerAutoSpyDefaults(Till, { returnsClass: { open: Receipt, close: Receipt } });
+
+    try {
+      const spy = spyOn(new Till(), { onlyMethodsToSpyOn: ['open'] });
+
+      expect(innerDouble(spy, 'open')).toBe(spy.open());
+      expect(spy.open).toHaveBeenCalledOnce();
+      expect(() => innerDouble(spy, 'close')).toThrow("innerDouble: 'close' has no returnsClass entry");
+    } finally {
+      clearAutoSpyDefaults();
+    }
+  });
+
+  it('drops the inner double of a method the call left real', () => {
+    const till = new Till();
+    const spy = spyOn(till, { onlyMethodsToSpyOn: ['open'], returnsClass: { open: Receipt, close: Receipt } });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("returns / selfReturning names 'close'"));
+    expect(till.close().print()).toBe('real');
+    expect(innerDouble(spy, 'open')).toBe(spy.open());
+    expect(() => innerDouble(spy, 'close')).toThrow("'close' has no returnsClass entry");
   });
 });

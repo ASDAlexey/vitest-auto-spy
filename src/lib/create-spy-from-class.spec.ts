@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useConsoleSpies } from './console-spy';
 import { applyReturns, createSpyFromClass } from './create-spy-from-class';
 import { setDefaultStrictMode, takeStrictViolations } from './function-spy';
+import { innerDouble } from './inner-double';
 import { registerMockAdapter } from './mock-adapter';
 import { mockValueProp } from './prop-mock';
 import { resetAutoSpy } from './reset-auto-spy';
@@ -896,5 +897,96 @@ describe('createSpyFromClass — returnsClass', () => {
     const factory = createSpyFromClass(ReportFactory, { returnsClass: outOfType<{ create: typeof Report }>({ create: undefined }) });
 
     expect(factory.create('a')).toBeUndefined();
+  });
+
+  it('builds the inner double with the configuration paired with the class', () => {
+    class SnackBarRef {
+      dismiss(): void {}
+
+      message(): string {
+        return 'real';
+      }
+    }
+
+    class SnackBar {
+      open(_text: string): SnackBarRef {
+        return new SnackBarRef();
+      }
+    }
+
+    takeStrictViolations();
+    const snackBar = createSpyFromClass(SnackBar, {
+      strict: true,
+      returnsClass: { open: [SnackBarRef, { returnsUndefined: ['dismiss'], returns: { message: 'saved' } }] },
+    });
+    const ref = snackBar.open('a');
+
+    ref.dismiss();
+
+    expect(ref.message()).toBe('saved');
+    expect(asSpy(ref).dismiss).toHaveBeenCalledOnce();
+    expect(takeStrictViolations()).toEqual([]);
+  });
+
+  it('merges a registered pair with the call site', () => {
+    registerAutoSpyDefaults(ReportFactory, { returnsClass: { create: [Report, { returns: { render: 'registered' } }] } });
+
+    try {
+      const factory = createSpyFromClass(ReportFactory, { returnsClass: { draft: Report } });
+
+      expect(factory.create('a').render()).toBe('registered');
+      expect(vi.isMockFunction(asSpy(factory.draft()).render)).toBe(true);
+    } finally {
+      clearAutoSpyDefaults(ReportFactory);
+    }
+  });
+});
+
+describe('innerDouble', () => {
+  class Report {
+    render(): string {
+      return 'real';
+    }
+  }
+
+  class ReportFactory {
+    create(_title: string): Report {
+      return new Report();
+    }
+
+    draft(): Report {
+      return new Report();
+    }
+  }
+
+  it.each([true, false, 'proxy'] as const)('reads the double every call answers, recording no call (lazySpies: %s)', (lazySpies) => {
+    const factory = createSpyFromClass(ReportFactory, { lazySpies, returnsClass: { create: [Report, { returns: { render: 'stub' } }] } });
+    const report = innerDouble(factory, 'create');
+
+    expect(factory.create).not.toHaveBeenCalled();
+    expect(report.render()).toBe('stub');
+    expect(factory.create('a')).toBe(report);
+    expect(factory.create).toHaveBeenCalledExactlyOnceWith('a');
+  });
+
+  it('reads the double of each outer double, and survives a reset', () => {
+    const first = createSpyFromClass(ReportFactory, { returnsClass: { create: Report } });
+    const second = createSpyFromClass(ReportFactory, { returnsClass: { create: Report } });
+    const report = innerDouble(first, 'create');
+
+    resetAutoSpy(first);
+
+    expect(innerDouble(first, 'create')).toBe(report);
+    expect(innerDouble(second, 'create')).not.toBe(report);
+  });
+
+  it('throws for a method returnsClass does not answer', () => {
+    const factory = createSpyFromClass(ReportFactory, { returnsClass: { draft: Report }, returns: { draft: new Report() } });
+
+    expect(() => innerDouble(factory, 'create')).toThrow(
+      "[vitest-auto-spy] innerDouble: 'create' has no returnsClass entry on this double, so there is no inner double to read.",
+    );
+    expect(() => innerDouble(factory, 'draft')).toThrow("'draft' has no returnsClass entry");
+    expect(() => innerDouble(createSpyFromClass(ReportFactory), 'create')).toThrow("'create' has no returnsClass entry");
   });
 });

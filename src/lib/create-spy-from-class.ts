@@ -9,6 +9,7 @@ import * as DOCS_LINKS from './docs-links';
 import { fillMissingMembers } from './fill-missing';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedReturnValue } from './function-spy';
 import { libraryWarn } from './guard-reaction';
+import { recordInnerDoubles } from './inner-double';
 import { createLazySpyProxy } from './lazy-spy-proxy';
 import { withDocs } from './message-link';
 import { sourceClassName } from './message-text';
@@ -46,6 +47,8 @@ export interface ResolvedSpyConfiguration {
   /** `undefined` when nothing set it, so the width of the class can pick the mode — see {@link PROXY_MIN_METHODS}. */
   lazySpies: boolean | 'proxy' | undefined;
   returns: Record<string, unknown>;
+  /** The `returnsClass` doubles folded into {@link returns}, kept by name for `innerDouble`. */
+  classReturns: Record<string, object>;
   selfReturning: string[];
   overrides: object;
   strict: boolean | undefined;
@@ -68,6 +71,7 @@ const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
   fillMissing: undefined,
   lazySpies: undefined,
   returns: {},
+  classReturns: {},
   selfReturning: [],
   overrides: {},
   strict: undefined,
@@ -412,6 +416,9 @@ export function resolveConfiguration<T>(
     return { ...EMPTY_CONFIGURATION, methodsToSpyOn: methodsToSpyOnOrConfig };
   }
 
+  const returns = methodsToSpyOnOrConfig.returns ?? {};
+  const classReturns = classDoubles(methodsToSpyOnOrConfig.returnsClass, (name) => Object.hasOwn(returns, name));
+
   return {
     methodsToSpyOn: methodsToSpyOnOrConfig.methodsToSpyOn ?? [],
     onlyMethodsToSpyOn: methodsToSpyOnOrConfig.onlyMethodsToSpyOn ?? [],
@@ -423,9 +430,10 @@ export function resolveConfiguration<T>(
     fillMissing: methodsToSpyOnOrConfig.fillMissing,
     lazySpies: methodsToSpyOnOrConfig.lazySpies,
     returns: withUndefinedReturns(
-      withClassReturns(methodsToSpyOnOrConfig.returns ?? {}, methodsToSpyOnOrConfig.returnsClass),
+      Object.keys(classReturns).length > 0 ? { ...classReturns, ...returns } : returns,
       methodsToSpyOnOrConfig.returnsUndefined,
     ),
+    classReturns,
     selfReturning: methodsToSpyOnOrConfig.selfReturning ?? [],
     overrides: methodsToSpyOnOrConfig.overrides ?? {},
     strict: methodsToSpyOnOrConfig.strict,
@@ -440,16 +448,18 @@ function withUndefinedReturns(returns: Record<string, unknown>, names: readonly 
   return names?.length ? { ...Object.fromEntries(names.map((name) => [name, undefined])), ...returns } : returns;
 }
 
-/** One spy of each named class, for the names `returns` does not already answer. */
-export function withClassReturns(
-  returns: Record<string, unknown>,
-  classes: Partial<Record<string, ClassType<unknown>>> | undefined,
-): Record<string, unknown> {
-  const built = Object.entries(classes ?? {}).flatMap(([name, ReturnedClass]) =>
-    ReturnedClass === undefined || Object.hasOwn(returns, name) ? [] : [[name, createSpyFromClass(ReturnedClass)] as const],
+/** One spy of each named class, built with its paired configuration, for the names `answered` does not claim. */
+export function classDoubles(
+  classes: Partial<Record<string, ClassType<unknown> | readonly [ClassType<unknown>, object]>> | undefined,
+  answered: (name: string) => boolean,
+): Record<string, object> {
+  return Object.fromEntries(
+    Object.entries(classes ?? {}).flatMap(([name, entry]) =>
+      entry === undefined || answered(name)
+        ? []
+        : [[name, typeof entry === 'function' ? createSpyFromClass(entry) : createSpyFromClass(entry[0], entry[1])] as const],
+    ),
   );
-
-  return built.length > 0 ? { ...Object.fromEntries(built), ...returns } : returns;
 }
 
 const warnedThenables = new WeakSet<object>();
@@ -517,6 +527,7 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
     applyConfiguredReturns(autoSpy, `createSpyFromClass(${sourceClassName(ObjectClass.name)})`, config, () =>
       getDeclaredMethodNames(ObjectClass.prototype),
     );
+    recordInnerDoubles(autoSpy, config.classReturns);
   }
 
   if (Reflect.ownKeys(config.overrides).length > 0) {

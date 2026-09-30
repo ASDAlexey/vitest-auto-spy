@@ -208,6 +208,9 @@ export {
   type SpyClassOptions,
 } from './lib/spy-typing';
 
+// The double a `returnsClass` method answers, read without recording a call
+export { innerDouble } from './lib/inner-double';
+
 // Saying which branch of a union a test got, so the failure names the shape it actually had
 export { narrow } from './lib/narrow';
 

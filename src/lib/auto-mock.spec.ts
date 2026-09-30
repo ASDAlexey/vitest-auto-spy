@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { autoMocked, callSiteName, createAutoMock } from './auto-mock';
 import { useConsoleSpies } from './console-spy';
 import { takeStrictViolations } from './function-spy';
+import { innerDouble } from './inner-double';
 import { registerMockAdapter } from './mock-adapter';
 import { mockValueProp, restoreMockedProps } from './prop-mock';
 import { resetAutoSpy } from './reset-auto-spy';
@@ -680,6 +681,7 @@ describe('createAutoMock — returnsClass', () => {
   interface ReportFactory {
     create(title: string): Report;
     draft(): Report;
+    archive(): Report;
   }
 
   it('answers one spy of the named class from every call, reachable through asSpy', () => {
@@ -701,5 +703,20 @@ describe('createAutoMock — returnsClass', () => {
 
     expect(factory.create).toBe(seeded);
     expect(factory.draft()).toBe(fixed);
+  });
+
+  it('reaches the inner double through innerDouble, only for the methods returnsClass answers', () => {
+    const factory = createAutoMock<ReportFactory>(
+      { create: (): Report => new Report() },
+      {
+        returnsClass: { create: Report, draft: Report, archive: [Report, { returns: { render: 'archived' } }] },
+        returns: { draft: new Report() },
+      },
+    );
+
+    expect(innerDouble(factory, 'archive').render()).toBe('archived');
+    expect(factory.archive()).toBe(innerDouble(factory, 'archive'));
+    expect(() => innerDouble(factory, 'create')).toThrow("'create' has no returnsClass entry");
+    expect(() => innerDouble(factory, 'draft')).toThrow("'draft' has no returnsClass entry");
   });
 });

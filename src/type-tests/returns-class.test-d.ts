@@ -10,6 +10,7 @@ import {
   createAutoMock,
   createSpyFromClass,
   createSpyFromInstance,
+  innerDouble,
   registerAutoSpyDefaults,
 } from '../auto-spy';
 
@@ -33,6 +34,16 @@ class ReportFactory {
   }
 }
 
+class SnackBarRef {
+  dismiss(): void {}
+}
+
+class SnackBar {
+  open(_message: string): SnackBarRef {
+    return new SnackBarRef();
+  }
+}
+
 interface Stream {
   close(): void;
   send(data: string): number;
@@ -52,6 +63,27 @@ describe('returnsClass', () => {
     const factory = createSpyFromClass(ReportFactory, { returnsClass: { create: Report } });
 
     expectTypeOf(asSpy(factory.create('a'))).toEqualTypeOf<Spy<Report>>();
+  });
+
+  it('pairs the class with the configuration its double is built with, typed against that class', () => {
+    createSpyFromClass(SnackBar, { returnsClass: { open: [SnackBarRef, { returnsUndefined: ['dismiss'] }] } });
+    createAutoMock<SnackBar>({ returnsClass: { open: [SnackBarRef, { strict: true, returnsUndefined: ['dismiss'] }] } });
+    provideAutoSpy(SnackBar, { returnsClass: { open: [SnackBarRef, { returnsUndefined: ['dismiss'] }] } });
+
+    // @ts-expect-error -- `close` is not a method of SnackBarRef
+    createSpyFromClass(SnackBar, { returnsClass: { open: [SnackBarRef, { returnsUndefined: ['close'] }] } });
+    // @ts-expect-error -- `open` returns a SnackBarRef
+    createSpyFromClass(SnackBar, { returnsClass: { open: [Report, {}] } });
+  });
+
+  it('reads the inner double through innerDouble, for a method only', () => {
+    const factory = createSpyFromClass(ReportFactory, { returnsClass: { create: Report } });
+
+    expectTypeOf(innerDouble(factory, 'create')).toEqualTypeOf<Spy<Report>>();
+    expectTypeOf(innerDouble(createAutoMock<SnackBar>(), 'open')).toEqualTypeOf<Spy<SnackBarRef>>();
+
+    // @ts-expect-error -- `title` is data
+    innerDouble(factory, 'title');
   });
 
   it('rejects a class the method does not return, and a member that is not a method', () => {
