@@ -44,6 +44,7 @@ export const DOCTOR_CHECKS: readonly string[] = [
   'spec-imported-by-non-spec',
   'tsconfig-file-missing',
   'tsconfig-glob-matches-nothing',
+  'tsconfig-ships-mock-file',
   'vitest-5-available',
   'vitest-5-bundled-package',
   'vitest-5-clear-mocks',

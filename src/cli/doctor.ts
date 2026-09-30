@@ -28,6 +28,7 @@ import { checkScanCap } from './checks/scan-cap';
 import { sharedEnvRestorePass } from './checks/shared-env-restore';
 import { checkSpecImports } from './checks/spec-imports';
 import { checkTsconfigGlobs } from './checks/tsconfig-globs';
+import { checkTsconfigMockFiles } from './checks/tsconfig-mock-files';
 import { unawaitedHelperPass } from './checks/unawaited-helper';
 import { checkVitest5ClearMocks, vitest5RemovedPass } from './checks/vitest-5';
 import { vitest5TrapsPass } from './checks/vitest-5-traps';
@@ -44,6 +45,7 @@ export function runDoctor(profile: Profile): Finding[] {
   return inOnePass(graph, [
     checkScanCap(profile),
     checkTsconfigGlobs(profile),
+    checkTsconfigMockFiles(profile),
     checkSpecImports(graph),
     foreignPragmaPass(),
     checkOrphanRunnerConfig(profile, graph),
