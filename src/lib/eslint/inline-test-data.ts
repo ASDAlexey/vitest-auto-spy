@@ -73,6 +73,7 @@ const EXPECTATIONS = new Set([
 const TUPLE_LENGTH = 3;
 const TUPLE_ITEM_CHARS = 8;
 const FLAG_KEYS = 3;
+const SHORT_EXPECTED_KEYS = 3;
 
 /** Types a literal is spelled through without becoming another value: casts, `satisfies`, `!`. */
 const WRAPPERS = new Set(['TSAsExpression', 'TSNonNullExpression', 'TSSatisfiesExpression', 'TSTypeAssertion']);
@@ -185,10 +186,28 @@ function isFlagBag(node: EsArrayExpression | EsObjectExpression): boolean {
   );
 }
 
-function isExpected(node: EsNode): boolean {
-  const call = container(node);
+const isExpectation = (node: EsNode): boolean => isCallExpression(node) && EXPECTATIONS.has(memberName(node.callee) ?? '');
 
-  return isCallExpression(call) && EXPECTATIONS.has(memberName(call.callee) ?? '');
+const isExpected = (node: EsNode): boolean => isExpectation(container(node));
+
+/** Anywhere inside an expected value: `{ id: 1 }` in `toEqual([{ id: 1 }])` is expected too. */
+function isInExpected(node: EsNode): boolean {
+  let current = container(node);
+
+  while (isLiteral(current)) {
+    current = container(current);
+  }
+
+  return isExpectation(current);
+}
+
+/** `{ name: 'HttpErrorResponse', status: 401 }` reads as well as any name it could be given. */
+function isShortRecord(node: EsNode): boolean {
+  return (
+    isObjectExpression(node) &&
+    node.properties.length <= SHORT_EXPECTED_KEYS &&
+    node.properties.every((property) => propertyName(property) !== undefined && isPrimitive(propertyValue(property)))
+  );
 }
 
 /** The largest literal directly inside `node`: the part of an expectation worth a name of its own. */
@@ -198,6 +217,33 @@ function largestPart(node: EsArrayExpression | EsObjectExpression): EsNode | und
     .filter(isLiteral);
 
   return parts.sort((a, b) => span(b) - span(a))[0];
+}
+
+/** Every literal and template string nested in `node`, at any depth. */
+function nestedParts(node: EsArrayExpression | EsObjectExpression): EsNode[] {
+  return members(node).flatMap((member) => {
+    const value = unwrap(memberValue(member));
+
+    if (isLiteral(value)) {
+      return [value, ...nestedParts(value)];
+    }
+
+    return value.type === 'TemplateLiteral' ? [value] : [];
+  });
+}
+
+/** A word list or a text block is data; a `['error', { ... }]` tuple is the shape under test. */
+const isPlainData = (node: EsNode): boolean =>
+  node.type === 'TemplateLiteral' || (isArrayExpression(node) && members(node).every(isPrimitive));
+
+/** The smallest part whose move alone brings the expectation under `maxLines`, plain data first. */
+function partToMove(node: EsArrayExpression | EsObjectExpression, maxLines: number): EsNode | undefined {
+  const excess = lineCount(node) - maxLines;
+  const enough = nestedParts(node).filter((part) => lineCount(part) > excess);
+
+  enough.sort((a, b) => Number(isPlainData(b)) - Number(isPlainData(a)) || span(a) - span(b));
+
+  return enough[0] ?? largestPart(node);
 }
 
 /** An identifier that reads a value: not a property key, not a member name after a dot, not a type. */
@@ -276,7 +322,7 @@ function reportLong(context: RuleContext, node: EsArrayExpression | EsObjectExpr
     return;
   }
 
-  const part = largestPart(node);
+  const part = partToMove(node, maxLines);
 
   if (part && lineCount(part) > 1) {
     context.report({
@@ -307,6 +353,12 @@ function reportRepeats(context: RuleContext, seen: Iterable<Copies>, repeats: nu
       continue;
     }
 
+    const expected = [first, ...rest].every(isInExpected);
+
+    if (expected && isShortRecord(first)) {
+      continue;
+    }
+
     reported.push(first, ...rest);
 
     const binding = localBinding(context, first);
@@ -314,11 +366,11 @@ function reportRepeats(context: RuleContext, seen: Iterable<Copies>, repeats: nu
     for (const node of rest) {
       const data = { literal: excerpt(context, node, 40), count: String(rest.length + 1), first: String(first.loc.start.line) };
 
-      context.report(
-        binding === undefined
-          ? { node, messageId: 'repeatedLiteral', data }
-          : { node, messageId: 'repeatedLocalLiteral', data: { ...data, binding } },
-      );
+      if (binding !== undefined) {
+        context.report({ node, messageId: 'repeatedLocalLiteral', data: { ...data, binding } });
+      } else {
+        context.report({ node, messageId: expected ? 'repeatedExpected' : 'repeatedLiteral', data });
+      }
     }
   }
 }
@@ -341,11 +393,13 @@ export const noInlineTestData = defineRule({
     longLiteral:
       'This literal spans {{lines}} lines of test data (the limit is {{max}}). Move it to a `*.mock.ts` file next to the spec and import it, so the test shows what it checks rather than the data it feeds in.',
     longExpected:
-      'This expected value spans {{lines}} lines (the limit is {{max}}). It is what the test checks, so keep its shape inline and move its largest part, `{{part}}` at line {{line}}, to a `*.mock.ts` file next to the spec.',
+      'This expected value spans {{lines}} lines (the limit is {{max}}). It is what the test checks, so keep its shape inline and move `{{part}}` at line {{line}} to a `*.mock.ts` file next to the spec.',
     longExpectedFlat:
       'This expected value spans {{lines}} lines (the limit is {{max}}). It is what the test checks, so check only the entries this test is about, or move it to a `*.mock.ts` file next to the spec under a name that says what the test expects.',
     repeatedLiteral:
       '`{{literal}}` is written {{count}} times in this file (first at line {{first}}). Export it once from a `*.mock.ts` file next to the spec and import it, so one edit reaches every test that uses it.',
+    repeatedExpected:
+      '`{{literal}}` is expected {{count}} times in this file (first at line {{first}}). It is what these tests check, so keep it in the spec: name it once in a `const` and reuse it, so one edit reaches every test that checks it.',
     repeatedLocalLiteral:
       '`{{literal}}` is written {{count}} times in this file (first at line {{first}}) and reads `{{binding}}`, which this spec declares. Name it once in a `const` beside `{{binding}}` and reuse it, so one edit reaches every test that uses it.',
   },

@@ -144,20 +144,62 @@ describe(RULE, () => {
     expect(verify("configure({ enabled: true, name: 'x' });\n".repeat(3))).toHaveLength(2);
   });
 
-  it('asks to move the largest part of a long expected value and keep its shape inline', () => {
+  it('asks to move the smallest part of a long expected value that brings it under the limit', () => {
     const expected = `{\n  id: 1,\n  ...base,\n  address: ${literalOf(10)},\n  items: ${literalOf(12)} as Item,\n}`;
     const [message, ...rest] = verify(`expect(order).toMatchObject(${expected});`);
 
     expect(rest).toEqual([]);
     expect(message?.message).toMatch(
-      /^This expected value spans 26 lines \(the limit is 20\)\. It is what the test checks, so keep its shape inline and move its largest part, `\{ field0: 0, field1: 1,[^`]*` at line 14,/,
+      /^This expected value spans 26 lines \(the limit is 20\)\. It is what the test checks, so keep its shape inline and move `\{ field0: 0, field1: 1,[^`]*` at line 4 to/,
     );
     expect(verify(`expect(api.post).toHaveBeenCalledWith('/orders', expect.objectContaining(${expected}));`)[0]?.message).toContain(
       'keep its shape inline',
     );
-    expect(verify(`expect(rows).toEqual([\n${literalOf(8)},\n${literalOf(13)},\n]);`)[0]?.message).toMatch(
-      /largest part, `[^`]*` at line 10,/,
+    expect(verify(`expect(rows).toEqual([\n${literalOf(8)},\n${literalOf(13)},\n]);`)[0]?.message).toMatch(/move `[^`]*` at line 2 to/);
+    expect(verify(`expect(rows).toEqual([\n${literalOf(3)},\n${literalOf(22)},\n]);`)[0]?.message).toMatch(/move `[^`]*` at line 5 to/);
+
+    const noSingleMove = `{\n  billing: ${literalOf(4)},\n  shipping: ${literalOf(5)},\n  ${literalOf(19).slice(2)}`;
+
+    expect(verify(`expect(order).toEqual(${noSingleMove});`)[0]?.message).toMatch(
+      /spans 28 lines.* move `\{ field0: 0, field1: 1, field2: 2, \}` at line 6 to/,
     );
+  });
+
+  it('names the word list inside a long rule config rather than the config under test', () => {
+    const words = Array.from({ length: 11 }, (_, index) => `          'word${String(index)}',`).join('\n');
+    const config = [
+      'expect(rules()).toMatchObject({',
+      "  'x/naming': [",
+      "    'error',",
+      '    {',
+      '      disallowedWords: [',
+      words,
+      '      ],',
+      '      mustNotMatch,',
+      '      severity: {',
+      "        level: 'high',",
+      '        scope: [',
+      "          'spec',",
+      "          'mock',",
+      '        ],',
+      '      },',
+      '    },',
+      '  ],',
+      '});',
+    ].join('\n');
+
+    expect(verify(config)[0]?.message).toMatch(/spans 28 lines.* move `\[ 'word0', 'word1',[^`]*` at line 5 to/);
+
+    const text = [
+      'expect(page).toEqual({',
+      '  title: 1,',
+      '  body: `',
+      ...Array.from({ length: 22 }, () => '    line'),
+      '  `,',
+      '});',
+    ].join('\n');
+
+    expect(verify(text)[0]?.message).toMatch(/move `` line line[^`]*` at line 3 to/);
   });
 
   it('asks to check fewer entries of a long expected value that has no large part to move', () => {
@@ -174,6 +216,42 @@ describe(RULE, () => {
     for (const code of [`expect(${literalOf(25)}).toBeDefined();`, `expect(order).toEqual(load(${literalOf(25)}));`]) {
       expect(verify(code)[0]?.message).toMatch(/^This literal spans 25 lines of test data/);
     }
+  });
+
+  it('suggests a spec-local const for a value repeated only as the expected value of a matcher', () => {
+    const error = "{ name: 'HttpErrorResponse', status: 401, error: { code: 'expired' } }";
+    const messages = verify(`
+      it('rejects the expired token', async () => {
+        await expect(load()).rejects.toMatchObject(${error});
+      });
+      it('rejects the expired refresh', async () => {
+        await expect(refresh()).rejects.not.toEqual(${error});
+      });
+      it('logs the expired token', () => {
+        expect(log).toHaveBeenCalledWith('auth', [${error}]);
+      });
+    `);
+
+    expect(messages.map((message) => message.line)).toEqual([6, 9]);
+    expect(messages[0]?.message).toMatch(
+      /^`\{ name: 'HttpErrorResponse', status: 40…` is expected 3 times in this file \(first at line 3\)\. It is what these tests check, so keep it in the spec: name it once in a `const`/,
+    );
+  });
+
+  it('leaves a short expected object of a few primitive keys alone, but not one also fed in', () => {
+    const error = "{ name: 'HttpErrorResponse', status: 401 }";
+    const expected = [
+      `await expect(load()).resolves.toMatchObject(${error});`,
+      `await expect(save()).rejects.toMatchObject(${error});`,
+      `expect(errors).toEqual([${error}]);`,
+    ];
+
+    expect(verify(expected.join('\n'))).toEqual([]);
+
+    const fed = verify(`fail(${error});\n${expected.join('\n')}`);
+
+    expect(fed).toHaveLength(3);
+    expect(fed[0]?.message).toMatch(/Export it once from a `\*\.mock\.ts` file/);
   });
 
   it('suggests a spec-local const for a repeated literal that reads a binding the spec declares', () => {
