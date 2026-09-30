@@ -20562,9 +20562,10 @@ vitest run                                          # writes reports/perf-libs.j
 npx vitest-auto-spy perf --json 'reports/perf-*.json' --gate
 ```
 
-The re-measurement runs with coverage off, even when the first reading had it on. Coverage
-thresholds fail a run of a few files, and instrumentation is the harness's cost, not the test's.
-The price: a body that is over budget only because of instrumentation comes back as not reproduced.
+The re-measurement runs with coverage off, even when the first reading had it on. The reason:
+coverage thresholds fail a run of a few files, and instrumentation is the harness's cost, not the
+test's. The price: a body that is over budget only because of instrumentation comes back as not
+reproduced.
 A report written before the config was recorded (format version 5 or older) cannot be re-measured
 this way; pass `--command`, or write the report again with this version.
 
