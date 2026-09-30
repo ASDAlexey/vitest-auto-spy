@@ -111,6 +111,19 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       and keep the inner double's construction out of the spec. Seen exactly once in a consumer
       suite, so a convenience, not a pattern (2026-09-29, 5.51.0).
 
+- [x] **`returnsClass` cannot configure the inner double.** Seen 2026-09-30 on 5.57.0. Under global
+      `strict`, a factory method whose returned object has a void method
+      (`createSpyFromClass(SnackBarRef, { returnsUndefined: ['dismiss'] })` fed to
+      `returns: { openFromComponent: asInstance(ref) }`) cannot move to `returnsClass`: `MethodReturnsClass<T>`
+      takes only a class, so the inner `dismiss` throws as unconfigured. Also accept a pair,
+      `returnsClass: { m: [Class, config] }` or `{ class, config }`. Evidence: `MethodReturnsClass` in
+      `src/lib/types.ts` is `ClassType<ReturnType<T[K]>>`; one consumer call site, kept on the two-step form.
+- [x] **No unrecorded way to reach the `returnsClass` inner double.** `asSpy(outer.create(...))` is itself a
+      recorded call, so a spec that asserts `toHaveBeenCalledExactlyOnceWith` on the factory method, or
+      reads the inner double before any call, has to stay on the two-step form (the docs say so). A reader
+      such as `innerDouble(outer, 'create')` that returns the per-outer double without calling the method
+      would let those specs move too. Seen 2026-09-30 on 5.57.0: one consumer spec, 9 tests counting calls.
+
 ## Angular helpers
 
 - [x] **Typed stub of a plain `HTMLElement` in `/dom-stubs`**: `classList`, `style`, attributes and
@@ -272,6 +285,18 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       binding declared in the same file, or spreads one, suggest a spec-local `const` (a second
       message id); or compare only the literal's own non-spread leaves (2026-09-30, 5.54.0).
 
+- [x] **`no-inline-test-data` still sends a repeated expected value to a `*.mock.ts`.** Seen 2026-09-30 on
+      5.57.0. `await expect(p).resolves.toMatchObject({ name: 'HttpErrorResponse', status: 401 })` in three
+      `it`s is reported as a repeat with the mock-file advice, while a single long expected value is now told
+      to stay inline. When every copy is an equality matcher's expected argument, either skip short objects
+      (2-3 primitive keys) or suggest a spec-local `const`, as `repeatedLocalLiteral` does. Evidence: the
+      repeat path in `src/lib/eslint/inline-test-data.ts` does not look at the matcher context.
+- [x] **`longExpected` names too large a part to move.** Seen 2026-09-30 on 5.57.0. For
+      `expect(rules()).toMatchObject({ 'x/rule': ['error', { disallowedWords: [/* 11 strings */], mustNotMatch }] })`
+      (30 lines) the message names the whole `['error', {...}]` tuple, which is the config under test;
+      moving the 11-string array alone brings it under the limit. Suggest the smallest part that gets under
+      `maxLines`, preferring pure data arrays and strings over mixed config shapes.
+
 ## CLI: codemod
 
 - [x] **Overlapping edits are dropped silently** (`edits.ts:65-80`), so `fired` / `needs` overstate what
@@ -348,6 +373,19 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       one docs line (exclude `**/*.mock.ts` from the build config), and/or a `doctor` finding for a
       `*.mock.ts` that a non-spec tsconfig's `include` matches and its `exclude` does not
       (2026-09-30, 5.54.0).
+
+- [x] **`shared-env-without-restore` passes silently on options it cannot read.** Seen 2026-09-30 on
+      5.57.0. `export const OPTS = Object.freeze({ restoreMocks: false, ... }); setupAutoSpy(OPTS)` (or
+      `{ ...OPTS }`) gives no note; the same object without `Object.freeze` gives one. Unwrap
+      `Object.freeze(...)`, `as const` and `satisfies X`, and when a value stays unreadable, say so in a note
+      ("options not statically readable") instead of passing. Evidence: no `freeze` handling in
+      `src/cli/checks/shared-env-restore.ts`. A consumer setup file with a frozen shared options object.
+- [x] **`tsconfig-ships-mock-file` is silent when the build tsconfig has no `exclude`.** Seen 2026-09-30 on
+      5.57.0. A `tsc`-built library (`@nx/js:tsc`, `tsConfig: tsconfig.lib.json`) with only
+      `"include": ["src/**/*.ts"]` and a `src/lib/x.mock.ts` beside `x.spec.ts` gives no warning, though both
+      ship; adding `"exclude": ["src/**/*.spec.ts"]` makes it warn. Report shipped specs and mocks when there
+      is no `exclude` at all. The suggested glob could also follow the style of the existing ones
+      (`src/**/*.mock.ts` beside `src/**/*.spec.ts`) rather than always `**/*.mock.ts`.
 
 ## CLI: perf
 
