@@ -176,6 +176,25 @@ export function persistedInCi(ci: readonly TextFile[], path: string): boolean {
   return ci.some(({ text }) => cachesPath(text, path));
 }
 
+// Top-level GitLab keywords that configure a pipeline without being a job of their own.
+const PIPELINE_KEYWORDS = new Set(['include', 'variables', 'stages', 'workflow', 'default', 'spec', 'image', 'services', 'cache']);
+const EXTERNAL_INCLUDE = /^\s*-?\s*(?:project|remote|component|template)\s*:/m;
+
+/**
+ * Every CI file only includes jobs from outside the repository (`project:`, `remote:`, `component:`),
+ * so whether those jobs cache a path cannot be read here.
+ */
+export function ciJobsElsewhere(ci: readonly TextFile[]): boolean {
+  return (
+    ci.length > 0 &&
+    ci.every(({ text }) => {
+      const keys = [...text.matchAll(/^([.A-Z_a-z][\w.-]*)\s*:/gm)].map(([, key]) => String(key));
+
+      return keys.includes('include') && keys.every((key) => PIPELINE_KEYWORDS.has(key)) && EXTERNAL_INCLUDE.test(text);
+    })
+  );
+}
+
 export function persistFix(path: string): string {
   return `Persist \`${path}\` between CI runs — for GitHub Actions an \`actions/cache\` step with that path and a key on the lockfile hash (\`cache: npm\` in \`setup-node\` stores only the npm download cache). \`npm ci\` deletes \`node_modules\` before it installs, so with it set \`fsModuleCachePath\` to a directory outside \`node_modules\` and cache that one.`;
 }
@@ -205,7 +224,7 @@ export function checkModuleCachePersisted(profile: Profile, graph: SourceGraph):
 
   const setting = moduleCacheSetting(profile, graph, major);
 
-  if (setting === undefined || persistedInCi(ci, setting.path)) {
+  if (setting === undefined || persistedInCi(ci, setting.path) || ciJobsElsewhere(ci)) {
     return [];
   }
 

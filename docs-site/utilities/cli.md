@@ -1110,7 +1110,9 @@ runs, keyed on the lockfile hash.
 
 It also fires when `environment` is already `all` or `ci` but no CI config caches the directory: every
 run then starts with an empty cache. `environment: none` and `enabled: false` are taken as decisions
-and not reported.
+and not reported. When every CI config only includes jobs from another repository (`include:` with
+`project:`, `remote:`, `component:` or `template:`), doctor cannot see what those jobs cache, so this
+second case is not reported.
 
 #### `builder-setup-unreached`
 
@@ -1516,6 +1518,8 @@ test:
   `node_modules`.
 - `npm ci` deletes `node_modules` before installing. If your CI runs it, point `fsModuleCachePath`
   outside `node_modules` and cache that directory.
+- A `.gitlab-ci.yml` that only includes jobs from another repository (`project:`, `remote:`,
+  `component:`, `template:`) is not judged: what those jobs cache cannot be read here.
 
 #### `vitest-5-bundled-package`
 

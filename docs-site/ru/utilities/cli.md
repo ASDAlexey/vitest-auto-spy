@@ -1131,7 +1131,9 @@ happy-dom реализует меньше браузерной платформ�
 
 Проверка срабатывает и тогда, когда `environment` уже `all` или `ci`, но ни один конфиг CI эту
 директорию не кэширует: тогда каждый прогон начинает с пустого кэша. `environment: none` и
-`enabled: false` считаются осознанным решением и не сообщаются.
+`enabled: false` считаются осознанным решением и не сообщаются. Если каждый конфиг CI только
+подключает задачи из другого репозитория (`include:` с `project:`, `remote:`, `component:` или
+`template:`), doctor не видит, что эти задачи кэшируют, и этот второй случай не сообщается.
 
 #### `builder-setup-unreached` {#builder-setup-unreached}
 
@@ -1540,6 +1542,8 @@ test:
 - `cache: npm` в `actions/setup-node` не считается: он хранит кэш загрузок npm, а не `node_modules`.
 - `npm ci` удаляет `node_modules` перед установкой. Если CI его запускает, направьте
   `fsModuleCachePath` за пределы `node_modules` и кэшируйте ту директорию.
+- `.gitlab-ci.yml`, который только подключает задачи из другого репозитория (`project:`, `remote:`,
+  `component:`, `template:`), не проверяется: что кэшируют эти задачи, отсюда не прочитать.
 
 #### `vitest-5-bundled-package` {#vitest-5-bundled-package}
 

@@ -3,7 +3,8 @@
  *
  * `cli.cache.environment` defaults to `local`: the cache is on at a desk and off wherever `CI` is set.
  * Measured on a 700-file suite, the cold compile costs +2.91 s (+33 %) per CI run. Turning the cache
- * on only pays when CI also keeps its directory between runs, so both halves are checked.
+ * on only pays when CI also keeps its directory between runs, so both halves are checked — the second
+ * only when the jobs are in the repository, not included from a shared pipelines project.
  */
 import { join } from 'node:path';
 
@@ -13,7 +14,7 @@ import { isRecord } from '../profile';
 import type { Finding } from '../report';
 import { unitTestTargets } from './unit-test-targets';
 import { ciConfigs } from './vitest-5-facts';
-import { persistedInCi } from './vitest-5-upgrade';
+import { ciJobsElsewhere, persistedInCi } from './vitest-5-upgrade';
 
 const DEFAULT_CACHE_PATH = '.angular/cache';
 const MEASURED = 'On a 700-file suite a cold cache cost +2.91 s (+33 %) per run.';
@@ -62,7 +63,7 @@ export function checkAngularCacheInCi(profile: Profile): Finding[] {
     ];
   }
 
-  if (settings.environment === 'none' || persistedInCi(ci, settings.path)) {
+  if (settings.environment === 'none' || persistedInCi(ci, settings.path) || ciJobsElsewhere(ci)) {
     return [];
   }
 

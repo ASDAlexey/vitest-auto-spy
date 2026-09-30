@@ -50,6 +50,18 @@ describe('checkAngularCacheInCi', () => {
     ).toEqual([]);
   });
 
+  it('does not judge persistence when every CI job is included from outside the repository', () => {
+    const on = workspace({ cache: { environment: 'all' } });
+    const gitlab = (text: string): Record<string, string> => ({ 'angular.json': on, '.gitlab-ci.yml': text });
+
+    expect(findingsIn(gitlab("include:\n  - project: 'group/pipelines'\n    file: '/angular.yml'\n"))).toEqual([]);
+    expect(findingsIn(gitlab("variables:\n  NODE: '24'\ninclude:\n  - remote: 'https://example.com/ci.yml'\n"))).toEqual([]);
+    expect(findingsIn(gitlab('include:\n  - component: $CI_SERVER_FQDN/group/angular@1\n'))).toEqual([]);
+    expect(findingsIn(gitlab("include:\n  - local: '/ci/test.yml'\n"))).toHaveLength(1);
+    expect(findingsIn(gitlab("include:\n  - project: 'group/pipelines'\ntest:\n  script: npx ng test\n"))).toHaveLength(1);
+    expect(findingsIn({ 'angular.json': workspace(), '.gitlab-ci.yml': "include:\n  - project: 'group/pipelines'\n" })).toHaveLength(1);
+  });
+
   it('stays out of a workspace that turned the cache off, has no CI, or does not test through the builder', () => {
     expect(findingsIn({ 'angular.json': workspace({ cache: { enabled: false } }), ...workflow() })).toEqual([]);
     expect(findingsIn({ 'angular.json': workspace({ cache: { environment: 'none' } }), ...workflow() })).toEqual([]);

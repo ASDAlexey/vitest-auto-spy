@@ -323,6 +323,7 @@ describe('fs-module-cache-not-persisted', () => {
     expect(cacheIn(repo('5.0.2', on))).toEqual([]);
     expect(cacheIn(repo('3.2.4', { ...ci, ...on }))).toEqual([]);
     expect(cacheIn(repo(undefined, { ...ci, ...on }))).toEqual([]);
+    expect(cacheIn(repo('5.0.2', { ...on, '.gitlab-ci.yml': "include:\n  - project: 'group/pipelines'\n" }))).toEqual([]);
   });
 
   it('matches the directory or one above it as a path, not as a substring', () => {
