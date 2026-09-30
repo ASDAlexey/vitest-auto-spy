@@ -139,7 +139,7 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       `Spy<SnackBarRef<Comp>>` fails with TS2322 (on a getter such as `instance`), so the spec keeps the
       two-step form or a cast. `asSpy(double.openFromComponent(Comp))` stays typed, but it is a recorded
       call. Proposal: a one-type-parameter overload, `innerDouble<SnackBarRef<Comp>>(snackBar,
-      'openFromComponent')`, with the method key constrained to methods whose return type the argument
+'openFromComponent')`, with the method key constrained to methods whose return type the argument
       is assignable to. It has to be its own overload: an explicit type argument turns inference off for
       `T` and `K` (the `writableProps` entry in `DECISIONS.md` measured that). Both shapes in one consumer
       suite.
