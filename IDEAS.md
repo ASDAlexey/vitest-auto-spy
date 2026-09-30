@@ -131,7 +131,7 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       say that `createAutoMock<T>()` (type-only, no runtime class needed) is the fit for a method
       returning a type the DOM environment does not define. Seen in a consumer suite, ~13k tests
       (2026-09-30, 5.57.0).
-- [ ] **`innerDouble` on a generic method loses the method's type parameter.** Seen 2026-09-30 on
+- [x] **`innerDouble` on a generic method loses the method's type parameter.** Seen 2026-09-30 on
       5.58.0. The return type is `Spy<ReturnType<Required<T>[K]>>` (`src/lib/inner-double.ts:39`), and
       `ReturnType` of a generic signature fills its type parameters with `unknown`: a snack-bar service's
       `openFromComponent<C>(…): SnackBarRef<C>` reads back as `Spy<SnackBarRef<unknown>>`, a dialog
@@ -143,7 +143,7 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       is assignable to. It has to be its own overload: an explicit type argument turns inference off for
       `T` and `K` (the `writableProps` entry in `DECISIONS.md` measured that). Both shapes in one consumer
       suite.
-- [ ] **A preset double cannot be a `returnsClass` entry.** Seen 2026-09-30 on 5.58.0. A spec whose
+- [x] **A preset double cannot be a `returnsClass` entry.** Seen 2026-09-30 on 5.58.0. A spec whose
       dialog service answers a ref built by `createMatDialogRef(DialogRef, { closedWith })` — the
       preset, not a plain spy of the class, because it closes and replays `afterClosed()` — stays on
       `returns: { open: ref }` with `ref` hoisted, and so cannot use `innerDouble`: `ReturnsClassEntry<R>`
@@ -346,7 +346,7 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       (30 lines) the message names the whole `['error', {...}]` tuple, which is the config under test;
       moving the 11-string array alone brings it under the limit. Suggest the smallest part that gets under
       `maxLines`, preferring pure data arrays and strings over mixed config shapes.
-- [ ] **`longExpected` sends a part used once to a `*.mock.ts`, where a spec-local `const` passes.** Seen
+- [x] **`longExpected` sends a part used once to a `*.mock.ts`, where a spec-local `const` passes.** Seen
       2026-09-30 on 5.58.0. Since 5.58.0 the message names the right part — the 11-word list inside a
       rule-config `toMatchObject` — but still says to move it "to a `*.mock.ts` file next to the spec"
       (`src/lib/eslint/inline-test-data.ts:396`). A `const` in the spec passes lint too and keeps the
@@ -520,6 +520,15 @@ overrides: { contains: spy } })` is reported as a hand-rolled single-member fake
       ship; adding `"exclude": ["src/**/*.spec.ts"]` makes it warn. Report shipped specs and mocks when there
       is no `exclude` at all. The suggested glob could also follow the style of the existing ones
       (`src/**/*.mock.ts` beside `src/**/*.spec.ts`) rather than always `**/*.mock.ts`.
+- [x] **`angular-cache-off-in-ci` cannot see a CI config included from another repository**
+      (`checks/angular-cache-ci.ts`, `persistedInCi`). A GitLab app whose `.gitlab-ci.yml` holds only
+      `include: - project: <shared pipelines repo>` gets the note on every run, whatever the shared jobs
+      cache: the file doctor reads has no jobs at all. Wrappers that fail on notes (a consumer's CI
+      report treats any finding as a failure) have to pass `--ignore angular-cache-off-in-ci` blindly,
+      which also hides the case where the cache really is missing. Proposal: when every CI file doctor
+      finds is only `include:` entries pointing outside the repo (`project:`, `remote:`, `component:`),
+      skip the persistence half of the check, or downgrade it to a line saying the CI config could not
+      be read. Seen 2026-09-30 on 5.58.0, a consumer suite of ~890 spec files.
 
 ## CLI: perf
 

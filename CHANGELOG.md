@@ -10,6 +10,30 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`returnsClass` takes a builder, `{ method: { build: () => double } }`.** A factory method whose
+  result is a preset rather than a plain spy of the class, such as
+  `returnsClass: { open: { build: () => createMatDialogRef(MatDialogRef, { closedWith: 'ok' }).ref } }`,
+  moves to `returnsClass` too. `build` runs once per outer double, and `innerDouble` returns what it
+  built. It throws when `build` returns something other than an object.
+- **`innerDouble<R>(double, 'method')` names the type of a generic method's inner double.** A method
+  such as `openFromComponent<C>(…): SnackBarRef<C>` read back as `Spy<SnackBarRef<unknown>>`, which a
+  `Spy<SnackBarRef<Comp>>` variable does not accept (TS2322).
+  `innerDouble<SnackBarRef<Comp>>(snackBar, 'openFromComponent')` returns `Spy<SnackBarRef<Comp>>`.
+  Like a cast, the named type is not checked against the method.
+
+### Fixed
+
+- **`no-inline-test-data` asks for a spec-local `const` when the part of a long expected value it
+  names is written only once.** It used to send that part to a `*.mock.ts` file, a file of its own
+  for a value one test uses. A part the file writes again still goes to the mock file.
+- **`angular-cache-off-in-ci` and `fs-module-cache-not-persisted` no longer judge CI configs that only
+  include jobs from another repository.** A `.gitlab-ci.yml` holding nothing but
+  `include: - project: …` (or `remote:`, `component:`, `template:`) got the note on every run,
+  whatever the shared jobs cache. Such a config is now skipped. A local `cli.cache.environment` is
+  still reported, because it comes from `angular.json`.
+
 ## [5.58.0] - 2026-09-30
 
 ### Added
