@@ -10,6 +10,47 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`returnsClass` takes a pair, `{ method: [Class, options] }`.** `options` is the
+  `createSpyFromClass` configuration for the inner double, typed against that class. A factory method
+  whose result has a `void` method under `strict`
+  (`returnsClass: { openFromComponent: [MatSnackBarRef, { returnsUndefined: ['dismiss'] }] }`) now
+  moves to `returnsClass` too, instead of staying on `returns: { m: asInstance(ref) }`.
+- **`innerDouble(double, 'method')` returns the double a `returnsClass` method answers, without
+  calling the method.** A spec that asserts `toHaveBeenCalledExactlyOnceWith` on the factory method,
+  or configures the inner double before the code under test runs, no longer needs the two-step
+  `createSpyFromClass` + `returns` form. It throws when the method has no `returnsClass` entry.
+
+### Fixed
+
+- **`no-inline-test-data` no longer sends a value repeated only as an expected value to a
+  `*.mock.ts` file.** When every copy is the argument of an equality matcher (`toEqual`,
+  `toMatchObject`, `toHaveBeenCalledWith`…, through `.resolves` / `.rejects` / `.not`), the rule asks
+  for a spec-local `const` instead; a short expected object of up to three plain keys, such as
+  `{ name: 'HttpErrorResponse', status: 401 }`, is not reported at all.
+- **`no-inline-test-data` names a smaller part of a long expected value.** It now names the smallest
+  nested part whose move alone brings the expectation under `maxLines`, a list of plain values or a
+  template string first. In a rule-config expectation it names the word list, not the
+  `['error', {...}]` tuple under test.
+- **`shared-env-without-restore` reads frozen options and notes the ones it cannot read.**
+  `export const OPTS = Object.freeze({ restoreMocks: false, … }); setupAutoSpy(OPTS)` (or
+  `{ ...OPTS }`) used to pass silently. `Object.freeze(…)`, `as const`, `satisfies` and parentheses
+  are now read through, and a switch that stays unreadable (a call, a condition, an import from a
+  package) gets a note naming the file and the switches instead of a silent pass.
+- **`tsconfig-ships-mock-file` reports a library build config with no `exclude`.** A `tsc`-built
+  library whose `tsconfig.lib.json` has only `"include": ["src/**/*.ts"]` ships its specs and
+  `*.mock.ts` files, yet got no warning until an `exclude` naming the specs was added. Suggested
+  globs now follow the existing excludes or the `include` directory (`src/**/*.mock.ts` beside
+  `src/**/*.spec.ts`) instead of always `**/*.mock.ts`.
+
+### Size
+
+The root entry **29.99 → 30.27 kB** min+gzip (+0.28 kB, +0.9 %), and every runtime entry that carries
+the core by about the same: the `returnsClass` pair and the per-double registry `innerDouble` reads.
+`/eslint-plugin` 53.20 → 53.45 kB (+0.25 kB, +0.5 %) for the expected-value handling in
+`no-inline-test-data`; a lint-time entry no test run imports.
+
 ## [5.57.0] - 2026-09-30
 
 ## [5.56.0] - 2026-09-30
