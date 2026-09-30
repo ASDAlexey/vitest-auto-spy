@@ -56,6 +56,8 @@ first. See [Strict mode](./strict-mode).
 A method goes in `returns`. Everything else goes in `overrides`.
 When the method returns an object of another class that the test configures too, name the class in
 [`returnsClass`](./create-spy-from-class#returns-class) instead of building that spy yourself.
+Read that spy with `innerDouble(double, 'method')`: it does not call the method, so a test that
+counts the method's calls can use `returnsClass` too.
 
 ```ts
 import { signal } from '@angular/core';

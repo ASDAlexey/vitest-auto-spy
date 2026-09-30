@@ -56,6 +56,8 @@ it('loads the layout once', () => {
 Метод — в `returns`. Всё остальное — в `overrides`.
 Если метод возвращает объект другого класса, который тест тоже настраивает, назовите класс в
 [`returnsClass`](./create-spy-from-class#returns-class), а не стройте этот спай сами.
+Доставайте этот спай через `innerDouble(double, 'method')`: он не вызывает метод, поэтому
+`returnsClass` подходит и тесту, который считает вызовы метода.
 
 ```ts
 import { signal } from '@angular/core';

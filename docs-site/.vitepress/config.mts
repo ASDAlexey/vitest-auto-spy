@@ -334,6 +334,7 @@ export default defineConfig({
         name: 'keywords',
         content:
           'vitest, auto spy, auto-spies, vitest-auto-spy, jest-auto-spies, test spies, typed mocks, ' +
+          'mock factory method returning a mock, nested mock of another class, ' +
           'isolate false leak between test files, happy-dom mockRestore localStorage spy not restored, ' +
           'window listener leaks into next test file, global assignment leaks between tests, ' +
           'mock web worker vitest, jsdom Worker is not defined, expect observable emits exactly these values, ' +

@@ -1328,19 +1328,19 @@ README бенчмарка Angular-рендера описывает методи
 
 ## Размер бандла {#bundle-size}
 
-Бейдж говорит 30,0 кБ min+gzip, и это вся корневая точка входа, собранная вместе. Каждый подпуть —
+Бейдж говорит 30,3 кБ min+gzip, и это вся корневая точка входа, собранная вместе. Каждый подпуть —
 отдельная точка входа, и проект платит только за те, что импортирует:
 
 | Импортировано                                    |    min+gzip |
 | ------------------------------------------------ | ----------: |
-| `.` — корневая точка входа, то, что меряет бейдж | **30,0 кБ** |
-| `vitest-auto-spy/angular` сам по себе            |     38,5 кБ |
-| `vitest-auto-spy/angular/doubles`                |     21,3 кБ |
+| `.` — корневая точка входа, то, что меряет бейдж | **30,3 кБ** |
+| `vitest-auto-spy/angular` сам по себе            |     38,7 кБ |
+| `vitest-auto-spy/angular/doubles`                |     21,4 кБ |
 | `vitest-auto-spy/angular/diagnostics`            |      7,5 кБ |
 | `vitest-auto-spy/angular/matchers`               |      3,2 кБ |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`     |     30,0 кБ |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`     |     30,3 кБ |
 | `vitest-auto-spy/setup`                          |     31,1 кБ |
-| `vitest-auto-spy/node`                           |     29,3 кБ |
+| `vitest-auto-spy/node`                           |     29,5 кБ |
 | `vitest-auto-spy/dom-stubs`                      |     12,1 кБ |
 | `vitest-auto-spy/rxjs`                           |      2,3 кБ |
 | `vitest-auto-spy/angular-router`                 |     11,2 кБ |

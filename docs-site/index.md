@@ -21,7 +21,7 @@ hero:
 
 features:
   - title: Every method, from the real class
-    details: 'createSpyFromClass reads the class, so the spy object has the same methods and signatures. Rename a method, and the spec that uses it stops compiling.'
+    details: 'createSpyFromClass reads the class, so the spy object has the same methods and signatures. Rename a method, and the spec that uses it stops compiling. A factory method answers a spy of another class with returnsClass, and innerDouble reads that spy without counting a call.'
     link: /core/create-spy-from-class
   - title: Helpers that match the return type
     details: 'A method returning a Promise gets resolveWith and rejectWith. One returning an Observable gets nextWith and throwWith. With calledWith, a method can return different values for different arguments.'

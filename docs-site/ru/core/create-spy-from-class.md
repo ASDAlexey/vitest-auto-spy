@@ -36,25 +36,25 @@ expect(users.save).toHaveBeenCalledWith({ id: 1, name: 'Bob' });
 
 Второй аргумент — объект опций. Все опции необязательны.
 
-| Опция                    | Тип                   | По умолчанию                            | Смысл                                                                                                                                             |
-| ------------------------ | --------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `returns`                | `{ метод: значение }` | нет                                     | что отвечает метод; он остаётся спаем ([подробнее](#returns-—-the-value-where-the-spy-is-built))                                                  |
-| `overrides`              | `{ член: значение }`  | нет                                     | заменить член значением ([подробнее](#returns-or-overrides))                                                                                      |
-| `returnsUndefined`       | имена методов         | `[]`                                    | эти методы отвечают `undefined` и считаются настроенными ([подробнее](#returns-undefined))                                                        |
-| `selfReturning`          | имена методов         | `[]`                                    | эти методы возвращают сам спай, для цепочек ([подробнее](#self-returning))                                                                        |
-| `returnsClass`           | `{ метод: Класс }`    | нет                                     | эти методы возвращают спай этого класса ([подробнее](#returns-class))                                                                             |
-| `strict`                 | `boolean`             | `false`                                 | ненастроенный метод бросает ошибку вместо `undefined` ([подробнее](#strict))                                                                      |
-| `onUnstubbedCall`        | `(call) => unknown`   | нет                                     | вызывается вместо возврата `undefined` ([Строгий режим](./strict-mode#onunstubbedcall-—-the-general-form))                                        |
-| `onUnstubbedRead`        | `(read) => void`      | нет                                     | получает ненастроенные чтения геттеров ([Строгий режим](./strict-mode#reads-nobody-configured))                                                   |
-| `methodsToSpyOn`         | имена методов         | `[]`                                    | спаить эти **в дополнение** к найденным методам                                                                                                   |
-| `onlyMethodsToSpyOn`     | имена методов         | нет                                     | спаить **только** эти; поиск методов пропускается                                                                                                 |
-| `instanceMethodsToSpyOn` | имена членов          | `[]`                                    | добавить функции, которые живут на экземпляре, а не на прототипе ([подробнее](#instancemethodstospyon-—-callables-that-are-not-on-the-prototype)) |
-| `fillMissing`            | `boolean`             | `false` (`true` для ngrx `signalStore`) | отвечать спаем на любой необъявленный член ([подробнее](#fill-missing))                                                                           |
-| `observablePropsToSpyOn` | имена свойств         | `[]`                                    | сделать эти свойства-`Observable` управляемыми через `nextWith` …                                                                                 |
-| `gettersToSpyOn`         | имена аксессоров      | `[]`                                    | спаить эти геттеры ([подробнее](#accessor-spies-—-accessorspies))                                                                                 |
-| `settersToSpyOn`         | имена аксессоров      | `[]`                                    | спаить эти сеттеры                                                                                                                                |
-| `autoSpyAccessors`       | `boolean`             | `false`                                 | спаить все геттеры и сеттеры в цепочке прототипов                                                                                                 |
-| `lazySpies`              | `boolean \| 'proxy'`  | по ширине класса                        | когда строится спай каждого метода ([подробнее](#lazy-spies-—-lazyspies))                                                                         |
+| Опция                    | Тип                                                | По умолчанию                            | Смысл                                                                                                                                             |
+| ------------------------ | -------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `returns`                | `{ метод: значение }`                              | нет                                     | что отвечает метод; он остаётся спаем ([подробнее](#returns-—-the-value-where-the-spy-is-built))                                                  |
+| `overrides`              | `{ член: значение }`                               | нет                                     | заменить член значением ([подробнее](#returns-or-overrides))                                                                                      |
+| `returnsUndefined`       | имена методов                                      | `[]`                                    | эти методы отвечают `undefined` и считаются настроенными ([подробнее](#returns-undefined))                                                        |
+| `selfReturning`          | имена методов                                      | `[]`                                    | эти методы возвращают сам спай, для цепочек ([подробнее](#self-returning))                                                                        |
+| `returnsClass`           | `{ метод: Класс }` или `{ метод: [Класс, опции] }` | нет                                     | эти методы возвращают спай этого класса ([подробнее](#returns-class))                                                                             |
+| `strict`                 | `boolean`                                          | `false`                                 | ненастроенный метод бросает ошибку вместо `undefined` ([подробнее](#strict))                                                                      |
+| `onUnstubbedCall`        | `(call) => unknown`                                | нет                                     | вызывается вместо возврата `undefined` ([Строгий режим](./strict-mode#onunstubbedcall-—-the-general-form))                                        |
+| `onUnstubbedRead`        | `(read) => void`                                   | нет                                     | получает ненастроенные чтения геттеров ([Строгий режим](./strict-mode#reads-nobody-configured))                                                   |
+| `methodsToSpyOn`         | имена методов                                      | `[]`                                    | спаить эти **в дополнение** к найденным методам                                                                                                   |
+| `onlyMethodsToSpyOn`     | имена методов                                      | нет                                     | спаить **только** эти; поиск методов пропускается                                                                                                 |
+| `instanceMethodsToSpyOn` | имена членов                                       | `[]`                                    | добавить функции, которые живут на экземпляре, а не на прототипе ([подробнее](#instancemethodstospyon-—-callables-that-are-not-on-the-prototype)) |
+| `fillMissing`            | `boolean`                                          | `false` (`true` для ngrx `signalStore`) | отвечать спаем на любой необъявленный член ([подробнее](#fill-missing))                                                                           |
+| `observablePropsToSpyOn` | имена свойств                                      | `[]`                                    | сделать эти свойства-`Observable` управляемыми через `nextWith` …                                                                                 |
+| `gettersToSpyOn`         | имена аксессоров                                   | `[]`                                    | спаить эти геттеры ([подробнее](#accessor-spies-—-accessorspies))                                                                                 |
+| `settersToSpyOn`         | имена аксессоров                                   | `[]`                                    | спаить эти сеттеры                                                                                                                                |
+| `autoSpyAccessors`       | `boolean`                                          | `false`                                 | спаить все геттеры и сеттеры в цепочке прототипов                                                                                                 |
+| `lazySpies`              | `boolean \| 'proxy'`                               | по ширине класса                        | когда строится спай каждого метода ([подробнее](#lazy-spies-—-lazyspies))                                                                         |
 
 «Поиск методов» значит, что библиотека читает все методы на прототипе класса, включая базовые классы.
 Каждый найденный метод становится спаем.
@@ -275,26 +275,38 @@ provideAutoSpy(CartStore, { strict: true, returnsUndefined: ['add', 'remove', 'c
 которого тест тоже настраивает:
 
 ```ts
-import { asSpy, createSpyFromClass } from 'vitest-auto-spy';
+import { createSpyFromClass, innerDouble } from 'vitest-auto-spy';
 
 const reports = createSpyFromClass(ReportFactory, { returnsClass: { create: Report } });
 
-asSpy(reports.create('a')).render.mockReturnValue('<p>stub</p>');
+innerDouble(reports, 'create').render.mockReturnValue('<p>stub</p>');
 ```
 
 Это заменяет две инструкции: `const report = createSpyFromClass(Report)` и
 `returns: { create: asInstance(report) }`.
 
-- Каждый вызов отвечает одним и тем же спаем, и у каждого внешнего спая он свой. `asSpy(reports.create(…))`
-  достаёт его с типом `Spy<Report>`.
+- Каждый вызов `create()` возвращает один и тот же спай `Report`. У двух спаев `ReportFactory` будут два разных спая `Report`.
+- `innerDouble(reports, 'create')` возвращает этот спай с типом `Spy<Report>` и не вызывает `create`.
+  Поэтому `returnsClass` подходит и тесту, который считает вызовы `create`.
+  `asSpy(reports.create(…))` тоже достаёт спай, но такое чтение — вызов.
 - Метод считается настроенным под `strict`; метод, названный ещё и в `returns`, отвечает значением оттуда.
 - Его принимают все фабрики: `createSpyFromClass`, `createSpyFromInstance`, `createAutoMock`,
   `provideAutoSpy`, `provideAutoSpyForToken`, `registerAutoSpyDefaults`. Внутренний спай строится с
   учётом регистрации внутреннего класса.
 
+Чтобы настроить внутренний спай, передайте пару: класс и опции, которые `createSpyFromClass` принимает
+для него. Опции проверяются по этому классу.
+
+```ts
+provideAutoSpy(MatSnackBar, {
+  strict: true,
+  returnsClass: { openFromComponent: [MatSnackBarRef, { returnsUndefined: ['dismiss'] }] },
+});
+```
+
 **Частая ошибка:** доставать внутренний спай через `reports.create()` в тесте, который проверяет
-`toHaveBeenCalledOnce()` на `create`. Такое чтение — тоже вызов. Достаньте спай после проверки или
-оставьте форму из двух инструкций, когда важно число вызовов.
+`toHaveBeenCalledOnce()` на `create`. Такое чтение — тоже вызов, и счёт сбивается на единицу.
+Достаньте спай через `innerDouble(reports, 'create')`.
 
 ## `selfReturning` — метод, который отвечает самим двойником {#self-returning}
 
