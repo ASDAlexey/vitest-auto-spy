@@ -1,6 +1,6 @@
 {
-  "measuredOn": "2026-09-29",
-  "node": "v24.19.0",
+  "measuredOn": "2026-09-30",
+  "node": "v25.9.0",
   "tolerance": {
     "ratio": 0.02,
     "minModuleSlack": 1
@@ -56,7 +56,7 @@
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 303444
+      "bytes": 303439
     },
     "./jasmine": {
       "modules": 18,
@@ -80,7 +80,7 @@
     },
     "./perf-reporter": {
       "modules": 1,
-      "bytes": 14507
+      "bytes": 14818
     },
     "./react": {
       "modules": 3,
