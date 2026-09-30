@@ -10,6 +10,68 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Fixed
+
+- **`no-real-component-provider` no longer reports a double the spec declares itself.** Under
+  `{ childInjectors: true }` a read by position, such as
+  `query(By.css('app-footer')).children[0].injector.get(FooterDouble)`, was reported unless the class
+  also appeared in `By.directive(…)`. Classes the file declares (`class FooterDouble {}`,
+  `const X = class {}`, inside a `describe` too) are now left alone as test doubles; a production
+  class they extend is still reported when read.
+- **`no-inline-test-data` no longer counts short tuples or flag bags as repeated data.** An array of
+  up to three short numbers, booleans or strings (`[1, 5]`, `['0', '1']`) is a coordinate or an id
+  list, and an object of up to three `true`/`false` keys (`{ recursive: true, force: true }`) is an
+  options bag; neither is reported as a repeat. `{ from: [1, 1], to: [1, 5] }` written three times
+  is now reported once per copy instead of once per tuple. A copy that sits inside a literal already
+  reported is no longer reported a second time. On a consumer suite of ~85 specs, 16 of the 37
+  reports at the defaults were such tuples.
+- **`no-inline-test-data` no longer asks to move an expected value out of the test.** A long literal
+  passed to `toEqual`, `toStrictEqual`, `toMatchObject`, `toHaveBeenCalledWith` and the other
+  equality matchers, or to `expect.objectContaining` / `arrayContaining`, is what the test checks:
+  the message now asks to keep its shape inline and names the largest part inside it to move, or to
+  check fewer entries when it has none.
+- **`shared-env-without-restore` reads the options a setup file really passes.** It used to regex
+  the text between the parentheses, so `setupAutoSpy(OPTIONS)` and
+  `setupAutoSpy({ ...OPTIONS, blockNetwork: false })` were told every restore switch was off. An
+  object declared in the file or imported from another module of the repository now counts, spreads
+  apply in order with a later key winning, and a value the check cannot read is never reported as
+  off. Each setup file is judged on its own calls and named in its own finding, instead of one call
+  anywhere silencing the finding for every setup file; the setup files the runner config lists still
+  add up, since they run together.
+
+### Added
+
+- **`no-inline-test-data` suggests a spec-local `const` for a literal that reads the spec's own
+  names.** A repeated literal that reads or spreads a `const`, `let`, function or parameter the spec
+  declares (`['-a', 'Chrome', TARGET]`, `{ ...EMPTY, id: 1 }`) gets a message that asks to name it
+  once beside that binding, since a `*.mock.ts` cannot see it. With the two `no-inline-test-data` fixes above,
+  this adds 1.16 kB min+gzip to `/eslint-plugin` (52.04 → 53.20 kB), which only ESLint loads, never a
+  test run.
+- **`createAutoMock<T>(config)` — options without a placeholder seed.**
+  `createAutoMock<EventSource>({ returnsUndefined: ['close'] })` (and the same on `autoMocked`) reads
+  the bag as configuration instead of storing it as a seed, so `createAutoMock<T>(undefined, { … })`
+  is no longer the only spelling. The one argument counts as options only when every key is an option
+  and at least one of them is `returnsUndefined`, `selfReturning`, `returnsClass`,
+  `observablePropsToSpyOn`, `onUnstubbedCall` or `onUnstubbedRead`. `{ strict: true }`, `{ name }` or
+  `{ returns }` alone could be a real member of `T`, so they stay seeds at runtime and the compiler
+  rejects them where `T` has no such member; pass them second as before. Any second argument (`{}`
+  included) keeps the first a seed.
+- **`returnsClass: { method: Class }` — a method that returns a double of another class, in one
+  entry.** `provideAutoSpy(ReportFactory, { returnsClass: { create: Report } })` replaces
+  `const report = createSpyFromClass(Report)` plus `returns: { create: asInstance(report) }`. Every
+  call answers the same `Spy<Report>`, one per outer double, reached as `asSpy(factory.create(…))`.
+  Taken by every factory that takes `returns` (`createSpyFromClass`, `createSpyFromInstance`,
+  `createAutoMock`, `autoMocked`, `provideAutoSpy`, `provideAutoSpyForToken`,
+  `registerAutoSpyDefaults`). It counts as configured under `strict`, merges key by key in
+  registrations, and a method also named in `returns` answers that value.
+- **`doctor` warns when a build tsconfig ships the test data next to the specs**
+  (`tsconfig-ships-mock-file`). `no-inline-test-data` moves data to a `*.mock.ts` beside the spec,
+  and a generated `tsconfig.lib.json` usually excludes only `**/*.spec.ts`, so `tsc` or a
+  declaration plugin emits every mock file into the package. A config whose `exclude` has a spec glob
+  but lets a `*.mock.ts`, `*.fixtures.ts` or `__mocks__/` file through is reported, with the
+  `exclude` globs to add. App configs, configs next to `ng-package.json`, `noEmit` configs and
+  configs another one extends are left alone. The `no-inline-test-data` docs say the same.
+
 ## [5.55.0] - 2026-09-30
 
 ### Fixed
