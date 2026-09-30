@@ -864,7 +864,7 @@ matters, and how to fix it. Checks are grouped by topic:
 
 | Topic                                                           | Checks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [TypeScript configs](#typescript-configs)                       | [`tsconfig-glob-matches-nothing`](#tsconfig-glob-matches-nothing), [`tsconfig-file-missing`](#tsconfig-file-missing)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| [TypeScript configs](#typescript-configs)                       | [`tsconfig-glob-matches-nothing`](#tsconfig-glob-matches-nothing), [`tsconfig-file-missing`](#tsconfig-file-missing), [`tsconfig-ships-mock-file`](#tsconfig-ships-mock-file)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | [Spec files and imports](#spec-files-and-imports)               | [`spec-imported-by-non-spec`](#spec-imported-by-non-spec), [`spec-exports-fixture`](#spec-exports-fixture)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | [Leftovers from another runner](#leftovers-from-another-runner) | [`foreign-runner-pragma`](#foreign-runner-pragma), [`dead-runner-config`](#dead-runner-config), [`orphan-runner-file`](#orphan-runner-file), [`jasmine-era-project`](#jasmine-era-project)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | [Angular builder](#angular-builder)                             | [`angular-build-splitting-off`](#angular-build-splitting-off), [`angular-build-splitting-deprecated`](#angular-build-splitting-deprecated), [`angular-build-istanbul-module-cache`](#angular-build-istanbul-module-cache), [`angular-build-happy-dom`](#angular-build-happy-dom), [`angular-cache-off-in-ci`](#angular-cache-off-in-ci), [`builder-setup-unreached`](#builder-setup-unreached), [`runner-dom-differs-from-builder`](#runner-dom-differs-from-builder)                                                                                                                                                                                                                                                                                                                              |
@@ -913,6 +913,30 @@ reports the missing file.
 The file is checked on disk, so a `../` entry, a gitignored file and a capped scan are judged
 correctly. Like `include`, a missing `.d.ts` (a generated `auto-imports.d.ts` or `next-env.d.ts`) and
 a path inside a skipped or ignored directory are not reported.
+
+#### `tsconfig-ships-mock-file`
+
+**Reports** a build tsconfig that leaves the specs out but compiles the test data next to them: a
+`*.mock.ts`, `*.mocks.ts`, `*.fixture.ts`, `*.fixtures.ts` or a file under `__mocks__/`. Warning.
+
+**Why it matters:** [`no-inline-test-data`](./eslint-rules#no-inline-test-data) moves test data to a
+`*.mock.ts` beside the spec, under `src/`. A generated `tsconfig.lib.json` usually excludes only
+`**/*.spec.ts`, so `tsc` (or a declaration plugin) emits every mock file into the published package.
+
+**Fix:** exclude the test data too. The finding names the globs for the files it found:
+
+```diff
+- "exclude": ["src/**/*.spec.ts"]
++ "exclude": ["src/**/*.spec.ts", "**/*.mock.ts"]
+```
+
+A build config here is one whose `exclude` has a spec glob (`**/*.spec.ts`, `**/*.test.*`,
+`__tests__`); `include` and `exclude` are inherited through a relative `extends`. Not reported:
+
+- an app, spec, test or e2e config (`tsconfig.app.json`, `tsconfig.spec.json`): a bundler ships only
+  what the entry imports;
+- a config next to `ng-package.json`: ng-packagr builds from the library's entry file;
+- a config with `noEmit: true`, or one another config extends.
 
 ### Spec files and imports
 
@@ -1279,8 +1303,17 @@ import { setupAutoSpy } from 'vitest-auto-spy/setup';
 setupAutoSpy({ restoreMocks: true, strayTimers: true, strayListeners: true, restoreGlobals: true });
 ```
 
-`preset: 'strict'` counts for `strayTimers`. Turning isolation back on for the files that leak also
-fixes it.
+`preset: 'strict'` counts for `strayTimers`, unless the call sets `strayTimers: false`. Turning
+isolation back on for the files that leak also fixes it.
+
+The check reads what each call really passes. An object declared in the setup file, or imported from
+another module of the repository, counts, and so does a spread: `setupAutoSpy({ ...OPTIONS,
+blockNetwork: false })` gets every switch `OPTIONS` turns on, and a key written after the spread wins,
+as it does at runtime. A value the check cannot read — a function call, a condition, an import from a
+package — is never reported as off.
+
+Each setup file is judged on its own calls and named in its own finding. The setup files the runner
+config lists run together, so their calls add up.
 
 #### `mock-reset-config-unread`
 

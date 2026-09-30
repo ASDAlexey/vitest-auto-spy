@@ -1950,6 +1950,17 @@ expect(api.post).toHaveBeenCalledWith(PAID_ORDER); // ✅ one value, one place t
 **How to fix.** Export the value from `<name>.mock.ts` next to the spec. If tests need variations,
 export a factory such as `createOrder(overrides)` instead of several copies.
 
+- **The copies read a `const` the spec declares**, such as `['-a', 'Chrome', TARGET]` or
+  `{ ...EMPTY, id: 1 }`. The message says so. Name the literal once in a `const` next to that one,
+  in the spec: a mock file cannot see the spec's names.
+- **The long literal is the expected value** of `toEqual`, `toMatchObject`, `toHaveBeenCalledWith`
+  and the like. It is what the test checks, so keep its shape in the test. Move the largest part the
+  message names to the mock file, or check only the fields this test is about.
+- **The library is built by `tsc`?** Add `**/*.mock.ts` to the `exclude` of its build tsconfig
+  (`tsconfig.lib.json`). The usual config excludes only `*.spec.ts`, so the mock files ship in the
+  package. `doctor` reports such a config as
+  [`tsconfig-ships-mock-file`](./cli#tsconfig-ships-mock-file).
+
 **When to disable.** The rule is `warn`: a line count says where data should live, not that the test
 is wrong. Move the data file by file, then raise the rule to `error`.
 
@@ -1967,6 +1978,24 @@ are never reported:
 values before its copies count, and one of them must be a string, number or boolean written out.
 `[node]`, `{ property }` and `{ method: 'GET' }` hold one value each, so they are not reported. If an
 order written three times contains an address also written three times, only the order is reported.
+
+Two shapes never count as a repeat, however often they appear:
+
+- a short tuple: an array of at most three numbers, booleans or strings, each written in eight
+  characters or fewer, quotes included, such as `[1, 5]` or `['0', '1']`. It is a coordinate or an id list, not a record. In `{ from: [1, 1], to: [1, 5] }`
+  written three times, the object is reported once per copy, and the tuples inside it are not;
+- a bag of flags: an object of at most three keys, all `true` or `false`, such as
+  `{ recursive: true, force: true }`. It sets options, it is not data under test.
+
+**A long expected value** is reported with its own message. The literal passed to `toEqual`,
+`toStrictEqual`, `toMatchObject`, `toContainEqual`, `toHaveBeenCalledWith` (and its `Last` / `Nth`
+forms), `toHaveReturnedWith`, `expect.objectContaining` or `expect.arrayContaining` is what the test
+checks. The message names the largest literal directly inside it, the part worth moving, or asks to
+check fewer entries when no part spans more than one line.
+
+**A copy that reads a spec-local name**, a `const`, `let`, function or parameter this file declares,
+gets a message that asks for a `const` in the spec instead of a mock file. Imports, globals, property
+keys and types do not count as such a name.
 
 **Mock files are skipped:** `*.mock.ts`, `*.mocks.ts`, `*.fixture.ts`, `*.fixtures.ts` and files
 under `__mocks__/`.
@@ -3171,6 +3200,8 @@ wrapped in `asSpy(…)` is taken as your word that the double exists.
 - tokens imported from `@angular/*`;
 - classes the file renders: passed to `createComponent`, or listed in `imports` / `declarations` /
   `hostDirectives`;
+- classes the spec declares itself (`class FooterDouble {}`, `const X = class {}`): test doubles, not
+  production code;
 - every read in a file that calls `createWithAutoSpies`.
 
 **Own injector by default.** Only the fixture's own injector is read. `debugElement.query(…).injector`
