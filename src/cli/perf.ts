@@ -9,7 +9,7 @@
  */
 import { relative } from 'node:path';
 
-import { findBarrelImports } from './checks/barrels';
+import { findBarrelImports, packageEntries } from './checks/barrels';
 import type { SourceGraph } from './checks/graph';
 import { buildGraph } from './checks/graph';
 import { flakyFindings, heapFindings } from './checks/perf-flaky';
@@ -76,10 +76,10 @@ interface BarrelCandidate {
 }
 
 /** The widest barrel each spec imports; a spec importing three of them has one problem, not three. */
-function barrelCandidates(graph: SourceGraph): BarrelCandidate[] {
+function barrelCandidates(graph: SourceGraph, entries: ReadonlySet<string>): BarrelCandidate[] {
   const widest = new Map<string, BarrelCandidate>();
 
-  for (const use of findBarrelImports(graph)) {
+  for (const use of findBarrelImports(graph, entries)) {
     if (!widest.has(use.spec)) {
       widest.set(use.spec, use);
     }
@@ -96,12 +96,12 @@ function importPhase(run: PerfRun): string {
 }
 
 /** Under the builder esbuild has already resolved every barrel into a bundle before Vitest imports anything. */
-function importFindings(phases: readonly Phase[], graph: SourceGraph, run: PerfRun, context: PerfContext): Finding[] {
+function importFindings(phases: readonly Phase[], graph: SourceGraph, profile: Profile, run: PerfRun, context: PerfContext): Finding[] {
   if (shareOf(phases, 'import') < DOMINATES || context.builder !== undefined) {
     return [];
   }
 
-  const ranked = barrelCandidates(graph);
+  const ranked = barrelCandidates(graph, packageEntries(profile.cwd, new Set(profile.files)));
 
   if (ranked.length === 0) {
     return [];
@@ -152,7 +152,7 @@ export function analysePerf(
     ...environmentFindings(phases, profile, graph, measured),
     ...domEngineFindings(phases, graph, run, context),
     ...transformFindings(phases, graph, run, context),
-    ...importFindings(phases, graph, run, context),
+    ...importFindings(phases, graph, profile, run, context),
     ...isolationFindings(phases, graph, profile, run, undefined, context),
     ...poolFindings(phases, graph, run, context),
     ...workerFindings(total, graph, run, undefined, context),

@@ -15,7 +15,7 @@ import { availableParallelism } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { findBarrelImports, isBarrel, reachOf } from './checks/barrels';
+import { findBarrelImports, isBarrel, packageEntries, reachOf } from './checks/barrels';
 import { DOM_FREE_RULE, findDomFreeSpecs, packageOf, readAliases } from './checks/dom-free';
 import { buildGraph } from './checks/graph';
 import { pathExists, writeTextFile } from './fs-scan';
@@ -48,7 +48,7 @@ import {
   spawnToStderr,
   withPaths,
 } from './perf-run';
-import { BARREL_REPO, CASE_SPECS, HEAVY_ENVIRONMENT_FILE } from './perf.mock';
+import { BARREL_REPO, CASE_SPECS, HEAVY_ENVIRONMENT_FILE, PACKAGE_BARREL_REPO } from './perf.mock';
 import { readProfile } from './profile';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
@@ -610,6 +610,23 @@ describe('findBarrelImports', () => {
       { spec: 'src/both.spec.ts', barrel: 'src/p/index.ts', reach: 2 },
       { spec: 'src/both.spec.ts', barrel: 'src/q/index.ts', reach: 2 },
       { spec: 'src/two.spec.ts', barrel: 'src/other/index.ts', reach: 2 },
+    ]);
+  });
+
+  it('skips a barrel the spec cannot avoid: its subject loads it, or it is another package entry', () => {
+    const profile = readProfile(createTempRepo(PACKAGE_BARREL_REPO));
+    const graph = buildGraph(profile);
+    const entries = packageEntries(profile.cwd, new Set(profile.files));
+
+    expect([...entries]).toStrictEqual(['libs/util/src/index.ts']);
+    expect(findBarrelImports(graph, entries)).toStrictEqual([
+      { spec: 'libs/app/local.spec.ts', barrel: 'libs/app/local/index.ts', reach: 2 },
+      { spec: 'libs/util/src/inner.spec.ts', barrel: 'libs/util/src/index.ts', reach: 2 },
+    ]);
+    expect(findBarrelImports(graph).map((use) => use.spec)).toStrictEqual([
+      'libs/app/local.spec.ts',
+      'libs/app/other.spec.ts',
+      'libs/util/src/inner.spec.ts',
     ]);
   });
 });

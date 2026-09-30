@@ -26,6 +26,25 @@ export const BARREL_REPO: Readonly<Record<string, string>> = {
   'src/not-a-spec.ts': "import { a } from './index';\n",
 };
 
+/** A workspace whose packages reach each other through tsconfig `paths`, as an Nx monorepo does. */
+export const PACKAGE_BARREL_REPO: Readonly<Record<string, string>> = {
+  'package.json': JSON.stringify({ devDependencies: { vitest: '^4' } }),
+  'tsconfig.json': JSON.stringify({
+    compilerOptions: { paths: { '@ws/util': ['libs/util/src/index.ts'], '@ws/gone': ['libs/gone/index.ts'], '@ws/*': ['libs/*'] } },
+  }),
+  'libs/util/src/index.ts': "export * from './a';\nexport * from './b';\n",
+  'libs/util/src/a.ts': 'export const a = 1;\n',
+  'libs/util/src/b.ts': 'export const b = 2;\n',
+  'libs/util/src/inner.spec.ts': "import { a } from '@ws/util';\n",
+  'libs/app/subject.ts': "import { a } from '@ws/util';\nexport const subject = a;\n",
+  'libs/app/subject.spec.ts': "import { b } from '@ws/util';\nimport { subject } from './subject';\n",
+  'libs/app/other.spec.ts': "import { b } from '@ws/util';\n",
+  'libs/app/local/index.ts': "export * from './x';\nexport * from './y';\n",
+  'libs/app/local/x.ts': 'export const x = 1;\n',
+  'libs/app/local/y.ts': 'export const y = 2;\n',
+  'libs/app/local.spec.ts': "import { x } from './local/index';\n",
+};
+
 export const CASE_SPECS: readonly string[] = ['src/case-0.spec.ts', 'src/case-1.spec.ts'];
 
 export const HEAVY_ENVIRONMENT_FILE: Partial<PerfFile> = { environment: 9_000, tests: 10 };
