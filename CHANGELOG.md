@@ -10,6 +10,15 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Fixed
+
+- **`perf-import` no longer names a barrel the spec cannot avoid.** A spec whose other imports —
+  usually its subject — already load the same barrel is skipped, since importing the module directly
+  would leave the graph as it is. So is a barrel that a non-wildcard tsconfig `paths` alias points at,
+  when the spec lives outside the barrel's directory: that is another package's public entry, and in
+  an Nx workspace `@nx/enforce-module-boundaries` rejects the relative import that would bypass it.
+  On a consumer Nx workspace this took the report from 7 barrel findings to 0.
+
 ## [5.54.0] - 2026-09-30
 
 ### Added
