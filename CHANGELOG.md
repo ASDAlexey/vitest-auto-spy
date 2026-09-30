@@ -25,6 +25,10 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
+- **A repeated list flag adds up instead of keeping only the last value.** `doctor --ignore a
+  --ignore b` used to ignore only `b`, so a wrapper passing one `--ignore` per check silently
+  reported the first one again. `--ignore`, `--only`, `--gate-only` and `--related` now join every
+  occurrence; a comma-separated value still works.
 - **`no-inline-test-data` asks for a spec-local `const` when the part of a long expected value it
   names is written only once.** It used to send that part to a `*.mock.ts` file, a file of its own
   for a value one test uses. A part the file writes again still goes to the mock file.
