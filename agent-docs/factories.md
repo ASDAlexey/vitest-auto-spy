@@ -61,9 +61,12 @@ second argument (`{}` included) keeps the first a seed.
 
 **A method that returns another class's double is one entry:** `returnsClass: { create: Report }` on
 any factory that takes `returns` builds `createSpyFromClass(Report)` once per outer double and makes
-`create()` answer it. Reach it with `asSpy(factory.create('a'))` — typed `Spy<Report>`, but that read
-is a recorded call, so keep `const report = createSpyFromClass(Report)` +
-`returns: { create: asInstance(report) }` when the spec asserts `create`'s call count.
+`create()` answer it. Reach it with `innerDouble(factory, 'create')` — typed `Spy<Report>`, and it
+records no call, so a spec asserting `create`'s call count uses it too (`asSpy(factory.create('a'))`
+is a recorded call). `innerDouble` throws for a method with no `returnsClass` entry. When the inner
+double needs options of its own — a `void` method under `strict` — pass a pair:
+`returnsClass: { open: [SnackBarRef, { returnsUndefined: ['dismiss'] }] }`; the options are typed
+against `SnackBarRef`.
 
 `createMock<T>()` is the one to reach for on data shapes — it returns a plain `T`, so it satisfies a
 `no-type-assertion` lint rule without an `eslint-disable` on every fixture. `createMock<T>(undefined)`

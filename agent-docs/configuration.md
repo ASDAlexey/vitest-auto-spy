@@ -36,7 +36,7 @@ createSpyFromClass(MyService, {
 | `overrides` | Replaces **any member** with the value as written — a field, a signal, an `Observable` property. The member is no longer a spy, except a plain function seeded on a method (class factories only), which becomes its spy. Named in both, `overrides` wins. |
 | `selfReturning` | The named methods answer the double itself — a default like `returns`; a name in both answers `returns`. |
 | `returnsUndefined` | The list form of `returns: { m: undefined }` — `provideAutoSpy(CartStore, { strict: true, returnsUndefined: ['add', 'remove', 'clear'] })`; a name also in `returns` answers that. `createAutoMock`, `provideAutoSpyForToken` and `registerAutoSpyDefaults` take it too. |
-| `returnsClass` | `{ method: Class }` — the method answers a spy of that class, built once per double (`asSpy(double.m())` reaches it; that read is a call). The one-entry form of `returns: { m: asInstance(createSpyFromClass(Class)) }`; `returns` wins for the same name. Every factory that takes `returns` takes it. With nothing seeded, `createAutoMock<T>({ returnsUndefined: [...] })` takes the options first. |
+| `returnsClass` | `{ method: Class }` or `{ method: [Class, options] }` — the method answers a spy of that class, built once per double with those `createSpyFromClass` options (typed against `Class`). `innerDouble(double, 'm')` reaches it without recording a call; `asSpy(double.m())` is a call. The one-entry form of `returns: { m: asInstance(createSpyFromClass(Class)) }`; `returns` wins for the same name. Every factory that takes `returns` takes it. With nothing seeded, `createAutoMock<T>({ returnsUndefined: [...] })` takes the options first. |
 
 ### `instanceMethodsToSpyOn` for members discovery cannot see
 

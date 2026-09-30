@@ -1953,9 +1953,14 @@ export a factory such as `createOrder(overrides)` instead of several copies.
 - **The copies read a `const` the spec declares**, such as `['-a', 'Chrome', TARGET]` or
   `{ ...EMPTY, id: 1 }`. The message says so. Name the literal once in a `const` next to that one,
   in the spec: a mock file cannot see the spec's names.
+- **Every copy is an expected value** of `toEqual`, `toMatchObject`, `toHaveBeenCalledWith` and the
+  like, `.resolves`, `.rejects` and `.not` included. The message asks for a `const` in the spec
+  rather than a mock file: the value is what the tests check, so it stays next to them. A short
+  object of up to three keys with plain values, such as `{ name: 'HttpErrorResponse', status: 401 }`,
+  is not reported there at all: it reads as well as any name it could get.
 - **The long literal is the expected value** of `toEqual`, `toMatchObject`, `toHaveBeenCalledWith`
-  and the like. It is what the test checks, so keep its shape in the test. Move the largest part the
-  message names to the mock file, or check only the fields this test is about.
+  and the like. It is what the test checks, so keep its shape in the test. Move the part the message
+  names to the mock file, or check only the fields this test is about.
 - **The library is built by `tsc`?** Add `**/*.mock.ts` to the `exclude` of its build tsconfig
   (`tsconfig.lib.json`). The usual config excludes only `*.spec.ts`, so the mock files ship in the
   package. `doctor` reports such a config as
@@ -1990,8 +1995,15 @@ Two shapes never count as a repeat, however often they appear:
 **A long expected value** is reported with its own message. The literal passed to `toEqual`,
 `toStrictEqual`, `toMatchObject`, `toContainEqual`, `toHaveBeenCalledWith` (and its `Last` / `Nth`
 forms), `toHaveReturnedWith`, `expect.objectContaining` or `expect.arrayContaining` is what the test
-checks. The message names the largest literal directly inside it, the part worth moving, or asks to
-check fewer entries when no part spans more than one line.
+checks. The message names the smallest nested part whose move alone brings it under `maxLines`, and
+prefers a list of plain values or a template string to a mixed shape. In
+`{ 'x/rule': ['error', { words: [/* 11 strings */] }] }` it names the word list, not the
+`['error', {...}]` config the test is about. When no single part is enough, it names the largest
+literal directly inside, or asks to check fewer entries when no part spans more than one line.
+
+**A value repeated only as an expected value**, every copy inside the argument of one of those
+matchers, gets a message that asks for a `const` in the spec instead of a mock file. An object of at
+most three keys, each a string, number or boolean written out, is not counted there at all.
 
 **A copy that reads a spec-local name**, a `const`, `let`, function or parameter this file declares,
 gets a message that asks for a `const` in the spec instead of a mock file. Imports, globals, property

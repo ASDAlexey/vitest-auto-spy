@@ -85,10 +85,11 @@ Angular suites: `angular-testbed-split` (an Analog config without `server.deps.i
 which gives `/angular` a second `TestBed`), `angular-cache-off-in-ci` (the builder cache never reaches
 CI: +33 % per run on a 700-file suite), `shared-env-without-restore` (a shared environment without
 the `setupAutoSpy` restore options; each setup file is judged on its own calls, an options object declared,
-imported or spread counts, and a value it cannot read is never called off) and `mock-registry-capture-drops-sentinel` (a hand-rolled registry
+imported, spread or wrapped in `Object.freeze` counts, and a value it cannot read is never called off but gets a "not statically readable" note) and `mock-registry-capture-drops-sentinel` (a hand-rolled registry
 pruner that can drop the `clearAllMocks` sweep). `tsconfig-ships-mock-file` warns about a build
 tsconfig whose `exclude` leaves out the specs but not the `*.mock.ts` / `*.fixtures.ts` / `__mocks__/`
-files beside them, so they ship in the package. The `tsconfig` checks do not judge a `../` entry,
+files beside them, so they ship in the package, and about a `tsconfig.lib.json` / `tsconfig.build.json`
+with no `exclude` at all, which ships the specs too. The `tsconfig` checks do not judge a `../` entry,
 a missing generated `.d.ts` in `files`, or `include` on a scan that hit its cap, and the import graph
 ignores specifiers in comments and strings and follows tsconfig `paths` / `baseUrl` through `extends`.
 It is worth one run after any large edit to a test suite — especially after a codemod, which is where

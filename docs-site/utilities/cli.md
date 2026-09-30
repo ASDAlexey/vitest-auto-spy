@@ -923,15 +923,19 @@ a path inside a skipped or ignored directory are not reported.
 `*.mock.ts` beside the spec, under `src/`. A generated `tsconfig.lib.json` usually excludes only
 `**/*.spec.ts`, so `tsc` (or a declaration plugin) emits every mock file into the published package.
 
-**Fix:** exclude the test data too. The finding names the globs for the files it found:
+**Fix:** exclude the test data too. The finding names the globs for the files it found, written in
+the style of the spec glob already there:
 
 ```diff
 - "exclude": ["src/**/*.spec.ts"]
-+ "exclude": ["src/**/*.spec.ts", "**/*.mock.ts"]
++ "exclude": ["src/**/*.spec.ts", "src/**/*.mock.ts"]
 ```
 
 A build config here is one whose `exclude` has a spec glob (`**/*.spec.ts`, `**/*.test.*`,
-`__tests__`); `include` and `exclude` are inherited through a relative `extends`. Not reported:
+`__tests__`). So is a `tsconfig.lib.json` or `tsconfig.build.json` with no `exclude` at all. Such a config
+ships the specs too. The finding lists specs and test data, and suggests globs under the `include`
+directory: `"exclude": ["src/**/*.spec.ts", "src/**/*.mock.ts"]` for `"include": ["src/**/*.ts"]`. `include`
+and `exclude` are inherited through a relative `extends`. Not reported:
 
 - an app, spec, test or e2e config (`tsconfig.app.json`, `tsconfig.spec.json`): a bundler ships only
   what the entry imports;
@@ -1309,8 +1313,10 @@ isolation back on for the files that leak also fixes it.
 The check reads what each call really passes. An object declared in the setup file, or imported from
 another module of the repository, counts, and so does a spread: `setupAutoSpy({ ...OPTIONS,
 blockNetwork: false })` gets every switch `OPTIONS` turns on, and a key written after the spread wins,
-as it does at runtime. A value the check cannot read — a function call, a condition, an import from a
-package — is never reported as off.
+as it does at runtime. `Object.freeze(…)`, `as const`, `satisfies` and parentheses around the object
+are read through. Some values cannot be read: a function call, a condition, an import from an npm
+package. Such a value is not reported as off. It gets a note of its own instead: the options are not statically
+readable, with the file and the switches it could not tell.
 
 Each setup file is judged on its own calls and named in its own finding. The setup files the runner
 config lists run together, so their calls add up.
