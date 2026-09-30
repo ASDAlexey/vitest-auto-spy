@@ -29,12 +29,14 @@
  * Left alone on purpose: tokens imported from `@angular/*` (`ElementRef`, `NgControl`, `Injector` —
  * framework objects a spec reads for real), classes the file renders — passed to `createComponent`
  * or listed in `imports` / `declarations` / `hostDirectives`, which is how a host-based directive spec
- * reaches the directive under test — and any file that calls `createWithAutoSpies`, which builds its
- * doubles out of sight of this scan.
+ * reaches the directive under test — classes the file declares itself (`class FooterDouble {}`, `const X =
+ * class {}`), which are test doubles rather than production code, and any file that calls
+ * `createWithAutoSpies`, which builds its doubles out of sight of this scan.
  */
 import { defineRule } from './define-rule';
 import {
   type EsCallExpression,
+  type EsClass,
   type EsIdentifier,
   type EsNode,
   type EsProperty,
@@ -42,6 +44,7 @@ import {
   isCallExpression,
   isIdentifier,
   isMemberExpression,
+  isVariableDeclarator,
   memberName,
   propertyName,
 } from './rule-types';
@@ -176,6 +179,7 @@ interface ProviderScan {
   readonly replaced: Set<string>;
   readonly rendered: Set<string>;
   readonly framework: Set<string>;
+  readonly declared: Set<string>;
   opaque: boolean;
 }
 
@@ -193,6 +197,18 @@ function ignoredTokens(options: readonly unknown[]): Set<string> {
 /** Whether `node` is an import declaration from `@angular/*`, whose names are framework objects. */
 function isFrameworkImport(node: EsNode): boolean {
   return node.type === 'ImportDeclaration' && String(Reflect.get(Reflect.get(node, 'source'), 'value')).startsWith(FRAMEWORK_SCOPE);
+}
+
+/** `class X {}`, `const X = class {}` → `X`: the names a spec gives the doubles it writes itself. */
+function declaredNames(node: EsClass): EsNode[] {
+  const { parent } = node;
+  const names = [node.id];
+
+  if (node.type === 'ClassExpression' && isVariableDeclarator(parent)) {
+    names.push(parent.id);
+  }
+
+  return names.filter((name): name is EsNode => name !== null);
 }
 
 /** Records what a call says about the file: an opaque helper, a rendered class, or a read to judge. */
@@ -223,6 +239,19 @@ function readCall(node: EsCallExpression, scan: ProviderScan): void {
   }
 }
 
+function emptyScan(options: readonly unknown[]): ProviderScan {
+  return {
+    childInjectors: childInjectorsOn(options),
+    reads: [],
+    created: new Set(),
+    replaced: new Set(),
+    rendered: new Set(),
+    framework: new Set(),
+    declared: new Set(),
+    opaque: false,
+  };
+}
+
 /** The component to name in the fix: the one the read queried, else the only one the file creates. */
 function ownerOf(read: ProviderRead, scan: ProviderScan): string {
   if (read.owner !== undefined) {
@@ -243,15 +272,7 @@ export const noRealComponentProvider = defineRule({
       'Nothing in this file replaces `{{token}}`, so the fixture hands back the real instance the component provides, and the spec tests it through the component. Install the spy where the component looks: `const {{variable}} = overrideComponentProvider({{component}}, {{token}});`, before the fixture is created. If the real one is meant, list `{{token}}` in `{ ignoreTokens }`.',
   },
   create: (context) => {
-    const scan: ProviderScan = {
-      childInjectors: childInjectorsOn(context.options),
-      reads: [],
-      created: new Set(),
-      replaced: new Set(),
-      rendered: new Set(),
-      framework: new Set(),
-      opaque: false,
-    };
+    const scan = emptyScan(context.options);
     const ignored = ignoredTokens(context.options);
 
     return {
@@ -276,12 +297,17 @@ export const noRealComponentProvider = defineRule({
       CallExpression: (node: EsCallExpression): void => {
         readCall(node, scan);
       },
+      'ClassDeclaration, ClassExpression': (node: EsClass): void => {
+        declaredNames(node)
+          .filter(isIdentifier)
+          .forEach(({ name }) => scan.declared.add(name));
+      },
       'Program:exit': (): void => {
         if (scan.opaque) {
           return;
         }
 
-        const skipped = [scan.replaced, scan.rendered, scan.framework, ignored];
+        const skipped = [scan.replaced, scan.rendered, scan.framework, scan.declared, ignored];
 
         scan.reads
           .filter(({ token }) => !skipped.some((names) => names.has(token.name)))

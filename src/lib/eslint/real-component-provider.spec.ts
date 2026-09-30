@@ -160,6 +160,47 @@ describe('no-real-component-provider', () => {
         [2, true],
       ]);
     });
+
+    it('leaves a double the spec declares itself alone, however the child is reached', () => {
+      const code = `
+        @Component({ selector: 'app-footer', template: '' })
+        class FooterDouble {}
+        const BannerDouble = class {};
+
+        describe('page', () => {
+          class SidebarDouble {}
+
+          it('reads the doubles', () => {
+            const fixture = TestBed.createComponent(PageComponent);
+            fixture.debugElement.query(By.css('app-footer')).children[0].injector.get(FooterDouble);
+            fixture.debugElement.children[1].injector.get(BannerDouble);
+            fixture.debugElement.queryAll(By.css('aside'))[0].injector.get(SidebarDouble);
+            fixture.debugElement.injector.get(FooterDouble);
+          });
+        });
+      `;
+
+      expect(lint(code, options)).toEqual([]);
+    });
+
+    it('still reports the production class a spec-declared double extends or sits next to', () => {
+      const code = `
+        class FakeStore extends CartStore {}
+        const Named = class Inner {};
+        const { Shape } = class {};
+        export default class {}
+        TestBed.overrideComponent(CartComponent, { set: { providers: [{ provide: Store, useClass: class {} }] } });
+
+        const fixture = TestBed.createComponent(HostComponent);
+        fixture.debugElement.children[0].injector.get(FakeStore);
+        fixture.debugElement.children[0].injector.get(Inner);
+        fixture.debugElement.children[0].injector.get(Named);
+        fixture.debugElement.children[0].injector.get(CartStore);
+        fixture.debugElement.children[0].injector.get(Shape);
+      `;
+
+      expect(verify(code, options).map((message) => message.line)).toEqual([12, 13]);
+    });
   });
 
   it('stays quiet in a file that builds its doubles through createWithAutoSpies', () => {
