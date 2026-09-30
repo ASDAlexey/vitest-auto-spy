@@ -881,7 +881,7 @@ migration:
 
 | Тема                                                      | Проверки                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Конфиги TypeScript](#typescript-configs)                 | [`tsconfig-glob-matches-nothing`](#tsconfig-glob-matches-nothing), [`tsconfig-file-missing`](#tsconfig-file-missing)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| [Конфиги TypeScript](#typescript-configs)                 | [`tsconfig-glob-matches-nothing`](#tsconfig-glob-matches-nothing), [`tsconfig-file-missing`](#tsconfig-file-missing), [`tsconfig-ships-mock-file`](#tsconfig-ships-mock-file)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | [Спеки и импорты](#spec-files-and-imports)                | [`spec-imported-by-non-spec`](#spec-imported-by-non-spec), [`spec-exports-fixture`](#spec-exports-fixture)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | [Остатки другого раннера](#leftovers-from-another-runner) | [`foreign-runner-pragma`](#foreign-runner-pragma), [`dead-runner-config`](#dead-runner-config), [`orphan-runner-file`](#orphan-runner-file), [`jasmine-era-project`](#jasmine-era-project)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | [Angular-билдер](#angular-builder)                        | [`angular-build-splitting-off`](#angular-build-splitting-off), [`angular-build-splitting-deprecated`](#angular-build-splitting-deprecated), [`angular-build-istanbul-module-cache`](#angular-build-istanbul-module-cache), [`angular-build-happy-dom`](#angular-build-happy-dom), [`angular-cache-off-in-ci`](#angular-cache-off-in-ci), [`builder-setup-unreached`](#builder-setup-unreached), [`runner-dom-differs-from-builder`](#runner-dom-differs-from-builder)                                                                                                                                                                                                                                                                                                                              |
@@ -931,6 +931,32 @@ migration:
 сканирование обрабатываются верно. Как и для `include`, не сообщается об отсутствующем `.d.ts`
 (сгенерированном `auto-imports.d.ts` или `next-env.d.ts`) и о пути внутри пропускаемой или
 игнорируемой директории.
+
+#### `tsconfig-ships-mock-file` {#tsconfig-ships-mock-file}
+
+**Находит** сборочный tsconfig, который исключает спеки, но компилирует тестовые данные рядом с ними:
+`*.mock.ts`, `*.mocks.ts`, `*.fixture.ts`, `*.fixtures.ts` или файл в `__mocks__/`. Предупреждение.
+
+**Почему важно:** [`no-inline-test-data`](./eslint-rules#no-inline-test-data) выносит тестовые данные
+в `*.mock.ts` рядом со спекой, внутри `src/`. Сгенерированный `tsconfig.lib.json` обычно исключает
+только `**/*.spec.ts`, поэтому `tsc` (или плагин деклараций) выпускает каждый мок-файл в
+опубликованный пакет.
+
+**Как исправить:** исключите и тестовые данные. Находка называет глобы для найденных файлов:
+
+```diff
+- "exclude": ["src/**/*.spec.ts"]
++ "exclude": ["src/**/*.spec.ts", "**/*.mock.ts"]
+```
+
+Сборочным здесь считается конфиг, в `exclude` которого есть глоб для спек (`**/*.spec.ts`,
+`**/*.test.*`, `__tests__`); `include` и `exclude` наследуются через относительный `extends`. Не
+сообщается о:
+
+- конфиге приложения, спек, тестов или e2e (`tsconfig.app.json`, `tsconfig.spec.json`): бандлер
+  отгружает только то, что импортирует точка входа;
+- конфиге рядом с `ng-package.json`: ng-packagr собирает библиотеку от её входного файла;
+- конфиге с `noEmit: true` или таком, который расширяет другой конфиг.
 
 ### Спеки и импорты {#spec-files-and-imports}
 
@@ -1299,8 +1325,17 @@ import { setupAutoSpy } from 'vitest-auto-spy/setup';
 setupAutoSpy({ restoreMocks: true, strayTimers: true, strayListeners: true, restoreGlobals: true });
 ```
 
-`preset: 'strict'` засчитывается за `strayTimers`. Помогает и возврат изоляции для файлов, которые
-протекают.
+`preset: 'strict'` засчитывается за `strayTimers`, если вызов не задаёт `strayTimers: false`.
+Помогает и возврат изоляции для файлов, которые протекают.
+
+Проверка читает то, что вызов передаёт на самом деле. Считается объект, объявленный в сетап-файле или
+импортированный из другого модуля репозитория, и считается спред: `setupAutoSpy({ ...OPTIONS,
+blockNetwork: false })` получает все переключатели, которые включает `OPTIONS`, а ключ после спреда
+побеждает, как и в рантайме. Значение, которое проверка прочитать не может, — вызов функции, условие,
+импорт из пакета, — никогда не считается выключенным.
+
+Каждый сетап-файл судится по своим вызовам и называется в своей находке. Сетап-файлы, которые
+перечисляет конфиг раннера, выполняются вместе, поэтому их вызовы складываются.
 
 #### `mock-reset-config-unread` {#mock-reset-config-unread}
 
