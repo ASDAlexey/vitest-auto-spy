@@ -284,7 +284,9 @@ new ProfileFacade(asInstance(users)); // Spy<T> → T, for an API typed against 
 const cart = asSpy(TestBed.inject(CartService)); // T → Spy<T>, for the helpers
 ```
 
-Both are the same object at runtime. `injectSpy(X)` already returns `Spy<X>`. Do **not** patch the
+Both are the same object at runtime. `injectSpy(X)` already returns `Spy<X>`. The double a
+`returnsClass` method answers is `innerDouble(outer, 'create')`, typed `Spy<Report>` and read
+without recording a call on `create`. Do **not** patch the
 mismatch with `as any`, `as unknown as T` or `@ts-expect-error`.
 
 | Compiler message | Direction | Fix |
