@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.56.0] - 2026-09-30
+
 ### Fixed
 
 - **`no-real-component-provider` no longer reports a double the spec declares itself.** Under
@@ -9978,7 +9980,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.55.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.56.0...HEAD
+[5.56.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.55.0...v5.56.0
 [5.55.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.54.0...v5.55.0
 [5.54.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.53.0...v5.54.0
 [5.53.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.52.0...v5.53.0
