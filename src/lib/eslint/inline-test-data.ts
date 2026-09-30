@@ -312,8 +312,18 @@ function span(node: EsNode): number {
   return node.range[1] - node.range[0];
 }
 
-/** A long literal outside an expectation is data to move; inside one it is what the test checks. */
-function reportLong(context: RuleContext, node: EsArrayExpression | EsObjectExpression, maxLines: number): void {
+const sourceKey = (context: RuleContext, node: EsNode): string => context.sourceCode.getText(node).replace(/\s+/g, '');
+
+/**
+ * A long literal outside an expectation is data to move; inside one it is what the test checks, and a
+ * part written only there needs no file of its own.
+ */
+function reportLong(
+  context: RuleContext,
+  node: EsArrayExpression | EsObjectExpression,
+  maxLines: number,
+  copies: (part: EsNode) => number,
+): void {
   const data = { lines: String(lineCount(node)), max: String(maxLines) };
 
   if (!isExpected(node)) {
@@ -327,7 +337,7 @@ function reportLong(context: RuleContext, node: EsArrayExpression | EsObjectExpr
   if (part && lineCount(part) > 1) {
     context.report({
       node,
-      messageId: 'longExpected',
+      messageId: copies(part) > 1 ? 'longExpected' : 'longExpectedOnce',
       data: { ...data, part: excerpt(context, part, 40), line: String(part.loc.start.line) },
     });
   } else {
@@ -394,6 +404,8 @@ export const noInlineTestData = defineRule({
       'This literal spans {{lines}} lines of test data (the limit is {{max}}). Move it to a `*.mock.ts` file next to the spec and import it, so the test shows what it checks rather than the data it feeds in.',
     longExpected:
       'This expected value spans {{lines}} lines (the limit is {{max}}). It is what the test checks, so keep its shape inline and move `{{part}}` at line {{line}} to a `*.mock.ts` file next to the spec.',
+    longExpectedOnce:
+      'This expected value spans {{lines}} lines (the limit is {{max}}). It is what the test checks, so keep its shape inline and move `{{part}}` at line {{line}} to a `const` in this spec; it is written only here, so it needs no `*.mock.ts` file.',
     longExpectedFlat:
       'This expected value spans {{lines}} lines (the limit is {{max}}). It is what the test checks, so check only the entries this test is about, or move it to a `*.mock.ts` file next to the spec under a name that says what the test expects.',
     repeatedLiteral:
@@ -410,13 +422,24 @@ export const noInlineTestData = defineRule({
 
     const { maxLines, repeats, minValues } = limits(context);
     const seen = new Map<string, { first: EsNode; rest: EsNode[] }>();
+    const written = new Map<string, number>();
+    const long: (EsArrayExpression | EsObjectExpression)[] = [];
+
+    const tally = (node: EsNode): string => {
+      const key = sourceKey(context, node);
+
+      written.set(key, (written.get(key) ?? 0) + 1);
+
+      return key;
+    };
 
     const collect = (node: EsArrayExpression | EsObjectExpression): void => {
+      const key = tally(node);
+
       if (!isData(node) || !isRecord(node, minValues)) {
         return;
       }
 
-      const key = context.sourceCode.getText(node).replace(/\s+/g, '');
       const group = seen.get(key);
 
       if (group) {
@@ -429,12 +452,17 @@ export const noInlineTestData = defineRule({
     return {
       'ObjectExpression, ArrayExpression': (node: EsArrayExpression | EsObjectExpression): void => {
         if (!isLiteral(container(node)) && isData(node) && lineCount(node) > maxLines) {
-          reportLong(context, node, maxLines);
+          long.push(node);
         }
 
         collect(node);
       },
+      TemplateLiteral: tally,
       'Program:exit': (): void => {
+        for (const node of long) {
+          reportLong(context, node, maxLines, (part) => Number(written.get(sourceKey(context, part))));
+        }
+
         reportRepeats(context, seen.values(), repeats);
       },
     };

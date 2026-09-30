@@ -1960,7 +1960,8 @@ export a factory such as `createOrder(overrides)` instead of several copies.
   is not reported there at all: it reads as well as any name it could get.
 - **The long literal is the expected value** of `toEqual`, `toMatchObject`, `toHaveBeenCalledWith`
   and the like. It is what the test checks, so keep its shape in the test. Move the part the message
-  names to the mock file, or check only the fields this test is about.
+  names to a `const` in the spec when only this test writes it, to the mock file when the file writes
+  it again, or check only the fields this test is about.
 - **The library is built by `tsc`?** Add `**/*.mock.ts` to the `exclude` of its build tsconfig
   (`tsconfig.lib.json`). The usual config excludes only `*.spec.ts`, so the mock files ship in the
   package. `doctor` reports such a config as
@@ -1999,7 +2000,8 @@ checks. The message names the smallest nested part whose move alone brings it un
 prefers a list of plain values or a template string to a mixed shape. In
 `{ 'x/rule': ['error', { words: [/* 11 strings */] }] }` it names the word list, not the
 `['error', {...}]` config the test is about. When no single part is enough, it names the largest
-literal directly inside, or asks to check fewer entries when no part spans more than one line.
+literal directly inside, or asks to check fewer entries when no part spans more than one line. A part
+written nowhere else in the file goes to a `const` in the spec; a mock file is for one written again.
 
 **A value repeated only as an expected value**, every copy inside the argument of one of those
 matchers, gets a message that asks for a `const` in the spec instead of a mock file. An object of at

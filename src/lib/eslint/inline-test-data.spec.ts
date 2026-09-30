@@ -202,6 +202,17 @@ describe(RULE, () => {
     expect(verify(text)[0]?.message).toMatch(/move `` line line[^`]*` at line 3 to/);
   });
 
+  it('asks for a spec-local const when the part to move is written only once, and a mock file when it repeats', () => {
+    const expected = `{\n  id: 1,\n  items: ${literalOf(22)},\n}`;
+
+    expect(verify(`expect(order).toMatchObject(${expected});`)[0]?.message).toMatch(
+      /move `[^`]*` at line 3 to a `const` in this spec; it is written only here, so it needs no `\*\.mock\.ts` file\./,
+    );
+    expect(verify(`expect(order).toMatchObject(${expected});\nsend(${literalOf(22)});`)[0]?.message).toMatch(
+      /move `[^`]*` at line 3 to a `\*\.mock\.ts` file next to the spec\./,
+    );
+  });
+
   it('asks to check fewer entries of a long expected value that has no large part to move', () => {
     const flat = `{\n  nested: { id: 1 },\n  ${literalOf(22).slice(2)}`;
 
