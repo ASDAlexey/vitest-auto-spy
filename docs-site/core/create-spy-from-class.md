@@ -42,6 +42,7 @@ The second argument is an options object. Every option is optional.
 | `overrides`              | `{ member: value }`  | none                                    | replace a member with a value ([details](#returns-or-overrides))                                                                          |
 | `returnsUndefined`       | method names         | `[]`                                    | these methods answer `undefined` and count as configured ([details](#returns-undefined))                                                  |
 | `selfReturning`          | method names         | `[]`                                    | these methods return the spy itself, for chains ([details](#self-returning))                                                              |
+| `returnsClass`           | `{ method: Class }`  | none                                    | these methods return a spy of that class ([details](#returns-class))                                                                      |
 | `strict`                 | `boolean`            | `false`                                 | an unconfigured method throws instead of returning `undefined` ([details](#strict))                                                       |
 | `onUnstubbedCall`        | `(call) => unknown`  | none                                    | runs instead of returning `undefined` ([Strict mode](./strict-mode#onunstubbedcall-—-the-general-form))                                   |
 | `onUnstubbedRead`        | `(read) => void`     | none                                    | receives unconfigured getter reads ([Strict mode](./strict-mode#reads-nobody-configured))                                                 |
@@ -265,6 +266,33 @@ It works for any spied method, including names added with `instanceMethodsToSpyO
 named in `returns` answers that value. `createSpyFromInstance`, `createAutoMock`,
 `provideAutoSpyForToken` and `registerAutoSpyDefaults` take it too; registrations merge it like every
 other list.
+
+## `returnsClass` — a method that returns a spy of another class {#returns-class}
+
+The listed methods return a spy of the class you name. Use it for a factory method whose result the
+test configures too:
+
+```ts
+import { asSpy, createSpyFromClass } from 'vitest-auto-spy';
+
+const reports = createSpyFromClass(ReportFactory, { returnsClass: { create: Report } });
+
+asSpy(reports.create('a')).render.mockReturnValue('<p>stub</p>');
+```
+
+It replaces two statements: `const report = createSpyFromClass(Report)` and
+`returns: { create: asInstance(report) }`.
+
+- Every call answers the same spy, and each outer spy gets its own. `asSpy(reports.create(…))`
+  reaches it with its `Spy<Report>` type.
+- The method counts as configured under `strict`; a method also named in `returns` answers that value.
+- Every factory takes it: `createSpyFromClass`, `createSpyFromInstance`, `createAutoMock`,
+  `provideAutoSpy`, `provideAutoSpyForToken`, `registerAutoSpyDefaults`. The inner spy starts from the
+  inner class's own registration.
+
+**Common mistake:** reading the inner spy with `reports.create()` in a test that asserts
+`toHaveBeenCalledOnce()` on `create`. That read is a call too. Read it after the assertion, or keep
+the two-statement form when the call count matters.
 
 ## `selfReturning` — a method that answers the double itself {#self-returning}
 

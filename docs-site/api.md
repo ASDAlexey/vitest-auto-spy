@@ -447,26 +447,31 @@ Silent typed spies over the global `console`. See [Console spies](/utilities/con
 The second argument of `createSpyFromClass`, `createSpyFromInstance` and `provideAutoSpy` is a
 `ClassSpyConfiguration`. All options with examples: [Spies from a class](/core/create-spy-from-class#configuration).
 
-| Option                                         | Type                 | What it does                                                                                                             |
-| ---------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `methodsToSpyOn`                               | `string[]`           | Adds callables to the methods found on the prototype                                                                     |
-| `onlyMethodsToSpyOn`                           | `string[]`           | Spies only these; nothing is discovered                                                                                  |
-| `instanceMethodsToSpyOn`                       | `string[]`           | Like `methodsToSpyOn`, for callables on the instance (`signal()` fields, arrow props)                                    |
-| `observablePropsToSpyOn`                       | `string[]`           | Observable properties that get `nextWith` and friends                                                                    |
-| `gettersToSpyOn` / `settersToSpyOn`            | `string[]`           | Accessors to spy on, read back through `accessorSpies`                                                                   |
-| `autoSpyAccessors`                             | `boolean`            | Finds getters and setters by itself                                                                                      |
-| `returns`                                      | `{ method: value }`  | What a method returns from the start (for an Observable method, pass `of(value)`); the method stays a spy                |
-| `returnsUndefined`                             | `string[]`           | Methods that answer `undefined`; counts as configured under `strict`                                                     |
-| `overrides`                                    | `{ member: value }`  | Replaces a member with a plain value (see [returns or overrides](/core/returns-vs-overrides))                            |
-| `selfReturning`                                | `string[]`           | Methods that return the double itself, for chained calls                                                                 |
-| `fillMissing`                                  | `boolean`            | Adds a spy for a name the prototype does not have (`abstract` members)                                                   |
-| `lazySpies`                                    | `boolean \| 'proxy'` | When method spies are built (`'proxy'`: one proxy object builds them on first use); unset, the number of methods decides |
-| `strict`, `onUnstubbedCall`, `onUnstubbedRead` | see below            | [Strict mode](/core/strict-mode)                                                                                         |
-| `passthrough`                                  | `boolean`            | `createSpyFromInstance` only: unconfigured methods run the real one                                                      |
+| Option                                         | Type                 | What it does                                                                                                                                    |
+| ---------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `methodsToSpyOn`                               | `string[]`           | Adds callables to the methods found on the prototype                                                                                            |
+| `onlyMethodsToSpyOn`                           | `string[]`           | Spies only these; nothing is discovered                                                                                                         |
+| `instanceMethodsToSpyOn`                       | `string[]`           | Like `methodsToSpyOn`, for callables on the instance (`signal()` fields, arrow props)                                                           |
+| `observablePropsToSpyOn`                       | `string[]`           | Observable properties that get `nextWith` and friends                                                                                           |
+| `gettersToSpyOn` / `settersToSpyOn`            | `string[]`           | Accessors to spy on, read back through `accessorSpies`                                                                                          |
+| `autoSpyAccessors`                             | `boolean`            | Finds getters and setters by itself                                                                                                             |
+| `returns`                                      | `{ method: value }`  | What a method returns from the start (for an Observable method, pass `of(value)`); the method stays a spy                                       |
+| `returnsUndefined`                             | `string[]`           | Methods that answer `undefined`; counts as configured under `strict`                                                                            |
+| `returnsClass`                                 | `{ method: Class }`  | The method answers one spy of that class per double, reached as `asSpy(double.method())` — [details](/core/create-spy-from-class#returns-class) |
+| `overrides`                                    | `{ member: value }`  | Replaces a member with a plain value (see [returns or overrides](/core/returns-vs-overrides))                                                   |
+| `selfReturning`                                | `string[]`           | Methods that return the double itself, for chained calls                                                                                        |
+| `fillMissing`                                  | `boolean`            | Adds a spy for a name the prototype does not have (`abstract` members)                                                                          |
+| `lazySpies`                                    | `boolean \| 'proxy'` | When method spies are built (`'proxy'`: one proxy object builds them on first use); unset, the number of methods decides                        |
+| `strict`, `onUnstubbedCall`, `onUnstubbedRead` | see below            | [Strict mode](/core/strict-mode)                                                                                                                |
+| `passthrough`                                  | `boolean`            | `createSpyFromInstance` only: unconfigured methods run the real one                                                                             |
 
 `createAutoMock`, `autoMocked` and `provideAutoSpyForToken` take an `AutoMockConfiguration` as the
-last argument: `observablePropsToSpyOn`, `returns`, `returnsUndefined`, `selfReturning`, `name`
-(what a strict report calls the double), and the strict fields.
+last argument: `observablePropsToSpyOn`, `returns`, `returnsUndefined`, `returnsClass`, `selfReturning`,
+`name` (what a strict report calls the double), and the strict fields. With nothing to seed, the
+options can go first: `createAutoMock<EventSource>({ returnsUndefined: ['close'] })`. That works when
+the object names at least one of `returnsUndefined`, `selfReturning`, `returnsClass`,
+`observablePropsToSpyOn`, `onUnstubbedCall`, `onUnstubbedRead`; `strict`, `name` or `returns` alone
+still go second — [options without values](/core/auto-mock-by-type#options-without-values).
 
 **`StrictSpyConfiguration`**: accepted by every factory, and by `setupAutoSpy(options?)` as a
 suite-wide default. See [precedence](/core/strict-mode#precedence).

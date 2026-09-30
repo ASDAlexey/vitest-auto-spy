@@ -54,6 +54,8 @@ first. See [Strict mode](./strict-mode).
 ## Which one
 
 A method goes in `returns`. Everything else goes in `overrides`.
+When the method returns an object of another class that the test configures too, name the class in
+[`returnsClass`](./create-spy-from-class#returns-class) instead of building that spy yourself.
 
 ```ts
 import { signal } from '@angular/core';

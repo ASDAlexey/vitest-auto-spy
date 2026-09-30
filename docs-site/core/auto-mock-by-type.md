@@ -85,9 +85,27 @@ users.load.resolveWith({ id: 1 });
 | `observablePropsToSpyOn` | member names        | `[]`    | build these members as streams (`nextWith` …) instead of function spies; needs `vitest-auto-spy/rxjs` |
 | `selfReturning`          | method names        | `[]`    | these methods return the spy itself, for chained calls                                                |
 | `returnsUndefined`       | method names        | `[]`    | these methods answer `undefined` and count as configured under `strict`                               |
+| `returnsClass`           | `{ method: Class }` | none    | these methods return a spy of that class ([details](./create-spy-from-class#returns-class))           |
 | `strict`                 | `boolean`           | `false` | an unconfigured method throws ([Strict mode](./strict-mode))                                          |
 | `onUnstubbedCall`        | `(call) => unknown` | none    | runs instead of returning `undefined` for an unconfigured method                                      |
 | `name`                   | `string`            | none    | the name in strict-mode messages                                                                      |
+
+### Options without values
+
+Pass the options alone when there is nothing to set up front:
+
+```ts
+const stream = createAutoMock<EventSource>({ returnsUndefined: ['close'] });
+```
+
+The one argument is read as options when it holds only option names and at least one of
+`returnsUndefined`, `selfReturning`, `returnsClass`, `observablePropsToSpyOn`, `onUnstubbedCall` or
+`onUnstubbedRead`. `autoMocked` reads it the same way.
+
+**Common mistake:** `createAutoMock<UserService>({ strict: true })`. `strict`, `name` and `returns`
+alone could be real members of `T`, so TypeScript rejects that call. Pass them second:
+`createAutoMock<UserService>(undefined, { strict: true })`. For a type whose own members are named
+like the options, pass a second argument (`{}` is enough) and the first stays values.
 
 `strict` makes a method nobody configured throw instead of returning `undefined`:
 
@@ -119,7 +137,7 @@ interface StatusSource {
   status$: Observable<'up' | 'down'>;
 }
 
-const source = createAutoMock<StatusSource>(undefined, { observablePropsToSpyOn: ['status$'] });
+const source = createAutoMock<StatusSource>({ observablePropsToSpyOn: ['status$'] });
 source.status$.nextWith('up'); // subscribers receive 'up'
 ```
 
@@ -296,7 +314,7 @@ asSpy<QueryBuilder>(query.where('id')).limit.mockReturnValue(query);
 boot(asInstance(mockDeep<AppLogger>({}, { selfReturning: true })));
 ```
 
-When only one method chains, `createAutoMock<T>(undefined, { selfReturning: ['channel'] })` is
+When only one method chains, `createAutoMock<T>({ selfReturning: ['channel'] })` is
 simpler. That method returns the spy itself, stays a spy and counts as configured under `strict`.
 
 **Common mistake:** `selfReturning: true` on a `return this` builder. A called node returns _itself_,
@@ -319,7 +337,7 @@ the chain with `createAutoMock`, where `selfReturning` lists methods that return
 ```ts
 import { asInstance, createAutoMock } from 'vitest-auto-spy';
 
-const chain = createAutoMock<ChainedCommands>(undefined, { selfReturning: ['focus', 'insertContent'] });
+const chain = createAutoMock<ChainedCommands>({ selfReturning: ['focus', 'insertContent'] });
 const editor = createAutoMock<Editor>(undefined, { returns: { chain: asInstance(chain) } });
 
 editor.chain().focus().insertContent('text').run();
