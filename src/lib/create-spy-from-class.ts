@@ -422,7 +422,10 @@ export function resolveConfiguration<T>(
     autoSpyAccessors: methodsToSpyOnOrConfig.autoSpyAccessors ?? false,
     fillMissing: methodsToSpyOnOrConfig.fillMissing,
     lazySpies: methodsToSpyOnOrConfig.lazySpies,
-    returns: withUndefinedReturns(methodsToSpyOnOrConfig.returns ?? {}, methodsToSpyOnOrConfig.returnsUndefined),
+    returns: withUndefinedReturns(
+      withClassReturns(methodsToSpyOnOrConfig.returns ?? {}, methodsToSpyOnOrConfig.returnsClass),
+      methodsToSpyOnOrConfig.returnsUndefined,
+    ),
     selfReturning: methodsToSpyOnOrConfig.selfReturning ?? [],
     overrides: methodsToSpyOnOrConfig.overrides ?? {},
     strict: methodsToSpyOnOrConfig.strict,
@@ -435,6 +438,18 @@ export function resolveConfiguration<T>(
 // resolved configuration (strict mode, `createSpyFromInstance`'s real-member check) sees one map.
 function withUndefinedReturns(returns: Record<string, unknown>, names: readonly string[] | undefined): Record<string, unknown> {
   return names?.length ? { ...Object.fromEntries(names.map((name) => [name, undefined])), ...returns } : returns;
+}
+
+/** One spy of each named class, for the names `returns` does not already answer. */
+export function withClassReturns(
+  returns: Record<string, unknown>,
+  classes: Partial<Record<string, ClassType<unknown>>> | undefined,
+): Record<string, unknown> {
+  const built = Object.entries(classes ?? {}).flatMap(([name, ReturnedClass]) =>
+    ReturnedClass === undefined || Object.hasOwn(returns, name) ? [] : [[name, createSpyFromClass(ReturnedClass)] as const],
+  );
+
+  return built.length > 0 ? { ...Object.fromEntries(built), ...returns } : returns;
 }
 
 const warnedThenables = new WeakSet<object>();

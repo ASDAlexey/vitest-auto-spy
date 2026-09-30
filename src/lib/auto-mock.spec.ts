@@ -13,6 +13,7 @@ import { takeStrictViolations } from './function-spy';
 import { registerMockAdapter } from './mock-adapter';
 import { mockValueProp, restoreMockedProps } from './prop-mock';
 import { resetAutoSpy } from './reset-auto-spy';
+import { asSpy, outOfType } from './spy-typing';
 import { vitestMockAdapter } from './vitest-adapter';
 
 // Self-contained, and before collection: useConsoleSpies() builds its spies while the describes run.
@@ -612,5 +613,93 @@ describe('createAutoMock — returnsUndefined', () => {
     expect(store.add(1)).toBeUndefined();
     expect(store.total()).toBe(2);
     expect(takeStrictViolations()).toEqual([]);
+  });
+});
+
+describe('createAutoMock — configuration alone', () => {
+  interface Stream {
+    close(): void;
+    send(data: string): number;
+  }
+
+  it('reads a bag of option keys naming a list option as configuration', () => {
+    takeStrictViolations();
+    const stream = createAutoMock<Stream>({ strict: true, returnsUndefined: ['close'] });
+
+    expect(vi.isMockFunction(stream.close)).toBe(true);
+    expect(stream.close()).toBeUndefined();
+    expect(takeStrictViolations()).toEqual([]);
+  });
+
+  it('reads the same form through autoMocked', () => {
+    const stream = autoMocked<Stream>({ returns: { send: 3 }, selfReturning: [] });
+
+    expect(stream.send('a')).toBe(3);
+  });
+
+  it('keeps name, strict and returns alone as seeds, since a real type has members named so', () => {
+    const job = createAutoMock<{ name: string; strict: boolean; returns: number }>({ name: 'nightly', strict: true, returns: 2 });
+
+    expect(job.name).toBe('nightly');
+    expect(job.strict).toBe(true);
+    expect(job.returns).toBe(2);
+  });
+
+  it('keeps a seed mixing option keys with any other key a seed', () => {
+    const mock = createAutoMock<{ selfReturning: string[]; label: string }>({ selfReturning: ['a'], label: 'x' });
+
+    expect(mock.selfReturning).toEqual(['a']);
+  });
+
+  it('reads the first argument as a seed whenever a second one is passed', () => {
+    const mock = createAutoMock<{ returnsUndefined: string[] }>({ returnsUndefined: ['a'] }, {});
+
+    expect(mock.returnsUndefined).toEqual(['a']);
+  });
+
+  it('keeps a class instance a seed whatever its keys', () => {
+    class Options {
+      selfReturning = ['a'];
+    }
+
+    expect(createAutoMock<Options>(new Options()).selfReturning).toEqual(['a']);
+  });
+
+  it('treats a null first argument as no seed', () => {
+    expect(vi.isMockFunction(createAutoMock<Stream>(outOfType<undefined>(null)).close)).toBe(true);
+  });
+});
+
+describe('createAutoMock — returnsClass', () => {
+  class Report {
+    render(): string {
+      return 'real';
+    }
+  }
+
+  interface ReportFactory {
+    create(title: string): Report;
+    draft(): Report;
+  }
+
+  it('answers one spy of the named class from every call, reachable through asSpy', () => {
+    const factory = createAutoMock<ReportFactory>({ returnsClass: { create: Report } });
+    const report = asSpy(factory.create('a'));
+
+    report.render.mockReturnValue('stub');
+
+    expect(factory.create('b').render()).toBe('stub');
+  });
+
+  it('lets a seed and returns win for the same method', () => {
+    const fixed = new Report();
+    const seeded = (): Report => fixed;
+    const factory = createAutoMock<ReportFactory>(
+      { create: seeded },
+      { returnsClass: { create: Report, draft: Report }, returns: { draft: fixed } },
+    );
+
+    expect(factory.create).toBe(seeded);
+    expect(factory.draft()).toBe(fixed);
   });
 });

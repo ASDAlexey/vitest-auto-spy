@@ -703,3 +703,35 @@ describe('createSpyFromInstance — an object with no Object.prototype above it'
     expect(vi.isMockFunction(alienObjectPrototype['hasOwnProperty'])).toBe(false);
   });
 });
+
+describe('createSpyFromInstance — returnsClass', () => {
+  class Receipt {
+    print(): string {
+      return 'real';
+    }
+  }
+
+  class Till {
+    open(): Receipt {
+      return new Receipt();
+    }
+
+    close(): Receipt {
+      return new Receipt();
+    }
+  }
+
+  it('keeps a registered returnsClass only for the methods the call site listed', () => {
+    registerAutoSpyDefaults(Till, { returnsClass: { open: Receipt, close: Receipt } });
+
+    try {
+      const till = new Till();
+      const spy = spyOn(till, { onlyMethodsToSpyOn: ['open'] });
+
+      expect(vi.isMockFunction((spy.open() as unknown as Spy<Receipt>).print)).toBe(true);
+      expect(till.close().print()).toBe('real');
+    } finally {
+      clearAutoSpyDefaults();
+    }
+  });
+});

@@ -16,6 +16,7 @@ import { registerMockAdapter } from './mock-adapter';
 import { mockValueProp } from './prop-mock';
 import { resetAutoSpy } from './reset-auto-spy';
 import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
+import { asSpy, outOfType } from './spy-typing';
 import { vitestMockAdapter } from './vitest-adapter';
 
 // At load, not in `beforeAll`: `useConsoleSpies()` builds its spies while the describes are collected.
@@ -826,5 +827,74 @@ describe('createSpyFromClass — a function in overrides on a method', () => {
     } finally {
       clearAutoSpyDefaults();
     }
+  });
+});
+
+describe('createSpyFromClass — returnsClass', () => {
+  class Report {
+    render(): string {
+      return 'real';
+    }
+  }
+
+  class ReportFactory {
+    create(_title: string): Report {
+      return new Report();
+    }
+
+    draft(): Report {
+      return new Report();
+    }
+  }
+
+  it.each([true, false, 'proxy'] as const)('answers one spy of the named class from every call (lazySpies: %s)', (lazySpies) => {
+    const factory = createSpyFromClass(ReportFactory, { lazySpies, returnsClass: { create: Report } });
+    const report = asSpy(factory.create('a'));
+
+    report.render.mockReturnValue('stub');
+
+    expect(factory.create('b')).toBe(report);
+    expect(factory.create('c').render()).toBe('stub');
+    expect(report.render).toHaveBeenCalledOnce();
+  });
+
+  it('builds a fresh inner double per outer double', () => {
+    const first = createSpyFromClass(ReportFactory, { returnsClass: { create: Report } });
+    const second = createSpyFromClass(ReportFactory, { returnsClass: { create: Report } });
+
+    expect(first.create('a')).not.toBe(second.create('a'));
+  });
+
+  it('counts as configured under strict, and lets returns win for the same method', () => {
+    takeStrictViolations();
+    const fixed = new Report();
+    const factory = createSpyFromClass(ReportFactory, {
+      strict: true,
+      returnsClass: { create: Report, draft: Report },
+      returns: { draft: fixed },
+    });
+
+    expect(vi.isMockFunction(asSpy(factory.create('a')).render)).toBe(true);
+    expect(factory.draft()).toBe(fixed);
+    expect(takeStrictViolations()).toEqual([]);
+  });
+
+  it('merges a registered returnsClass with the call site', () => {
+    registerAutoSpyDefaults(ReportFactory, { returnsClass: { create: Report } });
+
+    try {
+      const factory = createSpyFromClass(ReportFactory, { returnsClass: { draft: Report } });
+
+      expect(vi.isMockFunction(asSpy(factory.create('a')).render)).toBe(true);
+      expect(vi.isMockFunction(asSpy(factory.draft()).render)).toBe(true);
+    } finally {
+      clearAutoSpyDefaults(ReportFactory);
+    }
+  });
+
+  it('skips an entry left undefined', () => {
+    const factory = createSpyFromClass(ReportFactory, { returnsClass: outOfType<{ create: typeof Report }>({ create: undefined }) });
+
+    expect(factory.create('a')).toBeUndefined();
   });
 });

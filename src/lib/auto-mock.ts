@@ -21,6 +21,7 @@
  *    method keys and property keys are indistinguishable at runtime. Seed plain
  *    properties through `overrides` (or assign them) when you need real values.
  */
+import { withClassReturns } from './create-spy-from-class';
 import { DISPOSE } from './dispose-symbol';
 import * as DOCS_LINKS from './docs-links';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedReturnValue } from './function-spy';
@@ -47,6 +48,7 @@ import type {
   DeepPartial,
   Func,
   MethodReturns,
+  MethodReturnsClass,
   OnlyMethodKeysOf,
   OnlyObservablePropsOf,
   Spy,
@@ -76,8 +78,66 @@ import { type ReadGuard, createTrackedPropSpy, resolveReadGuard } from './unconf
 export function createAutoMock<T, Options extends SpyOptions = SpyOptions>(
   overrides?: DeepPartial<T>,
   config?: AutoMockConfiguration<T>,
+): Spy<T, Options>;
+/**
+ * Create the auto-mock from a configuration alone: `createAutoMock<EventSource>({ returnsUndefined: ['close'] })`.
+ *
+ * Read as configuration only when it names at least one of the options no seed of a real type is
+ * spelled like — {@link AutoMockConfigMarker} — and nothing but option keys. `{ strict: true }` or
+ * `{ name: 'x' }` alone is a seed; write `createAutoMock<T>(undefined, { strict: true })` for those.
+ */
+export function createAutoMock<T, Options extends SpyOptions = SpyOptions>(config: AutoMockConfigOnly<T>): Spy<T, Options>;
+export function createAutoMock<T, Options extends SpyOptions = SpyOptions>(
+  overrides?: AutoMockConfiguration<T> | DeepPartial<T>,
+  config?: AutoMockConfiguration<T>,
 ): Spy<T, Options> {
-  return buildAutoMock<T, Options>(overrides, config, createAutoMock);
+  return buildAutoMock<T, Options>(...splitAutoMockArguments(overrides, config), createAutoMock);
+}
+
+/** At least one option whose name no member of a doubled type plausibly shares. */
+export type AutoMockConfigMarker =
+  | { observablePropsToSpyOn: unknown }
+  | { onUnstubbedCall: unknown }
+  | { onUnstubbedRead: unknown }
+  | { returnsClass: unknown }
+  | { returnsUndefined: unknown }
+  | { selfReturning: unknown };
+
+/** What the one-argument form of {@link createAutoMock} and {@link autoMocked} reads as configuration. */
+export type AutoMockConfigOnly<T> = AutoMockConfigMarker & AutoMockConfiguration<T>;
+
+const CONFIG_MARKERS = new Set<PropertyKey>([
+  'observablePropsToSpyOn',
+  'onUnstubbedCall',
+  'onUnstubbedRead',
+  'returnsClass',
+  'returnsUndefined',
+  'selfReturning',
+]);
+const CONFIG_KEYS = new Set<PropertyKey>([...CONFIG_MARKERS, 'name', 'returns', 'strict']);
+
+// A second argument, even `{}`, always makes the first a seed: the escape hatch for a type whose
+// own members are named like the markers.
+function splitAutoMockArguments<T>(
+  first: AutoMockConfiguration<T> | DeepPartial<T> | undefined,
+  config: AutoMockConfiguration<T> | undefined,
+): [DeepPartial<T> | undefined, AutoMockConfiguration<T> | undefined] {
+  if (config === undefined && isConfigOnly<T>(first)) {
+    return [undefined, first];
+  }
+
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the public overloads admit a configuration only in the one-argument form the branch above took.
+  return [first as DeepPartial<T> | undefined, config];
+}
+
+function isConfigOnly<T>(value: unknown): value is AutoMockConfiguration<T> {
+  if (typeof value !== 'object' || value === null || Object.getPrototypeOf(value) !== Object.prototype) {
+    return false;
+  }
+
+  const keys = Reflect.ownKeys(value);
+
+  return keys.some((key) => CONFIG_MARKERS.has(key)) && keys.every((key) => CONFIG_KEYS.has(key));
 }
 
 /**
@@ -144,6 +204,7 @@ function buildAutoMock<T, Options extends SpyOptions>(
     seeded,
     'returnsUndefined',
   );
+  applyMockReturns(mock, config?.returnsClass && withClassReturns({}, config.returnsClass), seeded, 'returnsClass');
   applyMockReturns(mock, config?.returns, seeded);
 
   return mock;
@@ -236,6 +297,11 @@ export interface AutoMockConfiguration<T> extends StrictSpyConfiguration {
    * `returns: { m: undefined }`. A method also named in `returns` answers that value.
    */
   returnsUndefined?: OnlyMethodKeysOf<T>[];
+  /**
+   * Methods that answer a spy of the named class, one double per method; reach it with
+   * `asSpy(mock.m())`. A method also named in `returns` answers that value.
+   */
+  returnsClass?: MethodReturnsClass<T>;
 }
 
 /** Narrow an unknown member to the callable the adapter needs, without an assertion. */
@@ -444,8 +510,11 @@ export type AutoMocked<T> = Spy<T> & T;
  * strictly wider, and a wider type is worth asking for only when both halves are used. `config` is
  * {@link createAutoMock}'s: `returns`, `selfReturning`, `name`, `strict`, `observablePropsToSpyOn`.
  */
-export function autoMocked<T>(overrides?: DeepPartial<T>, config?: AutoMockConfiguration<T>): AutoMocked<T> {
-  const mock = buildAutoMock<T, SpyOptions>(overrides, config, autoMocked);
+export function autoMocked<T>(overrides?: DeepPartial<T>, config?: AutoMockConfiguration<T>): AutoMocked<T>;
+/** The configuration-only form, read by the same rule as {@link createAutoMock}'s. */
+export function autoMocked<T>(config: AutoMockConfigOnly<T>): AutoMocked<T>;
+export function autoMocked<T>(overrides?: AutoMockConfiguration<T> | DeepPartial<T>, config?: AutoMockConfiguration<T>): AutoMocked<T> {
+  const mock = buildAutoMock<T, SpyOptions>(...splitAutoMockArguments(overrides, config), autoMocked);
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- one object, two views, exactly as in `asInstance` / `asSpy`: the proxy answers every key of `T` and every key `Spy<T>` adds, and the intersection is what lets a spec pass it as `T` and assert on it as a spy without a bridge call at each site.
   return mock as AutoMocked<T>;

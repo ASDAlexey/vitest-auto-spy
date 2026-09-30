@@ -322,6 +322,7 @@ export function mergeRegisteredDefaults(key: object, written: Record<string, unk
 function restrictRegistration(registered: Registration, kept: ReadonlySet<unknown>): Registration {
   const { strict, onUnstubbedCall, onUnstubbedRead } = registered;
   const returns = Object.entries(Object.getOwnPropertyDescriptors(baseObject(registered['returns'])));
+  const returnsClass = Object.entries(baseObject(registered['returnsClass']));
 
   return {
     strict,
@@ -330,6 +331,7 @@ function restrictRegistration(registered: Registration, kept: ReadonlySet<unknow
     returns: Object.defineProperties({}, Object.fromEntries(returns.filter(([name]) => kept.has(name)))),
     selfReturning: baseList(registered['selfReturning']).filter((name) => kept.has(name)),
     returnsUndefined: baseList(registered['returnsUndefined']).filter((name) => kept.has(name)),
+    returnsClass: Object.fromEntries(returnsClass.filter(([name]) => kept.has(name))),
   };
 }
 

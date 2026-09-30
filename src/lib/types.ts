@@ -838,6 +838,11 @@ export type MethodReturns<T> = {
     : never;
 };
 
+/** The class each named method answers a spy of — see `ClassSpyConfiguration.returnsClass`. */
+export type MethodReturnsClass<T> = {
+  [K in OnlyMethodKeysOf<T>]?: Required<T>[K] extends Func ? ClassType<ReturnType<Required<T>[K]>> : never;
+};
+
 // `getMinZoom?: (() => number) | undefined` — a third-party typing's optional method written as a
 // property — keeps its explicit `undefined` through `Required`, so it is not a method key of its own.
 type OptionalFunctionKeysOf<T> = Extract<
@@ -1084,6 +1089,17 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
    * Counts as configured under `strict`; a method also named in `returns` answers that value.
    */
   returnsUndefined?: OnlyMethodKeysOf<T>[];
+  /**
+   * Methods that answer a spy of the named class — `returns: { m: asInstance(createSpyFromClass(C)) }`
+   * in one entry. Every call answers the same double; reach it with `asSpy(double.m())`.
+   *
+   * ```ts
+   * provideAutoSpy(ReportFactory, { returnsClass: { create: Report } });
+   * ```
+   *
+   * Counts as configured under `strict`; a method also named in `returns` answers that value.
+   */
+  returnsClass?: MethodReturnsClass<T>;
   /**
    * Values for members that are **not** method results — an Observable property the code under test
    * subscribes to, a plain field, a signal.
