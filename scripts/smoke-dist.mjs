@@ -60,6 +60,26 @@ const CROSS_ENTRY = [
     `,
   },
   {
+    name: 'innerDouble from the root entry reads a returnsClass double built by /node',
+    entries: ['./node', '.'],
+    body: `
+      const { createSpyFromClass } = await import(NODE);
+      const { innerDouble } = await import(INDEX);
+
+      class Report {
+        render() { return ''; }
+      }
+      class ReportFactory {
+        create(_id) { return new Report(); }
+      }
+
+      const reports = createSpyFromClass(ReportFactory, { returnsClass: { create: Report } });
+      const report = innerDouble(reports, 'create');
+      assert(reports.create.mock.calls.length === 0, 'innerDouble recorded a call on create');
+      assert(reports.create('a') === report, 'innerDouble returned a different double than create()');
+    `,
+  },
+  {
     name: 'a call site reported from dist names the caller, not the library',
     entries: ['./node'],
     body: `
