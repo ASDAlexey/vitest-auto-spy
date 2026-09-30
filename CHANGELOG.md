@@ -19,6 +19,17 @@ The latest released version here must always match the one published on
   reported. On an 886-file Angular suite it flags 215 files at the defaults.
   `/eslint-plugin` grows by 1.50 kB (50.96 → 52.46 kB, +2.9 %): 1.08 kB for this rule, the rest for
   reading `externalDependencies` below.
+- **`perf --json <reports> --gate` re-measures its suspects without `--command`.** The perf reporter
+  now records the Vitest config file the suite ran with (`configFile`, relative to `root`), and the
+  confirmation pass re-runs each suspect with `vitest run --config <that file>` over the suspects
+  only: one run per config when the reports came from several (`vitest.config.ts` and
+  `libs/tooling/vitest.config.ts`, say), read back as one second reading. A single slow reading on a
+  loaded runner now comes back as not reproduced instead of needing `--no-confirm` to fail anything.
+  The re-run has coverage off (`--coverage.enabled=false`), even when the first reading had it on:
+  coverage thresholds fail a run of a few files, and instrumentation is the harness's cost rather
+  than the test's, so a body over budget only because of instrumentation is not reproduced.
+  `--command` still takes precedence, and a report without `configFile` is not re-measured, as
+  before. The perf report format is version 6; versions 1–6 are read.
 
 ### Fixed
 
