@@ -251,9 +251,10 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       (×5) are the same shape. Group copies by the smallest enclosing literal that repeats and report
       that parent once per site, and/or a size floor: an array of two or three short primitives is a
       coordinate or an id list, not a record `isRecord` (`:117`) should count (2026-09-30, 5.54.0).
-- [ ] **`no-inline-test-data` reports small option bags.** `rmSync(dir, { recursive: true, force:
-      true })` ×3 and `configure({ production: false, enableSentry: true })` ×5 in a consumer suite are
-      flags, not test data: two booleans pass `minValues: 2` and `isPrimitive` (`:109`). Moving them to
+- [ ] **`no-inline-test-data` reports small option bags.**
+      `rmSync(dir, { recursive: true, force: true })` ×3 and
+      `configure({ production: false, enableSentry: true })` ×5 in a consumer suite are flags, not
+      test data: two booleans pass `minValues: 2` and `isPrimitive` (`:109`). Moving them to
       a `*.mock.ts` makes the spec worse; the consumer fix was a spec-local helper. Exempt a literal
       whose leaves are all booleans with at most three keys, and/or the options argument of well-known
       `node:fs` calls (`rmSync`, `mkdirSync`, `readFileSync`…) (2026-09-30, 5.54.0).
