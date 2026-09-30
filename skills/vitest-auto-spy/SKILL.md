@@ -541,7 +541,9 @@ with `createMock<…>()`. A value outside the declared type on purpose keeps the
 `no-constant-expect` reports `expect(true).toBe(true)` and its relatives — assert on what the code
 produced, or `expect.fail(…)` for a branch the test must not reach.
 `no-inline-test-data` (`warn`) reports a data literal over 20 lines, or the same literal three times
-in one spec — export it once from `<name>.mock.ts` next to the spec and import it there.
+in one spec — export it once from `<name>.mock.ts` next to the spec and import it there. A copy that
+reads a name the spec declares gets a spec-local `const` instead; a long expected value keeps its
+shape inline and moves only the largest part.
 `no-redundant-smoke-test` reports the generated `it('should create', () => expect(x).toBeTruthy())`
 where the block — its nested `describe`s counted — already has tests that run the same `beforeEach`:
 they fail first on a subject that came back nullish, and say what they were doing. Delete it; keep it
@@ -605,7 +607,10 @@ An `InjectionToken` registers the same way through the `registerAutoSpyDefaults`
 to 'ClassType<unknown>'`), and `provideAutoSpyForToken(TOKEN)` merges its arguments over it:
 `registerAutoSpyDefaults(LOGGER, { returns: { info: undefined }, selfReturning: ['channel'] })`.
 `selfReturning` names methods that answer the double itself — a default like `returns`, configured
-under `strict`, on every factory.
+under `strict`, on every factory. `returnsClass: { create: Report }` makes a method answer one
+`Spy<Report>` per double, reached as `asSpy(factory.create())`. With nothing to seed, options go
+first: `createAutoMock<T>({ returnsUndefined: ['close'] })`; `strict` / `name` / `returns` alone go
+second.
 Reach for it when the same class carries different configurations in different specs:
 the list options are additive and never complain about a name they cannot find, so the file that
 forgot one is silent about it.
