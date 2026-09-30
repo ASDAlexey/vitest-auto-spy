@@ -20546,9 +20546,27 @@ whole-run budget (off by default).
 
 **Nothing fails on one reading.** Every candidate is re-measured on its own, through the same
 `--command`. A file that is fast on its own is reported as **not reproduced** — a note, not a failure:
-it was slow because it shared a worker. When re-measuring is impossible (for example
-`--json` without `--command`, or a `--command` without `{paths}`), the gate reports its candidates as
-warnings and does not fail on them. `--no-confirm` gates on a single reading instead.
+it was slow because it shared a worker. When re-measuring is impossible (a `--command` without
+`{paths}`, or `--json` without `--command` on a report that recorded no Vitest config), the gate
+reports its candidates as warnings and does not fail on them. `--no-confirm` gates on a single reading
+instead.
+
+**`--json` alone re-measures too.** The perf reporter records the Vitest config file the suite ran
+with. With `--json` and no `--command`, the gate runs `vitest run --config <that file>` over the
+suspects only. Reports from two configs (two suites, each with its own `vitest.config.ts`) get one run
+per config, and the results are read as one:
+
+```bash
+vitest run --config libs/tooling/vitest.config.ts   # writes reports/perf-tooling.json
+vitest run                                          # writes reports/perf-libs.json
+npx vitest-auto-spy perf --json 'reports/perf-*.json' --gate
+```
+
+The re-measurement runs with coverage off, even when the first reading had it on. Coverage
+thresholds fail a run of a few files, and instrumentation is the harness's cost, not the test's.
+The price: a body that is over budget only because of instrumentation comes back as not reproduced.
+A report written before the config was recorded (format version 5 or older) cannot be re-measured
+this way; pass `--command`, or write the report again with this version.
 
 ```
 $ npx vitest-auto-spy perf --json out/perf.json --gate --command 'npm test -- {paths:--include=}'
@@ -20726,7 +20744,7 @@ one, `perf` measures the whole suite.
 | `--factor <n>`        | `10`                 | How many times the median test one test of a file may cost                                                                     |
 | `--max-wall-ms`       | off                  | A whole-run budget. Wall clock depends on the runner, so nothing derives it for you                                            |
 | `--gate-only`         | —                    | Comma-separated paths the gate may judge; the median still covers the whole run                                                |
-| `--no-confirm`        | —                    | Skip the re-measurement and gate on one reading                                                                                |
+| `--no-confirm`        | —                    | Skip the re-measurement and gate on one reading. `--json` alone re-measures under the config the report recorded               |
 | `--profile-dir <dir>` | —                    | Keep each re-measured file's CPU profile as `<dir>/<spec path with / as __>.cpuprofile`. Needs `--gate` without `--no-confirm` |
 | `--ab-isolate`        | —                    | Run the suite again with `isolate` flipped and report both wall clocks. `--json` alone warns; with `--command` it works        |
 | `--baseline <p>`      | —                    | Compare with a recorded baseline and fail on what grew. A `.jsonl` path is a history of runs                                   |
@@ -22256,9 +22274,9 @@ raises `schema`.
   (`{ lanes, spanMs, busy, longPole?: { file, aloneMs } }`), and on Vitest 5 a `transform` entry in each
   `slowestFiles[].phases`, with `import` and `setup` net of it. When there is something to say: `end`
   (`passed`, `failed` or `interrupted`), `hung: true`, `coverageMs`, `libraryHooksMs` and `endToEndMs`.
-  The report format is version 5; versions 1 to 5 are read, and every field version 5 added (the run's
+  The report format is version 6; versions 1 to 6 are read. Every field version 5 added (the run's
   `end`, `hung` and `coverage`, a file's `heapStep`, `setupImports` and `autoSpy`, an import's `self`)
-  is optional.
+  and the run's `configFile` from version 6 (the Vitest config file, relative to `root`) are optional.
 
 **`--format markdown`** renders the same document as GitHub/GitLab markdown: a findings table
 (severity, check, file, message, fix) and the tally; for `perf` also the phase table, the slowest files
