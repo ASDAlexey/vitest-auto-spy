@@ -45,6 +45,9 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   'top',
 ]);
 
+/** Comma-separated list flags: a repeated `--ignore a --ignore b` adds up to `a,b` instead of keeping only `b`. */
+export const LIST_FLAGS: ReadonlySet<string> = new Set(['gate-only', 'ignore', 'only', 'related']);
+
 /** Value flags that also stand alone: a bare `--changed` diffs against `HEAD`. */
 export const OPTIONAL_VALUE_FLAGS: ReadonlySet<string> = new Set(['changed']);
 
@@ -58,6 +61,11 @@ function normalizeName(raw: string): string {
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const flags: Record<string, string | true> = {};
+  const setValue = (name: string, value: string): void => {
+    const previous = flags[name];
+
+    flags[name] = LIST_FLAGS.has(name) && typeof previous === 'string' ? `${previous},${value}` : value;
+  };
   const positionals: string[] = [];
   let command: string | undefined;
   let consumed = false;
@@ -87,7 +95,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     const name = normalizeName(rawName);
 
     if (inlineValue !== undefined) {
-      flags[name] = inlineValue;
+      setValue(name, inlineValue);
 
       continue;
     }
@@ -95,7 +103,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     const next = own[index + 1];
 
     if (VALUE_FLAGS.has(name) && next !== undefined && (!next.startsWith('-') || /^-\d/.test(next))) {
-      flags[name] = next;
+      setValue(name, next);
       consumed = true;
 
       continue;

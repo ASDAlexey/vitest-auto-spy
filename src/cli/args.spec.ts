@@ -20,6 +20,13 @@ describe('parseArgs', () => {
     expect(flagValue(parseArgs(['codemod', '--from', 'jasmine']), 'from')).toBe('jasmine');
   });
 
+  it('adds up a repeated list flag and keeps the last value of any other', () => {
+    const args = parseArgs(['doctor', '--ignore', 'a', '--ignore=b,c', '--cwd', '/x', '--cwd', '/y']);
+
+    expect(flagList(args, 'ignore')).toEqual(['a', 'b', 'c']);
+    expect(flagValue(args, 'cwd')).toBe('/y');
+  });
+
   it('does not swallow the next flag as a value', () => {
     const args = parseArgs(['init', '--cwd', '--check']);
 
