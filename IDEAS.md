@@ -153,6 +153,34 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       `returnsClass: { open: { build: () => createMatDialogRef(DialogRef, { closedWith: 'ok' }).ref } }`,
       called once per double, would be; a bare function cannot be told from a class at runtime. Low value:
       one consumer spec, which already holds `ref` and asserts `toBe(ref)` without `innerDouble`.
+- [ ] **No per-test variant of a `returnsClass` entry.** Seen 2026-09-30 on 5.59.1. A spec provides the
+      dialog service once with `returnsClass: { open: { build: () => createMatDialogRef(Ref, { closedWith:
+'ok' }).ref } }`, but several tests need the same method to answer a different variant (another
+      `closedWith`, a dismissal). There is no way to swap the inner double for one test: `build` runs once
+      per outer double and `innerDouble` only reads what it built, so each such test goes back to
+      `dialog.open.mockReturnValue(createMatDialogRef(Ref, { closedWith: … }).ref)` — 15 of them in one
+      spec of a consumer suite (~890 spec files), which then gains nothing from the provider-level entry.
+      Proposal: a writer beside `innerDouble`, say `replaceInnerDouble(outer, 'open', double)`, that
+      answers the new double from the method and from `innerDouble` until the next reset (and records no
+      call); or document `mockReturnValue` as the per-test form. Evidence: `src/lib/inner-double.ts` has
+      only `recordInnerDoubles` (at creation) and the reader.
+- [ ] **`build` rejects a `Spy<R>` when `R` has private members.** Seen 2026-09-30 on 5.59.1.
+      `{ build: () => R }` (`ReturnsClassEntry`, `src/lib/types.ts:853`) is checked against the method's
+      return type, and `Spy<R>` drops `private` and `#private` members, so `build: () =>
+createSpyFromClass(Ref)` fails with TS2345 for any ref class that has them — which the Material
+      and CDK refs do. Every such builder needs `asInstance(...)` around the spy. Reproduced with a
+      two-line class `{ #secret = 1; close(): void {} }` (and again with `private hidden`); the type test
+      in `src/type-tests/returns-class.test-d.ts:115` passes only because its fixtures have no private
+      members. Proposal: type `build` as `() => R | Spy<R>` (the `[Class, config]` form already builds a
+      `Spy<R>` internally), plus a fixture with a private field.
+- [ ] **`build` runs when the outer double is created, not on the first call.** Seen 2026-09-30 on
+      5.59.1. `classDouble` calls `entry.build()` inside the configuration resolve
+      (`src/lib/create-spy-from-class.ts:474`), so under `provideAutoSpy` it runs at injection. A builder
+      that closes over a variable the spec assigns later in `beforeEach` (a `closedWith` value, a
+      component stand-in) reads `undefined`, and the spec has to reorder its setup around the inject.
+      The JSDoc says only "called once per outer double" (`src/lib/types.ts:851`, `:1105`), not when.
+      Either build on the first call of the method or the first `innerDouble` read, whichever comes
+      first, or say "at creation" in the JSDoc and the docs. One consumer spec reordered (~890 spec files).
 
 ## Angular helpers
 
@@ -229,6 +257,15 @@ asInstance(innerSpy) } })`, where `asInstance` exists only to satisfy the config
       instance across calls. Typed position-builder / strategy spies with stable instances would let
       such a spec assert on the chain directly instead of reading raw call records. Seen in a consumer
       suite (~13k tests) alongside other Overlay usage (2026-09-30, 5.57.0).
+- [ ] **A `createMatDialogRef` built through `returnsClass: { build }` loses its handle.** Seen
+      2026-09-30 on 5.59.1. The builder returns `.ref`, so `innerDouble(dialog, 'open')` answers the ref
+      and `emitClose()` of the `MatDialogRefDouble` is out of reach. A spec that closes the dialog from
+      outside (the user dismissing it) cannot move to `returnsClass` and keeps the hoisted
+      `createMatDialogRef(...)` plus `returns: { open: handle.ref }`. The registry that could answer it
+      already exists: `doubles` in `src/lib/dialog-doubles.ts:179` maps each ref to its handle, but only
+      `injectMatDialogRef` reads it, and only through a `TestBed` injector (`:266`). Proposal: export a
+      lookup by ref, say `matDialogRefDouble(innerDouble(dialog, 'open'))`, with the same "not built by
+      createMatDialogRef" error. Several specs in a consumer suite (~890 spec files).
 
 ## Async, timers, HTTP, console
 
@@ -430,6 +467,24 @@ overrides: { contains: spy } })` is reported as a hand-rolled single-member fake
       shared-reference case already noted above. When the literal passed to a call under test contains a
       call expression of its own, the message should suggest a factory function (called at each site)
       instead of a shared constant. Seen in a consumer suite, ~13k tests (2026-09-30, 5.57.0).
+- [x] **`asInstance(x)` as the argument of `toBe` / `toEqual` / `toStrictEqual` is noise.**
+      `expect(service.open()).toBe(asInstance(ref))` compiles just as well as `.toBe(ref)`: these matchers
+      take their argument as a free type parameter, so the unwrap buys nothing, yet it keeps an extra import
+      alive and reads as if the types needed it. Unlike the deferred `prefer-as-instance`, this is visible
+      in the AST: a direct `asInstance(<identifier>)` argument of one of these matchers on `expect(...)`. An
+      autofix that drops the wrapper, and the import once unused, would be safe. Three such call sites in
+      two consumer suites (2026-09-30, 5.59.1). Shipped as `no-redundant-as-instance`, `warn`, fix drops
+      the wrapper and the orphaned import (2026-09-30, 5.60.0).
+- [ ] **No hint for an inline double handed to a factory method and never bound.** Seen 2026-09-30 on
+      5.59.1. `snackBar.open.mockReturnValue(createAutoMock<SnackBarRef>())`, or `returns: { open:
+asInstance(createSpyFromClass(Ref)) }`, where the created double is an unnamed argument: the spec never
+      holds it, so the only thing it buys is a non-`undefined` answer, which is exactly what
+      `returnsClass: { open: Ref }` states in one entry. The shape is visible in the AST — a
+      `createAutoMock` / `createSpyFromClass` / `createMock` call as the direct argument of
+      `mockReturnValue` or as a `returns` value, not assigned anywhere. A suggestion (no autofix: the
+      class has to be a runtime value, and `createAutoMock<T>()` may name a type-only one) would point at
+      `returnsClass`. Nothing in `src/lib/eslint/` mentions `returnsClass` today. Several such sites in a
+      consumer suite (~890 spec files) were found only by reading.
 
 ## CLI: codemod
 
