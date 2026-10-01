@@ -10,6 +10,20 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`no-redundant-as-instance`** in `vitest-auto-spy/eslint-plugin`, `warn` in `recommended`:
+  `expect(service.open()).toBe(asInstance(ref))`. The three comparing matchers take their argument as
+  a free type parameter, so the unwrap buys nothing there — it keeps an import alive and reads as if
+  the types needed it. `--fix` drops the wrapper and, when that was the import's last use, the import
+  too. Slots typed against the real class are untouched: `toHaveBeenCalledWith(asInstance(cart))`
+  can be load-bearing, and so can a wrapper that is part of the argument (`[asInstance(x)]`,
+  `asInstance(x).id`). Three such call sites in two consumer suites (5.59.1). The plugin now ships
+  fifty-eight rules. `/eslint-plugin` is 53.45 → 53.84 kB (+0.39 kB, +0.7 %): the rule, minus the
+  matcher set that `no-constant-expect`, `prefer-to-have-signal-value` and
+  `no-vacuous-absence-assertion` each carried a copy of, and the `matcherOf` walk `no-constant-expect`
+  duplicated — both now shared out of `absence-assertion.ts`.
+
 ## [5.59.1] - 2026-09-30
 
 ## [5.59.0] - 2026-09-30
