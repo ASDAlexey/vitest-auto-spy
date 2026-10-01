@@ -123,6 +123,9 @@ const PLUGIN_NAME = 'vitest-auto-spy';
  * **`prefer-spy-on-own-method` is graded on the kind of thing it says**, as `prefer-render-shallow` is: the
  * `createSpyFromInstance` call it reports is correct and does exactly what `spyOnOwnMethod` / `spyOnVoidMethod`
  * does. It names a shorter spelling, not a defect, and the exact shapes carry a fix, so `error` is one `eslint --fix` away.
+ * **`no-redundant-as-instance` is graded on the same reading**: the wrapper it reports is correct and compiles —
+ * it is an import and a reader's pause kept alive for nothing, and the fix deletes a call, so `error` is one
+ * `eslint --fix` away too.
  *
  * **The three console rules decide on facts, not on a reading of the code**, so they are `error`: on the
  * 1759-file consumer they report 0, 6 in 2 files, and 32 of the 39 files that import `/console`.
@@ -246,6 +249,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-real-wait-in-test`]: 'warn',
   [`${PLUGIN_NAME}/no-disabled-testbed-teardown`]: 'error',
   [`${PLUGIN_NAME}/no-inline-test-data`]: 'warn',
+  [`${PLUGIN_NAME}/no-redundant-as-instance`]: 'warn',
 };
 
 /**

@@ -32,6 +32,10 @@
  * wrong fix fails to compile and can reach nothing at run time. Nothing has to be known about
  * another file, because nothing is being decided here: the cast decided it.
  *
+ * `no-redundant-as-instance` unwraps the same identity function in the one slot that never asked for
+ * it — a comparing matcher's argument — and passes the same test a third time: the argument moves out
+ * of the wrapper verbatim, so the edit deletes a call and adds nothing.
+ *
  * It is a rule of its own rather than a fix branch inside `prefer-inject-spy`, and the two are
  * adjacent rather than the same. `prefer-inject-spy` reports `vi.spyOn` over an injected instance —
  * a run-time defect (one method replaced, the rest left real) whose repair is a provider in another
@@ -57,6 +61,7 @@ import { preferAsSpy } from './injected-spy';
 import { noInlineTestData } from './inline-test-data';
 import { jasmineRules } from './jasmine-rules';
 import { noInstanceLifecycleSpy } from './lifecycle-spy';
+import { noRedundantAsInstance } from './matcher-as-instance';
 import { noMistypedUseValue } from './mistyped-use-value';
 import { noOuterBindingInMockFactory } from './mock-factory-binding';
 import { noRedundantMockReset } from './mock-reset';
@@ -139,6 +144,7 @@ export const rules: Record<string, RuleModule> = {
   'no-mistyped-use-value': noMistypedUseValue,
   'no-unknown-use-value-key': noUnknownUseValueKey,
   'no-instance-lifecycle-spy': noInstanceLifecycleSpy,
+  'no-redundant-as-instance': noRedundantAsInstance,
   'no-ts-expect-error-on-double': noTsExpectErrorOnDouble,
   'no-constant-expect': noConstantExpect,
   'no-compile-components': noCompileComponents,

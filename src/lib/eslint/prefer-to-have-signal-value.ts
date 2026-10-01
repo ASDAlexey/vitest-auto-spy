@@ -23,6 +23,7 @@
  * `toBe` is an identity check and `toHaveSignalValue` compares deeply, so a `toBe` is left alone unless
  * the expected value is a primitive literal or the signal holds a primitive type.
  */
+import { EQUALITY_MATCHERS } from './absence-assertion';
 import { defineRule } from './define-rule';
 import { excerpt } from './message-data';
 import {
@@ -44,9 +45,6 @@ import {
   checkerServices,
   isPrimitiveLike,
 } from './use-value-types';
-
-/** The assertions a signal value is usually spelled with. */
-const MATCHERS = new Set(['toBe', 'toEqual', 'toStrictEqual']);
 
 /** The argument-free matchers that assert one value, and that value spelled as an argument. */
 const VALUE_MATCHERS = new Map([
@@ -78,7 +76,7 @@ function signalAssertionOf(node: EsCallExpression): SignalAssertion | undefined 
     !isMemberExpression(callee) ||
     callee.computed ||
     !isIdentifier(callee.property) ||
-    !(MATCHERS.has(callee.property.name) || VALUE_MATCHERS.has(callee.property.name))
+    !(EQUALITY_MATCHERS.has(callee.property.name) || VALUE_MATCHERS.has(callee.property.name))
   ) {
     return undefined;
   }

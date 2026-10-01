@@ -2,22 +2,18 @@
  * `expect(true).toBe(true)` — an assertion whose outcome the spelling of the spec already decided, so it
  * passes (or fails) the same way whatever the code under test does.
  */
+import { EQUALITY_MATCHERS, matcherOf } from './absence-assertion';
 import { defineRule } from './define-rule';
 import { excerpt } from './message-data';
 import {
   type EsCallExpression,
   type EsNode,
   isArrayExpression,
-  isCallExpression,
   isCast,
   isObjectExpression,
-  memberName,
   propertyName,
   propertyValue,
 } from './rule-types';
-
-/** Matchers that compare the value with their argument — decided when both sides are spelled out. */
-const COMPARES = new Set(['toBe', 'toEqual', 'toStrictEqual']);
 
 /** Matchers that ask what kind of value it is — decided for any literal, whatever it holds. */
 const CLASSIFIES = new Set(['toBeDefined', 'toBeFalsy', 'toBeNaN', 'toBeNull', 'toBeTruthy', 'toBeUndefined']);
@@ -64,22 +60,8 @@ function isConstant(node: EsNode): boolean {
   }
 }
 
-/** The matcher an `expect(…)` chain ends in, read through any number of `.not` — `undefined` past `.resolves` or a bare chain. */
-function matcherOf(expectCall: EsCallExpression): { name: string; args: EsNode[] } | undefined {
-  let member = expectCall.parent;
-
-  while (memberName(member) === 'not') {
-    member = member.parent;
-  }
-
-  const name = memberName(member);
-  const call = member.parent;
-
-  return name && isCallExpression(call) && call.callee === member ? { name, args: call.arguments } : undefined;
-}
-
 function isDecided(actual: EsNode, matcher: { name: string; args: EsNode[] }): boolean {
-  if (COMPARES.has(matcher.name)) {
+  if (EQUALITY_MATCHERS.has(matcher.name)) {
     return isConstant(actual) && matcher.args.every(isConstant);
   }
 

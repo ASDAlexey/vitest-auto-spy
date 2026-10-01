@@ -89,8 +89,14 @@ const NEVER_CALLED = new Set(['toHaveBeenCalled', 'toHaveBeenCalledWith']);
 /** The negated spellings of "this value is `undefined`". */
 const UNDEFINED_MATCHERS = new Set(['toBeDefined', 'toBeUndefined']);
 
-/** The matchers that compare the subject with a value written out beside them. */
-const EQUALITY = new Set(['toBe', 'toEqual', 'toStrictEqual']);
+/**
+ * The matchers that compare the subject with a value written out beside them.
+ *
+ * Exported because three other rules ask the same question of the same argument slot: what a
+ * comparing matcher was given decides `no-constant-expect`, `prefer-to-have-signal-value` and
+ * `no-redundant-as-instance` exactly as it decides this rule.
+ */
+export const EQUALITY_MATCHERS = new Set(['toBe', 'toEqual', 'toStrictEqual']);
 
 /** Initialisers a `toBeFalsy()` holds on, as source text — which is how an initialiser is read here. */
 const FALSY = new Set(['0', "''", '""', '``', 'NaN', 'false', 'null', 'undefined']);
@@ -250,7 +256,7 @@ function satisfiedByHeldValue(context: RuleContext, held: string, matcher: Match
     return UNDEFINED_MATCHERS.has(matcher.name) ? held === 'undefined' : matcher.name === 'toBeTruthy' && FALSY.has(held);
   }
 
-  if (EQUALITY.has(matcher.name)) {
+  if (EQUALITY_MATCHERS.has(matcher.name)) {
     return matcher.args.length === 1 && argument !== undefined && tight(context.sourceCode.getText(argument)) === tight(held);
   }
 

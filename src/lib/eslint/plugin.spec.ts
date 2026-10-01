@@ -28,6 +28,7 @@ describe('the plugin', () => {
     expect(named((rule) => rule.meta.fixable !== undefined)).toEqual([
       'no-hand-assigned-global',
       'no-mocked-for-spy',
+      'no-redundant-as-instance',
       'no-redundant-mock-reset',
       'prefer-as-spy',
       'prefer-native-spy-api',
@@ -121,7 +122,8 @@ describe('the plugin', () => {
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-unasserted-console-spy']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-real-wait-in-test']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-inline-test-data']).toBe('warn');
-    expect(levels.filter((level) => level !== 'error')).toHaveLength(12);
+    expect(plugin.configs.recommended.rules['vitest-auto-spy/no-redundant-as-instance']).toBe('warn');
+    expect(levels.filter((level) => level !== 'error')).toHaveLength(13);
     expect(levels).toHaveLength(Object.keys(rules).length);
   });
 
