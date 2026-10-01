@@ -241,7 +241,7 @@ detection and compilation. `--code-quality` writes the findings for the GitLab m
 <div class="vas-fact"><b>0</b><span>runtime dependencies</span></div>
 <div class="vas-fact"><b>4</b><span>runtimes, one core</span></div>
 <div class="vas-fact"><b>5</b><span>framework adapters</span></div>
-<div class="vas-fact"><b>57</b><span>lint rules</span></div>
+<div class="vas-fact"><b>58</b><span>lint rules</span></div>
 <div class="vas-fact"><b>100%</b><span>covered core</span></div>
 
 </div>

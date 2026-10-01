@@ -14730,8 +14730,8 @@ brings both keys with it.
 
 | Config                | What it turns on                                   | Use it when                                                                                                     |
 | --------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `configs.recommended` | all 57 rules: 45 at `error`, 12 at `warn`          | you start with the plugin; this is the default                                                                  |
-| `configs.strict`      | all 57 rules at `error`                            | your specs are clean, and every finding should stop the build                                                   |
+| `configs.recommended` | all 58 rules: 45 at `error`, 13 at `warn`          | you start with the plugin; this is the default                                                                  |
+| `configs.strict`      | all 58 rules at `error`                            | your specs are clean, and every finding should stop the build                                                   |
 | `configs.typeErrors`  | `prefer-as-spy` and `no-mocked-for-spy` at `error` | together with `recommended`, in the [large-project recipe](#land-it-on-a-large-existing-suite-without-a-red-ci) |
 
 Both `typeErrors` rules are already `error` in `recommended`. You need `typeErrors` only in the
@@ -14796,7 +14796,7 @@ languageOptions: {
 On an existing project, expect the first run to be red. Forty-five rules are `error`, and that is
 the intended default.
 
-Twelve rules are `warn`. They show up in the output but do not fail the build:
+Thirteen rules are `warn`. They show up in the output but do not fail the build:
 
 - **A cost, not a defect:** [`prefer-render-shallow`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-render-shallow).
 - **Evidence is a guess from one file:**
@@ -14811,7 +14811,8 @@ Twelve rules are `warn`. They show up in the output but do not fail the build:
   [`no-inline-test-data`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-inline-test-data).
 - **A shorter or clearer spelling of correct code:**
   [`prefer-spy-on-own-method`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-spy-on-own-method),
-  [`prefer-to-have-signal-value`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-to-have-signal-value).
+  [`prefer-to-have-signal-value`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-to-have-signal-value),
+  [`no-redundant-as-instance`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-redundant-as-instance).
 - **Only the author knows the fix:**
   [`no-unasserted-console-spy`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-unasserted-console-spy).
 
@@ -14839,7 +14840,7 @@ leave them on.
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the 52 core rules work; the four Jasmine rules never fire                                          |
 | moving off `jest-auto-spies` / Jest        | the core rules do the work; `no-done-callback` and `prefer-as-spy` catch the most                  |
-| moving off `jasmine-auto-spies`            | all 57 rules; set `prefer-native-spy-api` to `'off'` until the Jasmine compatibility layer is gone |
+| moving off `jasmine-auto-spies`            | all 58 rules; set `prefer-native-spy-api` to `'off'` until the Jasmine compatibility layer is gone |
 
 ### If you never used Jasmine
 
@@ -14899,7 +14900,7 @@ For the bulk edit, run the codemod instead of a lint pass: `npx vitest-auto-spy 
 
 ### If you are coming from Jasmine
 
-All 57 rules apply, and the four Jasmine rules are written for you:
+All 58 rules apply, and the four Jasmine rules are written for you:
 
 - `no-jasmine-globals` and `no-save-arguments-by-value` report behaviour that silently changes after
   a rename.
@@ -15293,7 +15294,7 @@ still contains Jasmine code. **They never fire in a suite that never used Jasmin
 
 ## Which rules fix, and why so few
 
-Eight of the 57 rules rewrite code under `--fix`. Nineteen offer the rewrite as an editor suggestion
+Nine of the 58 rules rewrite code under `--fix`. Nineteen offer the rewrite as an editor suggestion
 that you accept by hand: four of them also have `--fix` for some shapes (in the table below), and
 fifteen offer only a suggestion. The split depends on what a wrong guess costs, not on how hard the rewrite
 is.
@@ -15361,12 +15362,12 @@ matters and under zone.js for the zone half.
 | `no-inject-before-override`    | `Cannot override provider when the test module has already been instantiated. Make sure you are not using \`inject\` before \`overrideProvider\``                                            |   red   |
 | `no-overridden-provider`       | nothing, when the hand-written double happens to answer. Read back with `injectSpy`, the run is red, and [`injectSpy` says why](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#injectspy-says-when-it-got-the-real-thing) |  green  |
 
-Seven of these twelve guard against a test that is **green and wrong**. A test run cannot report that
+Seven of these thirteen guard against a test that is **green and wrong**. A test run cannot report that
 failure on its own. Four guard against a red test whose message is already clear, and one against a
 compile error.
 
 This column is evidence, not severity. The config does not set severity from it; how loud a
-finding is belongs to your project. The twelve `warn` rules are graded on other grounds, listed in
+finding is belongs to your project. The thirteen `warn` rules are graded on other grounds, listed in
 [What the first run looks like](#_4-what-the-first-run-looks-like).
 
 The four Jasmine rules were not probed this way, because their subject is a migration, not runner
@@ -15419,10 +15420,10 @@ Each section below follows the same order:
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## The fifty-seven rules
+## The fifty-eight rules
 
 The rules are grouped by subject, as on the [plugin page](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin#rules). Every
-rule is `error` except twelve.
+rule is `error` except thirteen.
 
 | Rule                                                                    | Default | Reports                                                                                                                                                    |
 | ----------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -15432,6 +15433,7 @@ rule is `error` except twelve.
 | [`no-done-callback`](#no-done-callback)                                 | `error` | a `done` parameter in a test or hook, and `done.fail(…)`                                                                                                   |
 | [`no-bare-called-with`](#no-bare-called-with)                           | `error` | `calledWith(…)` / `mustBeCalledWith(…)` as a statement of its own                                                                                          |
 | [`no-constant-expect`](#no-constant-expect)                             | `error` | `expect(true).toBe(true)` — a value spelled out in the spec, under a matcher it decides                                                                    |
+| [`no-redundant-as-instance`](#no-redundant-as-instance)                 | `warn`  | `toBe(asInstance(ref))` — the type bridge in the one slot that never asks for it                                                                           |
 | [`no-redundant-smoke-test`](#no-redundant-smoke-test)                   | `error` | a test whose whole body asserts the subject exists, beside tests that already run its setup                                                                |
 | [`no-self-called-spy`](#no-self-called-spy)                             | `error` | a test that calls the spied method itself and then asserts that it was called                                                                              |
 | [`prefer-to-have-signal-value`](#prefer-to-have-signal-value)           | `warn`  | `expect(signal()).toBe(…)` — the value read inline, the signal's name lost from the failure                                                                |
@@ -15983,6 +15985,54 @@ not what it receives.
 
 **Severity.** `error`. The finding is a fact about the line: nothing the code does can change its
 answer.
+
+## no-redundant-as-instance
+
+**`warn`** · `--fix` · syntax only
+
+Reports `asInstance(…)` as a direct argument of `toBe` / `toEqual` / `toStrictEqual`. These matchers
+take their argument as a free type parameter, so the unwrap buys nothing — it only keeps an import
+alive and reads as if the types needed it.
+
+```ts
+expect(service.open()).toBe(asInstance(ref)); // ❌
+```
+
+```ts
+expect(service.open()).toBe(ref); // ✅
+```
+
+**Options.** None.
+
+**How to fix.** `--fix` drops the wrapper and, when that was the import's last use, the import too.
+
+**When to disable.** Not needed for correctness: the code reported is correct. The rule is `warn`
+because it names a spelling rather than a defect — the same reading as
+[`prefer-spy-on-own-method`](#prefer-spy-on-own-method) — and the fix is exact, so turning it up
+costs one `eslint --fix` run.
+
+::: details How it decides
+**The wrapper has to be the argument itself,** not a part of it. `toBe([asInstance(store)])` puts it
+inside a literal the matcher compares by structure, and `toBe(asInstance(store).id)` continues with
+a member read; both keep their wrapper.
+
+**Only the three comparing matchers,** read through any number of `.not`. A chain through
+`.resolves` / `.rejects` and `expect.soft(…)` are left alone, as
+[`no-constant-expect`](#no-constant-expect) leaves them. Every other matcher is left alone for a
+stronger reason: `toHaveBeenCalledWith(asInstance(cart))` puts the value in a slot typed against the
+real class, and there the unwrap can be load-bearing — the very error `asInstance` exists to fix.
+
+**The name must be an import spelled `asInstance`.** A file that declares its own `asInstance` is
+never touched, because the rule cannot know a local function is an identity, and an aliased import
+(`import { asInstance as view }`) is out of reach. `asInstances(…)` is a different helper and not
+this rule's business.
+
+**The import goes only when it was the last use.** Two wrappers in one `--fix` pass are both
+unwrapped and the import stays behind, because each fix decided against a name the other still used;
+an unused-import rule catches what is left.
+
+**Severity.** `warn`: the call it reports is correct and returns exactly the value the plain name
+does. It names noise, not a defect.
 
 ## no-redundant-smoke-test
 

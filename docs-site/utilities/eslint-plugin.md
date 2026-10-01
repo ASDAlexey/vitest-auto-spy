@@ -48,8 +48,8 @@ brings both keys with it.
 
 | Config                | What it turns on                                   | Use it when                                                                                                     |
 | --------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `configs.recommended` | all 57 rules: 45 at `error`, 12 at `warn`          | you start with the plugin; this is the default                                                                  |
-| `configs.strict`      | all 57 rules at `error`                            | your specs are clean, and every finding should stop the build                                                   |
+| `configs.recommended` | all 58 rules: 45 at `error`, 13 at `warn`          | you start with the plugin; this is the default                                                                  |
+| `configs.strict`      | all 58 rules at `error`                            | your specs are clean, and every finding should stop the build                                                   |
 | `configs.typeErrors`  | `prefer-as-spy` and `no-mocked-for-spy` at `error` | together with `recommended`, in the [large-project recipe](#land-it-on-a-large-existing-suite-without-a-red-ci) |
 
 Both `typeErrors` rules are already `error` in `recommended`. You need `typeErrors` only in the
@@ -114,7 +114,7 @@ languageOptions: {
 On an existing project, expect the first run to be red. Forty-five rules are `error`, and that is
 the intended default.
 
-Twelve rules are `warn`. They show up in the output but do not fail the build:
+Thirteen rules are `warn`. They show up in the output but do not fail the build:
 
 - **A cost, not a defect:** [`prefer-render-shallow`](/utilities/eslint-rules#prefer-render-shallow).
 - **Evidence is a guess from one file:**
@@ -129,7 +129,8 @@ Twelve rules are `warn`. They show up in the output but do not fail the build:
   [`no-inline-test-data`](/utilities/eslint-rules#no-inline-test-data).
 - **A shorter or clearer spelling of correct code:**
   [`prefer-spy-on-own-method`](/utilities/eslint-rules#prefer-spy-on-own-method),
-  [`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value).
+  [`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value),
+  [`no-redundant-as-instance`](/utilities/eslint-rules#no-redundant-as-instance).
 - **Only the author knows the fix:**
   [`no-unasserted-console-spy`](/utilities/eslint-rules#no-unasserted-console-spy).
 
@@ -157,7 +158,7 @@ leave them on.
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the 52 core rules work; the four Jasmine rules never fire                                          |
 | moving off `jest-auto-spies` / Jest        | the core rules do the work; `no-done-callback` and `prefer-as-spy` catch the most                  |
-| moving off `jasmine-auto-spies`            | all 57 rules; set `prefer-native-spy-api` to `'off'` until the Jasmine compatibility layer is gone |
+| moving off `jasmine-auto-spies`            | all 58 rules; set `prefer-native-spy-api` to `'off'` until the Jasmine compatibility layer is gone |
 
 ### If you never used Jasmine
 
@@ -217,7 +218,7 @@ For the bulk edit, run the codemod instead of a lint pass: `npx vitest-auto-spy 
 
 ### If you are coming from Jasmine
 
-All 57 rules apply, and the four Jasmine rules are written for you:
+All 58 rules apply, and the four Jasmine rules are written for you:
 
 - `no-jasmine-globals` and `no-save-arguments-by-value` report behaviour that silently changes after
   a rename.
@@ -611,7 +612,7 @@ still contains Jasmine code. **They never fire in a suite that never used Jasmin
 
 ## Which rules fix, and why so few
 
-Eight of the 57 rules rewrite code under `--fix`. Nineteen offer the rewrite as an editor suggestion
+Nine of the 58 rules rewrite code under `--fix`. Nineteen offer the rewrite as an editor suggestion
 that you accept by hand: four of them also have `--fix` for some shapes (in the table below), and
 fifteen offer only a suggestion. The split depends on what a wrong guess costs, not on how hard the rewrite
 is.
@@ -679,12 +680,12 @@ matters and under zone.js for the zone half.
 | `no-inject-before-override`    | `Cannot override provider when the test module has already been instantiated. Make sure you are not using \`inject\` before \`overrideProvider\``                                            |   red   |
 | `no-overridden-provider`       | nothing, when the hand-written double happens to answer. Read back with `injectSpy`, the run is red, and [`injectSpy` says why](/adapters/angular#injectspy-says-when-it-got-the-real-thing) |  green  |
 
-Seven of these twelve guard against a test that is **green and wrong**. A test run cannot report that
+Seven of these thirteen guard against a test that is **green and wrong**. A test run cannot report that
 failure on its own. Four guard against a red test whose message is already clear, and one against a
 compile error.
 
 This column is evidence, not severity. The config does not set severity from it; how loud a
-finding is belongs to your project. The twelve `warn` rules are graded on other grounds, listed in
+finding is belongs to your project. The thirteen `warn` rules are graded on other grounds, listed in
 [What the first run looks like](#_4-what-the-first-run-looks-like).
 
 The four Jasmine rules were not probed this way, because their subject is a migration, not runner

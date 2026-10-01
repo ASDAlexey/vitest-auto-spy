@@ -91,6 +91,7 @@ export default [
 | `no-instance-lifecycle-spy` | `warn` | — | `vi.spyOn(instance, 'ngOnInit')` (and `ngOnDestroy`, `ngDoCheck`, `ngAfterContent*`, `ngAfterView*`) — a view calls the hook read off the prototype, so the instance spy is never called and its stub never runs → `vi.spyOn(Cls.prototype, …)` before `createComponent`, or assert the effect. `ngOnChanges` is exempt: Angular calls it through the instance |
 | `no-ts-expect-error-on-double` | `error` | — | `@ts-expect-error` / `@ts-ignore` above `nextWith`, `resolveWith`, `mockReturnValue`, `returnValue`, `calledWith(…)` and the other helpers that check a stub against the method's signature → an overloaded method takes `Spy<X, { overload: { m: 'first' } }>`; otherwise the fixture is the wrong shape, checked against `ReturnType<X['m']>`. A reason after the directive does not silence it; a deliberate out-of-type value keeps it under `eslint-disable-next-line … -- <why>` |
 | `no-constant-expect` | `error` | — | `expect(true).toBe(true)`, `expect({ … }).toBeDefined()` — a value the spec spelled out, under a matcher whose answer it already fixes (`toBe` / `toEqual` / `toStrictEqual` against a literal; `toBeTruthy`, `toBeDefined`, `toBeNull`… for any literal) → assert on what the code produced, or `expect.fail(…)` for an unreachable branch |
+| `no-redundant-as-instance` | `warn` | `--fix` | `expect(x).toBe(asInstance(ref))` → `.toBe(ref)`: the comparing matchers take their argument as a free type parameter, so the bridge buys nothing there; `--fix` drops the wrapper and the import once it is unused. `toHaveBeenCalledWith(asInstance(cart))` is left alone — that slot is typed against the real class and the unwrap can be load-bearing; so is a wrapper that is part of the argument (`[asInstance(x)]`, `asInstance(x).id`) |
 | `no-redundant-smoke-test` | `error` | suggest | `it('should create', () => expect(pipe).toBeTruthy())` — every statement of the body an `expect(x)` under `toBeTruthy` / `toBeDefined` / `toBeInstanceOf` (or their negated twins), weighed against the tests that run the same setup: the rest of the block, and everything the blocks nested in it declare → delete it; the suggestion removes the test and the blank line above it. Silent where that test is the block's only running one, and a skipped sibling does not count as proof |
 | `no-self-called-spy` | `error` | — | `vi.spyOn(obj, 'm')`, then `obj.m(…)` written by the test itself, then a positive `toHaveBeenCalled*` — the assertion is satisfied by the test's own line, so the test survives the deletion of the behaviour its title names. Order decides it: a call written **before** the spy is arrangement, and a `mockClear` between the call and the assertion, a negated matcher or arguments the call did not pass all silence it |
 | `no-vacuous-absence-assertion` | `error` | — | a test **all** of whose assertions are satisfied by the stream never emitting. The carrier is a `const` / `let` declared in the test whose every write outside the declaration sits in a `subscribe` callback of that test (the assignment and the `push` forms both count), or a `vi.fn()` the test hands to `subscribe` and never calls itself. Silence satisfies an equality matcher repeating the initialiser's source text, `toBeUndefined` / `not.toBeDefined` on a `let` holding `undefined`, `toBeNull` on one holding `null`, `toBeFalsy` / `not.toBeTruthy` on any falsy literal, `toHaveLength(0)` on `[]` or `''`, and `not.toHaveBeenCalled` / `not.toHaveBeenCalledWith` / `toHaveBeenCalledTimes(0)` on any subject — read literally, so `toBeNull()` on a `let` with no initialiser is **not** reported. One `expect()` a silent source could fail silences the rule, which is what exempts the "nothing yet, trigger, now the value" shape; a test asserting through a local helper is skipped entirely → `await expectNoEmission(source$)`, or `expect(await expectEmission(source$))` |
@@ -111,22 +112,24 @@ export default [
 | `no-save-arguments-by-value` | `error` | — | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state |
 | `prefer-native-spy-api` | `error` | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — turn it on for the last mile off the jasmine shim. The fix renames only the member (`and.returnValue` → `mockReturnValue`, `withArgs` → `calledWith`), so comments stay; a rewrite that would drop one is a suggestion |
 
-Fifty-seven rules, **every one an `error` except `prefer-render-shallow`,
+Fifty-eight rules, **every one an `error` except `prefer-render-shallow`,
 `no-stub-class-double`, `no-structural-double`, `prefer-create-mock`, `no-instance-lifecycle-spy`,
 `prefer-set-inputs`, `no-unasserted-argument`, `prefer-spy-on-own-method`, `prefer-to-have-signal-value`,
-`no-unasserted-console-spy`, `no-real-wait-in-test` and `no-inline-test-data`**; eight fix on their own, nineteen offer suggestions. Fifty-three are syntactic; `no-private-member-access`, `no-mistyped-use-value`,
+`no-unasserted-console-spy`, `no-real-wait-in-test`, `no-inline-test-data` and
+`no-redundant-as-instance`**; nine fix on their own, nineteen offer suggestions. Fifty-four are syntactic; `no-private-member-access`, `no-mistyped-use-value`,
 `no-unknown-use-value-key` and `prefer-to-have-signal-value` read types, and all four report nothing at all without `parserOptions.project` / `projectService`
 rather than guessing. `no-compile-components` waits the same way for a fact no file holds — which
 builder the project has — and reports nothing until `{ builder: 'inline-resources' }` states it;
 `no-relative-mock-under-builder` waits for a builder target serving the file, or `{ builder: 'unit-test' }`.
 
-The twelve `warn`s do not rank findings by importance. Each names something other than a defect: a
+The thirteen `warn`s do not rank findings by importance. Each names something other than a defect: a
 cheaper render (`prefer-render-shallow`), a heuristic reading with no `provide:` to settle it
 (`no-stub-class-double`, `no-structural-double`, `no-instance-lifecycle-spy`), a repair that turns
 many files red at once (`prefer-create-mock`), a question only the author can answer
 (`no-unasserted-argument`, `no-unasserted-console-spy`, `no-real-wait-in-test`), a place data should
 live rather than a defect (`no-inline-test-data`), or a preferred spelling
-of working code (`prefer-spy-on-own-method`, `prefer-set-inputs`, `prefer-to-have-signal-value`). Set
+of working code (`prefer-spy-on-own-method`, `prefer-set-inputs`, `prefer-to-have-signal-value`,
+`no-redundant-as-instance`). Set
 any of the `warn`s to `'error'` once the batch is done.
 
 Three rules can report on a _correct_ project, and only one has an option:

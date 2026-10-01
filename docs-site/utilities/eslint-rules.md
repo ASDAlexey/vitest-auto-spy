@@ -36,10 +36,10 @@ Each section below follows the same order:
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## The fifty-seven rules {#the-twenty-five-rules}
+## The fifty-eight rules {#the-twenty-five-rules}
 
 The rules are grouped by subject, as on the [plugin page](/utilities/eslint-plugin#rules). Every
-rule is `error` except twelve.
+rule is `error` except thirteen.
 
 | Rule                                                                    | Default | Reports                                                                                                                                                    |
 | ----------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -49,6 +49,7 @@ rule is `error` except twelve.
 | [`no-done-callback`](#no-done-callback)                                 | `error` | a `done` parameter in a test or hook, and `done.fail(…)`                                                                                                   |
 | [`no-bare-called-with`](#no-bare-called-with)                           | `error` | `calledWith(…)` / `mustBeCalledWith(…)` as a statement of its own                                                                                          |
 | [`no-constant-expect`](#no-constant-expect)                             | `error` | `expect(true).toBe(true)` — a value spelled out in the spec, under a matcher it decides                                                                    |
+| [`no-redundant-as-instance`](#no-redundant-as-instance)                 | `warn`  | `toBe(asInstance(ref))` — the type bridge in the one slot that never asks for it                                                                           |
 | [`no-redundant-smoke-test`](#no-redundant-smoke-test)                   | `error` | a test whose whole body asserts the subject exists, beside tests that already run its setup                                                                |
 | [`no-self-called-spy`](#no-self-called-spy)                             | `error` | a test that calls the spied method itself and then asserts that it was called                                                                              |
 | [`prefer-to-have-signal-value`](#prefer-to-have-signal-value)           | `warn`  | `expect(signal()).toBe(…)` — the value read inline, the signal's name lost from the failure                                                                |
@@ -605,6 +606,55 @@ not what it receives.
 
 **Severity.** `error`. The finding is a fact about the line: nothing the code does can change its
 answer.
+:::
+
+## no-redundant-as-instance
+
+**`warn`** · `--fix` · syntax only
+
+Reports `asInstance(…)` as a direct argument of `toBe` / `toEqual` / `toStrictEqual`. These matchers
+take their argument as a free type parameter, so the unwrap buys nothing — it only keeps an import
+alive and reads as if the types needed it.
+
+```ts
+expect(service.open()).toBe(asInstance(ref)); // ❌
+```
+
+```ts
+expect(service.open()).toBe(ref); // ✅
+```
+
+**Options.** None.
+
+**How to fix.** `--fix` drops the wrapper and, when that was the import's last use, the import too.
+
+**When to disable.** Not needed for correctness: the code reported is correct. The rule is `warn`
+because it names a spelling rather than a defect — the same reading as
+[`prefer-spy-on-own-method`](#prefer-spy-on-own-method) — and the fix is exact, so turning it up
+costs one `eslint --fix` run.
+
+::: details How it decides
+**The wrapper has to be the argument itself,** not a part of it. `toBe([asInstance(store)])` puts it
+inside a literal the matcher compares by structure, and `toBe(asInstance(store).id)` continues with
+a member read; both keep their wrapper.
+
+**Only the three comparing matchers,** read through any number of `.not`. A chain through
+`.resolves` / `.rejects` and `expect.soft(…)` are left alone, as
+[`no-constant-expect`](#no-constant-expect) leaves them. Every other matcher is left alone for a
+stronger reason: `toHaveBeenCalledWith(asInstance(cart))` puts the value in a slot typed against the
+real class, and there the unwrap can be load-bearing — the very error `asInstance` exists to fix.
+
+**The name must be an import spelled `asInstance`.** A file that declares its own `asInstance` is
+never touched, because the rule cannot know a local function is an identity, and an aliased import
+(`import { asInstance as view }`) is out of reach. `asInstances(…)` is a different helper and not
+this rule's business.
+
+**The import goes only when it was the last use.** Two wrappers in one `--fix` pass are both
+unwrapped and the import stays behind, because each fix decided against a name the other still used;
+an unused-import rule catches what is left.
+
+**Severity.** `warn`: the call it reports is correct and returns exactly the value the plain name
+does. It names noise, not a defect.
 :::
 
 ## no-redundant-smoke-test
