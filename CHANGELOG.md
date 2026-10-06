@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.60.0] - 2026-10-06
+
 ### Added
 
 - **`no-redundant-as-instance`** in `vitest-auto-spy/eslint-plugin`, `warn` in `recommended`:
@@ -10071,7 +10073,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.59.1...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.60.0...HEAD
+[5.60.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.59.1...v5.60.0
 [5.59.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.59.0...v5.59.1
 [5.59.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.58.0...v5.59.0
 [5.58.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.57.0...v5.58.0
