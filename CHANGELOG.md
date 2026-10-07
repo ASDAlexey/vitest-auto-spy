@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.61.0] - 2026-10-07
+
 ### Added
 
 - `createWindowSpies` in `/angular/doubles`: typed, configured no-op spies for selected void window methods, including `location.reload` and `parent.postMessage`, composable with existing window overrides.
@@ -10077,7 +10079,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.60.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.61.0...HEAD
+[5.61.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.60.0...v5.61.0
 [5.60.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.59.1...v5.60.0
 [5.59.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.59.0...v5.59.1
 [5.59.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.58.0...v5.59.0
