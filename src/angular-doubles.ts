@@ -61,3 +61,5 @@ export {
   type OverlayRefStub,
   type PositionCall,
 } from './lib/overlay-double';
+
+export { createWindowSpies, type WindowSpies, type WindowSpySelection } from './lib/window-spies';
