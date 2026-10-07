@@ -10,6 +10,10 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- `createWindowSpies` in `/angular/doubles`: typed, configured no-op spies for selected void window methods, including `location.reload` and `parent.postMessage`, composable with existing window overrides.
+
 ## [5.60.0] - 2026-10-06
 
 ### Added

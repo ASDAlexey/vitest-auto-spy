@@ -1461,6 +1461,31 @@ win.location.href = '/checkout'; // двигает подмену, а не ад�
 expect(reload).toHaveBeenCalled(); // location.origin по-прежнему от jsdom
 ```
 
+`createWindowSpies` создаёт типизированные спаи для выбранных `void`-методов, включая вложенные члены window. Они возвращают `undefined`.
+
+```ts
+import { InjectionToken } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { expect } from 'vitest';
+import { createWindowSpies, provideWindowDouble } from 'vitest-auto-spy/angular/doubles';
+
+const WINDOW = new InjectionToken<Window>('WINDOW');
+const spies = createWindowSpies({ location: ['reload'], parent: ['postMessage'] });
+TestBed.configureTestingModule({
+  providers: [provideWindowDouble(WINDOW, { ...spies, location: { ...spies.location, hostname: 'tv.kion.ru' } })],
+});
+const win = TestBed.inject(WINDOW);
+win.location.reload();
+win.parent.postMessage('ready', '*');
+expect(spies.location.reload).toHaveBeenCalledOnce();
+expect(spies.parent.postMessage).toHaveBeenCalledWith('ready', '*');
+```
+
+Для методов самого window передайте массив: `createWindowSpies(['close', 'focus'])`. Каждый вызов создаёт новые спаи.
+Объект, возвращаемый `createWindowSpies`, содержит только выбранные методы. Типы параметров и хелперы спаев сохраняются.
+Для методов, возвращающих значение, используйте `createFunctionSpy` и настройте ответ явно.
+При добавлении значений location скопируйте и `spies.location`; иначе потеряете спай reload.
+
 `mockValueProp(win, 'innerWidth', 800)` тоже работает на подмене и не трогает глобальный объект.
 
 Чтобы **заменить** глобальный класс, передайте [`mockConstructor`](/ru/utilities/constructor-doubles)

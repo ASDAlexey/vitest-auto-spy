@@ -862,6 +862,32 @@ Five things to know:
   `win.Promise.resolve()`, `win.Object.keys(x)` and `new win.Event('x')` work, and
   `win.Event === window.Event` holds — which is what `instanceof` in production code needs.
 
+`createWindowSpies` creates typed spies for selected `void` methods, including nested window members.
+The spies return `undefined` without invoking browser methods.
+
+```ts
+import { InjectionToken } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { expect } from 'vitest';
+import { createWindowSpies, provideWindowDouble } from 'vitest-auto-spy/angular/doubles';
+
+const WINDOW = new InjectionToken<Window>('WINDOW');
+const spies = createWindowSpies({ location: ['reload'], parent: ['postMessage'] });
+TestBed.configureTestingModule({
+  providers: [provideWindowDouble(WINDOW, { ...spies, location: { ...spies.location, hostname: 'tv.kion.ru' } })],
+});
+const win = TestBed.inject(WINDOW);
+win.location.reload();
+win.parent.postMessage('ready', '*');
+expect(spies.location.reload).toHaveBeenCalledOnce();
+expect(spies.parent.postMessage).toHaveBeenCalledWith('ready', '*');
+```
+
+Pass an array for root methods: `createWindowSpies(['close', 'focus'])`. Each call builds fresh spies.
+The object returned by `createWindowSpies` contains only the selected methods. Their parameter types and spy helpers are preserved.
+For methods that return a value, use `createFunctionSpy` and configure that value explicitly.
+When adding location values, spread `spies.location` too; replacing it would discard the reload spy.
+
 ### The Material dialog trio — `provideMatDialogData` / `provideMatDialogRef`
 
 ```ts
