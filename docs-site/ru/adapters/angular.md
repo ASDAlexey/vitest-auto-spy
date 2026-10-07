@@ -1458,6 +1458,7 @@ TestBed.configureTestingModule({
 const win = TestBed.inject(WINDOW); // provideWindowDouble(WINDOW, { location: { reload } })
 
 win.location.href = '/checkout'; // двигает подмену, а не адресную строку
+win.location.reload();
 expect(reload).toHaveBeenCalled(); // location.origin по-прежнему от jsdom
 ```
 
@@ -1484,7 +1485,9 @@ expect(spies.parent.postMessage).toHaveBeenCalledWith('ready', '*');
 Для методов самого window передайте массив: `createWindowSpies(['close', 'focus'])`. Каждый вызов создаёт новые спаи.
 Объект, возвращаемый `createWindowSpies`, содержит только выбранные методы. Типы параметров и хелперы спаев сохраняются.
 Для методов, возвращающих значение, используйте `createFunctionSpy` и настройте ответ явно.
-При добавлении значений location скопируйте и `spies.location`; иначе потеряете спай reload.
+При добавлении значений location скопируйте и `spies.location`.
+В `{ ...spies, location: { hostname } }` JavaScript заменяет `location` ещё до вызова провайдера.
+Вложенный spread сохраняет спай reload.
 
 `mockValueProp(win, 'innerWidth', 800)` тоже работает на подмене и не трогает глобальный объект.
 

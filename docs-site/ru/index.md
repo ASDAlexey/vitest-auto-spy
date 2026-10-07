@@ -33,7 +33,7 @@ features:
     details: 'Одна и та же спека работает на Vitest от 2.1 до 5, Bun, node:test и Rstest. Меняется один импорт, а не тесты.'
     link: /ru/runtimes/vitest
   - title: Сделано для Angular
-    details: 'provideAutoSpy и injectSpy для TestBed, поверхностный рендер, сигналы, ресурсы, роутер, HTTP и сигнальные формы. Работает и в zoneless-проектах, и с zone.js.'
+    details: 'provideAutoSpy и injectSpy для TestBed, поверхностный рендер, сигналы, ресурсы, роутер, HTTP и сигнальные формы. Работает и в zoneless-проектах, и с zone.js. createWindowSpies проверяет вызовы браузера без изменения настоящего окна.'
     link: /ru/adapters/angular
   - title: NestJS, React, Vue и Svelte
     details: 'У каждого фреймворка своя точка входа - provideAutoSpy для тестовых модулей NestJS и для global.provide во Vue, привычные импорты для React и Svelte.'

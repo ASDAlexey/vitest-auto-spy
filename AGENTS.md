@@ -455,6 +455,7 @@ In [`agent-docs/doubles.md`](./agent-docs/doubles.md). Read it when production c
 ## 13. Angular
 
 In [`agent-docs/angular.md`](./agent-docs/angular.md). Read it for any spec that uses `TestBed`, signals, Angular HTTP, the router or an Angular double.
+For selected void window methods, use `createWindowSpies` from `/angular/doubles`; the window recipe is in that file.
 
 <!-- agents-outline: agent-docs/angular.md -->
 

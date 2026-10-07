@@ -276,6 +276,7 @@ the core. `@angular/material` and `@angular/cdk` are never dependencies: you pas
 | Export                                                                                                                     | What it does                                                                        | Docs                                                                                                       |
 | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `provideWindowDouble(token, overrides?)` / `createWindowDouble(overrides?)`                                                | A `window` with your overrides over the real one; `create*` works without `TestBed` | [Window and document](/adapters/angular#window-and-document-without-losing-the-real-one)                   |
+| `createWindowSpies(selection)`                                                                                             | Typed no-op spies for selected void window methods; pass them as window overrides   | same                                                                                                       |
 | `provideDocumentDouble(overrides?, token?)` / `createDocumentDouble(overrides?)`                                           | The same for `document`                                                             | same                                                                                                       |
 | `provideMatDialogData(token, data)`                                                                                        | The dialog's data for DI, typed by the token                                        | [Material dialog](/adapters/angular#the-material-dialog-without-material-as-a-dependency)                  |
 | `provideMatDialogRef(RefClass, init?)` / `injectMatDialogRef(RefClass, injector?)` / `createMatDialogRef(RefClass, init?)` | The dialog ref: spied `close`, `emitClose(result?)`, `afterClosed()`                | same                                                                                                       |
@@ -552,7 +553,7 @@ vitest-auto-spy (also re-exported by /bun, /node, /rstest, /react, /svelte, /vue
   AttachedComponent, DialogComponent, DialogDataOf, DialogRefLike, DialogResult,
   MatDialogRefDouble, MatDialogRefInit, OverlayDouble, OverlayDoubleInit, OverlayLike,
   OverlayRefDouble, OverlayRefStub, PlatformFlagTokens, PlatformName, PlatformOverrides,
-  PositionCall
+  PositionCall, WindowSpies, WindowSpySelection
 
 /angular/matchers
   RegisterSignalMatchersOptions, ResourceLike, SignalLike, SignalValueOptions

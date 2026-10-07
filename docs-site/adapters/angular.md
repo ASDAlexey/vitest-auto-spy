@@ -1435,6 +1435,7 @@ TestBed.configureTestingModule({
 const win = TestBed.inject(WINDOW); // provideWindowDouble(WINDOW, { location: { reload } })
 
 win.location.href = '/checkout'; // moves the double, not the address bar
+win.location.reload();
 expect(reload).toHaveBeenCalled(); // location.origin is still jsdom's
 ```
 
@@ -1462,7 +1463,9 @@ expect(spies.parent.postMessage).toHaveBeenCalledWith('ready', '*');
 Pass an array for root methods: `createWindowSpies(['close', 'focus'])`. Each call builds fresh spies.
 The object returned by `createWindowSpies` contains only the selected methods. Their parameter types and spy helpers are preserved.
 For methods that return a value, use `createFunctionSpy` and configure that value explicitly.
-When adding location values, spread `spies.location` too; replacing it would discard the reload spy.
+When adding location values, spread `spies.location` too.
+In `{ ...spies, location: { hostname } }`, JavaScript replaces `location` before the provider sees the object.
+The nested spread keeps the reload spy.
 
 `mockValueProp(win, 'innerWidth', 800)` works on the double too and does not touch the global.
 
