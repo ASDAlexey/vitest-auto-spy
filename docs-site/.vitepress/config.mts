@@ -466,7 +466,7 @@ export default defineConfig({
           'currentNavigation signal angular 20, instanceMethodsToSpyOn currentNavigation, ' +
           'mock window vitest, window is read-only jsdom, cannot redefine window.location, location.reload is not a function, ' +
           'mock document angular, DOCUMENT token test, WINDOW token angular, provideWindowDouble, provideDocumentDouble, ' +
-          'createWindowDouble, createDocumentDouble, override screen.width in test, ' +
+          'createWindowDouble, createDocumentDouble, createWindowSpies, mock location.reload angular, spy parent.postMessage, override screen.width in test, ' +
           'mock MatDialogRef, MAT_DIALOG_DATA in a test, afterClosed never emits, dialog.close not called, ' +
           'material dialog unit test without material, provideMatDialogRef, provideMatDialogData, createMatDialogRef, injectMatDialogRef, ' +
           'angular signal forms testing, test a signal form, form() NG0203, NG0203 inject() must be called from an injection context, ' +
