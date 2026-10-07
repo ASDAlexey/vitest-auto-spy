@@ -24645,6 +24645,7 @@ TestBed.configureTestingModule({
 const win = TestBed.inject(WINDOW); // provideWindowDouble(WINDOW, { location: { reload } })
 
 win.location.href = '/checkout'; // moves the double, not the address bar
+win.location.reload();
 expect(reload).toHaveBeenCalled(); // location.origin is still jsdom's
 ```
 
@@ -24672,7 +24673,9 @@ expect(spies.parent.postMessage).toHaveBeenCalledWith('ready', '*');
 Pass an array for root methods: `createWindowSpies(['close', 'focus'])`. Each call builds fresh spies.
 The object returned by `createWindowSpies` contains only the selected methods. Their parameter types and spy helpers are preserved.
 For methods that return a value, use `createFunctionSpy` and configure that value explicitly.
-When adding location values, spread `spies.location` too; replacing it would discard the reload spy.
+When adding location values, spread `spies.location` too.
+In `{ ...spies, location: { hostname } }`, JavaScript replaces `location` before the provider sees the object.
+The nested spread keeps the reload spy.
 
 `mockValueProp(win, 'innerWidth', 800)` works on the double too and does not touch the global.
 
@@ -32327,6 +32330,7 @@ the core. `@angular/material` and `@angular/cdk` are never dependencies: you pas
 | Export                                                                                                                     | What it does                                                                        | Docs                                                                                                       |
 | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `provideWindowDouble(token, overrides?)` / `createWindowDouble(overrides?)`                                                | A `window` with your overrides over the real one; `create*` works without `TestBed` | [Window and document](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#window-and-document-without-losing-the-real-one)                   |
+| `createWindowSpies(selection)`                                                                                             | Typed no-op spies for selected void window methods; pass them as window overrides   | same                                                                                                       |
 | `provideDocumentDouble(overrides?, token?)` / `createDocumentDouble(overrides?)`                                           | The same for `document`                                                             | same                                                                                                       |
 | `provideMatDialogData(token, data)`                                                                                        | The dialog's data for DI, typed by the token                                        | [Material dialog](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#the-material-dialog-without-material-as-a-dependency)                  |
 | `provideMatDialogRef(RefClass, init?)` / `injectMatDialogRef(RefClass, injector?)` / `createMatDialogRef(RefClass, init?)` | The dialog ref: spied `close`, `emitClose(result?)`, `afterClosed()`                | same                                                                                                       |
@@ -32603,7 +32607,7 @@ vitest-auto-spy (also re-exported by /bun, /node, /rstest, /react, /svelte, /vue
   AttachedComponent, DialogComponent, DialogDataOf, DialogRefLike, DialogResult,
   MatDialogRefDouble, MatDialogRefInit, OverlayDouble, OverlayDoubleInit, OverlayLike,
   OverlayRefDouble, OverlayRefStub, PlatformFlagTokens, PlatformName, PlatformOverrides,
-  PositionCall
+  PositionCall, WindowSpies, WindowSpySelection
 
 /angular/matchers
   RegisterSignalMatchersOptions, ResourceLike, SignalLike, SignalValueOptions
