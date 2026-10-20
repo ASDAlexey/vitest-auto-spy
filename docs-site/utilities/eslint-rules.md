@@ -1816,18 +1816,19 @@ there is no migration: a project that already builds responses with `stubRespons
 
 **`error`** · suggestion · syntax only
 
-Reports an `import()` the spec itself awaits in a test or a hook. When the code under test
-lazy-loads a module on a click, awaiting the same `import()` waits for the module, but not for the
-lines after the code's own `await`. The assertion then runs one turn too early.
+Reports an `import()` awaited directly in a test or hook when it may be waiting for application code.
+Awaiting a module does not guarantee that a handler loading it has finished its own continuation.
 
 ```ts
-// The click handler does `await import('./exit-from-app.component')` and then opens the dialog.
+// The click handler imports the component and then opens the dialog.
 button.click();
-await import('./exit-from-app.component'); // ❌ waits for the module, not for the handler
+await import('./exit-from-app.component'); // ❌ the handler may still be running
 expect(dialog.open).toHaveBeenCalled();
 ```
 
 ```ts
+import { settleDynamicImport } from 'vitest-auto-spy';
+
 button.click();
 await settleDynamicImport(() => import('./exit-from-app.component')); // ✅
 expect(dialog.open).toHaveBeenCalled();
@@ -1835,79 +1836,61 @@ expect(dialog.open).toHaveBeenCalled();
 
 **Options.** None.
 
-**How to fix.** Wrap the import in
-[`settleDynamicImport`](/utilities/event-loop#settledynamicimport-load-turns). It loads the module and
-then runs `flushEventLoop(turns)`, which gives the code's continuation its turn. It returns the
-module namespace, so `const { Thing } = await import(…)` keeps reading the same way. The suggestion
-wraps the `import()` where it stands and adds the helper import, merging it into an existing
-`vitest-auto-spy` import when there is one.
+**How to fix.** When waiting for a handler after an action, use
+[`settleDynamicImport`](/utilities/event-loop#settledynamicimport-load-turns). It loads the module,
+then runs `flushEventLoop(turns)` to give pending continuations event-loop turns. It returns the
+module namespace. The suggestion wraps the import and adds the helper import, merging it into an
+existing `vitest-auto-spy` import when possible.
 
-`fakeAsync`, `tick()` and `flushMicrotasks()` cannot replace it: they drive Angular's zone queues,
-and the module loader is not one of them.
+`await Promise.resolve()` only yields to microtasks; it is not equivalent to `flushEventLoop(1)`.
+Angular's `fakeAsync`, `tick()` and `flushMicrotasks()` drive zone queues, not the module loader.
 
-If the spec only reads the module's exports, a static `import` is the better fix. The
-`settleDynamicImport` the message names still works there.
+**Provider setup.** Keep `await import()` when loading classes for Angular providers before creating
+the service under test. It does not need an extra event-loop turn just to read those exports:
 
-**When to disable.** Rarely; the rule reports only what one file can prove. Not reported:
+```ts
+import { createLoggerDouble } from './testing/logger-double';
 
-- a spec-local `const load = async () => { await import('…'); }`: the same code is written whether
-  the spec calls it or hands it to the code under test as a loader, and for the second the helper
-  would be wrong advice;
-- a callback something other than the runner calls, `it('x', waitForAsync(async () => …))`
-  included;
-- a namespace bound as the **first** statement of a test or hook, such as
-  `const api = await import('./index')`. Nothing has run yet whose continuation could be pending. A
-  static `import * as ns` is the better repair there.
+beforeEach(async () => {
+  const logger = createLoggerDouble();
+  const { PremiumService } = await import('./premium.service');
+  TestBed.configureTestingModule({
+    providers: [{ provide: LOGGER, useValue: logger }, provideAutoSpy(PremiumService)],
+  });
+  service = TestBed.inject(OnboardingFlowService);
+});
+```
+
+The rule recognises provider setup in `beforeEach` and `beforeAll`. Earlier factory calls must come
+from imported functions. Store their results in variables and use those variables in `providers`,
+as `logger` is used in `useValue` above. Earlier method calls or application actions prevent this exemption,
+except recognised module-registry resets.
+
+A namespace loaded immediately after `vi.resetModules()`, `vi.doMock()` or `vi.doUnmock()` is also ignored.
+Keep those dynamic imports when module evaluation order matters. Consider a static import only when
+that order can stay the same.
+
+**When to disable.** Review a report when setup and application actions cannot be distinguished
+from syntax alone. The rule does not report:
+
+- imports in spec-local helpers, mock factories, lazy route loaders or other nested callbacks;
+- callbacks wrapped in helpers, such as `it('x', waitForAsync(async () => …))`;
+- a bound namespace in the first statement of a test or hook;
+- recognised Angular provider setup in `beforeEach` or `beforeAll`.
 
 ::: details How it decides
-**What is reported:** `await import('./thing')`, the destructured
-`const { Thing } = await import('./thing')`, and `import('./thing').then(…)`.
+The rule checks `await import('./thing')`, destructured bindings and `import('./thing').then(…)`.
+The innermost enclosing function must be a runner callback: `it`, `test`, `beforeEach`, `beforeAll`,
+`afterEach` or `afterAll`, including `.only`, `.skip` and `.each` forms.
 
-**Two facts in the file decide it:**
+A bound namespace as the first statement is ignored, for example `ns = await import('@scope/lib')`.
+A bare `await import(…)` in that position is still reported: it may be waiting for work started by
+another hook. Later namespace bindings are checked for provider setup; unrelated imports after
+preparation or actions remain reportable.
 
-1. what sits on the `import()`: an `await` parent, or a `.then` call;
-2. which function it sits in. The report is made only where the innermost enclosing function is the
-   runner's own callback: `it`, `test`, `beforeEach`, `beforeAll`, `afterEach`, `afterAll`, in their
-   `.only`, `.skip` and `.each` forms.
-
-No type information is needed, as for [`no-sync-testbed-await`](#no-sync-testbed-await).
-
-That second fact settles every exemption. Each shape where the helper is the wrong advice puts a
-function of its own between the callback and the import:
-
-- a `vi.mock` / `vi.doMock` factory;
-- a lazy route's `loadComponent` / `loadChildren` in a fixture the spec hands to the router;
-- a callback the spec gives the code under test;
-- `settleDynamicImport`'s own `() => import(…)`.
-
-A module-scope `import()` has no enclosing callback at all.
-
-**The first statement.** A bound namespace as the first statement of a test or hook is not reported
-(for example `ns = await import('@scope/lib')` in a `beforeEach` that then spies on it). A bare
-`await import(…)` in the same place is still reported: it can only be waiting for something a hook
-started loading. After an arrangement line, as in `configure(…); const { run } = await import('./run')`,
-the binding is reported. That line looks the same as the `button.click()` that starts the load, and
-the rule cannot tell them apart.
-
-**Why it is recommended.** The module registry is shared, so the spec's `import()` resolves against
-the module the code under test is already loading. It does not wait for that code's own
-continuation: the lines after _its_ `await`, which open the dialog, set the signal or navigate. Those
-are queued behind the loader's microtask. The assertion reads the state one turn early. The test is
-green only while the continuation is short enough to drain by accident, and it turns red the day
-somebody adds a line. That is a flake with no bad line in it.
-
-On an Angular monorepo of 2 030 spec files: **81 reports across 32 files**. What sat next to them is
-the stronger evidence. Four reports in one file had a hand-written `await Promise.resolve()` under
-the import: a `flushEventLoop(1)` spelled out. Eleven more sites of the same shape had been moved into
-spec-local helpers: `flushCodeInputChunk`, `settleAccountPickerImport`, `settleModalImports`,
-`settleModalComponentImport` and `flushLazyImport`, two of them with a loop of five
-`await Promise.resolve()`. The project had rewritten this helper by hand eleven times. Those eleven
-are exactly the spec-local shape the rule declines to read.
-
-**Severity.** `error`. The evidence is the line, the fix is one line the rule offers as an edit, and
-there is no migration to gate, unlike [`prefer-set-inputs`](#prefer-set-inputs). A large project will
-not reach zero at once, and that is the argument for `error`: 81 one-line findings in 32 of 2 030
-files, each a test that waits for the wrong thing.
+The rule uses syntax, not types or runtime traces. A report identifies a possible incomplete wait;
+it does not prove that a particular test is flaky. If the application exposes a completion promise,
+await that promise directly.
 :::
 
 ## no-real-wait-in-test

@@ -10,6 +10,13 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Fixed
+
+- **`prefer-settle-dynamic-import` recognises Angular provider setup in setup hooks.** A namespace
+  loaded for providers is allowed after logger or fixture preparation. Imports after application
+  actions remain checked. The English and Russian rule guides distinguish provider loading from
+  waiting for handlers, and clarify that `Promise.resolve()` does not take an event-loop turn.
+
 ## [5.61.0] - 2026-10-07
 
 ### Added

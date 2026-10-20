@@ -22,6 +22,17 @@ fixture.debugElement.query(By.css('.open')).nativeElement.click(); // production
 await settleDynamicImport(() => import('./profile-select.modal'));
 ```
 
+**Loading provider classes is setup, not a wait for application work.** Keep
+`const { PremiumService } = await import('./premium.service')` when its exports configure Angular
+providers before creating the service under test. `settleDynamicImport` is useful after an action
+starts a lazy import; it adds no needed wait merely to read provider classes. Preserve dynamic
+imports when module evaluation order matters, including `vi.resetModules()` / `vi.doMock()` setup.
+The ESLint rule recognises provider setup in `beforeEach` / `beforeAll`. Earlier fixture factories
+must be imported functions whose bound results also supply providers. Member calls and other
+actions prevent this exemption, except recognised module-registry resets.
+
+`await Promise.resolve()` yields to microtasks; it is not equivalent to `flushEventLoop(1)`.
+
 Three rules worth stating outright, because each of them cost a day somewhere:
 
 - **`afterNextRender` does not run on `detectChanges()`.** A component that fills a form there is
@@ -30,9 +41,8 @@ Three rules worth stating outright, because each of them cost a day somewhere:
 - **`fixture.whenRenderingDone()` is not a stronger `whenStable()`.** With an animation renderer
   installed it degrades to `Promise.resolve()`. Use `stable(fixture)`.
 - **`fakeAsync` / `tick()` / `flushMicrotasks()` never reach the module loader.** Spinning
-  `await Promise.resolve()` ten times looks like it works and instead lands the continuation after
-  teardown — a green run with `NG0205: Injector has already been destroyed` in "Unhandled Errors"
-  and a non-zero exit code.
+  `await Promise.resolve()` ten times may leave a continuation until after teardown, causing
+  `NG0205: Injector has already been destroyed` in "Unhandled Errors" and a non-zero exit code.
 
 **`stable()` and `flushEffects()` are not zoneless-only, and their tick runs inside the `NgZone` so
 that they are not.** `TestBed.createComponent` builds the component inside `ngZone.run(…)`, so an
