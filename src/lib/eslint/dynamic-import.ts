@@ -6,17 +6,13 @@
  * in a click handler — hands the spec no promise to hold on to. So the spec loads the same
  * specifier itself, which works as far as it goes: the module registry is shared, the second
  * `import()` resolves against the instance the first one is already loading, and awaiting it does
- * wait for the module. What it does **not** wait for is the handler's own continuation — the lines
- * *after* its `await`, which are the ones that open the dialog, set the signal or navigate. Those
- * are queued behind the loader's microtask, and the assertion runs a turn too early. The test is
- * green only while that continuation is short enough to have drained by accident, and it turns red
- * on the day somebody adds a line to it — a flake with no bad line in it.
+ * wait for the module. It does not guarantee that the handler's own continuation — the lines
+ * *after* its `await`, which open the dialog, set the signal or navigate — has finished too.
+ * Further asynchronous work in that continuation can leave the assertion reading state too early.
  *
- * `settleDynamicImport(load, turns = 1)` is the same `await` plus `flushEventLoop(turns)`, which is
- * the turn the continuation needs. The tell that a suite has already met this is a hand-rolled half
- * of it: an `await Promise.resolve()` written under the import (a `flushEventLoop(1)` spelled out),
- * or a local `const flushLazyImport = async () => { await import('…'); }` — both were found in the
- * consumer this rule was measured on, four lines apart in one file.
+ * `settleDynamicImport(load, turns = 1)` is the same `await` plus `flushEventLoop(turns)`.
+ * A hand-written `await Promise.resolve()` under the import yields to microtasks only; it is not
+ * an event-loop turn and does not replace the helper's flush.
  *
  * **Syntax only.** `import(…)` is its own node and `await` is its parent; nothing here asks what
  * the specifier resolves to, the way `no-sync-testbed-await` decides on a member name alone.
@@ -24,7 +20,7 @@
  * **Where it stays silent, and why each one is silence rather than a report.** The report is made
  * only where the innermost function around the `import()` is the runner's own callback — an `it` /
  * `test` body or a `beforeEach` / `beforeAll` / `afterEach` / `afterAll` hook, in their `.only`,
- * `.skip` and `.each` spellings too. One test settles every exemption at once, because each of the
+ * `.skip` and `.each` spellings too. Several exemptions follow from that boundary: each of the
  * shapes where the helper is the wrong advice puts a **function of its own** between the callback
  * and the import: a `vi.mock` / `vi.doMock` factory, a lazy route's `loadComponent` /
  * `loadChildren`, a callback the spec hands to production code, and `settleDynamicImport`'s own
@@ -40,11 +36,15 @@
  * **Nor is a namespace taken before the callback does anything.** `const ns = await import('./x')`
  * — or `ns = await import(…)` — as the **first** statement of a test or a hook is the spec fetching
  * a module to read it: a barrel's exports, the handle on a `vi.mock`ed package a `beforeEach`
- * spies on. Nothing in that callback has run yet whose continuation could be pending, and the
- * repair is a static `import * as ns`, not a turn of the event loop. The same holds right after
+ * spies on. Nothing in that callback has run yet whose continuation could be pending. A static
+ * import is an option only when module evaluation order can stay the same. The same holds right after
  * `vi.resetModules()` / `vi.doMock(…)` / `vi.doUnmock(…)`: the import loads a copy nothing else holds.
+ * Before-hooks also fetch provider classes after preparing fixture values. A bound import used in
+ * that hook's `TestBed.configureTestingModule({ providers: […] })` stays silent while preceding
+ * statements only prepare fixtures; calls on the system under test and injector calls end that
+ * exemption. Neither path proves what another hook or another module may already have started.
  */
-import { PACKAGE, bindingState, importNamed } from './bindings';
+import { PACKAGE, bindingState, findBinding, importNamed, importSpecifierOf } from './bindings';
 import { defineRule } from './define-rule';
 import { excerpt } from './message-data';
 import {
@@ -54,6 +54,7 @@ import {
   type RuleContext,
   type RuleModule,
   type SuggestionDescriptor,
+  anyInSubtree,
   enclosingFunction,
   isAssignmentExpression,
   isBlockStatement,
@@ -64,6 +65,7 @@ import {
   isRunnerCall,
   isVariableDeclarator,
   memberName,
+  propertyName,
 } from './rule-types';
 
 /** The helper the report names, and the name a suggestion writes. */
@@ -97,17 +99,17 @@ export function runnerBehind(callee: EsNode): string | undefined {
   return isCallExpression(callee) ? runnerBehind(callee.callee) : undefined;
 }
 
-/** Whether `node` is evaluated by the spec's own flow, rather than by something the spec handed a callback to. */
-function insideRunnerCallback(node: EsNode): boolean {
+/** The runner callback evaluating `node`, rather than a callback handed to application code. */
+function enclosingRunner(node: EsNode): string | undefined {
   const callback = enclosingFunction(node);
 
   if (!callback) {
-    return false;
+    return undefined;
   }
 
   const call = callback.parent;
 
-  return isCallExpression(call) && call.arguments.includes(callback) && runnerBehind(call.callee) !== undefined;
+  return isCallExpression(call) && call.arguments.includes(callback) ? runnerBehind(call.callee) : undefined;
 }
 
 /**
@@ -171,6 +173,135 @@ function takesTheNamespaceFirst(node: EsNode, bound: Set<EsNode>): boolean {
   return before === undefined ? statement.parent === callback.body : resetsRegistry(before);
 }
 
+/** Whether a reference supplies a provider in a direct testing-module configuration. */
+function providerReference(context: RuleContext, reference: EsNode, callback: EsNode): boolean {
+  if (enclosingFunction(reference) !== callback) {
+    return false;
+  }
+
+  let current = reference;
+
+  while (current !== callback) {
+    if (propertyName(current) === 'providers') {
+      const configuration = current.parent;
+      const call = configuration.parent;
+
+      if (!isCallExpression(call) || !call.arguments.includes(configuration)) {
+        return false;
+      }
+
+      if (!isMemberExpression(call.callee) || memberName(call.callee) !== 'configureTestingModule' || !isIdentifier(call.callee.object)) {
+        return false;
+      }
+
+      const receiver = call.callee.object;
+      const binding = findBinding(context.sourceCode.getScope(receiver), receiver.name);
+      const specifier = binding && importSpecifierOf(binding);
+
+      return specifier
+        ? isIdentifier(specifier.imported) &&
+            specifier.imported.name === 'TestBed' &&
+            specifier.parent.source.value === '@angular/core/testing'
+        : binding === undefined && receiver.name === 'TestBed';
+    }
+
+    current = current.parent;
+  }
+
+  return false;
+}
+
+/** A bound value whose later reads include a provider in this callback (destructuring aliases included). */
+function suppliesProvider(context: RuleContext, awaited: EsNode, callback: EsNode): boolean {
+  const holder = awaited.parent;
+  const pattern = isVariableDeclarator(holder) ? holder.id : isAssignmentExpression(holder) ? holder.left : undefined;
+
+  return (
+    pattern !== undefined &&
+    anyInSubtree(
+      context,
+      pattern,
+      (candidate) => {
+        if (!isIdentifier(candidate)) {
+          return false;
+        }
+
+        const binding = findBinding(context.sourceCode.getScope(candidate), candidate.name);
+
+        const writes = binding?.references.filter((reference) => reference.writeExpr) ?? [];
+
+        return (
+          writes.length === 1 &&
+          writes[0]?.writeExpr === awaited &&
+          binding?.references.some(
+            (reference) => reference.identifier.range[0] > awaited.range[1] && providerReference(context, reference.identifier, callback),
+          ) === true
+        );
+      },
+      false,
+    )
+  );
+}
+
+/**
+ * A fixture factory is preparation only when its result is bound and later supplies a provider.
+ * Member calls and unbound calls remain barriers: either can already start the system under test.
+ */
+function preparesProvider(context: RuleContext, call: EsNode, callback: EsNode): boolean {
+  if (!isCallExpression(call) || !isIdentifier(call.callee)) {
+    return false;
+  }
+
+  const binding = findBinding(context.sourceCode.getScope(call), call.callee.name);
+
+  return binding?.defs.some((definition) => definition.type === 'ImportBinding') === true && suppliesProvider(context, call, callback);
+}
+
+/**
+ * A hook may build fixture values before loading its provider classes. Follow the bound provider
+ * references rather than treating every import after the hook's first statement as a lazy-load wait.
+ * Only straight-line setup before any other call qualifies; local setup functions keep the existing
+ * function-boundary exemption, and test bodies retain their stricter first-statement heuristic.
+ */
+function loadsProviderForSetup(context: RuleContext, node: EsNode, runner: string): boolean {
+  const callback = enclosingFunction(node);
+  const statement = bindingStatement(node.parent);
+
+  if (!callback || statement?.parent !== callback.body || !isBlockStatement(callback.body)) {
+    return false;
+  }
+
+  if ((runner !== 'beforeAll' && runner !== 'beforeEach') || !suppliesProvider(context, node.parent, callback)) {
+    return false;
+  }
+
+  return callback.body.body
+    .slice(0, callback.body.body.indexOf(statement))
+    .every(
+      (before) =>
+        (before.type === 'VariableDeclaration' || isExpressionStatement(before)) &&
+        !anyInSubtree(
+          context,
+          before,
+          (candidate) =>
+            (isAssignmentExpression(candidate) && !isIdentifier(candidate.left)) ||
+            (candidate.type === 'UnaryExpression' && Reflect.get(candidate, 'operator') === 'delete') ||
+            ((isCallExpression(candidate) ||
+              candidate.type === 'NewExpression' ||
+              candidate.type === 'AwaitExpression' ||
+              candidate.type === 'UpdateExpression') &&
+              !preparesProvider(context, candidate, callback) &&
+              !(
+                candidate.type === 'AwaitExpression' &&
+                suppliesProvider(context, candidate, callback) &&
+                anyInSubtree(context, candidate, (child) => child.type === 'ImportExpression' && child.parent === candidate, false)
+              ) &&
+              !isRunnerCall(candidate, REGISTRY_RESETS)),
+          false,
+        ),
+    );
+}
+
 /** `import(x)` → `settleDynamicImport(() => import(x))`, importing the helper when the name is free. */
 function wrap(context: RuleContext, node: EsNode): SuggestionDescriptor | undefined {
   const state = bindingState(context.sourceCode.getScope(node), HELPER);
@@ -203,7 +334,7 @@ export const preferSettleDynamicImport: RuleModule = defineRule({
   description: 'Load a module the code under test lazy-loads with settleDynamicImport(), not a bare await import()',
   hasSuggestions: true,
   messages: {
-    awaitedDynamicImport: `\`await {{load}}\` waits for the module, not for the code under test that was loading it: its continuation after its own \`await\` has not run yet, so the assertions below read the state one turn early. ${REPAIR}`,
+    awaitedDynamicImport: `\`await {{load}}\` waits for the module, not for the code under test that was loading it: its continuation after its own \`await\` may still be pending, so the assertions below may read state too early. ${REPAIR}`,
     thenedDynamicImport: `\`{{load}}.then(…)\` waits for the module, not for the code under test that was loading it, and its callback runs later still, after the test ends if nothing awaits it. ${REPAIR}`,
   },
   create: (context) => {
@@ -212,8 +343,13 @@ export const preferSettleDynamicImport: RuleModule = defineRule({
     return {
       ImportExpression: (node: EsNode): void => {
         const consumption = consumptionOf(node);
+        const runner = enclosingRunner(node);
 
-        if (consumption === undefined || !insideRunnerCallback(node) || (consumption === 'await' && takesTheNamespaceFirst(node, bound))) {
+        if (
+          consumption === undefined ||
+          runner === undefined ||
+          (consumption === 'await' && (takesTheNamespaceFirst(node, bound) || loadsProviderForSetup(context, node, runner)))
+        ) {
           return;
         }
 

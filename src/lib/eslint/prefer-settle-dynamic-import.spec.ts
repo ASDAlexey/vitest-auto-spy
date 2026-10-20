@@ -204,4 +204,208 @@ describe('prefer-settle-dynamic-import', () => {
     expect(count(`const flushLazyImport = async () => { await import('./modal'); };`)).toBe(0);
     expect(count(`async function load() { await import('./modal'); }`)).toBe(0);
   });
+
+  it('leaves imports used to configure Angular providers after preparing a logger', () => {
+    const code = `
+      import { TestBed } from '@angular/core/testing';
+      import { provideAutoSpy } from 'vitest-auto-spy/angular';
+      import { createAppLoggerDouble } from './logger-doubles';
+      let logger;
+      beforeEach(async () => {
+        logger = createAppLoggerDouble();
+        const { PurchaseFlowService: PurchaseService } = await import('./purchase');
+        const { PremiumService } = await import('./premium');
+        TestBed.configureTestingModule({
+          providers: [
+            { provide: LOGGER, useValue: logger },
+            provideAutoSpy(PurchaseService),
+            { provide: PremiumService, useValue: premium },
+          ],
+        });
+        service = TestBed.inject(PromoService);
+      });
+    `;
+
+    expect(verify(code)).toEqual([]);
+  });
+
+  it('leaves the local onboarding setup and leading provider imports alone', () => {
+    expect(
+      count(`
+      const setup = async () => {
+        const { PremiumService } = await import('./premium');
+        TestBed.configureTestingModule({ providers: [provideAutoSpy(PremiumService)] });
+      };
+      beforeEach(async () => { await setup(); });
+    `),
+    ).toBe(0);
+    expect(
+      count(`
+      beforeEach(async () => {
+        const { PremiumService } = await import('./premium');
+        TestBed.configureTestingModule({ providers: [provideAutoSpy(PremiumService)] });
+      });
+    `),
+    ).toBe(0);
+  });
+
+  it('recognizes an aliased TestBed and a namespace used as a provider', () => {
+    expect(
+      count(`
+      import { TestBed as bed } from '@angular/core/testing';
+      import { makeLogger as buildLogger } from './logger';
+      import { provideAutoSpy } from 'vitest-auto-spy/angular';
+      beforeAll(async () => {
+        const logger = buildLogger();
+        const feature = await import('./feature');
+        bed.configureTestingModule({ providers: [
+          { provide: LOGGER, useValue: logger },
+          provideAutoSpy(feature.PremiumService),
+        ] });
+      });
+    `),
+    ).toBe(0);
+  });
+
+  it.each(['service.start()', 'button.click()', 'TestBed.inject(PromoService)', 'TestBed.createComponent(PromoComponent)'])(
+    'still reports an import after %s even if its class is used as a provider',
+    (action) => {
+      expect(
+        count(`
+        import { TestBed } from '@angular/core/testing';
+        import { provideAutoSpy } from 'vitest-auto-spy/angular';
+        beforeEach(async () => {
+          ${action};
+          const { PremiumService } = await import('./premium');
+          TestBed.configureTestingModule({ providers: [provideAutoSpy(PremiumService)] });
+        });
+      `),
+      ).toBe(1);
+    },
+  );
+
+  it('keeps reporting imports in test actions and imports unrelated to providers', () => {
+    expect(
+      count(`
+      it('opens', async () => {
+        button.click();
+        const { PremiumService } = await import('./premium');
+        TestBed.configureTestingModule({ providers: [provideAutoSpy(PremiumService)] });
+      });
+    `),
+    ).toBe(1);
+    expect(
+      count(`
+      beforeEach(async () => {
+        logger = createAppLoggerDouble();
+        const { Modal } = await import('./modal');
+        TestBed.configureTestingModule({ providers: [provideAutoSpy(OtherService)] });
+        expect(dialog.open).toHaveBeenCalledWith(Modal);
+      });
+    `),
+    ).toBe(1);
+  });
+
+  it('does not exempt unbound factory calls or member calls whose result is a provider value', () => {
+    for (const preparation of ['makeLogger()', 'const logger = service.start()']) {
+      expect(
+        count(`
+        import { TestBed } from '@angular/core/testing';
+        import { makeLogger } from './logger';
+        beforeEach(async () => {
+          ${preparation};
+          const { PremiumService } = await import('./premium');
+          TestBed.configureTestingModule({ providers: [
+            { provide: LOGGER, useValue: logger },
+            { provide: PremiumService, useValue: premium },
+          ] });
+        });
+      `),
+      ).toBe(1);
+    }
+  });
+
+  it.each(['service.enabled = true', 'delete service.options', 'service.count++'])(
+    'keeps %s as a possible application action before a provider import',
+    (action) => {
+      expect(
+        count(`
+        beforeEach(async () => {
+          ${action};
+          const { PremiumService } = await import('./premium');
+          TestBed.configureTestingModule({ providers: [PremiumService] });
+        });
+      `),
+      ).toBe(1);
+    },
+  );
+
+  it.each([
+    'register({ providers: [PremiumService] })',
+    'getTestBed().configureTestingModule({ providers: [PremiumService] })',
+    'OtherBed.configureTestingModule({ providers: [PremiumService] })',
+    'TestBed.configureTestingModule({ providers: [() => PremiumService] })',
+  ])('does not infer Angular provider setup from %s', (configuration) => {
+    expect(
+      count(`
+      import { createLoggerDouble } from './logger';
+      let logger;
+      beforeEach(async () => {
+        logger = createLoggerDouble();
+        const { PremiumService } = await import('./premium');
+        ${configuration};
+      });
+    `),
+    ).toBe(1);
+  });
+
+  it('recognizes global TestBed in test harnesses, but rejects shadowed TestBed', () => {
+    const setup = `
+      import { createLoggerDouble } from './logger';
+      beforeEach(async () => {
+        const logger = createLoggerDouble();
+        const { PremiumService } = await import('./premium');
+        TestBed.configureTestingModule({ providers: [{ provide: LOGGER, useValue: logger }, PremiumService] });
+      });
+    `;
+
+    expect(count(setup)).toBe(0);
+    expect(count(`const TestBed = other; ${setup}`)).toBe(1);
+  });
+
+  it('does not mistake a providers property in fixture data for TestBed configuration', () => {
+    expect(
+      count(`
+      import { createLoggerDouble } from './logger';
+      beforeEach(async () => {
+        const logger = createLoggerDouble();
+        const { PremiumService } = await import('./premium');
+        const options = { providers: [PremiumService] };
+        TestBed.configureTestingModule({ providers: [{ provide: LOGGER, useValue: logger }] });
+      });
+    `),
+    ).toBe(1);
+  });
+
+  it('does not confuse destructuring keys or reassigned values with provider bindings', () => {
+    expect(
+      count(`
+      beforeEach(async () => {
+        logger = createLoggerDouble();
+        const { PremiumService: OtherService } = await import('./premium');
+        TestBed.configureTestingModule({ providers: [PremiumService] });
+      });
+    `),
+    ).toBe(1);
+    expect(
+      count(`
+      beforeEach(async () => {
+        logger = createLoggerDouble();
+        let { PremiumService } = await import('./premium');
+        PremiumService = other;
+        TestBed.configureTestingModule({ providers: [PremiumService] });
+      });
+    `),
+    ).toBe(1);
+  });
 });
