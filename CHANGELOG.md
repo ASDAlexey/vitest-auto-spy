@@ -10,6 +10,12 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- `createDeferred<T>()` returns a typed pending promise with detached `resolve` and `reject`
+  functions, for assertions before an awaited collaborator finishes. It defaults to `void` and
+  works on supported runtimes without `Promise.withResolvers`.
+
 ### Fixed
 
 - **`prefer-settle-dynamic-import` recognises Angular provider setup in setup hooks.** A namespace

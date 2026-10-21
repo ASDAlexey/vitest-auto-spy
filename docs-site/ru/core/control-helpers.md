@@ -261,6 +261,33 @@ products.getProducts.calledWith(1).resolveWith(['one']);
 `mockReturnValue` (см. [Синхронные методы](#synchronous-methods)). Для значения по умолчанию используйте
 `resolveWith`.
 
+### Управление незавершённым Promise — `createDeferred` {#keeping-a-promise-pending-—-createdeferred}
+
+`createDeferred<T>()` возвращает `{ promise, resolve, reject }`. Используйте его, чтобы проверить
+состояние до завершения асинхронной зависимости, затем разрешить ей продолжить работу без таймеров.
+
+```ts
+import { expect } from 'vitest';
+import { createDeferred } from 'vitest-auto-spy';
+
+const home = createDeferred<boolean>();
+const events: string[] = [];
+const navigation = home.promise.then((ok) => {
+  events.push('deeplink');
+  return ok;
+});
+expect(events).toEqual([]);
+home.resolve(true);
+await expect(navigation).resolves.toBe(true);
+expect(events).toEqual(['deeplink']);
+```
+
+`resolve` принимает значение или `PromiseLike<T>`, `reject(reason)` отклоняет Promise с указанной
+причиной. `createDeferred()` использует тип `void`, поэтому достаточно `resolve()` без аргумента.
+Завершите Promise до ожидания зависимой операции, иначе тест зависнет. Каждый вызов создаёт
+отдельный нативный Promise; первый вызов завершения определяет результат. Фальшивые таймеры и
+`Promise.withResolvers` не нужны. Для других раннеров импортируйте из `/bun`, `/node` или `/rstest`.
+
 ### Как посмотреть, чем кончились промисы, — `mock.settledResults` {#settled-results}
 
 У каждого метода спая есть `mock.settledResults`: по записи на вызов, в порядке вызовов, о том, чем

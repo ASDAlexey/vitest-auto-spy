@@ -220,3 +220,11 @@ closures, not on the runner's mock. So when a spy outlives a test — a TestBed 
 a spy hoisted to `describe` scope — put `resetAutoSpy(spy)` in `beforeEach`. Inside one test the
 sequence `nextWith(a)` then `throwWith(e)` still means "emit a, then fail"; only a reset or a
 terminal call starts a new stream.
+
+### Keeping an awaited collaborator pending
+
+`createDeferred<T>()` from the core entry returns `{ promise, resolve, reject }`. Return `promise`
+from the spy, start the operation, assert the intermediate state, then `resolve(value)` and await
+the operation. `createDeferred()` defaults to `void`; `resolve()` then needs no argument.
+Do not await the operation before resolving its dependency. No timer or `Promise.withResolvers`
+is required. Use the runner's core entry (`/bun`, `/node`, `/rstest`) outside Vitest.
