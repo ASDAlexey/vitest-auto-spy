@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.63.0] - 2026-10-21
+
 ### Added
 
 - `createDeferred<T>()` returns a typed pending promise with detached `resolve` and `reject`
@@ -10094,7 +10096,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.62.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.63.0...HEAD
+[5.63.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.62.0...v5.63.0
 [5.62.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.61.0...v5.62.0
 [5.61.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.60.0...v5.61.0
 [5.60.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.59.1...v5.60.0
