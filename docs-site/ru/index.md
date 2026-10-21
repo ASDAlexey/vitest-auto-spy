@@ -24,7 +24,7 @@ features:
     details: 'createSpyFromClass читает класс, поэтому у объекта со спаями те же методы и сигнатуры. Переименуете метод - спека, которая его вызывает, перестанет компилироваться. Фабричный метод отвечает спаем другого класса через returnsClass, а innerDouble достаёт этот спай, не засчитывая вызов.'
     link: /ru/core/create-spy-from-class
   - title: Хелперы под тип возврата
-    details: 'Методу, который возвращает Promise, достаются resolveWith и rejectWith. Методу с Observable - nextWith и throwWith. С calledWith метод может отвечать по-разному на разные аргументы.'
+    details: 'Методу, который возвращает Promise, достаются resolveWith и rejectWith. Методу с Observable - nextWith и throwWith. С calledWith метод может отвечать по-разному на разные аргументы. createDeferred оставляет асинхронную зависимость незавершённой до команды теста.'
     link: /ru/core/control-helpers
   - title: Настройки по умолчанию рядом с классом
     details: 'Настройте класс один раз в setup-файле тестов через registerAutoSpyDefaults. Каждый спай этого класса начнёт с этих настроек, а спека добавит только то, что отличается.'

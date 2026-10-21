@@ -250,6 +250,9 @@ Rules that carry most of the value:
 In [`agent-docs/return-helpers.md`](./agent-docs/return-helpers.md). Read it when stubbing a return value: `calledWith`, `resolveWith`, `nextWith`, `returnSubject` and the rest, by return type.
 
 <!-- agents-outline: agent-docs/return-helpers.md -->
+
+- Keeping an awaited collaborator pending
+
 <!-- /agents-outline -->
 
 ---
