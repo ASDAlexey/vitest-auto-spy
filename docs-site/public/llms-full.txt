@@ -2371,6 +2371,33 @@ products.getProducts.calledWith(1).resolveWith(['one']);
 **Common mistake:** `mockResolvedValue` after a `calledWith` chain. It replaces the chain, like
 `mockReturnValue` (see [Synchronous methods](#synchronous-methods)). Use `resolveWith` for the default.
 
+### Keeping a promise pending — `createDeferred`
+
+`createDeferred<T>()` returns `{ promise, resolve, reject }`. Use it to check what happens before
+an awaited collaborator finishes, then release that collaborator without timers.
+
+```ts
+import { expect } from 'vitest';
+import { createDeferred } from 'vitest-auto-spy';
+
+const home = createDeferred<boolean>();
+const events: string[] = [];
+const navigation = home.promise.then((ok) => {
+  events.push('deeplink');
+  return ok;
+});
+expect(events).toEqual([]);
+home.resolve(true);
+await expect(navigation).resolves.toBe(true);
+expect(events).toEqual(['deeplink']);
+```
+
+`resolve` accepts a value or a `PromiseLike<T>`; `reject(reason)` rejects with that reason.
+`createDeferred()` defaults to `void`, so `resolve()` needs no argument. Settle the promise before
+awaiting the operation that depends on it, or the test will wait forever. Each call creates an
+independent native promise; the first settlement wins. No fake timers or `Promise.withResolvers`
+are required. Import from `/bun`, `/node` or `/rstest` when using those runners.
+
 ### Inspecting promise outcomes — `mock.settledResults`
 
 Every spied method has `mock.settledResults`: one entry per call, in call order, saying how that
