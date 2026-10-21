@@ -217,6 +217,9 @@ export { narrow } from './lib/narrow';
 // A call-order journal — the sequence across collaborators, which per-method spies cannot express
 export { createLog, type CallLog } from './lib/call-log';
 
+// Async collaborators that must stay pending until the test releases them
+export { createDeferred, type Deferred } from './lib/deferred';
+
 // A fixture built from a model instance: its getters read once, as data
 export { withOverrides } from './lib/with-overrides';
 
