@@ -62,19 +62,4 @@ export {
 } from './lib/resource-prop';
 export { mockSignalProp, mockSignalProps, type SignalPropHandles, type SignalPropValues } from './lib/signal-prop';
 
-export {
-  expectAllEmissions,
-  expectCompletion,
-  expectEmission,
-  expectEmissions,
-  expectError,
-  expectNoEmission,
-  setEmissionTimeout,
-  type CallbackSubscribable,
-  type EmissionObserver,
-  type EmissionOptions,
-  type EmissionSource,
-  type SubscribableLike,
-} from './lib/expect-emission';
-export { expectNoEmissionSync } from './lib/emission-sync';
-export { expectEmissionSync, expectEmissionsSync, type SyncEmissionOptions } from './lib/emission-positive-sync';
+export * from './lib/emission-assertions';
