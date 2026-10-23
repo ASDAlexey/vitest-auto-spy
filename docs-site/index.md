@@ -33,7 +33,7 @@ features:
     details: 'The same spec runs on Vitest 2.1 to 5, Bun, node:test and Rstest. You change one import, not the tests.'
     link: /runtimes/vitest
   - title: Built for Angular
-    details: 'provideAutoSpy and injectSpy for TestBed, shallow rendering, signals, resources, router, HTTP and signal forms. Works with zoneless and zone.js projects. createWindowSpies checks browser calls without changing the real window.'
+    details: 'provideAutoSpy and injectSpy for TestBed, shallow rendering, signals, resources, router, HTTP and signal forms. mockElementRefProp replaces element-query setup with one call; createWindowSpies checks browser calls. Works with zoneless and zone.js projects.'
     link: /adapters/angular
   - title: NestJS, React, Vue and Svelte
     details: 'Each framework has its own entry point - provideAutoSpy for NestJS testing modules and Vue global.provide, familiar imports for React and Svelte.'
