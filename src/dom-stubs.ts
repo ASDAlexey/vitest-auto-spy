@@ -70,5 +70,10 @@ export {
 // An `HTMLElement` for `ElementRef`, with classList, style, attributes and listeners on spies
 export { createElementStub, type ClassListStub, type ElementStub, type ElementStubOptions, type StyleStub } from './lib/element-stub';
 
+// Cancelable text-only paste/drop events, including environments without DataTransfer constructors
+export { createDropEvent, createPasteEvent } from './lib/text-transfer-event';
+
 // The members jsdom and happy-dom leave out, filled from the setup file before `setupAutoSpy()`
 export { type FillMissingDomApisOptions, fillMissingDomApis } from './lib/fill-dom-apis';
+
+export { createDomEvent, createInputEvent, type DomEventInit, type InputValueEvent, type InputValueEventInit } from './lib/dom-event';
