@@ -199,6 +199,104 @@ describe('createElementStub', () => {
     }
   });
 
+  it('uses the chosen element prototype while keeping native members guarded', () => {
+    const stub = createElementStub({ elementClass: HTMLInputElement, tagName: 'input', overrides: { checked: true } });
+
+    expect(stub.element).toBeInstanceOf(HTMLInputElement);
+    expect(stub.element).toBeInstanceOf(HTMLElement);
+    expect(stub.element).toBeInstanceOf(Element);
+    expect(stub.element.constructor).toBe(HTMLInputElement);
+    expect(stub.element.checked).toBe(true);
+    expect(() => stub.element.value).toThrow(/read <input>\.value, which the stub does not implement/);
+    expect(() => stub.element.offsetWidth).toThrow(/read <input>\.offsetWidth, which the stub does not implement/);
+    expect(() => stub.element.checkValidity()).toThrow(/read <input>\.checkValidity, which the stub does not implement/);
+
+    stub.element.value = 'draft';
+    stub.element.value = 'saved';
+    stub.element.checked = false;
+    stub.element.id = 'field';
+    stub.element.focus();
+
+    expect(stub.element.value).toBe('saved');
+    expect(stub.element.checked).toBe(false);
+    expect(stub.attributes()).toEqual({ id: 'field' });
+    expect(stub.focus).toHaveBeenCalledOnce();
+    // eslint-disable-next-line no-prototype-builtins -- exercise the stub's inherited member access through the guard
+    expect(stub.element.hasOwnProperty('value')).toBe(true);
+    expect(createElementStub().element).not.toBeInstanceOf(HTMLElement);
+    // eslint-disable-next-line no-prototype-builtins -- default stubs must preserve inherited Object members too
+    expect(createElementStub().element.hasOwnProperty('focus')).toBe(true);
+  });
+
+  it('does not construct a custom element and guards its own prototype members', () => {
+    class CustomInput extends HTMLInputElement {
+      constructor() {
+        super();
+        throw new Error('must not construct');
+      }
+
+      get label(): string {
+        throw new Error('must not invoke getter');
+      }
+    }
+
+    const stub = createElementStub({ elementClass: CustomInput });
+
+    expect(stub.element).toBeInstanceOf(CustomInput);
+    expect(stub.element.tagName).toBe('DIV');
+    expect(() => stub.element.label).toThrow(/read <div>\.label, which the stub does not implement/);
+  });
+
+  it('preserves Object members when the selected class comes from another realm', () => {
+    const frame = document.createElement('iframe');
+
+    document.body.append(frame);
+
+    try {
+      const frameWindow = frame.contentWindow;
+
+      if (frameWindow === null) {
+        throw new Error('The attached iframe must have a window');
+      }
+
+      // Window's DOM type omits realm constructors; the iframe supplies the same browser API.
+      // eslint-disable-next-line vitest-auto-spy/no-reflect-member-access -- read a constructor from the iframe realm, which Window's type does not expose
+      const elementClass: typeof HTMLInputElement = Reflect.get(frameWindow, 'HTMLInputElement');
+      const stub = createElementStub({ elementClass, overrides: { value: 'draft' } });
+
+      expect(stub.element).toBeInstanceOf(elementClass);
+      expect(stub.element.hasOwnProperty).not.toBe(Object.prototype.hasOwnProperty);
+      // eslint-disable-next-line no-prototype-builtins -- exercise the foreign Object member through the stub's guard
+      expect(stub.element.hasOwnProperty('value')).toBe(true);
+      // eslint-disable-next-line no-prototype-builtins -- exercise the foreign Object member before the first write
+      expect(stub.element.hasOwnProperty('checked')).toBe(false);
+      expect(() => stub.element.checked).toThrow(/read <div>\.checked, which the stub does not implement/);
+
+      stub.element.checked = true;
+
+      expect(stub.element.checked).toBe(true);
+      // eslint-disable-next-line no-prototype-builtins -- exercise the foreign Object member after the first write
+      expect(stub.element.hasOwnProperty('checked')).toBe(true);
+    } finally {
+      frame.remove();
+    }
+  });
+
+  it('guards an explicit prototype even when the global HTMLElement is unavailable', () => {
+    const elementClass = HTMLInputElement;
+
+    vi.stubGlobal('HTMLElement', undefined);
+
+    try {
+      const stub = createElementStub({ elementClass });
+
+      expect(stub.element).toBeInstanceOf(elementClass);
+      expect(() => stub.element.value).toThrow(/which the stub does not implement/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('reaches a directive through ElementRef', () => {
     const host = createElementStub({ classes: ['card'] });
 

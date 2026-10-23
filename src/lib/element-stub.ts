@@ -13,6 +13,8 @@ import { type MockFn, getMockAdapter } from './mock-adapter';
 
 /** Where the stub starts. */
 export interface ElementStubOptions<T extends HTMLElement = HTMLElement> {
+  /** Prototype to use for `instanceof` checks; its constructor is never called. Does not choose `tagName`. */
+  readonly elementClass?: { readonly prototype: T };
   /** Lower-case tag name; `tagName` answers it upper-cased. Default `'div'`. */
   readonly tagName?: string;
   readonly classes?: readonly string[];
@@ -75,14 +77,21 @@ const camelCase = (name: string): string =>
   name.startsWith('--') ? name : name.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase());
 const kebabCase = (name: string): string => (name.startsWith('--') ? name : name.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`));
 
-/** The members `HTMLElement` declares in this realm, or none where there is no DOM to ask. */
-function declaredMembers(): ReadonlySet<string> {
+/** The selected class's members, falling back to this realm's `HTMLElement` when available. */
+function declaredMembers(elementClass?: { readonly prototype: object }): ReadonlySet<string> {
   const names = new Set<string>();
-  let prototype: unknown = Reflect.get(Object(Reflect.get(globalThis, 'HTMLElement')), 'prototype');
+  let prototype: unknown = elementClass?.prototype ?? Reflect.get(Object(Reflect.get(globalThis, 'HTMLElement')), 'prototype');
 
   while (typeof prototype === 'object' && prototype !== null && prototype !== Object.prototype) {
+    const parent = Reflect.getPrototypeOf(prototype);
+
+    // The DOM can come from another realm, whose Object.prototype has a different identity.
+    if (parent === null) {
+      break;
+    }
+
     Object.getOwnPropertyNames(prototype).forEach((name) => names.add(name));
-    prototype = Reflect.getPrototypeOf(prototype);
+    prototype = parent;
   }
 
   return names;
@@ -279,20 +288,32 @@ function defineReflected(members: object, classSet: Set<string>, attributes: Map
   });
 }
 
-function guardMissing<T>(members: object, tag: string): T {
-  const declared = declaredMembers();
+function guardMissing<T>(members: object, tag: string, elementClass?: { readonly prototype: object }): T {
+  const declared = declaredMembers(elementClass);
+
+  if (elementClass) {
+    Object.setPrototypeOf(members, elementClass.prototype);
+  }
 
   const guarded: object = new Proxy(members, {
     get(target, key, receiver): unknown {
-      if (typeof key === 'string' && !(key in target) && declared.has(key)) {
+      if (typeof key === 'string' && key !== 'constructor' && !Object.hasOwn(target, key) && declared.has(key)) {
         throw missingMember(tag, key);
       }
 
       return Reflect.get(target, key, receiver);
     },
+    set(target, key, value: unknown, receiver): boolean {
+      // A stub's first write creates state of its own; never invoke a native DOM setter.
+      if (typeof key === 'string' && !Object.hasOwn(target, key) && declared.has(key)) {
+        return Reflect.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true });
+      }
+
+      return Reflect.set(target, key, value, receiver);
+    },
   });
 
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the stub answers its own members and throws by name for every other one `HTMLElement` declares, a contract `T` cannot express.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the stub answers its own members and throws by name for other declared element members, a contract `T` cannot express.
   return guarded as T;
 }
 
@@ -310,8 +331,8 @@ function guardMissing<T>(members: object, tag: string): T {
  * expect(host.classes()).toEqual(['card', 'highlighted']);
  * ```
  *
- * Nothing is patched, so there is nothing to restore; it works without a DOM environment as well,
- * where only the throw-by-name guard is off, having no `HTMLElement` to read the member list from.
+ * Nothing is patched, so there is nothing to restore. It works without a DOM environment too;
+ * the missing-member guard needs either `elementClass` or a global `HTMLElement` to inspect.
  */
 export function createElementStub<T extends HTMLElement = HTMLElement>(options: ElementStubOptions<T> = {}): ElementStub<T> {
   const adapter = getMockAdapter();
@@ -343,7 +364,7 @@ export function createElementStub<T extends HTMLElement = HTMLElement>(options: 
   defineReflected(members, classSet, attributeMap);
   Object.assign(members, options.overrides);
 
-  const element = guardMissing<T>(members, tag);
+  const element = guardMissing<T>(members, tag, options.elementClass);
 
   return {
     element,
