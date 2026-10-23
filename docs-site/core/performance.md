@@ -1330,20 +1330,20 @@ nothing.
 
 ## Bundle size
 
-The badge says 30.3 kB min+gzip, and that is the whole core entry bundled together. Each subpath is
+The badge says 30.7 kB min+gzip, and that is the whole core entry bundled together. Each subpath is
 a separate entry, and a project pays only for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **30.3 kB** |
-| `vitest-auto-spy/angular` on its own          |     38.7 kB |
-| `vitest-auto-spy/angular/doubles`             |     21.4 kB |
+| `.` — the core entry, what the badge measures | **30.7 kB** |
+| `vitest-auto-spy/angular` on its own          |     39.1 kB |
+| `vitest-auto-spy/angular/doubles`             |     25.2 kB |
 | `vitest-auto-spy/angular/diagnostics`         |      7.5 kB |
 | `vitest-auto-spy/angular/matchers`            |      3.2 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     30.3 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     30.7 kB |
 | `vitest-auto-spy/setup`                       |     31.1 kB |
-| `vitest-auto-spy/node`                        |     29.5 kB |
-| `vitest-auto-spy/dom-stubs`                   |     12.1 kB |
+| `vitest-auto-spy/node`                        |     30.0 kB |
+| `vitest-auto-spy/dom-stubs`                   |     12.5 kB |
 | `vitest-auto-spy/rxjs`                        |      2.3 kB |
 | `vitest-auto-spy/angular-router`              |     11.2 kB |
 | `vitest-auto-spy/angular-http`                |      4.3 kB |
