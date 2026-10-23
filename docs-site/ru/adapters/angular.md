@@ -58,7 +58,7 @@ Vite-плагин Analog с setup-файлом для `TestBed`. См. [Уста
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `vitest-auto-spy/angular`             | `provideAutoSpy`, `provideAutoSpyForToken`, `injectSpy`, тип `Spy<T>`, `extendWithAutoSpies`, `renderShallow`, `setInputs`, `stable`, `settleResource`, моки сигналов и свойств и всё остальное с этой страницы |
 | `vitest-auto-spy/angular/matchers`    | `registerSignalMatchers`, `registerResourceMatchers`, `registerDirectiveMatchers` (только Vitest)                                                                                                               |
-| `vitest-auto-spy/angular/doubles`     | готовые подмены `window`, `document`, диалога Material, платформы, санитайзера, детектора изменений и оверлея CDK                                                                                               |
+| `vitest-auto-spy/angular/doubles`     | готовые подмены `window`, `document`, диалога Material, платформы, санитайзера, детектора изменений и оверлея CDK; `mockElementRefProp` для запросов элементов                                                  |
 | `vitest-auto-spy/angular/diagnostics` | `enableTestBedDiagnostics` и `enableAngularDiagnostics` (только Vitest)                                                                                                                                         |
 | `vitest-auto-spy/angular-http`        | `expectRequest`, `provideHttpTesting` — см. [Angular HTTP](/ru/adapters/angular-http)                                                                                                                           |
 | `vitest-auto-spy`                     | `createSpyFromClass`, `createMock`, `createAutoMock`, `createSpyFromInstance`, `spyOnVoidMethod`, `spyOnOwnMethod`, `stubConstructor`, `asInstance`                                                             |
@@ -1148,6 +1148,21 @@ mockAccessorsProp(service, 'theme'); // спаи на get и set
 
 В этих хелперах нет ничего специфичного для Angular: их экспортирует и корневая точка входа
 `vitest-auto-spy`.
+
+Для сигнального запроса с `ElementRef` используйте
+[`mockElementRefProp`](/ru/utilities/element-stub#mockelementrefprop-—-an-element-for-a-signal-query) из `vitest-auto-spy/angular/doubles`.
+Он создаёт заглушку элемента, подменяет запрос и возвращает спаи одним вызовом:
+
+```ts
+import { mockElementRefProp } from 'vitest-auto-spy/angular/doubles';
+
+const trigger = mockElementRefProp(component, 'dateTrigger');
+component.focusTrigger();
+expect(trigger.focus).toHaveBeenCalledExactlyOnceWith();
+```
+
+Здесь `dateTrigger` — сигнальный запрос `ElementRef`, а `focusTrigger()` вызывает фокус на его элементе.
+Подменяйте запрос до первого рендера, который его использует; `setupAutoSpy()` восстанавливает исходный сигнал после теста.
 
 ### Управление сигналом {#driving-a-signal}
 

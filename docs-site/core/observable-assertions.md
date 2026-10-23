@@ -6,8 +6,8 @@ description: expectEmission, expectEmissions, expectNoEmission, expectCompletion
 # Observable assertions
 
 `expect(...)` inside a `subscribe()` callback passes when the stream never emits: the callback never
-runs, so nothing is checked. These helpers turn the wait itself into the assertion. You `await` them,
-and they fail with a clear message if the stream stays silent, errors or completes early.
+runs, so nothing is checked. Asynchronous helpers make the awaited result an assertion and report missing values or source errors.
+Helpers ending in `Sync` check the synchronous action and return immediately, without `await`.
 
 ```ts
 import { expectEmission, expectError } from 'vitest-auto-spy';
@@ -26,15 +26,17 @@ it('refuses to check out an empty cart', async () => {
 
 The helpers come from the main `vitest-auto-spy` import and need no rxjs at runtime.
 
-| Helper                                   | Resolves with                          | Fails when                                                                  |
-| ---------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------- |
-| `expectEmission(source$, opts?)`         | the first value                        | nothing arrives in time, the stream errors, or it completes empty           |
-| `expectEmissions(source$, count, opts?)` | the first `count` values as an array   | fewer than `count` arrive in time, the stream errors, or it completes short |
-| `expectAllEmissions(source$, opts?)`     | every value, once the stream completes | the stream does not complete in time, or it errors                          |
-| `expectNoEmission(source$, opts?)`       | `void`                                 | anything is emitted while it should stay silent                             |
-| `expectNoEmissionSync(source$, opts?)`   | nothing (returns `void`, throws)       | anything arrives while it subscribes and runs `advance`                     |
-| `expectCompletion(source$, opts?)`       | `void`                                 | the stream is still running when the timeout expires, or it errors          |
-| `expectError(source$, opts?)`            | the error, exactly as thrown           | the stream completes or stays quiet instead of failing                      |
+| Helper                                       | Result                                 | Fails when                                                                  |
+| -------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------- |
+| `expectEmission(source$, opts?)`             | the first value                        | nothing arrives in time, the stream errors, or it completes empty           |
+| `expectEmissions(source$, count, opts?)`     | the first `count` values as an array   | fewer than `count` arrive in time, the stream errors, or it completes short |
+| `expectEmissionSync(source$, opts?)`         | one value, synchronously               | not exactly one synchronous value is accepted, or the source errors         |
+| `expectEmissionsSync(source$, count, opts?)` | values, synchronously                  | not exactly `count` synchronous values are accepted, or the source errors   |
+| `expectAllEmissions(source$, opts?)`         | every value, once the stream completes | the stream does not complete in time, or it errors                          |
+| `expectNoEmission(source$, opts?)`           | `void`                                 | anything is emitted while it should stay silent                             |
+| `expectNoEmissionSync(source$, opts?)`       | nothing (returns `void`, throws)       | anything arrives while it subscribes and runs `advance`                     |
+| `expectCompletion(source$, opts?)`           | `void`                                 | the stream is still running when the timeout expires, or it errors          |
+| `expectError(source$, opts?)`                | the error, exactly as thrown           | the stream completes or stays quiet instead of failing                      |
 
 ```ts
 await expect(expectEmission(component.visible$)).resolves.toBe(true); // the first value, not a list
@@ -48,16 +50,53 @@ subscribes is lost, and the wait fails with "the stream completed after 0 emissi
 the helper first, keep the promise, trigger, then `await` it (as in the first example). For a stream
 that needs the clock moved, see [`advance`](#advance-—-the-window-between-subscribing-and-awaiting).
 
+## Synchronous outputs without subscriptions
+
+Use `expectEmissionSync` for exactly one synchronous emission, or `expectEmissionsSync` for an exact count.
+They return values immediately, so you need no listener spy, collection array, manual unsubscribe, or `await`.
+
+```ts
+import { expectEmissionSync, expectEmissionsSync } from 'vitest-auto-spy';
+
+expect(
+  expectEmissionSync(component.closed, {
+    advance: () => component.close(),
+  }),
+).toBeUndefined();
+
+expect(
+  expectEmissionsSync(component.selected, 2, {
+    advance: () => {
+      component.select(15);
+      component.select(20);
+    },
+  }),
+).toEqual([15, 20]);
+```
+
+The helper subscribes first, runs `advance` once, then unsubscribes before returning or throwing.
+Values emitted during subscription count too. Use `{ skip: 1 }` to ignore a replayed initial value.
+`until` filters accepted values; `label` names the source in failures. These are the only other options: there is no `timeout`.
+Both helpers also come from `vitest-auto-spy/angular` and accept Angular outputs or observable-like sources.
+
+A missing or extra accepted value fails immediately. Unlike `expectEmission`, which stops at the first value,
+`expectEmissionSync` checks everything emitted during subscription and the synchronous action.
+`expectEmissionsSync` requires a positive integer count; use `expectNoEmissionSync` for zero.
+Source errors and thrown callbacks fail the assertion and close the subscription.
+
+**Common mistake:** using this for a timer or microtask emission. The subscription is already closed when that value arrives.
+Use `expectEmission` or `expectEmissions` with `await` for asynchronous work.
+
 ## Options
 
-Every helper takes the same options object as its last argument:
+The asynchronous helpers take this options object as their last argument. Synchronous helpers omit `timeout`:
 
 | Option    | Default                             | Meaning                                                                                                                                             |
 | --------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `timeout` | `1000` (`0` for `expectNoEmission`) | ms to wait for a value. In `expectNoEmission`: how long silence must hold; `0` means one macrotask. Elsewhere `0` or `Infinity` means no time limit |
 | `label`   | none                                | the stream's name in the failure message, instead of `source$`                                                                                      |
 | `skip`    | `0`                                 | ignore the first `N` emissions. A `BehaviorSubject` / `shareReplay` sends its current value on subscribe; `skip: 1` ignores it                      |
-| `until`   | none                                | wait for the first emission that passes this predicate; the others are still counted in the failure                                                 |
+| `until`   | none                                | accept each emission that passes this predicate; rejected values still appear in failure diagnostics                                                |
 | `advance` | none                                | a callback run once, after the subscription exists and before the promise is returned                                                               |
 
 To change the default `timeout` for the whole run, call `setEmissionTimeout(ms)` in the setup file (see
@@ -65,8 +104,9 @@ To change the default `timeout` for the whole run, call `setEmissionTimeout(ms)`
 
 ## The `await` is not optional
 
-Each helper subscribes when you call it and reports through the promise. If you do not `await` it,
-nobody closes the subscription, and the assertion never happens.
+Each asynchronous helper subscribes when you call it and reports through the promise.
+Await or return that promise so the test observes its result. A settled helper closes its subscription even without `await`.
+A pending wait can outlive the test until cleanup stops it.
 
 [`setupAutoSpy()`](/utilities/setup) closes every wait still open at the end of a test, before any
 other cleanup, and names it:

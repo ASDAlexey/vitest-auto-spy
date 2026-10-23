@@ -197,6 +197,15 @@ it('loads', async () => {
 
 ## Reach for these before hand-rolling
 
+For direct handler tests, use `createInputEvent(value)`, `createDomEvent(type, { target })`,
+`createPasteEvent(text | null)` or `createDropEvent(text | null)` from `/dom-stubs`.
+They are native Events; paste/drop expose text reads only. Fixed targets are for direct calls.
+For an `ElementRef` signal query, `mockElementRefProp(component, 'trigger')` from `/angular/doubles`
+returns the inferred element spies plus `.ref` and writable `.query`; patch before a live consumer.
+For synchronous outputs, `expectEmissionSync(output, { advance })` and
+`expectEmissionsSync(output, count, { advance })` return values, assert exact counts and unsubscribe.
+Timers or promises require the async emission helpers.
+
 | Situation                                                                                                  | Helper                                                                                                                                                                                                                                                                                                                                                    |
 | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | a `signal()` / `computed()` field on the class under test                                                  | `mockSignalProp(obj, prop, initial)` — writes through a writable one, `asReadonly()` included; an `input()` is refused                                                                                                                                                                                                                                    |

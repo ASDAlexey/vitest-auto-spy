@@ -15,7 +15,7 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-30.4%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-30.7%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -46,6 +46,7 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 - **Answers per argument list**: `calledWith(1).mockReturnValue(...)`.
 - **A spy from a type alone**: `createAutoMock<T>()` and `mockDeep<T>()`.
 - **Angular `TestBed` in one line**: `provideAutoSpy(ApiService)`, then `injectSpy(ApiService)`.
+- **Short handler tests**: typed input/paste/drop events, element query stubs, and exact synchronous output assertions.
 - **One API on every runner**: Vitest, Bun, `node:test` and Rstest; helpers for Angular, NestJS,
   React, Vue / Pinia and Svelte.
 - **Checks that make silent tests fail**: strict mode, Observable assertions, cleanup between tests,
@@ -3082,8 +3083,29 @@ two thousand tests add about 0.02 s to the run. Numbers:
 Besides the spy factories, the package has small standalone helpers. Each does one job; pick up
 only the ones you need. Every helper, with its signature: [API](https://asdalexey.github.io/vitest-auto-spy/api).
 
+For direct handler calls, replace local event factories and query setup with these helpers:
+
+```ts
+import { mockElementRefProp } from 'vitest-auto-spy/angular/doubles';
+import { createInputEvent } from 'vitest-auto-spy/dom-stubs';
+
+const trigger = mockElementRefProp(component, 'triggerButton');
+component.store.open(0, 0);
+component.onMinutesChange(createInputEvent('15'));
+component.confirm();
+expect(trigger.focus).toHaveBeenCalledOnce();
+```
+
+`mockElementRefProp` infers the element type from the signal query. Set `elementClass` for runtime
+`instanceof` checks. Patch before a live consumer reads the query; `setupAutoSpy()` restores replaced
+properties. Events with supplied targets are for direct handler calls. Paste/drop support text reads
+only. Full contracts: [element and event stubs](https://asdalexey.github.io/vitest-auto-spy/utilities/element-stub).
+
 | Utility                                                                                                     | Entry point                   | What it's for                                                                                                                                                                                                                                                                                                                                                                             |
 | ----------------------------------------------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createDomEvent(type, init?)` / `createInputEvent(value, init?)`                                            | `/dom-stubs`                  | Native events for direct handlers, with readonly targets or an input value                                                                                                                                                                                                                                                                                                                |
+| `createPasteEvent(text, init?)` / `createDropEvent(text, init?)`                                            | `/dom-stubs`                  | Text transfers with native `defaultPrevented`; `null` represents absent transfer data                                                                                                                                                                                                                                                                                                     |
+| `mockElementRefProp(component, key, opts?)`                                                                 | `/angular/doubles`            | Inferred element spies, `ref` and writable `query`, installed together                                                                                                                                                                                                                                                                                                                    |
 | `injectSpy(token)` / `injectSpy(moduleRef, token)`                                                          | `/angular`, `/nestjs`         | Pull a provided spy out of the DI container, already typed as `Spy<T>` — no casting                                                                                                                                                                                                                                                                                                       |
 | `provideAutoSpy(Class, config?)`                                                                            | `/angular`, `/nestjs`, `/vue` | One-liner `{ provide, useValue }` (or Vue `global.provide`) that builds the spy for you                                                                                                                                                                                                                                                                                                   |
 | `createFunctionSpy(name)`                                                                                   | core                          | A single standalone function spy with the full helper set (`calledWith`, `resolveWith`, `nextWith`, …) — no class needed                                                                                                                                                                                                                                                                  |
@@ -3112,7 +3134,7 @@ only the ones you need. Every helper, with its signature: [API](https://asdalexe
 | `stubWorker(opts?)`                                                                                         | `/dom-stubs`                  | A `Worker` whose script is the spec — listeners stack, replies arrive on a microtask, `emit()` / `fail()` from the worker's side ([details](#how-to-mock-a-web-worker))                                                                                                                                                                                                                   |
 | `stubAnimationFrame(opts?)`                                                                                 | `/dom-stubs`                  | `requestAnimationFrame` / `cancelAnimationFrame` run on the spot or on `flush(timestamp?)`; a frame requested inside a frame waits for the next flush; `onError` intercepts a throwing callback; `lastHandle` is the latest handle issued (they start above 2^30)                                                                                                                         |
 | `stubElementRect(el, rect?)`                                                                                | `/dom-stubs`                  | `getBoundingClientRect()` answering a real `DOMRect` built from a partial `DOMRectInit`; returns the undo, plus the installed spy as `.getBoundingClientRect`                                                                                                                                                                                                                             |
-| `createElementStub(opts?)`                                                                                  | `/dom-stubs`                  | A typed `HTMLElement` for `ElementRef` — `classList`, `style`, attributes and listeners on spies that keep state; a member it does not implement throws by name                                                                                                                                                                                                                           |
+| `createElementStub(opts?)`                                                                                  | `/dom-stubs`                  | A typed element for `ElementRef`; `elementClass` enables `instanceof` checks and infers the type. Spies keep state; unconfigured DOM members require `overrides`                                                                                                                                                                                                                          |
 | `fillMissingDomApis(opts?)`                                                                                 | `/dom-stubs`                  | For the setup file: `PointerEvent`, a no-op `ResizeObserver`, no-op scrolling and `document.doctype`, only where missing; `{ cheapComputedStyle: true }`                                                                                                                                                                                                                                  |
 | `flushEventLoop(turns?)` / `settleDynamicImport(load, turns?)`                                              | core                          | Real event-loop turns while the timers are faked — for a dynamic `import()` or native `async` in a dependency                                                                                                                                                                                                                                                                             |
 | `flushEventLoopUntil(isDone, opts?)`                                                                        | core                          | Real turns until a condition holds — a `resource()` leaving `loading` — with a budget instead of a hang                                                                                                                                                                                                                                                                                   |
@@ -3331,6 +3353,25 @@ It never throws, and never calls a live getter. The text is for reading, not for
 Full page: [explainSpy](https://asdalexey.github.io/vitest-auto-spy/utilities/explain-spy).
 
 ## Observable assertions
+
+For a synchronous handler, check the exact output count without managing a subscription:
+
+```ts
+import { expectEmissionSync, expectEmissionsSync } from 'vitest-auto-spy';
+
+expect(expectEmissionSync(component.page, { advance: () => component.next() })).toBe(3);
+expect(
+  expectEmissionsSync(component.page, 2, {
+    advance: () => {
+      component.next();
+      component.next();
+    },
+  }),
+).toEqual([4, 5]);
+```
+
+Both helpers unsubscribe before returning and fail on missing or extra synchronous values.
+For timers, promises or other asynchronous work, use the awaited helpers below.
 
 These helpers make the assertion an `await`, so a stream that never emits fails the test. An
 `expect` inside `subscribe()` never runs when the stream stays silent, and the test passes.
@@ -3766,7 +3807,7 @@ Every export, one line each. Signatures, options and types: [API](https://asdale
 | `stubWorker(opts?)` _(`/dom-stubs`)_                                                                                                        | A `Worker` a spec drives from the worker's side: `respond` per message, `messages` / `terminated` to assert, `emit()` / `fail()`; returns `WorkerStub<TIn, TOut>`                                                                                                                                                        |
 | `stubAnimationFrame(opts?)` _(`/dom-stubs`)_                                                                                                | Frames on the spec's schedule: `'immediate'` or `'queued'` + `flush()`, `pending`, `lastHandle`, both globals as spies; returns `AnimationFrameStub`                                                                                                                                                                     |
 | `stubElementRect(el, rect?)` _(`/dom-stubs`)_                                                                                               | A box for `getBoundingClientRect()` — missing fields `0`, edges derived; returns `ElementRectRestore` (callable undo plus `.getBoundingClientRect`)                                                                                                                                                                      |
-| `createElementStub(opts?)` / `fillMissingDomApis(opts?)` _(`/dom-stubs`)_                                                                   | A typed stub `HTMLElement` for `ElementRef`; the DOM members jsdom / happy-dom leave out, filled once in the setup file                                                                                                                                                                                                  |
+| `createElementStub(opts?)` / `fillMissingDomApis(opts?)` _(`/dom-stubs`)_                                                                   | A typed stub for `ElementRef`, with optional `elementClass` for `instanceof`; missing DOM APIs filled once in the setup file                                                                                                                                                                                             |
 | `createComponentStub(Class, overrides?, opts?)` _(`/angular`)_                                                                              | A standalone stand-in for a child component, directive or pipe, built from its compiled definition so the selector cannot drift                                                                                                                                                                                          |
 | `flushEventLoop(turns?)` / `settleDynamicImport(load, turns?)`                                                                              | Real event-loop turns under fake timers; wait for a dynamic `import()`                                                                                                                                                                                                                                                   |
 | `autoMocked<T>(overrides?, config?)`                                                                                                        | `createAutoMock` typed as `T & Spy<T>`; `AutoMocked<T>` names it for a `let`                                                                                                                                                                                                                                             |

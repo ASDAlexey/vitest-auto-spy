@@ -35,6 +35,43 @@ store.dispatch(noop());
 expectNoEmissionSync(store.saved$, { skip: 1 }); // skip the replayed value
 ```
 
+### Synchronous outputs without subscriptions
+
+Use `expectEmissionSync` for exactly one synchronous emission, or `expectEmissionsSync` for an exact count.
+They return values immediately, so you need no listener spy, collection array, manual unsubscribe, or `await`.
+
+```ts
+import { expectEmissionSync, expectEmissionsSync } from 'vitest-auto-spy';
+
+expect(
+  expectEmissionSync(component.closed, {
+    advance: () => component.close(),
+  }),
+).toBeUndefined();
+
+expect(
+  expectEmissionsSync(component.selected, 2, {
+    advance: () => {
+      component.select(15);
+      component.select(20);
+    },
+  }),
+).toEqual([15, 20]);
+```
+
+The helper subscribes first, runs `advance` once, then unsubscribes before returning or throwing.
+Values emitted during subscription count too. Use `{ skip: 1 }` to ignore a replayed initial value.
+`until` filters accepted values; `label` names the source in failures. These are the only other options: there is no `timeout`.
+Both helpers also come from `vitest-auto-spy/angular` and accept Angular outputs or observable-like sources.
+
+A missing or extra accepted value fails immediately. Unlike `expectEmission`, which stops at the first value,
+`expectEmissionSync` checks everything emitted during subscription and the synchronous action.
+`expectEmissionsSync` requires a positive integer count; use `expectNoEmissionSync` for zero.
+Source errors and thrown callbacks fail the assertion and close the subscription.
+
+**Common mistake:** using this for a timer or microtask emission. The subscription is already closed when that value arrives.
+Use `expectEmission` or `expectEmissions` with `await` for asynchronous work.
+
 A failure that counts emissions also shows the first five values, then `… N more`:
 `the stream completed after 7 emissions (1, 2, 3, 4, 5, … 2 more), expected 9`,
 `did not complete within 20 ms (3 emissions received: 1, 2, 3)`.

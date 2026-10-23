@@ -36,13 +36,64 @@ it('highlights on enter', () => {
 отвечает то, что положил `classList.add`, `getAttribute` возвращает то, что записал `setAttribute`, а `dispatchEvent`
 доходит до слушателей.
 
-| Опция        | Тип                      | По умолчанию | Смысл                                                                     |
-| ------------ | ------------------------ | ------------ | ------------------------------------------------------------------------- |
-| `tagName`    | `string`                 | `'div'`      | Тег в нижнем регистре; `tagName` и `nodeName` возвращают его в верхнем    |
-| `classes`    | `string[]`               | нет          | Классы, с которыми элемент создаётся                                      |
-| `attributes` | `Record<string, string>` | нет          | Атрибуты, с которыми он создаётся                                         |
-| `style`      | `Record<string, string>` | нет          | Инлайн-стили по имени CSS-свойства: `{ 'background-color': 'red' }`       |
-| `overrides`  | `Partial<HTMLElement>`   | нет          | Любой другой член, который читает ваш код: `offsetWidth`, `querySelector` |
+Если код проверяет `instanceof`, передайте класс элемента:
+
+```ts
+import { createElementStub } from 'vitest-auto-spy/dom-stubs';
+
+const input = createElementStub({ elementClass: HTMLInputElement, tagName: 'input', overrides: { value: '15' } });
+
+expect(input.element).toBeInstanceOf(HTMLInputElement);
+expect(input.element.value).toBe('15'); // тип HTMLInputElement выведен автоматически
+```
+
+`elementClass` использует прототип класса, не вызывая его конструктор. TypeScript выводит `T` из переданного класса.
+`tagName` задаётся отдельно и по умолчанию равен `'div'`; для заглушки поля ввода укажите `'input'`.
+Переданный класс не добавляет реализаций. Недостающие свойства и методы, например `value` или `select`, настройте через `overrides`.
+Готовые методы заглушки, например `focus`, продолжают работать. Чтение ненастроенного члена класса бросает ошибку с его именем.
+
+| Опция          | Тип                         | По умолчанию | Смысл                                                                     |
+| -------------- | --------------------------- | ------------ | ------------------------------------------------------------------------- |
+| `elementClass` | `{ readonly prototype: T }` | нет          | Класс для `instanceof`; из него выводится тип элемента                    |
+| `tagName`      | `string`                    | `'div'`      | Тег в нижнем регистре; `tagName` и `nodeName` возвращают его в верхнем    |
+| `classes`      | `string[]`                  | нет          | Классы, с которыми элемент создаётся                                      |
+| `attributes`   | `Record<string, string>`    | нет          | Атрибуты, с которыми он создаётся                                         |
+| `style`        | `Record<string, string>`    | нет          | Инлайн-стили по имени CSS-свойства: `{ 'background-color': 'red' }`       |
+| `overrides`    | `Partial<T>`                | нет          | Любой другой член, который читает ваш код: `offsetWidth`, `querySelector` |
+
+### `mockElementRefProp` — элемент для сигнального запроса {#mockelementrefprop-—-an-element-for-a-signal-query}
+
+Подменяет optional или required сигнальный запрос с `ElementRef` и возвращает спаи элемента одним вызовом.
+Например, `component.dateTrigger` имеет тип `Signal<ElementRef<HTMLButtonElement> | undefined>`.
+Метод `focusTrigger()` вызывает `focus()` на найденном элементе.
+
+```ts
+import { mockElementRefProp } from 'vitest-auto-spy/angular/doubles';
+
+const trigger = mockElementRefProp(component, 'dateTrigger', {
+  elementClass: HTMLButtonElement,
+  tagName: 'button',
+});
+component.focusTrigger();
+expect(trigger.focus).toHaveBeenCalledExactlyOnceWith();
+```
+
+Такой вызов заменяет локальную фабрику элемента и последующий `mockSignalProp(component, 'dateTrigger', new ElementRef(element))`.
+Тип элемента определяется запросом. Параметры совпадают с `createElementStub` и не меняют этот тип.
+Возвращённый объект также содержит `ref` (установленный `ElementRef`) и `query` (записываемый тестовый сигнал).
+Вызовите `trigger.query.set(undefined)`, чтобы убрать optional запрос; для required запроса TypeScript запрещает `undefined`.
+Для запросов, возвращающих экземпляры компонентов или директив, и для `viewChildren` используйте `mockSignalProp`.
+
+Подменяйте запрос до рендера шаблона, эффекта или `computed`, который читает исходный сигнал.
+Подмена уже используемого запроса бросает ошибку. Хелпер не создаёт отрисованный элемент и не разрешает запросы Angular.
+`setupAutoSpy()` восстанавливает исходный запрос после каждого теста. Если вы его не используете, добавьте очистку:
+
+```ts
+import { afterEach } from 'vitest';
+import { restoreMockedProps } from 'vitest-auto-spy';
+
+afterEach(() => restoreMockedProps());
+```
 
 Что есть у возвращённого объекта:
 
@@ -76,9 +127,61 @@ host.emit('mouseleave'); // вызывает слушателей; в dispatchEv
 
 Передайте этот член в `overrides: { offsetWidth: 120, querySelector: vi.fn() }`.
 
-Глобальные объекты не патчатся, поэтому после теста откатывать нечего. Без DOM-окружения заглушка тоже работает; не
-работает только проверка неизвестных членов, потому что нет `HTMLElement`, из которого взять их
-список.
+Сам `createElementStub` ничего не подменяет и не требует очистки. Без DOM-окружения заглушка тоже работает.
+Для проверки неизвестных членов нужен `HTMLElement` или переданный `elementClass`, из которого можно взять их список.
+
+## События для прямого вызова обработчиков {#events-for-direct-handler-calls}
+
+`createDomEvent` задаёт readonly цели без приведения типов и `Object.defineProperty` в каждом тесте.
+Здесь `component.onBlur()` читает `currentTarget` и удаляет класс `active`.
+
+```ts
+import { createDomEvent, createElementStub, createInputEvent } from 'vitest-auto-spy/dom-stubs';
+
+const input = createElementStub({ tagName: 'input', classes: ['active'] });
+component.onBlur(createDomEvent('blur', { currentTarget: input.element }));
+expect(input.classes()).toEqual([]);
+
+component.onInput(createInputEvent('15'));
+expect(component.value()).toBe('15');
+```
+
+`createDomEvent(type, init?)` возвращает нативный `Event`. `bubbles` и `cancelable` по умолчанию равны `true`.
+Параметры `target` и `currentTarget` фиксируют цели. Для проверки распространения события не задавайте их и отправляйте событие реальному DOM-элементу.
+
+`createInputEvent(value, init?)` возвращает `Event` типа `'input'` с заглушкой поля ввода в `target`.
+Заглушка проходит `instanceof HTMLInputElement`, когда этот класс доступен. Переданное значение имеет приоритет над `init.element.overrides.value`.
+Параметры заглушки передавайте через `element`, например `{ element: { overrides: { disabled: true } } }`.
+Остальные нативные флаги события передавайте прямо в `init`.
+
+**Частая ошибка:** ожидать `data`, `inputType` или прохождения проверки конструктора браузерного события ввода.
+Хелпер возвращает `Event`, а не `InputEvent`. Для проверки этих возможностей браузера используйте нативный `InputEvent`.
+
+## Текстовые события вставки и переноса {#text-paste-and-drop-events}
+
+Заменяют локальные фабрики событий буфера обмена и переноса, когда обработчик читает только обычный текст.
+Здесь `onPaste` и `onDrop` читают текст и отменяют событие.
+
+```ts
+import { createDropEvent, createPasteEvent } from 'vitest-auto-spy/dom-stubs';
+
+const paste = createPasteEvent('15');
+component.onPaste(paste);
+expect(paste.defaultPrevented).toBe(true);
+
+component.onDrop(createDropEvent('20'));
+expect(component.value()).toBe('20');
+```
+
+Оба хелпера принимают `(text: string | null, init?: EventInit)` и по умолчанию создают всплывающие, отменяемые события.
+`null` задаёт `clipboardData: null` или `dataTransfer: null`, чтобы проверить отсутствие данных.
+`getData('text')` и `getData('text/plain')` возвращают переданный текст без учёта регистра; другие форматы возвращают `''`.
+`types` — readonly массив `['text/plain']`. Эти события также можно отправить DOM-элементам.
+
+Объект переноса поддерживает только `getData()` и `types`. Чтение `files`, `items`, `setData` или другого члена бросает ошибку.
+Это нативные экземпляры `Event` с добавленным свойством переноса текста.
+Им не нужны конструкторы `ClipboardEvent`, `DragEvent` и `DataTransfer`; проверку этих конструкторов они не проходят.
+Для файлов, координат, записи в объект переноса и браузерного перетаскивания создайте своё событие.
 
 ## Члены, которых нет в DOM-окружении, — `fillMissingDomApis` {#the-members-the-dom-environment-leaves-out-—-fillmissingdomapis}
 

@@ -35,13 +35,64 @@ it('highlights on enter', () => {
 Returns a fake `HTMLElement` whose methods are spies that keep state: `classList.contains` answers what
 `classList.add` put in, `getAttribute` returns what `setAttribute` wrote, and `dispatchEvent` reaches the listeners.
 
-| Option       | Type                     | Default | Meaning                                                               |
-| ------------ | ------------------------ | ------- | --------------------------------------------------------------------- |
-| `tagName`    | `string`                 | `'div'` | The tag, lower case; `tagName` and `nodeName` return it in upper case |
-| `classes`    | `string[]`               | none    | Classes the element starts with                                       |
-| `attributes` | `Record<string, string>` | none    | Attributes it starts with                                             |
-| `style`      | `Record<string, string>` | none    | Inline styles by CSS property name: `{ 'background-color': 'red' }`   |
-| `overrides`  | `Partial<HTMLElement>`   | none    | Any other member your code reads: `offsetWidth`, `querySelector`      |
+For code that checks `instanceof`, pass the element class:
+
+```ts
+import { createElementStub } from 'vitest-auto-spy/dom-stubs';
+
+const input = createElementStub({ elementClass: HTMLInputElement, tagName: 'input', overrides: { value: '15' } });
+
+expect(input.element).toBeInstanceOf(HTMLInputElement);
+expect(input.element.value).toBe('15'); // inferred as HTMLInputElement
+```
+
+`elementClass` uses the class's prototype without calling its constructor. TypeScript infers `T` from the class.
+`tagName` remains independent and defaults to `'div'`; set it to `'input'` for an input stub.
+The supplied class adds no implementations. Configure missing properties and methods, such as `value` or `select`, in `overrides`.
+Existing stub methods, such as `focus`, remain usable. Reading an unconfigured class member throws with its name.
+
+| Option         | Type                        | Default | Meaning                                                               |
+| -------------- | --------------------------- | ------- | --------------------------------------------------------------------- |
+| `elementClass` | `{ readonly prototype: T }` | none    | Element class for `instanceof`; infers the element type               |
+| `tagName`      | `string`                    | `'div'` | The tag, lower case; `tagName` and `nodeName` return it in upper case |
+| `classes`      | `string[]`                  | none    | Classes the element starts with                                       |
+| `attributes`   | `Record<string, string>`    | none    | Attributes it starts with                                             |
+| `style`        | `Record<string, string>`    | none    | Inline styles by CSS property name: `{ 'background-color': 'red' }`   |
+| `overrides`    | `Partial<T>`                | none    | Any other member your code reads: `offsetWidth`, `querySelector`      |
+
+### `mockElementRefProp` — an element for a signal query
+
+Replace an optional or required `ElementRef` signal query and get the element spies in one call.
+For example, `component.dateTrigger` has type `Signal<ElementRef<HTMLButtonElement> | undefined>`.
+Its `focusTrigger()` method calls `focus()` on the queried element.
+
+```ts
+import { mockElementRefProp } from 'vitest-auto-spy/angular/doubles';
+
+const trigger = mockElementRefProp(component, 'dateTrigger', {
+  elementClass: HTMLButtonElement,
+  tagName: 'button',
+});
+component.focusTrigger();
+expect(trigger.focus).toHaveBeenCalledExactlyOnceWith();
+```
+
+This replaces a local element factory followed by `mockSignalProp(component, 'dateTrigger', new ElementRef(element))`.
+The query determines the element type. Options are those of `createElementStub` and cannot change that type.
+The handle also returns `ref` (the installed `ElementRef`) and `query` (a writable test signal).
+Use `trigger.query.set(undefined)` to represent a missing optional query; required queries reject `undefined` in TypeScript.
+Queries returning component or directive instances, and `viewChildren`, need `mockSignalProp` instead.
+
+Patch before rendering a template, effect, or `computed` that consumes the original query.
+Patching an already consumed query throws. This helper creates no rendered element and does not resolve Angular queries.
+`setupAutoSpy()` restores the original query after each test. Without it, add cleanup:
+
+```ts
+import { afterEach } from 'vitest';
+import { restoreMockedProps } from 'vitest-auto-spy';
+
+afterEach(() => restoreMockedProps());
+```
 
 What the returned handle has:
 
@@ -76,8 +127,61 @@ member's name:
 
 Pass that member in `overrides: { offsetWidth: 120, querySelector: vi.fn() }`.
 
-Nothing is patched, so there is nothing to restore. Without a DOM environment the stub still works;
-only the missing-member check is off, because there is no `HTMLElement` to read the member list from.
+`createElementStub` itself patches nothing and needs no cleanup. Without a DOM environment the stub still works.
+The missing-member check needs `HTMLElement` or a supplied `elementClass` to read the member list from.
+
+## Events for direct handler calls
+
+Use `createDomEvent` to supply readonly targets without a cast or `Object.defineProperty` in each test.
+Here, `component.onBlur()` reads `currentTarget` and removes the `active` class.
+
+```ts
+import { createDomEvent, createElementStub, createInputEvent } from 'vitest-auto-spy/dom-stubs';
+
+const input = createElementStub({ tagName: 'input', classes: ['active'] });
+component.onBlur(createDomEvent('blur', { currentTarget: input.element }));
+expect(input.classes()).toEqual([]);
+
+component.onInput(createInputEvent('15'));
+expect(component.value()).toBe('15');
+```
+
+`createDomEvent(type, init?)` returns a native `Event`. `bubbles` and `cancelable` default to `true`.
+The optional `target` and `currentTarget` stay fixed. For propagation tests, omit them and dispatch on a real DOM element.
+
+`createInputEvent(value, init?)` returns an `Event` of type `'input'` with an input stub as `target`.
+It supports `instanceof HTMLInputElement` when that class exists. The supplied value wins over `init.element.overrides.value`.
+Pass stub options through `element`, for example `{ element: { overrides: { disabled: true } } }`.
+Pass other native event flags directly in `init`.
+
+**Common mistake:** expecting `data`, `inputType`, or a browser input event constructor check to work.
+This helper returns `Event`, not `InputEvent`. Use a native `InputEvent` when testing those browser features.
+
+## Text paste and drop events
+
+Replace local clipboard and drag event factories when a handler only reads plain text.
+Here, `onPaste` and `onDrop` read the text and cancel the event.
+
+```ts
+import { createDropEvent, createPasteEvent } from 'vitest-auto-spy/dom-stubs';
+
+const paste = createPasteEvent('15');
+component.onPaste(paste);
+expect(paste.defaultPrevented).toBe(true);
+
+component.onDrop(createDropEvent('20'));
+expect(component.value()).toBe('20');
+```
+
+Both accept `(text: string | null, init?: EventInit)` and default to bubbling, cancelable events.
+`null` gives `clipboardData: null` or `dataTransfer: null`, so you can test absent data.
+`getData('text')` and `getData('text/plain')` return the supplied text, ignoring case; other formats return `''`.
+`types` is a readonly `['text/plain']` array. These events can also be dispatched on DOM elements.
+
+The transfer supports only `getData()` and `types`. Reading `files`, `items`, `setData`, or any other transfer member throws.
+These are native `Event` instances with the text transfer property added.
+They need no `ClipboardEvent`, `DragEvent`, or `DataTransfer` constructor and do not pass those constructor checks.
+For files, coordinates, transfer writes, or browser drag behavior, supply your own event.
 
 ## The members the DOM environment leaves out — `fillMissingDomApis`
 

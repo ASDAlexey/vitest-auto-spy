@@ -154,6 +154,11 @@ In [`agent-docs/factories.md`](./agent-docs/factories.md). Read it before writin
 
 ## 3. The 90% recipe
 
+Direct handler tests: `/dom-stubs` supplies `createDomEvent`, `createInputEvent`, `createPasteEvent`
+and `createDropEvent`. `/angular/doubles` supplies `mockElementRefProp` for an element signal query
+(§12). For synchronous outputs, `expectEmissionSync` / `expectEmissionsSync` from core or `/angular`
+check exact counts around `advance` and unsubscribe (§8). Async work needs the awaited helpers.
+
 In an Angular app the spy almost always arrives through DI: `provideAutoSpy` in the providers,
 `injectSpy` to read it. Write that shape first.
 
@@ -387,6 +392,7 @@ In [`agent-docs/observables.md`](./agent-docs/observables.md). Read it when asse
 
 <!-- agents-outline: agent-docs/observables.md -->
 
+- Synchronous outputs without subscriptions
 - `createLog()` — the order between the spies
 
 <!-- /agents-outline -->
@@ -448,6 +454,9 @@ In [`agent-docs/doubles.md`](./agent-docs/doubles.md). Read it when production c
 - `localStorage` and `sessionStorage`
 - Animation frames and element boxes
 - An element for `ElementRef` — `createElementStub`
+- `mockElementRefProp` — an element for a signal query
+- Events for direct handler calls
+- Text paste and drop events
 - The members the DOM environment leaves out — `fillMissingDomApis`
 - A module mock that did nothing
 

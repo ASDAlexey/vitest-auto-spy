@@ -10,6 +10,26 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- `createElementStub({ elementClass: HTMLInputElement })` in `/dom-stubs` infers the element type
+  and supports `instanceof` checks without creating a DOM element. Missing members of the selected
+  class keep the stub's named error; supply their implementation in `overrides`.
+- `/dom-stubs`: `createDomEvent` supplies readonly targets for direct handler calls;
+  `createInputEvent` supplies a typed input target and value; `createPasteEvent` and `createDropEvent`
+  supply text transfers and native cancellation without browser transfer constructors.
+- `/angular/doubles`: `mockElementRefProp(component, 'trigger')` installs an inferred element
+  stub on an `ElementRef` signal query and returns the element spies, reference and writable query.
+  These DOM/query helpers add code only to their narrow entries.
+- The root entry and `/angular`: `expectEmissionSync` and `expectEmissionsSync` replace manual
+  subscriptions and arrays with exact synchronous emission counts. They keep listening during
+  `advance` to catch extra emissions and tear down before returning or throwing.
+- **Bundle size:** `/dom-stubs` grows by 491 B min+gzip over 5.63.0 for element prototypes and
+  handler events; `/angular/doubles` grows by 3.77 kB for the typed query/stub composition and its
+  existing signal-patching machinery. Shared bundle modules also change the import graph of
+  `/angular/diagnostics`, `/angular/matchers` and `/angular-http`; the recorded graph and sizes
+  include this reuse.
+
 ## [5.63.0] - 2026-10-21
 
 ### Added

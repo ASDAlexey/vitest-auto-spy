@@ -57,7 +57,7 @@ Common next steps:
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `vitest-auto-spy/angular`             | `provideAutoSpy`, `provideAutoSpyForToken`, `injectSpy`, the `Spy<T>` type, `extendWithAutoSpies`, `renderShallow`, `setInputs`, `stable`, `settleResource`, the signal and property mockers, and everything else on this page |
 | `vitest-auto-spy/angular/matchers`    | `registerSignalMatchers`, `registerResourceMatchers`, `registerDirectiveMatchers` (Vitest only)                                                                                                                                |
-| `vitest-auto-spy/angular/doubles`     | ready-made `window`, `document`, Material dialog, platform, sanitizer, change detector and CDK overlay doubles                                                                                                                 |
+| `vitest-auto-spy/angular/doubles`     | ready-made `window`, `document`, Material dialog, platform, sanitizer, change detector and CDK overlay doubles; `mockElementRefProp` for element queries                                                                       |
 | `vitest-auto-spy/angular/diagnostics` | `enableTestBedDiagnostics` and `enableAngularDiagnostics` (Vitest only)                                                                                                                                                        |
 | `vitest-auto-spy/angular-http`        | `expectRequest`, `provideHttpTesting` - see [Angular HTTP](/adapters/angular-http)                                                                                                                                             |
 | `vitest-auto-spy`                     | `createSpyFromClass`, `createMock`, `createAutoMock`, `createSpyFromInstance`, `spyOnVoidMethod`, `spyOnOwnMethod`, `stubConstructor`, `asInstance`                                                                            |
@@ -1132,6 +1132,21 @@ always the case under `isolate: false`.
 and every patched object stays in memory for the whole run.
 
 These helpers are not Angular-specific: the root `vitest-auto-spy` entry exports them too.
+
+For an `ElementRef` signal query, use
+[`mockElementRefProp`](/utilities/element-stub#mockelementrefprop-—-an-element-for-a-signal-query) from `vitest-auto-spy/angular/doubles`.
+It creates an element stub, replaces the query, and returns the spies in one call:
+
+```ts
+import { mockElementRefProp } from 'vitest-auto-spy/angular/doubles';
+
+const trigger = mockElementRefProp(component, 'dateTrigger');
+component.focusTrigger();
+expect(trigger.focus).toHaveBeenCalledExactlyOnceWith();
+```
+
+Here, `dateTrigger` is an `ElementRef` signal query and `focusTrigger()` focuses its element.
+Patch before the first render that consumes the query; `setupAutoSpy()` restores the original signal after the test.
 
 ### Driving a signal
 
