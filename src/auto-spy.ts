@@ -180,22 +180,7 @@ export {
 } from './lib/prop-mock';
 
 // Observable assertions that fail when the stream stays silent
-export {
-  expectAllEmissions,
-  expectCompletion,
-  expectEmission,
-  expectEmissions,
-  expectError,
-  expectNoEmission,
-  setEmissionTimeout,
-  type CallbackSubscribable,
-  type EmissionObserver,
-  type EmissionOptions,
-  type EmissionSource,
-  type SubscribableLike,
-} from './lib/expect-emission';
-export { expectNoEmissionSync } from './lib/emission-sync';
-export { expectEmissionSync, expectEmissionsSync, type SyncEmissionOptions } from './lib/emission-positive-sync';
+export * from './lib/emission-assertions';
 
 // Type bridges between `Spy<T>` and `T`, plus a construction-compatible spy
 export {
