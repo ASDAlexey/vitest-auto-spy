@@ -63,3 +63,5 @@ export {
 } from './lib/overlay-double';
 
 export { createWindowSpies, type WindowSpies, type WindowSpySelection } from './lib/window-spies';
+
+export { mockElementRefProp, type ElementRefPropStub } from './lib/element-ref-prop';
