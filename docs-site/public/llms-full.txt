@@ -3600,8 +3600,8 @@ Source: https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions
 # Observable assertions
 
 `expect(...)` inside a `subscribe()` callback passes when the stream never emits: the callback never
-runs, so nothing is checked. These helpers turn the wait itself into the assertion. You `await` them,
-and they fail with a clear message if the stream stays silent, errors or completes early.
+runs, so nothing is checked. Asynchronous helpers make the awaited result an assertion and report missing values or source errors.
+Helpers ending in `Sync` check the synchronous action and return immediately, without `await`.
 
 ```ts
 import { expectEmission, expectError } from 'vitest-auto-spy';
@@ -3620,15 +3620,17 @@ it('refuses to check out an empty cart', async () => {
 
 The helpers come from the main `vitest-auto-spy` import and need no rxjs at runtime.
 
-| Helper                                   | Resolves with                          | Fails when                                                                  |
-| ---------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------- |
-| `expectEmission(source$, opts?)`         | the first value                        | nothing arrives in time, the stream errors, or it completes empty           |
-| `expectEmissions(source$, count, opts?)` | the first `count` values as an array   | fewer than `count` arrive in time, the stream errors, or it completes short |
-| `expectAllEmissions(source$, opts?)`     | every value, once the stream completes | the stream does not complete in time, or it errors                          |
-| `expectNoEmission(source$, opts?)`       | `void`                                 | anything is emitted while it should stay silent                             |
-| `expectNoEmissionSync(source$, opts?)`   | nothing (returns `void`, throws)       | anything arrives while it subscribes and runs `advance`                     |
-| `expectCompletion(source$, opts?)`       | `void`                                 | the stream is still running when the timeout expires, or it errors          |
-| `expectError(source$, opts?)`            | the error, exactly as thrown           | the stream completes or stays quiet instead of failing                      |
+| Helper                                       | Result                                 | Fails when                                                                  |
+| -------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------- |
+| `expectEmission(source$, opts?)`             | the first value                        | nothing arrives in time, the stream errors, or it completes empty           |
+| `expectEmissions(source$, count, opts?)`     | the first `count` values as an array   | fewer than `count` arrive in time, the stream errors, or it completes short |
+| `expectEmissionSync(source$, opts?)`         | one value, synchronously               | not exactly one synchronous value is accepted, or the source errors         |
+| `expectEmissionsSync(source$, count, opts?)` | values, synchronously                  | not exactly `count` synchronous values are accepted, or the source errors   |
+| `expectAllEmissions(source$, opts?)`         | every value, once the stream completes | the stream does not complete in time, or it errors                          |
+| `expectNoEmission(source$, opts?)`           | `void`                                 | anything is emitted while it should stay silent                             |
+| `expectNoEmissionSync(source$, opts?)`       | nothing (returns `void`, throws)       | anything arrives while it subscribes and runs `advance`                     |
+| `expectCompletion(source$, opts?)`           | `void`                                 | the stream is still running when the timeout expires, or it errors          |
+| `expectError(source$, opts?)`                | the error, exactly as thrown           | the stream completes or stays quiet instead of failing                      |
 
 ```ts
 await expect(expectEmission(component.visible$)).resolves.toBe(true); // the first value, not a list
@@ -3642,16 +3644,53 @@ subscribes is lost, and the wait fails with "the stream completed after 0 emissi
 the helper first, keep the promise, trigger, then `await` it (as in the first example). For a stream
 that needs the clock moved, see [`advance`](#advance-—-the-window-between-subscribing-and-awaiting).
 
+## Synchronous outputs without subscriptions
+
+Use `expectEmissionSync` for exactly one synchronous emission, or `expectEmissionsSync` for an exact count.
+They return values immediately, so you need no listener spy, collection array, manual unsubscribe, or `await`.
+
+```ts
+import { expectEmissionSync, expectEmissionsSync } from 'vitest-auto-spy';
+
+expect(
+  expectEmissionSync(component.closed, {
+    advance: () => component.close(),
+  }),
+).toBeUndefined();
+
+expect(
+  expectEmissionsSync(component.selected, 2, {
+    advance: () => {
+      component.select(15);
+      component.select(20);
+    },
+  }),
+).toEqual([15, 20]);
+```
+
+The helper subscribes first, runs `advance` once, then unsubscribes before returning or throwing.
+Values emitted during subscription count too. Use `{ skip: 1 }` to ignore a replayed initial value.
+`until` filters accepted values; `label` names the source in failures. These are the only other options: there is no `timeout`.
+Both helpers also come from `vitest-auto-spy/angular` and accept Angular outputs or observable-like sources.
+
+A missing or extra accepted value fails immediately. Unlike `expectEmission`, which stops at the first value,
+`expectEmissionSync` checks everything emitted during subscription and the synchronous action.
+`expectEmissionsSync` requires a positive integer count; use `expectNoEmissionSync` for zero.
+Source errors and thrown callbacks fail the assertion and close the subscription.
+
+**Common mistake:** using this for a timer or microtask emission. The subscription is already closed when that value arrives.
+Use `expectEmission` or `expectEmissions` with `await` for asynchronous work.
+
 ## Options
 
-Every helper takes the same options object as its last argument:
+The asynchronous helpers take this options object as their last argument. Synchronous helpers omit `timeout`:
 
 | Option    | Default                             | Meaning                                                                                                                                             |
 | --------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `timeout` | `1000` (`0` for `expectNoEmission`) | ms to wait for a value. In `expectNoEmission`: how long silence must hold; `0` means one macrotask. Elsewhere `0` or `Infinity` means no time limit |
 | `label`   | none                                | the stream's name in the failure message, instead of `source$`                                                                                      |
 | `skip`    | `0`                                 | ignore the first `N` emissions. A `BehaviorSubject` / `shareReplay` sends its current value on subscribe; `skip: 1` ignores it                      |
-| `until`   | none                                | wait for the first emission that passes this predicate; the others are still counted in the failure                                                 |
+| `until`   | none                                | accept each emission that passes this predicate; rejected values still appear in failure diagnostics                                                |
 | `advance` | none                                | a callback run once, after the subscription exists and before the promise is returned                                                               |
 
 To change the default `timeout` for the whole run, call `setEmissionTimeout(ms)` in the setup file (see
@@ -3659,8 +3698,9 @@ To change the default `timeout` for the whole run, call `setEmissionTimeout(ms)`
 
 ## The `await` is not optional
 
-Each helper subscribes when you call it and reports through the promise. If you do not `await` it,
-nobody closes the subscription, and the assertion never happens.
+Each asynchronous helper subscribes when you call it and reports through the promise.
+Await or return that promise so the test observes its result. A settled helper closes its subscription even without `await`.
+A pending wait can outlive the test until cleanup stops it.
 
 [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) closes every wait still open at the end of a test, before any
 other cleanup, and names it:
@@ -5797,20 +5837,20 @@ nothing.
 
 ## Bundle size
 
-The badge says 30.3 kB min+gzip, and that is the whole core entry bundled together. Each subpath is
+The badge says 30.7 kB min+gzip, and that is the whole core entry bundled together. Each subpath is
 a separate entry, and a project pays only for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **30.3 kB** |
-| `vitest-auto-spy/angular` on its own          |     38.7 kB |
-| `vitest-auto-spy/angular/doubles`             |     21.4 kB |
+| `.` — the core entry, what the badge measures | **30.7 kB** |
+| `vitest-auto-spy/angular` on its own          |     39.1 kB |
+| `vitest-auto-spy/angular/doubles`             |     25.2 kB |
 | `vitest-auto-spy/angular/diagnostics`         |      7.5 kB |
 | `vitest-auto-spy/angular/matchers`            |      3.2 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     30.3 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     30.7 kB |
 | `vitest-auto-spy/setup`                       |     31.1 kB |
-| `vitest-auto-spy/node`                        |     29.5 kB |
-| `vitest-auto-spy/dom-stubs`                   |     12.1 kB |
+| `vitest-auto-spy/node`                        |     30.0 kB |
+| `vitest-auto-spy/dom-stubs`                   |     12.5 kB |
 | `vitest-auto-spy/rxjs`                        |      2.3 kB |
 | `vitest-auto-spy/angular-router`              |     11.2 kB |
 | `vitest-auto-spy/angular-http`                |      4.3 kB |
@@ -13394,13 +13434,64 @@ it('highlights on enter', () => {
 Returns a fake `HTMLElement` whose methods are spies that keep state: `classList.contains` answers what
 `classList.add` put in, `getAttribute` returns what `setAttribute` wrote, and `dispatchEvent` reaches the listeners.
 
-| Option       | Type                     | Default | Meaning                                                               |
-| ------------ | ------------------------ | ------- | --------------------------------------------------------------------- |
-| `tagName`    | `string`                 | `'div'` | The tag, lower case; `tagName` and `nodeName` return it in upper case |
-| `classes`    | `string[]`               | none    | Classes the element starts with                                       |
-| `attributes` | `Record<string, string>` | none    | Attributes it starts with                                             |
-| `style`      | `Record<string, string>` | none    | Inline styles by CSS property name: `{ 'background-color': 'red' }`   |
-| `overrides`  | `Partial<HTMLElement>`   | none    | Any other member your code reads: `offsetWidth`, `querySelector`      |
+For code that checks `instanceof`, pass the element class:
+
+```ts
+import { createElementStub } from 'vitest-auto-spy/dom-stubs';
+
+const input = createElementStub({ elementClass: HTMLInputElement, tagName: 'input', overrides: { value: '15' } });
+
+expect(input.element).toBeInstanceOf(HTMLInputElement);
+expect(input.element.value).toBe('15'); // inferred as HTMLInputElement
+```
+
+`elementClass` uses the class's prototype without calling its constructor. TypeScript infers `T` from the class.
+`tagName` remains independent and defaults to `'div'`; set it to `'input'` for an input stub.
+The supplied class adds no implementations. Configure missing properties and methods, such as `value` or `select`, in `overrides`.
+Existing stub methods, such as `focus`, remain usable. Reading an unconfigured class member throws with its name.
+
+| Option         | Type                        | Default | Meaning                                                               |
+| -------------- | --------------------------- | ------- | --------------------------------------------------------------------- |
+| `elementClass` | `{ readonly prototype: T }` | none    | Element class for `instanceof`; infers the element type               |
+| `tagName`      | `string`                    | `'div'` | The tag, lower case; `tagName` and `nodeName` return it in upper case |
+| `classes`      | `string[]`                  | none    | Classes the element starts with                                       |
+| `attributes`   | `Record<string, string>`    | none    | Attributes it starts with                                             |
+| `style`        | `Record<string, string>`    | none    | Inline styles by CSS property name: `{ 'background-color': 'red' }`   |
+| `overrides`    | `Partial<T>`                | none    | Any other member your code reads: `offsetWidth`, `querySelector`      |
+
+### `mockElementRefProp` — an element for a signal query
+
+Replace an optional or required `ElementRef` signal query and get the element spies in one call.
+For example, `component.dateTrigger` has type `Signal<ElementRef<HTMLButtonElement> | undefined>`.
+Its `focusTrigger()` method calls `focus()` on the queried element.
+
+```ts
+import { mockElementRefProp } from 'vitest-auto-spy/angular/doubles';
+
+const trigger = mockElementRefProp(component, 'dateTrigger', {
+  elementClass: HTMLButtonElement,
+  tagName: 'button',
+});
+component.focusTrigger();
+expect(trigger.focus).toHaveBeenCalledExactlyOnceWith();
+```
+
+This replaces a local element factory followed by `mockSignalProp(component, 'dateTrigger', new ElementRef(element))`.
+The query determines the element type. Options are those of `createElementStub` and cannot change that type.
+The handle also returns `ref` (the installed `ElementRef`) and `query` (a writable test signal).
+Use `trigger.query.set(undefined)` to represent a missing optional query; required queries reject `undefined` in TypeScript.
+Queries returning component or directive instances, and `viewChildren`, need `mockSignalProp` instead.
+
+Patch before rendering a template, effect, or `computed` that consumes the original query.
+Patching an already consumed query throws. This helper creates no rendered element and does not resolve Angular queries.
+`setupAutoSpy()` restores the original query after each test. Without it, add cleanup:
+
+```ts
+import { afterEach } from 'vitest';
+import { restoreMockedProps } from 'vitest-auto-spy';
+
+afterEach(() => restoreMockedProps());
+```
 
 What the returned handle has:
 
@@ -13435,8 +13526,61 @@ member's name:
 
 Pass that member in `overrides: { offsetWidth: 120, querySelector: vi.fn() }`.
 
-Nothing is patched, so there is nothing to restore. Without a DOM environment the stub still works;
-only the missing-member check is off, because there is no `HTMLElement` to read the member list from.
+`createElementStub` itself patches nothing and needs no cleanup. Without a DOM environment the stub still works.
+The missing-member check needs `HTMLElement` or a supplied `elementClass` to read the member list from.
+
+## Events for direct handler calls
+
+Use `createDomEvent` to supply readonly targets without a cast or `Object.defineProperty` in each test.
+Here, `component.onBlur()` reads `currentTarget` and removes the `active` class.
+
+```ts
+import { createDomEvent, createElementStub, createInputEvent } from 'vitest-auto-spy/dom-stubs';
+
+const input = createElementStub({ tagName: 'input', classes: ['active'] });
+component.onBlur(createDomEvent('blur', { currentTarget: input.element }));
+expect(input.classes()).toEqual([]);
+
+component.onInput(createInputEvent('15'));
+expect(component.value()).toBe('15');
+```
+
+`createDomEvent(type, init?)` returns a native `Event`. `bubbles` and `cancelable` default to `true`.
+The optional `target` and `currentTarget` stay fixed. For propagation tests, omit them and dispatch on a real DOM element.
+
+`createInputEvent(value, init?)` returns an `Event` of type `'input'` with an input stub as `target`.
+It supports `instanceof HTMLInputElement` when that class exists. The supplied value wins over `init.element.overrides.value`.
+Pass stub options through `element`, for example `{ element: { overrides: { disabled: true } } }`.
+Pass other native event flags directly in `init`.
+
+**Common mistake:** expecting `data`, `inputType`, or a browser input event constructor check to work.
+This helper returns `Event`, not `InputEvent`. Use a native `InputEvent` when testing those browser features.
+
+## Text paste and drop events
+
+Replace local clipboard and drag event factories when a handler only reads plain text.
+Here, `onPaste` and `onDrop` read the text and cancel the event.
+
+```ts
+import { createDropEvent, createPasteEvent } from 'vitest-auto-spy/dom-stubs';
+
+const paste = createPasteEvent('15');
+component.onPaste(paste);
+expect(paste.defaultPrevented).toBe(true);
+
+component.onDrop(createDropEvent('20'));
+expect(component.value()).toBe('20');
+```
+
+Both accept `(text: string | null, init?: EventInit)` and default to bubbling, cancelable events.
+`null` gives `clipboardData: null` or `dataTransfer: null`, so you can test absent data.
+`getData('text')` and `getData('text/plain')` return the supplied text, ignoring case; other formats return `''`.
+`types` is a readonly `['text/plain']` array. These events can also be dispatched on DOM elements.
+
+The transfer supports only `getData()` and `types`. Reading `files`, `items`, `setData`, or any other transfer member throws.
+These are native `Event` instances with the text transfer property added.
+They need no `ClipboardEvent`, `DragEvent`, or `DataTransfer` constructor and do not pass those constructor checks.
+For files, coordinates, transfer writes, or browser drag behavior, supply your own event.
 
 ## The members the DOM environment leaves out — `fillMissingDomApis`
 
@@ -23279,7 +23423,7 @@ Common next steps:
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `vitest-auto-spy/angular`             | `provideAutoSpy`, `provideAutoSpyForToken`, `injectSpy`, the `Spy<T>` type, `extendWithAutoSpies`, `renderShallow`, `setInputs`, `stable`, `settleResource`, the signal and property mockers, and everything else on this page |
 | `vitest-auto-spy/angular/matchers`    | `registerSignalMatchers`, `registerResourceMatchers`, `registerDirectiveMatchers` (Vitest only)                                                                                                                                |
-| `vitest-auto-spy/angular/doubles`     | ready-made `window`, `document`, Material dialog, platform, sanitizer, change detector and CDK overlay doubles                                                                                                                 |
+| `vitest-auto-spy/angular/doubles`     | ready-made `window`, `document`, Material dialog, platform, sanitizer, change detector and CDK overlay doubles; `mockElementRefProp` for element queries                                                                       |
 | `vitest-auto-spy/angular/diagnostics` | `enableTestBedDiagnostics` and `enableAngularDiagnostics` (Vitest only)                                                                                                                                                        |
 | `vitest-auto-spy/angular-http`        | `expectRequest`, `provideHttpTesting` - see [Angular HTTP](https://asdalexey.github.io/vitest-auto-spy/adapters/angular-http)                                                                                                                                             |
 | `vitest-auto-spy`                     | `createSpyFromClass`, `createMock`, `createAutoMock`, `createSpyFromInstance`, `spyOnVoidMethod`, `spyOnOwnMethod`, `stubConstructor`, `asInstance`                                                                            |
@@ -24352,6 +24496,21 @@ always the case under `isolate: false`.
 and every patched object stays in memory for the whole run.
 
 These helpers are not Angular-specific: the root `vitest-auto-spy` entry exports them too.
+
+For an `ElementRef` signal query, use
+[`mockElementRefProp`](https://asdalexey.github.io/vitest-auto-spy/utilities/element-stub#mockelementrefprop-—-an-element-for-a-signal-query) from `vitest-auto-spy/angular/doubles`.
+It creates an element stub, replaces the query, and returns the spies in one call:
+
+```ts
+import { mockElementRefProp } from 'vitest-auto-spy/angular/doubles';
+
+const trigger = mockElementRefProp(component, 'dateTrigger');
+component.focusTrigger();
+expect(trigger.focus).toHaveBeenCalledExactlyOnceWith();
+```
+
+Here, `dateTrigger` is an `ElementRef` signal query and `focusTrigger()` focuses its element.
+Patch before the first render that consumes the query; `setupAutoSpy()` restores the original signal after the test.
 
 ### Driving a signal
 
@@ -32221,16 +32380,18 @@ matchers such as `expect.any(Number)` at any depth; see
 
 Each one subscribes for you and fails with a clear message when the stream stays silent.
 
-| Export                                      | What it does                                         | Docs                                                                                                         |
-| ------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `expectEmission(source$, options?)`         | Waits for one value and returns it                   | [Observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions)                                                         |
-| `expectEmissions(source$, count, options?)` | Waits for `count` values and returns them            | same                                                                                                         |
-| `expectAllEmissions(source$, options?)`     | Returns every value once the stream completes        | same                                                                                                         |
-| `expectNoEmission(source$, options?)`       | Passes when nothing arrives within the wait          | same                                                                                                         |
-| `expectNoEmissionSync(source$, options?)`   | The same check, without `await`                      | [`expectNoEmissionSync`](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions#expectnoemissionsync-—-silence-in-a-spec-with-no-await) |
-| `expectCompletion(source$, options?)`       | Passes when the stream completes, value or not       | [`expectCompletion`](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions#expectcompletion-—-when-the-value-is-not-the-point)         |
-| `expectError(source$, options?)`            | Passes when the stream errors, and returns the error | [`expectError`](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions#expecterror-—-when-the-failure-is-the-subject)                   |
-| `setEmissionTimeout(milliseconds)`          | Changes the default wait for all of them             | [Observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions)                                                         |
+| Export                                          | What it does                                         | Docs                                                                                                         |
+| ----------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `expectEmission(source$, options?)`             | Waits for one value and returns it                   | [Observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions)                                                         |
+| `expectEmissions(source$, count, options?)`     | Waits for `count` values and returns them            | same                                                                                                         |
+| `expectEmissionSync(source$, options?)`         | Returns exactly one synchronous value                | [Synchronous outputs](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions#synchronous-outputs-without-subscriptions)                 |
+| `expectEmissionsSync(source$, count, options?)` | Returns exactly `count` synchronous values           | same                                                                                                         |
+| `expectAllEmissions(source$, options?)`         | Returns every value once the stream completes        | same                                                                                                         |
+| `expectNoEmission(source$, options?)`           | Passes when nothing arrives within the wait          | same                                                                                                         |
+| `expectNoEmissionSync(source$, options?)`       | The same check, without `await`                      | [`expectNoEmissionSync`](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions#expectnoemissionsync-—-silence-in-a-spec-with-no-await) |
+| `expectCompletion(source$, options?)`           | Passes when the stream completes, value or not       | [`expectCompletion`](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions#expectcompletion-—-when-the-value-is-not-the-point)         |
+| `expectError(source$, options?)`                | Passes when the stream errors, and returns the error | [`expectError`](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions#expecterror-—-when-the-failure-is-the-subject)                   |
+| `setEmissionTimeout(milliseconds)`              | Changes the default wait for all of them             | [Observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions)                                                         |
 
 ### Typing, fixtures and arguments
 
@@ -32339,6 +32500,7 @@ the core. `@angular/material` and `@angular/cdk` are never dependencies: you pas
 
 | Export                                                                                                                     | What it does                                                                        | Docs                                                                                                       |
 | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `mockElementRefProp(object, property, options?)`                                                                           | Replaces an `ElementRef` signal query and returns element spies                     | [An element for a query](https://asdalexey.github.io/vitest-auto-spy/utilities/element-stub#mockelementrefprop-—-an-element-for-a-signal-query)       |
 | `provideWindowDouble(token, overrides?)` / `createWindowDouble(overrides?)`                                                | A `window` with your overrides over the real one; `create*` works without `TestBed` | [Window and document](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#window-and-document-without-losing-the-real-one)                   |
 | `createWindowSpies(selection)`                                                                                             | Typed no-op spies for selected void window methods; pass them as window overrides   | same                                                                                                       |
 | `provideDocumentDouble(overrides?, token?)` / `createDocumentDouble(overrides?)`                                           | The same for `document`                                                             | same                                                                                                       |
@@ -32461,18 +32623,21 @@ One-call hygiene for a whole run, plus timers and network. Put `setupAutoSpy()` 
 Stand-ins for browser APIs the code under test creates itself. Registers the Vitest adapter only if no
 runner entry did. Stubs restore with `restoreMockedProps()`.
 
-| Export                                                                                                                                 | What it does                                                      | Docs                                                  |
-| -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------- |
-| `stubIntersectionObserver(options?)`, `stubResizeObserver(options?)`, `stubMutationObserver(options?)`, `stubObserver(name, options?)` | Replace an observer global with one the spec drives               | [Observer stubs](https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs)           |
-| `intersectionEntry(target, isIntersecting, overrides?)`, `resizeEntry(target, rect?)`, `mutationRecord(target, init?)`                 | Build one observer entry without the unused fields                | same                                                  |
-| `stubMediaElement(options?)`                                                                                                           | A `<video>` or `<audio>` that plays and fires media events        | [Media element](https://asdalexey.github.io/vitest-auto-spy/utilities/media-element)             |
-| `stubAnimationFrame(options?)`                                                                                                         | `requestAnimationFrame` run at once or on `flush(timestamp?)`     | [Frame and rect](https://asdalexey.github.io/vitest-auto-spy/utilities/frame-and-rect)           |
-| `stubElementRect(element, rect?)`                                                                                                      | `getBoundingClientRect()` answering a real `DOMRect`              | same                                                  |
-| `stubAbortController()`                                                                                                                | An `AbortController` whose signal works with jsdom listeners      | [Constructor doubles](https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles) |
-| `stubWebStorage(key?, options?)`                                                                                                       | An in-memory `localStorage` or `sessionStorage` with `snapshot()` | [Mocking localStorage](https://asdalexey.github.io/vitest-auto-spy/guides/mocking-local-storage) |
-| `stubWorker(options?)`                                                                                                                 | A `Worker` whose script is the spec                               | [Worker stub](https://asdalexey.github.io/vitest-auto-spy/utilities/worker-stub)                 |
-| `createElementStub(options?)`                                                                                                          | An `HTMLElement` for `ElementRef` whose spies keep state          | [Element stub](https://asdalexey.github.io/vitest-auto-spy/utilities/element-stub)               |
-| `fillMissingDomApis(options?)`                                                                                                         | Fills DOM members jsdom and happy-dom leave out, once             | same                                                  |
+| Export                                                                                                                                 | What it does                                                      | Docs                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `stubIntersectionObserver(options?)`, `stubResizeObserver(options?)`, `stubMutationObserver(options?)`, `stubObserver(name, options?)` | Replace an observer global with one the spec drives               | [Observer stubs](https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs)                               |
+| `intersectionEntry(target, isIntersecting, overrides?)`, `resizeEntry(target, rect?)`, `mutationRecord(target, init?)`                 | Build one observer entry without the unused fields                | same                                                                      |
+| `stubMediaElement(options?)`                                                                                                           | A `<video>` or `<audio>` that plays and fires media events        | [Media element](https://asdalexey.github.io/vitest-auto-spy/utilities/media-element)                                 |
+| `stubAnimationFrame(options?)`                                                                                                         | `requestAnimationFrame` run at once or on `flush(timestamp?)`     | [Frame and rect](https://asdalexey.github.io/vitest-auto-spy/utilities/frame-and-rect)                               |
+| `stubElementRect(element, rect?)`                                                                                                      | `getBoundingClientRect()` answering a real `DOMRect`              | same                                                                      |
+| `stubAbortController()`                                                                                                                | An `AbortController` whose signal works with jsdom listeners      | [Constructor doubles](https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles)                     |
+| `stubWebStorage(key?, options?)`                                                                                                       | An in-memory `localStorage` or `sessionStorage` with `snapshot()` | [Mocking localStorage](https://asdalexey.github.io/vitest-auto-spy/guides/mocking-local-storage)                     |
+| `stubWorker(options?)`                                                                                                                 | A `Worker` whose script is the spec                               | [Worker stub](https://asdalexey.github.io/vitest-auto-spy/utilities/worker-stub)                                     |
+| `createElementStub(options?)`                                                                                                          | An `HTMLElement` for `ElementRef` whose spies keep state          | [Element stub](https://asdalexey.github.io/vitest-auto-spy/utilities/element-stub)                                   |
+| `createDomEvent(type, init?)`                                                                                                          | A native `Event` with fixed targets for direct handler calls      | [Handler events](https://asdalexey.github.io/vitest-auto-spy/utilities/element-stub#events-for-direct-handler-calls) |
+| `createInputEvent(value, init?)`                                                                                                       | An `Event` with an input stub carrying the value as `target`      | same                                                                      |
+| `createPasteEvent(text, init?)` / `createDropEvent(text, init?)`                                                                       | Plain text paste and drop events                                  | [Text events](https://asdalexey.github.io/vitest-auto-spy/utilities/element-stub#text-paste-and-drop-events)         |
+| `fillMissingDomApis(options?)`                                                                                                         | Fills DOM members jsdom and happy-dom leave out, once             | same                                                                      |
 
 ## `vitest-auto-spy/diagnostics`
 
