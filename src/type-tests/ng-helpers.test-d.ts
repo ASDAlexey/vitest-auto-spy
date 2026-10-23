@@ -60,6 +60,18 @@ describe('createElementStub', () => {
   it('reports the filled names', () => {
     expectTypeOf(fillMissingDomApis({ cheapComputedStyle: true })).toEqualTypeOf<readonly string[]>();
   });
+
+  it('infers the element from its class and checks overrides against it', () => {
+    expectTypeOf(createElementStub({ elementClass: HTMLInputElement, overrides: { value: 'x' } })).toEqualTypeOf<
+      ElementStub<HTMLInputElement>
+    >();
+    expectTypeOf(createElementStub({ elementClass: HTMLButtonElement }).element).toEqualTypeOf<HTMLButtonElement>();
+
+    // @ts-expect-error -- the class fixes the override's value type
+    createElementStub({ elementClass: HTMLInputElement, overrides: { value: 1 } });
+    // @ts-expect-error -- an explicit generic must agree with the class
+    createElementStub<HTMLInputElement>({ elementClass: HTMLButtonElement });
+  });
 });
 
 describe('providePlatform', () => {
