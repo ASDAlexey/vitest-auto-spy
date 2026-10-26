@@ -116,7 +116,7 @@
     }
   },
   "released": {
-    "version": "5.64.0",
+    "version": "5.65.0",
     "entries": {
       ".": {
         "modules": 2,

@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.65.0] - 2026-10-26
+
 ## [5.64.0] - 2026-10-23
 
 ### Added
@@ -10118,7 +10120,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.64.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.65.0...HEAD
+[5.65.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.64.0...v5.65.0
 [5.64.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.63.0...v5.64.0
 [5.63.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.62.0...v5.63.0
 [5.62.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.61.0...v5.62.0
