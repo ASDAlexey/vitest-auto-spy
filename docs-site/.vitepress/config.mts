@@ -434,6 +434,8 @@ export default defineConfig({
           'solitary unit test, sociable unit test, nestjs unit test without Test.createTestingModule, ' +
           'nestjs mock all dependencies, nestjs auto mock providers, nest service unit test vitest, ' +
           'nestjs testing module too slow, nest constructor changed test broke, mock nestjs injected service, ' +
+          'NestJS ExecutionContext mock, NestJS ArgumentsHost mock, test NestJS custom parameter decorator, ' +
+          'createHttpExecutionContext, invokeNestParamDecorator, ' +
           '@Inject token test, nestjs optional dependency test, nest property injection test, ' +
           'reflect-metadata emitDecoratorMetadata test, suites alternative, migrate off suites, ' +
           'fail test on console output, vitest fail on console.error, jest-fail-on-console vitest, ' +
