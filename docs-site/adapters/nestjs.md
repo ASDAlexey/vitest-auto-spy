@@ -297,6 +297,95 @@ Every error names the fix and ends with a link to this page.
 - **`spies.get` of a token the unit never asked for.** The message lists the tokens that got spies.
 - **`spies.get` of an exposed class.** That class is real, not a spy.
 
+## `createHttpExecutionContext`
+
+Build an HTTP context for a guard, interceptor, exception filter or parameter decorator without
+starting a Nest application.
+
+```ts
+import { expect } from 'vitest';
+import { createHttpExecutionContext } from 'vitest-auto-spy/nestjs';
+
+const request = { headers: { authorization: 'Bearer test' } };
+const response = { statusCode: 200 };
+const context = createHttpExecutionContext({ request, response });
+
+expect(context.switchToHttp().getRequest()).toBe(request);
+expect(context.switchToHttp().getResponse()).toBe(response);
+expect(context.getType()).toBe('http');
+```
+
+Pass this context directly to code that accepts Nest's `ExecutionContext` or `ArgumentsHost`.
+It preserves your objects. `getArgs()` returns the shared `[request, response, next]` array;
+changing an array entry also changes what its HTTP accessor returns.
+
+| Option     | Type                     | Default     | Meaning                                                                  |
+| ---------- | ------------------------ | ----------- | ------------------------------------------------------------------------ |
+| `request`  | inferred from your value | `undefined` | Value returned by `getRequest()` and `getArgByIndex(0)`.                 |
+| `response` | inferred from your value | `undefined` | Value returned by `getResponse()` and `getArgByIndex(1)`.                |
+| `next`     | inferred from your value | `undefined` | Value returned by `getNext()` and `getArgByIndex(2)`.                    |
+| `handler`  | function                 | absent      | Function returned by `getHandler()`, for code that reads route metadata. |
+| `class`    | constructor              | absent      | Class returned by `getClass()`, for code that reads controller metadata. |
+
+**Common mistake:** calling `getHandler()` or `getClass()` without supplying the matching option
+throws. Supply the real route method and controller class when testing metadata-dependent code.
+`switchToRpc()` and `switchToWs()` throw because this context supports HTTP only.
+
+## `invokeNestParamDecorator`
+
+Test the value a custom parameter decorator extracts from a request. Pass the controller class,
+method name and parameter index; the helper finds the decorator's factory for you.
+
+```ts
+import 'reflect-metadata';
+
+import { type ExecutionContext, createParamDecorator } from '@nestjs/common';
+import { expect, it } from 'vitest';
+import { createHttpExecutionContext, invokeNestParamDecorator } from 'vitest-auto-spy/nestjs';
+
+const CurrentUser = createParamDecorator((field: string, context: ExecutionContext) => {
+  const request = context.switchToHttp().getRequest<{ user: Record<string, string> }>();
+  return request.user[field];
+});
+
+class ProfileController {
+  profile(@CurrentUser('id') id: string): string {
+    return id;
+  }
+}
+
+it('extracts the user id', () => {
+  const context = createHttpExecutionContext({ request: { user: { id: 'user-7' } } });
+
+  expect(invokeNestParamDecorator(ProfileController, 'profile', 0, context)).toBe('user-7');
+});
+```
+
+| Argument         | Meaning                                                             |
+| ---------------- | ------------------------------------------------------------------- |
+| `Controller`     | Controller class whose method carries the decorator metadata.       |
+| `method`         | Method name; string and symbol methods are supported.               |
+| `parameterIndex` | Zero-based parameter position, independent of metadata entry order. |
+| `context`        | Your HTTP context or a real Nest execution context.                 |
+
+In this example, `'id'` comes from `@CurrentUser('id')`, and `0` selects the first parameter of
+`profile`. The result is `unknown`: assert it or validate it before use. An async factory returns
+its original promise, so use an awaited assertion. The controller method itself is not called.
+
+**Common mistake:** this helper tests a custom decorator's factory, not Nest's request pipeline.
+The helper refuses:
+
+- built-in decorators such as `@Body()`, which have no custom factory;
+- parameters that ask Nest to run pipes or a Standard Schema validator;
+- missing factories or multiple factories for the selected parameter.
+
+Use a Nest application test when the pipeline is part of the behavior you need to check.
+Ordinary object-valued decorator data is forwarded to the factory unchanged.
+
+Install `reflect-metadata` as a dev dependency and load it before the decorated class. Enable
+legacy parameter decorators in your test compiler (`experimentalDecorators` in TypeScript).
+On Vitest, use `unplugin-swc`; see [Compiler setup](#the-metadata-comes-from-your-compiler).
+
 ## Dependencies
 
 `@nestjs/common` and `@nestjs/testing` stay your own dev dependencies. The entry never imports them.

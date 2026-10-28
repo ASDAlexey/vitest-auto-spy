@@ -299,6 +299,96 @@ Nest берёт типы параметров конструктора из `des
 - **`spies.get` по токену, который юнит не запрашивал.** Сообщение перечисляет токены со спаями.
 - **`spies.get` по классу из `expose`.** Этот класс настоящий, а не спай.
 
+## `createHttpExecutionContext` {#createhttpexecutioncontext}
+
+Создаёт HTTP-контекст для теста guard, interceptor, exception filter или параметрического
+декоратора без запуска приложения Nest.
+
+```ts
+import { expect } from 'vitest';
+import { createHttpExecutionContext } from 'vitest-auto-spy/nestjs';
+
+const request = { headers: { authorization: 'Bearer test' } };
+const response = { statusCode: 200 };
+const context = createHttpExecutionContext({ request, response });
+
+expect(context.switchToHttp().getRequest()).toBe(request);
+expect(context.switchToHttp().getResponse()).toBe(response);
+expect(context.getType()).toBe('http');
+```
+
+Передавайте контекст прямо в код, который принимает `ExecutionContext` или `ArgumentsHost` из Nest.
+Ваши объекты сохраняются. `getArgs()` возвращает общий массив `[request, response, next]`.
+Изменение элемента массива меняет и значение, которое возвращает соответствующий HTTP-метод.
+
+| Опция      | Тип                          | По умолчанию | Смысл                                                                   |
+| ---------- | ---------------------------- | ------------ | ----------------------------------------------------------------------- |
+| `request`  | выводится из вашего значения | `undefined`  | Результат `getRequest()` и `getArgByIndex(0)`.                          |
+| `response` | выводится из вашего значения | `undefined`  | Результат `getResponse()` и `getArgByIndex(1)`.                         |
+| `next`     | выводится из вашего значения | `undefined`  | Результат `getNext()` и `getArgByIndex(2)`.                             |
+| `handler`  | функция                      | отсутствует  | Результат `getHandler()` для кода, который читает метаданные маршрута.  |
+| `class`    | конструктор                  | отсутствует  | Результат `getClass()` для кода, который читает метаданные контроллера. |
+
+**Частая ошибка:** `getHandler()` и `getClass()` бросают ошибку, если соответствующая опция не задана.
+Для тестов кода, который читает метаданные, передайте настоящий метод маршрута и класс контроллера.
+`switchToRpc()` и `switchToWs()` бросают ошибку: этот контекст поддерживает только HTTP.
+
+## `invokeNestParamDecorator` {#invokenestparamdecorator}
+
+Проверяет значение, которое пользовательский декоратор параметра извлекает из запроса.
+Передайте класс контроллера, имя метода и номер параметра: хелпер сам найдёт фабрику декоратора.
+
+```ts
+import 'reflect-metadata';
+
+import { type ExecutionContext, createParamDecorator } from '@nestjs/common';
+import { expect, it } from 'vitest';
+import { createHttpExecutionContext, invokeNestParamDecorator } from 'vitest-auto-spy/nestjs';
+
+const CurrentUser = createParamDecorator((field: string, context: ExecutionContext) => {
+  const request = context.switchToHttp().getRequest<{ user: Record<string, string> }>();
+  return request.user[field];
+});
+
+class ProfileController {
+  profile(@CurrentUser('id') id: string): string {
+    return id;
+  }
+}
+
+it('extracts the user id', () => {
+  const context = createHttpExecutionContext({ request: { user: { id: 'user-7' } } });
+
+  expect(invokeNestParamDecorator(ProfileController, 'profile', 0, context)).toBe('user-7');
+});
+```
+
+| Аргумент         | Смысл                                                                      |
+| ---------------- | -------------------------------------------------------------------------- |
+| `Controller`     | Класс контроллера с метаданными декоратора на методе.                      |
+| `method`         | Имя метода; поддерживаются строки и символы.                               |
+| `parameterIndex` | Позиция параметра с нуля; порядок записей в метаданных не влияет на выбор. |
+| `context`        | Ваш HTTP-контекст или настоящий execution context из Nest.                 |
+
+В примере `'id'` берётся из `@CurrentUser('id')`, а `0` указывает на первый параметр `profile`.
+Результат имеет тип `unknown`: проверьте его в assertion или валидируйте перед использованием.
+Асинхронная фабрика возвращает исходный promise, поэтому проверку нужно ожидать через `await`.
+Сам метод контроллера не вызывается.
+
+**Частая ошибка:** хелпер проверяет фабрику пользовательского декоратора, а не обработку запроса в Nest.
+Хелпер отвергает:
+
+- встроенные декораторы вроде `@Body()`: у них нет пользовательской фабрики;
+- параметры, для которых Nest должен выполнить pipes или валидатор Standard Schema;
+- отсутствие фабрики или несколько фабрик для выбранного параметра.
+
+Для проверки всей обработки запроса используйте тест с приложением Nest.
+Обычный объект в аргументе декоратора передаётся фабрике без изменений.
+
+Установите `reflect-metadata` в dev-зависимости и загрузите его до объявления класса с декоратором.
+Включите legacy-декораторы параметров в компиляторе тестов (`experimentalDecorators` в TypeScript).
+Для Vitest используйте `unplugin-swc`: [настройка компилятора](#the-metadata-comes-from-your-compiler).
+
 ## Зависимости {#dependencies}
 
 `@nestjs/common` и `@nestjs/testing` остаются вашими dev-зависимостями: точка входа их не

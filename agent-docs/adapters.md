@@ -28,6 +28,15 @@ mount(Greeting, { global: { provide } });
 import { createSpyFromClass } from 'vitest-auto-spy/react';
 ```
 
+**Nest HTTP tests.** `createHttpExecutionContext({ request, response, handler, class: Controller })`
+from `/nestjs` supplies an HTTP `ExecutionContext` / `ArgumentsHost` without starting Nest. Omit
+the options you do not need; `getClass()` / `getHandler()` throw if their option is missing.
+`invokeNestParamDecorator(Controller, 'method', parameterIndex, context)` runs a custom parameter
+factory by zero-based index and forwards its recorded `data`. Import `reflect-metadata` before
+the controller. The result is `unknown`; async factories return their promise unchanged. Native
+parameter decorators, pipes and schemas require Nest's pipeline and are refused. Examples:
+[Nest HTTP helpers](https://asdalexey.github.io/vitest-auto-spy/adapters/nestjs#createhttpexecutioncontext).
+
 **Types without Vitest.** `/node`, `/bun`, `/bun-angular`, `/rstest`, `/jasmine-compat`,
 `/angular-router`, `/console`, `/nestjs`, `/observer-spy` and `/rxjs` type-check with no Vitest
 installed and `skipLibCheck: false`. `Spy<T>` is one type on every entry: once the program imports an

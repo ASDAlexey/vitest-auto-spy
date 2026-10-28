@@ -47,6 +47,8 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 - **A spy from a type alone**: `createAutoMock<T>()` and `mockDeep<T>()`.
 - **Angular `TestBed` in one line**: `provideAutoSpy(ApiService)`, then `injectSpy(ApiService)`.
 - **Short handler tests**: typed input/paste/drop events, element query stubs, and exact synchronous output assertions.
+- **Nest HTTP tests without starting the app**: `createHttpExecutionContext` supplies the context;
+  `invokeNestParamDecorator` runs a custom parameter decorator with its recorded data.
 - **One API on every runner**: Vitest, Bun, `node:test` and Rstest; helpers for Angular, NestJS,
   React, Vue / Pinia and Svelte.
 - **Checks that make silent tests fail**: strict mode, Observable assertions, cleanup between tests,
@@ -2932,6 +2934,25 @@ Pass `{ expose: [Dependency] }` to keep a collaborator real, and `providers` to 
 `@nestjs/common` and `@nestjs/testing` stay your own dependencies; the entry imports neither, nor
 `vitest`. On `node --test`, Bun or Rstest, import the runtime entry first. `createNestUnit` is also
 exported from `vitest-auto-spy/node` and `vitest-auto-spy/bun`.
+
+Test a custom parameter decorator without starting Nest or reading its metadata by hand.
+Here `ProfileController.profile` has `@CurrentUser('id')` on its first parameter:
+
+```ts
+import 'reflect-metadata';
+
+import { expect } from 'vitest';
+import { createHttpExecutionContext, invokeNestParamDecorator } from 'vitest-auto-spy/nestjs';
+
+import { ProfileController } from './profile.controller';
+
+const context = createHttpExecutionContext({ request: { user: { id: 'user-7' } } });
+expect(invokeNestParamDecorator(ProfileController, 'profile', 0, context)).toBe('user-7');
+```
+
+The parameter index starts at zero. The helper runs the recorded factory with its decorator data;
+pipes and schemas require Nest's validation pipeline and are refused.
+Use the same context helper for guards, interceptors and exception filters.
 
 Full page: [NestJS](https://asdalexey.github.io/vitest-auto-spy/adapters/nestjs).
 

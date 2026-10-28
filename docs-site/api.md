@@ -354,12 +354,14 @@ Angular's `TestBed` under `bun test`. Re-exports `/bun` (the whole core) and mos
 NestJS `Test.createTestingModule` helpers. Works on any runner: it uses the adapter your runner entry
 registered, and on Vitest builds one from `vi`. Does not re-export the core.
 
-| Export                                    | What it does                                                       | Docs                                                                      |
-| ----------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------- |
-| `provideAutoSpy(Class, methodsOrConfig?)` | A `{ provide, useValue }` provider with a spy                      | [NestJS](/adapters/nestjs)                                                |
-| `injectSpy(moduleRef, token)`             | Gets that spy from the testing module, typed `Spy<T>`              | same                                                                      |
-| `createNestUnit(Class, options?)`         | Builds a provider from its DI metadata with every dependency spied | [Building the unit](/adapters/nestjs#building-the-unit-from-its-metadata) |
-| `trackInjections(tokens, options?)`       | Records which collaborators the code asked DI for                  | [Track injections](/utilities/track-injections)                           |
+| Export                                                    | What it does                                                                      | Docs                                                                      |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `provideAutoSpy(Class, methodsOrConfig?)`                 | A `{ provide, useValue }` provider with a spy                                     | [NestJS](/adapters/nestjs)                                                |
+| `injectSpy(moduleRef, token)`                             | Gets that spy from the testing module, typed `Spy<T>`                             | same                                                                      |
+| `createNestUnit(Class, options?)`                         | Builds a provider from its DI metadata with every dependency spied                | [Building the unit](/adapters/nestjs#building-the-unit-from-its-metadata) |
+| `createHttpExecutionContext(options?)`                    | Supplies an HTTP context without starting Nest                                    | [HTTP context](/adapters/nestjs#createhttpexecutioncontext)               |
+| `invokeNestParamDecorator(Class, method, index, context)` | Runs a custom parameter factory with its recorded data; refuses pipes and schemas | [Parameter decorators](/adapters/nestjs#invokenestparamdecorator)         |
+| `trackInjections(tokens, options?)`                       | Records which collaborators the code asked DI for                                 | [Track injections](/utilities/track-injections)                           |
 
 ## `vitest-auto-spy/setup`
 

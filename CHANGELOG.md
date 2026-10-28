@@ -10,6 +10,18 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- `/nestjs`: `createHttpExecutionContext` supplies an HTTP context for guards, interceptors,
+  exception filters and parameter decorators. Request, response and argument accessors share the
+  same values; missing handler/class metadata and non-HTTP transports produce explicit errors.
+- `/nestjs`: `invokeNestParamDecorator` runs a custom parameter decorator's recorded factory by
+  parameter index and forwards its stored data. It refuses missing or ambiguous factories and
+  parameter pipes or schemas that need Nest's request pipeline.
+- **Bundle size:** `/nestjs` grows from 20.06 kB to 20.85 kB min+gzip (+0.79 kB, +3.9%) for
+  the HTTP context and parameter metadata helpers, without importing NestJS or Vitest. The root
+  entry does not re-export these helpers.
+
 ## [5.65.0] - 2026-10-26
 
 ## [5.64.0] - 2026-10-23
