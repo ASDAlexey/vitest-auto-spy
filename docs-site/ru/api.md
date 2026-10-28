@@ -354,12 +354,14 @@ Angular `TestBed` под `bun test`. Реэкспортирует `/bun` (всё
 Хелперы для `Test.createTestingModule` в NestJS. Работает на любом раннере: берёт адаптер, который
 зарегистрировала точка входа раннера, а на Vitest собирает его из `vi`. Ядро не реэкспортирует.
 
-| Экспорт                                   | Что делает                                                               | Где подробно                                                            |
-| ----------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `provideAutoSpy(Class, methodsOrConfig?)` | Провайдер `{ provide, useValue }` со спаем                               | [NestJS](/ru/adapters/nestjs)                                           |
-| `injectSpy(moduleRef, token)`             | Получает этот спай из тестового модуля с типом `Spy<T>`                  | там же                                                                  |
-| `createNestUnit(Class, options?)`         | Собирает провайдер по его DI-метаданным, подменяя спаями все зависимости | [Сборка юнита](/ru/adapters/nestjs#building-the-unit-from-its-metadata) |
-| `trackInjections(tokens, options?)`       | Записывает, какие зависимости код запросил у DI                          | [Отслеживание инъекций](/ru/utilities/track-injections)                 |
+| Экспорт                                                   | Что делает                                                                                          | Где подробно                                                            |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `provideAutoSpy(Class, methodsOrConfig?)`                 | Провайдер `{ provide, useValue }` со спаем                                                          | [NestJS](/ru/adapters/nestjs)                                           |
+| `injectSpy(moduleRef, token)`                             | Получает этот спай из тестового модуля с типом `Spy<T>`                                             | там же                                                                  |
+| `createNestUnit(Class, options?)`                         | Собирает провайдер по его DI-метаданным, подменяя спаями все зависимости                            | [Сборка юнита](/ru/adapters/nestjs#building-the-unit-from-its-metadata) |
+| `createHttpExecutionContext(options?)`                    | Создаёт HTTP-контекст без запуска Nest                                                              | [HTTP-контекст](/ru/adapters/nestjs#createhttpexecutioncontext)         |
+| `invokeNestParamDecorator(Class, method, index, context)` | Вызывает фабрику пользовательского параметра с сохранёнными данными; отказывает при pipes и schemas | [Декораторы параметров](/ru/adapters/nestjs#invokenestparamdecorator)   |
+| `trackInjections(tokens, options?)`                       | Записывает, какие зависимости код запросил у DI                                                     | [Отслеживание инъекций](/ru/utilities/track-injections)                 |
 
 ## `vitest-auto-spy/setup` {#vitest-auto-spy-setup}
 

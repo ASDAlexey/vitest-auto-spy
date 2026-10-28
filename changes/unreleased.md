@@ -13,6 +13,12 @@ _Last released: **v5.23.0** — the git tag, `package.json` and `CHANGELOG.md` a
 
 ### Added
 
+- `/nestjs`: `createHttpExecutionContext` builds an HTTP context without starting Nest;
+  `invokeNestParamDecorator` invokes a custom parameter factory by index with its recorded data.
+  Parameter pipes and schemas require Nest's pipeline and are refused.
+- `/nestjs` grows from 20.06 kB to 20.85 kB min+gzip (+0.79 kB, +3.9%) for these helpers,
+  without importing NestJS or Vitest.
+
 - `no-redundant-mock-reset` takes `{ configFile }` — the runner config to read the flags from, for one the
   search cannot find.
 - `enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } })` — a cancelled request

@@ -38,6 +38,9 @@ features:
   - title: NestJS, React, Vue и Svelte
     details: 'У каждого фреймворка своя точка входа - provideAutoSpy для тестовых модулей NestJS и для global.provide во Vue, привычные импорты для React и Svelte.'
     link: /ru/adapters/nestjs
+  - title: HTTP-тесты Nest без приложения
+    details: 'createHttpExecutionContext создаёт HTTP-контекст; invokeNestParamDecorator проверяет фабрику пользовательского параметра с сохранёнными данными, без запуска Nest.'
+    link: /ru/adapters/nestjs#createhttpexecutioncontext
   - title: Строгий режим вместо undefined
     details: 'С strict true метод, который вы забыли настроить, бросает ошибку вместо undefined и называет класс, метод и аргументы.'
     link: /ru/core/strict-mode

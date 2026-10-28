@@ -536,6 +536,9 @@ file, and `globals: true`.
 
 In [`agent-docs/adapters.md`](./agent-docs/adapters.md). Read it for NestJS, Vue, React, Svelte, `bun test`, `node:test`, Rstest and the console entry.
 
+Nest HTTP tests: `createHttpExecutionContext` supplies the context; `invokeNestParamDecorator`
+calls a custom parameter factory by index with its recorded data. Both come from `/nestjs` (§15).
+
 <!-- agents-outline: agent-docs/adapters.md -->
 
 - `trackNodeMocks` for `node:test` memory

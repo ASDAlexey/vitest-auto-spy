@@ -33,3 +33,12 @@ export {
 // both optional), so the DI seam that records which collaborators an entry point asked for is one
 // implementation exported from both entries rather than two that drift.
 export { trackInjections, type InjectionLog, type TrackInjectionsOptions, type TrackedProvider } from './lib/track-injections';
+
+export {
+  createHttpExecutionContext,
+  type NestHttpExecutionContext,
+  type NestHttpExecutionContextOptions,
+  type NestHttpArgumentsHost,
+  type NestHttpContextClass,
+} from './lib/nest-http-context';
+export { invokeNestParamDecorator, type NestParamDecoratorMethod } from './lib/nest-param-decorator';

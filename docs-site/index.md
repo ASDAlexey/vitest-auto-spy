@@ -38,6 +38,9 @@ features:
   - title: NestJS, React, Vue and Svelte
     details: 'Each framework has its own entry point - provideAutoSpy for NestJS testing modules and Vue global.provide, familiar imports for React and Svelte.'
     link: /adapters/nestjs
+  - title: Nest HTTP tests without an app
+    details: 'createHttpExecutionContext builds an HTTP context; invokeNestParamDecorator checks a custom parameter factory with its recorded data, without starting Nest.'
+    link: /adapters/nestjs#createhttpexecutioncontext
   - title: Strict mode instead of undefined
     details: 'With strict true, a method you forgot to configure throws instead of returning undefined, naming the class, the method and the arguments.'
     link: /core/strict-mode
