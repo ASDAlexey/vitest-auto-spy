@@ -103,6 +103,8 @@ export const moduleMocksNoOp = 'https://asdalexey.github.io/vitest-auto-spy/util
 export const narrow =
   'https://asdalexey.github.io/vitest-auto-spy/utilities/fixtures#narrow-value-predicate-—-the-branch-a-test-knows-it-got';
 export const nestUnitRefusals = 'https://asdalexey.github.io/vitest-auto-spy/adapters/nestjs#what-it-refuses-and-what-the-message-says';
+export const nestHttpContext = 'https://asdalexey.github.io/vitest-auto-spy/adapters/nestjs#createhttpexecutioncontext';
+export const nestParamDecorator = 'https://asdalexey.github.io/vitest-auto-spy/adapters/nestjs#invokenestparamdecorator';
 export const observableAssertions = 'https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions';
 export const observableFailures = 'https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions#failure-messages';
 export const observerStubsHandle = 'https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs#the-handle';
