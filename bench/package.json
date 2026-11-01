@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@bugsplat/vitest-auto-spies": "1.0.0",
-    "@golevelup/ts-vitest": "4.0.0",
+    "@golevelup/ts-vitest": "4.0.1",
     "jasmine-auto-spies": "8.0.1",
     "jest-auto-spies": "3.0.1",
     "vitest-mock-extended": "5.1.1"
