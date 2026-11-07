@@ -15,6 +15,7 @@ import { EMPTY, type Observable } from 'rxjs';
 import { describe, expectTypeOf, it } from 'vitest';
 
 import {
+  type JasmineCustomMatcherResult,
   type JasmineWithArgsStrategies,
   type Spy,
   createFunctionSpy,
@@ -186,5 +187,78 @@ describe('JasmineWithArgsStrategies', () => {
 
     expectTypeOf<CompatWithArgsStrategies<Load>>().toEqualTypeOf<JasmineWithArgsStrategies<Load>>();
     expectTypeOf<JasmineWithArgsStrategies<Load>['resolveTo']>().toBeCallableWith('a');
+  });
+});
+
+describe('JasmineSpy keeps up with the core Spy<T>', () => {
+  class LegacyService {
+    optional?(): string;
+
+    get count(): number {
+      return 0;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the legacy `any` return is the case under test
+    loose(_id: number): any {
+      return undefined;
+    }
+  }
+
+  it('keeps withArgs(…).and.returnValue on a method that returns any', () => {
+    const service = createSpyFromClass(LegacyService);
+
+    expectTypeOf(service.loose.withArgs(1).and).toHaveProperty('returnValue');
+    expectTypeOf(service.loose.withArgs(1).and).toHaveProperty('resolveWith');
+    expectTypeOf(service.loose.and).toHaveProperty('nextWith');
+    // @ts-expect-error -- the arguments are still checked
+    service.loose.withArgs('1');
+  });
+
+  it('types the accessor spies against the accessor', () => {
+    const service = createSpyFromClass(LegacyService, { gettersToSpyOn: ['count'] });
+
+    service.accessorSpies.getters.count.mockReturnValue(1);
+    service.accessorSpies.getters.count.and.returnValue(1);
+    // @ts-expect-error -- `count` is a number
+    service.accessorSpies.getters.count.mockReturnValue('x');
+    // @ts-expect-error -- `count` is a number
+    service.accessorSpies.getters.count.and.returnValue('x');
+    // @ts-expect-error -- `count` is a number
+    service.accessorSpies.setters.count.mockImplementation((_value: string) => undefined);
+  });
+
+  it('spies an optional method like any other', () => {
+    const service = createSpyFromClass(LegacyService);
+
+    expectTypeOf(service.optional?.and.returnValue).parameter(0).toEqualTypeOf<string>();
+    // @ts-expect-error -- `optional` returns a string
+    service.optional?.and.returnValue(1);
+  });
+
+  it('rejects a strategy value of the wrong type', () => {
+    const service = createSpyFromClass(AccountService);
+
+    // @ts-expect-error -- `load` returns a string
+    service.load.and.returnValue(1);
+    // @ts-expect-error -- `load` returns a string
+    service.load.withArgs(1).and.returnValue(1);
+    // @ts-expect-error -- `save` resolves with a string
+    service.save.and.resolveWith(1);
+  });
+});
+
+describe('jasmine.addMatchers', () => {
+  it('accepts a jasmine matcher factory and types its matchersUtil', () => {
+    jasmine.addMatchers({
+      toBeFoo: (util) => ({
+        compare: (actual: unknown, expected: unknown): JasmineCustomMatcherResult => {
+          expectTypeOf(util.equals).returns.toEqualTypeOf<boolean>();
+
+          return { pass: util.equals(actual, expected), message: util.pp(actual) };
+        },
+      }),
+    });
+    // @ts-expect-error -- `pass` must be a boolean
+    jasmine.addMatchers({ toBeBar: () => ({ compare: (): { pass: string } => ({ pass: 'yes' }) }) });
   });
 });
