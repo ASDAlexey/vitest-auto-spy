@@ -50,10 +50,10 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      # No `registry-url` on purpose, exactly as in auto-release.yml: setup-node would write
-      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` into ~/.npmrc, npm would read that as
-      # "auth is already configured", skip the OIDC exchange and die with ENEEDAUTH.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      # No `registry-url` is needed, exactly as in auto-release.yml: npm defaults to
+      # registry.npmjs.org. setup-node v7 supports OIDC without the dummy NODE_AUTH_TOKEN
+      # fallback that interfered with it in v4-v6.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24 # >= 22.14, the floor for trusted publishing
 
