@@ -160,6 +160,28 @@ describe('matchesStructurally', () => {
     expect(matchesStructurally({ id: expect.anything() }, { other: 1 })).toBe(false);
   });
 
+  it('skips a string key holding undefined on either side, and reads a hole as undefined', () => {
+    const holed: unknown[] = [1];
+
+    holed[2] = 3;
+
+    expect(matchesStructurally({ id: expect.any(Number) }, { id: 1, query: undefined })).toBe(true);
+    expect(matchesStructurally({ id: expect.any(Number), query: undefined }, { id: 1 })).toBe(true);
+    expect(matchesStructurally([expect.any(Number), undefined, 3], holed)).toBe(true);
+    expect(matchesStructurally({ id: expect.any(Number), query: undefined }, { id: 1, query: null })).toBe(false);
+  });
+
+  it('counts a symbol key holding undefined', () => {
+    expect(matchesStructurally({ [Symbol.for('flag')]: undefined, id: expect.any(Number) }, { id: 1 })).toBe(false);
+  });
+
+  it('compares a boxed primitive by its value and refuses another class of object', () => {
+    expect(matchesStructurally({ n: Object(1), id: expect.anything() }, { n: Object(1), id: 1 })).toBe(true);
+    expect(matchesStructurally({ n: Object(1), id: expect.anything() }, { n: Object(2), id: 1 })).toBe(false);
+    expect(matchesStructurally({ n: Object(1), id: expect.anything() }, { n: {}, id: 1 })).toBe(false);
+    expect(matchesStructurally({ b: new Uint8Array([1]), id: expect.anything() }, { b: new Int8Array([1]), id: 1 })).toBe(false);
+  });
+
   it('ignores the prototype, as the runner’s own equals does', () => {
     class Payload {
       readonly id = 1;

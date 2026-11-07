@@ -58,6 +58,20 @@ function ownKeys(value: object): PropertyKey[] {
   return Reflect.ownKeys(value).filter((key) => Object.prototype.propertyIsEnumerable.call(value, key));
 }
 
+/**
+ * The keys the runner's non-strict `equals` counts: a string key holding `undefined` is skipped on
+ * both sides, so `{ id: 1 }` equals `{ id: 1, q: undefined }` and `[1, , 3]` equals `[1, undefined, 3]`.
+ * A symbol key counts whatever it holds.
+ */
+function definedKeys(value: object): PropertyKey[] {
+  return ownKeys(value).filter((key) => typeof key === 'symbol' || Reflect.get(value, key) !== undefined);
+}
+
+/** The value a `Number`, `String` or `Boolean` box holds, which is all the runner compares it by. */
+function unboxed(value: object): { value: unknown } | undefined {
+  return value instanceof Number || value instanceof String || value instanceof Boolean ? { value: value.valueOf() } : undefined;
+}
+
 /** The children of a container, for a walk that only asks whether *something* is in there. */
 function childrenOf(value: object): unknown[] {
   if (value instanceof Map) {
@@ -129,9 +143,9 @@ function sameMatcher(left: AsymmetricMatcher, right: unknown, path: Pair[]): boo
 
 /** Every own enumerable entry of `left` equals the one `right` holds under the same key, and there are as many. */
 function sameEntries(left: object, right: object, path: Pair[], matchers: boolean): boolean {
-  const leftKeys = ownKeys(left);
+  const leftKeys = definedKeys(left);
 
-  if (leftKeys.length !== ownKeys(right).length) {
+  if (leftKeys.length !== definedKeys(right).length) {
     return false;
   }
 
@@ -205,6 +219,17 @@ function sameCollection(expected: object, actual: object, path: Pair[], matchers
 }
 
 function compareContents(expected: object, actual: object, path: Pair[], matchers: boolean): boolean {
+  // The runner's first question: a typed array, a box or an `arguments` object is never a plain record.
+  if (Object.prototype.toString.call(expected) !== Object.prototype.toString.call(actual)) {
+    return false;
+  }
+
+  const box = unboxed(expected);
+
+  if (box !== undefined) {
+    return Object.is(box.value, unboxed(actual)?.value);
+  }
+
   const special = sameSpecialObject(expected, actual, path, matchers) ?? sameCollection(expected, actual, path, matchers);
 
   if (special !== undefined) {
