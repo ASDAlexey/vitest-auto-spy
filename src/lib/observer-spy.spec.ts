@@ -79,6 +79,20 @@ describe('subscribeSpyTo', () => {
       expect(() => spy.getValues()).toThrow(expect.objectContaining({ cause: original }));
     });
 
+    it('prints a plain-object error by its contents rather than as [object Object]', () => {
+      const spy = subscribeSpyTo(throwError(() => ({ status: 404 })));
+
+      expect(() => spy.getValues()).toThrow('expect that: {"status":404}.');
+    });
+
+    it('falls back to String() for an error object JSON cannot print', () => {
+      const circular: Record<string, unknown> = {};
+      circular['self'] = circular;
+      const spy = subscribeSpyTo(throwError(() => circular));
+
+      expect(() => spy.getValues()).toThrow('expect that: [object Object].');
+    });
+
     it('records the error instead when expectErrors is configured', () => {
       const spy = subscribeSpyTo(
         throwError(() => new Error('boom')),

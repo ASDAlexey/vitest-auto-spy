@@ -14,7 +14,7 @@
  * failure with a watchdog rather than an empty array. Land the suite green on this, then move the
  * assertions over.
  *
- * Three deliberate departures from upstream, each closing a defect rather than adding a feature:
+ * Four deliberate departures from upstream, each closing a defect rather than adding a feature:
  *
  * - `getValues()` returns a **copy**. Upstream hands back its live internal array, so a spec that
  *   sorts or splices what it read corrupts the spy it is still reading.
@@ -31,6 +31,19 @@ import type { Observable, Subscription } from 'rxjs';
 import { DISPOSE } from './dispose-symbol';
 import { DOCS_RXJS, withDocs } from './message-link';
 import { unpatchedClearTimeout as clearTimer, unpatchedSetTimeout as setTimer } from './unpatched-timers';
+
+/** `String()` reads `[object Object]` for the plain objects an HTTP layer errors with. */
+function describeError(error: unknown): string {
+  if (error instanceof Error || typeof error !== 'object' || error === null) {
+    return String(error);
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
 
 /** Upstream's one configuration flag. */
 export interface ObserverSpyConfig {
@@ -154,7 +167,7 @@ export class ObserverSpy<T> {
     if (this.#receivedError && !this.#expectErrors) {
       throw new Error(
         withDocs(
-          `[vitest-auto-spy] the observable errored, and this spy was not configured to expect that: ${String(this.#error)}. ` +
+          `[vitest-auto-spy] the observable errored, and this spy was not configured to expect that: ${describeError(this.#error)}. ` +
             'Pass `{ expectErrors: true }` to subscribeSpyTo (or call `.expectErrors()`) and read `getError()`, ' +
             'or await `expectError(source$)`, which resolves with the error itself.',
           DOCS_RXJS,
@@ -165,7 +178,7 @@ export class ObserverSpy<T> {
   }
 
   #errored(): string {
-    return `errored (${String(this.#error)})`;
+    return `errored (${describeError(this.#error)})`;
   }
 
   #completed(): string {
