@@ -1,6 +1,6 @@
 import { configDefaults, mergeConfig } from 'vitest/config';
 
-import base from './vitest.config.mts';
+import { singleProject as base } from './vitest.config.mts';
 
 // Stryker instruments the source itself; istanbul on top would double the work and fight it.
 export default mergeConfig(base, {
