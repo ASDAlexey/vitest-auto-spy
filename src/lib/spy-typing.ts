@@ -9,6 +9,7 @@
  */
 import { createSpyFromClass } from './create-spy-from-class';
 import { createFunctionSpy } from './function-spy';
+import type { FromClassOnly } from './internal-types';
 import type { ClassSpyConfiguration, ClassType, DeepMockProxy, Func, Spy, SpyOptions } from './types';
 
 /**
@@ -208,9 +209,10 @@ function copyStaticSpies(SpyClass: object, ObjectClass: object): void {
  * WorkerSpy.instances[0].postMessage.mockReturnValue(undefined);
  * ```
  */
-export function createSpyClass<T>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- read only while a generic class argument is deferred; the class then decides `T`.
+export function createSpyClass<T = any>(
   ObjectClass: ClassType<T>,
-  config?: ClassSpyConfiguration<T>,
+  config?: FromClassOnly<T, ClassSpyConfiguration<T>>,
   options?: SpyClassOptions,
 ): ConstructorSpy<T> {
   const calls: unknown[][] = [];
