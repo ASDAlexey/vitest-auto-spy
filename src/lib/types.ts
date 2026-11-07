@@ -894,15 +894,14 @@ type BuiltIn = Date | Func | Promise<unknown> | ReadonlyMap<unknown, unknown> | 
  * `undefined` is accepted for any method: under `strict` it marks the method configured whose answer
  * the caller ignores — an ngrx `rxMethod` ref, a snack-bar ref — which `exactOptionalPropertyTypes`
  * otherwise refused for every return type that does not already include it.
+ *
+ * Extract the callable once before applying `ReturnType`: nesting it inside another conditional
+ * can exhaust the compiler on a large event map. Keep `ReturnType` itself for conditional generic returns.
  */
 export type MethodReturns<T> = {
-  [K in Exclude<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: NonNullable<T[K]> extends Func
-    ? ReturnType<NonNullable<T[K]>> | undefined
-    : never;
+  [K in Exclude<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: ReturnType<Extract<NonNullable<T[K]>, Func>> | undefined;
 } & {
-  [K in Extract<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: NonNullable<T[K]> extends Func
-    ? ObjectPrototypeMembers[K] | ReturnType<NonNullable<T[K]>>
-    : never;
+  [K in Extract<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: ObjectPrototypeMembers[K] | ReturnType<Extract<NonNullable<T[K]>, Func>>;
 };
 
 /**
