@@ -8,6 +8,7 @@
  * instead of being imported.
  */
 import { createSpyFromClass } from './create-spy-from-class';
+import type { FromClassOnly } from './internal-types';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
 
 /** `{ provide, useValue }` shape consumed by NestJS's `providers`. */
@@ -32,9 +33,10 @@ export interface NestModuleRef {
  * }).compile();
  * ```
  */
-export function provideAutoSpy<T>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- read only while a generic class argument is deferred; the class then decides `T`.
+export function provideAutoSpy<T = any>(
   ObjectClass: ClassType<T>,
-  methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
+  methodsToSpyOnOrConfig?: FromClassOnly<T, ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[]>,
 ): NestValueProvider<T> {
   return {
     provide: ObjectClass,
