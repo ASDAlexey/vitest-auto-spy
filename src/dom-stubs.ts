@@ -76,4 +76,11 @@ export { createDropEvent, createPasteEvent } from './lib/text-transfer-event';
 // The members jsdom and happy-dom leave out, filled from the setup file before `setupAutoSpy()`
 export { type FillMissingDomApisOptions, fillMissingDomApis } from './lib/fill-dom-apis';
 
-export { createDomEvent, createInputEvent, type DomEventInit, type InputValueEvent, type InputValueEventInit } from './lib/dom-event';
+export {
+  createDomEvent,
+  createInputEvent,
+  type DomEventInit,
+  type InputValueEvent,
+  type InputValueEventInit,
+  type SpiedDomEvent,
+} from './lib/dom-event';
