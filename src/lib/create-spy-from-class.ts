@@ -5,6 +5,7 @@
  */
 import { createAccessorsSpies } from './accessor-spy';
 import { createAutoMock } from './auto-mock';
+import { isCallable, isPlainImplementation, seededMethodSpy } from './callable';
 import * as DOCS_LINKS from './docs-links';
 import { fillMissingMembers } from './fill-missing';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedReturnValue } from './function-spy';
@@ -16,7 +17,14 @@ import { withDocs } from './message-link';
 import { sourceClassName } from './message-text';
 import { reportMisconfiguration } from './misconfiguration';
 import { getMockAdapter } from './mock-adapter';
-import { type AccessorNames, declaresThen, getAllAccessorNames, getAllMethodNames, getDeclaredMethodNames } from './prototype-members';
+import {
+  type AccessorNames,
+  declaresThen,
+  getAllAccessorNames,
+  getAllMethodNames,
+  getDeclaredMethodNames,
+  getPrototypeConstants,
+} from './prototype-members';
 import { attachDispose } from './reset-auto-spy';
 import { closestName, ownerOf, warnOnAccessorNamingAMethod, warnOnUnknownMethods } from './spy-config-warnings';
 import { mergeAutoSpyDefaults } from './spy-defaults';
@@ -144,11 +152,6 @@ export function mergeMethodNames(base: PropertyKey[], config: ResolvedSpyConfigu
   }
 
   return [...new Set<PropertyKey>([...base, ...config.methodsToSpyOn, ...config.instanceMethodsToSpyOn])];
-}
-
-/** Narrow an unknown member to the callable the adapter needs, without an assertion. */
-function isCallable(value: unknown): value is Func {
-  return typeof value === 'function';
 }
 
 function notASpiedMethod(factory: string, option: string, name: string, methods: readonly PropertyKey[]): string {
@@ -322,7 +325,8 @@ const lazyGuards = new WeakMap<object, UnstubbedGuard>();
  * the behaviour change: `Object.create(double).method` materialises on the heir rather than on the
  * double. Nothing in the library reads a double through a heir, and a test that does has said so.
  */
-const lazyAccessors = new Map<PropertyKey, PropertyDescriptor>();
+// String names only: a symbol-keyed method of a class built inside a test would be retained for the run.
+const lazyAccessors = new Map<string, PropertyDescriptor>();
 
 // Vitest's spyOn calls an accessor's getter with no receiver; the forwarder it gets instead reaches
 // the double's own spy through the call's `this`, and mockRestore() brings that same spy back.
@@ -349,40 +353,49 @@ function forwarderFor(methodName: PropertyKey): Func {
 }
 
 function lazyAccessorFor(methodName: PropertyKey): PropertyDescriptor {
-  let accessor = lazyAccessors.get(methodName);
+  if (typeof methodName === 'symbol') {
+    return createLazyAccessor(methodName);
+  }
+
+  // A numeric name and its string spelling are the same property, so the string form is the key.
+  const key = String(methodName);
+  let accessor = lazyAccessors.get(key);
 
   if (!accessor) {
-    accessor = {
-      configurable: true,
-      enumerable: true,
-      get(this: object | undefined): unknown {
-        if (this === undefined) {
-          return forwarderFor(methodName);
-        }
-
-        const kept = sealedDoubleMembers.get(this);
-
-        if (kept?.has(methodName)) {
-          const member = kept.get(methodName);
-          materializeMethodSpy(this, methodName, member);
-
-          return member;
-        }
-
-        const spy = createFunctionSpy(String(methodName), lazyGuards.get(this));
-        materializeMethodSpy(this, methodName, spy);
-
-        return spy;
-      },
-      set(this: object, value: unknown): void {
-        materializeMethodSpy(this, methodName, value);
-      },
-    };
-
-    lazyAccessors.set(methodName, accessor);
+    accessor = createLazyAccessor(methodName);
+    lazyAccessors.set(key, accessor);
   }
 
   return accessor;
+}
+
+function createLazyAccessor(methodName: PropertyKey): PropertyDescriptor {
+  return {
+    configurable: true,
+    enumerable: true,
+    get(this: object | undefined): unknown {
+      if (this === undefined) {
+        return forwarderFor(methodName);
+      }
+
+      const kept = sealedDoubleMembers.get(this);
+
+      if (kept?.has(methodName)) {
+        const member = kept.get(methodName);
+        materializeMethodSpy(this, methodName, member);
+
+        return member;
+      }
+
+      const spy = createFunctionSpy(String(methodName), lazyGuards.get(this));
+      materializeMethodSpy(this, methodName, spy);
+
+      return spy;
+    },
+    set(this: object, value: unknown): void {
+      materializeMethodSpy(this, methodName, value);
+    },
+  };
 }
 
 /**
@@ -590,30 +603,6 @@ function answersWithMethodSpy(ObjectClass: ClassType<unknown>, config: ResolvedS
   );
 }
 
-// What a plain function carries of its own; anything more (a mock's API, a signal's `set`) is kept as seeded.
-const PLAIN_FUNCTION_KEYS: ReadonlySet<PropertyKey> = new Set(['length', 'name', 'prototype', 'arguments', 'caller']);
-
-/** A function written as the member's implementation: not a class, not a mock or a signal that must keep its identity. */
-function isPlainImplementation(value: unknown): value is Func {
-  return (
-    isCallable(value) &&
-    Object.getOwnPropertyDescriptor(value, 'prototype')?.writable !== false &&
-    Reflect.ownKeys(value).every((key) => PLAIN_FUNCTION_KEYS.has(key))
-  );
-}
-
-/**
- * The spy a function seeded on a method becomes, so `Spy<T>` stays true of it: every call is recorded
- * and runs the seed, with the double as `this`, until the test configures the spy.
- */
-function seededMethodSpy(double: object, key: PropertyKey, implementation: Func, className: string): Func {
-  return createFunctionSpy(String(key), {
-    className,
-    implementation: true,
-    handle: (call) => Reflect.apply(implementation, double, call.args),
-  });
-}
-
 /**
  * Write the seeded members onto the finished spy.
  *
@@ -705,6 +694,13 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   }
 
   const autoSpy: Record<string, unknown> = {};
+
+  for (const [key, value] of getPrototypeConstants(ObjectClass.prototype)) {
+    if (!methodNames.includes(key)) {
+      Reflect.set(autoSpy, key, value);
+    }
+  }
+
   const reads =
     accessors.getters.length > 0 || config.observablePropsToSpyOn.length > 0 ? resolveReadGuard(ObjectClass.name, config) : undefined;
 
