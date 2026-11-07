@@ -100,9 +100,9 @@ describe('createFastSpy', () => {
   // scales out of step, and the matcher then denies an ordering that did happen. In a real suite the
   // gap is hundreds — a double reporting `[164 … 169]` beside a `vi.fn()` reporting `[28]` for a call
   // in the same test — and there the same mechanism produces a *pass* instead, which is worse. An
-  // `it.fails` rather than a comment, so that a future change making the two comparable turns this
+  // assertion rather than a comment, so that a future change making the two comparable turns this
   // into a red test and gets read.
-  it.fails('cannot be ordered against a runner mock, and says so by giving the wrong answer', () => {
+  it('cannot be ordered against a runner mock, and says so by giving the wrong answer', () => {
     // Both counters live for the worker, so under isolate: false an earlier file may have put either ahead.
     const probe = vi.fn();
 
@@ -121,7 +121,7 @@ describe('createFastSpy', () => {
     ours();
     theirs();
 
-    expect(ours).toHaveBeenCalledBefore(theirs);
+    expect(() => expect(ours).toHaveBeenCalledBefore(theirs)).toThrow(/to have been called before/);
   });
 
   it('records a thrown error as the runner does, and rethrows it', () => {
