@@ -114,7 +114,9 @@ export interface PerfRunnerFile {
 export interface PerfResolvedConfig {
   readonly isolate?: boolean;
   readonly pool?: string;
-  readonly maxWorkers?: number;
+  maxWorkers?: number;
+  fileParallelism?: boolean;
+  shard?: { readonly index: number; readonly count: number };
   readonly environment?: string;
   /** Vitest 5+; Vitest 4 keeps it under `experimental`. */
   readonly fsModuleCache?: boolean;
@@ -253,7 +255,15 @@ function bodiesOf(module: PerfTestModule, floorMs: number): Bodies {
 
   const heapStep = heapStepOf(heaps, module.diagnostic().heap);
 
-  return { count, cases: slowestByName(cases), flaky: [...flaky].sort(), retries, start, heapStep, autoSpy };
+  return {
+    count,
+    cases: slowestByName(cases, floorMs === 0 ? cases.length : CASES_PER_FILE),
+    flaky: [...flaky].sort(),
+    retries,
+    start,
+    heapStep,
+    autoSpy,
+  };
 }
 
 /**
@@ -266,7 +276,7 @@ function bodiesOf(module: PerfTestModule, floorMs: number): Bodies {
  * Collapsing here costs a genuinely slow twin — which shares a name with a slow body and therefore
  * shares its verdict anyway.
  */
-function slowestByName(cases: readonly PerfCase[]): PerfCase[] {
+function slowestByName(cases: readonly PerfCase[], limit: number): PerfCase[] {
   const slowest = new Map<string, PerfCase>();
 
   for (const entry of cases) {
@@ -277,7 +287,7 @@ function slowestByName(cases: readonly PerfCase[]): PerfCase[] {
     }
   }
 
-  return [...slowest.values()].sort((a, b) => b.ms - a.ms || a.name.localeCompare(b.name)).slice(0, CASES_PER_FILE);
+  return [...slowest.values()].sort((a, b) => b.ms - a.ms || a.name.localeCompare(b.name)).slice(0, limit);
 }
 
 function importOf(path: string, duration: PerfImportDuration): PerfImport {
@@ -484,6 +494,15 @@ export default class PerfReporter {
     const profiler = profiling() ? join(dirname(fileURLToPath(import.meta.url)), 'perf-profiler.js') : undefined;
     const isolate = isolateOverride();
 
+    if (profiler !== undefined) {
+      // A confirmation must not make its suspects compete with one another. The pool reads these
+      // resolved options after onInit, so this also works for builders that own the CLI arguments.
+      vitest.config.maxWorkers = 1;
+      vitest.config.fileParallelism = false;
+      // The original CI shard is a slice of the whole suite, not of the suspects being confirmed.
+      delete vitest.config.shard;
+    }
+
     for (const project of vitest.projects ?? []) {
       for (const file of project.config.setupFiles) {
         this.#setupFiles.add(toPosix(file));
@@ -497,6 +516,9 @@ export default class PerfReporter {
       const limit = profiler !== undefined ? IMPORT_LIMIT : project.config.isolate === false ? REUSED_IMPORT_LIMIT : MEASURED_IMPORT_LIMIT;
 
       if (profiler !== undefined) {
+        project.config.maxWorkers = 1;
+        project.config.fileParallelism = false;
+        delete project.config.shard;
         project.config.setupFiles.push(profiler);
       }
 

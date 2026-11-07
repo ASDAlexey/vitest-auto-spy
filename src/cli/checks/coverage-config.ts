@@ -12,12 +12,13 @@
  */
 import { join, posix } from 'node:path';
 
+import { isAngularUnitTestBuilder } from '../../lib/angular-unit-test-builder';
 import { COVERAGE_MATCHING_DOCS } from '../docs';
 import { captures, parseJsonc, readTextFile } from '../fs-scan';
 import type { Profile } from '../profile';
 import { isRecord } from '../profile';
 import type { Finding } from '../report';
-import { UNIT_TEST_BUILDERS, unitTestTargets } from './unit-test-targets';
+import { unitTestTargets } from './unit-test-targets';
 import { vitestMajor } from './vitest-5-facts';
 
 /** Where a Vitest config lives when no builder target names one explicitly. */
@@ -40,8 +41,8 @@ const BASE_CONFIGS = ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs'].map((extension) =>
 const WORKSPACE_FILE = /(^|\/)(?:angular|workspace|project)\.json$/;
 const UNIT_TEST_BUILDER = '@angular/build:unit-test';
 
-const runsUnitTestBuilder = (target: Record<string, unknown>): boolean =>
-  [target['builder'], target['executor']].some((name) => typeof name === 'string' && UNIT_TEST_BUILDERS.has(name));
+const runsUnitTestBuilder = (target: Record<string, unknown>, workspaceRoot: string): boolean =>
+  [target['builder'], target['executor']].some((name) => typeof name === 'string' && isAngularUnitTestBuilder(name, workspaceRoot));
 
 /** Vitest 4 is where `coverage.all` stopped existing. */
 const ALL_REMOVED_IN = 4;
@@ -158,10 +159,10 @@ export function canMatchBundleChunk(pattern: string): boolean {
  * The walk is the same for every question asked of a workspace; only what is read off the matched
  * target differs, so the recursion lives here once.
  */
-function forEachUnitTestOptions(value: unknown, onOptions: (options: Record<string, unknown>) => void): void {
+function forEachUnitTestOptions(value: unknown, workspaceRoot: string, onOptions: (options: Record<string, unknown>) => void): void {
   if (Array.isArray(value)) {
     for (const item of value) {
-      forEachUnitTestOptions(item, onOptions);
+      forEachUnitTestOptions(item, workspaceRoot, onOptions);
     }
 
     return;
@@ -173,19 +174,19 @@ function forEachUnitTestOptions(value: unknown, onOptions: (options: Record<stri
 
   const options = value['options'];
 
-  if (runsUnitTestBuilder(value) && isRecord(options)) {
+  if (runsUnitTestBuilder(value, workspaceRoot) && isRecord(options)) {
     onOptions(options);
   }
 
   for (const nested of Object.values(value)) {
-    forEachUnitTestOptions(nested, onOptions);
+    forEachUnitTestOptions(nested, workspaceRoot, onOptions);
   }
 }
 
 /** The same walk over every workspace file this profile carries. */
 function forEachWorkspaceUnitTest(profile: Profile, onOptions: (options: Record<string, unknown>) => void): void {
   for (const file of profile.files.filter((candidate) => WORKSPACE_FILE.test(candidate))) {
-    forEachUnitTestOptions(parseJsonc(readTextFile(join(profile.cwd, file)) ?? ''), onOptions);
+    forEachUnitTestOptions(parseJsonc(readTextFile(join(profile.cwd, file)) ?? ''), profile.cwd, onOptions);
   }
 }
 

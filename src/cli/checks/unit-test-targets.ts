@@ -8,6 +8,7 @@
  */
 import { dirname, join, posix } from 'node:path';
 
+import { isAngularUnitTestBuilder } from '../../lib/angular-unit-test-builder';
 import { parseJsonc, readTextFile } from '../fs-scan';
 import type { Profile } from '../profile';
 import { isRecord } from '../profile';
@@ -71,6 +72,7 @@ function targetsOf(
   root: string,
   targets: Record<string, unknown> | undefined,
   defaults: Defaults,
+  workspaceRoot: string,
 ): UnitTestTarget[] {
   return Object.entries(targets ?? {}).flatMap(([name, target]) => {
     if (!isRecord(target)) {
@@ -80,7 +82,7 @@ function targetsOf(
     const byName = defaults(name);
     const builder = builderOf(target, byName);
 
-    if (typeof builder !== 'string' || !UNIT_TEST_BUILDERS.has(builder)) {
+    if (typeof builder !== 'string' || !isAngularUnitTestBuilder(builder, workspaceRoot)) {
       return [];
     }
 
@@ -97,7 +99,7 @@ function fromWorkspaceFile(profile: Profile, defaults: Defaults): UnitTestTarget
         const definition = isRecord(value) ? value : {};
         const root = typeof definition['root'] === 'string' ? definition['root'].replace(/\/$/, '') : '';
 
-        return targetsOf(file, project, root, recordAt(definition, 'architect') ?? recordAt(definition, 'targets'), defaults);
+        return targetsOf(file, project, root, recordAt(definition, 'architect') ?? recordAt(definition, 'targets'), defaults, profile.cwd);
       });
     }
   }
@@ -113,7 +115,7 @@ function fromProjectFiles(profile: Profile, defaults: Defaults): UnitTestTarget[
       const root = dirname(file) === '.' ? '' : dirname(file);
       const project = typeof definition['name'] === 'string' ? definition['name'] : root;
 
-      return targetsOf(file, project, root, recordAt(definition, 'targets'), defaults);
+      return targetsOf(file, project, root, recordAt(definition, 'targets'), defaults, profile.cwd);
     });
 }
 

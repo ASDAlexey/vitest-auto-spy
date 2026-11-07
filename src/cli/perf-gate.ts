@@ -33,7 +33,7 @@
 import { relative } from 'node:path';
 
 import { toPosix } from './fs-scan';
-import type { PerfFile, PerfRun } from './perf-data';
+import type { PerfCase, PerfFile, PerfRun } from './perf-data';
 import { CASE_FLOOR_MS, formatMs, medianOf } from './perf-data';
 import type { PerfMeasured } from './perf-run';
 import type { Finding } from './report';
@@ -271,22 +271,53 @@ export function suspectFiles(candidates: readonly GateCandidate[], policy: Verdi
 }
 
 /**
- * Several confirmation passes as one: every file at its fastest reading. Noise only ever adds time —
+ * Several confirmation passes as one: every file and body at its fastest reading. Noise only ever adds time —
  * a neighbour on the runner, a collection, a cold cache — so the minimum is the closest any reading
  * gets to what the file itself costs, and a file has to be slow every time to stay a finding.
  */
 export function fastestRun(runs: readonly [PerfRun, ...PerfRun[]]): PerfRun;
 export function fastestRun(runs: readonly PerfRun[]): PerfRun | undefined;
 export function fastestRun(runs: readonly PerfRun[]): PerfRun | undefined {
-  const [first, ...rest] = runs;
+  const [first] = runs;
 
   if (first === undefined) {
     return undefined;
   }
 
-  const fastest = new Map(first.files.map((entry) => [entry.file, entry]));
+  const fastest = fastestFiles(runs);
 
-  for (const entry of rest.flatMap((each) => each.files)) {
+  return {
+    ...first,
+    files: [...fastest.values()].map((file) => {
+      const readings = runs.flatMap((each) => each.files.filter((entry) => entry.file === file.file));
+
+      if (readings.length === 1) {
+        return file;
+      }
+
+      // The fastest whole file need not contain the fastest reading of a particular body. A
+      // second test can get slower while the candidate gets faster; keep that exonerating evidence.
+      const cases = new Map<string, PerfCase>();
+
+      for (const entry of readings.flatMap((each) => each.cases)) {
+        const seen = cases.get(entry.name);
+
+        // An absent row is not a zero: older reports retain only their slowest five bodies.
+        if (seen === undefined || entry.ms < seen.ms) {
+          cases.set(entry.name, entry);
+        }
+      }
+
+      return { ...file, cases: [...cases.values()] };
+    }),
+  };
+}
+
+/** Original file objects, so a file total keeps the CPU profile of the pass that measured it. */
+function fastestFiles(runs: readonly PerfRun[]): Map<string, PerfFile> {
+  const fastest = new Map<string, PerfFile>();
+
+  for (const entry of runs.flatMap((each) => each.files)) {
     const seen = fastest.get(entry.file);
 
     if (seen === undefined || entry.tests < seen.tests) {
@@ -294,13 +325,13 @@ export function fastestRun(runs: readonly PerfRun[]): PerfRun | undefined {
     }
   }
 
-  return { ...first, files: [...fastest.values()] };
+  return fastest;
 }
 
 /** The fastest reading of each file, kept with the CPU profile of the pass that produced it. */
 export function fastestPass([first, ...rest]: readonly [PerfMeasured, ...PerfMeasured[]], cwd: string): PerfMeasured {
   const fastest = fastestRun([first.run, ...rest.map((each) => each.run)]);
-  const kept = new Set(fastest.files);
+  const kept = new Set(fastestFiles([first.run, ...rest.map((each) => each.run)]).values());
   const sameFile = (a: string, b: string): boolean => toPosix(relative(cwd, a)) === toPosix(relative(cwd, b));
   const profiles = [first, ...rest].flatMap((each) =>
     [...(each.profiles ?? [])].filter(([path]) => each.run.files.some((entry) => kept.has(entry) && sameFile(entry.file, path))),

@@ -17,6 +17,7 @@ import {
   coverageBlock,
   declaresKey,
   includePatterns,
+  targetScopeSize,
 } from './checks/coverage-config';
 import { checkForeignPragma, findPragmas } from './checks/foreign-pragma';
 import { buildGraph, extractSpecifiers, resolveRelative } from './checks/graph';
@@ -695,6 +696,30 @@ describe('checkCoverageConfig', () => {
     expect(finding?.fix).toBe(
       'Upgrade to Vitest 5, which compiles them once. Under `@angular/build:unit-test`, Vitest 5 needs @angular/build 22.2.0 or newer. To stay on 4, use the custom-provider recipe: https://asdalexey.github.io/vitest-auto-spy/guides/angular-unit-test-builder#coverage-matching-costs-more-than-coverage',
     );
+  });
+
+  it('counts coverage globs from a local unit-test wrapper', () => {
+    const root = createTempRepo({
+      'package.json': '{}',
+      'angular.json': JSON.stringify({
+        projects: {
+          bench: {
+            architect: {
+              test: {
+                builder: './tools/bench:unit-test',
+                options: { coverageInclude: Array.from({ length: 60 }, (_, index) => 'libs/p' + index + '/**/*.ts') },
+              },
+            },
+          },
+        },
+      }),
+      'tools/bench/package.json': JSON.stringify({ builders: './builders.json' }),
+      'tools/bench/builders.json': JSON.stringify({ builders: { 'unit-test': { implementation: './index.mjs' } } }),
+      'tools/bench/index.mjs': "import { executeUnitTestBuilder } from '@angular/build'; executeUnitTestBuilder(options, context);",
+      ...vitest('4.1.9'),
+    });
+
+    expect(targetScopeSize(readProfile(root))).toBe(60);
   });
 
   it('stays quiet on a scope a person could have written by hand', () => {

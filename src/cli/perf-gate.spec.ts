@@ -655,6 +655,44 @@ describe('suspectFiles, with an excuse', () => {
 });
 
 describe('fastestRun', () => {
+  it('does not confirm a body that ran fast in a pass whose whole file was slower', () => {
+    const path = join(ROOT, 'src/slow.spec.ts');
+    const first = run({ files: [file(path, { tests: 2_000, cases: slowBody('candidate', 1_500) })] });
+    const later = run({
+      files: [
+        file(path, {
+          tests: 3_000,
+          cases: [
+            { name: 'candidate', ms: 200 },
+            { name: 'other', ms: 2_800 },
+          ],
+        }),
+      ],
+    });
+    const candidates = gateCandidates(first, ROOT, GATE_DEFAULTS);
+    const slowAgain = run({ files: [file(path, { tests: 4_000, cases: slowBody('candidate', 1_800) })] });
+    const fastest = fastestRun([first, later, slowAgain]);
+    const verdict = gateVerdict(candidates, fastest, ROOT, false);
+
+    expect(fastest.files[0]?.tests).toBe(2_000);
+    expect(verdict.failed).toBe(false);
+    expect(verdict.rows).toEqual([expect.objectContaining({ name: 'candidate', again: 200, outcome: 'not reproduced' })]);
+  });
+
+  it('does not invent a fast reading for a body an older report truncated', () => {
+    const path = join(ROOT, 'src/slow.spec.ts');
+    const first = run({ files: [file(path, { tests: 2_000, cases: slowBody('candidate', 1_500) })] });
+    const later = run({
+      files: [file(path, { tests: 20_000, cases: Array.from({ length: 5 }, (_unused, index) => ({ name: `other ${index}`, ms: 2_500 })) })],
+    });
+    const fastest = fastestRun([first, later]);
+    const verdict = gateVerdict(gateCandidates(first, ROOT, GATE_DEFAULTS), fastest, ROOT, false);
+
+    expect(fastest.files[0]?.cases).toContainEqual({ name: 'candidate', ms: 1_500 });
+    expect(verdict.failed).toBe(true);
+    expect(verdict.rows).toEqual([expect.objectContaining({ name: 'candidate', again: 1_500, outcome: 'confirmed' })]);
+  });
+
   it('is undefined for no runs and the run itself for one', () => {
     const only = run({ files: [file(join(ROOT, 'src/a.spec.ts'), { tests: 300 })] });
 

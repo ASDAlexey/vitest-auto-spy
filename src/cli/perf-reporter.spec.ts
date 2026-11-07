@@ -16,7 +16,7 @@ import type { PerfRun } from './perf-data';
 import { PERF_OUTPUT_ENV, PERF_PROFILE_ENV, parsePerfRun } from './perf-data';
 import type { PerfProject, PerfTestModule, PerfVitest } from './perf-reporter';
 import PerfReporter, { PARTIAL_WRITE_MS } from './perf-reporter';
-import { vitestInit } from './perf-reporter.mock';
+import { CI_SHARD, vitestInit } from './perf-reporter.mock';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
 afterEach(() => {
@@ -41,6 +41,27 @@ const module = (moduleId: string): PerfTestModule => ({
 });
 
 describe('PerfReporter, a profiled pass', () => {
+  it('runs suspects serially and unsharded, including projects with their own worker limits', () => {
+    vi.stubEnv(PERF_PROFILE_ENV, '/tmp/profiles');
+
+    const projects = [project(), project()];
+    const vitest = vitestInit(projects);
+
+    for (const config of [vitest.config, ...projects.map((each) => each.config)]) {
+      config.maxWorkers = 13;
+      config.fileParallelism = true;
+      config.shard = CI_SHARD;
+    }
+
+    new PerfReporter().onInit(vitest);
+
+    for (const config of [vitest.config, ...projects.map((each) => each.config)]) {
+      expect(config.maxWorkers).toBe(1);
+      expect(config.fileParallelism).toBe(false);
+      expect(config).not.toHaveProperty('shard');
+    }
+  });
+
   it('adds the profiler to the setup files of every project', () => {
     vi.stubEnv(PERF_PROFILE_ENV, '/tmp/profiles');
 
@@ -105,9 +126,40 @@ describe('PerfReporter, a profiled pass', () => {
       { name: 'case 0', ms: 12 },
     ]);
   });
+
+  it('keeps every confirmation body, so a candidate outside the slowest five is still measured', () => {
+    vi.stubEnv(PERF_PROFILE_ENV, '/tmp/profiles');
+
+    const cases = new PerfReporter().report([moduleWith([10, 20, 30, 40, 50, 60, 70])]).files[0]?.cases;
+
+    expect(cases).toHaveLength(7);
+    expect(cases).toContainEqual({ name: 'case 0', ms: 10 });
+    expect(cases).toContainEqual({ name: 'case 6', ms: 70 });
+  });
 });
 
 describe('PerfReporter, an ordinary run', () => {
+  it('keeps worker limits, parallelism and the shard of the measured suite', () => {
+    vi.stubEnv(PERF_OUTPUT_ENV, '/tmp/perf.json');
+
+    const projects = [project()];
+    const vitest = vitestInit(projects);
+
+    for (const config of [vitest.config, ...projects.map((each) => each.config)]) {
+      config.maxWorkers = 13;
+      config.fileParallelism = true;
+      config.shard = CI_SHARD;
+    }
+
+    new PerfReporter().onInit(vitest);
+
+    for (const config of [vitest.config, ...projects.map((each) => each.config)]) {
+      expect(config.maxWorkers).toBe(13);
+      expect(config.fileParallelism).toBe(true);
+      expect(config.shard).toEqual(CI_SHARD);
+    }
+  });
+
   it('adds nothing to any setup files and collects no imports, whether the variable is unset or empty', () => {
     const projects = [project(0)];
 

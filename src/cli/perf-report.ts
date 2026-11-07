@@ -60,9 +60,9 @@ export function baselineCandidates(run: PerfRun, cwd: string, request: BaselineR
     check: 'perf-gate-regression' as const,
     file: regression.file,
     ms: regression.ms,
-    budget: regression.wasRatio * request.options.factor * median,
+    budget: Math.max(request.options.floorMs, regression.wasRatio * request.options.factor * median),
     grewBy: regression.grewBy,
-    budgetNote: `${request.options.factor}× its recorded share of the run, from ${request.path}`,
+    budgetNote: `${request.options.factor}× its recorded share of the run, with a --baseline-floor-ms ${request.options.floorMs} minimum, from ${request.path}`,
   }));
 }
 

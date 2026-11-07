@@ -181,8 +181,8 @@ export function historyCandidates(run: PerfRun, cwd: string, path: string, optio
     against: 'history' as const,
     file: regression.file,
     ms: regression.ms,
-    budget: Math.max(regression.mean * options.factor, regression.max) * median,
+    budget: Math.max(options.floorMs, Math.max(regression.mean * options.factor, regression.max) * median),
     grewBy: regression.grewBy,
-    budgetNote: `${options.factor}× its mean share over ${regression.runs} recorded runs, and above the largest of them, from ${path}`,
+    budgetNote: `${options.factor}× its mean share over ${regression.runs} recorded runs, and above the largest of them, with a --baseline-floor-ms ${options.floorMs} minimum, from ${path}`,
   }));
 }
