@@ -7,6 +7,12 @@
 import type { ArgsMap } from './args-map';
 import type { ObservableLike } from './types';
 
+/**
+ * `NoInfer<Config>` below TypeScript 5.4: the deferred index keeps `Config` from voting on `T`, so a
+ * non-literal `overrides` cannot narrow `T` to its own shape. Pair it with a `T = any` default.
+ */
+export type FromClassOnly<T, Config> = [Config][T extends unknown ? 0 : never];
+
 /** A single pre-wrapped value used by the `*PerCall` helpers, consumed one per call. */
 export interface PerCallValue {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a per-call value is an opaque Promise/Observable of arbitrary element type produced by the spy decorators; the element type is not known here.
