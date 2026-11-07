@@ -1,6 +1,6 @@
 import { mergeConfig } from 'vitest/config';
 
-import base from './vitest.config.mts';
+import { singleProject as base } from './vitest.config.mts';
 
 // The library's whole reason for shipping `setupAutoSpy()` is that a suite may run with a shared
 // environment (`isolate: false`), where an un-restored property patch, a leftover spy or a registry
