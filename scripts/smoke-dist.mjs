@@ -297,6 +297,49 @@ const CROSS_ENTRY = [
       assert(takeStrictViolations().length === 2, 'a strict throw from another bundle was not recorded where ./setup reads it');
     `,
   },
+  ...[
+    ['.', 'INDEX'],
+    ['./node', 'NODE'],
+  ].map(([core, constant]) => ({
+    name: `defaults registered through ${core} reach a double built by the solo ./nestjs`,
+    entries: [core, './nestjs'],
+    body: `
+      const { registerAutoSpyDefaults, clearAutoSpyDefaults } = await import(${constant});
+      const { provideAutoSpy } = await import(NESTJS);
+
+      class Session {
+        get token() { return ''; }
+      }
+
+      registerAutoSpyDefaults(Session, { gettersToSpyOn: ['token'] });
+      assert(Boolean(provideAutoSpy(Session).useValue.accessorSpies?.getters?.token), 'the registration did not reach ./nestjs');
+      clearAutoSpyDefaults(Session);
+    `,
+  })),
+  {
+    name: 'takeStrictViolations from ./setup sees a strict throw of a double ./jasmine built',
+    entries: ['./setup', './jasmine'],
+    body: `
+      const { takeStrictViolations } = await import(SETUP);
+      const { createSpyFromClass } = await import(JASMINE);
+
+      class Cart {
+        total() { return 0; }
+      }
+
+      takeStrictViolations();
+      const cart = createSpyFromClass(Cart, { strict: true });
+      assert(typeof cart.total.and?.returnValue === 'function', './jasmine did not install .and on its own double');
+
+      try {
+        cart.total();
+      } catch {
+        // swallowed on purpose: the recorder is what is under test
+      }
+
+      assert(takeStrictViolations().length === 1, 'a strict throw from ./jasmine was not recorded where ./setup reads it');
+    `,
+  },
   {
     name: 'setSpyEngine from ./setup reaches the adapter the root entry registered',
     entries: ['.', './setup'],
