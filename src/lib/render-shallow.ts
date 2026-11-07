@@ -446,6 +446,21 @@ function applyInputs<T>(fixture: ComponentFixture<T>, inputs: ComponentInputs<T>
  * ```
  */
 export function renderShallow<T>(component: Type<T>, options: RenderShallowOptions<T> = {}): ShallowRender<T> {
+  const factory = Object.getOwnPropertyDescriptor(component, 'ɵfac');
+
+  try {
+    return renderWithTestBed(component, options);
+  } finally {
+    // Angular saves ɵcmp for resetTestingModule, but recompiling an override also replaces ɵfac
+    // with a getter-only JIT definition which it never restores. A later AOT subclass's emitted
+    // `Child.ɵfac = ...` then fails against that inherited getter, even in another spec file.
+    if (factory?.writable === true) {
+      Object.defineProperty(component, 'ɵfac', factory);
+    }
+  }
+}
+
+function renderWithTestBed<T>(component: Type<T>, options: RenderShallowOptions<T>): ShallowRender<T> {
   const definition: unknown = Reflect.get(component, 'ɵcmp');
   const standalone = isStandalone(definition);
   const name = sourceClassName(component.name);

@@ -143,6 +143,66 @@ beforeEach(() => {
 });
 
 describe('renderShallow', () => {
+  function aotParent(creationFails = false): Type<object> {
+    @Component({ template: '<span>original</span>' })
+    class ParentComponent {
+      constructor() {
+        if (creationFails) {
+          throw new Error('creation stopped');
+        }
+      }
+    }
+
+    // ngtsc emits writable data properties; JIT's Component decorator installs getters instead.
+    Object.defineProperty(ParentComponent, ɵNG_COMP_DEF, {
+      value: Reflect.get(ParentComponent, ɵNG_COMP_DEF),
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(ParentComponent, 'ɵfac', {
+      value: () => new ParentComponent(),
+      writable: true,
+      configurable: true,
+    });
+
+    return ParentComponent;
+  }
+
+  it('preserves an AOT parent factory across repeated shallow renders and a late subclass load', () => {
+    const Parent = aotParent();
+    const factory = Object.getOwnPropertyDescriptor(Parent, 'ɵfac');
+
+    expect(renderShallow(Parent).component).toBeInstanceOf(Parent);
+    expect(Object.getOwnPropertyDescriptor(Parent, 'ɵfac')).toEqual(factory);
+    TestBed.resetTestingModule();
+    expect(renderShallow(Parent).component).toBeInstanceOf(Parent);
+    TestBed.resetTestingModule();
+
+    class LateChild extends Parent {}
+
+    // The builder lowers ngtsc's static class fields to ordinary assignments in shared chunks.
+    expect(() => Object.assign(LateChild, { ɵfac: () => new LateChild() })).not.toThrow();
+    expect(Object.hasOwn(LateChild, 'ɵfac')).toBe(true);
+  });
+
+  it('restores an AOT parent factory when shallow creation fails after compilation', () => {
+    const Parent = aotParent(true);
+    const factory = Object.getOwnPropertyDescriptor(Parent, 'ɵfac');
+
+    expect(() => renderShallow(Parent)).toThrow('creation stopped');
+    expect(Object.getOwnPropertyDescriptor(Parent, 'ɵfac')).toEqual(factory);
+  });
+
+  it('leaves a JIT factory as an accessor rather than converting it to an AOT-style data field', () => {
+    @Component({ template: '' })
+    class JitComponent {}
+
+    expect(Object.getOwnPropertyDescriptor(JitComponent, 'ɵfac')?.get).toBeTypeOf('function');
+    expect(renderShallow(JitComponent).component).toBeInstanceOf(JitComponent);
+    expect(Object.getOwnPropertyDescriptor(JitComponent, 'ɵfac')?.get).toBeTypeOf('function');
+    expect(Object.getOwnPropertyDescriptor(JitComponent, 'ɵfac')).not.toHaveProperty('value');
+  });
+
   it('creates the component without its template, styles or children, but with its lifecycle', () => {
     const { fixture, component } = renderShallow(HostComponent);
 
