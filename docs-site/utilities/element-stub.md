@@ -80,6 +80,8 @@ expect(trigger.focus).toHaveBeenCalledExactlyOnceWith();
 This replaces a local element factory followed by `mockSignalProp(component, 'dateTrigger', new ElementRef(element))`.
 The query determines the element type. Options are those of `createElementStub` and cannot change that type.
 The handle also returns `ref` (the installed `ElementRef`) and `query` (a writable test signal).
+The handle is not the element: the element the component receives is `trigger.element`. Assert a call
+that was handed the element, such as `expect(chart.render).toHaveBeenCalledWith(trigger.element, …)`, with it.
 Use `trigger.query.set(undefined)` to represent a missing optional query; required queries reject `undefined` in TypeScript.
 Queries returning component or directive instances, and `viewChildren`, need `mockSignalProp` instead.
 
@@ -157,6 +159,32 @@ Pass other native event flags directly in `init`.
 **Common mistake:** expecting `data`, `inputType`, or a browser input event constructor check to work.
 This helper returns `Event`, not `InputEvent`. Use a native `InputEvent` when testing those browser features.
 
+**Asserting that the handler cancelled the event.** Pass `spy: true`. `preventDefault`,
+`stopPropagation` and `stopImmediatePropagation` become runner mocks that still do their job, so both
+the call and its effect can be checked:
+
+```ts
+const event = createDomEvent('keydown', { spy: true });
+
+component.onKeydown(event);
+
+expect(event.preventDefault).toHaveBeenCalledOnce();
+expect(event.defaultPrevented).toBe(true);
+```
+
+Without `spy: true` the event is a plain `Event`, with its own methods.
+
+**A `<textarea>` or `<select>` target.** `createInputEvent` always builds an input. For another
+element, build the stub with that class and pass it as `target`. `elementClass` sets the element
+type, so `overrides: { value }` type-checks without a type argument:
+
+```ts
+const textarea = createElementStub({ elementClass: HTMLTextAreaElement, tagName: 'textarea', overrides: { value: 'note' } });
+
+component.onInput(createDomEvent('input', { target: textarea.element }));
+expect(component.note()).toBe('note');
+```
+
 ## Text paste and drop events
 
 Replace local clipboard and drag event factories when a handler only reads plain text.
@@ -206,9 +234,10 @@ It fills:
 - `getComputedStyle`, where there is none;
 - `document.doctype`.
 
-| Option               | Type      | Default | Meaning                                                              |
-| -------------------- | --------- | ------- | -------------------------------------------------------------------- |
-| `cheapComputedStyle` | `boolean` | `false` | Replace `getComputedStyle` with one that reads only the inline style |
+| Option               | Type      | Default | Meaning                                                                               |
+| -------------------- | --------- | ------- | ------------------------------------------------------------------------------------- |
+| `cheapComputedStyle` | `boolean` | `false` | Replace `getComputedStyle` with one that reads only the inline style                  |
+| `canvas`             | `boolean` | `false` | Give every `<canvas>` an inert 2D context and a `toDataURL()` that returns `'data:,'` |
 
 How it behaves:
 
@@ -218,6 +247,19 @@ How it behaves:
 - Without a `document`, it does nothing.
 - `cheapComputedStyle: true` is fast and never logs for a pseudo-element. But a stylesheet rule no
   longer shows in what it returns, which is why it is off by default.
+- `canvas: true` is for code that draws on mount, such as a chart library. jsdom without the `canvas`
+  package logs "Not implemented" for `getContext()` and returns nothing, which fails a suite with
+  console spies. The filled context accepts every call and setting, keeps what you set, and answers
+  `measureText`, `getImageData` and the gradient factories with empty values. Each canvas gets one
+  context; any id other than `'2d'` gets `null`. It replaces a real context too, so leave it off
+  when the `canvas` package backs jsdom.
+
+```ts
+fillMissingDomApis({ canvas: true });
+
+const context = document.createElement('canvas').getContext('2d');
+context?.fillRect(0, 0, 10, 10); // draws nothing, throws nothing
+```
 
 **Common mistake:** calling it after `setupAutoSpy()`, or adding these globals by hand inside a test
 file. The [global-patch guard](/utilities/setup#_20-globals-put-back-at-the-file-boundary) then

@@ -1126,6 +1126,9 @@ const { fixture, component } = renderShallow(TaskListComponent, {
   inputs: { projectId: 42 }, // signal inputs take the VALUE, not the signal
 });
 // other options: imports, keepTemplate, keepModules, keepChildren, keepHostDirectives, template, beforeCreate, detectChanges
+// keepTemplate: a dropped child that is a custom form control (value/valueChange or checked/checkedChange,
+// i.e. a model()) renders as createComponentStub(child), so a kept signal-forms [formField] on it has a host
+// instead of NG01914; keepChildren: [Child] keeps the real one
 // testBed: { deferBlockBehavior, errorOnUnknownElements, errorOnUnknownProperties, teardown, schemas } passes through;
 // schemas are ADDED to the NO_ERRORS_SCHEMA a standalone: false host gets. keepChildren works on such a host too
 // a TestBed.inject / injectSpy in beforeEach instantiates the module first: renderShallow then throws naming beforeCreate

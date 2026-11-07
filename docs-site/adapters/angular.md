@@ -462,19 +462,19 @@ const { fixture, component } = renderShallow(TaskListComponent, {
 `fixture` is a real `ComponentFixture`. Lifecycle hooks, inputs, signals and DI all work; only the
 template is blank.
 
-| Option               | Default | What it does                                                                                                                            |
-| -------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `providers`          | `[]`    | providers for the testing module; `EnvironmentProviders` such as `provideHttpClient()` work                                             |
-| `imports`            | `[]`    | extra imports for the testing module (a stub module, a routing harness)                                                                 |
-| `inputs`             | —       | input values; a signal input takes the **value**, not a signal; keyed by class field or public name                                     |
-| `keepTemplate`       | `false` | keep the real template (for `viewChild`, content projection, host bindings); child components are still dropped                         |
-| `keepChildren`       | `[]`    | child components, directives and pipes to keep                                                                                          |
-| `keepModules`        | `[]`    | `NgModule`s to put back whole under `keepTemplate`, such as `ReactiveFormsModule`                                                       |
-| `keepHostDirectives` | `true`  | `false` drops the component's `hostDirectives` and every service they inject                                                            |
-| `template`           | `''`    | a stand-in template to render instead of a blank one                                                                                    |
-| `beforeCreate`       | —       | runs after the module is configured, before the component exists; read the injector here                                                |
-| `detectChanges`      | `true`  | run the first change detection, and so `ngOnInit`                                                                                       |
-| `testBed`            | —       | the rest of `configureTestingModule`: `deferBlockBehavior`, `errorOnUnknownElements`, `errorOnUnknownProperties`, `teardown`, `schemas` |
+| Option               | Default | What it does                                                                                                                                         |
+| -------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `providers`          | `[]`    | providers for the testing module; `EnvironmentProviders` such as `provideHttpClient()` work                                                          |
+| `imports`            | `[]`    | extra imports for the testing module (a stub module, a routing harness)                                                                              |
+| `inputs`             | —       | input values; a signal input takes the **value**, not a signal; keyed by class field or public name                                                  |
+| `keepTemplate`       | `false` | keep the real template (for `viewChild`, content projection, host bindings); child components are still dropped, custom form controls get a stand-in |
+| `keepChildren`       | `[]`    | child components, directives and pipes to keep                                                                                                       |
+| `keepModules`        | `[]`    | `NgModule`s to put back whole under `keepTemplate`, such as `ReactiveFormsModule`                                                                    |
+| `keepHostDirectives` | `true`  | `false` drops the component's `hostDirectives` and every service they inject                                                                         |
+| `template`           | `''`    | a stand-in template to render instead of a blank one                                                                                                 |
+| `beforeCreate`       | —       | runs after the module is configured, before the component exists; read the injector here                                                             |
+| `detectChanges`      | `true`  | run the first change detection, and so `ngOnInit`                                                                                                    |
+| `testBed`            | —       | the rest of `configureTestingModule`: `deferBlockBehavior`, `errorOnUnknownElements`, `errorOnUnknownProperties`, `teardown`, `schemas`              |
 
 ```ts
 renderShallow(CardComponent, { testBed: { deferBlockBehavior: DeferBlockBehavior.Playthrough } });
@@ -546,6 +546,33 @@ Fixes, in order of preference:
 
 Without this check, Angular's own error says the pipe "is not standalone", which sends you to change
 a pipe that is fine. The same call works under JIT, where the module stays in the list.
+
+### `keepTemplate` and a signal form bound to a child control
+
+A kept template can bind a signal-forms `[formField]` to a child component:
+`<app-code-input [formField]="connectForm.code" />`. The directive is kept, the child is dropped,
+and a bare tag is no host for it. Angular would throw `NG01914 … is an invalid [formField] directive
+host`.
+
+So a dropped child that is a custom form control renders as a stand-in. A custom form control is
+what Angular checks for: a `value` input with a `valueChange` output, or `checked` with
+`checkedChange`, which is what `model()` declares. The stand-in is
+[`createComponentStub`](#a-stand-in-for-a-child-createcomponentstub) of the child: same selector, inputs, outputs
+and models, no template, no providers, no constructor. The form writes into it and reads back from
+it:
+
+```ts
+const { fixture, component } = renderShallow(ConnectComponent, { keepTemplate: true });
+const input = fixture.debugElement.query(By.css('app-code-input')).componentInstance;
+
+input.value.set('1234'); // what the user typing into the real control does
+fixture.detectChanges();
+
+expect(component.connectForm.code().value()).toBe('1234');
+```
+
+To keep the real control, name it: `keepChildren: [CodeInputComponent]`. A stub of your own with
+the same selector in `keepChildren` replaces the automatic one.
 
 ### Changing an input mid-test
 

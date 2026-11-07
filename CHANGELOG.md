@@ -10,6 +10,96 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- `/dom-stubs`: `fillMissingDomApis({ canvas: true })` gives every `<canvas>` an inert 2D context
+  and a `toDataURL()` of `'data:,'`, for a chart library that draws on mount where jsdom logs
+  "Not implemented". The context is one per canvas, accepts every call and setting, keeps what was
+  set and answers `measureText`, `getImageData` and the gradient factories with empty values; any id
+  but `'2d'` still gets `null`. Off by default, because it also replaces a real context.
+- ESLint: `no-real-wait-in-test` suggests `await flushEventLoop()` for a sleep awaited on the spot,
+  adding the import, and its message names it for a wait that only lets mocked promises settle. A
+  suggestion rather than a fix: one real turn settles every resolved chain but fires no timer.
+- `/dom-stubs`: `createDomEvent(type, { spy: true })` makes `preventDefault`, `stopPropagation` and
+  `stopImmediatePropagation` runner mocks that still act, so a direct handler call can assert both
+  `expect(event.preventDefault).toHaveBeenCalledOnce()` and `event.defaultPrevented`. The return type
+  narrows to the new `SpiedDomEvent` only under that option.
+- `/rxjs`: `throwWith()` on a stream that still buffers a `nextWith()` value nobody has subscribed to
+  is reported — once per stream as a warning, at every call under
+  `setupAutoSpy({ misconfiguration: 'throw' })`. The next subscriber would get that value before the
+  error and run the success branch on stale data: the shape of a success seeded in `beforeEach` and a
+  failure configured in one test. The message names `nextOneTimeWith()`, `resetAutoSpy()` and
+  `nextWithValues([{ value }, { errorValue }])`; a subscriber already on the stream still gets
+  "emit, then fail" with no report.
+- A stream or promise helper written after `mockImplementation` / `mockReturnValue` on the same
+  method is reported: `throwWith() was configured on 'load' after mockImplementation() had replaced
+  its dispatch`. Those members replace the dispatch that reads `throwWith`, `nextWith`,
+  `nextOneTimeWith`, `nextWithValues`, `nextWithPerCall`, `complete`, `returnSubject`, `resolveWith`,
+  `rejectWith`, `resolveWithPerCall` and `failWith`, so the later helper answered nothing and the test
+  ran on the implementation. The report goes through `reportMisconfiguration` — a warning by default,
+  a throw under `setupAutoSpy({ misconfiguration: 'throw' })` — and names `mockReset()` as the way to
+  hand the answer back. **The behaviour is unchanged**; the other order stays last-writer-wins and is
+  not reported. Vitest and Rstest only, like the `calledWith` report.
+- **Bundle size:** every entry that builds a spy (the root entry, `/angular`, `/bun`, `/node`,
+  `/jasmine`, `/console`, `/angular-router` and the rest) grows by 98–128 B min+gzip (0.3–1.1%) for
+  the helper-under-a-replaced-dispatch report and its message; `/rxjs` by 19 B for the hook call.
+- **Bundle size:** `/dom-stubs` grows from 12.55 kB to 13.28 kB min+gzip (+0.73 kB, +5.8%) for the
+  inert canvas context and its default settings; the code runs only under `{ canvas: true }`. No
+  other entry changes past 1%.
+- **Bundle size:** `/rxjs` grows from 2.26 kB to 2.62 kB min+gzip (+363 B, +16.1%), and its import
+  graph from 31.9 kB to 33.7 kB, for the stale-value report on `throwWith()`: the message names the
+  three ways out, and every target carries the flag and the label it needs.
+
+### Changed
+
+- The strict "nothing configured" error adds a line for a `void` method or an ignored result:
+  `returnsUndefined: ['method']` in the double's options.
+- The completion timeout of `expectAllEmissions` / `expectCompletion` adds that a spied method
+  configured with `nextWith()` never completes, nor does a `forkJoin` over it, and names
+  `nextOneTimeWith()`.
+- Docs: the RxJS page (EN, RU) has a new section, "Where a `throwWith` error goes": `toSignal` keeps
+  the error until the signal is read, `rxResource` keeps it in `error()`, and an `effect` reaches
+  `ErrorHandler` only once `TestBed.tick()` runs it — Angular semantics, not a lost error; the table
+  names the assertion for each. `agent-docs/return-helpers.md` and `agent-docs/errors.md` carry the
+  same, and `agent-docs/configuration.md` the new report.
+- Docs: AGENTS.md, `agent-docs/return-helpers.md` and the RxJS page (new section "A request method
+  answers once") seed HTTP / IPC methods with `nextOneTimeWith`; the `void`-output example of
+  `expectEmissionSync` is a plain statement, which `no-confusing-void-expression` accepts; the
+  element-stub page shows a `<textarea>` target through `elementClass` and says the element a
+  `mockElementRefProp` handle installs is `handle.element`; the anti-patterns table names
+  `vitest-auto-spy/setup` as the entry of `mockSystemTime`.
+
+### Fixed
+
+- `renderShallow(X, { keepTemplate: true })` no longer fails with `NG01914 … is an invalid [formField]
+  directive host` when the kept template binds a signal-forms `[formField]` to a child component. The
+  child was dropped while the directive stayed, and a bare tag has no `value` / `checked` model. A
+  dropped child that is a custom form control (a `value` input with a `valueChange` output, or
+  `checked` with `checkedChange`) now renders as `createComponentStub(child)`, so the form reads and
+  writes through it. Other children are still dropped; `keepChildren: [Child]`, or a stub with the
+  same selector there, takes its place.
+- **Bundle size:** `/bun-angular` grows from 39.40 kB to 40.62 kB min+gzip (+1.22 kB, +3.1%), and
+  its import graph from 250.2 kB to 257.4 kB, because `renderShallow` now builds those stand-ins with
+  `createComponentStub`, which that entry did not load before. `/angular` grows by 231 B (+0.6%).
+- **`createSpyFromClass` takes `T` from the class, never from the configuration.**
+  `createSpyFromClass(KeyboardEvent, { overrides: keys, returnsUndefined: ['preventDefault'] })`, with
+  `keys` an `it.each` row or any other object held in a variable, typed the double as
+  `Spy<{ key: string; metaKey: boolean; ctrlKey: boolean }>`: the variable's type is a supertype of
+  the instance, so TypeScript picked it for `T`, rejected `'preventDefault'` with `TS2345` and lost
+  every other member with `TS2339`. The configuration no longer infers `T` (a deferred indexed
+  access, which works down to TypeScript 5.0, with a `T = any` default as `/angular` uses). The same
+  signature now accepts an accessor list next to `returns` on a generic class, the case AGENTS.md
+  said to spell out. `createSpyFromInstance`, `createSpyClass`, the core `registerAutoSpyDefaults`,
+  and `provideAutoSpy` on `/nestjs`, `/vue` and `/jasmine` (plus `/jasmine`'s `createSpyFromClass`)
+  take `T` the same way. An explicit `<T>` still compiles. Types only.
+- ESLint: `prefer-render-shallow` matches DOM reads as whole camelCase words of a name, so
+  `getAttributesLayer()` no longer counts as `getAttribute`. Under `{ templates: 'never' }` that was a
+  false `domAccess` report; by default it silenced the file's `createComponent` findings.
+  `nativeElementOf()`, `debugElements` and `innerHTML` still count.
+- ESLint: `prefer-create-spy-from-class` no longer recommends `createAutoMock<{ load: Mock }>()` or
+  `createAutoMock<Record<string, Mock>>()` for a double whose declared type describes the mocks
+  themselves; it names `createSpyFromClass(Class)` instead.
+
 ## [5.66.0] - 2026-10-28
 
 ### Added

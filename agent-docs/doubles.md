@@ -223,6 +223,8 @@ expect(trigger.focus).toHaveBeenCalledExactlyOnceWith();
 This replaces a local element factory followed by `mockSignalProp(component, 'dateTrigger', new ElementRef(element))`.
 The query determines the element type. Options are those of `createElementStub` and cannot change that type.
 The handle also returns `ref` (the installed `ElementRef`) and `query` (a writable test signal).
+The handle is not the element: the component receives `trigger.element`, so a call that was handed the
+element is asserted with it (`toHaveBeenCalledWith(trigger.element, …)`), not with `trigger` or `trigger.ref.nativeElement`.
 Use `trigger.query.set(undefined)` to represent a missing optional query; required queries reject `undefined` in TypeScript.
 Queries returning component or directive instances, and `viewChildren`, need `mockSignalProp` instead.
 
@@ -267,6 +269,13 @@ Pass other native event flags directly in `init`.
 **Common mistake:** expecting `data`, `inputType`, or a browser input event constructor check to work.
 This helper returns `Event`, not `InputEvent`. Use a native `InputEvent` when testing those browser features.
 
+`createDomEvent(type, { spy: true })` makes `preventDefault`, `stopPropagation` and
+`stopImmediatePropagation` runner mocks that still act: assert `expect(event.preventDefault).toHaveBeenCalledOnce()`
+and `event.defaultPrevented` alike, with no `createSpyFromClass(KeyboardEvent, …)`. For a `<textarea>` or
+`<select>` target, `createInputEvent` does not fit (it builds an input): pass
+`createElementStub({ elementClass: HTMLTextAreaElement, tagName: 'textarea', overrides: { value } }).element`
+as `createDomEvent('input', { target })`. `elementClass` infers the element type, so no type argument.
+
 ### Text paste and drop events
 
 Replace local clipboard and drag event factories when a handler only reads plain text.
@@ -299,17 +308,26 @@ Once in the setup file, before `setupAutoSpy()`: it fills `PointerEvent`, a no-o
 no-op `scrollTo` / `scrollBy` / `scrollIntoView` on elements and `window` (jsdom's own only log
 "Not implemented") and `document.doctype` — only what is missing, safe to run twice, and it returns
 the names it filled. `{ cheapComputedStyle: true }` replaces `getComputedStyle` with one that answers
-the inline style only: fast, and silent for a pseudo-element. Filled before the snapshot, these
-globals are never blamed on a test by the global-patch guard.
+the inline style only: fast, and silent for a pseudo-element. `{ canvas: true }` gives every
+`<canvas>` an inert 2D context (one per canvas, every call accepted, settings kept, `measureText` /
+`getImageData` / gradients answered empty, `null` for any id but `'2d'`) and a `toDataURL()` of
+`'data:,'` — for a chart library that draws on mount, where jsdom logs "Not implemented"; leave it off
+when the `canvas` package backs jsdom. Filled before the snapshot, these globals are never blamed on a
+test by the global-patch guard. Do not hand-roll a `getContext` proxy in the setup file.
 
 ```ts
 // vitest.setup.ts
 import { fillMissingDomApis } from 'vitest-auto-spy/dom-stubs';
 import { setupAutoSpy } from 'vitest-auto-spy/setup';
 
-fillMissingDomApis();
+fillMissingDomApis({ canvas: true });
 setupAutoSpy();
 ```
+
+A desktop shell's bridge global (Tauri's `__TAURI_INTERNALS__`) is not a DOM member and is not
+filled here. Use the shell's own mocks — `mockWindows()` / `mockIPC()` from `@tauri-apps/api/mocks`
+— in the setup file, before `setupAutoSpy()`, so the guard counts the bridge as environment; a spec
+that asserts on IPC mocks `@tauri-apps/api/core` or the service wrapping it.
 
 ### A module mock that did nothing
 

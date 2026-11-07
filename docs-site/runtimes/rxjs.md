@@ -134,6 +134,82 @@ service.items$.nextWith(['a']); // reaches the component that subscribed in ngOn
 service.items$.returnSubject().error(new Error('offline')); // so does this
 ```
 
+## A request method answers once: `nextOneTimeWith`
+
+An HTTP call, a Tauri `invoke`, a database query: each emits one value and completes. Configure
+such a method with `nextOneTimeWith`, not `nextWith`. `nextWith` leaves the stream open, and two
+things go wrong with an open stream:
+
+- **Code that waits for completion waits for ever.** `forkJoin`, `lastValueFrom`, `toArray()` and
+  `expectAllEmissions` need the source to complete. Over a `nextWith` stream nothing emits, nothing
+  fails, and the test reads a `loading` flag still set to `true`.
+- **A value seeded in `beforeEach` comes first.** The stream keeps the value in its buffer. A test
+  that then calls `throwWith` sends the next subscriber the old value and then the error, so the
+  code runs its success branch on stale data.
+
+```ts
+beforeEach(() => {
+  api.getBonds.nextOneTimeWith(BONDS); // emits, completes: forkJoin and lastValueFrom see it
+});
+
+it('shows the error', () => {
+  api.getBonds.throwWith(new Error('offline')); // a fresh stream: only the error
+  component.load();
+  expect(component.error()).toBe('offline');
+});
+```
+
+`nextWith` is for a stream that stays open in the real code too: a store's `state$`, a websocket, a
+router event feed.
+
+A `throwWith` that lands on a buffered `nextWith` value while nobody is subscribed is reported, once
+per stream as a warning, at every call under `setupAutoSpy({ misconfiguration: 'throw' })`:
+
+```text
+[vitest-auto-spy] BondApi.getBonds.throwWith() ran on a stream that still holds a value from an
+earlier nextWith() and has no subscriber, so the next one gets that value first and the error after
+it — the code under test runs its success branch on stale data. …
+```
+
+Three ways out: seed with `nextOneTimeWith`; call `resetAutoSpy(api.getBonds)` before `throwWith`; or,
+when "emit, then fail" is what the test is about, say it in one call:
+`nextWithValues([{ value: BONDS }, { errorValue: error }])`. A subscriber that is already on the
+stream is not reported: it gets the value when `nextWith` runs and the error when `throwWith` runs.
+
+To keep a call pending, `returnSubject()` is the wrong tool after a seeded `nextWith`: it hands back
+the subject that still holds the seed. Use `resetAutoSpy(api.getBonds)` and then
+`api.getBonds.mockReturnValue(NEVER)`, or `returnSubject()` on a spy nothing seeded.
+
+## Where a `throwWith` error goes
+
+`throwWith` errors the stream before anything subscribes, and every later subscriber still gets the
+error. What happens next is up to the consumer, and in Angular several consumers keep the error
+instead of passing it to `ErrorHandler`. The test stays green unless it reads the error from there:
+
+| The code under test                        | Where the error ends up                                   | Assert it with                                                    |
+| ------------------------------------------ | --------------------------------------------------------- | ----------------------------------------------------------------- |
+| `toSignal(api.load())`                     | the signal: it throws when read, and only then            | `expect(() => service.bonds()).toThrow('offline')`                |
+| `rxResource({ stream: () => api.load() })` | the resource: `status()` is `'error'`, `value()` throws   | `await settleResource(service.bonds)`, then read `error()`        |
+| a signal read in an `effect` or a template | `ErrorHandler`, when the effect runs; TestBed rethrows it | `expect(() => TestBed.tick()).toThrow('offline')`                 |
+| `.subscribe(next)` with no error callback  | rxjs rethrows it from a `setTimeout`, after the test      | `strayTimers` fails the test; `expectUnhandledObservableErrors()` |
+
+```ts
+it('shows the error', () => {
+  api.load.throwWith(new Error('offline'));
+  const service = TestBed.inject(BondsService); // bonds = toSignal(api.load())
+
+  expect(() => service.bonds()).toThrow('offline'); // nothing fails until something reads it
+});
+```
+
+An `effect` does not run until something flushes it, so a test that only injects the service sees
+nothing. Call `TestBed.tick()` (or `await fixture.whenStable()`) and expect that call to throw.
+
+A stream helper written after `mockImplementation` / `mockReturnValue` on the same method answers
+nothing: those replace the spy's dispatch, and the dispatch is what reads `throwWith`. That order is
+reported (`throwWith() was configured on 'load' after mockImplementation() had replaced its
+dispatch`). Call `api.load.mockReset()` first, or seed the default with `nextOneTimeWith` instead.
+
 ## Reading a sequence as a marble
 
 `nextWithValues` emits its entries in order. Only `delay` puts time between them. The comments show
@@ -241,8 +317,9 @@ service.load$.nextWith(page); // a fresh stream, not a value nobody can receive
 ```
 
 - **Inside one test, calls add up.** `nextWith(a)` then `throwWith(e)` means "emit `a`, then fail".
-  To get a stream that fails on subscription no matter what came before, use
-  `nextWithValues([{ errorValue: e }])`. On a property spy, call it before the code subscribes: see
+  With nobody subscribed in between, that is reported: see
+  [A request method answers once](#a-request-method-answers-once-nextonetimewith). To get a stream
+  that fails on subscription no matter what came before, use `nextWithValues([{ errorValue: e }])`. On a property spy, call it before the code subscribes: see
   [`nextWith` pushes; `nextWithValues` republishes](#nextwith-pushes-nextwithvalues-republishes).
 
 ## Asserting instead of subscribing

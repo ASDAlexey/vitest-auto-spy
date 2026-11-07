@@ -45,7 +45,7 @@ Part of the agent reference [`AGENTS.md`](../AGENTS.md), which maps every sectio
 | five `asInstance(...)` in one call | `...asInstances(a, b, c, d, e)` |
 | `vi.stubGlobal('Image', vi.fn(() => ({ src: '' })))` | `stubConstructor(globalThis, 'Image', () => ({ src: '' }))` |
 | `Object.defineProperty(document, 'cookie', { value })` | `mockValueProp(document, 'cookie', value)` |
-| `vi.spyOn(globalThis, 'Date')` | `mockSystemTime('2025-04-30T00:00:00Z')` |
+| `vi.spyOn(globalThis, 'Date')` | `mockSystemTime('2025-04-30T00:00:00Z')` from `vitest-auto-spy/setup` (not the root entry) |
 | ten `await Promise.resolve()` for a dynamic `import()` | `await settleDynamicImport(() => import('…'))` |
 | a bare `await import('…')` in a test body | `await settleDynamicImport(() => import('…'))` — `prefer-settle-dynamic-import` reports it |
 | a capture whose only assertions are `toEqual([])` / `not.toHaveBeenCalled()` | `await expectNoEmission(source$)` — `no-vacuous-absence-assertion` reports it |
@@ -58,7 +58,7 @@ Part of the agent reference [`AGENTS.md`](../AGENTS.md), which maps every sectio
 | `{ target, isIntersecting } as unknown as IntersectionObserverEntry` | `intersectionEntry(target, true)` |
 | `@Component({ selector: 'app-chart' }) class MockChartComponent { @Input() … }` | `createComponentStub(ChartComponent)` — the selector cannot drift |
 | a `TestingStorage` class assigned to `globalThis.localStorage` | `stubWebStorage('localStorage')`, restored with the other patches |
-| an assertion containing a date, with no clock set | `mockSystemTime(iso)` first |
+| an assertion containing a date, with no clock set | `mockSystemTime(iso)` first, imported from `vitest-auto-spy/setup` |
 | `configureTestingModule` inside every `it()` | one per `describe` |
 | `vi.mock('@angular/core')` to neutralise `effect()` | set the signals, `await stable(fixture)`, assert the result |
 | a second `vi.spyOn(console, 'error')` | `consoleErrorSpy` from `vitest-auto-spy/console`, installed with `useConsoleSpies()` |

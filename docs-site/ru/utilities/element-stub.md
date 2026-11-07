@@ -81,6 +81,8 @@ expect(trigger.focus).toHaveBeenCalledExactlyOnceWith();
 Такой вызов заменяет локальную фабрику элемента и последующий `mockSignalProp(component, 'dateTrigger', new ElementRef(element))`.
 Тип элемента определяется запросом. Параметры совпадают с `createElementStub` и не меняют этот тип.
 Возвращённый объект также содержит `ref` (установленный `ElementRef`) и `query` (записываемый тестовый сигнал).
+Сам объект — не элемент: компонент получает `trigger.element`. Вызов, которому передали элемент,
+проверяйте через него: `expect(chart.render).toHaveBeenCalledWith(trigger.element, …)`.
 Вызовите `trigger.query.set(undefined)`, чтобы убрать optional запрос; для required запроса TypeScript запрещает `undefined`.
 Для запросов, возвращающих экземпляры компонентов или директив, и для `viewChildren` используйте `mockSignalProp`.
 
@@ -157,6 +159,32 @@ expect(component.value()).toBe('15');
 **Частая ошибка:** ожидать `data`, `inputType` или прохождения проверки конструктора браузерного события ввода.
 Хелпер возвращает `Event`, а не `InputEvent`. Для проверки этих возможностей браузера используйте нативный `InputEvent`.
 
+**Проверить, что обработчик отменил событие.** Передайте `spy: true`. `preventDefault`,
+`stopPropagation` и `stopImmediatePropagation` станут моками раннера, которые по-прежнему делают свою
+работу, так что проверить можно и вызов, и его эффект:
+
+```ts
+const event = createDomEvent('keydown', { spy: true });
+
+component.onKeydown(event);
+
+expect(event.preventDefault).toHaveBeenCalledOnce();
+expect(event.defaultPrevented).toBe(true);
+```
+
+Без `spy: true` событие — обычный `Event` со своими методами.
+
+**Цель — `<textarea>` или `<select>`.** `createInputEvent` всегда строит поле ввода. Для другого
+элемента постройте заглушку с его классом и передайте её как `target`. `elementClass` задаёт тип
+элемента, поэтому `overrides: { value }` проходит проверку типов без аргумента типа:
+
+```ts
+const textarea = createElementStub({ elementClass: HTMLTextAreaElement, tagName: 'textarea', overrides: { value: 'note' } });
+
+component.onInput(createDomEvent('input', { target: textarea.element }));
+expect(component.note()).toBe('note');
+```
+
 ## Текстовые события вставки и переноса {#text-paste-and-drop-events}
 
 Заменяют локальные фабрики событий буфера обмена и переноса, когда обработчик читает только обычный текст.
@@ -206,9 +234,10 @@ setupAutoSpy();
 - `getComputedStyle`, если его нет;
 - `document.doctype`.
 
-| Опция                | Тип       | По умолчанию | Смысл                                                                   |
-| -------------------- | --------- | ------------ | ----------------------------------------------------------------------- |
-| `cheapComputedStyle` | `boolean` | `false`      | Заменить `getComputedStyle` версией, которая читает только инлайн-стиль |
+| Опция                | Тип       | По умолчанию | Смысл                                                                                     |
+| -------------------- | --------- | ------------ | ----------------------------------------------------------------------------------------- |
+| `cheapComputedStyle` | `boolean` | `false`      | Заменить `getComputedStyle` версией, которая читает только инлайн-стиль                   |
+| `canvas`             | `boolean` | `false`      | Дать каждому `<canvas>` пустой 2D-контекст и `toDataURL()`, который возвращает `'data:,'` |
 
 Как она работает:
 
@@ -218,6 +247,19 @@ setupAutoSpy();
 - Без `document` ничего не делает.
 - `cheapComputedStyle: true` работает быстро и не пишет в лог для псевдоэлемента. Но правила из
   таблиц стилей в ответ больше не попадают, поэтому по умолчанию опция выключена.
+- `canvas: true` нужен коду, который рисует при создании, например библиотеке графиков. jsdom без
+  пакета `canvas` пишет «Not implemented» на `getContext()` и ничего не возвращает, а это валит набор
+  со шпионами консоли. Добавленный контекст принимает любой вызов и любую настройку, помнит то, что
+  вы присвоили, и отвечает пустыми значениями на `measureText`, `getImageData` и фабрики градиентов.
+  У каждого canvas один контекст; на любой id, кроме `'2d'`, — `null`. Он заменяет и настоящий
+  контекст, поэтому не включайте опцию, когда за jsdom стоит пакет `canvas`.
+
+```ts
+fillMissingDomApis({ canvas: true });
+
+const context = document.createElement('canvas').getContext('2d');
+context?.fillRect(0, 0, 10, 10); // ничего не рисует и ничего не бросает
+```
 
 **Частая ошибка:** вызывать её после `setupAutoSpy()` или добавлять эти глобалы руками внутри файла
 спеки. Тогда [охрана глобалов](/ru/utilities/setup#_20-globals-put-back-at-the-file-boundary) винит

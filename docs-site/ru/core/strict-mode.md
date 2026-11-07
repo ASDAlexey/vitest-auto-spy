@@ -139,6 +139,7 @@ createSpyFromInstance(new Cart()).total(); // throws: Cart.total() was called; �
 [vitest-auto-spy] Cart.checkout(1, 'now') was called; this strict double has nothing configured for it.
 Called from src/app/cart.component.ts:41:12
 Configure it in the test: cart.checkout.calledWith(1, 'now').mockReturnValue(…) for these arguments, or .mockReturnValue(…) for any — .resolveWith(…) / .nextWith(…) when it returns a Promise / Observable.
+A void method, or a result the code ignores: returnsUndefined: ['checkout'] in the double's options.
 Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#the-message
 ```
 
@@ -152,6 +153,10 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#the-message
   без аргументов предлагается только `.mockReturnValue(…)`.
 - **`cart` — догадка об имени вашей переменной**: имя класса в lowerCamelCase. Если имя класса не
   годится как идентификатор, в сообщении будет `double`.
+- **Строка с `returnsUndefined` — для метода, которому нечего возвращать.** Методу `void` или
+  `MatDialog.open`, чей результат код отбрасывает, значение не нужно: перечислите его в опциях дублёра,
+  `provideAutoSpy(Cart, { returnsUndefined: ['checkout'] })`. Если код пользуется результатом,
+  `returnsClass: { open: MatDialogRef }` вернёт спай этого класса.
 
 Простые данные печатаются целиком, до 200 символов на аргумент. Экземпляр класса или DOM-узел
 печатается как имя класса: `[HTMLDivElement]`, `[Session]`. Полная печать таких объектов могла бы

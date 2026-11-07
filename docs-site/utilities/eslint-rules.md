@@ -1895,7 +1895,7 @@ await that promise directly.
 
 ## no-real-wait-in-test
 
-**`warn`** · no fix · syntax only
+**`warn`** · suggestion · syntax only
 
 Reports a sleep on the real clock, such as `await new Promise((r) => setTimeout(r, 300))`. Every run
 pays the delay, and it is a race: the code must finish within it, which it does on a laptop but not
@@ -1923,6 +1923,18 @@ it('debounces', async () => {
 **How to fix.** Move onto fake timers with `setupFakeTimers()` and `advanceTimers(ms)`, as above.
 When you wait for an outcome rather than a duration, wait for the outcome: `await vi.waitFor(…)` or
 `await fixture.whenStable()`.
+
+When the sleep only lets mocked promises settle — a stubbed `invoke()` or `fetch()` that resolves at
+once — one real event-loop turn is enough. Where the sleep is awaited on the spot, the rule suggests
+`await flushEventLoop()` and adds its import:
+
+```ts
+await new Promise((r) => setTimeout(r, 50)); // ❌ 50 ms for promises that are already resolved
+await flushEventLoop(); // ✅ one turn: every resolved chain runs, no timer fires
+```
+
+It is a suggestion, not a fix: `flushEventLoop()` fires no timer the code set, so a test that waits
+for a real `setTimeout` still needs fake timers.
 
 **When to disable.** The sleep is a fact, but the fix changes every timer the test runs, so the rule
 is `warn`. Move files onto fake timers one by one, then raise it to `error`.
@@ -3379,6 +3391,12 @@ where those branches matter; see [renderShallow](/adapters/angular).
 - If the component reads its own template through `viewChild`, `contentChild` or content projection,
   or its behaviour comes from its markup (an event binding, a `@defer` block), use
   `renderShallow(X, { keepTemplate: true })`. It keeps the template and still drops the children.
+  A child bound by a signal-forms `[formField]` renders as a stand-in carrying its `value` /
+  `checked` model, so the form keeps working
+  ([details](/adapters/angular#keeptemplate-and-a-signal-form-bound-to-a-child-control)).
+- If the render exists only to run the AOT-compiled template for coverage, it is the one real render
+  the coverage note above asks for. A shallow render recompiles the template under JIT and loses
+  exactly those branches. Keep it and disable the rule on that line, with the reason.
 - If the constructor reads spy state and each test tunes the spies first, render per test and do the
   tuning in `beforeCreate`, which runs after the module is configured and before the constructor:
 
@@ -3433,9 +3451,10 @@ is nothing to save, so you can ignore the report there. A project that has decid
 **What counts as reading the template.** The rule looks at the identifiers of the **whole file**, not
 at the fixture the call returned. The words are `nativeElement`, `debugElement`, `elementRef`,
 `hostElement`, `queryElement`, `querySelector`, `getComputedStyle`, `triggerEventHandler`,
-`innerHTML`, `innerText`, `textContent`, `getAttribute`, `classList` and `shadowRoot`, matched inside
-an identifier or member name (a `nativeElementOf()` helper counts too), plus `By.css` and
-`By.directive`. One read anywhere silences the file.
+`innerHTML`, `innerText`, `textContent`, `getAttribute`, `classList` and `shadowRoot`, matched as
+whole camelCase words of an identifier or member name (a `nativeElementOf()` helper counts too, and
+so does a plural at the end, `debugElements`), plus `By.css` and `By.directive`. A longer word that
+only contains one, such as `getAttributesLayer()`, is not a read. One read anywhere silences the file.
 
 Only code counts. A comment, a string or template literal, and a member the spec **declares** rather
 than reads (the key of `{ getAttribute: 'nope' }`, a field or method of a fake class, an interface

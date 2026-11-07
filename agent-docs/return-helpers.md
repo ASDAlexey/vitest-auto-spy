@@ -65,8 +65,8 @@ users.load.resolveWithPerCall([{ value: a }, { value: b }]);
 expect(users.load.mock.settledResults).toEqual([{ type: 'fulfilled', value: { id: 1 } }]);
 
 // observables — requires `import 'vitest-auto-spy/rxjs'` once
-feed.items$.nextWith([item]); // emit, stream stays open
-feed.items$.nextOneTimeWith([item]); // emit once, then complete
+feed.items$.nextWith([item]); // emit, stream stays open — a store, a socket
+feed.items$.nextOneTimeWith([item]); // emit once, then complete — HTTP, IPC, any request/response
 feed.items$.nextWithValues([{ value: a }, { value: b, delay: 100 }, { complete: true }]);
 const [first$, second$] = feed.watch$.nextWithPerCall([{ value: 'a' }, { value: 'b', doNotComplete: true }]);
 feed.items$.throwWith('FAKE ERROR');
@@ -220,6 +220,42 @@ closures, not on the runner's mock. So when a spy outlives a test — a TestBed 
 a spy hoisted to `describe` scope — put `resetAutoSpy(spy)` in `beforeEach`. Inside one test the
 sequence `nextWith(a)` then `throwWith(e)` still means "emit a, then fail"; only a reset or a
 terminal call starts a new stream.
+
+**Seed a request/response method with `nextOneTimeWith`, not `nextWith`.** An HTTP or IPC call emits
+once and completes; a `nextWith` stream never completes, so `forkJoin`, `lastValueFrom`, `toArray()`
+and `expectAllEmissions` over it wait for ever and the test reads the initial state. Seeded in
+`beforeEach`, its buffered value also reaches the subscriber of a later `throwWith` first. That last
+case is reported: `X.m.throwWith() ran on a stream that still holds a value from an earlier
+nextWith() and has no subscriber` — a warning once per stream, a throw under
+`misconfiguration: 'throw'`. Fix: `nextOneTimeWith` for the seed, or `resetAutoSpy(spy.m)` before
+`throwWith`, or `nextWithValues([{ value }, { errorValue }])` when "emit, then fail" is the point. A
+subscriber already on the stream is not reported. To keep a call pending after such a seed,
+`returnSubject()` is wrong (it hands back the subject holding the seed): `resetAutoSpy(spy.m)` then
+`spy.m.mockReturnValue(NEVER)`.
+
+**A `throwWith` error reaches every subscriber; whether it reaches the test is the consumer's call.**
+The spy replays the error to a subscriber that arrives after `throwWith`, so nothing is lost on this
+side. Angular's consumers keep it instead of handing it to `ErrorHandler`, and the test stays green
+unless it reads the error where it was kept:
+
+- `toSignal(source$)` stores it and throws it when the signal is **read** —
+  `expect(() => service.bonds()).toThrow('offline')`. A signal nothing reads never fails.
+- `rxResource` / `resource` catch it: `await settleResource(service.bonds)`, then
+  `expect(service.bonds.error()).toEqual(error)` (`status()` is `'error'`; `value()` throws).
+- An `effect` (or a template) that reads such a signal sends the throw to `ErrorHandler`, which
+  TestBed rethrows — but only once the effect runs: `expect(() => TestBed.tick()).toThrow('offline')`,
+  or `await fixture.whenStable()`. Injecting the service alone runs nothing.
+- `.subscribe(next)` with no error callback: rxjs rethrows from a `setTimeout` after the test;
+  `strayTimers` turns that into a failure of the test (§10), `expectUnhandledObservableErrors()`
+  asserts it.
+
+**A stream or promise helper written after `mockImplementation` / `mockReturnValue` answers nothing.**
+Those replace the spy's dispatch, and the dispatch is what reads `throwWith`, `nextWith`,
+`resolveWith`, `failWith` and the rest. The order is reported — `throwWith() was configured on 'load'
+after mockImplementation() had replaced its dispatch` — a warning, a throw under
+`misconfiguration: 'throw'`; the behaviour is unchanged. Fix: `spy.m.mockReset()` before the helper,
+or seed the earlier default with `nextOneTimeWith` / `returns:` instead of `mockImplementation`. The
+other order (helper, then `mockImplementation`) is ordinary last-writer-wins and is not reported.
 
 ### Keeping an awaited collaborator pending
 

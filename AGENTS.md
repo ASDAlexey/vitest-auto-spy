@@ -229,7 +229,7 @@ it('loads', async () => {
 | --- | --- | --- |
 | method returning a value | nothing | `spy.m.mockReturnValue(v)` or `spy.m.calledWith(args).mockReturnValue(v)` |
 | method returning `Promise<T>` | nothing | `spy.m.resolveWith(v)` / `rejectWith(e)` (§4) |
-| method returning `Observable<T>` | nothing | `spy.m.nextWith(v)` / `throwWith(e)` (§4, needs `/rxjs`) |
+| method returning `Observable<T>` | nothing | one-shot (HTTP, IPC): `spy.m.nextOneTimeWith(v)`; a stream that stays open: `nextWith(v)`; `throwWith(e)` (§4, needs `/rxjs`) |
 | `Observable` property (`items$`) | `observablePropsToSpyOn: ['items$']` | `spy.items$.nextWith(v)` |
 | signal / `computed` member of a dependency | `instanceMethodsToSpyOn: ['items']` | `spy.items.mockReturnValue(v)`; a value that changes mid-test: `mockSignalProp` (§13) |
 | plain data field | `overrides: { field: value }` | set in the provider (§5) |
@@ -241,7 +241,9 @@ Rules that carry most of the value:
 2. **Declare each spy as `Spy<T>`, never as `T`** (§6).
 3. **Seed defaults in `beforeEach`, override in the test.** An unconfigured method returns
    `undefined`, and the failure surfaces far from its cause. Seed before `TestBed.inject(ClassUnderTest)`
-   when its constructor or field initialisers read the dependency.
+   when its constructor or field initialisers read the dependency. Seed a one-shot `Observable` with
+   `nextOneTimeWith`: a `nextWith` never completes (`forkJoin` / `lastValueFrom` hang) and its buffered
+   value reaches a later `throwWith`'s subscriber first.
 4. **`provideAutoSpy` is lazy by default**, so listing a wide service costs nothing for the methods a
    test never touches.
 5. **Two import lines.** `provideAutoSpy`, `injectSpy` and the `Spy<T>` type come from
@@ -319,12 +321,11 @@ const modal = injectSpy<ModalRef<PurchaseOptions>>(ModalRef); // a particular in
   constructor takes the type parameter (`constructor(public data: T)`), it reads the **constraint**:
   `ModalRef<T = unknown>` gives `Spy<ModalRef<unknown>>`. Spell the argument out when the spec means
   the default or one instantiation.
-- `createSpyFromClass` needs the argument in one combination: a generic class with an accessor list
-  (or `overrides`) **and** `returns`. The symptom: `'isKeyEnabled' does not exist in type
-'MethodReturns<{ flagsConfig: any; }>'`. Write `createSpyFromClass<FlagsConfigService>(…)`. The
-  core `registerAutoSpyDefaults` needs it the same way.
-- `provideAutoSpy`, `overrideAutoSpy`, `overrideComponentProvider` and the `/angular` class overload
-  of `registerAutoSpyDefaults` take `T` from the class alone. A token needs nothing: `T` comes from
+- `createSpyFromClass`, `createSpyFromInstance`, every `provideAutoSpy`, `overrideAutoSpy`,
+  `overrideComponentProvider` and both class overloads of `registerAutoSpyDefaults` take `T` from the
+  class alone: an accessor list, `returns` or an `overrides` object held in a variable no longer
+  narrows it, so `createSpyFromClass(KeyboardEvent, { overrides: keys, returnsUndefined: [...] })`
+  needs no `<KeyboardEvent>`. A token needs nothing: `T` comes from
   `InjectionToken<T>`.
 
 **A generic method collapses to `unknown`.** `show<T, U>(component: Type<T>, data: U)` types on the

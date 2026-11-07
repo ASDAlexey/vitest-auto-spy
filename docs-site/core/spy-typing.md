@@ -165,25 +165,23 @@ const config = asSpy<FeatureFlagService>(TestBed.inject(FeatureFlagService));
 const config = injectSpy<FeatureFlagService>(FeatureFlagService); // the same, in Angular
 ```
 
-`createSpyFromClass` needs it too in one combination: an accessor list (or `overrides`) together with
-`returns`, on a generic class. TypeScript then infers `T` from `gettersToSpyOn: ['flagsConfig']` as
-`{ flagsConfig: any }` and rejects the `returns` key:
-
-```text
-'isKeyEnabled' does not exist in type 'MethodReturns<{ flagsConfig: any; }>'
-```
+`createSpyFromClass` does not need it. It takes `T` from the class alone, never from the
+configuration, so an `overrides` object held in a variable, or an accessor list next to `returns` on a
+generic class, compiles as written:
 
 ```ts
-createSpyFromClass(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: { isKeyEnabled: false } }); // ❌
-createSpyFromClass<FlagsConfigService>(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: { isKeyEnabled: false } }); // ✅
+const keys = { key: 'k', metaKey: true };
+
+createSpyFromClass(KeyboardEvent, { overrides: keys, returnsUndefined: ['preventDefault'] }); // Spy<KeyboardEvent>
+createSpyFromClass(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: { isKeyEnabled: false } }); // ✅
 ```
 
-- Either option alone infers the declared default, so no type argument is needed.
-- In `vitest-auto-spy/angular`, `provideAutoSpy`, `overrideAutoSpy`, `overrideComponentProvider` and
-  the class overload of `registerAutoSpyDefaults` take `T` from the class alone, so there the first
-  line compiles as written.
-- The core factories and the core `registerAutoSpyDefaults` do not, so there you pass the type
-  argument. Nothing else is needed.
+- `createSpyFromInstance`, `createSpyClass`, `registerAutoSpyDefaults` and every `provideAutoSpy`
+  infer `T` the same way.
+- Older versions read `T` from the configuration and failed with
+  `'isKeyEnabled' does not exist in type 'MethodReturns<{ flagsConfig: any; }>'` or
+  `Property 'preventDefault' does not exist on type 'Spy<{ key: string; … }>'`. There, pass the type
+  argument: `createSpyFromClass<KeyboardEvent>(…)`.
 
 ## `Spy<T>`, not `Mocked<T>`
 

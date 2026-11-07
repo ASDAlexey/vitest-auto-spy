@@ -165,25 +165,23 @@ const config = asSpy<FeatureFlagService>(TestBed.inject(FeatureFlagService));
 const config = injectSpy<FeatureFlagService>(FeatureFlagService); // то же самое в Angular
 ```
 
-`createSpyFromClass` он тоже нужен в одном сочетании: список аксессоров (или `overrides`) вместе с
-`returns` на обобщённом классе. TypeScript тогда выводит `T` из `gettersToSpyOn: ['flagsConfig']` как
-`{ flagsConfig: any }` и отвергает ключ из `returns`:
-
-```text
-'isKeyEnabled' does not exist in type 'MethodReturns<{ flagsConfig: any; }>'
-```
+`createSpyFromClass` он не нужен. Фабрика берёт `T` только из класса, а не из конфигурации, поэтому
+объект `overrides` из переменной или список аксессоров вместе с `returns` на обобщённом классе
+компилируются как есть:
 
 ```ts
-createSpyFromClass(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: { isKeyEnabled: false } }); // ❌
-createSpyFromClass<FlagsConfigService>(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: { isKeyEnabled: false } }); // ✅
+const keys = { key: 'k', metaKey: true };
+
+createSpyFromClass(KeyboardEvent, { overrides: keys, returnsUndefined: ['preventDefault'] }); // Spy<KeyboardEvent>
+createSpyFromClass(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: { isKeyEnabled: false } }); // ✅
 ```
 
-- Любая из двух опций по отдельности выводит объявленное умолчание, аргумент типа не нужен.
-- В `vitest-auto-spy/angular` функции `provideAutoSpy`, `overrideAutoSpy`, `overrideComponentProvider` и
-  классовая перегрузка `registerAutoSpyDefaults` берут `T` только из класса, поэтому там первая строка
-  компилируется как есть.
-- Фабрики ядра и `registerAutoSpyDefaults` из ядра так не делают, поэтому там аргумент типа передаёте
-  вы. Больше ничего делать не нужно.
+- `createSpyFromInstance`, `createSpyClass`, `registerAutoSpyDefaults` и все `provideAutoSpy` выводят
+  `T` так же.
+- Старые версии выводили `T` из конфигурации и падали с
+  `'isKeyEnabled' does not exist in type 'MethodReturns<{ flagsConfig: any; }>'` или
+  `Property 'preventDefault' does not exist on type 'Spy<{ key: string; … }>'`. Там передайте аргумент
+  типа: `createSpyFromClass<KeyboardEvent>(…)`.
 
 ## `Spy`, а не `Mocked` {#spy-t-not-mocked-t}
 

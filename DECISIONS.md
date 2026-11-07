@@ -8,6 +8,83 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## A helper under a replaced dispatch is reported, not made to win, 2026-11-03
+
+Found while migrating a large Angular suite: `mockImplementation(() => of(x))` in `beforeEach`, then
+`throwWith(e)` in one test, and the test ran on `x`. The host implementation replaces the dispatch,
+and the dispatch is the only reader of the container `throwWith` writes. The release reports the
+order through `reportMisconfiguration` (warn, or throw under `misconfiguration: 'throw'`), for every
+container helper on a function spy. What was weighed and left out:
+
+- [~] **Last configuration wins: the helper re-installs the dispatch.** It is what those tests meant,
+  but it changes what a call answers in a spec that is green today, with no line of the spec changed —
+  the same reason the `calledWith` report and the stale `nextWith` report above leave the
+  behaviour alone. A candidate for the next major, where the change can be announced.
+- [~] **Report the other order (helper, then `mockImplementation`).** That is ordinary last-writer-wins
+  and the usual way to override a seeded default for one test; nothing configured is lost silently.
+- [~] **Report a helper on a `calledWith` chain under a replaced dispatch.** Opening the chain is
+  already reported, once, by the `calledWith` late report; a second report per helper adds nothing.
+
+## Errors a `throwWith` stream delivers into `toSignal` / `rxResource` / `effect` are Angular's, 2026-11-03
+
+Reported as "the error disappears". Probed on Angular 22 with a zoneless TestBed: the spy's subject
+replays the error to every subscriber that arrives after `throwWith`, and each consumer then does
+what Angular documents — `toSignal` throws on read, `rxResource` sets `status()` to `'error'`, an
+`effect` throws into `ErrorHandler` (rethrown by `TestBed.tick()`) only once it runs, and a bare
+`.subscribe(next)` reaches the `strayTimers` rethrow check. Nothing for the library to fix; the RxJS
+page and `agent-docs` show the assertion for each consumer.
+
+- [~] **Fail the test when an errored spy stream is never subscribed or its error never read.** The
+  spy cannot see the signal or the resource the stream went into, and a `throwWith` a branch never
+  reaches is a legitimate arrange step.
+
+## A seeded `nextWith` under a later `throwWith` is reported, not rewritten, 2026-11-03
+
+Hit independently by several migrations of one Angular suite: `nextWith(v)` in `beforeEach`, then
+`throwWith(e)` in a test, and the code under test receives `v` before the error. The release reports
+`throwWith()` over a buffered `nextWith` value with nobody subscribed (warn once per stream, throw
+under `misconfiguration: 'throw'`) and steers request/response methods to `nextOneTimeWith`. What was
+weighed and left out:
+
+- [~] **Let `throwWith` drop the buffered value when nobody is subscribed.** It is what those tests
+  meant, but "inside one test, `nextWith(a)` then `throwWith(e)` means emit `a`, then fail" is
+  documented behaviour, and a spec relying on it would change silently. A report is visible; a
+  changed stream is not.
+- [~] **Report a subscriber that is already on the stream.** It gets `a` when `nextWith` runs and the
+  error when `throwWith` runs — the documented "emit, then fail", and the open-stream shape of a store
+  or a socket. Only the unobserved buffer is a stale replay.
+- [~] **Report `returnSubject()` or `complete()` over a seeded value.** `complete()` after `nextWith`
+  is `nextOneTimeWith` spelled in two calls, and `returnSubject()` after `nextWith` is the ordinary way
+  to push more later; both are legitimate far more often than not. The "keep it pending" misuse of
+  `returnSubject()` is documented instead (`resetAutoSpy`, then `mockReturnValue(NEVER)`).
+- [~] **Detect `forkJoin` / `lastValueFrom` over a `nextWith` stream.** The spy cannot see which
+  operator subscribed. The completion-timeout message of `expectAllEmissions` / `expectCompletion`
+  names `nextOneTimeWith` instead, and the docs put it first for one-shot methods.
+- [~] **`no-inline-test-data` exempting long expected values.** It already tells them apart: a long
+  literal inside `toEqual` / `toHaveBeenCalledWith` gets its own message (keep the shape, move the
+  named part, or check fewer fields), never "move it to a mock file". A 60-line expected chart trace
+  still buries what the test checks, and the rule is `warn`; a suite that asserts whole traces raises
+  `maxLines` rather than the rule going quiet for everyone.
+- [~] **An `expectEmittedSync` helper for `void` outputs.** `expectEmissionSync(output, { advance })`
+  as a statement already is the assertion (it throws unless exactly one value arrives), and
+  `expect*` counts for `vitest/expect-expect`; the docs pattern that wrapped it in
+  `expect(…).toBeUndefined()` was the problem and is gone.
+
+## What `fillMissingDomApis({ canvas: true })` leaves out, 2026-11-02
+
+Asked for by an Angular suite that hand-rolled a `getContext` proxy in its setup file for a chart
+library. Three neighbours were considered and not shipped:
+
+- [~] **On by default.** jsdom's `getContext` is a generated wrapper whether or not the `canvas`
+  package backs it, so "missing" cannot be told apart from "real" without calling it, and the call
+  itself logs. An opt-in cannot replace a working context by surprise.
+- [~] **`toBlob`.** A browser calls it back on a task; calling back synchronously changes ordering, and
+  scheduling a timer would trip `strayTimers`. No consumer asked for it.
+- [~] **A WebGL context.** Libraries probe WebGL and fall back on `null`; a fake one would send them
+  down a path nothing in the test environment can draw.
+- [~] **A Tauri bridge stub.** `@tauri-apps/api/mocks` (`mockWindows`, `mockIPC`) already is one,
+  maintained with the shell; `agent-docs/doubles.md` points at it instead.
+
 ## Benchmark baselines stay report-only in `bench.yml`, 2026-09-30
 
 Both `bench:check` steps in `bench.yml` run without `--strict`.
@@ -1376,7 +1453,8 @@ call compiles on every one of them. Only the class overload was changed.
   consumer's shape, with a wrong `returns` value beside it so an `any` cannot pass it.
 - [~] **`NoInfer` on the core `registerAutoSpyDefaults`.** Not done, for the reason the core
   factories keep the trap (below): the TypeScript floor. `spy.test-d.ts` holds the rejection and
-  the explicit form, next to `createSpyFromClass`'s pair.
+  the explicit form, next to `createSpyFromClass`'s pair. Superseded 2026-11-03: the core overload now takes
+  `T` from the class through the deferred indexed access described under "Component stubs…" below.
 
 ## Token registrations, `selfReturning` and `no-unknown-use-value-key`, 2026-09-11
 
@@ -1577,6 +1655,10 @@ returns: {…} })` still fails; only the `/angular` providers were changed — t
 never` and `[T][T extends any ? 0 : never]` let the `keyof` inference through, and a
   type-parameter rest in the constructor type changes nothing. `NoInfer` is TypeScript 5.4, above the floor the core documents; every Angular `/angular`
   supports is past it. The one visible cost: a call that is an error anyway reports `Spy<any>`.
+  **Superseded 2026-11-03:** `[Config][T extends unknown ? 0 : never]` around the configuration
+  _together with_ the `T = any` default does work on every TypeScript from 5.0 (the real floor of
+  the shipped `.d.ts`, which uses `const` type parameters) to 7.0; measured above, it was tried
+  without the default. The core factories and the `/jasmine`, `/nestjs`, `/vue` providers now use it.
 - [~] **What `createComponentStub` does not copy.** Host bindings, host directives, providers,
   lifecycle hooks and queries — a stub that ran any of them would be the child again. A signal
   input's transform lives inside the real `input()` and cannot be read without constructing the
