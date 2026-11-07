@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 
 import { useConsoleSpies } from '../console';
 import { enableJasmineCompat } from './enable-jasmine';
+import type { JasmineCustomMatcherFactory } from './jasmine-custom-matchers';
 import { jasmine, resetTimeoutIntervalWarning } from './jasmine-global';
 import { resetJasmineMatchers } from './jasmine-matchers';
 import { resetJasmineSupport } from './jasmine-support';
@@ -225,20 +226,131 @@ describe('the jasmine namespace', () => {
   });
 
   describe('matcher registration', () => {
-    it('forwards addMatchers to expect.extend and addCustomEqualityTester to addEqualityTesters', () => {
+    it('registers addMatchers through expect.extend and addCustomEqualityTester through addEqualityTesters', () => {
       const extend = vi.spyOn(expect, 'extend').mockImplementation(() => expect);
       const testers = vi.spyOn(expect, 'addEqualityTesters').mockImplementation(() => undefined);
       const tester = (): undefined => undefined;
 
-      jasmine.addMatchers({ toBeAnything: () => ({ pass: true, message: (): string => '' }) });
+      jasmine.addMatchers({ toBeAnything: () => ({ compare: () => ({ pass: true }) }) });
       jasmine.addCustomEqualityTester(tester);
 
-      expect(extend).toHaveBeenCalledOnce();
+      expect(extend).toHaveBeenCalledWith({ toBeAnything: expect.any(Function) });
       expect(testers).toHaveBeenCalledWith([tester]);
     });
   });
 
-  describe('DEFAULT_TIMEOUT_INTERVAL', () => {
+  describe('addMatchers with jasmine-shaped matchers', () => {
+    beforeAll(() => {
+      jasmine.addMatchers({
+        toBeJasmineFoo: () => ({
+          compare: (actual: unknown) => ({ pass: actual === 'foo', message: `expected ${String(actual)} to be foo` }),
+        }),
+        toEqualJasmineWithDefault: (util) => ({
+          compare: (actual: unknown, expected: unknown) => ({ pass: util.equals(actual, expected) }),
+        }),
+        toHaveJasmineLazyMessage: () => ({
+          compare: () => ({ pass: false, message: (): string => 'lazy message' }),
+        }),
+        toBeJasmineEven: () => ({
+          compare: (actual: number) => ({ pass: actual % 2 === 0, message: 'odd' }),
+          negativeCompare: (actual: number) => ({ pass: actual % 2 !== 0, message: 'even, from negativeCompare' }),
+        }),
+        toContainJasmine: (util) => ({
+          compare: (actual: unknown, needle: unknown) => ({ pass: util.contains(actual, needle) }),
+        }),
+        toEqualJasmineLoosely: (util, customEqualityTesters) => ({
+          compare: (actual: unknown, expected: unknown) => ({
+            pass: Array.isArray(customEqualityTesters) && util.equals(actual, expected, [() => true]),
+          }),
+        }),
+      });
+      jasmine.addMatchers({
+        toBeJasmineVitestShaped(received: unknown) {
+          return { pass: received === 1, message: (): string => 'vitest-shaped' };
+        },
+      });
+    });
+
+    interface CustomAssertions {
+      toBeJasmineFoo(): void;
+      toEqualJasmineWithDefault(expected: unknown): void;
+      toHaveJasmineLazyMessage(): void;
+      toBeJasmineEven(): void;
+      toContainJasmine(needle: unknown): void;
+      toEqualJasmineLoosely(expected: unknown): void;
+      toBeJasmineVitestShaped(): void;
+    }
+
+    function assert(value: unknown, negated = false): CustomAssertions {
+      const assertion = expect(value);
+
+      return (negated ? assertion.not : assertion) as unknown as CustomAssertions;
+    }
+
+    it('runs compare and reports its string message', () => {
+      assert('foo').toBeJasmineFoo();
+
+      expect(() => assert('bar').toBeJasmineFoo()).toThrow('expected bar to be foo');
+    });
+
+    it('reads a message function, and builds jasmine’s default message when there is none', () => {
+      expect(() => assert(1).toHaveJasmineLazyMessage()).toThrow('lazy message');
+      assert({ id: 1 }).toEqualJasmineWithDefault({ id: 1 });
+
+      expect(() => assert('bar').toEqualJasmineWithDefault('foo')).toThrow('Expected "bar" to equal jasmine with default "foo".');
+      expect(() => assert('foo', true).toEqualJasmineWithDefault('foo')).toThrow('Expected "foo" not to equal jasmine with default "foo".');
+    });
+
+    it('negates compare under .not when there is no negativeCompare', () => {
+      assert('bar', true).toBeJasmineFoo();
+
+      expect(() => assert('foo', true).toBeJasmineFoo()).toThrow('expected foo to be foo');
+    });
+
+    it('runs negativeCompare under .not when the matcher has one', () => {
+      assert(3, true).toBeJasmineEven();
+
+      expect(() => assert(4, true).toBeJasmineEven()).toThrow('even, from negativeCompare');
+      expect(() => assert(3).toBeJasmineEven()).toThrow('odd');
+    });
+
+    it('hands the factory a matchersUtil whose contains reads arrays, sets and strings', () => {
+      assert([{ id: 1 }]).toContainJasmine({ id: 1 });
+      assert(new Set([2])).toContainJasmine(2);
+      assert('haystack').toContainJasmine('st');
+      assert(42, true).toContainJasmine(4);
+      assert('haystack', true).toContainJasmine(1);
+    });
+
+    it('lets matchersUtil.equals take the custom testers a matcher passes it', () => {
+      assert(1).toEqualJasmineLoosely(2);
+    });
+
+    it('hands back what a factory returns once it stops building a jasmine matcher', () => {
+      let calls = 0;
+
+      jasmine.addMatchers({
+        // A factory on its first call and a Vitest matcher afterwards: no real matcher does this.
+        toBeJasmineFickle: ((): unknown => {
+          calls += 1;
+
+          return calls === 1 ? { compare: () => ({ pass: false }) } : { pass: true, message: (): string => '' };
+        }) as JasmineCustomMatcherFactory,
+      });
+
+      (expect(1) as unknown as { toBeJasmineFickle(): void }).toBeJasmineFickle();
+    });
+
+    it('passes a matcher already in Vitest’s shape through unchanged', () => {
+      assert(1).toBeJasmineVitestShaped();
+      assert(1).toBeJasmineVitestShaped();
+
+      expect(() => assert(2).toBeJasmineVitestShaped()).toThrow('vitest-shaped');
+    });
+  });
+
+  // The second test runs with the warning latch the first one tripped.
+  describe('DEFAULT_TIMEOUT_INTERVAL', { shuffle: false }, () => {
     it('reads jasmine’s default and warns once when written, naming both Vitest settings', () => {
       expect(jasmine.DEFAULT_TIMEOUT_INTERVAL).toBe(5000);
 

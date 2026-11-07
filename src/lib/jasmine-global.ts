@@ -24,6 +24,7 @@ import { expect, vi } from 'vitest';
 
 import * as DOCS_LINKS from './docs-links';
 import type { FakeTimersConfig } from './fake-timers';
+import { type JasmineCustomMatcherFactories, toVitestMatchers } from './jasmine-custom-matchers';
 import { createFunctionSpy, createSpyObj } from './jasmine-factories';
 import { registerJasmineMatchers } from './jasmine-matchers';
 import { withDocs } from './message-link';
@@ -221,6 +222,13 @@ function createSpy(name = 'unknown', originalFn?: Func): ReturnType<typeof creat
   return spy;
 }
 
+/** jasmine's matcher factories; a matcher already in `expect.extend`'s shape is passed through. */
+function addMatchers(matchers: JasmineCustomMatcherFactories): void;
+function addMatchers(matchers: Parameters<typeof expect.extend>[0]): void;
+function addMatchers(matchers: JasmineCustomMatcherFactories | Parameters<typeof expect.extend>[0]): void {
+  expect.extend(toVitestMatchers(matchers));
+}
+
 /**
  * The `jasmine` namespace, as an importable object.
  *
@@ -258,9 +266,7 @@ export const jasmine = {
   clock: (): JasmineClock => clockHandle,
 
   // Matcher registration.
-  addMatchers: (matchers: Parameters<typeof expect.extend>[0]): void => {
-    expect.extend(matchers);
-  },
+  addMatchers,
   addCustomEqualityTester: (tester: Parameters<typeof expect.addEqualityTesters>[0][number]): void => {
     expect.addEqualityTesters([tester]);
   },
