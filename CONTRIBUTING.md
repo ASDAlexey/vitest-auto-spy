@@ -136,9 +136,10 @@ Two methodology rules behind every number in `bench/vs-libraries.bench.ts` and
   a library difference. Both benchmarks interleave.
 
 `.github/workflows/bench.yml` runs every arm in one job on one machine — splitting arms across
-matrix jobs would compare two runners and report it as a library difference. `.github/dependabot.yml`
-watches `bench/package.json`, so a competitor's release opens a PR that re-runs the head-to-head
-against the new version; keep the two files in step if either changes.
+matrix jobs would compare two runners and report it as a library difference. The maintainer updates
+competitors in `bench/package.json` and its lockfile before a release; a pull request with those
+changes re-runs the head-to-head against the new versions. Automatic Dependabot version-update PRs
+are disabled in `.github/dependabot.yml`.
 
 ### The docs-site loop
 
