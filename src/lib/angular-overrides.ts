@@ -33,7 +33,7 @@
  * inside `@angular/core` with a line naming the thing that is missing.
  */
 import { type Type, isStandalone } from '@angular/core';
-import { TestBed, getTestBed } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
 
 import { createSpyFromClass } from './create-spy-from-class';
 import * as DOCS_LINKS from './docs-links';
@@ -41,6 +41,7 @@ import { withDocs } from './message-link';
 import { sourceClassName } from './message-text';
 import { isAutoSpyLike } from './spy-mark';
 import { instrumentTestBed, onComponentCreated, readTestBedMethod } from './testbed-diagnostics';
+import { beforeTestBedReset } from './testbed-reset';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
 
 /** The `{ useValue }` shape `TestBed.overrideProvider` expects, carrying an auto-spy. */
@@ -149,7 +150,7 @@ interface PendingVerification {
 
 const pendingVerifications: PendingVerification[] = [];
 let removeCreateInspector: (() => void) | undefined;
-let resetWrapperInstalled = false;
+const resetOwner = {};
 
 /**
  * Drop everything a previous test queued and never consumed, and take the wrapper back off.
@@ -169,39 +170,11 @@ function dropStaleQueueState(): void {
 /**
  * Clear the queue when the framework resets the module — the one moment between tests we can see.
  *
- * Wrapped on the `TestBed` *instance*, not the exported static: the framework's cleanup hook calls
- * the instance's `resetTestingModule()` directly, so a static wrapper never sees it. `getTestBed()`
- * is the public way to that instance and returns exactly the `INSTANCE` the statics delegate to.
+ * Through the shared wrapper on the `TestBed` instance, which the framework's cleanup hook resets
+ * through; it re-checks the chain on every call, so a deleted or replaced wrapper is put back.
  */
 function wrapResetTestingModule(): void {
-  if (resetWrapperInstalled) {
-    return;
-  }
-
-  resetWrapperInstalled = installResetWrapper(getTestBed());
-}
-
-/**
- * The host-agnostic half of {@link wrapResetTestingModule}, exported so a spec can hand it a host
- * that has no `resetTestingModule` — the shape a future Angular could hand production. Returns
- * whether the wrapper went on; a host without the method is left exactly as it was.
- */
-export function installResetWrapper(instance: unknown): boolean {
-  const original = readProperty(instance, 'resetTestingModule');
-
-  if (typeof original !== 'function') {
-    return false;
-  }
-
-  const wrapper = function flushing(this: unknown, ...args: unknown[]): unknown {
-    dropStaleQueueState();
-
-    return original.apply(this, args);
-  };
-
-  Reflect.set(Object(instance), 'resetTestingModule', wrapper);
-
-  return true;
+  beforeTestBedReset(resetOwner, dropStaleQueueState);
 }
 
 /** The injector the component itself resolves through: the fixture's own, or the one of the element hosting it. */

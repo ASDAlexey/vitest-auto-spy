@@ -12,7 +12,6 @@ import {
   assertComponentDefIntact,
   assertNgModuleScopes,
   componentInjector,
-  installResetWrapper,
   overrideAutoSpy,
   overrideComponentProvider,
 } from './angular-overrides';
@@ -183,6 +182,21 @@ describe('overrideComponentProvider', () => {
     expect(menu.build).toBeDefined();
   });
 
+  it('still drops the queue on reset after a spec deleted the reset wrapper', () => {
+    // A remembered "already wrapped" kept the wrapper off once a spec removed it, and the stale entry
+    // then failed the next fixture with a false "the override did not apply".
+    overrideComponentProvider(MenuHostComponent, NavigationBuilderService);
+    Reflect.deleteProperty(getTestBed(), 'resetTestingModule');
+    overrideComponentProvider(MenuHostComponent, NavigationBuilderService);
+    TestBed.resetTestingModule();
+
+    const fixture = TestBed.createComponent(MenuHostComponent);
+
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toBe('real');
+  });
+
   it('renders a component no override was queued for, with the platform provider back', () => {
     const fixture = TestBed.createComponent(MenuHostComponent);
 
@@ -347,26 +361,5 @@ describe('componentInjector', () => {
     };
 
     expect(componentInjector(fixture, Hosted)).toBe(injector);
-  });
-});
-
-describe('installResetWrapper', () => {
-  it('wraps the host it is given and still calls through to its own reset', () => {
-    const original = vi.fn();
-    const host = { resetTestingModule: original };
-
-    expect(installResetWrapper(host)).toBe(true);
-    expect(host.resetTestingModule).not.toBe(original);
-
-    host.resetTestingModule();
-
-    expect(original).toHaveBeenCalledTimes(1);
-  });
-
-  it('leaves a host without the method untouched rather than throwing', () => {
-    const host = {};
-
-    expect(installResetWrapper(host)).toBe(false);
-    expect(host).toEqual({});
   });
 });
