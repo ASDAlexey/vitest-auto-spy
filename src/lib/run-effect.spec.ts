@@ -199,6 +199,50 @@ describe('runEffect', () => {
     expect(runs).toBe(1);
   });
 
+  describe('on the effect node Angular built before 20.3', () => {
+    /** Prototype slots as Angular 20.0 declares them: arrays instead of the `consumers` list. */
+    const LEGACY_REACTIVE_NODE = { producerNode: undefined, liveConsumerNode: undefined };
+
+    function legacyEffect(log: string[], own: Record<string, unknown> = {}): EffectRef {
+      const node = Object.assign(Object.create(LEGACY_REACTIVE_NODE), {
+        cleanupFns: undefined as (() => void)[] | undefined,
+        fn(onCleanup: (cleanupFn: () => void) => void): void {
+          log.push('run');
+          onCleanup(() => log.push('clean'));
+        },
+        maybeCleanup(this: { cleanupFns?: (() => void)[] }): void {
+          this.cleanupFns?.splice(0).forEach((cleanupFn) => cleanupFn());
+        },
+        scheduler: { queues: new Map([[null, new Set()]]) },
+        ...own,
+      });
+
+      return { [ɵSIGNAL]: node } as unknown as EffectRef;
+    }
+
+    it('hands the body its onCleanup and runs the previous cleanup first', () => {
+      const log: string[] = [];
+      const effectRef = legacyEffect(log, { producerNode: [{}] });
+
+      runEffect(effectRef);
+      runEffect(effectRef);
+
+      expect(log).toEqual(['run', 'clean', 'run']);
+    });
+
+    it('refuses a node the destroy left with an empty producer list of its own', () => {
+      expect(() => runEffect(legacyEffect([], { producerNode: [] }))).toThrow(/this effect has been destroyed/);
+    });
+
+    it('runs a detached node that never had a producer list of its own', () => {
+      const log: string[] = [];
+
+      runEffect(legacyEffect(log));
+
+      expect(log).toEqual(['run']);
+    });
+  });
+
   it('rejects a value that is not an EffectRef', () => {
     expect(() => runEffect(createMock<EffectRef>())).toThrow(/not an EffectRef returned by effect\(\)/);
   });

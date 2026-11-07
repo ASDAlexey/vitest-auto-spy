@@ -38,10 +38,17 @@ import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { readSignalSymbol } from './signal-symbol';
 
-/** The two members of Angular's reactive node this helper needs, in the order its own runner calls them. */
+/** The node's own runner pair, in the order Angular calls them; `fn` closes over `onCleanup` itself. */
 interface RunnableEffectNode {
   cleanup: () => void;
   fn: () => void;
+}
+
+/** The same pair before Angular 20.3, where the runner hands `fn` the `onCleanup` registrar. */
+interface LegacyEffectNode {
+  cleanupFns?: (() => void)[];
+  fn: (onCleanup: (cleanupFn: () => void) => void) => void;
+  maybeCleanup: () => void;
 }
 
 /**
@@ -68,6 +75,29 @@ function isRunnable(node: object): node is RunnableEffectNode {
   return 'fn' in node && typeof node.fn === 'function' && 'cleanup' in node && typeof node.cleanup === 'function';
 }
 
+function isLegacyRunnable(node: object): node is LegacyEffectNode {
+  return 'fn' in node && typeof node.fn === 'function' && 'maybeCleanup' in node && typeof node.maybeCleanup === 'function';
+}
+
+/** Cleanup first, then the body — what Angular's own runner does for the shape the node has. */
+function bodyRunner(node: object): (() => void) | undefined {
+  if (isRunnable(node)) {
+    return (): void => {
+      node.cleanup();
+      node.fn();
+    };
+  }
+
+  if (isLegacyRunnable(node)) {
+    return (): void => {
+      node.maybeCleanup();
+      node.fn((cleanupFn) => (node.cleanupFns ??= []).push(cleanupFn));
+    };
+  }
+
+  return undefined;
+}
+
 /**
  * Whether the node is gone from the collection Angular registered it in — a root effect's scheduler
  * queue, a view effect's set on the `LView`. A shape this does not recognise counts as still there.
@@ -88,16 +118,31 @@ function isDetached(node: object): boolean {
 }
 
 /**
+ * The trace `consumerDestroy()` leaves on the node itself. From 20.1.6 it writes the node's own
+ * `consumers` slot, which only a destroy does to an effect; before that, Angular kept producers in
+ * arrays, and a destroy is what leaves the node's own `producerNode` empty.
+ */
+function wasConsumerDestroyed(node: object): boolean {
+  if ('consumers' in node) {
+    return Object.hasOwn(node, 'consumers');
+  }
+
+  const producers: unknown = Object.hasOwn(node, 'producerNode') ? Reflect.get(node, 'producerNode') : undefined;
+
+  return Array.isArray(producers) && producers.length === 0;
+}
+
+/**
  * Whether the effect has already been torn down.
  *
  * `destroy()` leaves `fn` and `cleanup` in place, so this reads the two traces it does leave and
  * insists on both. Either alone would misfire: a destroyed view drops the whole effect set, which
- * is indistinguishable from a version that keeps it elsewhere, and `consumerDestroy()` writes the
- * node's own `consumers` slot — which only a destroy does today, but which a node built by spread
- * rather than `Object.create` would carry from birth. Together they are wrong only if both change.
+ * is indistinguishable from a version that keeps it elsewhere, and the slot `consumerDestroy()`
+ * writes is one a node built by spread rather than `Object.create` would carry from birth.
+ * Together they are wrong only if both change.
  */
 function isDestroyed(node: object): boolean {
-  return isDetached(node) && Object.hasOwn(node, 'consumers');
+  return isDetached(node) && wasConsumerDestroyed(node);
 }
 
 const NOT_AN_EFFECT_REF = withDocs(
@@ -145,7 +190,9 @@ export function runEffect(effectRef: EffectRef): void {
     throw new Error(NOT_AN_EFFECT_REF);
   }
 
-  if (!isRunnable(node)) {
+  const run = bodyRunner(node);
+
+  if (!run) {
     throw new Error(UNKNOWN_EFFECT_SHAPE);
   }
 
@@ -153,8 +200,5 @@ export function runEffect(effectRef: EffectRef): void {
     throw new Error(DESTROYED_EFFECT);
   }
 
-  untracked(() => {
-    node.cleanup();
-    node.fn();
-  });
+  untracked(run);
 }
