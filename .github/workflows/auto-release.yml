@@ -130,11 +130,10 @@ jobs:
 
           echo "CI passed for ${SHA}."
 
-      # No `registry-url` on purpose — see the header. It would write a placeholder
-      # `_authToken` into ~/.npmrc and npm would skip the OIDC exchange. The default
-      # registry is registry.npmjs.org anyway, and package.json carries
-      # `publishConfig.access: public`.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      # No `registry-url` is needed: npm defaults to registry.npmjs.org, and package.json
+      # carries `publishConfig.access: public`. setup-node v7 supports OIDC without the
+      # dummy NODE_AUTH_TOKEN fallback that interfered with it in v4-v6.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24 # >= 22.14, the floor for trusted publishing
           cache: npm
@@ -239,7 +238,7 @@ jobs:
             > "${RUNNER_TEMP}/release/release.json"
           ls -l "${RUNNER_TEMP}/release" "${RUNNER_TEMP}/release/patches"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.bump.outputs.bump != 'none'
         with:
           name: release
@@ -265,15 +264,15 @@ jobs:
           ref: ${{ needs.build.outputs.sha }}
           fetch-depth: 0
 
-      # No `registry-url`, for the reason in the header.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      # npm already defaults to registry.npmjs.org; OIDC needs no setup-node auth config.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24 # >= 22.14, the floor for trusted publishing
 
       - name: Pin npm
         run: npm i -g npm@11.19.1
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release
           path: ${{ runner.temp }}/release
