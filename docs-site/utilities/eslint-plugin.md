@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Fifty-seven lint rules for spec files. They catch tests that pass without checking anything, doubles that drift from the real class, and setup that leaks between tests. Flat config, part of the package.
+description: Fifty-eight lint rules for spec files. They catch tests that pass without checking anything, doubles that drift from the real class, and setup that leaks between tests. Flat config, part of the package.
 ---
 
 # ESLint plugin
@@ -90,7 +90,7 @@ need different severities.
 
 ### 3. Type information: only four rules need it {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Fifty-three rules read only the file itself. They work without `parserOptions.project`, add no
+Fifty-four rules read only the file itself. They work without `parserOptions.project`, add no
 noticeable lint time, and work even when your specs are not in any `tsconfig`.
 
 Four rules read TypeScript types:
@@ -550,7 +550,7 @@ registered.
 | [`no-real-component-provider`](/utilities/eslint-rules#no-real-component-provider)         | a component-level provider read from the fixture while nothing replaced it → `overrideComponentProvider(Component, X)`                   | `error` | —          |             —             |
 | [`prefer-render-shallow`](/utilities/eslint-rules#prefer-render-shallow)                   | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                                   | `warn`  | suggestion |           green           |
 | [`prefer-set-inputs`](/utilities/eslint-rules#prefer-set-inputs)                           | `fixture.componentRef.setInput('title', v)` → `await setInputs(fixture, { title: v })`                                                   | `warn`  | suggestion |           green           |
-| [`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value)       | `expect(component.total()).toBe(3)` → `expect(component.total).toHaveSignalValue(3)`; **needs types**                                    | `warn`  | `--fix`    |            red            |
+| [`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value)       | `expect(component.total()).toBe(3)` → `expect(component.total).toHaveSignalValue(3)`; **needs types**                                    | `warn`  | suggestion |            red            |
 | [`no-overridden-provider`](/utilities/eslint-rules#no-overridden-provider)                 | two providers for one token, or one that `TestBed.overrideProvider` replaces: the earlier one never runs                                 | `error` | suggestion |           green           |
 | [`no-inject-before-override`](/utilities/eslint-rules#no-inject-before-override)           | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                                | `error` | —          |            red            |
 | [`no-dead-schemas`](/utilities/eslint-rules#no-dead-schemas)                               | `schemas` on a testing module that declares nothing: the schema applies to nothing                                                       | `error` | —          | green _(by construction)_ |
@@ -612,27 +612,28 @@ still contains Jasmine code. **They never fire in a suite that never used Jasmin
 
 ## Which rules fix, and why so few
 
-Nine of the 58 rules rewrite code under `--fix`. Nineteen offer the rewrite as an editor suggestion
+Eight of the 58 rules rewrite code under `--fix`. Twenty-one offer the rewrite as an editor suggestion
 that you accept by hand: four of them also have `--fix` for some shapes (in the table below), and
-fifteen offer only a suggestion. The split depends on what a wrong guess costs, not on how hard the rewrite
+seventeen offer only a suggestion. The split depends on what a wrong guess costs, not on how hard the rewrite
 is.
 
-| Rule                          | `--fix`                                                                                      | Suggestion      |
-| ----------------------------- | -------------------------------------------------------------------------------------------- | --------------- |
-| `prefer-as-spy`               | always                                                                                       | —               |
-| `no-mocked-for-spy`           | a parameter, return type or cast; a variable whose value comes from this library's factories | other variables |
-| `prefer-provide-auto-spy`     | yes                                                                                          | —               |
-| `prefer-to-have-signal-value` | yes                                                                                          | —               |
-| `no-hand-assigned-global`     | a value written into an imported object                                                      | —               |
-| `no-redundant-mock-reset`     | a reset the runner provably already did                                                      | the other cases |
-| `prefer-spy-on-own-method`    | the exact shapes                                                                             | the rest        |
-| `prefer-native-spy-api`       | when the spy provably comes from this library                                                | everywhere else |
+| Rule                       | `--fix`                                                                                      | Suggestion      |
+| -------------------------- | -------------------------------------------------------------------------------------------- | --------------- |
+| `prefer-as-spy`            | always                                                                                       | —               |
+| `no-mocked-for-spy`        | a parameter, return type or cast; a variable whose value comes from this library's factories | other variables |
+| `prefer-provide-auto-spy`  | yes                                                                                          | —               |
+| `no-hand-assigned-global`  | a value written into an imported object                                                      | —               |
+| `no-redundant-mock-reset`  | a reset the runner provably already did                                                      | the other cases |
+| `prefer-spy-on-own-method` | the exact shapes                                                                             | the rest        |
+| `prefer-native-spy-api`    | when the spy provably comes from this library                                                | everywhere else |
+| `no-redundant-as-instance` | a wrapper with one plain argument and no comment inside                                      | —               |
 
-Fifteen rules offer only a suggestion: `no-expect-in-subscribe`, `prefer-inject-spy`,
+Seventeen rules offer only a suggestion: `no-expect-in-subscribe`, `prefer-inject-spy`,
 `no-object-define-property`, `no-overridden-provider`, `no-reflect-member-access`,
 `no-import-time-spread`, `prefer-render-shallow`, `prefer-settle-dynamic-import`,
 `prefer-create-mock`, `no-mock-cast`, `no-passthrough-console-spy`, `no-compile-components`,
-`no-sync-testbed-await`, `no-redundant-smoke-test` and `prefer-set-inputs`.
+`no-sync-testbed-await`, `no-redundant-smoke-test`, `prefer-set-inputs`, `no-real-wait-in-test` and
+`prefer-to-have-signal-value`.
 
 **A fix runs unattended, so it must be safe to be wrong.** A rule gets `--fix` when a wrong rewrite
 fails loudly, or cannot happen:
@@ -651,6 +652,8 @@ a time:
 - `no-expect-in-subscribe` rewrites a whole test.
 - `no-overridden-provider` deletes a provider line; `no-import-time-spread` turns a constant into a
   function, and every use needs a `()`.
+- `toHaveSignalValue` exists only after a setup file calls `registerSignalMatchers()`, which the lint
+  never sees.
 
 **No fix at all** where the repair spans the file, not one node. `createSpyFromClass` needs a class
 the object literal never names. `provideAutoSpy` drops the return values the `useValue` set up.

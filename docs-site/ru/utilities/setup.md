@@ -117,7 +117,7 @@ setupAutoSpy({ restoreMocks: true, duplicateCopies: 'warn' });
 Чтобы проверить, что патчей не осталось, используйте `countMockedProps()`:
 
 ```ts
-import { countMockedProps } from 'vitest-auto-spy/setup';
+import { countMockedProps } from 'vitest-auto-spy';
 
 afterEach(() => expect(countMockedProps()).toBe(0));
 ```
@@ -1359,6 +1359,9 @@ setupAutoSpy({ strayListeners: true, onStrayListeners: ({ removed }) => expect(r
 **Частая ошибка:** под jsdom слушатель с `{ once: true }`, который уже сработал, считается, пока его
 не снимут. Снимать его безопасно. happy-dom снимает его сам.
 
+Слушатель, добавленный с `{ signal }`, уходит из счёта, когда сигнал отменён, — так же, как после
+`removeEventListener`. Слушатель с уже отменённым сигналом не считается вовсе.
+
 Если включён и `strayTimers`, оба отчёта идут после отмены таймеров и снятия слушателей. Оба
 выполняются, даже если первый упал. Два падения приходят одним `AggregateError`, и Vitest показывает
 их как две ошибки.
@@ -1674,10 +1677,16 @@ export const createActionContext = () => ({ actions: { navigateToSection: vi.fn(
 
 ## Порядок хуков отличается от Jest {#hook-order-differs-from-jest}
 
-Vitest выполняет хуки `afterEach` от самого внутреннего и последнего зарегистрированного. Jest
-выполнял их в порядке объявления. Поэтому в наборе тестов, перенесённом из Jest, уборка setup-файла
-идёт раньше собственного `afterEach` спеки. Чтобы вернуть порядок Jest, задайте
-`sequence: { hooks: 'list' }` в конфиге Vitest.
+Vitest выполняет хуки `afterEach` от самого внутреннего и последнего зарегистрированного
+(`sequence.hooks: 'stack'`, по умолчанию). Jest выполнял их в порядке объявления. Поэтому в Vitest
+уборка setup-файла идёт последней, после собственного `afterEach` спеки: хук спеки ещё видит патчи и
+заглушки, которые поставил `setupAutoSpy()`.
+
+**Частая ошибка:** задать `sequence: { hooks: 'list' }`, чтобы вернуть порядок Jest. При `'list'`
+`afterEach` setup-файла идёт первым, и `setupAutoSpy()` возвращает все патчи `mock*Prop`, консоль и
+заглушки раньше, чем их прочитает `afterEach` спеки. `'parallel'` запускает их одновременно.
+`setupAutoSpy()` один раз на воркер предупреждает, когда видит любое из этих значений; уберите
+`sequence.hooks` из конфига.
 
 ## Хуки принадлежат тому файлу, в котором выполнился этот вызов {#the-hooks-belong-to-the-file-this-call-ran-in}
 

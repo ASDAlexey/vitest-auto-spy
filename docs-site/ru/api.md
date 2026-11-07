@@ -141,6 +141,11 @@ Vitest порядок не важен.
 асимметричные матчеры вроде `expect.any(Number)` на любой глубине; см.
 [что считается тем же аргументом](/ru/core/control-helpers#what-counts-as-the-same-argument).
 
+`createDeferred<T>()`, экспорт из корня, возвращает `{ promise, resolve, reject }`: промис, который
+висит, пока тест сам его не завершит, — чтобы проверить промежуточное состояние
+(`users.load.mockReturnValue(deferred.promise)`). См.
+[Управление незавершённым Promise](/ru/core/control-helpers#keeping-a-promise-pending-—-createdeferred).
+
 ### Свойства {#properties}
 
 | Экспорт                                            | Что делает                                                                   | Где подробно                                                                                                   |

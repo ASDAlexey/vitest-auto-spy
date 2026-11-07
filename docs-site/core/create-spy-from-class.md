@@ -253,6 +253,18 @@ These are still stored exactly as you pass them:
 On `createAutoMock` and `provideAutoSpyForToken` a function in `overrides` is stored as written and is
 not a spy, because a type cannot say which members are methods.
 
+`createSpyFromInstance` does the same for a method of the instance: the function becomes the
+method's spy, and `restoreSpiedInstance` puts the original back.
+
+```ts
+import { createSpyFromInstance } from 'vitest-auto-spy';
+
+const service = createSpyFromInstance(new PriceService(), { overrides: { total: (items) => items.length } });
+
+service.total([1, 2]); // 2
+expect(service.total).toHaveBeenCalledWith([1, 2]);
+```
+
 ## `returnsUndefined` — a list of `void` commands {#returns-undefined}
 
 The listed methods answer `undefined` and count as configured under `strict`. It is the list form of

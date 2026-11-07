@@ -8,6 +8,33 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## Entry layout and tarball trim, 2026-11-07
+
+- **`/nestjs` and `/console` are solo, `/jasmine` is hosted on the root.** All three load in every
+  spec file of the suites that use them, and the chunked pass gave them 16, 14 and 18 modules.
+  Median of 25 fresh processes, peers loaded before the timer: `/nestjs` 7.38 → 3.27 ms,
+  root + `/nestjs` 9.11 → 5.52, `/node` + `/nestjs` 6.72 → 3.94, `/console` 5.24 → 2.68,
+  `/setup` + root + `/console` 10.16 → 7.37, `/jasmine` 5.78 → 4.48, `/setup` + `/jasmine`
+  7.54 → 6.04, root + `/jasmine` 7.51 → 4.81; root alone unchanged (3.93 / 4.01). `/nestjs` and
+  `/console` cannot be hosted: they must not load Vitest, and the root does. Cost: `nestjs.js`
+  4.5 → 142 kB, `console.js` 6.6 → 84 kB, `jasmine.js` 15 → 22 kB. `smoke:dist` covers
+  root + `/nestjs`, `/node` + `/nestjs` and `/setup` + `/jasmine`.
+- **The CLI and `eslint-plugin.cjs` are minified with `keepNames`; library entries are not.** Neither
+  reaches a consumer bundle, so the `/* @__PURE__ */` argument does not apply. CLI 513 → 324 kB
+  (gzip 152 → 124 kB), plugin 324 → 195 kB (gzip 79 → 62 kB). Start-up does not move: `--version`
+  32.7 vs 32.8 ms, `require()` of the plugin 26.8 vs 26.7 ms, inside run-to-run noise. The
+  min+gzip column of `size-entries` reads +7.4 kB for the plugin, because `keepNames` adds a
+  `__name()` call per function that a consumer-side minify would otherwise drop.
+- **The tarball carries the last ten releases of `CHANGELOG.md` and the README up to its npm cut.**
+  `pack-changelog.mjs` already swapped the changelog in `prepack`; it now does both files. Changelog
+  571 → 33 kB, README 341 → 38 kB; the npm page is unchanged, since npm rendered only that part.
+  In-page links whose heading falls below the cut are pointed at GitHub in the packed copy.
+- [~] **Naming the four effectful chunks so `sideEffects` can list them** instead of `**/chunk-*.js`
+  — not done. Chunk names are content hashes, and pulling the effects into fixed files means
+  reshaping `src/lib`; the measured gain is one consumer case (`/bun`, −13.5 % min+gzip).
+- [~] **`node.cjs` as a thin `require(esm)` wrapper** — not done here; it needs the `engines` floor
+  raised to a Node with unflagged `require(esm)`, which is a release decision.
+
 ## A helper under a replaced dispatch is reported, not made to win, 2026-11-03
 
 Found while migrating a large Angular suite: `mockImplementation(() => of(x))` in `beforeEach`, then

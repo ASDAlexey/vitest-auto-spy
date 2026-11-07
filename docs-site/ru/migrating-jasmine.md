@@ -302,38 +302,38 @@ import { jasmine } from 'vitest-auto-spy/jasmine';
 В `globalThis` ничего не добавляется: вы явно импортируете `jasmine` в каждом файле, а кодмод в конце
 удаляет эту строку.
 
-| jasmine                                                           | под Vitest                                             | примечания                                                                                        |
-| ----------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `spyOn(o, 'm')`                                                   | `vi.spyOn(o, 'm').mockImplementation(() => undefined)` | ⚠️ [умолчание вывернуто](#spyon-means-the-opposite-thing-on-the-two-sides)                        |
-| `spyOnProperty(o, 'p', 'get')`                                    | то же самое, с видом аксессора                         | то же вывернутое умолчание                                                                        |
-| `jasmine.createSpy('load')`                                       | `vi.fn()`                                              | имя уходит; Vitest сообщает имя переменной                                                        |
-| `jasmine.createSpy('load', original)`                             | `vi.fn(original)`                                      | исходная функция сохраняется                                                                      |
-| `jasmine.createSpyObj(…)`                                         | `createSpyObj` из `vitest-auto-spy/jasmine`            | все формы оригинала; где есть класс или тип, лучше брать их                                       |
-| `jasmine.any` / `anything` / `objectContaining`                   | `expect.any` / `expect.anything` / …                   | называются одинаково на обеих сторонах                                                            |
-| `jasmine.arrayContaining` / `stringMatching` / `stringContaining` | `expect.arrayContaining` / …                           | называются одинаково на обеих сторонах                                                            |
-| `jasmine.truthy` / `falsy` / `empty` / `notEmpty`                 | **двойника `expect.*` нет**                            | `registerJasmineMatchers()`, ниже                                                                 |
-| `jasmine.is` / `mapContaining` / `setContaining`                  | **двойника `expect.*` нет**                            | `registerJasmineMatchers()`, ниже                                                                 |
-| `jasmine.arrayWithExactContents`                                  | **двойника `expect.*` нет**                            | `registerJasmineMatchers()`, ниже                                                                 |
-| `jasmine.clock().install()` / `.uninstall()`                      | `vi.useFakeTimers()` / `vi.useRealTimers()`            | ⚠️ на мосту `install()` оставляет `Date` настоящим, как jasmine; см. ниже                         |
-| `jasmine.clock().tick(n)`                                         | `vi.advanceTimersByTime(n)`                            | `tick` и `advanceTimersByTime` не ждут промисы; [`advanceTimers`](/ru/utilities/fake-timers) ждёт |
-| `jasmine.clock().mockDate(d)`                                     | `vi.setSystemTime(d)`                                  | именно это подменяет `Date`; см. ниже                                                             |
-| `jasmine.clock().withMock(fn)`                                    | есть в пространстве имён; **двойника в `vi` нет**      | кодмод сообщает о нём и оставляет как есть                                                        |
-| `jasmine.addMatchers(m)`                                          | `expect.extend(m)`                                     |                                                                                                   |
-| `jasmine.addCustomEqualityTester(t)`                              | `expect.addEqualityTesters([t])`                       | один тестер, завёрнутый в массив, который принимает Vitest                                        |
-| `jasmine.DEFAULT_TIMEOUT_INTERVAL = n`                            | **настройка конфига, а не оператор**                   | `vi.setConfig({ testTimeout: n, hookTimeout: n })`; [оба](#the-timeout-is-two-numbers-here)       |
-| `jasmine.getEnv()`                                                | **нет**                                                | порядок и bail — это `vitest.config.ts`, а не окружение во время выполнения                       |
-| `jasmine.addSpyStrategy` / `setDefaultSpyStrategy`                | **нет**                                                | опишите поведение как `mockImplementation` там, где создаётся спай                                |
-| `jasmine.Spy` (тип)                                               | `Mock` из `vitest`                                     | одна мок-функция                                                                                  |
-| `jasmine.SpyObj<T>` (тип)                                         | `Spy<T>` из этого пакета                               | объект целиком; одно слово разницы, две разные вещи                                               |
-| `fdescribe` / `fit`                                               | `describe.only` / `it.only`                            |                                                                                                   |
-| `xdescribe` / `xit` / `xtest`                                     | `describe.skip` / `it.skip`                            | голое переименование падает как `TS2304: Cannot find name 'xit'`                                  |
-| `expect(x).toBeTrue()` / `.toBeFalse()`                           | `.toBe(true)` / `.toBe(false)`                         | ⚠️ **не** `toBeTruthy` / `toBeFalsy`, которые предлагает собственная ошибка Vitest                |
-| `expect(x).toHaveSize(n)`                                         | `.toHaveLength(n)`                                     |                                                                                                   |
-| `expect(spy).toHaveBeenCalledOnceWith(a)`                         | `.toHaveBeenCalledExactlyOnceWith(a)`                  | один матчер, а не `toHaveBeenCalledTimes(1)` плюс `toHaveBeenCalledWith(a)`                       |
-| `expect(el).toHaveClass(c)`                                       | **нет**                                                | вне browser mode; `expect(el.classList.contains(c)).toBe(true)`                                   |
-| `expect(x).withContext(msg).toBe(y)`                              | `expect(x, msg).toBe(y)`                               | ⚠️ [сообщение исчезает, ничего не уронив](#withcontext-does-not-throw-it-loses-the-message)       |
-| `fail(msg)`                                                       | `expect.fail(msg)`                                     | `vi.fail` не существует                                                                           |
-| `it('x', (done) => …)`                                            | `async` + `await`                                      | **не переписывается**: Vitest передаёт `TestContext`, а не `done`                                 |
+| jasmine                                                           | под Vitest                                             | примечания                                                                                                            |
+| ----------------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `spyOn(o, 'm')`                                                   | `vi.spyOn(o, 'm').mockImplementation(() => undefined)` | ⚠️ [умолчание вывернуто](#spyon-means-the-opposite-thing-on-the-two-sides)                                            |
+| `spyOnProperty(o, 'p', 'get')`                                    | то же самое, с видом аксессора                         | то же вывернутое умолчание                                                                                            |
+| `jasmine.createSpy('load')`                                       | `vi.fn()`                                              | имя уходит; Vitest сообщает имя переменной                                                                            |
+| `jasmine.createSpy('load', original)`                             | `vi.fn(original)`                                      | исходная функция сохраняется                                                                                          |
+| `jasmine.createSpyObj(…)`                                         | `createSpyObj` из `vitest-auto-spy/jasmine`            | все формы оригинала; где есть класс или тип, лучше брать их                                                           |
+| `jasmine.any` / `anything` / `objectContaining`                   | `expect.any` / `expect.anything` / …                   | называются одинаково на обеих сторонах                                                                                |
+| `jasmine.arrayContaining` / `stringMatching` / `stringContaining` | `expect.arrayContaining` / …                           | называются одинаково на обеих сторонах                                                                                |
+| `jasmine.truthy` / `falsy` / `empty` / `notEmpty`                 | **двойника `expect.*` нет**                            | `registerJasmineMatchers()`, ниже                                                                                     |
+| `jasmine.is` / `mapContaining` / `setContaining`                  | **двойника `expect.*` нет**                            | `registerJasmineMatchers()`, ниже                                                                                     |
+| `jasmine.arrayWithExactContents`                                  | **двойника `expect.*` нет**                            | `registerJasmineMatchers()`, ниже                                                                                     |
+| `jasmine.clock().install()` / `.uninstall()`                      | `vi.useFakeTimers()` / `vi.useRealTimers()`            | ⚠️ на мосту `install()` оставляет `Date` настоящим, как jasmine; см. ниже                                             |
+| `jasmine.clock().tick(n)`                                         | `vi.advanceTimersByTime(n)`                            | `tick` и `advanceTimersByTime` не ждут промисы; [`advanceTimers`](/ru/utilities/fake-timers) ждёт                     |
+| `jasmine.clock().mockDate(d)`                                     | `vi.setSystemTime(d)`                                  | именно это подменяет `Date`; см. ниже                                                                                 |
+| `jasmine.clock().withMock(fn)`                                    | есть в пространстве имён; **двойника в `vi` нет**      | кодмод сообщает о нём и оставляет как есть                                                                            |
+| `jasmine.addMatchers(m)`                                          | `expect.extend(m)`                                     | на мосту родная форма фабрик jasmine работает напрямую; [см. ниже](#addmatchers-takes-jasmines-factories-as-they-are) |
+| `jasmine.addCustomEqualityTester(t)`                              | `expect.addEqualityTesters([t])`                       | один тестер, завёрнутый в массив, который принимает Vitest                                                            |
+| `jasmine.DEFAULT_TIMEOUT_INTERVAL = n`                            | **настройка конфига, а не оператор**                   | `vi.setConfig({ testTimeout: n, hookTimeout: n })`; [оба](#the-timeout-is-two-numbers-here)                           |
+| `jasmine.getEnv()`                                                | **нет**                                                | порядок и bail — это `vitest.config.ts`, а не окружение во время выполнения                                           |
+| `jasmine.addSpyStrategy` / `setDefaultSpyStrategy`                | **нет**                                                | опишите поведение как `mockImplementation` там, где создаётся спай                                                    |
+| `jasmine.Spy` (тип)                                               | `Mock` из `vitest`                                     | одна мок-функция                                                                                                      |
+| `jasmine.SpyObj<T>` (тип)                                         | `Spy<T>` из этого пакета                               | объект целиком; одно слово разницы, две разные вещи                                                                   |
+| `fdescribe` / `fit`                                               | `describe.only` / `it.only`                            |                                                                                                                       |
+| `xdescribe` / `xit` / `xtest`                                     | `describe.skip` / `it.skip`                            | голое переименование падает как `TS2304: Cannot find name 'xit'`                                                      |
+| `expect(x).toBeTrue()` / `.toBeFalse()`                           | `.toBe(true)` / `.toBe(false)`                         | ⚠️ **не** `toBeTruthy` / `toBeFalsy`, которые предлагает собственная ошибка Vitest                                    |
+| `expect(x).toHaveSize(n)`                                         | `.toHaveLength(n)`                                     |                                                                                                                       |
+| `expect(spy).toHaveBeenCalledOnceWith(a)`                         | `.toHaveBeenCalledExactlyOnceWith(a)`                  | один матчер, а не `toHaveBeenCalledTimes(1)` плюс `toHaveBeenCalledWith(a)`                                           |
+| `expect(el).toHaveClass(c)`                                       | **нет**                                                | вне browser mode; `expect(el.classList.contains(c)).toBe(true)`                                                       |
+| `expect(x).withContext(msg).toBe(y)`                              | `expect(x, msg).toBe(y)`                               | ⚠️ [сообщение исчезает, ничего не уронив](#withcontext-does-not-throw-it-loses-the-message)                           |
+| `fail(msg)`                                                       | `expect.fail(msg)`                                     | `vi.fail` не существует                                                                                               |
+| `it('x', (done) => …)`                                            | `async` + `await`                                      | **не переписывается**: Vitest передаёт `TestContext`, а не `done`                                                     |
 
 Колбэки `done` кодмод не трогает намеренно. Чтобы превратить такой тест в `async`, кто-то должен
 решить, чего он ждёт. Догадка здесь даёт тест, который проходит, ничего не дождавшись. Такие тесты
@@ -370,6 +370,56 @@ expect({ tags: [] }).toEqual({ tags: expect.jasmineEmpty() });
 expect(byUser).toEqual(jasmine.mapContaining(new Map([[{ id: 7 }, 'ada']])));
 expect(byName).toEqual(jasmine.mapContaining(new Map([[jasmine.any(String), 'ada']])));
 ```
+
+### `addMatchers` принимает фабрики jasmine как есть {#addmatchers-takes-jasmine-s-factories-as-they-are}
+
+Пользовательский матчер в jasmine — это фабрика: jasmine передаёт ей `matchersUtil`, а она
+возвращает `{ compare, negativeCompare? }`. `expect.extend` хочет саму сравнивающую функцию,
+поэтому ручная миграция переписывает каждую. На мосту переписывать необязательно:
+
+```ts
+import { jasmine } from 'vitest-auto-spy/jasmine';
+
+jasmine.addMatchers({
+  toBeWithin: (matchersUtil, customTesters) => ({
+    compare(actual: number, floor: number, ceiling: number) {
+      return {
+        pass: actual >= floor && actual <= ceiling,
+        message: () => `expected ${actual} to be within ${floor}..${ceiling}`,
+      };
+    },
+  }),
+});
+
+expect(7).toBeWithin(5, 10);
+expect(3).not.toBeWithin(5, 10);
+```
+
+Под `.not` мост запускает `negativeCompare`, если фабрика его написала, и переворачивает его
+`pass` в смысле Vitest; фабрика без него обходится `compare`, и меняется только вердикт. Матчер,
+уже написанный в форме Vitest — сама сравнивающая функция, не фабрика, — распознаётся и
+проходит насквозь, поэтому один файл может смешивать оба вида в отдельных вызовах `addMatchers`.
+Один вызов принимает один вид: объект, где рядом лежат фабрика и матчер Vitest, не компилируется —
+разбейте его на два вызова.
+
+Фабрика без `message` получает его, собранным по-jasmine, из имени матчера:
+`Expected 3 not to be within 5, 10.`. `matchersUtil.equals(a, b)` делегирует равенству самого
+раннера вместе с тестерами, зарегистрированными через `jasmine.addCustomEqualityTester`, а `pp` —
+это pretty-printer раннера.
+
+Типы экспортированы — для набора, который объявляет матчеры отдельным файлом:
+
+```ts
+import type { JasmineCustomMatcherFactories, JasmineMatchersUtil } from 'vitest-auto-spy/jasmine';
+
+const matchers: JasmineCustomMatcherFactories = {
+  toBeWithin: (util: JasmineMatchersUtil) => ({ compare: (actual, floor, ceiling) => ({ pass: true }) }),
+};
+```
+
+`JasmineCustomMatcherFactories`, `JasmineCustomMatcherFactory`, `JasmineCustomMatcher`,
+`JasmineCustomMatcherResult`, `JasmineMatchersUtil` и `JasmineCustomEqualityTester` повторяют
+собственные интерфейсы jasmine один в один.
 
 ### `withContext` не бросает — он теряет сообщение {#withcontext-does-not-throw-it-loses-the-message}
 

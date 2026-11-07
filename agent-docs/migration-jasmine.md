@@ -58,6 +58,13 @@ Four places where that surface now matches jasmine's rather than approximating i
   `Object.getOwnPropertyDescriptor(obj, name).get`. Reading still answers the seed, so nothing about
   a migrated spec changes; what is gained is moving the value mid-test and asserting that the code
   under test wrote it.
+- **`jasmine.addMatchers` takes jasmine's factories unchanged** — a factory
+  `(matchersUtil, customTesters) => ({ compare, negativeCompare? })` is translated into a Vitest
+  matcher; `.not` runs `negativeCompare` when there is one and flips its `pass`; a matcher already
+  in Vitest's shape passes through, so one file can mix both — in separate calls: one call's object
+  must be all factories or all Vitest matchers, or it does not compile. The shapes are exported as types
+  (`JasmineCustomMatcherFactories`, `JasmineMatchersUtil` and four more) for a suite that declares
+  its matchers in a separate file.
 
 ### The renames, once the suite is green
 

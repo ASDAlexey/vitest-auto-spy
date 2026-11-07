@@ -59,9 +59,10 @@ Arguments match by value, not by reference. Object key order does not matter:
 `calledWith({ id: 1, name: 'a' })` matches a call with `{ name: 'a', id: 1 }`. The same goes for the
 order of items in a `Map` or a `Set`. Details: [What counts as the same argument](#what-counts-as-the-same-argument).
 
-**Common mistake:** mixing `mockReturnValue` with a `calledWith` chain on one method. Whichever you
-write last wins completely. Written after a chain, `mockReturnValue` answers every call. Written
-before a chain, it makes the chain unused. The library reports this as a misconfiguration (a warning, or a
+**Common mistake:** mixing `mockReturnValue` with a `calledWith` chain on one method. The order does
+not matter: `mockReturnValue` replaces the chain's dispatch, so every call answers its value and the
+chain decides nothing. To drop the chain on purpose, call `resetAutoSpy(spy)` first; `mockReset()`
+leaves the chain in place. The library reports this as a misconfiguration (a warning, or a
 throw under [`setupAutoSpy({ misconfiguration: 'throw' })`](/utilities/setup) and the `strict`
 preset). For "this value for these arguments, that value for everything else", put the fallback in
 [`returns`](/core/create-spy-from-class#returns-—-the-value-where-the-spy-is-built) or use
@@ -219,17 +220,25 @@ again, replaces its answer.
 
 Anything a matcher does not decide is compared the way the runner's own `equals` compares it:
 
-| Argument      | Compared by                                                                     |
-| ------------- | ------------------------------------------------------------------------------- |
-| `Map`, `Set`  | their contents, in any order                                                    |
-| `Date`        | its time                                                                        |
-| `RegExp`      | its source and flags                                                            |
-| `Error`       | its name and message, plus the own enumerable fields a subclass adds            |
-| a function    | identity: the same function object, never just the same name                    |
-| anything else | its own enumerable entries, symbol keys included; the prototype is not compared |
+| Argument                                      | Compared by                                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------- |
+| `Map`, `Set`                                  | their contents, in any order                                                    |
+| `Date`                                        | its time                                                                        |
+| `RegExp`                                      | its source and flags                                                            |
+| `URL`                                         | its `href`                                                                      |
+| `Error`                                       | its name and message, plus the own enumerable fields a subclass adds            |
+| `new Number(1)`, `new String('a')`, a boolean | the value inside the wrapper                                                    |
+| a typed array (`Uint8Array`, …)               | its class and its elements                                                      |
+| a function                                    | identity: the same function object, never just the same name                    |
+| anything else                                 | its own enumerable entries, symbol keys included; the prototype is not compared |
 
-**Common mistake:** configuring an argument whose state is hidden, such as a `URL`, an `ArrayBuffer`
-or a component. It has no entries to compare, so two instances of one class look equal. Use a matcher
+A property that holds `undefined` counts as missing, as it does for `toHaveBeenCalledWith`:
+`calledWith({ id: 1 })` answers a call made with `{ id: 1, query: undefined }`. The same goes for
+a hole in an array: `[1, , 3]` and `[1, undefined, 3]` are the same argument. A symbol key counts
+even when it holds `undefined`, and so does an argument: `calledWith(1)` does not answer `fn(1, undefined)`.
+
+**Common mistake:** configuring an argument whose state is hidden, such as an `ArrayBuffer` or a
+component. It has no entries to compare, so two instances of one class look equal. Use a matcher
 (`expect.any(URL)`) or the field the code under test really changes.
 
 ## Promise-returning methods — `resolveWith`

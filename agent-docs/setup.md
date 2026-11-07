@@ -258,6 +258,8 @@ Under jsdom a listener registered with `{ once: true }` that already fired stays
 something removes it: the wrapper cannot observe the firing without breaking identity-based
 `removeEventListener` from the code under test, and removing an already-fired listener is a no-op
 anyway. happy-dom detaches it through the public `removeEventListener`, so there it leaves the count.
+A listener added with `{ signal }` leaves the count when the signal aborts; one whose signal had
+already aborted is never recorded.
 
 **The one no registry tracks:** `vi.stubGlobal` is undone by `unstubGlobals` and
 `vi.spyOn(globalThis, …)` by `restoreMocks`, but a plain assignment —
@@ -909,7 +911,9 @@ and reused for that test.
 
 ### Hook order differs from Jest
 
-Vitest runs `afterEach` hooks as a stack (innermost / last-registered first); Jest ran them in
-declaration order. A ported suite where a spec's `afterEach` depends on a patch the setup file
-installed needs `sequence: { hooks: 'list' }` in the Vitest config, or the setup file's teardown runs
-first and the spec's hook operates on an already-restored environment.
+Vitest runs `afterEach` hooks as a stack (innermost / last-registered first, `sequence.hooks:
+'stack'`); Jest ran them in declaration order. The default is what `setupAutoSpy()` needs: its
+teardown runs last, so a spec's `afterEach` still sees the patches the setup file installed. Do not
+set `sequence: { hooks: 'list' }` to mimic Jest: under `'list'` the setup file's teardown runs first
+and the spec's hook operates on an already-restored environment (`'parallel'` races the two).
+`setupAutoSpy()` warns once per worker when it sees either value.

@@ -111,12 +111,16 @@ const client = createSpyFromClass<VenuesService, { overload: 'first' }>(VenuesSe
 последняя перегрузка — `observe: 'events'`, которую никто не вызывает, поэтому `nextWith(body)`
 перестаёт компилироваться и требует `HttpEvent<T>`.
 
-| Опция / тип                         | Где                                          | Смысл                                          |
-| ----------------------------------- | -------------------------------------------- | ---------------------------------------------- |
-| `{ overload: 'first' }`             | второй аргумент типа фабрики или `Spy<T, …>` | все перегруженные методы — по первой сигнатуре |
-| `{ overload: { method: 'first' } }` | там же                                       | только названные методы                        |
-| `Overload<Client['get'], 0>`        | `MockInstance<…>` или `vi.fn<…>()`           | одна сигнатура одного метода (индекс 0–3)      |
-| `OverloadChoice`                    | тип параметра вашего собственного хелпера    | тип опции `overload`                           |
+| Опция / тип                         | Где                                          | Смысл                                                            |
+| ----------------------------------- | -------------------------------------------- | ---------------------------------------------------------------- |
+| `{ overload: 'first' }`             | второй аргумент типа фабрики или `Spy<T, …>` | все перегруженные методы — по первой сигнатуре                   |
+| `{ overload: { method: 'first' } }` | там же                                       | только названные методы                                          |
+| `Overload<Client['get'], 0>`        | `MockInstance<…>` или `vi.fn<…>()`           | одна сигнатура одного метода (индекс 0–15, в порядке объявления) |
+| `OverloadChoice`                    | тип параметра вашего собственного хелпера    | тип опции `overload`                                             |
+
+`Overload<F, 0>` — первая сигнатура в том порядке, в котором она написана в исходнике, и
+`{ overload: 'first' }` читает её же. Читается до шестнадцати сигнатур; у `HttpClient.get` их
+пятнадцать.
 
 ### Заглушка перестала подходить к настоящему ответу {#the-stub-stops-fitting-the-real-response}
 
@@ -152,6 +156,40 @@ let perf: Spy<Performance, { overload: { getEntriesByType: 'first' } }>;
 
 Имя, которого у типа нет, ни с чем не совпадает, поэтому после переименования запись молча перестаёт
 действовать, а сборка не падает. `instanceMethodsToSpyOn` устроен так же.
+
+## Член, которого может не быть, — всё равно метод {#a-member-that-may-be-absent-is-still-a-method}
+
+Необязательный или nullable функциональный член (`m?: F`, `m: F | undefined`, `onclick: F | null`)
+на подмене становится спаем, а необязательный или nullable observable (`data$?: Observable<T>`)
+получает `nextWith`. Nullish-половина остаётся в типе, поэтому к спаю обращайтесь через `?.`:
+
+```ts
+import type { Observable } from 'rxjs';
+import { createAutoMock, createSpyFromClass } from 'vitest-auto-spy';
+
+interface MapOptions {
+  getMinZoom?: () => number;
+  onOpen: (() => number) | null;
+}
+
+class Dialog {
+  data$?: Observable<string>;
+}
+
+const options = createAutoMock<MapOptions>({}, { returns: { getMinZoom: 1 } });
+options.getMinZoom?.mockReturnValue(2);
+options.onOpen?.mockReturnValue(3);
+
+const dialog = createSpyFromClass(Dialog, { observablePropsToSpyOn: ['data$'] });
+dialog.data$?.nextWith('a');
+```
+
+Такие члены можно называть в `instanceMethodsToSpyOn`, `observablePropsToSpyOn` и `returns`, а
+заглушка проверяется по собственному типу члена. Член, типизированный только как `undefined`, —
+не метод.
+
+**Частая ошибка:** `options.onOpen.mockReturnValue(3)` без `?.`. Это не компилируется, потому что
+тип всё ещё допускает `null`; спай в рантайме есть, проверка нужна компилятору.
 
 ## Обобщённому классу нужен его аргумент типа {#a-generic-class-needs-its-type-argument}
 

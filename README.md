@@ -15,7 +15,7 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-31.0%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-31.9%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -219,8 +219,8 @@ users.getName(2); // throws: … Wanted: getName(1) Actual: getName(2)
 
 Matchers work too: `calledWith(expect.any(Number))`.
 
-**Common mistake:** `mockReturnValue` and `calledWith` on the same method. The one set later replaces
-the other; the library warns. For a fallback answer, use the `returns` option; `calledWith` answers
+**Common mistake:** `mockReturnValue` and `calledWith` on the same method. `mockReturnValue` replaces
+the `calledWith` dispatch whatever the order, so the chain decides nothing; the library warns. For a fallback answer, use the `returns` option; `calledWith` answers
 still win over it: `createSpyFromClass(UserService, { returns: { getName: 'Unknown' } })`.
 
 Full page: [Control helpers](https://asdalexey.github.io/vitest-auto-spy/core/control-helpers).
@@ -764,6 +764,9 @@ expect(service.load.calls.count()).toBe(1); // service.load.mock.calls.length
 
 On `bun test` or `node --test`, call `enableJasmineCompat()` from `vitest-auto-spy/jasmine-compat` in
 the setup file instead. Spies created before that call do not get the jasmine API.
+The namespace import also restores `jasmine.addMatchers`, taking jasmine's own matcher factories —
+`(matchersUtil) => ({ compare, negativeCompare? })` — without rewriting them into
+`expect.extend`'s shape.
 `npx vitest-auto-spy codemod --from jasmine` rewrites the calls.
 [Details](https://asdalexey.github.io/vitest-auto-spy/migrating-jasmine)
 
@@ -2306,8 +2309,8 @@ expect(() => myService.getName(2)).toThrow();
 ```
 
 **Common mistake:** combining `mockReturnValue` (or `mockImplementation`, `mockResolvedValue`,
-`mockRejectedValue`, `mockThrow`, `mockReturnThis`) with `calledWith` on the same method. The one set
-later replaces the other. The library reports this as a warning (a throw under the `strict` preset).
+`mockRejectedValue`, `mockThrow`, `mockReturnThis`) with `calledWith` on the same method. Whatever the
+order, the `mockReturnValue` side answers every call and the chain decides nothing. The library reports this as a warning (a throw under the `strict` preset).
 For a fallback value next to `calledWith`, use the `returns` option or `resolveWith` / `nextWith` /
 `failWith`. The `Once` variants are fine.
 
@@ -2705,7 +2708,8 @@ import { registerResourceMatchers } from 'vitest-auto-spy/angular/matchers';
 const products = mockResourceProp(service, 'products', []);
 
 products.set([product]); // 'resolved'
-products.loading(); // back in flight
+products.loading(); // in flight for new params, value back at the initial one
+products.reloading(); // in flight for the same params, the value stays
 products.fail('offline'); // 'error' — value() now THROWS, as a real resource does
 
 expect(products.reload).toHaveBeenCalled(); // reload is spied and re-issues nothing
@@ -2743,8 +2747,8 @@ expect(component.items).toHaveSignalValue([{ id: 1 }]);
 - It rejects anything that is not a zero-argument getter.
 
 **Common mistake:** `expect(component.total).toBeTruthy()`. A signal is a function, so this always
-passes. The `prefer-to-have-signal-value` lint rule rewrites `expect(component.total()).toBe(3)` into
-the matcher with `--fix`.
+passes. The `prefer-to-have-signal-value` lint rule flags `expect(component.total()).toBe(3)` and suggests
+the matcher in its place.
 
 #### Where a spec spends its time
 
@@ -3609,7 +3613,7 @@ Full page: [Observer stubs](https://asdalexey.github.io/vitest-auto-spy/utilitie
 
 ## ESLint plugin
 
-`vitest-auto-spy/eslint-plugin` has 57 lint rules that catch test code which passes but checks
+`vitest-auto-spy/eslint-plugin` has 58 lint rules that catch test code which passes but checks
 nothing, or drifts from the real class. Each message links to the fix.
 
 ```js
@@ -3622,11 +3626,11 @@ export default [{ files: ['**/*.spec.ts'], ...autoSpy.configs.recommended }];
 - Flat config only. The legacy `.eslintrc` `plugins: [...]` form cannot load a subpath export.
 - Scope it to spec files yourself: `Object.defineProperty` or an object of `vi.fn()`s is fine in
   application code.
-- In `recommended`, 45 rules are `error` and 11 are `warn`. The `warn` rules either name a migration a
+- In `recommended`, 45 rules are `error` and 13 are `warn`. The `warn` rules either name a migration a
   project takes file by file (`prefer-render-shallow`, `prefer-set-inputs`) or decide on a heuristic.
 - `autoSpy.configs.typeErrors` holds the rules whose findings are compile errors (`prefer-as-spy`,
   `no-mocked-for-spy`). Spread it after a blanket downgrade so they keep their severity.
-- Nine rules fix with `--fix`; twenty offer editor suggestions.
+- Eight rules fix with `--fix`; twenty-one offer editor suggestions.
 
 **Common mistake:** adding a bare `rules` key next to the spread config to change one severity. It
 replaces the whole rule map. Spread the rules too:
@@ -3668,7 +3672,7 @@ Rolling it out on a large suite, and the options each rule takes:
 | [`no-unregistered-inject-spy`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-unregistered-inject-spy)             |   `error`   | —                 | Do not read a token with injectSpy unless this file registered it as an auto-spy                                                      |
 | [`no-real-component-provider`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-real-component-provider)             |   `error`   | —                 | Do not read a component's own provider from the fixture unless the file replaced it with a spy                                        |
 | [`prefer-render-shallow`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-render-shallow)                       |   `warn`    | suggest           | Render through renderShallow() when the spec never reads the rendered template                                                        |
-| [`prefer-to-have-signal-value`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-to-have-signal-value)           |   `warn`    | `--fix`           | Assert a signal with toHaveSignalValue instead of reading it inline into toBe/toEqual/toBeNull                                        |
+| [`prefer-to-have-signal-value`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-to-have-signal-value)           |   `warn`    | suggest           | Assert a signal with toHaveSignalValue instead of reading it inline into toBe/toEqual/toBeNull                                        |
 | [`prefer-set-inputs`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-set-inputs)                               |   `warn`    | suggest           | Move a rendered component’s inputs with setInputs(), which resolves every name before it writes one                                   |
 | [`prefer-spy-on-own-method`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-spy-on-own-method)                 |   `warn`    | `--fix` / suggest | Spy one method of a real object with spyOnOwnMethod / spyOnVoidMethod instead of a one-method createSpyFromInstance                   |
 | [`prefer-observer-stub`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-observer-stub)                         |   `error`   | —                 | Install an observer global with stubIntersectionObserver / stubResizeObserver / stubMutationObserver instead of writing one by hand   |

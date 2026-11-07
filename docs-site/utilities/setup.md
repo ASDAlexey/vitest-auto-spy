@@ -116,7 +116,7 @@ names the test, the number of patches put back and the hook that threw.
 To assert that no patch is left, use `countMockedProps()`:
 
 ```ts
-import { countMockedProps } from 'vitest-auto-spy/setup';
+import { countMockedProps } from 'vitest-auto-spy';
 
 afterEach(() => expect(countMockedProps()).toBe(0));
 ```
@@ -1349,6 +1349,9 @@ The pieces are exported from `vitest-auto-spy/setup`:
 **Common mistake:** under jsdom, a `{ once: true }` listener that already fired stays counted until
 something removes it. Removing it is harmless. happy-dom removes it by itself.
 
+A listener added with `{ signal }` leaves the count when the signal aborts, the same as when you call
+`removeEventListener`. One added with a signal that had already aborted is never counted.
+
 With `strayTimers` on too, both reports run after timers are cancelled and listeners removed. Both
 run even if the first throws. Two failures appear as one `AggregateError`, which Vitest lists as two
 errors.
@@ -1660,9 +1663,15 @@ The [`no-shared-module-level-mock`](/utilities/eslint-plugin) lint rule finds th
 
 ## Hook order differs from Jest
 
-Vitest runs `afterEach` hooks innermost and last-registered first. Jest ran them in declaration
-order. So in a suite ported from Jest, the setup file's teardown runs before a spec's own
-`afterEach`. To get Jest's order back, set `sequence: { hooks: 'list' }` in the Vitest config.
+Vitest runs `afterEach` hooks innermost and last-registered first (`sequence.hooks: 'stack'`, the
+default). Jest ran them in declaration order. So in Vitest the setup file's teardown runs last, after
+a spec's own `afterEach`: a spec hook still sees the patches and stubs `setupAutoSpy()` installed.
+
+**Common mistake:** setting `sequence: { hooks: 'list' }` to get Jest's order back. Under `'list'` the
+setup file's `afterEach` runs first, so `setupAutoSpy()` puts every `mock*Prop` patch, the console and
+the stubs back before the spec's `afterEach` reads them. `'parallel'` runs them at the same time.
+`setupAutoSpy()` warns once per worker when it sees either value; remove `sequence.hooks` from the
+config.
 
 ## The hooks belong to the file this call ran in
 

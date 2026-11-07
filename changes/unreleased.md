@@ -5,44 +5,13 @@
 > Conventional Commits only when a version has no section there yet), so nothing here is pasted
 > anywhere. See `CONTRIBUTING.md` → "Releasing".
 
-_Last released: **v5.23.0** — the git tag, `package.json` and `CHANGELOG.md` agree._
+_Last released: **v5.67.0** — the git tag, `package.json` and `CHANGELOG.md` agree._
 
 ## Staged for the next release
 
 <!-- Add user-facing items here as work lands, mirroring `## [Unreleased]` in the root CHANGELOG. -->
 
-### Added
-
-- `/nestjs`: `createHttpExecutionContext` builds an HTTP context without starting Nest;
-  `invokeNestParamDecorator` invokes a custom parameter factory by index with its recorded data.
-  Parameter pipes and schemas require Nest's pipeline and are refused.
-- `/nestjs` grows from 20.06 kB to 20.85 kB min+gzip (+0.79 kB, +3.9%) for these helpers,
-  without importing NestJS or Vitest.
-
-- `no-redundant-mock-reset` takes `{ configFile }` — the runner config to read the flags from, for one the
-  search cannot find.
-- `enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } })` — a cancelled request
-  is taken but no longer fails the test; `assertNoPendingRequests({ ignoreCancelled })` overrides it
-  for one call. `PendingRequestsOptions` is exported.
-
-### Changed
-
-- The `Location` double's `path()` keeps the query of `go(path, query)` / `replaceState(path, query)`,
-  as the real `Location.path()` does; Angular's `SpyLocation` drops it.
-
-### Fixed
-
-- `no-redundant-mock-reset`: no report for a restore or reset in `afterEach` / `afterAll`, for a reset
-  anything ran before (an enclosing or earlier `beforeEach`, earlier statements), or in `beforeAll`; the
-  fix takes the whole line.
-- `no-unasserted-argument`: a name holding `vi.spyOn(obj, 'm')` is that member, a `vi.fn()` only itself.
-- `no-vacuous-absence-assertion`: `expectEmission` / `expectEmissions` / `expectCompletion` / `expectError`
-  count as a positive assertion.
-- `prefer-settle-dynamic-import`: a namespace bound as the first statement of a test or hook is left alone.
-- `no-reflect-member-access`: a binding declared as `Window` / `typeof globalThis` is the environment; a
-  write onto a fixture literal gets its own message.
-- `no-mock-cast`: the message on a cast of `mockReturnValue` names the `overload` option.
-- Every fix and suggestion that adds an import writes it beside the file's imports of the same
-  package instead of above its first line.
-- `createMock<T>` takes a partial of an `Error`-shaped `T` (`HttpErrorResponse`, a class extending
-  `Error`).
+The staged items of the earlier releases shipped; the pending set lives in `## [Unreleased]` of the
+root `CHANGELOG.md` — jasmine custom matchers on `/jasmine`, runner-parity `calledWith` matching,
+printer and serializer probe keys on deep doubles, prototype constants on class doubles, `{ signal }`
+in stray listeners, the ESLint plugin version identity, and the codemod's jasmine type arguments.

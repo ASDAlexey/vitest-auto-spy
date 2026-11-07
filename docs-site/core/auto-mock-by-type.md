@@ -543,6 +543,19 @@ at the call site.
   `'[object Object]'` and printing the spy adds no keys to it. Set or assign either to mock it.
   `returns`, `selfReturning` and `returnsUndefined` naming them print a warning, since there is no spy
   to configure.
+- Keys a printer or a serializer probes also answer `undefined` unless you set them: `toJSON`,
+  `$$typeof`, `asymmetricMatch`, `nodeType`, `tagName`, `hasAttribute` and every key starting with
+  `@@__IMMUTABLE_`. `JSON.stringify`, Vitest's failure diff and `toEqual` read these to decide what a
+  value is. Answered with a spy, `toJSON()` made a failure diff print the double as `undefined`, and
+  the probed keys showed up in its own keys.
+- `Object.freeze`, `Object.seal` and `Object.preventExtensions` on a `createAutoMock` or `mockDeep`
+  double throw, because the double builds its members on first read and cannot list them up front.
+  Freeze a copy (`Object.freeze({ ...double })`), or build the double with `createSpyFromClass`,
+  which can be frozen:
+
+  ```
+  TypeError: [vitest-auto-spy] A createAutoMock double cannot be frozen, sealed or made non-extensible: it builds its members on first read.
+  ```
 
 ## In depth
 

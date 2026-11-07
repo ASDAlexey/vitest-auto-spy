@@ -1,6 +1,6 @@
 ---
 title: ESLint-плагин
-description: Пятьдесят семь правил линтера для спек-файлов. Они ловят тесты, которые проходят, ничего не проверяя, подмены, которые отстают от настоящего класса, и настройку, которая утекает между тестами. Flat config, входит в пакет.
+description: Пятьдесят восемь правил линтера для спек-файлов. Они ловят тесты, которые проходят, ничего не проверяя, подмены, которые отстают от настоящего класса, и настройку, которая утекает между тестами. Flat config, входит в пакет.
 ---
 
 # ESLint-плагин
@@ -89,7 +89,7 @@ files: ['**/*.{spec,test}.{ts,tsx}', '**/test/**/*.ts'],  // и то и друг
 
 ### 3. Информация о типах нужна только четырём правилам {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Пятьдесят три правила читают только сам файл. Они работают без `parserOptions.project`, заметно не
+Пятьдесят четыре правила читают только сам файл. Они работают без `parserOptions.project`, заметно не
 замедляют линт и работают, даже если ваших спек нет ни в одном `tsconfig`.
 
 Четыре правила читают типы TypeScript:
@@ -559,7 +559,7 @@ export default [
 | [`no-real-component-provider`](/ru/utilities/eslint-rules#no-real-component-provider)         | провайдер уровня компонента, прочитанный из фикстуры, когда его никто не подменил → `overrideComponentProvider(Component, X)`           | `error`      | —         |            —             |
 | [`prefer-render-shallow`](/ru/utilities/eslint-rules#prefer-render-shallow)                   | `TestBed.createComponent` в файле, который ни разу не читает шаблон → `renderShallow(X)`                                                | `warn`       | подсказка |          зелено          |
 | [`prefer-set-inputs`](/ru/utilities/eslint-rules#prefer-set-inputs)                           | `fixture.componentRef.setInput('title', v)` → `await setInputs(fixture, { title: v })`                                                  | `warn`       | подсказка |          зелено          |
-| [`prefer-to-have-signal-value`](/ru/utilities/eslint-rules#prefer-to-have-signal-value)       | `expect(component.total()).toBe(3)` → `expect(component.total).toHaveSignalValue(3)`; **нужны типы**                                    | `warn`       | `--fix`   |          красно          |
+| [`prefer-to-have-signal-value`](/ru/utilities/eslint-rules#prefer-to-have-signal-value)       | `expect(component.total()).toBe(3)` → `expect(component.total).toHaveSignalValue(3)`; **нужны типы**                                    | `warn`       | подсказка |          красно          |
 | [`no-overridden-provider`](/ru/utilities/eslint-rules#no-overridden-provider)                 | два провайдера на один токен или провайдер, который заменяет `TestBed.overrideProvider`: более ранний не выполняется                    | `error`      | подсказка |          зелено          |
 | [`no-inject-before-override`](/ru/utilities/eslint-rules#no-inject-before-override)           | `TestBed.inject()` / `injectSpy()` / `renderShallow()` в хуке, в тестах, которые ещё вызывают `override*`                               | `error`      | —         |          красно          |
 | [`no-dead-schemas`](/ru/utilities/eslint-rules#no-dead-schemas)                               | `schemas` на тестовом модуле, который ничего не объявляет: схеме не к чему применяться                                                  | `error`      | —         | зелено _(по построению)_ |
@@ -621,27 +621,28 @@ export default [
 
 ## Какие правила чинят и почему их так мало {#which-rules-fix-and-why-so-few}
 
-Девять из 58 правил переписывают код под `--fix`. Девятнадцать предлагают правку как подсказку в
+Восемь из 58 правил переписывают код под `--fix`. Двадцать одно предлагает правку как подсказку в
 редакторе, которую вы принимаете вручную: у четырёх из них для некоторых форм есть и `--fix` (в
-таблице ниже), а пятнадцать предлагают только подсказку. Граница зависит от того, чего стоит ошибочная догадка, а не
+таблице ниже), а семнадцать предлагают только подсказку. Граница зависит от того, чего стоит ошибочная догадка, а не
 от того, насколько сложна правка.
 
-| Правило                       | `--fix`                                                                                          | Подсказка                |
-| ----------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------ |
-| `prefer-as-spy`               | всегда                                                                                           | —                        |
-| `no-mocked-for-spy`           | параметр, возвращаемый тип или каст; переменная, чьё значение приходит из фабрик этой библиотеки | остальные переменные     |
-| `prefer-provide-auto-spy`     | да                                                                                               | —                        |
-| `prefer-to-have-signal-value` | да                                                                                               | —                        |
-| `no-hand-assigned-global`     | значение, записанное в импортированный объект                                                    | —                        |
-| `no-redundant-mock-reset`     | сброс, который раннер доказуемо уже сделал                                                       | остальные случаи         |
-| `prefer-spy-on-own-method`    | точные формы                                                                                     | остальное                |
-| `prefer-native-spy-api`       | когда спай доказуемо создан этой библиотекой                                                     | во всех остальных местах |
+| Правило                    | `--fix`                                                                                          | Подсказка                |
+| -------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------ |
+| `prefer-as-spy`            | всегда                                                                                           | —                        |
+| `no-mocked-for-spy`        | параметр, возвращаемый тип или каст; переменная, чьё значение приходит из фабрик этой библиотеки | остальные переменные     |
+| `prefer-provide-auto-spy`  | да                                                                                               | —                        |
+| `no-hand-assigned-global`  | значение, записанное в импортированный объект                                                    | —                        |
+| `no-redundant-mock-reset`  | сброс, который раннер доказуемо уже сделал                                                       | остальные случаи         |
+| `prefer-spy-on-own-method` | точные формы                                                                                     | остальное                |
+| `prefer-native-spy-api`    | когда спай доказуемо создан этой библиотекой                                                     | во всех остальных местах |
+| `no-redundant-as-instance` | обёртка с одним обычным аргументом и без комментария внутри                                      | —                        |
 
-Пятнадцать правил предлагают только подсказку: `no-expect-in-subscribe`, `prefer-inject-spy`,
+Семнадцать правил предлагают только подсказку: `no-expect-in-subscribe`, `prefer-inject-spy`,
 `no-object-define-property`, `no-overridden-provider`, `no-reflect-member-access`,
 `no-import-time-spread`, `prefer-render-shallow`, `prefer-settle-dynamic-import`,
 `prefer-create-mock`, `no-mock-cast`, `no-passthrough-console-spy`, `no-compile-components`,
-`no-sync-testbed-await`, `no-redundant-smoke-test` и `prefer-set-inputs`.
+`no-sync-testbed-await`, `no-redundant-smoke-test`, `prefer-set-inputs`, `no-real-wait-in-test` и
+`prefer-to-have-signal-value`.
 
 **Исправление работает без присмотра, поэтому ошибиться ему должно быть безопасно.** Правило получает
 `--fix`, когда ошибочная правка падает громко или невозможна:
@@ -658,6 +659,8 @@ export default [
 - `no-expect-in-subscribe` переписывает тест целиком.
 - `no-overridden-provider` удаляет строку провайдера; `no-import-time-spread` превращает константу в
   функцию, и к каждому использованию нужно дописать `()`.
+- `toHaveSignalValue` появляется, только когда setup-файл вызывает `registerSignalMatchers()`, а этот
+  файл линтер не видит.
 
 **Никакого исправления** там, где ремонт затрагивает весь файл, а не один узел. `createSpyFromClass`
 нужен класс, который объектный литерал нигде не называет. `provideAutoSpy` теряет возвращаемые

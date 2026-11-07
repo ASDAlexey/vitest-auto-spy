@@ -1196,6 +1196,7 @@ expect(component.products).toHaveResourceValue([product]);
 // ...or skip the request entirely when it is not what the spec is about
 const products = mockResourceProp(service, 'products', []); // { status: 'idle' } starts it unstarted
 products.set([product]); // 'resolved'   products.loading()   products.fail('offline')   products.idle()
+// loading() = new params, value back at the initial one; reloading() = same params, value kept
 service.products.set([edited]); // the component's own optimistic write — status → 'local'
 expect(products.reload).toHaveBeenCalled(); // reload is spied, answers true, and re-issues nothing
 

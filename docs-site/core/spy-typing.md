@@ -110,12 +110,15 @@ This matters most on a generated API client (`ng-openapi-gen`, `openapi-generato
 overload is `observe: 'events'`, the one nobody calls, so `nextWith(body)` stops compiling and demands
 an `HttpEvent<T>`.
 
-| Option / type                       | Where                                            | Meaning                                             |
-| ----------------------------------- | ------------------------------------------------ | --------------------------------------------------- |
-| `{ overload: 'first' }`             | second type argument of a factory or `Spy<T, …>` | type every overloaded method by its first signature |
-| `{ overload: { method: 'first' } }` | the same                                         | only the named methods                              |
-| `Overload<Client['get'], 0>`        | a `MockInstance<…>` or `vi.fn<…>()`              | one signature of one method (index 0–3)             |
-| `OverloadChoice`                    | your own helper's parameter type                 | the type of the `overload` option                   |
+| Option / type                       | Where                                            | Meaning                                                        |
+| ----------------------------------- | ------------------------------------------------ | -------------------------------------------------------------- |
+| `{ overload: 'first' }`             | second type argument of a factory or `Spy<T, …>` | type every overloaded method by its first signature            |
+| `{ overload: { method: 'first' } }` | the same                                         | only the named methods                                         |
+| `Overload<Client['get'], 0>`        | a `MockInstance<…>` or `vi.fn<…>()`              | one signature of one method (index 0–15, in declaration order) |
+| `OverloadChoice`                    | your own helper's parameter type                 | the type of the `overload` option                              |
+
+`Overload<F, 0>` is the first signature as written in the source, and `{ overload: 'first' }` reads the
+same one. Up to sixteen signatures are read; `HttpClient.get` has fifteen.
 
 ### The stub stops fitting the real response
 
@@ -152,6 +155,39 @@ let perf: Spy<Performance, { overload: { getEntriesByType: 'first' } }>;
 
 A name the type does not have never matches, so after a rename the entry is silently dead instead of
 failing the build. `instanceMethodsToSpyOn` makes the same choice.
+
+## A member that may be absent is still a method
+
+An optional or nullable function member (`m?: F`, `m: F | undefined`, `onclick: F | null`) is a spy
+on the double, and an optional or nullable observable (`data$?: Observable<T>`) gets `nextWith`. The
+nullish half stays in the type, so reach the spy with `?.`:
+
+```ts
+import type { Observable } from 'rxjs';
+import { createAutoMock, createSpyFromClass } from 'vitest-auto-spy';
+
+interface MapOptions {
+  getMinZoom?: () => number;
+  onOpen: (() => number) | null;
+}
+
+class Dialog {
+  data$?: Observable<string>;
+}
+
+const options = createAutoMock<MapOptions>({}, { returns: { getMinZoom: 1 } });
+options.getMinZoom?.mockReturnValue(2);
+options.onOpen?.mockReturnValue(3);
+
+const dialog = createSpyFromClass(Dialog, { observablePropsToSpyOn: ['data$'] });
+dialog.data$?.nextWith('a');
+```
+
+These members can be named in `instanceMethodsToSpyOn`, `observablePropsToSpyOn` and `returns`, and
+the stub is checked against the member's own type. A member typed only `undefined` is not a method.
+
+**Common mistake:** `options.onOpen.mockReturnValue(3)` without `?.`. It fails to compile because
+the type still allows `null`; the spy is there at runtime, the guard is for the compiler.
 
 ## A generic class needs its type argument
 

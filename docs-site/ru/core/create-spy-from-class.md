@@ -255,6 +255,18 @@ expect(sanitizer.sanitize).toHaveBeenCalledOnce(); // и вызов записа
 В `createAutoMock` и `provideAutoSpyForToken` функция в `overrides` сохраняется как написана и спаем не
 становится: тип не говорит, какие члены — методы.
 
+`createSpyFromInstance` делает то же для метода экземпляра: функция становится спаем метода, а
+`restoreSpiedInstance` возвращает оригинал.
+
+```ts
+import { createSpyFromInstance } from 'vitest-auto-spy';
+
+const service = createSpyFromInstance(new PriceService(), { overrides: { total: (items) => items.length } });
+
+service.total([1, 2]); // 2
+expect(service.total).toHaveBeenCalledWith([1, 2]);
+```
+
 ## `returnsUndefined` — список `void`-команд {#returns-undefined}
 
 Перечисленные методы отвечают `undefined` и считаются настроенными под `strict`. Это списочная форма

@@ -547,6 +547,19 @@ createAutoMock<TaskScheduler>({ schedule: vi.fn() });
   это `'[object Object]'`, а печать спая не добавляет в него ключей. Чтобы замокать их, задайте или
   присвойте значение. `returns`, `selfReturning` и `returnsUndefined` с этими именами выводят
   предупреждение: настраивать там нечего.
+- Ключи, которые проверяет принтер или сериализатор, тоже отвечают `undefined`, пока вы их не
+  зададите: `toJSON`, `$$typeof`, `asymmetricMatch`, `nodeType`, `tagName`, `hasAttribute` и все
+  ключи, начинающиеся с `@@__IMMUTABLE_`. По ним `JSON.stringify`, дифф упавшей проверки в Vitest и
+  `toEqual` решают, что за значение перед ними. Когда на них отвечал спай, `toJSON()` заставлял дифф
+  печатать подмену как `undefined`, а проверенные ключи появлялись среди её собственных.
+- `Object.freeze`, `Object.seal` и `Object.preventExtensions` на подмене из `createAutoMock` или
+  `mockDeep` бросают ошибку: подмена создаёт члены при первом чтении и не может перечислить их
+  заранее. Замораживайте копию (`Object.freeze({ ...double })`) или постройте подмену через
+  `createSpyFromClass` — её заморозить можно:
+
+  ```
+  TypeError: [vitest-auto-spy] A createAutoMock double cannot be frozen, sealed or made non-extensible: it builds its members on first read.
+  ```
 
 ## Подробнее {#in-depth}
 

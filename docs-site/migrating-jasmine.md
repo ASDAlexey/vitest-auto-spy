@@ -301,38 +301,38 @@ import { jasmine } from 'vitest-auto-spy/jasmine';
 Nothing is added to `globalThis`: you import `jasmine` explicitly in each file, and the codemod
 removes that line at the end.
 
-| jasmine                                                           | under Vitest                                           | notes                                                                                                     |
-| ----------------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `spyOn(o, 'm')`                                                   | `vi.spyOn(o, 'm').mockImplementation(() => undefined)` | ⚠️ [the default is inverted](#spyon-means-the-opposite-thing-on-the-two-sides)                            |
-| `spyOnProperty(o, 'p', 'get')`                                    | same, with the accessor kind                           | same inverted default                                                                                     |
-| `jasmine.createSpy('load')`                                       | `vi.fn()`                                              | the name goes; Vitest reports the variable                                                                |
-| `jasmine.createSpy('load', original)`                             | `vi.fn(original)`                                      | the original function is kept                                                                             |
-| `jasmine.createSpyObj(…)`                                         | `createSpyObj` from `vitest-auto-spy/jasmine`          | all of upstream's forms; prefer a class or a type where there is one                                      |
-| `jasmine.any` / `anything` / `objectContaining`                   | `expect.any` / `expect.anything` / …                   | named the same on both sides                                                                              |
-| `jasmine.arrayContaining` / `stringMatching` / `stringContaining` | `expect.arrayContaining` / …                           | named the same on both sides                                                                              |
-| `jasmine.truthy` / `falsy` / `empty` / `notEmpty`                 | **no `expect.*` twin**                                 | `registerJasmineMatchers()`, below                                                                        |
-| `jasmine.is` / `mapContaining` / `setContaining`                  | **no `expect.*` twin**                                 | `registerJasmineMatchers()`, below                                                                        |
-| `jasmine.arrayWithExactContents`                                  | **no `expect.*` twin**                                 | `registerJasmineMatchers()`, below                                                                        |
-| `jasmine.clock().install()` / `.uninstall()`                      | `vi.useFakeTimers()` / `vi.useRealTimers()`            | ⚠️ on the bridge, `install()` keeps `Date` real, as jasmine; see below                                    |
-| `jasmine.clock().tick(n)`                                         | `vi.advanceTimersByTime(n)`                            | `tick` and `advanceTimersByTime` do not wait for promises; [`advanceTimers`](/utilities/fake-timers) does |
-| `jasmine.clock().mockDate(d)`                                     | `vi.setSystemTime(d)`                                  | this is what fakes `Date`; see below                                                                      |
-| `jasmine.clock().withMock(fn)`                                    | on the namespace; **no `vi` twin**                     | the codemod reports it and leaves it                                                                      |
-| `jasmine.addMatchers(m)`                                          | `expect.extend(m)`                                     |                                                                                                           |
-| `jasmine.addCustomEqualityTester(t)`                              | `expect.addEqualityTesters([t])`                       | one tester, wrapped in the array Vitest takes                                                             |
-| `jasmine.DEFAULT_TIMEOUT_INTERVAL = n`                            | **a config setting, not a statement**                  | `vi.setConfig({ testTimeout: n, hookTimeout: n })`; [both](#the-timeout-is-two-numbers-here)              |
-| `jasmine.getEnv()`                                                | **none**                                               | ordering and bail are `vitest.config.ts`, not a runtime environment                                       |
-| `jasmine.addSpyStrategy` / `setDefaultSpyStrategy`                | **none**                                               | write the behaviour as a `mockImplementation` where the spy is built                                      |
-| `jasmine.Spy` (the type)                                          | `Mock` from `vitest`                                   | a single mock function                                                                                    |
-| `jasmine.SpyObj<T>` (the type)                                    | `Spy<T>` from this package                             | the whole object; one word apart, two different things                                                    |
-| `fdescribe` / `fit`                                               | `describe.only` / `it.only`                            |                                                                                                           |
-| `xdescribe` / `xit` / `xtest`                                     | `describe.skip` / `it.skip`                            | the bare rename fails as `TS2304: Cannot find name 'xit'`                                                 |
-| `expect(x).toBeTrue()` / `.toBeFalse()`                           | `.toBe(true)` / `.toBe(false)`                         | ⚠️ **not** `toBeTruthy` / `toBeFalsy`, which Vitest's own error suggests                                  |
-| `expect(x).toHaveSize(n)`                                         | `.toHaveLength(n)`                                     |                                                                                                           |
-| `expect(spy).toHaveBeenCalledOnceWith(a)`                         | `.toHaveBeenCalledExactlyOnceWith(a)`                  | one matcher, not `toHaveBeenCalledTimes(1)` plus `toHaveBeenCalledWith(a)`                                |
-| `expect(el).toHaveClass(c)`                                       | **none**                                               | outside browser mode; `expect(el.classList.contains(c)).toBe(true)`                                       |
-| `expect(x).withContext(msg).toBe(y)`                              | `expect(x, msg).toBe(y)`                               | ⚠️ [the message vanishes without failing](#withcontext-does-not-throw-it-loses-the-message)               |
-| `fail(msg)`                                                       | `expect.fail(msg)`                                     | there is no `vi.fail`                                                                                     |
-| `it('x', (done) => …)`                                            | `async` + `await`                                      | **not rewritten**: Vitest passes a `TestContext`, not a `done`                                            |
+| jasmine                                                           | under Vitest                                           | notes                                                                                                                    |
+| ----------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `spyOn(o, 'm')`                                                   | `vi.spyOn(o, 'm').mockImplementation(() => undefined)` | ⚠️ [the default is inverted](#spyon-means-the-opposite-thing-on-the-two-sides)                                           |
+| `spyOnProperty(o, 'p', 'get')`                                    | same, with the accessor kind                           | same inverted default                                                                                                    |
+| `jasmine.createSpy('load')`                                       | `vi.fn()`                                              | the name goes; Vitest reports the variable                                                                               |
+| `jasmine.createSpy('load', original)`                             | `vi.fn(original)`                                      | the original function is kept                                                                                            |
+| `jasmine.createSpyObj(…)`                                         | `createSpyObj` from `vitest-auto-spy/jasmine`          | all of upstream's forms; prefer a class or a type where there is one                                                     |
+| `jasmine.any` / `anything` / `objectContaining`                   | `expect.any` / `expect.anything` / …                   | named the same on both sides                                                                                             |
+| `jasmine.arrayContaining` / `stringMatching` / `stringContaining` | `expect.arrayContaining` / …                           | named the same on both sides                                                                                             |
+| `jasmine.truthy` / `falsy` / `empty` / `notEmpty`                 | **no `expect.*` twin**                                 | `registerJasmineMatchers()`, below                                                                                       |
+| `jasmine.is` / `mapContaining` / `setContaining`                  | **no `expect.*` twin**                                 | `registerJasmineMatchers()`, below                                                                                       |
+| `jasmine.arrayWithExactContents`                                  | **no `expect.*` twin**                                 | `registerJasmineMatchers()`, below                                                                                       |
+| `jasmine.clock().install()` / `.uninstall()`                      | `vi.useFakeTimers()` / `vi.useRealTimers()`            | ⚠️ on the bridge, `install()` keeps `Date` real, as jasmine; see below                                                   |
+| `jasmine.clock().tick(n)`                                         | `vi.advanceTimersByTime(n)`                            | `tick` and `advanceTimersByTime` do not wait for promises; [`advanceTimers`](/utilities/fake-timers) does                |
+| `jasmine.clock().mockDate(d)`                                     | `vi.setSystemTime(d)`                                  | this is what fakes `Date`; see below                                                                                     |
+| `jasmine.clock().withMock(fn)`                                    | on the namespace; **no `vi` twin**                     | the codemod reports it and leaves it                                                                                     |
+| `jasmine.addMatchers(m)`                                          | `expect.extend(m)`                                     | on the bridge, jasmine's own factory shape runs directly; [see below](#addmatchers-takes-jasmines-factories-as-they-are) |
+| `jasmine.addCustomEqualityTester(t)`                              | `expect.addEqualityTesters([t])`                       | one tester, wrapped in the array Vitest takes                                                                            |
+| `jasmine.DEFAULT_TIMEOUT_INTERVAL = n`                            | **a config setting, not a statement**                  | `vi.setConfig({ testTimeout: n, hookTimeout: n })`; [both](#the-timeout-is-two-numbers-here)                             |
+| `jasmine.getEnv()`                                                | **none**                                               | ordering and bail are `vitest.config.ts`, not a runtime environment                                                      |
+| `jasmine.addSpyStrategy` / `setDefaultSpyStrategy`                | **none**                                               | write the behaviour as a `mockImplementation` where the spy is built                                                     |
+| `jasmine.Spy` (the type)                                          | `Mock` from `vitest`                                   | a single mock function                                                                                                   |
+| `jasmine.SpyObj<T>` (the type)                                    | `Spy<T>` from this package                             | the whole object; one word apart, two different things                                                                   |
+| `fdescribe` / `fit`                                               | `describe.only` / `it.only`                            |                                                                                                                          |
+| `xdescribe` / `xit` / `xtest`                                     | `describe.skip` / `it.skip`                            | the bare rename fails as `TS2304: Cannot find name 'xit'`                                                                |
+| `expect(x).toBeTrue()` / `.toBeFalse()`                           | `.toBe(true)` / `.toBe(false)`                         | ⚠️ **not** `toBeTruthy` / `toBeFalsy`, which Vitest's own error suggests                                                 |
+| `expect(x).toHaveSize(n)`                                         | `.toHaveLength(n)`                                     |                                                                                                                          |
+| `expect(spy).toHaveBeenCalledOnceWith(a)`                         | `.toHaveBeenCalledExactlyOnceWith(a)`                  | one matcher, not `toHaveBeenCalledTimes(1)` plus `toHaveBeenCalledWith(a)`                                               |
+| `expect(el).toHaveClass(c)`                                       | **none**                                               | outside browser mode; `expect(el.classList.contains(c)).toBe(true)`                                                      |
+| `expect(x).withContext(msg).toBe(y)`                              | `expect(x, msg).toBe(y)`                               | ⚠️ [the message vanishes without failing](#withcontext-does-not-throw-it-loses-the-message)                              |
+| `fail(msg)`                                                       | `expect.fail(msg)`                                     | there is no `vi.fail`                                                                                                    |
+| `it('x', (done) => …)`                                            | `async` + `await`                                      | **not rewritten**: Vitest passes a `TestContext`, not a `done`                                                           |
 
 The codemod leaves `done` callbacks alone on purpose. To turn one into `async`, someone has to
 decide what the test awaits. A guess there gives a test that passes without waiting for anything.
@@ -369,6 +369,56 @@ in key position works, and so does an object key that is equal but not the same 
 expect(byUser).toEqual(jasmine.mapContaining(new Map([[{ id: 7 }, 'ada']])));
 expect(byName).toEqual(jasmine.mapContaining(new Map([[jasmine.any(String), 'ada']])));
 ```
+
+### `addMatchers` takes jasmine's factories as they are
+
+A jasmine custom matcher is a factory: jasmine hands it a `matchersUtil` and it returns
+`{ compare, negativeCompare? }`. `expect.extend` wants the comparing function itself, so a
+hand migration rewrites each one. On the bridge the rewrite is optional:
+
+```ts
+import { jasmine } from 'vitest-auto-spy/jasmine';
+
+jasmine.addMatchers({
+  toBeWithin: (matchersUtil, customTesters) => ({
+    compare(actual: number, floor: number, ceiling: number) {
+      return {
+        pass: actual >= floor && actual <= ceiling,
+        message: () => `expected ${actual} to be within ${floor}..${ceiling}`,
+      };
+    },
+  }),
+});
+
+expect(7).toBeWithin(5, 10);
+expect(3).not.toBeWithin(5, 10);
+```
+
+Under `.not` the bridge runs `negativeCompare` when the factory wrote one, flipping its `pass`
+to Vitest's meaning; a factory without one keeps `compare`, and only the verdict is inverted. A
+matcher already written in Vitest's shape — the comparing function itself, not a factory — is
+recognized and passed through, so one file can mix both shapes in separate `addMatchers` calls. One
+call takes one shape: an object holding a factory and a Vitest matcher side by side does not
+compile, so split it into two calls.
+
+A factory that returns no `message` gets one built the jasmine way, from the matcher's name:
+`Expected 3 not to be within 5, 10.`. `matchersUtil.equals(a, b)` delegates to the runner's own
+equality together with the testers `jasmine.addCustomEqualityTester` registered, and `pp` is the
+runner's pretty-printer.
+
+The shapes are exported, for a suite that declares its matchers in a separate file:
+
+```ts
+import type { JasmineCustomMatcherFactories, JasmineMatchersUtil } from 'vitest-auto-spy/jasmine';
+
+const matchers: JasmineCustomMatcherFactories = {
+  toBeWithin: (util: JasmineMatchersUtil) => ({ compare: (actual, floor, ceiling) => ({ pass: true }) }),
+};
+```
+
+`JasmineCustomMatcherFactories`, `JasmineCustomMatcherFactory`, `JasmineCustomMatcher`,
+`JasmineCustomMatcherResult`, `JasmineMatchersUtil` and `JasmineCustomEqualityTester` mirror
+jasmine's own interfaces one for one.
 
 ### `withContext` does not throw, it loses the message
 

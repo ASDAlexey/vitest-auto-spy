@@ -141,6 +141,11 @@ A spied method gets the helpers its return type allows. They are methods of the 
 matchers such as `expect.any(Number)` at any depth; see
 [what counts as the same argument](/core/control-helpers#what-counts-as-the-same-argument).
 
+`createDeferred<T>()`, a root export, returns `{ promise, resolve, reject }`: a promise that stays
+pending until the test settles it, for checking the state in between
+(`users.load.mockReturnValue(deferred.promise)`). See
+[Keeping a promise pending](/core/control-helpers#keeping-a-promise-pending-—-createdeferred).
+
 ### Properties
 
 | Export                                             | What it does                                                         | Docs                                                                                                  |
@@ -628,7 +633,9 @@ vitest-auto-spy (also re-exported by /bun, /node, /rstest, /react, /svelte, /vue
 /jasmine
   AngularValueProvider, ClassSpyConfiguration, ClassType, JasmineAccessorSpies, JasmineAccessorSpy,
   JasmineAnd, JasmineCallInfo, JasmineCalls, JasmineClassSpyConfiguration, JasmineClock,
-  JasmineMethodSpy, JasmineNamespaces, JasmineSpy, JasmineStrategies, JasmineWithArgsAnd,
+  JasmineCustomEqualityTester, JasmineCustomMatcher, JasmineCustomMatcherFactories,
+  JasmineCustomMatcherFactory, JasmineCustomMatcherResult, JasmineMatchersUtil, JasmineMethodSpy,
+  JasmineNamespaces, JasmineSpy, JasmineStrategies, JasmineWithArgsAnd,
   JasmineWithArgsStrategies, JasmineWithArgsSync, OnlyMethodKeysOf, OnlyObservablePropsOf,
   OnlyPropsOf, Spy, SpyObj
 

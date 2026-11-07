@@ -396,7 +396,10 @@ The assertion is false in every row, and the test is green in every row but the 
 **`error`** · no fix · syntax only
 
 Reports a `done`-style first parameter on `it` / `test` / `beforeAll` / `beforeEach` / `afterAll` /
-`afterEach`, and `done.fail(…)` on it. Vitest passes its test context object in that place, and
+`afterEach`, and `done.fail(…)` on it. The modified forms count too: `it.only`, `it.skip`,
+`test.concurrent`, `it.fails`, `it.sequential`, `it.todo`, `it.skipIf(…)` / `it.runIf(…)`. In
+`it.each(…)(…)` the row comes first, so there the rule reads the last parameter, and only when it is
+named `done`; `test.for` passes a real context second and is left alone. Vitest passes its test context object in that place, and
 calling it as `done()` throws an error. When that call sits inside a callback, nobody catches the
 error, and the test **passes** having run almost none of itself.
 
@@ -627,6 +630,8 @@ expect(service.open()).toBe(ref); // ✅
 **Options.** None.
 
 **How to fix.** `--fix` drops the wrapper and, when that was the import's last use, the import too.
+A spread argument (`asInstance(...args)`) or a comment inside the call is reported without a fix: the
+unwrap would not compile, or would delete the comment.
 
 **When to disable.** Not needed for correctness: the code reported is correct. The rule is `warn`
 because it names a spelling rather than a defect — the same reading as
@@ -901,6 +906,10 @@ over two `const … = vi.fn()`.
   model;
 - an RxJS observer passed straight to `subscribe(…)` or `tap(…)`:
   `source$.subscribe({ error: vi.fn() })`;
+- callbacks with no class behind them: two or more keys that are all event-handler props
+  (`{ onChange: vi.fn(), onSubmit: vi.fn() }`) or all observer keys (`next` / `error` / `complete`),
+  and the `props` / `attrs` / `propsData` of the options a `mount` / `shallowMount` / `render` call
+  takes second;
 - a provider descriptor, meaning any object with a `provide:` key;
 - the input map of `setInputs(fixture, { … })` and of `renderShallow(C, { inputs: { … } })`, which
   both check it against the component's inputs;
@@ -2334,6 +2343,13 @@ text**, looking for literal `clearMocks: true`, `mockReset: true` and `restoreMo
 evaluated and no module is loaded: a lint run should not execute a project's config, and these three
 values are literals in every config that sets them.
 
+- **Comments and strings do not count.** `// mockReset: true` is not a flag.
+- **A config the text cannot settle sets nothing.** One with `projects` or `workspace` (some tests get
+  settings of their own), or one that writes the same flag twice, reads as every flag off, so the rule
+  stays silent. Name the flags as options for such a project.
+- **An edit is seen.** The file is read again when its modification time changes, so an editor's
+  long-running ESLint picks up a changed config.
+
 - **Options win.** Given at all, they are the answer, and the search is skipped. A project that does
   not want its disk read at lint time passes the flags as options.
 - **`configFile`** names a config at a path the search does not look in, and it is read the same way.
@@ -2495,7 +2511,9 @@ Nothing outside the file, and nothing a type checker knows. There are two readin
 1. **The same subject is pinned with `toHaveBeenCalledWith` in another test of this file.** The author
    already wrote down that the arguments of that call are part of the contract; this is the place
    where they did not. A test that asserts both on the same subject is left alone: the arguments are
-   checked there, and the bare line is merely redundant.
+   checked there, and the bare line is merely redundant. `toBeCalledWith`,
+   `toHaveBeenLastCalledWith`, `toHaveBeenNthCalledWith` and `toHaveBeenCalledExactlyOnceWith` pin the
+   arguments too, and `toBeCalled()` is the same bare matcher.
 2. **The test title says `with`, and the body asserts nothing else.** Then the whole claim of the
    test is an argument list, and all it checks is that something ran. Any other assertion silences
    this reading, because it may be where the arguments are checked: an equality on a result, a count,
@@ -3281,7 +3299,7 @@ are in the file.
 
 ## prefer-to-have-signal-value
 
-**`warn`** · `--fix` · needs types
+**`warn`** · suggestion · needs types
 
 Reports `expect(signal()).toBe(…)` and similar matchers over a signal read inline. The failure then
 names a value, not the signal. And the shape is one keystroke away from `expect(component.total).toBe(3)`,
@@ -3289,7 +3307,7 @@ which passes for every signal ever created.
 
 ```ts
 expect(counter.total()).toBe(3); // ❌ the failure names "3", not the signal
-expect(counter.total()).toStrictEqual(3); // ❌ same, and the fix keeps the strictness
+expect(counter.total()).toStrictEqual(3); // ❌ same, and the suggestion keeps the strictness
 ```
 
 ```ts
@@ -3299,8 +3317,11 @@ expect(counter.total).toHaveSignalValue(3, { strict: true }); // ✅
 
 **Options.** None.
 
-**How to fix.** `--fix` drops the parentheses and renames the matcher to `toHaveSignalValue`, the
-matcher `registerSignalMatchers()` registers. It keeps `.not` where it is.
+**How to fix.** Accept the editor suggestion. It drops the parentheses and renames the matcher to
+`toHaveSignalValue`, the matcher `registerSignalMatchers()` registers. It keeps `.not` where it is.
+It is a suggestion, not `--fix`: the matcher exists only once a setup file calls
+`registerSignalMatchers()`, and the lint cannot see that file. Without it, the rewritten test fails
+with `toHaveSignalValue is not a function`.
 
 | Before                   | After                                    |
 | ------------------------ | ---------------------------------------- |
@@ -3311,14 +3332,14 @@ matcher `registerSignalMatchers()` registers. It keeps `.not` where it is.
 
 `toHaveSignalValue` names the signal in the failure. It also refuses anything that is not a
 zero-argument getter, so forgetting the parentheses fails instead of passing. A received call with
-its own type arguments is reported without a fix, because moving the text would drop them.
+its own type arguments is reported without a suggestion, because moving the text would drop them.
 
 **When to disable.** The rule needs type information; without it, it reports nothing. It is `warn`
 because the original assertion is correct: the matcher only fails more clearly.
 
 ::: details How it decides
 **What it matches:** `toBe`, `toEqual`, `toStrictEqual`, `toBeNull` or `toBeUndefined`, `.not`
-included, over a call the type checker resolves to a signal.
+included, over a call with no arguments that the type checker resolves to a signal.
 
 **A signal is recognised by its type, not its name:** callable, and carrying Angular's signal brand.
 The checker spells that brand `__@SIGNAL@53`, with a trailing number that changes per program, so
@@ -3336,7 +3357,7 @@ rewrite it would pass for any equal copy. So a `toBe` is reported only when:
 
 Any other `toBe` is left alone, since no matcher over the signal keeps the identity.
 
-**Why the fix is safe.** The matcher compares with the runner's deep equality, including nested
+**Why the rewrite is safe.** The matcher compares with the runner's deep equality, including nested
 `Set`s and `Map`s by contents, on both the loose and the strict path. That makes the rewrite an
 equivalence.
 

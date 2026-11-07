@@ -10,6 +10,245 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- `/jasmine`: `jasmine.addMatchers` runs real jasmine custom matchers. A factory
+  `(matchersUtil, customEqualityTesters) => ({ compare, negativeCompare? })` is translated into a
+  Vitest matcher: `compare` answers `expect(x).toBeFoo(…)`, `.not` runs `negativeCompare` when the
+  factory wrote one (its `pass` flipped to Vitest's meaning) and plain `compare` otherwise; a
+  `message` given as a string or a function is reported verbatim, and with none the failure text is
+  built the jasmine way from the matcher's name. `matchersUtil` works: `equals(a, b)` delegates to
+  the runner's equality with the testers `jasmine.addCustomEqualityTester` registered, `contains`
+  reads arrays, sets and strings, `pp` pretty-prints, `buildFailureMessage` reproduces jasmine's
+  format. Before, the factories reached `expect.extend` verbatim, so `pass` read `undefined` and
+  every assertion through a jasmine custom matcher failed. A matcher already written in Vitest's
+  shape is recognized and passed through; one `addMatchers` call takes one shape, separate calls can
+  mix them. Six types mirror
+  jasmine's interfaces without `@types/jasmine`: `JasmineCustomMatcherFactories`,
+  `JasmineCustomMatcherFactory`, `JasmineCustomMatcher`, `JasmineCustomMatcherResult`,
+  `JasmineMatchersUtil`, `JasmineCustomEqualityTester`.
+- `/setup`: `setupAutoSpy()` warns once per worker when the Vitest config sets `sequence.hooks` to
+  `'list'` or `'parallel'`. Under `'list'` the setup file's `afterEach` runs before the spec's own,
+  so the teardown puts `mock*Prop` patches, the console and the stubs back before the spec's
+  `afterEach` reads them; under `'parallel'` they race. The message names the default `'stack'`,
+  which runs the setup file's teardown last.
+- `resetAutoSpy()` now resets the observable property spies of `observablePropsToSpyOn`: a
+  `nextWith()` value or a `nextWithValues()` stream seeded in one test no longer replays into the
+  next, for `createSpyFromClass`, `createAutoMock` and `createSpyFromInstance` doubles alike.
+  `clearAutoSpy()` keeps them — a property spy holds configuration, not recorded calls.
+- A plain function seeded through `createSpyFromInstance(instance, { overrides: { save: fn } })` on
+  a declared method becomes its spy, exactly as on the class factory: every call is recorded and
+  runs the seed with the double as `this`, until the test configures the spy. A callable that
+  carries an API of its own (a `signal()`, a mock) is still kept as the seeded value.
+- `/angular`: `mockResourceProp` handle gains `reloading()` — status `'reloading'` with the error
+  cleared and the value kept (`isLoading()` and `hasValue()` true, `reload()` answering `true`), the
+  state a real `resource()` sits in after `reload()`.
+- `/angular`: `mockSignalProp()` writes through a read-only `linkedSignal()` view in place, over
+  `linkedSignalSetFn` / `linkedSignalUpdateFn` — the same node-preserving path as `signal()` and
+  `model()`. A live `effect()` that already read the member sees `set` / `update` land, and the
+  source computation stays intact.
+- `/angular`, `/bun-angular`: `runEffect()` supports the effect node shape before Angular 20.3
+  (`maybeCleanup` / `cleanupFns`, `fn(onCleanup)` body) — the previous run's cleanups run first and
+  the body gets its own `onCleanup` registrar — instead of throwing "this Angular version stores
+  the effect body somewhere this helper does not know about".
+- ESLint: the plugin identifies itself — `meta: { name: 'vitest-auto-spy', version }` on the plugin
+  object, a `name` on every shipped flat config — so `eslint --cache` invalidates its key on an
+  upgrade and re-lints files the cache held clean, and `--print-config` names the config. The
+  version constant is kept in step by `plugin:sync`. `FlatConfig.name` and `AutoSpyEslintPlugin.meta`
+  are now required in the exported types — the one edge a consumer constructing those types itself
+  will notice.
+- CLI: the `jasmine` codemod keeps the type argument of `jasmine.createSpy<T>(…)` (`vi.fn<T>(…)`),
+  and drops the one on `jasmine.createSpyObj<Router>(…)` with a dedicated note naming
+  `createAutoMock<Router>()` and `createSpyFromClass(Router)`. A call whose brackets do not balance
+  gets its own `unreadable-jasmine-call` note instead of the generic left-alone one.
+- CLI: when the `jest` import rename leaves a bare `jest` unbound (`const j = jest`), the codemod
+  reports each one as an error finding: it is not a `jest.<member>` call, and the import that bound
+  it now binds `vi` — at runtime it is `ReferenceError: jest is not defined`.
+
+**Bundle size:** every entry that builds a spy grows by 0.7–0.93 kB min+gzip (+2.3–3.0%) — the root
+entry, `/bun`, `/node`, `/rstest`, `/react`, `/vue`, `/svelte`, `/console`, `/setup`, `/rxjs`,
+`/nestjs`, `/angular-router` and `/diagnostics` — and their import graphs by 3–6.7 kB, for three
+things at once: `calledWith` / `mustBeCalledWith` matching at the runner's equality (boxed
+primitives, typed arrays, array holes, `undefined` properties, symbol keys — the rendering and
+comparison in `serialize-args` and `structural-equals`), the printer and serializer probe keys with
+the freeze refusal on deep doubles, and the observable-prop reset. `/diagnostics` grows by 244 B
+(+5.9%) for the same argument rendering; `/angular/doubles` by 1.08 kB (+4.3%), which adds the
+prototype constants kept on a double. `/jasmine` grows from 21.58 kB to 22.88 kB min+gzip
+(+1.30 kB, +6.0%) for the custom-matcher adapter above. `/angular` grows from 39.58 kB to 40.95 kB
+(+1.37 kB, +3.5%), `/angular/diagnostics` by 342 B (+4.5%) and `/bun-angular` by 1.05 kB (+2.6%),
+for the reactive-node shapes before Angular 20.1.6 / 20.3 the helpers now read.
+
+### Changed
+
+- `calledWith` / `mustBeCalledWith` match the runner's non-strict `equals` on the shapes they used
+  to fumble: a string key holding `undefined` counts as absent (`calledWith({ id: 1 })` answers
+  `fn({ id: 1, query: undefined })`), an array hole equals `undefined`, a symbol key counts even
+  under `undefined`, `new Number(1)` compares by the value inside, and a typed array by its class
+  and elements. A differential spec pins parity with `toHaveBeenCalledWith` across these shapes.
+  A `URL` was already compared by `href` — the comparison table now says so.
+- `/angular`: `loading()` on the `mockResourceProp` handle puts the value back at the `initialValue`
+  (error cleared, `hasValue()` false over an undefined initial), the way a real `resource()` reads
+  its default while new params are in flight. Deliberate: a spec relying on `loading()` keeping a
+  previously `set()` value sees it go. `fail()` and the new `reloading()` keep the value; `idle()`
+  still resets.
+- ESLint: `prefer-to-have-signal-value` offers its edit as a suggestion instead of applying it under
+  `--fix` — the matcher exists only once a setup file the lint cannot see registers it, and a fix
+  could turn a green test into `toHaveSignalValue is not a function`.
+- ESLint: `no-unasserted-argument` reads both spellings — `toBeCalled()` like `toHaveBeenCalled()` —
+  and counts `toBeCalledWith`, `toHaveBeenLastCalledWith`, `lastCalledWith`, `toHaveBeenNthCalledWith`,
+  `nthCalledWith` and `toHaveBeenCalledExactlyOnceWith` as an argument assertion.
+- ESLint: `prefer-provide-auto-spy`'s long-form autofix renames the orphaned import specifier in
+  place — `import { provideAutoSpy } from …` — when every reference was rewritten, instead of adding
+  a second import line and deleting the first.
+- `expectNoEmission()` reports an impossible quiet window instead of passing it silently:
+  `{ timeout: Infinity }` (also `NaN`, `-1`) rejects immediately, and a window above Node's 32-bit
+  timer limit is clamped to `2 ** 31 - 1` ms instead of overflowing to ~1 ms. A stream that errors
+  during a silence wait now says "the stream errored while it was expected to stay silent" instead
+  of the mislabeled "instead of emitting".
+
+### Fixed
+
+- `mockDeep` / `createAutoMock` doubles answer printer and serializer probe keys — `toJSON`,
+  `$$typeof`, `asymmetricMatch`, `nodeType`, `tagName`, `hasAttribute`, `@@__IMMUTABLE_RECORD__@@` —
+  with `undefined`, after the store, so a seed or an assignment still wins. A failure diff printed
+  the double itself instead of a `toJSON()` spy's answer, and `'toJSON' in node` reads `false`.
+  `createAutoMock`'s held-back diagnostics list the new reason.
+- Freezing a `mockDeep` node or an auto mock throws the library's own explanation — naming
+  `createSpyFromClass`, which supports `Object.freeze`, and the `{ ...double }` copy — instead of
+  the engine's invariant that names no library.
+- Prototype data constants keep their values on a class double: a name is a method only when the
+  prototype descriptor carries a function, so `Node.prototype.ELEMENT_NODE` or a class's own
+  `label = 'socket'` reads as the number and the string on the double, not as a spy.
+- `/setup`: stray listeners understand `addEventListener(type, fn, { signal })`. A listener its
+  `AbortSignal` takes off leaves the count the moment the signal aborts; a registration with an
+  already-aborted signal is never recorded; a hand `removeEventListener` drops the abort watch, so
+  re-adding the listener without the signal keeps it counted through a later abort. Code that
+  cleans up after itself via `AbortController` no longer fails
+  `expect(countStrayListeners()).toBe(0)` with a phantom stray.
+- `/setup`: stray-listener reports name the caller behind deep framework chains — the origin stack
+  cap rises from 12 to 40 frames, so a listener added through Angular's `Renderer2` chain plus zone
+  frames is reported at the component's line, not a zone internal.
+- `/setup`: `trackStrayTimers` no longer counts or cancels timers the DOM environment schedules for
+  itself, so under `environment: 'jsdom'` / `'happy-dom'` the interval jsdom runs
+  `requestAnimationFrame` on stops being a stray `setInterval 16.7 ms` — and stops being killed by
+  `cancelStrayTimers()`, which used to break the environment's frame loop for every later file.
+- `/setup`: `flushUnhandledObservableErrors()` no longer flushes a timer merely because its stack
+  passes through rxjs's `reportUnhandledError` — the callback's own source must match the rethrow
+  pattern, so an unrelated callback scheduled from inside that frame stays the stray timer it is.
+- `/setup`: past its 100-entry retention cap, the `strayRejections` guard reports the true total
+  ("… and N more, counted but not kept") and still fails a file whose every retained rejection was
+  already reported by the runner.
+- `/setup`: stray-timer delays round to one decimal in reports — `setInterval 16.7 ms`, not
+  `16.666666666666664 ms`.
+- `/setup`: the "was `setupAutoSpy()` called from a setup file" check works on Windows — stack
+  frames and configured `setupFiles` paths are normalized to forward slashes before matching.
+- `/setup`: `captureGlobalBaseline()` reads every getter once, not twice, and mutes
+  `process.emitWarning` around its own reads and the restore, so Node 25+'s "localStorage is not
+  available" no longer lands on whichever spec is running. A getter whose restore-time reads
+  disagree (happy-dom's `CSS` builds a fresh object per read) is marked unstable for good.
+- `/rxjs`: a `nextWith()` value buffered before `nextWithValues()` reconfigures is dropped — the
+  new configuration's stream, not the stale value replayed after it; `{ complete: true, delay }`
+  completes each subscriber's own branch, so an early subscriber no longer closes the shared
+  subject under later ones; `returnSubject()` after `nextWithValues()` publishes the configured
+  stream over the subject, and pushes to the returned subject land, until a later helper replaces
+  it.
+- `/observer-spy`: a plain-object stream error prints by its contents — `errored ({"status":404})`
+  instead of `[object Object]`; `Error`s, primitives and circular objects keep `String()`.
+- `/angular`, `/bun-angular`: `settleResource()` yields the event loop on a zone-unpatched timer,
+  so inside zone.js / `fakeAsync` the turn no longer sits in the zone's virtual queue waiting for a
+  `tick()`.
+- `/angular`: a destroyed effect throws "this effect has been destroyed" on nodes before Angular
+  20.1.6 too, and `mockSignalProp()`'s "already read" refusal reads the destroy trace that node's
+  Angular actually leaves — the per-shape internals check means one moved internal no longer breaks
+  a helper that never reads it.
+- `/jasmine`, `/jasmine-compat`: `.and.throwError(fn)` with a plain function throws the function
+  itself, as jasmine does — not `new fn()`. The message-string, `Error` and `(ErrorClass, message)`
+  forms are untouched.
+- `/jasmine`, `/jasmine-compat`: three `Spy<T>` type fixes — an `any`-returning method keeps the
+  full `.and` / `.calls` / `withArgs` helper bundle; an accessor spy is typed against the accessor
+  (a `number` getter's `.and.returnValue('x')` is now a compile error); an optional method is spied
+  like any other.
+- ESLint: `no-done-callback` flags the Jest-style `done` behind `it.only`, `test.concurrent`,
+  `it.concurrent.skip`, `it.skipIf` / `runIf` and `it.each(…)(…, (row, done) => …)` — done by name,
+  last of two or more parameters.
+- ESLint: `no-redundant-mock-reset` reads the runner config's text before calling a reset dead —
+  flags spelled only in comments or strings no longer count, and a config the text cannot settle
+  (`projects` / `workspace`, a flag written twice) reads as every flag off, so the rule stays silent
+  rather than delete a reset one project still needs. Readings are cached by mtime, so a
+  long-lived editor server picks up a config edit without a restart.
+- ESLint: `prefer-create-spy-from-class` stops reporting callback bags with no class behind them —
+  `{ onChange, onSubmit }`, `{ next, error, complete }`, and the `props` / `attrs` / `propsData`
+  object of `mount` / `shallowMount` / `render`.
+- ESLint: Angular-helper imports are inserted from `/bun-angular` in a file that already runs on
+  it — `injectSpy`, `setInputs`, `renderShallow`, `provideAutoSpy` — instead of `/angular`, which
+  loads `vitest`, a module a `bun:test` suite does not have.
+- ESLint: `no-redundant-as-instance` reports but no longer autofixes a spread or a commented
+  argument (TS2556, a dropped comment); `prefer-to-have-signal-value` no longer reports a received
+  call with arguments — a callable branded type invoked with arguments is a call, not a signal read.
+- CLI: a member that merely happens to be called `jest` / `jasmine` is left alone (`pkg.jest.fn`,
+  `win?.jasmine.any(1)`), lookup tables are prototype-less, and a cast to a type built from
+  `Spy<T>` (a union, an intersection, an array) is left alone with its own message instead of
+  wrapping `Spy<T>` alone into a bitwise expression.
+- CLI: inserted imports go below a shebang and the directive prologue (`'use strict'`,
+  `"use client"`), and `residue/…` findings point at the line in the source as it was read, not the
+  shifted post-rewrite position.
+- A RegExp `ignore` pattern in `guardDocumentPollution` (and the stray-console allowlist) matches
+  the same on every call: matched with `String.search`, a global or sticky RegExp no longer
+  alternates between hit and miss across checks.
+- `Object.defineProperty` on a proxy double merges like the language does: a redefinition naming
+  only `{ get }` keeps the setter already there, and a descriptor with no `value` keeps what the
+  key held instead of wiping it to `undefined`.
+
+- Angular 20.0.0–20.1.2, the bottom of the peer range: `provideHttpTesting()`,
+  `enableAngularDiagnostics()` and `mockSignalProp()` on a read-only signal no longer throw the
+  "Angular internals changed" error. The internals probe now checks only what each helper reads,
+  and accepts both reactive-node shapes (`liveConsumerNode` before 20.1.6, `consumers` after). CI
+  gained an exact `@angular/core@20.0.0` lane.
+- `/angular`: no false "TestBed dirty" report under `teardown: { destroyAfterEach: false }`, and
+  the `overrideComponentProvider` queue is dropped on every reset through the shared reset hook.
+- A class double keeps stable spies behind `Object.getOwnPropertyDescriptor` (classes of 8 or more
+  methods), so a shallow clone built from the descriptors shares the original's spies.
+- `/setup`: restoring Web Storage spies no longer reads `localStorage` loudly on Node 25+.
+- Types: a member typed `F | undefined`, `F | null` or optional is a spy, can be named in
+  `instanceMethodsToSpyOn` and the other lists, and `returns` accepts it; a nullable or optional
+  observable gets `nextWith` and can be named in `observablePropsToSpyOn`.
+- Types: `overload: 'first'` keeps the properties of a callable member, so a `WritableSignal` keeps
+  `set` / `update`. `Overloads` / `Overload` read up to 16 signatures in declaration order
+  (`HttpClient.get` has 15; it used to see the last 4), `Overload<F, N>` takes 0–15.
+- Types: `DeepPartial` keeps readonly arrays readonly and tuples at their length, a method returning
+  `never` is no longer typed as a promise spy, and `DeepMockProxy` goes on through optional and
+  nullable members.
+- CLI: rename tables no longer match `Object.prototype` keys — `obj.jest.toString()` is left alone
+  and `jest.constructor` no longer crashes the run; `--from toString` is rejected.
+- CLI: `perf` finds a Vitest hoisted to the workspace root.
+- CLI: `init` never overwrites or removes a target it could not read; it reports it as `failed`.
+  It keeps a CRLF file CRLF, and `--uninstall` removes the directories it emptied.
+- CLI: `--changed` refuses a path or a value starting with `-`; refs reach git after
+  `--end-of-options`. An empty value (`--only=`, `--cwd=`) is refused. A crash exits 2, not 1.
+- CLI: atomic writes refuse a read-only file instead of replacing it (also `codemod --write`).
+
+### Performance
+
+- `resetAutoSpy()` walks a lazy class double's record instead of its proxy traps — about 20× faster
+  on a 60-method class; about 40 % faster on a single spy and 37 % on an eager double.
+- `calledWith` lookups with object arguments are 20–40 % faster; keys of several primitives about
+  1.7×.
+- `mockDeep` shares one proxy handler between nodes: 42 % less memory per node.
+- The first spy of a large class no longer runs a regex over the whole class source.
+- `/setup`: stray-timer ignore verdicts are cached per timer; listener add / remove is O(1); the
+  frozen-clock and hook-timeout hints skip tests without errors.
+- `/nestjs`, `/console` and `/jasmine` load as 2–3 modules instead of 14–18: about 2.5–4 ms less
+  per spec file that imports them. Their own files grow (`nestjs.js` 4.5 → 142 kB, `console.js`
+  6.6 → 84 kB unminified) — the core they used to share through chunks is now inlined.
+- CLI: commands load on demand (the entry chunk drops from ~383 kB to ~25 kB, `--version` ~1.26×
+  faster); the codemod syntax check parses instead of transpiling, ~8× faster per file.
+- The CLI and the ESLint plugin are minified with names kept (CLI 513 → 324 kB, plugin 324 →
+  195 kB). Library entries stay unminified.
+- The npm tarball is ~20 % smaller: it ships the last ten changelog releases and the part of the
+  README npm renders, each linking to the full file on GitHub.
+- `package.json` declares `shared-state.js` as a side effect, and `jsdom` /
+  `@happy-dom/global-registrator` as optional peers for strict pnpm / Yarn layouts.
+
 ## [5.67.0] - 2026-11-07
 
 ### Added

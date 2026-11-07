@@ -145,7 +145,8 @@ describe('TaskService', () => {
 - **`resource()` with no single request.** Drive it and `await settleResource(r)`. It refuses a
   resource that is still `idle`, because an idle one never ran its loader.
 - **The request is not what the spec is about.** `mockResourceProp(service, 'products', [])` gives a
-  whole `ResourceRef` double: `set` / `fail` / `loading` / `idle` move it, `value` is writable,
+  whole `ResourceRef` double: `set` / `fail` / `loading` / `reloading` / `idle` move it (`loading()`
+  resets the value to the initial one, `reloading()` keeps it), `value` is writable,
   `hasValue()` follows Angular's rule, nothing is in flight. `value()` read after `fail()` **throws**
   (branch on `hasValue()` / `status()`, or assert with `toHaveResourceError()`), and `reload()`
   answers `false` while `idle` or `loading`.
@@ -416,8 +417,8 @@ use `createFunctionSpy` from the core and configure that value explicitly.
   `toHaveSignalValue(v)` after `registerSignalMatchers()` from `vitest-auto-spy/angular/matchers`
   (`toEqual` semantics; `toHaveSignalValue(v, { strict: true })` for `toStrictEqual`'s, or
   `registerSignalMatchers({ strict: true })` for the whole suite). The type-aware
-  `prefer-to-have-signal-value` lint rule rewrites `expect(sig()).toBe(v)`, `.toBeNull()` and
-  `.toBeUndefined()` into the matcher, except a `toBe` that checks an object's identity, which the
+  `prefer-to-have-signal-value` lint rule suggests the matcher for `expect(sig()).toBe(v)`, `.toBeNull()` and
+  `.toBeUndefined()` (an editor suggestion, not `--fix`), except a `toBe` that checks an object's identity, which the
   deep matcher cannot keep.
 - **Never assert a resource with `expect(r.value()).toEqual(...)` alone** — an unresolved resource
   still holds its _default_, so that passes while proving nothing. `toHaveResourceValue(v)` after
@@ -474,8 +475,9 @@ import { type Spy, createSpyFromClass, provideAutoSpy } from 'vitest-auto-spy/ja
 
 That entry registers the Vitest adapter and installs `.and`, `.calls` and `.withArgs` on every spy.
 `import { jasmine } from 'vitest-auto-spy/jasmine'` restores the whole `jasmine` namespace
-(`objectContaining`, `any`, `createSpyObj`, `clock()`, the eight matchers Vitest has no twin for);
-nothing is put on `globalThis`. On `bun test` / `node --test` / `rstest run` that entry cannot load — call
+(`objectContaining`, `any`, `createSpyObj`, `clock()`, `addMatchers` taking jasmine's own factory
+shape, the eight matchers Vitest has no twin for); nothing is put on `globalThis`. On
+`bun test` / `node --test` / `rstest run` that entry cannot load — call
 `enableJasmineCompat()` from `vitest-auto-spy/jasmine-compat` once, in a setup file, before any spy
 is built.
 
@@ -521,7 +523,7 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The fifty-seven rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The fifty-eight rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —

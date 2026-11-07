@@ -1099,8 +1099,12 @@ expect(component.emptyState()).toBe(true);
 products.set([product]); // status → 'resolved'
 expect(component.emptyState()).toBe(false);
 
-products.loading(); // status → 'loading', the value stays
+products.loading(); // status → 'loading', the value back at the initial one
 expect(component.spinner()).toBe(true);
+
+products.set([product]);
+products.reloading(); // status → 'reloading', the value stays
+expect(component.refreshing()).toBe(true);
 
 products.fail('offline'); // status → 'error', error() → Error('offline'), hasValue() → false
 expect(component.errorMessage()).toBe('offline');
@@ -1117,14 +1121,21 @@ there; for an error, call `fail()`, which takes the reason.
 The double is built from real `signal()`s, so a `computed()` reading `products.value()` recomputes
 and an `effect()` watching `products.status()` runs.
 
-| Handle member | What it does                                              |
-| ------------- | --------------------------------------------------------- |
-| `set(value)`  | resolve with a value; clears any error                    |
-| `fail(error)` | fail with an `Error` or a message string                  |
-| `loading()`   | put it back in flight, leaving the value alone            |
-| `idle()`      | back to before it ever ran, at the initial value          |
-| `reload`      | the spied `reload()`: assert the call; nothing is re-sent |
-| `resource`    | the installed double, for asserting on it directly        |
+| Handle member | What it does                                                     |
+| ------------- | ---------------------------------------------------------------- |
+| `set(value)`  | resolve with a value; clears any error                           |
+| `fail(error)` | fail with an `Error` or a message string                         |
+| `loading()`   | in flight for new params; the value goes back to the initial one |
+| `reloading()` | in flight for the same params; the value stays                   |
+| `idle()`      | back to before it ever ran, at the initial value                 |
+| `reload`      | the spied `reload()`: assert the call; nothing is re-sent        |
+| `resource`    | the installed double, for asserting on it directly               |
+
+`loading()` and `reloading()` are the two ways a real resource goes back in flight. New params
+(`loading()`) drop the value back to the initial one, because a real resource reads its
+`defaultValue` until the new request answers; with `undefined` as the initial value, `hasValue()` is
+`false` meanwhile. `reload()` on the same params (`reloading()`) keeps the last value on screen. A
+spec that expects the old list to stay visible while loading wants `reloading()`.
 
 The property holds a whole `ResourceRef`, because code under test uses both halves (for example
 `asReadonly()`, or an optimistic update written through the resource). Each member behaves like
@@ -1214,7 +1225,8 @@ count. `{ strict: true }` compares like `toStrictEqual`. To make every `toHaveSi
 call `registerSignalMatchers({ strict: true })`; one assertion can opt out with `{ strict: false }`.
 
 The ESLint rule [`prefer-to-have-signal-value`](/utilities/eslint-rules#prefer-to-have-signal-value)
-rewrites `expect(component.total()).toBe(3)` into the matcher.
+flags `expect(component.total()).toBe(3)` and suggests the matcher; it is an editor suggestion, not
+an `--fix`.
 
 **Common mistakes:**
 

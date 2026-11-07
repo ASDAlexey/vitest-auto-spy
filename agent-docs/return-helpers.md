@@ -102,8 +102,11 @@ matcher — or a function — anywhere inside it is compared structurally rather
 `Map` value or a `Set` member. The same comparison decides the rest of an argument's shape, so it is
 worth knowing what it treats as equal: `Map` and `Set` are compared **without regard to insertion
 order**, a `Date` by its time, a `RegExp` by its source and flags, an `Error` by its `name` and
-`message` plus its own enumerable fields, a function by identity, and symbol-keyed properties
-participate like string ones. Cycles are handled, so a component graph with a back-edge is a legal
+`message` plus its own enumerable fields, a `URL` by `href`, a boxed primitive by its value, a typed
+array by its class and elements, a function by identity, and symbol-keyed properties participate
+like string ones. As in `toHaveBeenCalledWith`, a string-keyed property holding `undefined` counts as
+absent (`calledWith({ id: 1 })` answers `{ id: 1, query: undefined }`) and an array hole equals
+`undefined`; the same holds for exact (non-matcher) configs. Cycles are handled, so a component graph with a back-edge is a legal
 argument. `mustBeCalledWith` uses the same map, and its `Wanted:` line renders a matcher as
 `Any<Number>` rather than as the object it serialises to. With one config set up, its first line
 names the first argument that differs — `argument 2: expected 'eu', got 'us'` — and it names the

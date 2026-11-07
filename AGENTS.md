@@ -106,7 +106,7 @@ Add-ons, orthogonal to the runner:
 | Signal forms | `vitest-auto-spy/signal-forms` | `createForm`, `registerFormMatchers` — a signal form built where `form()` can inject, and `toHaveFieldErrors` over what it produced (§13). Optional `@angular/forms` peer, this entry only; Angular 22+ |
 | Setup helpers | `vitest-auto-spy/setup` | `setupAutoSpy()`, `setupFakeTimers()`, `withFakeTimers()`, `blockNetwork()`, `stubResponse()`; the entry imports Vitest, so it is not for `bun test` |
 | Zone patch | `import 'vitest-auto-spy/zone'` | `fakeAsync` / `waitForAsync` on Vitest (§14) |
-| jasmine compat | `vitest-auto-spy/jasmine` | `.and` / `.calls` / `.withArgs`, the `jasmine` namespace (§20) |
+| jasmine compat | `vitest-auto-spy/jasmine` | `.and` / `.calls` / `.withArgs`, the `jasmine` namespace — `addMatchers` included, taking jasmine's own factory shape (§20) |
 
 **Runner limits of two add-ons.** `/jasmine` and `/setup` import Vitest, so they are Vitest-only.
 
