@@ -29,7 +29,7 @@ export interface ObservableSupport {
    * `ReplaySubject`'s buffer is configuration, and a spy that outlives a test must not carry it into
    * the next one. A spy nobody configured a stream on never builds one and has nothing to reset.
    */
-  streamForFunctionSpy(valueContainer: ReturnValueContainer): ObservableStream;
+  streamForFunctionSpy(valueContainer: ReturnValueContainer, name?: string): ObservableStream;
   addToCalledWithObject(calledWithObject: CalledWithObject, calledWithArgs: unknown[]): void;
   /** `name` — `Class.property` — is what a late `nextWithValues` report calls the property. */
   createPropSpy(onUnfedSubscription?: UnfedSubscriptionListener, name?: string): object;
