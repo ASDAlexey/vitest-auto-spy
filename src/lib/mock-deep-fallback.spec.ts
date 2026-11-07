@@ -44,7 +44,7 @@ describe('mockDeep({ fallbackMockImplementation })', () => {
   it('records the call it answered', () => {
     const db = mockDeep<Db>({}, { fallbackMockImplementation: notMocked });
 
-    expect(() => db.user.count()).toThrow();
+    expect(() => db.user.count()).toThrow('not mocked');
     expect(db.user.count).toHaveBeenCalledTimes(1);
   });
 
