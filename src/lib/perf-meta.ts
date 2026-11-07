@@ -4,6 +4,11 @@ import type { GuardRegistry } from './guard-registry';
 const META_KEY = 'autoSpyMs';
 const MEASURING_ENV = 'VITEST_AUTO_SPY_PERF_OUT';
 
+// A teardown restores the spec's performance spy or fake timers before our stop step. Read both
+// endpoints from the same original clock, as the TestBed diagnostics do, rather than subtracting
+// a fake timestamp from the real worker uptime (or consuming the spec's mock return values).
+const now: () => number = performance.now.bind(performance);
+
 function measuring(): boolean {
   const target = globalThis.process?.env?.[MEASURING_ENV];
 
@@ -32,10 +37,10 @@ export function timeGuardHooks(registry: GuardRegistry, enabled: boolean = measu
 
   let started = 0;
   const start = (): void => {
-    started = performance.now();
+    started = now();
   };
   const stop = (context: unknown): void => {
-    charge(context, performance.now() - started);
+    charge(context, now() - started);
   };
 
   registry.open.unshift(start);

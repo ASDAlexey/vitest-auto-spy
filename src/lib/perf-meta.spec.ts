@@ -14,6 +14,32 @@ const registryWith = (): GuardRegistry => ({ open: [() => undefined], teardown: 
 const contextOf = (meta: Record<string, unknown>): { task: { meta: Record<string, unknown> } } => ({ task: { meta } });
 
 describe('timeGuardHooks', () => {
+  it('keeps one real clock when teardown restores a mocked performance.now', () => {
+    const registry = registryWith();
+    const meta: Record<string, unknown> = {};
+    const mockedNow = vi.spyOn(performance, 'now').mockReturnValue(-1_000_000_000);
+
+    registry.teardown.push(() => mockedNow.mockRestore());
+    timeGuardHooks(registry, true);
+    runTeardown(registry.teardown, contextOf(meta));
+
+    expect(meta['autoSpyMs']).toBeGreaterThanOrEqual(0);
+    expect(meta['autoSpyMs']).toBeLessThan(1_000);
+  });
+
+  it('keeps one real clock when teardown restores a replaced performance object', () => {
+    const registry = registryWith();
+    const meta: Record<string, unknown> = {};
+
+    vi.stubGlobal('performance', { now: () => -1_000_000_000 });
+    registry.teardown.push(() => vi.unstubAllGlobals());
+    timeGuardHooks(registry, true);
+    runTeardown(registry.teardown, contextOf(meta));
+
+    expect(meta['autoSpyMs']).toBeGreaterThanOrEqual(0);
+    expect(meta['autoSpyMs']).toBeLessThan(1_000);
+  });
+
   it('adds nothing to a run that is not being measured', () => {
     const registry = registryWith();
 
