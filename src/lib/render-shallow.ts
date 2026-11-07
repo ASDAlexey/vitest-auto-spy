@@ -26,6 +26,7 @@ import { type ComponentFixture, TestBed, type TestModuleMetadata } from '@angula
 
 import { resolveInputs } from './angular-inputs';
 import { withTestBedSplitExplained } from './angular-testbed-split';
+import { createComponentStub } from './component-stub';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { sourceClassName } from './message-text';
@@ -252,22 +253,63 @@ function exportedScope(module: unknown, into: Set<unknown>, visited: Set<unknown
   });
 }
 
-/** The kept list with each named module standing in for the declarations it exports. */
-function withModulesRestored(kept: Type<unknown>[], modules: Type<unknown>[]): Type<unknown>[] {
-  if (modules.length === 0) {
-    return kept;
-  }
-
+/** Everything the named modules export, through the modules they re-export. */
+function scopeOf(modules: Type<unknown>[]): Set<unknown> {
   const covered = new Set<unknown>();
   const visited = new Set<unknown>();
 
   modules.forEach((module) => exportedScope(module, covered, visited));
 
-  return [...kept.filter((dependency) => !covered.has(dependency)), ...modules];
+  return covered;
+}
+
+/** The kept list with each named module standing in for the declarations it exports. */
+function withModulesRestored(kept: Type<unknown>[], modules: Type<unknown>[], covered: Set<unknown>): Type<unknown>[] {
+  return modules.length === 0 ? kept : [...kept.filter((dependency) => !covered.has(dependency)), ...modules];
+}
+
+/** Angular's own test for a custom form control: a `value` or `checked` input paired with its `*Change` output. */
+function isCustomControl(child: Type<unknown>): boolean {
+  const definition = Object(Reflect.get(child, 'ɵcmp'));
+  const inputs = Object(Reflect.get(definition, 'inputs'));
+  const outputs = Object(Reflect.get(definition, 'outputs'));
+
+  return CONTROL_MODELS.some((name) => Object.hasOwn(inputs, name) && Object.hasOwn(outputs, `${name}Change`));
+}
+
+const CONTROL_MODELS = ['value', 'checked'] as const;
+
+/** One stand-in per control class, so a suite compiles each stub once instead of once per render. */
+const CONTROL_STAND_INS = new WeakMap<Type<unknown>, Type<unknown>>();
+
+function controlStandIn(child: Type<unknown>): Type<unknown> {
+  const stub = CONTROL_STAND_INS.get(child) ?? createComponentStub(child);
+
+  CONTROL_STAND_INS.set(child, stub);
+
+  return stub;
+}
+
+function selectorsOf(dependency: Type<unknown>): string {
+  return JSON.stringify(Reflect.get(Object(Reflect.get(dependency, 'ɵcmp')), 'selectors'));
 }
 
 /**
- * The imports a kept template still needs: its own, minus the children, plus the ones named to stay.
+ * Stand-ins for the dropped children that are custom form controls.
+ *
+ * A kept `[formField]` (signal forms) asks the element it sits on for a `value` or `checked` model and
+ * throws `NG01914` on a bare tag. The stand-in carries the child's inputs, outputs and models and
+ * nothing else, so the binding has a host and the form still reads and writes through it.
+ */
+function controlStandIns(dropped: Type<unknown>[], keepChildren: readonly Type<unknown>[]): Type<unknown>[] {
+  const keptSelectors = new Set(keepChildren.map(selectorsOf));
+
+  return dropped.filter((child) => isCustomControl(child) && !keptSelectors.has(selectorsOf(child))).map(controlStandIn);
+}
+
+/**
+ * The imports a kept template still needs: its own, minus the children, plus the ones named to stay,
+ * plus a stand-in for every dropped child that is a custom form control.
  *
  * A child re-exported by an imported `NgModule` survives this under JIT — the module is kept whole,
  * because dropping it would take the pipes and directives it exports with it. Under AOT there is no
@@ -275,12 +317,18 @@ function withModulesRestored(kept: Type<unknown>[], modules: Type<unknown>[]): T
  * Angular refuse a flattened declaration with a message aimed at its author.
  */
 function keptScope<T>(component: Type<unknown>, definition: object, options: RenderShallowOptions<T>): Type<unknown>[] {
+  const dependencies = importsOf(definition);
+  const modules = options.keepModules ?? NOTHING;
+  const keepChildren = options.keepChildren ?? NOTHING;
+  const covered = scopeOf(modules);
   const kept = withModulesRestored(
-    importsOf(definition).filter((dependency) => !isChildComponent(dependency)),
-    options.keepModules ?? NOTHING,
+    dependencies.filter((dependency) => !isChildComponent(dependency)),
+    modules,
+    covered,
   );
+  const dropped = dependencies.filter((dependency) => isChildComponent(dependency) && !covered.has(dependency));
 
-  kept.push(...(options.keepChildren ?? NOTHING));
+  kept.push(...keepChildren, ...controlStandIns(dropped, keepChildren));
   assertScopeIsImportable(component, kept, options.imports ?? NOTHING);
 
   return kept;

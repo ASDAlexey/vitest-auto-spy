@@ -17,17 +17,20 @@ import {
   inject,
   input,
   makeEnvironmentProviders,
+  model,
   signal,
   ɵNG_COMP_DEF,
   ɵNG_MOD_DEF,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { FormControl, FormsModule, ReactiveFormsModule } from '@angular/forms';
+import { FormField, FormRoot, form, required } from '@angular/forms/signals';
 import { By } from '@angular/platform-browser';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { injectSpy, provideAutoSpy } from '../angular';
 import { disableAngularDiagnostics, enableAngularDiagnostics } from '../angular-diagnostics';
+import { createComponentStub } from './component-stub';
 import { prepareShallow, renderShallow } from './render-shallow';
 import { createKeepModuleOptions } from './render-shallow.mock';
 import { registerSignalMatchers } from './signal-matchers';
@@ -576,3 +579,119 @@ describe('keepTemplate on a module-declared component', () => {
     }
   });
 });
+
+let controlInstances = 0;
+
+@Component({ selector: 'app-text-control', template: '<input />' })
+class TextControlComponent {
+  readonly value = model('');
+  readonly placeholder = input('');
+
+  constructor() {
+    controlInstances += 1;
+  }
+}
+
+@Component({ selector: 'app-toggle-control', template: '' })
+class ToggleControlComponent {
+  readonly checked = model(false);
+
+  constructor() {
+    controlInstances += 1;
+  }
+}
+
+@Component({
+  selector: 'app-signal-form',
+  imports: [FormRoot, FormField, TextControlComponent, ToggleControlComponent, ChildComponent],
+  template: `
+    <form [formRoot]="connectForm">
+      <app-text-control placeholder="Code" [formField]="connectForm.code" />
+      <app-toggle-control [formField]="connectForm.remember" />
+      <app-child />
+      <button type="submit" [disabled]="connectForm().invalid()">Go</button>
+    </form>
+  `,
+})
+class SignalFormComponent {
+  readonly connectForm = form(signal({ code: '', remember: false }), (path) => required(path.code));
+}
+
+describe('keepTemplate over a signal form bound to child controls', () => {
+  beforeEach(() => {
+    controlInstances = 0;
+  });
+
+  it('renders the [formField] hosts as stand-ins carrying the real value/checked models', () => {
+    const { fixture, component } = renderShallow(SignalFormComponent, { keepTemplate: true });
+    const text = fixture.debugElement.query(By.css('app-text-control')).componentInstance;
+    const toggle = fixture.debugElement.query(By.css('app-toggle-control')).componentInstance;
+
+    expect(controlInstances).toBe(0);
+    expect(childInstances).toBe(0);
+    expect(text.placeholder()).toBe('Code');
+    expect(fixture.nativeElement.querySelector('button').disabled).toBe(true);
+
+    text.value.set('1234');
+    toggle.checked.set(true);
+    fixture.detectChanges();
+
+    expect(component.connectForm.code().value).toHaveSignalValue('1234');
+    expect(component.connectForm.remember().value).toHaveSignalValue(true);
+    expect(fixture.nativeElement.querySelector('button').disabled).toBe(false);
+  });
+
+  it('writes the model value into the stand-in', () => {
+    const { fixture, component } = renderShallow(SignalFormComponent, { keepTemplate: true });
+
+    component.connectForm.code().value.set('42');
+    fixture.detectChanges();
+
+    expect(fixture.debugElement.query(By.css('app-text-control')).componentInstance.value()).toBe('42');
+  });
+
+  it('keeps the real control instead of a stand-in when it is named in keepChildren', () => {
+    renderShallow(SignalFormComponent, { keepTemplate: true, keepChildren: [TextControlComponent] });
+
+    expect(controlInstances).toBe(1);
+  });
+
+  it('takes a stand-in named in keepChildren in place of its own', () => {
+    const TextControlStub = createComponentStub(TextControlComponent);
+    const { fixture } = renderShallow(SignalFormComponent, { keepTemplate: true, keepChildren: [TextControlStub] });
+
+    expect(fixture.debugElement.query(By.directive(TextControlStub))).not.toBeNull();
+  });
+
+  it('keeps a module-declared control real when AOT flattened its module and the module is named', () => {
+    const definition = Reflect.get(ModuleControlFormComponent, ɵNG_COMP_DEF) as Record<string, unknown>;
+    const compiled = definition['dependencies'];
+
+    definition['dependencies'] = [FormField, ModuleControlComponent];
+
+    try {
+      const { fixture } = renderShallow(ModuleControlFormComponent, { keepTemplate: true, keepModules: [ControlModule] });
+
+      expect(fixture.debugElement.query(By.directive(ModuleControlComponent))).not.toBeNull();
+    } finally {
+      definition['dependencies'] = compiled;
+    }
+  });
+});
+
+@Component({ selector: 'app-module-control', template: '', standalone: false })
+class ModuleControlComponent {
+  readonly value = model('');
+}
+
+@NgModule({ declarations: [ModuleControlComponent], exports: [ModuleControlComponent] })
+class ControlModule {}
+
+@Component({
+  selector: 'app-module-control-form',
+  imports: [FormField, ControlModule],
+  template: '<app-module-control [formField]="draft.code" />',
+})
+class ModuleControlFormComponent {
+  readonly draft = form(signal({ code: '' }));
+}
