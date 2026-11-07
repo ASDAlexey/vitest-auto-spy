@@ -48,6 +48,61 @@ describe('createDomEvent', () => {
   });
 });
 
+describe('createDomEvent with spy: true', () => {
+  it('records the cancelling calls and still cancels the event', () => {
+    const event = createDomEvent('keydown', { spy: true });
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
+    expect(event.stopImmediatePropagation).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('still stops the event from reaching the parent on a real dispatch', () => {
+    const parent = document.createElement('div');
+    const child = parent.appendChild(document.createElement('button'));
+    const event = createDomEvent('click', { spy: true });
+    const onParent = vi.fn();
+
+    child.addEventListener('click', () => {
+      event.stopPropagation();
+    });
+    parent.addEventListener('click', onParent);
+    child.dispatchEvent(event);
+
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
+    expect(onParent).not.toHaveBeenCalled();
+  });
+
+  it('stops other listeners through stopImmediatePropagation on a real dispatch', () => {
+    const target = document.createElement('button');
+    const event = createDomEvent('click', { spy: true });
+    const later = vi.fn();
+
+    target.addEventListener('click', () => {
+      event.stopImmediatePropagation();
+    });
+    target.addEventListener('click', later);
+    target.dispatchEvent(event);
+
+    expect(event.stopImmediatePropagation).toHaveBeenCalledOnce();
+    expect(later).not.toHaveBeenCalled();
+  });
+
+  it('keeps targets and leaves an event without the option unspied', () => {
+    const target = createElementStub().element;
+    const spied = createDomEvent('blur', { spy: true, target, cancelable: false });
+
+    spied.preventDefault();
+    expect(spied.target).toBe(target);
+    expect(spied.defaultPrevented).toBe(false);
+    expect(Object.hasOwn(createDomEvent('blur', { spy: false }), 'preventDefault')).toBe(false);
+  });
+});
+
 describe('createInputEvent', () => {
   it('replaces the local input-event factory with a typed input target', () => {
     const event = createInputEvent('12a');
