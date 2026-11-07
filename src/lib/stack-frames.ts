@@ -1,3 +1,5 @@
+import type { Func } from './types';
+
 const FOREIGN_FRAME = /node_modules|node:internal|\(node:/;
 
 /**
@@ -9,9 +11,12 @@ const LIBRARY_FRAME = /[/\\]vitest-auto-spy[/\\]dist[/\\]|[/\\]\.vite[/\\]deps[^
 /** The `vi.defineHelper` wrapper around this package's trackers: it is inside Vitest, not the caller. */
 const HELPER_FRAME = /\b__VITEST_HELPER__\b/;
 
+/** {@link captureStack} itself, which only shows up where the runtime has no `captureStackTrace`. */
+const CAPTURE_FRAME = /\bcaptureStack\b.*[/\\]stack-frames\.[jt]s:/;
+
 /** This package's built code, or the `vi.defineHelper` wrapper Vitest puts around it. */
 export function isLibraryFrame(frame: string): boolean {
-  return LIBRARY_FRAME.test(frame) || HELPER_FRAME.test(frame);
+  return LIBRARY_FRAME.test(frame) || HELPER_FRAME.test(frame) || CAPTURE_FRAME.test(frame);
 }
 
 /** The `at …` lines of a V8 stack, trimmed; a stack in another format yields none. */
@@ -33,4 +38,36 @@ export function ownFrames(frames: readonly string[], limit: number): string[] {
   const shown = [own, outside].find((candidates) => candidates.length > 0) ?? frames;
 
   return shown.slice(0, limit);
+}
+
+/** The DOM environments' own packages; `@asamuzakjp/dom-selector` is jsdom's selector engine. */
+const ENVIRONMENT_FRAME = /[/\\]node_modules[/\\](?:jsdom|happy-dom|@asamuzakjp[/\\][^/\\]+)[/\\]/;
+
+/** A frame inside jsdom or happy-dom: the environment's own housekeeping, which belongs to no spec file. */
+export function isEnvironmentFrame(frame: string): boolean {
+  return ENVIRONMENT_FRAME.test(frame);
+}
+
+/**
+ * The stack above `boundary`, up to `depth` frames, taken now and formatted only when read. A plain
+ * holder where V8 allows, which skips building the string until a report asks for it.
+ */
+export function captureStack(boundary: Func, depth: number): { stack?: string } {
+  const limit = Error.stackTraceLimit;
+
+  Error.stackTraceLimit = depth;
+
+  try {
+    if (typeof Error.captureStackTrace !== 'function') {
+      return new Error();
+    }
+
+    const holder: { stack?: string } = {};
+
+    Error.captureStackTrace(holder, boundary);
+
+    return holder;
+  } finally {
+    Error.stackTraceLimit = limit;
+  }
 }
