@@ -69,12 +69,15 @@ export function runnerAroundEach(runner: object = vitest): AroundEach | undefine
 /**
  * The teardown hook, and the net that catches the run where it never happened.
  *
- * Vitest runs `afterEach` hooks in reverse registration order, so the setup file's runs last, and a
+ * Vitest runs `afterEach` hooks in reverse registration order under the default `sequence.hooks:
+ * 'stack'`, so the setup file's runs last — {@link noticeHookOrder} speaks up otherwise — and a
  * spec's `afterEach` that throws skips it: the patches stay and the next test reads them. The net
  * runs after the whole `afterEach` chain whatever it did — from `aroundEach` where the runner has it,
  * else from a per-test `onTestFinished`, which costs a stack capture per test.
  */
 export function installTeardown(registry: GuardRegistry, documents?: DocumentWatch, runner: object = vitest): void {
+  noticeHookOrder();
+
   const around = runnerAroundEach(runner);
   const ledger = createTeardownLedger();
   // One full explanation per file: a run where every test's hooks throw repeated it hundreds of times.
@@ -205,6 +208,44 @@ export function createTeardownLedger(): TeardownLedger {
       return entry;
     },
   };
+}
+
+declare global {
+  // A `globalThis` augmentation has to be declared with `var`.
+  var __vitestAutoSpyHookOrderNoticed__: boolean | undefined;
+}
+
+/** Exported for its spec. */
+export function describeHookOrder(order: 'list' | 'parallel'): string {
+  const effect =
+    order === 'list'
+      ? "runs the setup file's afterEach before a spec's own, so setupAutoSpy() puts mock*Prop patches, the console and " +
+        "the stubs back before the spec's afterEach reads them"
+      : "runs every afterEach at once, so setupAutoSpy()'s teardown races a spec's own afterEach";
+
+  return withDocs(
+    `[vitest-auto-spy] sequence.hooks is '${order}': Vitest ${effect}.\n` +
+      "Drop sequence.hooks from the Vitest config: the default 'stack' runs the setup file's teardown last. Said once per worker.",
+    DOCS_LINKS.setupHookOrder,
+  );
+}
+
+/**
+ * Say once per worker that the configured hook order runs the teardown too early. Read off
+ * `__vitest_worker__`, since the resolved config is on no public export. Exported for its spec.
+ */
+export function noticeHookOrder(
+  worker: unknown = Reflect.get(globalThis, '__vitest_worker__'),
+  write: (message: string) => void = libraryWarn,
+): void {
+  const order: unknown = Reflect.get(Object(Reflect.get(Object(Reflect.get(Object(worker), 'config')), 'sequence')), 'hooks');
+
+  if (globalThis.__vitestAutoSpyHookOrderNoticed__ === true || (order !== 'list' && order !== 'parallel')) {
+    return;
+  }
+
+  globalThis.__vitestAutoSpyHookOrderNoticed__ = true;
+  write(describeHookOrder(order));
 }
 
 let warnedAboutConcurrency = false;
