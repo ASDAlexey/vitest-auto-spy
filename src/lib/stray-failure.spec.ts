@@ -65,6 +65,9 @@ describe('describeStrayTimer and describeStrayListener', () => {
     expect(
       describeStrayTimer({ kind: 'interval', delay: 10, file: '/r/b.spec.ts', frames: [], outsideTest: 'import' }, '/r/a.spec.ts'),
     ).toBe('setInterval 10 ms, scheduled while the file was imported, in /r/b.spec.ts');
+    expect(describeStrayTimer({ kind: 'interval', delay: 1000 / 60, file: undefined, frames: [] })).toBe(
+      'setInterval 16.7 ms, outside any spec file',
+    );
     expect(describeStrayTimer({ kind: 'frame', file: undefined, frames: [], outsideTest: 'hook' })).toBe(
       'requestAnimationFrame, scheduled outside any test (a beforeAll, an afterAll or a late callback), outside any spec file',
     );

@@ -98,7 +98,12 @@ function describeOrigin(what: string, verb: string, origin: Origin, reportFile: 
 export function describeStrayTimer(timer: StrayTimer, reportFile?: string): string {
   const name = TIMER_NAMES[timer.kind];
 
-  return describeOrigin(timer.delay === undefined ? name : `${name} ${timer.delay} ms`, 'scheduled', timer, reportFile);
+  return describeOrigin(
+    timer.delay === undefined ? name : `${name} ${Math.round(timer.delay * 10) / 10} ms`,
+    'scheduled',
+    timer,
+    reportFile,
+  );
 }
 
 /** `keydown on document, added in "dialog > opens" at open (src/dialog.ts:8:3)`, the first frame only. */
