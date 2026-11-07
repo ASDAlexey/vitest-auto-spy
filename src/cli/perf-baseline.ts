@@ -49,6 +49,12 @@ export interface PerfBaseline {
   readonly median: number;
   /** Repository-relative path → that file's test-body time as a multiple of the run's median. */
   readonly files: Readonly<Record<string, number>>;
+  /**
+   * Repository-relative path → full test name → that body's time on the same scale. Only the bodies
+   * the reporter recorded, which are the ones over its 100 ms floor. Absent from a baseline an older
+   * release recorded, which then knows no test body as debt.
+   */
+  readonly tests?: Readonly<Record<string, Readonly<Record<string, number>>>>;
 }
 
 /** One file that got slower relative to its own run, which is the only kind of slower that travels. */
@@ -116,16 +122,21 @@ export function buildBaseline(run: PerfRun, cwd: string): PerfBaseline {
   const measured = measuredFiles(run, cwd);
   const median = medianFileMs(measured.values());
   const files: Record<string, number> = {};
+  const tests: Record<string, Record<string, number>> = {};
 
   if (median > 0) {
     for (const [path, file] of measured) {
       if (hasRun(file)) {
         files[path] = roundRatio(file.tests / median);
       }
+
+      if (hasRun(file) && file.cases.length > 0) {
+        tests[path] = Object.fromEntries(file.cases.map((entry) => [entry.name, roundRatio(entry.ms / median)]));
+      }
     }
   }
 
-  return { version: PERF_BASELINE_VERSION, median: Math.round(median), files };
+  return { version: PERF_BASELINE_VERSION, median: Math.round(median), files, ...(Object.keys(tests).length === 0 ? {} : { tests }) };
 }
 
 /**
@@ -133,13 +144,42 @@ export function buildBaseline(run: PerfRun, cwd: string): PerfBaseline {
  * reorders itself produces a diff on every run and stops being reviewed.
  */
 export function formatBaseline(baseline: PerfBaseline): string {
-  const files: Record<string, number> = {};
+  const files = sortedRecord(baseline.files);
+  const tests =
+    baseline.tests === undefined
+      ? undefined
+      : Object.fromEntries(Object.entries(sortedRecord(baseline.tests)).map(([path, bodies]) => [path, sortedRecord(bodies)]));
 
-  for (const [path, ratio] of Object.entries(baseline.files).sort(([a], [b]) => a.localeCompare(b))) {
-    files[path] = ratio;
+  return `${JSON.stringify({ version: baseline.version, median: baseline.median, files, ...(tests === undefined ? {} : { tests }) }, undefined, 2)}\n`;
+}
+
+function sortedRecord<T>(record: Readonly<Record<string, T>>): Record<string, T> {
+  return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/** The `tests` block of a baseline or a history line, each ratio checked like a file's; `undefined` when there is none. */
+export function parseTestRatios(value: unknown): Record<string, Record<string, number>> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
   }
 
-  return `${JSON.stringify({ version: baseline.version, median: baseline.median, files }, undefined, 2)}\n`;
+  const tests: Record<string, Record<string, number>> = {};
+
+  for (const [path, bodies] of Object.entries(value)) {
+    const kept = isRecord(bodies)
+      ? Object.entries(bodies).flatMap(([name, ratio]): [string, number][] => {
+          const valid = ratioOf(ratio);
+
+          return valid === undefined ? [] : [[name, valid]];
+        })
+      : [];
+
+    if (kept.length > 0) {
+      tests[path] = Object.fromEntries(kept);
+    }
+  }
+
+  return Object.keys(tests).length === 0 ? undefined : tests;
 }
 
 /**
@@ -165,7 +205,9 @@ export function parseBaseline(text: string): PerfBaseline | undefined {
     }
   }
 
-  return { version: PERF_BASELINE_VERSION, median: numberAt(parsed, 'median') ?? 0, files };
+  const tests = parseTestRatios(parsed['tests']);
+
+  return { version: PERF_BASELINE_VERSION, median: numberAt(parsed, 'median') ?? 0, files, ...(tests === undefined ? {} : { tests }) };
 }
 
 /** The baseline at `path`, or `undefined` when there is no readable one there. */

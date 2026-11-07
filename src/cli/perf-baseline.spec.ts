@@ -25,6 +25,7 @@ import {
   buildBaseline,
   formatBaseline,
   parseBaseline,
+  parseTestRatios,
   readBaseline,
   writeBaseline,
 } from './perf-baseline';
@@ -109,6 +110,25 @@ describe('buildBaseline', () => {
     expect(empty).toEqual({ version: PERF_BASELINE_VERSION, median: 0, files: {} });
     expect(buildBaseline(run({ files: [] }), ROOT).files).toEqual({});
   });
+
+  it('records the test bodies the reporter named, on the same scale as the files', () => {
+    const baseline = buildBaseline(
+      run({
+        files: [
+          ...ordinary(ROOT),
+          file(join(ROOT, 'src/slow.spec.ts'), { tests: 300, cases: [{ name: 'loads', ms: 250 }] }),
+          file(join(ROOT, 'src/skipped.spec.ts'), { ...NO_TEST_BODY, cases: [{ name: 'never ran', ms: 900 }] }),
+        ],
+      }),
+      ROOT,
+    );
+
+    expect(baseline.tests).toEqual({ 'src/slow.spec.ts': { loads: 2.5 } });
+  });
+
+  it('leaves the test bodies out when no file recorded one', () => {
+    expect(buildBaseline(run({ files: ordinary(ROOT) }), ROOT)).not.toHaveProperty('tests');
+  });
 });
 
 describe('formatBaseline', () => {
@@ -132,6 +152,41 @@ describe('formatBaseline', () => {
 
   it('round-trips through parseBaseline unchanged', () => {
     const baseline = baselineOf({ 'src/a.spec.ts': 1.5 }, 240);
+
+    expect(parseBaseline(formatBaseline(baseline))).toEqual(baseline);
+  });
+
+  it('sorts the test bodies by path and by name after the files', () => {
+    const text = formatBaseline({
+      ...baselineOf({ 'src/a.spec.ts': 1 }),
+      tests: { 'src/b.spec.ts': { zeta: 2, alpha: 1 }, 'src/a.spec.ts': { only: 3 } },
+    });
+
+    expect(text).toBe(
+      [
+        '{',
+        '  "version": 1,',
+        '  "median": 100,',
+        '  "files": {',
+        '    "src/a.spec.ts": 1',
+        '  },',
+        '  "tests": {',
+        '    "src/a.spec.ts": {',
+        '      "only": 3',
+        '    },',
+        '    "src/b.spec.ts": {',
+        '      "alpha": 1,',
+        '      "zeta": 2',
+        '    }',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('round-trips the test bodies through parseBaseline unchanged', () => {
+    const baseline: PerfBaseline = { ...baselineOf({ 'src/a.spec.ts': 1.5 }, 240), tests: { 'src/a.spec.ts': { loads: 1.25 } } };
 
     expect(parseBaseline(formatBaseline(baseline))).toEqual(baseline);
   });
@@ -163,6 +218,33 @@ describe('parseBaseline', () => {
   it('falls back to a median of 0 when the recorded one is absent or not a number', () => {
     expect(parseBaseline('{ "version": 1, "files": {} }')?.median).toBe(0);
     expect(parseBaseline('{ "version": 1, "median": 1e999, "files": {} }')?.median).toBe(0);
+  });
+
+  it('reads the test bodies, and leaves them out when there are none worth keeping', () => {
+    expect(parseBaseline('{ "version": 1, "median": 1, "files": {}, "tests": { "a": { "x": 2 } } }')?.tests).toEqual({ a: { x: 2 } });
+    expect(parseBaseline('{ "version": 1, "median": 1, "files": {}, "tests": { "a": { "x": -1 } } }')).not.toHaveProperty('tests');
+    expect(parseBaseline('{ "version": 1, "median": 1, "files": {} }')).not.toHaveProperty('tests');
+  });
+});
+
+describe('parseTestRatios', () => {
+  it('keeps every finite non-negative ratio and drops the rest', () => {
+    expect(parseTestRatios({ 'a.spec.ts': { kept: 1.5, zero: 0, negative: -1, text: '2', infinite: Infinity } })).toEqual({
+      'a.spec.ts': { kept: 1.5, zero: 0 },
+    });
+  });
+
+  it('drops a path whose bodies are not a map, or whose every ratio was dropped', () => {
+    expect(parseTestRatios({ 'a.spec.ts': [1], 'b.spec.ts': 3, 'c.spec.ts': { bad: -1 }, 'd.spec.ts': { good: 2 } })).toEqual({
+      'd.spec.ts': { good: 2 },
+    });
+  });
+
+  it('answers undefined for a block that is not a map, and for one with nothing left in it', () => {
+    expect(parseTestRatios(undefined)).toBeUndefined();
+    expect(parseTestRatios([])).toBeUndefined();
+    expect(parseTestRatios({})).toBeUndefined();
+    expect(parseTestRatios({ 'a.spec.ts': {} })).toBeUndefined();
   });
 });
 

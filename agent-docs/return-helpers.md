@@ -226,7 +226,7 @@ once and completes; a `nextWith` stream never completes, so `forkJoin`, `lastVal
 and `expectAllEmissions` over it wait for ever and the test reads the initial state. Seeded in
 `beforeEach`, its buffered value also reaches the subscriber of a later `throwWith` first. That last
 case is reported: `X.m.throwWith() ran on a stream that still holds a value from an earlier
-nextWith() and has no subscriber` — a warning once per stream, a throw under
+nextWith() and has no subscriber` — a warning once per spied member, a throw under
 `misconfiguration: 'throw'`. Fix: `nextOneTimeWith` for the seed, or `resetAutoSpy(spy.m)` before
 `throwWith`, or `nextWithValues([{ value }, { errorValue }])` when "emit, then fail" is the point. A
 subscriber already on the stream is not reported. To keep a call pending after such a seed,

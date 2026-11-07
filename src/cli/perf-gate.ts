@@ -35,6 +35,7 @@ import { relative } from 'node:path';
 import { toPosix } from './fs-scan';
 import type { PerfFile, PerfRun } from './perf-data';
 import { CASE_FLOOR_MS, formatMs, medianOf } from './perf-data';
+import type { PerfMeasured } from './perf-run';
 import type { Finding } from './report';
 
 export interface GateOptions {
@@ -258,11 +259,54 @@ export function gateCandidates(run: PerfRun, cwd: string, options: GateOptions):
   return candidates;
 }
 
-/** The files a confirmation pass has to re-measure, in the order they were found. */
-export function suspectFiles(candidates: readonly GateCandidate[]): string[] {
+/** The files a confirmation pass has to re-measure, in the order they were found; an excused one is never re-measured. */
+export function suspectFiles(candidates: readonly GateCandidate[], policy: VerdictPolicy = {}): string[] {
   return [
-    ...new Set(candidates.filter((candidate): candidate is FileCandidate => candidate.check !== 'perf-gate-wall').map((c) => c.file)),
+    ...new Set(
+      candidates
+        .filter((candidate): candidate is FileCandidate => candidate.check !== 'perf-gate-wall' && policy.excuse?.(candidate) === undefined)
+        .map((c) => c.file),
+    ),
   ];
+}
+
+/**
+ * Several confirmation passes as one: every file at its fastest reading. Noise only ever adds time —
+ * a neighbour on the runner, a collection, a cold cache — so the minimum is the closest any reading
+ * gets to what the file itself costs, and a file has to be slow every time to stay a finding.
+ */
+export function fastestRun(runs: readonly [PerfRun, ...PerfRun[]]): PerfRun;
+export function fastestRun(runs: readonly PerfRun[]): PerfRun | undefined;
+export function fastestRun(runs: readonly PerfRun[]): PerfRun | undefined {
+  const [first, ...rest] = runs;
+
+  if (first === undefined) {
+    return undefined;
+  }
+
+  const fastest = new Map(first.files.map((entry) => [entry.file, entry]));
+
+  for (const entry of rest.flatMap((each) => each.files)) {
+    const seen = fastest.get(entry.file);
+
+    if (seen === undefined || entry.tests < seen.tests) {
+      fastest.set(entry.file, entry);
+    }
+  }
+
+  return { ...first, files: [...fastest.values()] };
+}
+
+/** The fastest reading of each file, kept with the CPU profile of the pass that produced it. */
+export function fastestPass([first, ...rest]: readonly [PerfMeasured, ...PerfMeasured[]], cwd: string): PerfMeasured {
+  const fastest = fastestRun([first.run, ...rest.map((each) => each.run)]);
+  const kept = new Set(fastest.files);
+  const sameFile = (a: string, b: string): boolean => toPosix(relative(cwd, a)) === toPosix(relative(cwd, b));
+  const profiles = [first, ...rest].flatMap((each) =>
+    [...(each.profiles ?? [])].filter(([path]) => each.run.files.some((entry) => kept.has(entry) && sameFile(entry.file, path))),
+  );
+
+  return { ...first, run: fastest, ...(profiles.length === 0 ? {} : { profiles: new Map(profiles) }) };
 }
 
 /** What the second measurement said about a candidate, or `undefined` when it did not measure it. */
@@ -349,7 +393,26 @@ function finding(candidate: GateCandidate, severity: Finding['severity'], tail: 
 }
 
 /** What the gate decided about one candidate, as a row of the verdict table and of `--format json`. */
-export type GateOutcome = 'confirmed' | 'not reproduced' | 'over budget' | 'single reading' | 'unconfirmed';
+export type GateOutcome =
+  'confirmed' | 'known debt' | 'not reproduced' | 'outside change' | 'over budget' | 'single reading' | 'unconfirmed' | 'within margin';
+
+/** What a finding is excused by before it is measured again, from `perf-attribution.ts`. */
+export interface GateExcuse {
+  readonly outcome: 'known debt' | 'outside change';
+  readonly note: string;
+}
+
+/**
+ * The verdict's two knobs beyond the budgets. `excuse` turns a candidate into a warning before it is
+ * re-measured — re-measuring a file that cannot fail the run buys nothing but minutes — and `margin`
+ * is how far over its budget a confirmed reading has to land to fail: `1.2` leaves a reading between
+ * 100 % and 120 % of the budget a warning, so a file that sits on its budget does not flip with the
+ * runner it happened to get.
+ */
+export interface VerdictPolicy {
+  readonly excuse?: (candidate: GateCandidate) => GateExcuse | undefined;
+  readonly margin?: number;
+}
 
 export interface GateRow {
   readonly check: GateCheck;
@@ -392,6 +455,23 @@ interface Judged {
   readonly confirmed: boolean;
 }
 
+/** Reported with its reason and never re-measured: the change does not reach it, or it was already there. */
+function excused(candidate: GateCandidate, excuse: GateExcuse): Judged {
+  return { finding: finding(candidate, 'warning', excuse.note), row: rowOf(candidate, excuse.outcome), failed: false, confirmed: false };
+}
+
+/** Over the budget, under the margin the caller allowed: a warning, so the reader still sees it coming. */
+function withinMargin(candidate: GateCandidate, margin: number, reading: string, again?: number): Judged {
+  const tail = `${reading}, over budget by less than the ${margin}× --gate-margin, so it is a warning rather than a failure.`;
+
+  return {
+    finding: finding(candidate, 'warning', tail),
+    row: rowOf(candidate, 'within margin', again),
+    failed: false,
+    confirmed: false,
+  };
+}
+
 /** One candidate against its second reading, or against the absence of one. */
 function rowOf(candidate: GateCandidate, outcome: GateOutcome, again?: number): GateRow {
   return {
@@ -405,7 +485,12 @@ function rowOf(candidate: GateCandidate, outcome: GateOutcome, again?: number): 
   };
 }
 
-function judge(candidate: GateCandidate, second: ReadonlyMap<string, PerfFile> | undefined, trustSingle: boolean): Judged {
+function judge(
+  candidate: GateCandidate,
+  second: ReadonlyMap<string, PerfFile> | undefined,
+  trustSingle: boolean,
+  policy: VerdictPolicy,
+): Judged {
   if (candidate.check === 'perf-gate-wall') {
     return {
       finding: finding(candidate, 'error', 'A whole-run budget is not re-measured: the second run would be the same suite again.'),
@@ -417,7 +502,13 @@ function judge(candidate: GateCandidate, second: ReadonlyMap<string, PerfFile> |
 
   const again = second === undefined ? undefined : secondReading(candidate, second);
 
+  const margin = Math.max(policy.margin ?? 1, 1);
+
   if (again === undefined) {
+    if (trustSingle && candidate.ms < candidate.budget * margin) {
+      return withinMargin(candidate, margin, 'Measured once');
+    }
+
     const tail = trustSingle ? 'Measured once, and --no-confirm said that is enough.' : UNCONFIRMED;
 
     return {
@@ -428,13 +519,17 @@ function judge(candidate: GateCandidate, second: ReadonlyMap<string, PerfFile> |
     };
   }
 
-  if (again >= candidate.budget) {
+  if (again >= candidate.budget * margin) {
     return {
       finding: finding(candidate, 'error', `Re-measured on its own: ${formatMs(again)}, still over budget.`),
       row: rowOf(candidate, 'confirmed', again),
       failed: true,
       confirmed: true,
     };
+  }
+
+  if (again >= candidate.budget) {
+    return withinMargin(candidate, margin, `Re-measured on its own: ${formatMs(again)}`, again);
   }
 
   const under = `Re-measured on its own: ${formatMs(again)}${again < CASE_FLOOR_MS ? ' or less' : ''}, under budget`;
@@ -467,6 +562,7 @@ export function gateVerdict(
   confirm: PerfRun | undefined,
   cwd: string,
   trustSingle: boolean,
+  policy: VerdictPolicy = {},
 ): GateVerdict {
   const second = confirm === undefined ? undefined : measuredFiles(confirm, cwd);
   const findings: Finding[] = [];
@@ -476,7 +572,8 @@ export function gateVerdict(
   let failed = false;
 
   const take = (candidate: GateCandidate): void => {
-    const judged = judge(candidate, second, trustSingle);
+    const excuse = policy.excuse?.(candidate);
+    const judged = excuse === undefined ? judge(candidate, second, trustSingle, policy) : excused(candidate, excuse);
 
     findings.push(judged.finding);
     rows.push(judged.row);

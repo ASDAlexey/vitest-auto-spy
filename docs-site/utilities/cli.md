@@ -13,16 +13,20 @@ config file, no network and no token.
 npx vitest-auto-spy doctor
 ```
 
-| Command                                                                          | Use it when                                                       | Writes files             |
-| -------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------ |
-| [`doctor`](#doctor-—-defects-that-never-fail)                                    | you want to find setup mistakes that leave the run green          | never                    |
-| [`perf`](#perf-—-where-the-cpu-time-actually-goes)                               | the suite is slow and you want to know which files to fix         | never                    |
-| [`perf --gate`](#the-gate)                                                       | CI should fail when a test or a file gets slow                    | never                    |
-| [`init`](#init-—-the-pointer-an-agent-actually-reads)                            | coding agents in your repository should know about the library    | yes, between its markers |
-| [`codemod`](#codemod)                                                            | you migrate a suite off `jest-auto-spies` or `jasmine-auto-spies` | only with `--write`      |
-| [`ng-test`](#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder) | you run tests through the Angular builder and need shards         | never                    |
+| Command                                                                          | Use it when                                                       | Writes files               |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------- |
+| [`doctor`](#doctor-—-defects-that-never-fail)                                    | you want to find setup mistakes that leave the run green          | only with `--code-quality` |
+| [`perf`](#perf-—-where-the-cpu-time-actually-goes)                               | the suite is slow and you want to know which files to fix         | only with an output flag   |
+| [`perf --gate`](#the-gate)                                                       | CI should fail when a test or a file gets slow                    | only with an output flag   |
+| [`perf --gate --changed`](#fail-a-merge-request-only-for-what-it-changed)        | a merge request should fail only for slow specs it changed        | only with an output flag   |
+| [`init`](#init-—-the-pointer-an-agent-actually-reads)                            | coding agents in your repository should know about the library    | yes, between its markers   |
+| [`codemod`](#codemod)                                                            | you migrate a suite off `jest-auto-spies` or `jasmine-auto-spies` | only with `--write`        |
+| [`ng-test`](#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder) | you run tests through the Angular builder and need shards         | never                      |
 
-Ready-made GitLab and GitHub jobs are in [In CI](#in-ci). Every `doctor` and `perf` finding ends in a `Docs:` line that links to its entry on this page.
+`perf` leaves a file behind only when you pass an output flag: `--out`, `--update-baseline`,
+`--code-quality` or `--profile-dir`. Without `--out`, the report of its own run is temporary and
+deleted. `--json` names a report to read, never one to write. Ready-made GitLab and GitHub
+jobs are in [In CI](#in-ci). Every `doctor` and `perf` finding ends in a `Docs:` line that links to its entry on this page.
 
 ## Exit codes
 
@@ -455,13 +459,13 @@ error  perf-gate-slow-test libs/a/src/lib/thing.spec.ts
 
 **The verdict table** has one row per candidate:
 
-| Column    | Meaning                                                                                                                                                |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `kind`    | `test`, `file`, `grew` (a baseline regression) or `run` (a whole-run budget)                                                                           |
-| `first`   | The first reading                                                                                                                                      |
-| `again`   | The reading on its own                                                                                                                                 |
-| `budget`  | The candidate's own budget                                                                                                                             |
-| `verdict` | `confirmed`, `not reproduced`, `unconfirmed` (nothing could re-measure it), `single reading` (`--no-confirm`), or `over budget` for a whole-run budget |
+| Column    | Meaning                                                                                                                                                                                                                                                                                       |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`    | `test`, `file`, `grew` (a baseline regression) or `run` (a whole-run budget)                                                                                                                                                                                                                  |
+| `first`   | The first reading                                                                                                                                                                                                                                                                             |
+| `again`   | The reading on its own                                                                                                                                                                                                                                                                        |
+| `budget`  | The candidate's own budget                                                                                                                                                                                                                                                                    |
+| `verdict` | `confirmed`, `not reproduced`, `unconfirmed` (nothing could re-measure it), `single reading` (`--no-confirm`), `over budget` for a whole-run budget, and the three warnings of [attribution](#fail-a-merge-request-only-for-what-it-changed): `outside change`, `known debt`, `within margin` |
 
 **A confirmed finding says why.** During the re-measurement `perf` records a CPU profile of each file.
 Under the finding it prints a card: the slowest tests, hooks against test bodies, where the time went
@@ -536,7 +540,8 @@ section out.
 looks exactly like 30 s of slow code. A red or unfinished suite under `--gate` exits 2.
 
 **Gate only what a branch changed.** `--gate-only` takes comma-separated paths; the gate judges only
-those, and the median is still taken over the whole run.
+those, and the median is still taken over the whole run. `--changed` works the paths out from git
+and still reports what lies outside them; see [Fail a merge request only for what it changed](#fail-a-merge-request-only-for-what-it-changed).
 
 In a terminal the card and the tables are colored. [Report formats](#report-formats) lists when color
 is on. Why the gate is built this way: [Why the gate works like this](#why-the-gate-works-like-this).
@@ -578,6 +583,213 @@ perf:
     - if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then npx vitest-auto-spy perf --json out/perf.json --baseline perf-history.jsonl --update-baseline; fi
 ```
 
+To fail a merge request only for findings its own diff caused, see the next section.
+
+### Fail a merge request only for what it changed
+
+This setup fails a merge request only for slow spec files that its own diff reaches. You need it when
+a spec that is already slow on the default branch keeps failing merge requests that never touched it.
+
+In GitLab, use two jobs. The default branch records a history of runs; a merge request is judged
+against that history. The example runs an Angular project through the `@angular/build:unit-test`
+builder; replace `app:test` with your project and test target:
+
+```yaml
+default:
+  image: node:22
+
+# Default branch: record this run into the history. This job never fails over a slow test.
+perf-history:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  cache:
+    key: perf-history
+    paths: [perf-history.jsonl]
+  script:
+    - npm ci
+    - |
+      npx vitest-auto-spy perf --baseline perf-history.jsonl --update-baseline \
+        --command 'npx ng run app:test --reporters=default --reporters="$VITEST_AUTO_SPY_PERF_REPORTER" {paths:--include=}'
+
+# Merge request: fail only for slow spec files this change reaches.
+perf-gate:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  cache:
+    key: perf-history
+    paths: [perf-history.jsonl]
+    policy: pull # read the history, never write it back
+  script:
+    - npm ci
+    # --changed diffs against the base commit; a shallow CI clone may not have it. One commit is enough.
+    - git fetch --depth=1 origin "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+    - |
+      npx vitest-auto-spy perf --gate \
+        --command 'npx ng run app:test --reporters=default --reporters="$VITEST_AUTO_SPY_PERF_REPORTER" {paths:--include=}' \
+        --changed "$CI_MERGE_REQUEST_DIFF_BASE_SHA" \
+        --baseline perf-history.jsonl --debt warn \
+        --gate-margin 1.2 --confirm-runs 2
+```
+
+A plain Vitest project (a root `vitest.config.*`, or a `test` script that calls `vitest`) drops the
+`--command` line, and `perf` runs Vitest itself.
+
+What the two commands do:
+
+- **Recording.** `--update-baseline` with a `.jsonl` path runs the suite and appends one line to
+  `perf-history.jsonl`. The file keeps the last 30 runs. This command records instead of judging, so it
+  exits 0 even over a slow test.
+- **Gating.** `--gate` runs the suite and fails over a confirmed finding, exit 1. The
+  flags `--changed`, `--debt warn`, `--gate-margin` and `--confirm-runs` decide which findings may
+  fail the merge request; each one is described below. `--baseline` names the history they read.
+- **Where the run comes from.** `--command` runs the Angular builder with the perf reporter attached.
+  Replace `app:test` with your project and test target. `perf` sets
+  `$VITEST_AUTO_SPY_PERF_REPORTER` itself, and fills `{paths:--include=}` with the spec files to
+  re-measure; keep the single quotes so the shell `perf` starts expands them, not yours. [When a bare run is not your suite](#when-a-bare-run-is-not-your-suite)
+  explains the line and gives the Nx form.
+- **Reusing a report.** If an earlier step already wrote a perf report, add `--json <that report>` to
+  both commands. `perf` then reads that report instead of running the suite again. `--json` is an
+  input: `perf` never writes to it.
+
+**The GitLab cache carries the history from one job to the other.** Three things decide whether the
+gate job sees it:
+
+- `policy: pull` on the gate job. It reads the history and never writes a merge request's run back
+  into it, so only the default branch records.
+- The project setting **Use separate caches for protected branches** must be off. GitLab keeps separate caches for protected and
+  unprotected branches by default. Your default branch is usually protected and merge-request
+  branches are not, so the gate job would never see the history. Turn this off under Settings ›
+  CI/CD › General pipelines.
+- **A cache shared between runners.** By default each runner keeps its cache on its own disk. A gate
+  job on another runner then finds no history, prints the warnings described below, and judges every
+  finding in the reached spec files as new. Configure a distributed cache (S3, GCS or Azure) for the
+  runners, or give both jobs a `tags` entry that only one runner carries.
+
+**The same in GitHub Actions.** One job does both; a pull request can restore a cache the default
+branch saved. For an Angular project, add the same `--command` to both `perf` lines:
+
+```yaml
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # --changed needs the base branch
+      - uses: actions/setup-node@v4
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: perf-history.jsonl
+          key: perf-history-${{ github.run_id }}
+          restore-keys: perf-history-
+      - if: github.event_name == 'push'
+        run: npx vitest-auto-spy perf --baseline perf-history.jsonl --update-baseline
+      - if: github.event_name == 'pull_request'
+        run: |
+          npx vitest-auto-spy perf --gate \
+            --changed "origin/$GITHUB_BASE_REF" \
+            --baseline perf-history.jsonl --debt warn \
+            --gate-margin 1.2 --confirm-runs 2
+```
+
+**Terms used below.** The rest of [The gate](#the-gate) defines them in full.
+
+- **Test body** — one `it` or `test` callback, as Vitest times it.
+- **Budget** — how long a test body or a spec file may take before the gate reports it. For a test
+  body it is `--max-test-ms` (default 1000 ms). For a file it is the largest of three limits, listed
+  under [What is over budget](#the-gate); with the defaults, a file under 5 s is never over budget.
+- **Finding** — one file or test body the gate reports. It prints as an error, which fails the run, or
+  as a warning or a note, which do not.
+- **Suspect** and **confirmation pass** — a suspect is a file with a finding that may fail the run. Before failing
+  anything, the gate runs each suspect file again on its own. That second run is the confirmation pass.
+- **The `--baseline` file** — what you pass to `--baseline`: a `.json` baseline (one recorded run) or a
+  `.jsonl` history (the last 30 runs). See
+  [Catch slow growth with a baseline](#catch-slow-growth-with-a-baseline).
+- **Known debt** and **new** — a finding is known debt when the `--baseline` file shows it was already
+  this slow (see `--debt warn` below). Every other finding is new, and a new finding can fail the run.
+- **`grew`** — the history's growth check: a file got much slower than in its own recorded runs. It
+  needs three recorded runs of that file. The rule is in
+  [Catch slow growth with a baseline](#catch-slow-growth-with-a-baseline).
+
+**The first merge requests, before any history exists.** The gate prints two warnings:
+`No history to compare against at …` and `--debt warn has nothing to read debt from: …`. It then
+judges every finding in the reached spec files as new, so those can still fail the run. Known debt
+works from the first recorded run; `grew` needs three.
+
+**Why the budget alone is not enough.** A budget says that a file is slow, not who made it slow. A spec
+that has been over budget on the default branch for a month fails every merge request opened since.
+Each author then gets a file they never opened. The four flags below fix that. None of them can fail a
+file that the plain gate would pass. A finding that becomes a warning is still printed, with the
+reason.
+
+**`--changed [ref]` — judge only spec files the change reaches.** The gate collects the changed files:
+the diff against the merge base of `ref` and `HEAD` (the last commit both share), plus uncommitted and
+untracked files. It then judges only the spec files that import a changed file, directly or through
+other files. Imports are followed the way
+[`ng-test --changed`](#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder) follows
+them: relative imports and tsconfig `paths` aliases. A changed template or stylesheet counts for the
+component that names it. A finding in any other spec file becomes a warning with the verdict
+`outside change`, and the gate does not re-measure it.
+
+Before the verdict, the gate prints one line that says how many spec files it judges and against which
+ref. These cases change which files it judges:
+
+- **Always pass the base ref in CI.** `--changed` without a value diffs against `HEAD`, which covers
+  only uncommitted and untracked files. A CI checkout has none, so no finding can fail the run.
+- **An empty diff** prints
+  `perf gate: nothing changed against <ref>, so no finding is this change's — each one is reported, none fails the run.`
+- **Config changes judge every file.** That covers `package.json`, a lockfile, `angular.json`, a
+  `tsconfig*.json` and a Vite or Vitest config.
+- **Setup-file changes judge every file.** Every spec loads the setup files, so a changed setup file
+  judges every file. So does a changed file that a setup file imports, directly or through other files.
+- **Which files count as setup files.** The `setupFiles` of your Vitest config count. So do the
+  `setupFiles` and `providersFile` of every unit-test target in `angular.json`.
+- **A shallow clone may not find the merge base.** With only the base commit fetched, git cannot link
+  it to `HEAD`. The gate then diffs against `ref` itself. `$CI_MERGE_REQUEST_DIFF_BASE_SHA` already is
+  the merge request's merge base, so the changed files are the same. That is why one fetched commit is
+  enough. A branch name such as `origin/main` in its place would also list what that branch changed
+  since, so more files would be judged, never fewer.
+- **A repository too large to scan whole is judged whole.** The scan stops at 50 000 files; ignored
+  folders such as `node_modules` do not count. `VITEST_AUTO_SPY_SCAN_CAP` raises the limit. An
+  incomplete import graph could miss the spec a change reaches, so you see this warning:
+  `warning  --changed <ref>: the scan stopped at its file limit, so the import graph may miss the spec a change reaches. The gate judges every file instead.`
+- **If git fails**, every file is judged, and a warning quotes the git error. The usual cause is a
+  depth-1 CI clone without the base commit. Fetch that commit, as the GitLab example does.
+
+**`--debt warn` — skip what the default branch already had.** It needs `--baseline`. A slow file or
+test body is `known debt` when the `--baseline` file holds it at 80 % of its current budget or more.
+Example: with the default 1000 ms test-body budget, a body recorded at 800 ms or more is known debt.
+Known debt is a warning: the gate does not re-measure it, and it never fails the run. The default,
+`--debt fail`, judges known debt like any other finding.
+
+- The file does not store milliseconds. It stores each time as a share of the median file of the run
+  it recorded (the median of every file's test-body total). The gate multiplies that share by this
+  run's median file. A slower runner slows the recorded file and the median file alike, so
+  the share stays put: the runner alone turns nothing into debt or into a new finding.
+- A history is read as the median of its runs. One unusually fast or slow run does not decide what
+  is debt.
+- Growth is never debt. A file the growth check flags as `grew` is judged like any other finding;
+  `--debt warn` does not excuse it.
+- Debt for a single test body comes from the file's `tests` key, which lists each test body slower
+  than 100 ms. A baseline recorded by an older release has no `tests` key, so it gives file debt only
+  until you record it again.
+
+**`--gate-margin <x>` — how far over the budget a failure starts.** A confirmed finding fails only when
+its reading reaches budget × `x` (default `1`). Example: with `--gate-margin 1.2` and a 1000 ms budget,
+a test body fails at 1200 ms. Between the budget and that line, it is a warning with the verdict
+`within margin`. Without a margin, a file that sits right at its budget passes on one CI runner and
+fails on the next.
+
+**`--confirm-runs <n>` — run the confirmation pass more than once.** The gate runs the confirmation
+pass `n` times (default `1`, at most `5`). It judges each file by its fastest reading. Noise on a busy
+runner only adds time, never removes it, so the fastest reading is closest to the file's real cost.
+
 ### Merge sharded reports
 
 A sharded pipeline writes one report per job. Judged alone, each shard sees only part of the suite, so
@@ -596,33 +808,37 @@ root, because CI jobs often clone into different directories.
 A positional path (`npx vitest-auto-spy perf src/cli`) is passed to Vitest as a file filter; without
 one, `perf` measures the whole suite.
 
-| Flag                  | Default              | What it does                                                                                                                   |
-| --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `--cwd <dir>`         | current directory    | Run against another directory                                                                                                  |
-| `--command <c>`       | —                    | Measure this shell line instead of running Vitest; `{paths}` / `{paths:<prefix>}` take the files to re-measure                 |
-| `--json <path>`       | —                    | Read reports instead of running Vitest: a file, a directory, or a pattern such as `coverage/**/perf-*.json`                    |
-| `--out <path>`        | temporary, deleted   | Keep the report at this path (relative to `--cwd`); a directory gets `perf-report.json` inside                                 |
-| `--gate`              | off                  | Fail over a confirmed budget, exit 1                                                                                           |
-| `--max-test-ms`       | `1000`               | Budget for one test body. Bodies under 100 ms are not recorded, so that is the floor                                           |
-| `--max-file-ms`       | `5000`               | A file whose bodies add up to less is never a finding                                                                          |
-| `--max-file-tests`    | `2000`               | How many of the run's median tests a file's bodies may add up to                                                               |
-| `--factor <n>`        | `10`                 | How many times the median test one test of a file may cost                                                                     |
-| `--max-wall-ms`       | off                  | A whole-run budget. Wall clock depends on the runner, so nothing derives it for you                                            |
-| `--gate-only`         | —                    | Comma-separated paths the gate may judge; the median still covers the whole run                                                |
-| `--no-confirm`        | —                    | Skip the re-measurement and gate on one reading. `--json` alone re-measures under the config the report recorded               |
-| `--profile-dir <dir>` | —                    | Keep each re-measured file's CPU profile as `<dir>/<spec path with / as __>.cpuprofile`. Needs `--gate` without `--no-confirm` |
-| `--ab-isolate`        | —                    | Run the suite again with `isolate` flipped and report both wall clocks. `--json` alone warns; with `--command` it works        |
-| `--baseline <p>`      | —                    | Compare with a recorded baseline and fail on what grew. A `.jsonl` path is a history of runs                                   |
-| `--update-baseline`   | `perf-baseline.json` | Record this run into the baseline instead of judging it; a `.jsonl` history keeps 30 runs                                      |
-| `--baseline-factor`   | `2`                  | How many times its recorded share a file must take to regress                                                                  |
-| `--baseline-floor-ms` | `500`                | A file whose bodies take less is noise, whatever its share did                                                                 |
-| `--fail-on-flaky`     | off                  | A test that passed only on a retry fails the run, exit 1                                                                       |
-| `--fail-on-red`       | off                  | A failed suite fails `perf` too, exit 1. Without it a red suite is a warning and `perf` exits 0                                |
-| `--top <n>`           | `10`                 | Rows in the over-budget tables; `0` turns them off                                                                             |
-| `--min-severity`      | `info`               | The lowest level printed. Shared with `doctor`                                                                                 |
-| `--fail-on`           | only the gate fails  | The lowest level that exits 1. Shared with `doctor`                                                                            |
-| `--format <f>`        | `text`               | `json` or `markdown`; the suite's own output goes to stderr. Shared with `doctor`                                              |
-| `--code-quality <p>`  | —                    | Also write a GitLab Code Quality report. Shared with `doctor`                                                                  |
+| Flag                  | Default              | What it does                                                                                                                    |
+| --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `--cwd <dir>`         | current directory    | Run against another directory                                                                                                   |
+| `--command <c>`       | —                    | Measure this shell line instead of running Vitest; `{paths}` / `{paths:<prefix>}` take the files to re-measure                  |
+| `--json <path>`       | —                    | Read reports instead of running Vitest: a file, a directory, or a pattern such as `coverage/**/perf-*.json`                     |
+| `--out <path>`        | temporary, deleted   | Keep the report at this path (relative to `--cwd`); a directory gets `perf-report.json` inside                                  |
+| `--gate`              | off                  | Fail over a confirmed budget, exit 1                                                                                            |
+| `--max-test-ms`       | `1000`               | Budget for one test body. Bodies under 100 ms are not recorded, so that is the floor                                            |
+| `--max-file-ms`       | `5000`               | A file whose bodies add up to less is never a finding                                                                           |
+| `--max-file-tests`    | `2000`               | How many of the run's median tests a file's bodies may add up to                                                                |
+| `--factor <n>`        | `10`                 | How many times the median test one test of a file may cost                                                                      |
+| `--max-wall-ms`       | off                  | A whole-run budget. Wall clock depends on the runner, so nothing derives it for you                                             |
+| `--gate-only`         | —                    | Comma-separated paths the gate may judge; the median still covers the whole run                                                 |
+| `--no-confirm`        | —                    | Skip the re-measurement and gate on one reading. `--json` alone re-measures under the config the report recorded                |
+| `--changed [ref]`     | —                    | Judge only the spec files the diff against the merge base of `ref` reaches (`HEAD` when bare); a finding elsewhere is a warning |
+| `--debt <warn\|fail>` | `fail`               | `warn`: a finding the `--baseline` already had at 80 % of its budget or more is known debt, a warning                           |
+| `--gate-margin <x>`   | `1`                  | A confirmed reading has to reach budget × `x` to fail; below that it is a warning                                               |
+| `--confirm-runs <n>`  | `1`                  | Re-measure the suspects `n` times (at most 5) and judge each file at its fastest reading                                        |
+| `--profile-dir <dir>` | —                    | Keep each re-measured file's CPU profile as `<dir>/<spec path with / as __>.cpuprofile`. Needs `--gate` without `--no-confirm`  |
+| `--ab-isolate`        | —                    | Run the suite again with `isolate` flipped and report both wall clocks. `--json` alone warns; with `--command` it works         |
+| `--baseline <p>`      | —                    | Compare with a recorded baseline and fail on what grew. A `.jsonl` path is a history of runs                                    |
+| `--update-baseline`   | `perf-baseline.json` | Record this run into the baseline instead of judging it; a `.jsonl` history keeps 30 runs                                       |
+| `--baseline-factor`   | `2`                  | How many times its recorded share a file must take to regress                                                                   |
+| `--baseline-floor-ms` | `500`                | A file whose bodies take less is noise, whatever its share did                                                                  |
+| `--fail-on-flaky`     | off                  | A test that passed only on a retry fails the run, exit 1                                                                        |
+| `--fail-on-red`       | off                  | A failed suite fails `perf` too, exit 1. Without it a red suite is a warning and `perf` exits 0                                 |
+| `--top <n>`           | `10`                 | Rows in the over-budget tables; `0` turns them off                                                                              |
+| `--min-severity`      | `info`               | The lowest level printed. Shared with `doctor`                                                                                  |
+| `--fail-on`           | only the gate fails  | The lowest level that exits 1. Shared with `doctor`                                                                             |
+| `--format <f>`        | `text`               | `json` or `markdown`; the suite's own output goes to stderr. Shared with `doctor`                                               |
+| `--code-quality <p>`  | —                    | Also write a GitLab Code Quality report. Shared with `doctor`                                                                   |
 
 ## `init` — the pointer an agent actually reads
 
@@ -2152,7 +2368,7 @@ lines rather than failing anything.
 ### Why the gate works like this
 
 The advice `perf` prints must never fail a merge request. The gate must, so every finding in it has to
-be something the author of the diff did and can undo. Three decisions follow.
+be something the author of the diff did and can undo. Four decisions follow.
 
 - **It judges test bodies, not the machine.** `environment`, `prepare`, `setup` and `transform` grow
   with the file count and the CPU; no spec author makes them smaller. `import` is hard to attribute:
@@ -2165,6 +2381,10 @@ be something the author of the diff did and can undo. Three decisions follow.
   files, and splitting a file passed it.
 - **Nothing fails on one measurement.** "Your test is slow" and "your test shared a worker with four
   others" are different statements. A gate that cannot tell them apart gets switched off within a week.
+- **On request, it asks whose a finding is.** A slow file the diff does not reach, or one that was
+  already that slow on the default branch, is not something the author did. `--changed` and
+  `--debt warn` turn such a finding into a warning instead of hiding it: a gate that hides the slow
+  file is as useless as one that blames the wrong person for it.
 
 The over-budget tables come from the same functions the gate judges with, and `--gate-only` narrows
 both the same way, so the table and the verdict cannot disagree. The card compares each candidate with

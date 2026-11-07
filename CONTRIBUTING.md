@@ -75,8 +75,12 @@ Stryker changes one operator, condition or value at a time and checks that some 
 mutant that survives is a line the suite executes but never checks: 100 % coverage cannot tell the
 two apart.
 
-- **It is not in the gate.** A full run takes about 20 minutes on a laptop. `mutation.yml` runs it
-  in CI on changes under `src/lib/`, weekly and by hand, and uploads the HTML report.
+- **Every release audit runs mutations.** A full run takes about 20 minutes on a laptop and is not
+  part of `npm run check`. The `mutation` check in the hub's
+  `tools/audit-kit/profiles/vitest-auto-spy.toml` is enabled for every `$release-audit`; it runs after
+  the build, with no other checks alongside it. Automatic GitHub runs remain paused. The preserved
+  `mutation.yml` has only a manual trigger and a disabled job (`if: false`); remove that condition
+  to allow manual CI runs. The local `npm run test:mutation` command remains available.
 - **Runs are incremental.** `reports/mutation/stryker-incremental.json` keeps the last result, and
   the next run tests only mutants in changed code or covered by changed tests. `-- --force` reruns
   everything.

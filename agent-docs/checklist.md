@@ -266,6 +266,16 @@ unless `--no-confirm` says one reading is enough. Exit `1` is "over budget", exi
 to judge" — including a red or unfinished (`partial`) suite, which the gate will not judge at all, since a failed test is
 measured until its timeout and 30 s of timeout looks exactly like 30 s of slow code.
 
+On a merge request the gate can also tell whose a finding is, and each of these only turns a failure
+into a warning: `--changed <ref>` judges only the spec files the diff against the merge base of `ref`
+reaches through the import graph (`outside change` elsewhere; every file when git fails, e.g. a
+depth-1 clone without the base commit); `--debt warn` with `--baseline` excuses a slow file or body
+the baseline or `.jsonl` history already had at 80 % of its budget (`known debt`; a regression never
+is); `--gate-margin <x>` fails only at budget × `x` (`within margin` below it); `--confirm-runs <n>`
+re-measures up to 5 times and keeps each file's fastest reading. Recommended on a merge request:
+`perf --gate --changed "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --baseline perf-history.jsonl --debt warn --gate-margin 1.2 --confirm-runs 2`,
+with the default branch recording into the same history with `--update-baseline` and not gating.
+
 `--json <path>` re-analyses a report an earlier `--out <path>` run wrote, instead of running Vitest
 again. Full reference: <https://asdalexey.github.io/vitest-auto-spy/utilities/cli>.
 

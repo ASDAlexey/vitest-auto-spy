@@ -39,6 +39,22 @@ describe('formatVerdict', () => {
     expect(notReproduced).toContain(TERMINAL.dim('not reproduced'));
   });
 
+  it('paints a known debt, an outside change and a reading within margin dim, since none of them fails the run', () => {
+    const warnings: GateRow[] = (['known debt', 'outside change', 'within margin'] as const).map((outcome) => ({
+      check: 'perf-gate-slow-file',
+      file: 'd.spec.ts',
+      ms: 9_000,
+      budget: 5_000,
+      outcome,
+    }));
+    const [title, , ...lines] = formatVerdict(warnings, TERMINAL);
+
+    expect(title).toBe('perf gate verdict — 3 judged, 0 fail the run');
+    expect(lines[0]).toContain(TERMINAL.dim('known debt    '));
+    expect(lines[1]).toContain(TERMINAL.dim('outside change'));
+    expect(lines[2]).toContain(TERMINAL.dim('within margin '));
+  });
+
   it('leaves the title plain when nothing fails the run', () => {
     expect(formatVerdict(rows.slice(1, 2), TERMINAL)[0]).toBe('perf gate verdict — 1 judged, 0 fail the run');
   });

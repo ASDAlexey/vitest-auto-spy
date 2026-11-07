@@ -25,7 +25,7 @@ The latest released version here must always match the one published on
   `expect(event.preventDefault).toHaveBeenCalledOnce()` and `event.defaultPrevented`. The return type
   narrows to the new `SpiedDomEvent` only under that option.
 - `/rxjs`: `throwWith()` on a stream that still buffers a `nextWith()` value nobody has subscribed to
-  is reported — once per stream as a warning, at every call under
+  is reported — once per spied method or property as a warning, at every call under
   `setupAutoSpy({ misconfiguration: 'throw' })`. The next subscriber would get that value before the
   error and run the success branch on stale data: the shape of a success seeded in `beforeEach` and a
   failure configured in one test. The message names `nextOneTimeWith()`, `resetAutoSpy()` and
@@ -40,13 +40,39 @@ The latest released version here must always match the one published on
   a throw under `setupAutoSpy({ misconfiguration: 'throw' })` — and names `mockReset()` as the way to
   hand the answer back. **The behaviour is unchanged**; the other order stays last-writer-wins and is
   not reported. Vitest and Rstest only, like the `calledWith` report.
+- CLI: `perf --gate --changed [ref]` judges only the spec files the diff against the merge base of
+  `ref` reaches through the import graph — the graph `ng-test --changed` follows, where a config, a
+  lockfile or a change the setup files reach still judges everything. A finding elsewhere is printed
+  as a warning with the outcome `outside change` and is not re-measured, so a merge request is no
+  longer failed by a slow spec its author never touched. A bare `--changed` diffs against `HEAD`; an
+  empty diff fails nothing; when git cannot answer — a depth-1 CI clone without the base commit —
+  every file is judged and a warning says why. In GitLab pass
+  `--changed "$CI_MERGE_REQUEST_DIFF_BASE_SHA"` with that commit fetched, in GitHub
+  `--changed origin/$GITHUB_BASE_REF`.
+- CLI: `perf --gate --debt warn`, with `--baseline` pointing at a `.json` baseline or a `.jsonl`
+  history, reports a slow file or test body the reference already recorded at 80 % of the current
+  budget or more as `known debt`: a warning, not re-measured, failing nothing. A history is read as
+  the median of its runs. A regression against the reference is never debt. The default,
+  `--debt fail`, keeps the gate as it was.
+- CLI: baselines and histories also record each slow test body — every one over the reporter's
+  100 ms floor — under a `tests` key, which is what body-level debt reads. A baseline recorded by an
+  older release knows only file debt until it is recorded again.
+- CLI: `perf --gate --gate-margin <x>` (default 1) makes a confirmed reading reach budget × `x`
+  before it fails; between the budget and that it is a warning with the outcome `within margin`, so a
+  file sitting on its budget no longer flips with the runner. `--confirm-runs <n>` (default 1, at
+  most 5) re-measures the suspects `n` times and judges each file at its fastest reading, since noise
+  only ever adds time. The setup the docs recommend for a merge request is
+  `perf --gate --changed <base> --baseline perf-history.jsonl --debt warn --gate-margin 1.2 --confirm-runs 2`,
+  with the default branch recording that history through `--update-baseline` instead of gating.
 - **Bundle size:** every entry that builds a spy (the root entry, `/angular`, `/bun`, `/node`,
   `/jasmine`, `/console`, `/angular-router` and the rest) grows by 98–128 B min+gzip (0.3–1.1%) for
   the helper-under-a-replaced-dispatch report and its message; `/rxjs` by 19 B for the hook call.
-- **Bundle size:** `/dom-stubs` grows from 12.55 kB to 13.28 kB min+gzip (+0.73 kB, +5.8%) for the
-  inert canvas context and its default settings; the code runs only under `{ canvas: true }`. No
-  other entry changes past 1%.
-- **Bundle size:** `/rxjs` grows from 2.26 kB to 2.62 kB min+gzip (+363 B, +16.1%), and its import
+  Against 5.66.0 as a whole, those entries grow by 0.17–0.28 kB (0.8–1.7%): the rest is the longer
+  strict "nothing configured" error and completion-timeout message below.
+- **Bundle size:** `/dom-stubs` grows from 12.55 kB to 13.36 kB min+gzip (+0.82 kB, +6.5%): about
+  0.73 kB for the inert canvas context and its default settings, which run only under
+  `{ canvas: true }`, and the rest for `createDomEvent(type, { spy: true })`.
+- **Bundle size:** `/rxjs` grows from 2.26 kB to 2.64 kB min+gzip (+0.38 kB, +16.9%), and its import
   graph from 31.9 kB to 33.7 kB, for the stale-value report on `throwWith()`: the message names the
   three ways out, and every target carries the flag and the label it needs.
 
@@ -78,9 +104,9 @@ The latest released version here must always match the one published on
   `checked` with `checkedChange`) now renders as `createComponentStub(child)`, so the form reads and
   writes through it. Other children are still dropped; `keepChildren: [Child]`, or a stub with the
   same selector there, takes its place.
-- **Bundle size:** `/bun-angular` grows from 39.40 kB to 40.62 kB min+gzip (+1.22 kB, +3.1%), and
+- **Bundle size:** `/bun-angular` grows from 39.14 kB to 40.62 kB min+gzip (+1.48 kB, +3.8%), and
   its import graph from 250.2 kB to 257.4 kB, because `renderShallow` now builds those stand-ins with
-  `createComponentStub`, which that entry did not load before. `/angular` grows by 231 B (+0.6%).
+  `createComponentStub`, which that entry did not load before. `/angular` grows by 0.49 kB (+1.3%).
 - **`createSpyFromClass` takes `T` from the class, never from the configuration.**
   `createSpyFromClass(KeyboardEvent, { overrides: keys, returnsUndefined: ['preventDefault'] })`, with
   `keys` an `it.each` row or any other object held in a variable, typed the double as

@@ -3,15 +3,28 @@
  * says so by exiting 1 without having changed anything, and `init --check` is the same shape for
  * an instruction block that has drifted from the installed version.
  */
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pathExists, readTextFile, writeTextFile } from './fs-scan';
 import { guardBrokenPipe, runCli } from './main';
 import type { CliIo } from './main';
 import { doctorArgs, initArgs, initCheckArgs, ordinaryPerfFiles, perfReportJson } from './main.mock';
 import { ESC, TERMINAL } from './paint';
+import * as perf from './perf';
 import { createTempRepo, removeTempRepos } from './temp-repo';
+
+// Under isolate: false `main` may already be evaluated against the real `perf`; a fresh graph lets the spy reach it.
+vi.hoisted(() => vi.resetModules());
+afterAll(() => vi.resetModules());
+
+vi.mock('./perf', async (importOriginal) => {
+  const original = await importOriginal<typeof perf>();
+
+  return { ...original, renderPerf: vi.fn(original.renderPerf) };
+});
 
 // Golden text: color is off here whatever terminal or CI runs the suite.
 beforeEach(() => {
@@ -711,5 +724,75 @@ describe('perf budgets without --gate', () => {
 
     expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--max-test-ms', '300'], io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('test bodies over budget — 1, each over --max-test-ms 300ms');
+  });
+});
+
+describe('perf gate attribution flags', () => {
+  const gateOf = (argv: readonly string[], io: CliIo = recorder()): perf.GateRequest | undefined => {
+    const root = slowRepo();
+
+    runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm', ...argv], io);
+
+    return vi.mocked(perf.renderPerf).mock.lastCall?.[3]?.gate;
+  };
+
+  it('leaves every one of them out of the gate when none was given', () => {
+    expect(gateOf([])).not.toHaveProperty('scope');
+    expect(gateOf([])).not.toHaveProperty('debt');
+    expect(gateOf([])).not.toHaveProperty('margin');
+    expect(gateOf([])).not.toHaveProperty('confirmRuns');
+  });
+
+  it('refuses a --debt it does not know out loud, and judges known debt as a failure', () => {
+    const io = recorder();
+
+    expect(gateOf(['--debt', 'warm'], io)).not.toHaveProperty('debt');
+    expect(io.stderr.join('\n')).toContain('warning  --debt takes warn or fail, not warm; judging known debt as a failure.');
+  });
+
+  it('passes --debt warn on, and takes --debt fail silently as the default', () => {
+    const io = recorder();
+
+    expect(gateOf(['--debt', 'warn'])).toMatchObject({ debt: 'warn' });
+    expect(gateOf(['--debt=fail'], io)).not.toHaveProperty('debt');
+    expect(io.stderr.join('\n')).not.toContain('--debt takes');
+  });
+
+  it('never lets --gate-margin go under 1', () => {
+    expect(gateOf(['--gate-margin', '0.5'])).toMatchObject({ margin: 1 });
+    expect(gateOf(['--gate-margin', '1.5'])).toMatchObject({ margin: 1.5 });
+  });
+
+  it('keeps --confirm-runs a whole number between 1 and 5', () => {
+    expect(gateOf(['--confirm-runs', '0'])).toMatchObject({ confirmRuns: 1 });
+    expect(gateOf(['--confirm-runs', '2.7'])).toMatchObject({ confirmRuns: 2 });
+    expect(gateOf(['--confirm-runs', '9'])).toMatchObject({ confirmRuns: 5 });
+  });
+
+  it('judges every file, and says why, when --changed is given outside a git repository', () => {
+    const io = recorder();
+
+    vi.stubEnv('GIT_CEILING_DIRECTORIES', tmpdir());
+
+    expect(gateOf(['--changed'], io)).not.toHaveProperty('scope');
+    expect(io.stderr.join('\n')).toContain('warning  --changed HEAD:');
+    expect(io.stderr.join('\n')).toContain('The gate judges every file instead.');
+  });
+
+  it('scopes the gate to what --changed reaches, so a file the change never touched fails nothing', () => {
+    const root = slowRepo();
+    const io = recorder();
+    const git = (...args: string[]): void => {
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: root, stdio: 'ignore' });
+    };
+
+    git('init', '-q');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'init');
+
+    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm', '--changed', 'HEAD'], io)).toBe(0);
+    expect(vi.mocked(perf.renderPerf).mock.lastCall?.[3]?.gate?.scope).toMatchObject({ ref: 'HEAD', all: false, changed: 0 });
+    expect(io.stdout.join('\n')).toContain('perf gate: nothing changed against HEAD');
+    expect(io.stdout.join('\n')).toContain('warn   perf-gate-slow-file slow.spec.ts');
   });
 });

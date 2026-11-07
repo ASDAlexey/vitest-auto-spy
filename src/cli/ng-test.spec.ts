@@ -155,15 +155,15 @@ describe('runNgTest', () => {
   it('asks git what changed, untracked files included, and runs the specs they reach', () => {
     const root = createTempRepo(workspace(APP));
     const { tools, captured, spawned } = harness({
-      diff: { status: 0, stdout: 'src/app/user.service.ts\n', stderr: '' },
-      'ls-files': { status: 0, stdout: 'src/app/clock.spec.ts\n\n', stderr: '' },
+      diff: { status: 0, stdout: 'src/app/user.service.ts\0', stderr: '' },
+      'ls-files': { status: 0, stdout: 'src/app/clock.spec.ts\0\0', stderr: '' },
     });
     const io = recorder();
 
     expect(runNgTest(options(root, { changed: 'origin/main' }), tools, io)).toBe(3);
     expect(captured.slice(1)).toEqual([
-      { command: 'git', args: ['diff', '--name-only', '--diff-filter=ACMR', '--relative', 'origin/main'] },
-      { command: 'git', args: ['ls-files', '--others', '--exclude-standard'] },
+      { command: 'git', args: ['diff', '-z', '--name-only', '--diff-filter=ACMR', '--relative', 'origin/main'] },
+      { command: 'git', args: ['ls-files', '-z', '--others', '--exclude-standard'] },
     ]);
     expect(includes(spawned[0])).toEqual(['src/app/clock.spec.ts', 'src/app/user.service.spec.ts']);
     expect(io.stdout[0]).toBe('ng-test — 2 of 3 spec files, reached by 2 changed files');
@@ -171,7 +171,7 @@ describe('runNgTest', () => {
 
   it('runs everything, the user include kept, when a change reaches the setup files', () => {
     const root = createTempRepo(workspace(APP));
-    const { tools, spawned } = harness({ diff: { status: 0, stdout: 'src/testing/stub.ts\n', stderr: '' } });
+    const { tools, spawned } = harness({ diff: { status: 0, stdout: 'src/testing/stub.ts\0', stderr: '' } });
     const io = recorder();
 
     expect(runNgTest(options(root, { changed: 'HEAD', passthrough: ['--include=src/app'] }), tools, io)).toBe(3);
@@ -181,7 +181,7 @@ describe('runNgTest', () => {
 
   it('runs nothing and exits 0 when no spec is reached', () => {
     const root = createTempRepo(workspace(APP));
-    const { tools, spawned } = harness({ diff: { status: 0, stdout: 'README.md\n', stderr: '' } });
+    const { tools, spawned } = harness({ diff: { status: 0, stdout: 'README.md\0', stderr: '' } });
     const io = recorder();
 
     expect(runNgTest(options(root, { changed: 'HEAD' }), tools, io)).toBe(0);

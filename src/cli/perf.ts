@@ -22,6 +22,8 @@ import type { CliIo } from './main';
 import { MONOCHROME, type Painter, outputWidth, painterFor, wrapText } from './paint';
 import type { IsolateRun } from './perf-ab';
 import { abIsolateFindings } from './perf-ab';
+import type { GateScope } from './perf-attribution';
+import { describeScope, verdictPolicy } from './perf-attribution';
 import type { BaselineOptions } from './perf-baseline';
 import type { PerfContext } from './perf-builder';
 import { builderImport, perfContext } from './perf-builder';
@@ -39,7 +41,7 @@ import { CASES_PER_FILE, formatMs, formatShare, measuredNothing, phasesOf, share
 import { LIST_LIMIT, environmentFindings, remainder } from './perf-environment';
 import { formatEvidence } from './perf-evidence';
 import type { GateCandidate, GateOptions, GateRow } from './perf-gate';
-import { gateCandidates, gateVerdict, isJudged, measuredFiles, medianFileMs, medianTestMs, suspectFiles } from './perf-gate';
+import { fastestPass, gateCandidates, gateVerdict, isJudged, measuredFiles, medianFileMs, medianTestMs, suspectFiles } from './perf-gate';
 import type { LaneSummary } from './perf-lanes';
 import { formatLanes, lanesOf, longPoleFindings } from './perf-lanes';
 import type { ProfileSummary } from './perf-profile';
@@ -225,6 +227,14 @@ export interface GateRequest {
   readonly remeasure: Remeasure | undefined;
   /** `--no-confirm`: one reading may fail the run, because the caller said so. */
   readonly trustSingle: boolean;
+  /** `--changed`: the spec files the change reaches; a finding anywhere else is a warning. */
+  readonly scope?: GateScope;
+  /** `--debt warn`: a finding the baseline or history already had is a warning. */
+  readonly debt?: 'fail' | 'warn';
+  /** `--gate-margin`: how far over its budget a confirmed reading has to be to fail. Default 1. */
+  readonly margin?: number;
+  /** `--confirm-runs`: how many confirmation passes, each file judged at its fastest. Default 1. */
+  readonly confirmRuns?: number;
 }
 
 export interface BaselineRequest {
@@ -301,13 +311,13 @@ function describeForeignRoot(run: PerfRun, cwd: string): string {
  * and returns the same contended number, which the gate would then print as "re-measured on its
  * own". It is not, and a gate that says so once is a gate nobody believes again.
  */
-function confirmRun(gate: GateRequest, suspects: readonly string[], cwd: string, io: CliIo): PerfMeasured | undefined {
+function confirmOnce(gate: GateRequest, suspects: readonly string[], cwd: string, io: CliIo, pass: string): PerfMeasured | undefined {
   if (gate.remeasure === undefined || suspects.length === 0) {
     return undefined;
   }
 
   io.out(
-    `\nperf gate: re-measuring ${suspects.length === 1 ? '1 file on its own' : `${suspects.length} files on their own`} before failing anything.`,
+    `\nperf gate: re-measuring ${suspects.length === 1 ? '1 file on its own' : `${suspects.length} files on their own`}${pass} before failing anything.`,
   );
 
   const second = gate.remeasure(suspects);
@@ -337,6 +347,24 @@ function confirmRun(gate: GateRequest, suspects: readonly string[], cwd: string,
   }
 
   return second;
+}
+
+/**
+ * `--confirm-runs` passes, each file at its fastest and with the profile of that same pass; a later
+ * pass that cannot run is dropped, not fatal.
+ */
+function confirmRun(gate: GateRequest, suspects: readonly string[], cwd: string, io: CliIo): PerfMeasured | undefined {
+  const runs = Math.max(Math.floor(gate.confirmRuns ?? 1), 1);
+  const first = confirmOnce(gate, suspects, cwd, io, runs === 1 ? '' : ` (pass 1 of ${runs})`);
+
+  if (first === undefined || runs === 1) {
+    return first;
+  }
+
+  const later = Array.from({ length: runs - 1 }, (_unused, index) =>
+    confirmOnce(gate, suspects, cwd, io, ` (pass ${index + 2} of ${runs})`),
+  );
+  return fastestPass([first, ...later.flatMap((each) => (each === undefined ? [] : [each]))], cwd);
 }
 
 /**
@@ -429,6 +457,7 @@ function runGate(
   extra: readonly GateCandidate[],
   collected: Collected,
   context: PerfContext,
+  baselinePath: string | undefined,
   minSeverity?: Severity,
 ): number {
   const unmatched = unmatchedScope(run, cwd, gate.options.only);
@@ -446,14 +475,19 @@ function runGate(
 
   collected.gate = 'judged';
 
+  if (gate.scope !== undefined) {
+    io.out(`\n${describeScope(gate.scope)}`);
+  }
+
   if (candidates.length === 0) {
     io.out(`\nperf gate: nothing over budget — no test body over ${formatMs(gate.options.maxTestMs)}, no file over its budget.`);
 
     return 0;
   }
 
-  const second = confirmRun(gate, suspectFiles(candidates), cwd, io);
-  const verdict = gateVerdict(candidates, second?.run, cwd, gate.trustSingle);
+  const policy = verdictPolicy(run, cwd, gate, baselinePath, io.err);
+  const second = confirmRun(gate, suspectFiles(candidates, policy), cwd, io);
+  const verdict = gateVerdict(candidates, second?.run, cwd, gate.trustSingle, policy);
   const findings = verdict.entries.map(({ finding, row }) => withEvidence(finding, row, run, second, cwd, gate.options, context));
 
   collected.findings.push(...findings);
@@ -664,5 +698,5 @@ function judgeMeasured(
     return PERF_NO_MEASUREMENT;
   }
 
-  return runGate(source.run, profile.cwd, io, gate, regressions, collected, context, options.minSeverity);
+  return runGate(source.run, profile.cwd, io, gate, regressions, collected, context, options.baseline?.path, options.minSeverity);
 }

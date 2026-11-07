@@ -559,28 +559,139 @@ An AOT build flattened that module away, so name it and it is put back whole: ke
 
 ### `keepTemplate` и сигнальная форма на дочернем контроле {#keeptemplate-and-a-signal-form-bound-to-a-child-control}
 
-Сохранённый шаблон может привязывать `[formField]` из сигнальных форм к дочернему компоненту:
-`<app-code-input [formField]="connectForm.code" />`. Директива остаётся, потомок отбрасывается, а
-голый тег ей не подходит. Angular бросил бы `NG01914 … is an invalid [formField] directive host`.
+Допустим, в шаблоне `[formField]` стоит на дочернем компоненте:
+`<app-code-input [formField]="form.code" />`. Если этот компонент — пользовательский контрол формы
+(компонент с моделью `value` или `checked`; точное правило ниже), `renderShallow` сам подставляет на его место
+заглушку. Включать ничего не нужно.
 
-Поэтому отброшенный потомок, который является пользовательским контролом формы, рендерится
-заглушкой. Контролом Angular считает компонент со входом `value` и выходом `valueChange` или со
-входом `checked` и выходом `checkedChange` — ровно то, что объявляет `model()`. Заглушка — это
-[`createComponentStub`](#a-stand-in-for-a-child-createcomponentstub) потомка: тот же селектор, входы, выходы и
-модели, без шаблона, провайдеров и конструктора. Форма пишет в неё и читает из неё:
+Возьмём форму, поле `code` которой редактирует дочерний компонент:
 
 ```ts
-const { fixture, component } = renderShallow(ConnectComponent, { keepTemplate: true });
-const input = fixture.debugElement.query(By.css('app-code-input')).componentInstance;
+import { Component, model, signal } from '@angular/core';
+import { FormField, form } from '@angular/forms/signals';
 
-input.value.set('1234'); // то же, что ввод пользователя в настоящий контрол
-fixture.detectChanges();
+@Component({
+  selector: 'app-code-input',
+  template: `<input [value]="value()" (input)="value.set($any($event.target).value)" />`,
+})
+export class CodeInputComponent {
+  readonly value = model('');
+}
 
-expect(component.connectForm.code().value()).toBe('1234');
+@Component({
+  selector: 'app-connect',
+  imports: [FormField, CodeInputComponent],
+  template: `<app-code-input [formField]="connectForm.code" />`,
+})
+export class ConnectComponent {
+  readonly connectForm = form(signal({ code: '' }));
+}
 ```
 
-Чтобы оставить настоящий контрол, назовите его: `keepChildren: [CodeInputComponent]`. Своя
-заглушка с тем же селектором в `keepChildren` заменяет автоматическую.
+Тест оставляет шаблон и имитирует ввод пользователя через заглушку:
+
+```ts
+import { By } from '@angular/platform-browser';
+import { expect, it } from 'vitest';
+import { renderShallow } from 'vitest-auto-spy/angular';
+
+it('stores the typed code in the form', () => {
+  const { fixture, component } = renderShallow(ConnectComponent, { keepTemplate: true });
+  const codeInput = fixture.debugElement.query(By.css('app-code-input')).componentInstance;
+
+  codeInput.value.set('1234'); // то же, что ввод в настоящий контрол
+  fixture.detectChanges();
+
+  expect(component.connectForm.code().value()).toBe('1234');
+});
+```
+
+**Зачем нужна заглушка.** С `keepTemplate: true` функция `renderShallow` оставляет директивы и пайпы,
+которые импортирует компонент, поэтому `FormField` остаётся. Дочерние компоненты, которых нет в
+`keepChildren`, она всё равно убирает (см. [Поверхностный рендер](#shallow-component-rendering)).
+Поэтому `[formField]` остаётся на теге `<app-code-input>`, хотя компонента за ним уже нет. Директива
+работает только на контроле формы: на нативном `<input>`, `<select>` или `<textarea>` либо на пользовательском
+контроле. Тег без компонента контролом формы не считается. Без заглушки Angular при рендере шаблона
+бросает ошибку `NG01914 … is an invalid [formField] directive host`, и падает сам `renderShallow`.
+
+**Какие потомки получают заглушку.** Только пользовательские контролы формы. Angular считает
+компонент таким контролом, если у него есть:
+
+- вход `value` и выход `valueChange` или
+- вход `checked` и выход `checkedChange`.
+
+`value = model('')` объявляет сразу и вход `value`, и выход `valueChange`. Подходит и пара,
+написанная вручную: `value = input('')` с `valueChange = output<string>()`. Подходит и пара
+`@Input()` с `@Output()`.
+
+Другие потомки заглушку не получают. Если `[formField]` стоит на таком потомке, `renderShallow`
+падает с `NG01914`; оставьте этот потомок через `keepChildren`.
+
+**Что это за заглушка.** Её строит [`createComponentStub`](#a-stand-in-for-a-child-createcomponentstub)
+из класса потомка. У неё тот же селектор, те же входы, выходы и `model()`-свойства. Шаблона и провайдеров у
+неё нет.
+Конструктор потомка не выполняется, а значит, не выполняется ни один его `inject()`. Сервисы
+потомка предоставлять не нужно.
+
+**Как форма и заглушка обмениваются значением.**
+
+- Форма задаёт `value` заглушки. После `component.connectForm.code().value.set('42')` и
+  `fixture.detectChanges()` вызов `codeInput.value()` вернёт `'42'`.
+- Если задать `value` у заглушки, обновится форма, как при вводе: `model.set()` отправляет
+  событие `valueChange`, а форма на него подписана.
+- Если у потомка `input()` и `output()` вместо `model()`, `value` у заглушки только для чтения.
+  Чтобы имитировать ввод, вызовите `codeInput.valueChange.emit('1234')`.
+- Контрол с `checked` работает так же, через `checked` и `checkedChange`.
+
+**Как оставить настоящий контрол.** Назовите его в `keepChildren`. `keepTemplate: true` по-прежнему
+нужен: без него шаблон пуст и `<app-code-input>` в нём вообще нет.
+
+```ts
+import { expect, it } from 'vitest';
+import { renderShallow } from 'vitest-auto-spy/angular';
+
+it('stores the code typed into the real input', () => {
+  const { fixture, component } = renderShallow(ConnectComponent, {
+    keepTemplate: true,
+    keepChildren: [CodeInputComponent],
+  });
+  const field: HTMLInputElement = fixture.nativeElement.querySelector('app-code-input input');
+
+  field.value = '1234';
+  field.dispatchEvent(new Event('input')); // управляем настоящим контролом через его DOM
+  fixture.detectChanges();
+
+  expect(component.connectForm.code().value()).toBe('1234');
+});
+```
+
+Настоящий потомок рендерит свой шаблон, и его конструктор выполняется. Если он внедряет сервис,
+например `CodeService`, передайте его в опции `providers` того же вызова:
+
+```ts
+renderShallow(ConnectComponent, {
+  keepTemplate: true,
+  keepChildren: [CodeInputComponent],
+  providers: [provideAutoSpy(CodeService)],
+});
+```
+
+**Своя заглушка** нужна, когда родитель вызывает у потомка метод: у автоматической заглушки его
+нет. Создайте её через `createComponentStub` и укажите в `keepChildren`. Если в `keepChildren`
+уже есть компонент с тем же селектором, `renderShallow` автоматическую заглушку не добавляет:
+
+```ts
+import { createComponentStub, renderShallow } from 'vitest-auto-spy/angular';
+
+const CodeInputStub = createComponentStub(CodeInputComponent);
+
+renderShallow(ConnectComponent, { keepTemplate: true, keepChildren: [CodeInputStub] });
+```
+
+Полная сигнатура — `createComponentStub(CodeInputComponent, members, { template })`; оба
+дополнительных аргумента необязательны. `members` задаёт поля и методы заглушки, например метод,
+который вызывает родитель. `template` — разметка, которую заглушка рендерит вместо пустой. Подробнее:
+[Заглушка вместо дочернего компонента](#a-stand-in-for-a-child-createcomponentstub).
 
 ### Смена входа посреди теста {#changing-an-input-mid-test}
 

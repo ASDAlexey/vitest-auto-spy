@@ -109,28 +109,40 @@ function pickTarget(profile: Profile, wanted: string | undefined, io: CliIo): Un
   return undefined;
 }
 
-function setupFilesOf(target: UnitTestTarget, profile: Profile): string[] {
-  const declared = target.optionBlocks.flatMap((block) => [block['setupFiles'], block['providersFile']].flat());
+function setupFilesOf(targets: readonly UnitTestTarget[], profile: Profile): string[] {
+  const declared = targets
+    .flatMap((target) => target.optionBlocks)
+    .flatMap((block) => [block['setupFiles'], block['providersFile']].flat());
 
-  return [...declared.filter((entry): entry is string => typeof entry === 'string'), ...profile.setupFiles].map((file) =>
-    toPosix(file).replace(/^\.\//, ''),
-  );
+  return [
+    ...new Set(
+      [...declared.filter((entry): entry is string => typeof entry === 'string'), ...profile.setupFiles].map((file) =>
+        toPosix(file).replace(/^\.\//, ''),
+      ),
+    ),
+  ];
 }
 
-function gitLines(capture: Capture, cwd: string, args: readonly string[]): string[] | string {
-  const result = capture('git', args, cwd);
+/** The setup files of every unit-test target, for a caller that cannot tell which one ran the suite. */
+export function workspaceSetupFiles(profile: Profile): string[] {
+  return setupFilesOf(unitTestTargets(profile), profile);
+}
+
+/** NUL-separated, so a path git would otherwise quote and escape (`core.quotePath`) arrives as written. */
+function gitPaths(capture: Capture, cwd: string, command: string, args: readonly string[]): string[] | string {
+  const result = capture('git', [command, '-z', ...args], cwd);
 
   if (result.status !== 0) {
-    return `\`git ${args.join(' ')}\` failed: ${result.stderr.trim()}`;
+    return `\`git ${[command, ...args].join(' ')}\` failed: ${result.stderr.trim()}`;
   }
 
-  return result.stdout.split(/\r?\n/).filter((line) => line.trim() !== '');
+  return result.stdout.split('\0').filter((line) => line.trim() !== '');
 }
 
 /** What git says changed against `ref`, untracked files included, as Vitest's `--changed` reads it. */
-function changedFiles(capture: Capture, cwd: string, ref: string): string[] | string {
-  const diff = gitLines(capture, cwd, ['diff', '--name-only', '--diff-filter=ACMR', '--relative', ref]);
-  const untracked = gitLines(capture, cwd, ['ls-files', '--others', '--exclude-standard']);
+export function changedFiles(capture: Capture, cwd: string, ref: string): string[] | string {
+  const diff = gitPaths(capture, cwd, 'diff', ['--name-only', '--diff-filter=ACMR', '--relative', ref]);
+  const untracked = gitPaths(capture, cwd, 'ls-files', ['--others', '--exclude-standard']);
 
   if (typeof diff === 'string') {
     return diff;
@@ -159,7 +171,7 @@ function select(options: NgTestOptions, target: UnitTestTarget, discovered: read
 
     const named = options.related.map((file) => toPosix(relative(options.cwd, resolve(options.cwd, file))));
     const changed = [...new Set([...fromGit, ...named])];
-    const affected = affectedSpecs(options.profile, changed, setupFilesOf(target, options.profile));
+    const affected = affectedSpecs(options.profile, changed, setupFilesOf([target], options.profile));
 
     files = affected.all ? discovered : discovered.filter((file) => affected.specs.has(file));
     why = affected.all

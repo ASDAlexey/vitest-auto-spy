@@ -134,6 +134,21 @@ Options
                  median is still taken over the whole run.
   --no-confirm   perf only. Skip the confirmation pass and gate on a single
                  reading.
+  --confirm-runs <n>
+                 perf only. Re-measure the suspects n times (default 1, at
+                 most 5) and judge each file at its fastest reading: noise
+                 only ever adds time.
+  --gate-margin <x>
+                 perf only. A confirmed reading has to reach budget × x to
+                 fail. Default 1; between the budget and that it is a
+                 warning, so a file sitting on its budget does not flip with
+                 the runner.
+  --debt <warn|fail>
+                 perf only, with --baseline. warn: a slow file or test body
+                 the baseline or history already had at 80 % of its budget or
+                 more is known debt — a warning, not re-measured. A history is
+                 read as the median of its runs. A regression is never debt.
+                 Default fail.
   --profile-dir <dir>
                  perf only. Keep the CPU profile the confirmation pass records
                  for each re-measured file, as <dir>/<spec path>.cpuprofile,
@@ -191,11 +206,14 @@ Options
   --shard <i/n>  ng-test only. Run shard i of n, split the way Vitest's own
                  --shard splits: by a hash of the path, in near-equal parts.
   --changed [ref]
-                 ng-test only. Run the specs that import, directly or not, a
+                 ng-test and perf. The specs that import, directly or not, a
                  file git reports changed against ref — HEAD by default, so
                  uncommitted and untracked work. Follows relative imports,
                  tsconfig paths aliases, and a template or stylesheet to the
-                 component that names it.
+                 component that names it. ng-test runs them; perf --gate
+                 judges only them, diffing against the merge base of ref, and
+                 reports a finding elsewhere as a warning. If git fails, every
+                 file is judged.
   --related <files>
                  ng-test only. The same, for the comma-separated files given.
   --target <p[:t]>

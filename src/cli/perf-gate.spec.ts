@@ -14,11 +14,16 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type GateRequest, renderPerf } from './perf';
+import { PERF_BASELINE_VERSION, writeBaseline } from './perf-baseline';
+import { baselineRequest } from './perf-baseline.mock';
 import type { PerfCase, PerfFile, PerfRun } from './perf-data';
 import { cleanRepo, file, ordinary, recorder, run } from './perf-fixtures';
 import {
   GATE_DEFAULTS,
+  type GateCandidate,
   type GateOptions,
+  type VerdictPolicy,
+  fastestRun,
   gateCandidates,
   gateVerdict,
   isJudged,
@@ -622,5 +627,314 @@ describe('renderPerf --gate-only, a scope that is partly right', () => {
       }),
     ).toBe(2);
     expect(io.stderr.join('\n')).toContain('paths this run did not measure: libs/gone');
+  });
+});
+
+describe('suspectFiles, with an excuse', () => {
+  it('leaves an excused file out of the confirmation pass', () => {
+    const candidates = gateCandidates(
+      run({
+        files: [
+          ...ordinary(ROOT),
+          file(join(ROOT, 'src/a.spec.ts'), { tests: 9_000 }),
+          file(join(ROOT, 'src/b.spec.ts'), { tests: 9_000 }),
+        ],
+      }),
+      ROOT,
+      GATE_DEFAULTS,
+    );
+    const policy: VerdictPolicy = {
+      excuse: (candidate) =>
+        candidate.check !== 'perf-gate-wall' && candidate.file === 'src/a.spec.ts'
+          ? { outcome: 'outside change', note: 'not ours' }
+          : undefined,
+    };
+
+    expect(suspectFiles(candidates, policy)).toEqual(['src/b.spec.ts']);
+  });
+});
+
+describe('fastestRun', () => {
+  it('is undefined for no runs and the run itself for one', () => {
+    const only = run({ files: [file(join(ROOT, 'src/a.spec.ts'), { tests: 300 })] });
+
+    expect(fastestRun([])).toBeUndefined();
+    expect(fastestRun([only])).toEqual(only);
+  });
+
+  it("keeps each file's fastest reading, the first run's other fields, and a file only a later run measured", () => {
+    const first = run({
+      root: '/first',
+      wall: 9_000,
+      files: [file(join(ROOT, 'src/a.spec.ts'), { tests: 500 }), file(join(ROOT, 'src/b.spec.ts'), { tests: 200 })],
+    });
+    const later = run({
+      root: '/later',
+      files: [
+        file(join(ROOT, 'src/a.spec.ts'), { tests: 300 }),
+        file(join(ROOT, 'src/b.spec.ts'), { tests: 400 }),
+        file(join(ROOT, 'src/c.spec.ts'), { tests: 700 }),
+      ],
+    });
+    const last = run({ files: [file(join(ROOT, 'src/a.spec.ts'), { tests: 350 }), file(join(ROOT, 'src/c.spec.ts'), { tests: 600 })] });
+    const fastest = fastestRun([first, later, last]);
+
+    expect(fastest).toMatchObject({ root: '/first', wall: 9_000 });
+    expect(fastest?.files.map((entry) => [entry.file, entry.tests])).toEqual([
+      [join(ROOT, 'src/a.spec.ts'), 300],
+      [join(ROOT, 'src/b.spec.ts'), 200],
+      [join(ROOT, 'src/c.spec.ts'), 600],
+    ]);
+  });
+});
+
+describe('gateVerdict, an excused candidate', () => {
+  const heavy = (): PerfFile =>
+    file(join(ROOT, 'src/heavy.spec.ts'), { tests: 60_000, testCount: 40, cases: [{ name: 'suite > waits', ms: 9_000 }] });
+  const debtOnBodies: VerdictPolicy = {
+    excuse: (candidate) => (candidate.check === 'perf-gate-slow-test' ? { outcome: 'known debt', note: 'Already this slow.' } : undefined),
+  };
+
+  it('is a warning row with its reason, never re-measured, and still lets the file total be judged', () => {
+    const candidates = gateCandidates(run({ files: [...ordinary(ROOT), heavy()] }), ROOT, GATE_DEFAULTS);
+    const second = run({
+      files: [file(join(ROOT, 'src/heavy.spec.ts'), { tests: 58_000, cases: [{ name: 'suite > waits', ms: 8_000 }] })],
+    });
+    const verdict = gateVerdict(candidates, second, ROOT, false, debtOnBodies);
+
+    expect(verdict.failed).toBe(true);
+    expect(verdict.findings.map((finding) => `${finding.severity} ${finding.check}`)).toEqual([
+      'warning perf-gate-slow-test',
+      'error perf-gate-slow-file',
+    ]);
+    expect(verdict.findings[0]?.message).toContain('Already this slow.');
+    expect(verdict.rows[0]).toMatchObject({ outcome: 'known debt' });
+    expect(verdict.rows[0]?.again).toBeUndefined();
+    expect(verdict.rows[1]).toMatchObject({ outcome: 'confirmed', again: 58_000 });
+  });
+
+  it('fails nothing even when one reading is trusted', () => {
+    const candidates = gateCandidates(run({ files: [...ordinary(ROOT), slowSubject()] }), ROOT, GATE_DEFAULTS);
+    const verdict = gateVerdict(candidates, undefined, ROOT, true, debtOnBodies);
+
+    expect(verdict.failed).toBe(false);
+    expect(verdict.rows.map((row) => row.outcome)).toEqual(['known debt']);
+  });
+});
+
+describe('gateVerdict, the margin', () => {
+  const candidate = (ms: number): GateCandidate => ({
+    check: 'perf-gate-slow-file',
+    file: 'src/edge.spec.ts',
+    ms,
+    budget: 2_000,
+    budgetNote: 'a 2s budget',
+  });
+  const again = (ms: number): PerfRun => run({ files: [file(join(ROOT, 'src/edge.spec.ts'), { tests: ms })] });
+
+  it('warns about a second reading over the budget but under budget × margin, and fails one past it', () => {
+    const within = gateVerdict([candidate(3_000)], again(2_200), ROOT, false, { margin: 1.2 });
+    const past = gateVerdict([candidate(3_000)], again(2_400), ROOT, false, { margin: 1.2 });
+
+    expect(within.failed).toBe(false);
+    expect(within.rows[0]).toMatchObject({ outcome: 'within margin', again: 2_200 });
+    expect(within.findings[0]?.severity).toBe('warning');
+    expect(within.findings[0]?.message).toContain('Re-measured on its own: 2.20s, over budget by less than the 1.2× --gate-margin');
+    expect(past.failed).toBe(true);
+    expect(past.rows[0]).toMatchObject({ outcome: 'confirmed', again: 2_400 });
+  });
+
+  it('under --no-confirm, warns about a single reading under budget × margin and fails one past it', () => {
+    const within = gateVerdict([candidate(2_300)], undefined, ROOT, true, { margin: 1.2 });
+    const past = gateVerdict([candidate(2_400)], undefined, ROOT, true, { margin: 1.2 });
+
+    expect(within.failed).toBe(false);
+    expect(within.rows[0]).toMatchObject({ outcome: 'within margin' });
+    expect(within.rows[0]?.again).toBeUndefined();
+    expect(within.findings[0]?.message).toContain('Measured once, over budget by less than the 1.2×');
+    expect(past.failed).toBe(true);
+    expect(past.rows[0]).toMatchObject({ outcome: 'single reading' });
+  });
+
+  it('reads a margin under 1 as 1, so it can never fail a reading under the budget', () => {
+    const verdict = gateVerdict([candidate(3_000)], again(1_500), ROOT, false, { margin: 0.5 });
+
+    expect(verdict.failed).toBe(false);
+    expect(verdict.rows[0]).toMatchObject({ outcome: 'not reproduced', again: 1_500 });
+  });
+});
+
+describe('renderPerf --gate, attribution and repeated confirmation', () => {
+  const SLOW = 'src/case-0.spec.ts';
+  const slowRun = (root: string): PerfRun =>
+    run({ root, wall: 1_000, files: [...ordinary(root), file(join(root, SLOW), { tests: 9_000 })] });
+  const sourceOf = (root: string): PerfSource => ({ ok: true, run: slowRun(root), runFailed: false });
+
+  /** A remeasure that answers each pass with the next reading; `undefined` is a pass that could not run. */
+  const passes = (root: string, readings: readonly (number | undefined)[]) => {
+    const calls: string[][] = [];
+    const remeasure = (paths: readonly string[]): PerfSource => {
+      calls.push([...paths]);
+
+      const ms = readings[calls.length - 1];
+
+      return ms === undefined
+        ? { ok: false, error: 'the runner went away' }
+        : { ok: true, run: run({ root, files: [file(join(root, SLOW), { tests: ms })] }), runFailed: false };
+    };
+
+    return { calls, remeasure };
+  };
+
+  const gateOf = (over: Partial<GateRequest>): GateRequest => ({
+    options: GATE_DEFAULTS,
+    remeasure: undefined,
+    trustSingle: false,
+    ...over,
+  });
+  const trustedDebt: Partial<GateRequest> = { trustSingle: true, debt: 'warn' };
+
+  it('re-measures once by default and does not number the pass', () => {
+    const root = cleanRepo(1);
+    const io = recorder();
+    const { calls, remeasure } = passes(root, [8_000]);
+
+    expect(renderPerf(sourceOf(root), readProfile(root), io, { gate: gateOf({ remeasure, confirmRuns: 1 }) })).toBe(1);
+    expect(calls).toEqual([[SLOW]]);
+    expect(io.stdout.join('\n')).toContain('re-measuring 1 file on its own before failing anything');
+  });
+
+  it('runs every pass it was asked for and judges each file at its fastest reading', () => {
+    const root = cleanRepo(1);
+    const twice = recorder();
+    const thrice = recorder();
+    const two = passes(root, [8_000, 100]);
+    const three = passes(root, [8_000, 7_000, 8_500]);
+
+    expect(renderPerf(sourceOf(root), readProfile(root), twice, { gate: gateOf({ remeasure: two.remeasure, confirmRuns: 2 }) })).toBe(0);
+    expect(two.calls).toHaveLength(2);
+    expect(twice.stdout.join('\n')).toContain('re-measuring 1 file on its own (pass 1 of 2) before failing anything');
+    expect(twice.stdout.join('\n')).toContain('(pass 2 of 2)');
+    expect(twice.stdout.join('\n')).toContain('not reported as a defect');
+
+    expect(renderPerf(sourceOf(root), readProfile(root), thrice, { gate: gateOf({ remeasure: three.remeasure, confirmRuns: 3 }) })).toBe(1);
+    expect(three.calls).toHaveLength(3);
+    expect(thrice.stdout.join('\n')).toContain('(pass 3 of 3)');
+    expect(thrice.stdout.join('\n')).toMatch(/file {2}9\.00s {2}7\.00s {3}5\.00s {2}confirmed/);
+  });
+
+  it('drops a later pass that could not run instead of confirming nothing', () => {
+    const root = cleanRepo(1);
+    const io = recorder();
+    const { calls, remeasure } = passes(root, [8_000, undefined, 9_000]);
+
+    expect(renderPerf(sourceOf(root), readProfile(root), io, { gate: gateOf({ remeasure, confirmRuns: 3 }) })).toBe(1);
+    expect(calls).toHaveLength(3);
+    expect(io.stderr.join('\n')).toContain('The confirmation pass could not run');
+    expect(io.stdout.join('\n')).toMatch(/file {2}9\.00s {2}8\.00s {3}5\.00s {2}confirmed/);
+  });
+
+  it('explains each confirmed file with the profile of the pass its reading came from', () => {
+    const root = cleanRepo(1);
+    const io = recorder();
+    const profiled = (ms: number, frame: string): PerfSource => ({
+      ok: true,
+      run: run({ root, files: [file(join(root, SLOW), { tests: ms })] }),
+      runFailed: false,
+      profiles: new Map([
+        [
+          join(root, SLOW),
+          { sampledMs: ms, hooks: undefined, spec: [], project: [], packages: [], hottest: [{ name: frame, ms, share: 1 }], angular: [] },
+        ],
+      ]),
+    });
+    const readings = [profiled(8_000, 'slowerPassFrame'), profiled(7_000, 'fasterPassFrame')];
+    const remeasure = (): PerfSource => readings.shift() ?? { ok: false, error: 'no more passes' };
+
+    expect(renderPerf(sourceOf(root), readProfile(root), io, { gate: gateOf({ remeasure, confirmRuns: 2 }) })).toBe(1);
+
+    const out = io.stdout.join('\n');
+
+    expect(out).toContain('fasterPassFrame');
+    expect(out).not.toContain('slowerPassFrame');
+  });
+
+  it('stops after a first pass that could not run, and confirms nothing', () => {
+    const root = cleanRepo(1);
+    const io = recorder();
+    const { calls, remeasure } = passes(root, [undefined, 100, 100]);
+
+    expect(renderPerf(sourceOf(root), readProfile(root), io, { gate: gateOf({ remeasure, confirmRuns: 3 }) })).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(io.stdout.join('\n')).toContain('never confirmed');
+  });
+
+  it('prints the scope, and reports a file the change does not reach without re-measuring or failing it', () => {
+    const root = cleanRepo(1);
+    const io = recorder();
+    const { calls, remeasure } = passes(root, [8_000]);
+    const scope = { ref: 'main', all: false as const, changed: 2, specs: new Set(['src/other.spec.ts']) };
+
+    expect(renderPerf(sourceOf(root), readProfile(root), io, { gate: gateOf({ remeasure, scope }) })).toBe(0);
+    expect(calls).toEqual([]);
+
+    const out = io.stdout.join('\n');
+
+    expect(out).toContain('perf gate: judging the 1 spec file that 2 changed files reach against main');
+    expect(out).toContain(`warn   perf-gate-slow-file ${SLOW}`);
+    expect(out).toContain('outside change');
+  });
+
+  it('prints the scope even when nothing is over budget', () => {
+    const root = cleanRepo(1);
+    const io = recorder();
+    const quiet: PerfSource = { ok: true, run: run({ root, wall: 1_000, files: ordinary(root) }), runFailed: false };
+    const scope = { ref: 'HEAD', all: true as const, reason: 'package.json changed' };
+
+    expect(renderPerf(quiet, readProfile(root), io, { gate: gateOf({ scope }) })).toBe(0);
+    expect(io.stdout.join('\n')).toContain('perf gate: every file is judged — against HEAD, package.json changed.');
+    expect(io.stdout.join('\n')).toContain('perf gate: nothing over budget');
+  });
+
+  it('says --debt warn has nothing to read without a baseline, and judges the finding as new', () => {
+    const root = cleanRepo(1);
+    const bare = recorder();
+    const missing = recorder();
+
+    expect(renderPerf(sourceOf(root), readProfile(root), bare, { gate: gateOf(trustedDebt) })).toBe(1);
+    expect(bare.stderr.join('\n')).toContain('--debt warn has nothing to read debt from: pass --baseline with it');
+
+    expect(
+      renderPerf(sourceOf(root), readProfile(root), missing, {
+        gate: gateOf(trustedDebt),
+        baseline: baselineRequest(join(root, 'nowhere.json'), false),
+      }),
+    ).toBe(1);
+    expect(missing.stderr.join('\n')).toContain(`no readable baseline or history at ${join(root, 'nowhere.json')}`);
+  });
+
+  it('reports a finding the baseline already had as known debt under --debt warn, and fails nothing', () => {
+    const root = cleanRepo(1);
+    const io = recorder();
+    const path = join(root, 'perf-baseline.json');
+
+    writeBaseline(path, { version: PERF_BASELINE_VERSION, median: 100, files: { [SLOW]: 90 } });
+
+    expect(
+      renderPerf(sourceOf(root), readProfile(root), io, {
+        gate: gateOf(trustedDebt),
+        baseline: baselineRequest(path, false),
+      }),
+    ).toBe(0);
+    expect(io.stdout.join('\n')).toContain('known debt');
+    expect(io.stderr.join('\n')).not.toContain('--debt warn has nothing to read');
+  });
+
+  it('turns a single reading under budget × --gate-margin into a warning', () => {
+    const root = cleanRepo(1);
+    const io = recorder();
+
+    expect(renderPerf(sourceOf(root), readProfile(root), io, { gate: gateOf({ trustSingle: true, margin: 3 }) })).toBe(0);
+    expect(io.stdout.join('\n')).toContain('within margin');
   });
 });

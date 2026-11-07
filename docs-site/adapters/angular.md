@@ -549,30 +549,136 @@ a pipe that is fine. The same call works under JIT, where the module stays in th
 
 ### `keepTemplate` and a signal form bound to a child control
 
-A kept template can bind a signal-forms `[formField]` to a child component:
-`<app-code-input [formField]="connectForm.code" />`. The directive is kept, the child is dropped,
-and a bare tag is no host for it. Angular would throw `NG01914 … is an invalid [formField] directive
-host`.
+Your template may put `[formField]` on a child component: `<app-code-input [formField]="form.code" />`.
+If that child is a custom form control (a component with a `value` or `checked` model; the exact rule is below),
+`renderShallow` replaces it with a stub. This happens on its own; there is no option.
 
-So a dropped child that is a custom form control renders as a stand-in. A custom form control is
-what Angular checks for: a `value` input with a `valueChange` output, or `checked` with
-`checkedChange`, which is what `model()` declares. The stand-in is
-[`createComponentStub`](#a-stand-in-for-a-child-createcomponentstub) of the child: same selector, inputs, outputs
-and models, no template, no providers, no constructor. The form writes into it and reads back from
-it:
+Take a form whose `code` field is edited by a child component:
 
 ```ts
-const { fixture, component } = renderShallow(ConnectComponent, { keepTemplate: true });
-const input = fixture.debugElement.query(By.css('app-code-input')).componentInstance;
+import { Component, model, signal } from '@angular/core';
+import { FormField, form } from '@angular/forms/signals';
 
-input.value.set('1234'); // what the user typing into the real control does
-fixture.detectChanges();
+@Component({
+  selector: 'app-code-input',
+  template: `<input [value]="value()" (input)="value.set($any($event.target).value)" />`,
+})
+export class CodeInputComponent {
+  readonly value = model('');
+}
 
-expect(component.connectForm.code().value()).toBe('1234');
+@Component({
+  selector: 'app-connect',
+  imports: [FormField, CodeInputComponent],
+  template: `<app-code-input [formField]="connectForm.code" />`,
+})
+export class ConnectComponent {
+  readonly connectForm = form(signal({ code: '' }));
+}
 ```
 
-To keep the real control, name it: `keepChildren: [CodeInputComponent]`. A stub of your own with
-the same selector in `keepChildren` replaces the automatic one.
+The test keeps the template and plays the user typing into the stub:
+
+```ts
+import { By } from '@angular/platform-browser';
+import { expect, it } from 'vitest';
+import { renderShallow } from 'vitest-auto-spy/angular';
+
+it('stores the typed code in the form', () => {
+  const { fixture, component } = renderShallow(ConnectComponent, { keepTemplate: true });
+  const codeInput = fixture.debugElement.query(By.css('app-code-input')).componentInstance;
+
+  codeInput.value.set('1234'); // what typing into the real control does
+  fixture.detectChanges();
+
+  expect(component.connectForm.code().value()).toBe('1234');
+});
+```
+
+**Why a stub is needed.** With `keepTemplate: true`, `renderShallow` keeps the directives and pipes
+the component imports, so `FormField` stays. It still drops child components that `keepChildren`
+does not name (see [Shallow component rendering](#shallow-component-rendering)).
+So `[formField]` stays on an `<app-code-input>` tag that has no component. The directive only works
+on a form control: a native `<input>`, `<select>` or `<textarea>`, or a custom form control. On a bare
+tag, Angular throws `NG01914 … is an invalid [formField] directive host`, and `renderShallow` fails.
+
+**Which children get a stub.** A dropped child gets a stub only if it is a custom form control.
+Angular counts a component as one when it has:
+
+- a `value` input and a `valueChange` output, or
+- a `checked` input and a `checkedChange` output.
+
+`value = model('')` declares both the `value` input and the `valueChange` output. A hand-written
+`value = input('')` with `valueChange = output<string>()` counts too, and so does an `@Input()` and
+`@Output()` pair.
+
+Other children get no stub. If `[formField]` sits on one of them, `renderShallow` fails with
+`NG01914`; keep that child with `keepChildren`.
+
+**What the stub is.** It is [`createComponentStub`](#a-stand-in-for-a-child-createcomponentstub) of
+the child. It has the same selector, inputs, outputs and `model()` properties. It has no template and no
+providers. The child's constructor never runs, so none of its `inject()` calls run either. You do
+not need to provide the child's services.
+
+**How the form and the stub talk.**
+
+- The form sets the stub's `value`. After `component.connectForm.code().value.set('42')` and
+  `fixture.detectChanges()`, `codeInput.value()` returns `'42'`.
+- Setting `value` on the stub updates the form, as typing would: `model.set()` emits
+  `valueChange`, and the form listens to it.
+- A child with `input()` and `output()` rather than `model()` gives the stub a read-only `value`.
+  Call `codeInput.valueChange.emit('1234')` to play the user.
+- A `checked` control works the same way, through `checked` and `checkedChange`.
+
+**Keep the real control.** Name it in `keepChildren`. You still need `keepTemplate: true`; without
+it the template is blank and there is no `<app-code-input>` at all.
+
+```ts
+import { expect, it } from 'vitest';
+import { renderShallow } from 'vitest-auto-spy/angular';
+
+it('stores the code typed into the real input', () => {
+  const { fixture, component } = renderShallow(ConnectComponent, {
+    keepTemplate: true,
+    keepChildren: [CodeInputComponent],
+  });
+  const field: HTMLInputElement = fixture.nativeElement.querySelector('app-code-input input');
+
+  field.value = '1234';
+  field.dispatchEvent(new Event('input')); // drive the real control through its DOM
+  fixture.detectChanges();
+
+  expect(component.connectForm.code().value()).toBe('1234');
+});
+```
+
+The real child renders its own template, and its constructor runs. If it injects a service, say a
+`CodeService`, pass it in the `providers` option of the same call:
+
+```ts
+renderShallow(ConnectComponent, {
+  keepTemplate: true,
+  keepChildren: [CodeInputComponent],
+  providers: [provideAutoSpy(CodeService)],
+});
+```
+
+**Use a stub of your own** when the parent calls a method on the child, which the automatic stub
+does not have. Build it with `createComponentStub` and list it in `keepChildren`. When `keepChildren` already holds a component with the same selector, `renderShallow` adds no
+automatic stub:
+
+```ts
+import { createComponentStub, renderShallow } from 'vitest-auto-spy/angular';
+
+const CodeInputStub = createComponentStub(CodeInputComponent);
+
+renderShallow(ConnectComponent, { keepTemplate: true, keepChildren: [CodeInputStub] });
+```
+
+The full signature is `createComponentStub(CodeInputComponent, members, { template })`; both extra
+arguments are optional. `members` seeds members, such as a method the parent calls. `template` is
+markup the stub renders instead of nothing. See
+[A stand-in for a child](#a-stand-in-for-a-child-createcomponentstub).
 
 ### Changing an input mid-test
 

@@ -59,6 +59,15 @@ describe('the pass-through after --', () => {
     expect(parseArgs(['doctor']).passthrough).toEqual([]);
   });
 
+  it('reads the gate attribution flags as values, so the next token is not a positional', () => {
+    const args = parseArgs(['perf', '--debt', 'warn', '--gate-margin', '1.2', '--confirm-runs', '3', 'src']);
+
+    expect(flagValue(args, 'debt')).toBe('warn');
+    expect(flagNumber(args, 'gate-margin')).toBe(1.2);
+    expect(flagNumber(args, 'confirm-runs')).toBe(3);
+    expect(args.positionals).toEqual(['src']);
+  });
+
   it('reads --changed with or without a ref', () => {
     expect(parseArgs(['ng-test', '--changed']).flags['changed']).toBe(true);
     expect(parseArgs(['ng-test', '--changed', '--', '--coverage']).flags['changed']).toBe(true);

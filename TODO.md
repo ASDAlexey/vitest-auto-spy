@@ -215,6 +215,23 @@ them map one-to-one onto the catalogue: the Vitest 5, coverage and Angular-build
       release keeps inline styles through a warm cache, put the bound in both places, with the docs
       sentences that name 2.7.5.
 
+## `perf` — the gate can tell whose a finding is, not yet what kind
+
+- [ ] **Per-test event-loop utilisation in the perf reporter.** A test body over budget is either
+      working (CPU in the spec, the framework, jsdom) or waiting (a real timer, a socket, an
+      `await` on something that settles on a schedule), and the gate's card can only guess which
+      from the CPU profile of the confirmation pass. `performance.eventLoopUtilization()` sampled
+      around each body would say it on the first reading: a slow body at low utilisation is waiting.
+      That turns the likely-cause line into a measured one. Needs a check that the sampling adds
+      nothing measurable to a body under the 100 ms floor, which is most of them.
+- [ ] **A per-file noise model as a possible successor of `--gate-margin`.** `--gate-margin` is one
+      factor for every file, so it is either too loose for a steady file or too tight for a noisy
+      one. A `.jsonl` history already holds each file's share over up to 30 runs; the median and the
+      median absolute deviation (MAD) of those shares give each file its own band, and a reading
+      outside the band is news where one inside it is the runner. Open before it replaces the flag:
+      how many recorded runs a file needs before its band is trusted (the regression check asks for
+      three), and what a file new to the history gets meanwhile.
+
 ## Release infrastructure — move npm publishing to OIDC (deadline ~Jan 2027)
 
 npm is retiring granular access tokens with **Bypass 2FA**. The scriptable half of

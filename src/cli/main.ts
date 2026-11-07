@@ -20,12 +20,14 @@ import { parseShard } from './ng-test-select';
 import { outputWidth, painterFor } from './paint';
 import type { BaselineRequest, GateRequest, OutputFormat } from './perf';
 import { renderPerf } from './perf';
+import { gateScope } from './perf-attribution';
 import { BASELINE_DEFAULTS, DEFAULT_BASELINE_FILE } from './perf-baseline';
 import { CASE_FLOOR_MS } from './perf-data';
 import type { GateOptions } from './perf-gate';
 import { GATE_DEFAULTS } from './perf-gate';
 import type { PerfRunOptions } from './perf-run';
 import { perfAbIsolate, perfRemeasure, readPerfRun, spawnProcess, spawnToStderr } from './perf-run';
+import type { Profile } from './profile';
 import { readProfile } from './profile';
 import { type Severity, formatFindings, summarize } from './report';
 import { doctorMarkdown } from './report-markdown';
@@ -152,6 +154,33 @@ function baselineRequest(args: ParsedArgs, cwd: string): BaselineRequest | undef
   };
 }
 
+/**
+ * `--changed`, `--debt`, `--gate-margin` and `--confirm-runs`: who a finding belongs to, and how sure
+ * the gate has to be. A `--debt` it does not know is refused out loud rather than read as `fail`,
+ * because the person who typed `--debt=warm` meant the opposite of what silence would give them.
+ */
+function attributionOptions(args: ParsedArgs, profile: Profile, io: CliIo): Pick<GateRequest, 'confirmRuns' | 'debt' | 'margin' | 'scope'> {
+  const ref = changedRef(args.flags['changed']);
+  const scope = ref === undefined ? undefined : gateScope(profile, ref, captureProcess, io.err);
+  const debt = flagValue(args, 'debt');
+  const margin = flagNumber(args, 'gate-margin');
+  const confirmRuns = flagNumber(args, 'confirm-runs');
+
+  if (debt !== undefined && debt !== 'warn' && debt !== 'fail') {
+    io.err(`warning  --debt takes warn or fail, not ${debt}; judging known debt as a failure.\n`);
+  }
+
+  return {
+    ...(scope === undefined ? {} : { scope }),
+    ...(debt === 'warn' ? { debt: 'warn' as const } : {}),
+    ...(margin === undefined ? {} : { margin: Math.max(margin, 1) }),
+    ...(confirmRuns === undefined ? {} : { confirmRuns: Math.min(Math.max(Math.floor(confirmRuns), 1), MAX_CONFIRM_RUNS) }),
+  };
+}
+
+/** Each pass re-runs the suspects once more; past this the gate costs more than the suite it judges. */
+const MAX_CONFIRM_RUNS = 5;
+
 const PROFILE_DIR_UNUSED =
   "warning  --profile-dir keeps the profiles the gate's confirmation pass records, and this run has no such pass: add --gate, without --no-confirm, on a source it can run again — a run, a --command with {paths}, or a report that recorded its Vitest config.\n";
 
@@ -179,6 +208,7 @@ function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
         options: gateOptions(args),
         remeasure: trustSingle ? undefined : perfRemeasure(options, spawn, ownPackageRoot(), recorded),
         trustSingle,
+        ...attributionOptions(args, profile, io),
       }
     : undefined;
 
@@ -320,14 +350,18 @@ const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
     'baseline',
     'baseline-factor',
     'baseline-floor-ms',
+    'changed',
     'code-quality',
     'command',
+    'confirm-runs',
+    'debt',
     'factor',
     'fail-on',
     'fail-on-flaky',
     'fail-on-red',
     'format',
     'gate',
+    'gate-margin',
     'gate-only',
     'json',
     'max-file-ms',

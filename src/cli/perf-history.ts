@@ -5,7 +5,7 @@
 import { parseJsonc, readTextFile, writeTextFile } from './fs-scan';
 import type { CliIo } from './main';
 import type { BaselineOptions, BaselineRegression } from './perf-baseline';
-import { buildBaseline, hasRun } from './perf-baseline';
+import { buildBaseline, hasRun, parseTestRatios } from './perf-baseline';
 import type { PerfRun } from './perf-data';
 import type { GateCandidate } from './perf-gate';
 import { measuredFiles, medianFileMs } from './perf-gate';
@@ -27,6 +27,8 @@ export interface HistoryEntry {
   readonly median: number;
   /** Repository-relative path → share of that run's median file, as in the baseline. */
   readonly files: Readonly<Record<string, number>>;
+  /** Path → test name → share, for the bodies the reporter recorded, as in the baseline. */
+  readonly tests?: Readonly<Record<string, Readonly<Record<string, number>>>>;
 }
 
 export interface HistoryRegression extends BaselineRegression {
@@ -57,6 +59,7 @@ function parseEntry(line: string): HistoryEntry | undefined {
 
   const median = parsed['median'];
   const commit = parsed['commit'];
+  const tests = parseTestRatios(parsed['tests']);
 
   return {
     version: PERF_HISTORY_VERSION,
@@ -64,6 +67,7 @@ function parseEntry(line: string): HistoryEntry | undefined {
     ...(typeof commit === 'string' ? { commit } : {}),
     median: typeof median === 'number' && Number.isFinite(median) ? median : 0,
     files,
+    ...(tests === undefined ? {} : { tests }),
   };
 }
 
@@ -88,6 +92,7 @@ export function historyEntry(run: PerfRun, cwd: string, at: Date, env: Readonly<
     ...(commit === undefined || commit === '' ? {} : { commit }),
     median: baseline.median,
     files: baseline.files,
+    ...(baseline.tests === undefined ? {} : { tests: baseline.tests }),
   };
 }
 

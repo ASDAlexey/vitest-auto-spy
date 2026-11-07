@@ -83,6 +83,18 @@ describe('historyEntry', () => {
     expect(historyEntry(runWith(300), ROOT, new Date(0), { GITHUB_SHA: 'def' }).commit).toBe('def');
     expect(historyEntry(runWith(300), ROOT, new Date(0), { CI_COMMIT_SHA: '' })).not.toHaveProperty('commit');
   });
+
+  it('records the test bodies the baseline would, and leaves them out when no file named one', () => {
+    const named: PerfRun = {
+      ...runWith(300),
+      files: runWith(300).files.map((each) =>
+        each.file.endsWith('grew.spec.ts') ? { ...each, cases: [{ name: 'loads', ms: 150 }] } : each,
+      ),
+    };
+
+    expect(historyEntry(named, ROOT, new Date(0), {}).tests).toEqual({ 'src/grew.spec.ts': { loads: 1.5 } });
+    expect(historyEntry(runWith(300), ROOT, new Date(0), {})).not.toHaveProperty('tests');
+  });
 });
 
 describe('readHistory and appendHistory', () => {
@@ -118,6 +130,30 @@ describe('readHistory and appendHistory', () => {
       { version: 1, at: 'sha', commit: 'abc', median: 50, files: {} },
     ]);
     expect(readHistory(join(path, 'missing.jsonl'))).toEqual([]);
+  });
+
+  it('reads the test bodies of a line, validated like a baseline, and round-trips them through appendHistory', () => {
+    const path = join(createTempRepo({}), 'perf-history.jsonl');
+
+    writeTextFile(
+      path,
+      [
+        '{"version":1,"at":"named","median":100,"files":{},"tests":{"a.spec.ts":{"loads":2,"bad":-1},"b.spec.ts":"x"}}',
+        '{"version":1,"at":"none","median":100,"files":{},"tests":{"a.spec.ts":{"bad":"x"}}}',
+        '',
+      ].join('\n'),
+    );
+
+    const [named, none] = readHistory(path);
+
+    expect(named?.tests).toEqual({ 'a.spec.ts': { loads: 2 } });
+    expect(none).not.toHaveProperty('tests');
+
+    const recorded: HistoryEntry = { ...entry({ 'a.spec.ts': 1 }), tests: { 'a.spec.ts': { loads: 1.25 } } };
+
+    appendHistory(path, recorded);
+
+    expect(readHistory(path).at(-1)).toEqual(recorded);
   });
 });
 
