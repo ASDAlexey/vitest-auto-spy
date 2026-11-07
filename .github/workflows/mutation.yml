@@ -4,33 +4,10 @@ name: Mutation testing
 # it breaking. Stryker changes the code one mutant at a time and checks that some test fails; the
 # modules it mutates are listed in `stryker.config.mjs`.
 #
-# Not in `npm run check` and not on every pull request: a full run is about 20 minutes on a laptop and
-# over an hour here. The incremental file carried in the cache is what keeps the runs after the first
-# one short — only mutants in changed code, or covered by changed tests, run again.
+# Paused because full runs are slow. Remove the job's `if: false` to allow manual runs again.
+# Every local release audit runs mutation testing through the audit-kit profile.
 on:
   workflow_dispatch:
-  # Not on the hour: GitHub delays scheduled runs under load at the top of every hour.
-  schedule:
-    - cron: '41 3 * * 1'
-  push:
-    branches: [master, main]
-    paths:
-      - 'src/lib/**'
-      - 'stryker.config.mjs'
-      - 'vitest.mutation.config.mts'
-      - 'vitest.config.mts'
-      - 'scripts/stryker-vitest-runner.mjs'
-      - 'package-lock.json'
-      - '.github/workflows/mutation.yml'
-  pull_request:
-    paths:
-      - 'src/lib/**'
-      - 'stryker.config.mjs'
-      - 'vitest.mutation.config.mts'
-      - 'vitest.config.mts'
-      - 'scripts/stryker-vitest-runner.mjs'
-      - 'package-lock.json'
-      - '.github/workflows/mutation.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -38,6 +15,7 @@ concurrency:
 
 jobs:
   mutation:
+    if: false
     name: Mutation testing (spy core)
     runs-on: ubuntu-latest
     timeout-minutes: 180
