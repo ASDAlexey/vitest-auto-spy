@@ -18,6 +18,9 @@ import { type Observable, catchError, throwError } from 'rxjs';
 import { describe, expect, it } from 'vitest';
 
 import { expectRequest, provideHttpTesting } from './angular-http';
+import { expectFailures } from './expected-failure.mock';
+
+const failsWith = expectFailures();
 
 class SessionExpired extends Error {}
 
@@ -106,6 +109,7 @@ describe('provideHttpTesting({ interceptors })', () => {
   });
 
   it.fails('keeps the end-of-test check armed', () => {
+    failsWith(/GET \/api\/unanswered was never answered/);
     TestBed.configureTestingModule({ providers: [...provideHttpTesting({ interceptors: [authInterceptor] })] });
     get('/api/unanswered');
   });
