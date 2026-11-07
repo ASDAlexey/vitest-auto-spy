@@ -84,14 +84,14 @@ function readThis(spy: MockFn, index: number): unknown {
  * Turn whatever `.and.throwError` was handed into the error it should throw.
  *
  * jasmine accepts a message, an `Error`, or an error *class* plus a message; all three appear in
- * real suites and all three are cheap to keep.
+ * real suites and all three are cheap to keep. Any other function is thrown as it is, as jasmine does.
  */
 export function toThrownError(value: unknown, message?: string): unknown {
   if (typeof value === 'string') {
     return new Error(value);
   }
 
-  if (typeof value === 'function') {
+  if (typeof value === 'function' && (value === Error || value.prototype instanceof Error)) {
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- jasmine's third `throwError` form is `(ErrorClass, message)`; the class is only known at runtime.
     return new (value as any)(message);
   }

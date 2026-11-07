@@ -119,6 +119,27 @@ describe('jasmine namespaces', () => {
 
       load.and.throwError(RangeError, 'out of range');
       expect(() => service.load(1)).toThrow(new RangeError('out of range'));
+
+      load.and.throwError(Error, 'plain');
+      expect(() => service.load(1)).toThrow(new Error('plain'));
+    });
+
+    it('throws a function that is not an error class as the value itself', () => {
+      const service = createSpyFromClass(AccountService);
+      const load = asJasmine<AccountService['load']>(service.load);
+      const thrown = (): string => 'x';
+
+      load.and.throwError(thrown as unknown as Error);
+
+      let caught: unknown;
+
+      try {
+        service.load(1);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBe(thrown);
     });
 
     it('resolves through resolveTo and reports the spy name as identity', async () => {
