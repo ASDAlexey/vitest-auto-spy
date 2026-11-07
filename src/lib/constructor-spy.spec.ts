@@ -124,8 +124,8 @@ describe('stubConstructor', () => {
   });
 });
 
-describe('ownDirectory', () => {
-  it('reads the stack on first use rather than at import, once, and resolves to this directory', async () => {
+describe('calledFrom default library directory', () => {
+  it('reads the stack on first use rather than at import, once, and skips frames of this directory', async () => {
     const original = Error.prepareStackTrace;
     let probes = 0;
 
@@ -146,9 +146,10 @@ describe('ownDirectory', () => {
 
       const here = /((?:file:\/\/)?[^\s()]+):\d+:\d+\)?$/.exec(String(String(new Error().stack).split('\n')[1]))?.[1];
 
-      expect(fresh.calledFrom(`Error\n    at x (${fresh.ownDirectory()}pay.ts:1:1)`)).toBe('');
-      expect(fresh.ownDirectory()).toBe(String(here).replace(/[^/\\]*$/, ''));
-      expect(fresh.ownDirectory()).toMatch(/[/\\]src[/\\]lib[/\\]$/);
+      const directory = String(here).replace(/[^/\\]*$/, '');
+
+      expect(fresh.calledFrom(`Error\n    at x (${directory}pay.ts:1:1)`)).toBe('');
+      expect(fresh.calledFrom('Error\n    at x (/app/src/pay.ts:1:1)')).toBe(', from /app/src/pay.ts:1:1');
       expect(probes).toBe(1);
     } finally {
       Error.prepareStackTrace = original;
