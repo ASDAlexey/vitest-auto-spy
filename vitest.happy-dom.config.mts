@@ -1,6 +1,6 @@
 import { mergeConfig } from 'vitest/config';
 
-import base from './vitest.config.mts';
+import { singleProject as base } from './vitest.config.mts';
 
 // The library documents happy-dom's differences from jsdom and repairs some of them
 // (`timer-globals.ts`, `clock.ts`, `abort-controller-stub.ts`), but the Vitest suites only ever ran
