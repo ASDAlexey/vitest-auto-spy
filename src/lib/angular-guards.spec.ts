@@ -2,10 +2,11 @@
  * `provideAutoSpy` refuses a declaration, and `injectSpy` names the two-copies cause behind Angular's
  * "never initialized" and "reading 'ngModule'" failures instead of passing them on bare.
  */
-import { Component, Directive, Injectable, InjectionToken } from '@angular/core';
+import { Component, Directive, Injectable, InjectionToken, inject } from '@angular/core';
 import { TestBed, getTestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createSpyFromClass } from '../index';
 import { injectSpy, provideAutoSpy } from './angular';
 import { explainTestBedSplit, noteTestBed } from './angular-testbed-split';
 
@@ -13,7 +14,11 @@ import { explainTestBedSplit, noteTestBed } from './angular-testbed-split';
 class PanelComponent {}
 
 @Directive({ selector: '[appTooltip]' })
-class TooltipDirective {}
+class TooltipDirective {
+  show(): string {
+    return 'real';
+  }
+}
 
 class DerivedPanelComponent extends PanelComponent {}
 
@@ -42,6 +47,20 @@ describe('provideAutoSpy on a declaration', () => {
 
   it('refuses a directive', () => {
     expect(() => provideAutoSpy(TooltipDirective)).toThrow('provideAutoSpy(TooltipDirective): TooltipDirective is a directive');
+  });
+
+  it('explains how to provide a declaration as an injected collaborator', () => {
+    expect(() => provideAutoSpy(TooltipDirective)).toThrow(
+      'For an injected collaborator, use { provide: TooltipDirective, useValue: createSpyFromClass(TooltipDirective) }.',
+    );
+    const tooltip = createSpyFromClass(TooltipDirective, { returns: { show: 'visible' } });
+
+    TestBed.configureTestingModule({ providers: [{ provide: TooltipDirective, useValue: tooltip }] });
+
+    const injected = TestBed.runInInjectionContext(() => inject(TooltipDirective));
+
+    expect(injected.show()).toBe('visible');
+    expect(tooltip.show).toHaveBeenCalledOnce();
   });
 
   it('leaves an undecorated subclass alone, whose definition is only inherited', () => {
