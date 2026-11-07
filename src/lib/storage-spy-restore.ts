@@ -30,6 +30,8 @@
  */
 import { vi } from 'vitest';
 
+import { withoutProcessWarnings } from './process-warnings';
+
 /** The methods a spec can put a spy on, in the order the interface declares them. */
 const STORAGE_METHODS = ['clear', 'getItem', 'key', 'removeItem', 'setItem'] as const;
 
@@ -62,7 +64,7 @@ export function restoreStorageSpies(): readonly StorageSpyKey[] {
   const repaired: StorageSpyKey[] = [];
 
   for (const key of STORAGE_KEYS) {
-    const storage = Reflect.get(globalThis, key);
+    const storage = withoutProcessWarnings(() => Reflect.get(globalThis, key));
     // `Object()` rather than a presence check: a storage this environment does not have and one of
     // the wrong shape are one path — neither carries a method worth reading.
     const host: object = Object(storage);
