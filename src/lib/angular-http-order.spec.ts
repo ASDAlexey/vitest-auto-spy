@@ -7,6 +7,9 @@ import { TestBed, getTestBed } from '@angular/core/testing';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 
 import { provideHttpTesting } from './angular-http';
+import { expectFailures } from './expected-failure.mock';
+
+const failsWith = expectFailures();
 
 afterEach(() => {
   getTestBed().resetTestingModule();
@@ -21,6 +24,7 @@ afterAll(() => {
 });
 
 it.fails('reports a request the suite reset took down before the check ran', () => {
+  failsWith(/GET \/api\/reset-first was never answered/);
   TestBed.configureTestingModule({ providers: [...provideHttpTesting()] });
   TestBed.inject(HttpClient).get('/api/reset-first').subscribe();
 });
