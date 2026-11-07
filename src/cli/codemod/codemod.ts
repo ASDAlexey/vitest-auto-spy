@@ -7,11 +7,13 @@
  * removes a transform's edits and nothing else.
  */
 import type { Finding } from '../report';
+import { originLines } from './diff';
 import type { Edit, ImportNeed, TransformOutput } from './edits';
 import { applyEdits, note } from './edits';
 import type { EntryMap } from './entry-map';
 import type { Shadowed } from './imports';
 import { boundNames, listImports, planImports } from './imports';
+import { table } from './jest-api';
 import { lineOf, maskCode, maskComments } from './mask';
 import type { Match, TransformContext, TransformFamily, TransformSpec } from './transform-context';
 import { scan } from './transform-context';
@@ -89,13 +91,14 @@ export function residueOf(
   text: string,
   transforms: readonly TransformSpec[],
   said?: ReadonlyMap<string, readonly Finding[]>,
+  origin: (line: number) => number = (line) => line,
 ): Finding[] {
   const masked = maskComments(text);
 
   return transforms.flatMap((transform) =>
     scan(masked, globalResidue(transform))
       .filter((match) => transform.residueIgnores?.(masked, match) !== true)
-      .map((match) => residueNote(file, text, match, transform, said?.get(transform.id))),
+      .map((match) => residueNote(file, origin(lineOf(text, match.index)), match, transform, said?.get(transform.id))),
   );
 }
 
@@ -111,9 +114,7 @@ function residueFix(id: string, line: number, file: string, notes: readonly Find
     : `\`${id}\` declined it: ${declined.message} Rewrite it by hand.`;
 }
 
-function residueNote(file: string, text: string, match: Match, transform: TransformSpec, notes: readonly Finding[] | undefined): Finding {
-  const line = lineOf(text, match.index);
-
+function residueNote(file: string, line: number, match: Match, transform: TransformSpec, notes: readonly Finding[] | undefined): Finding {
   return note({
     check: `residue/${transform.id}`,
     severity: 'error',
@@ -256,6 +257,7 @@ export function runTransforms(input: RunInput): FileResult {
     outputs.flatMap(({ output }) => output.dropIfUnused),
   );
   const after = plan.text;
+  let origin: ((line: number) => number) | undefined;
 
   return {
     file: input.file,
@@ -269,7 +271,8 @@ export function runTransforms(input: RunInput): FileResult {
       ...plan.shadowed.map((shadowed) => shadowedNote(input.file, applied.text, shadowed)),
       ...viWithoutGlobals(input.file, after, input.globals),
     ],
-    residue: residueOf(input.file, after, input.selected, said),
+    // Every other note points into the source as it was read, so the residue does too.
+    residue: residueOf(input.file, after, input.selected, said, (line) => (origin ??= originLines(input.source, after))(line)),
   };
 }
 
@@ -304,12 +307,12 @@ export function selectTransforms(only: string | undefined, skip: string | undefi
 export type FromMode = 'auto' | 'jasmine' | 'jest';
 
 /** What `--from` accepts. `jasmine` is the alias, because nobody types the package name twice. */
-const FROM_VALUES: Readonly<Record<string, FromMode>> = {
+const FROM_VALUES = table<FromMode>({
   auto: 'auto',
   jasmine: 'jasmine',
   'jasmine-auto-spies': 'jasmine',
   'jest-auto-spies': 'jest',
-};
+});
 
 export const FROM_ACCEPTED = 'auto, jasmine-auto-spies (alias: jasmine), jest-auto-spies';
 
@@ -339,7 +342,7 @@ export function resolveFrom(value: string | undefined): FromMode | undefined {
  * behaviour inversion `jasmine-spy-on` exists to avoid. A suite that has nothing but `spyOn` needs
  * `--from jasmine` said out loud.
  */
-const JASMINE_MARKER = /\bjasmine\s*\.|\.\s*and\s*\.|from\s*["'](?:jasmine-auto-spies|vitest-auto-spy\/jasmine)["']/;
+const JASMINE_MARKER = /(?<![\w$]|(?<!\.)\.\s*)jasmine\s*\.|\.\s*and\s*\.|from\s*["'](?:jasmine-auto-spies|vitest-auto-spy\/jasmine)["']/;
 
 /** The transforms `--from` leaves in play for one file. */
 export function transformsFor(mode: FromMode, selected: readonly TransformSpec[], source: string): TransformSpec[] {

@@ -203,6 +203,18 @@ describe('applyImportPlan — several names, line endings and local declarations
   });
 });
 
+describe('applyImportPlan — the first lines that have to stay first', () => {
+  it('adds a statement below a shebang and the directive prologue, not above them', () => {
+    expect(applyImportPlan("#!/usr/bin/env node\n'use strict';\n// @ts-nocheck\nlet s: Mock;\n", MOCK, [])).toBe(
+      "#!/usr/bin/env node\n'use strict';\nimport type { Mock } from 'vitest';\n// @ts-nocheck\nlet s: Mock;\n",
+    );
+    expect(applyImportPlan('"use client";\r\nlet s: Mock;\r\n', MOCK, [])).toBe(
+      '"use client";\r\nimport type { Mock } from \'vitest\';\r\nlet s: Mock;\r\n',
+    );
+    expect(applyImportPlan('let s: Mock;\n', MOCK, [])).toBe("import type { Mock } from 'vitest';\nlet s: Mock;\n");
+  });
+});
+
 describe('declaredNames', () => {
   it('finds each kind of declaration once, at its first place', () => {
     const masked = maskCode(

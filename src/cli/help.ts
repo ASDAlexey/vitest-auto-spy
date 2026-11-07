@@ -213,7 +213,8 @@ Options
                  component that names it. ng-test runs them; perf --gate
                  judges only them, diffing against the merge base of ref, and
                  reports a finding elsewhere as a warning. If git fails, every
-                 file is judged.
+                 file is judged. A bare --changed takes the next word as its
+                 ref, so put it last or write --changed=HEAD.
   --related <files>
                  ng-test only. The same, for the comma-separated files given.
   --target <p[:t]>

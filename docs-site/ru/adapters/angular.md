@@ -1117,8 +1117,12 @@ expect(component.emptyState()).toBe(true);
 products.set([product]); // статус → 'resolved'
 expect(component.emptyState()).toBe(false);
 
-products.loading(); // статус → 'loading', значение остаётся
+products.loading(); // статус → 'loading', значение снова начальное
 expect(component.spinner()).toBe(true);
+
+products.set([product]);
+products.reloading(); // статус → 'reloading', значение остаётся
+expect(component.refreshing()).toBe(true);
 
 products.fail('offline'); // статус → 'error', error() → Error('offline'), hasValue() → false
 expect(component.errorMessage()).toBe('offline');
@@ -1139,10 +1143,17 @@ expect(component.placeholder()).toBe(true);
 | ------------- | ------------------------------------------------------------------ |
 | `set(value)`  | завершить со значением; сбрасывает ошибку                          |
 | `fail(error)` | упасть с `Error` или строкой-сообщением                            |
-| `loading()`   | снова в полёт, значение не трогается                               |
+| `loading()`   | в полёт с новыми параметрами; значение снова начальное             |
+| `reloading()` | в полёт с теми же параметрами; значение остаётся                   |
 | `idle()`      | назад, как до первого запуска, с начальным значением               |
 | `reload`      | спай `reload()`: проверяйте вызов; повторно ничего не отправляется |
 | `resource`    | установленная подмена, чтобы проверять её напрямую                 |
+
+`loading()` и `reloading()` — два способа, которыми настоящий ресурс снова уходит в полёт. С новыми
+параметрами (`loading()`) значение возвращается к начальному: настоящий ресурс читает свой
+`defaultValue`, пока не ответит новый запрос. Если начальное значение `undefined`, `hasValue()` в это
+время — `false`. `reload()` с теми же параметрами (`reloading()`) оставляет на экране последнее
+значение. Спеке, которая ждёт, что старый список виден во время загрузки, нужен `reloading()`.
 
 В свойстве лежит целый `ResourceRef`, потому что тестируемый код пользуется обеими половинами
 (например `asReadonly()` или оптимистичным обновлением через ресурс). Каждый член ведёт себя как у
@@ -1233,7 +1244,8 @@ expect(component.buttonConfig).toHaveSignalValue({ label: 'Save', color: undefin
 `{ strict: false }`.
 
 Правило ESLint [`prefer-to-have-signal-value`](/ru/utilities/eslint-rules#prefer-to-have-signal-value)
-переписывает `expect(component.total()).toBe(3)` на матчер.
+находит `expect(component.total()).toBe(3)` и предлагает матчер; это подсказка в редакторе, а не
+`--fix`.
 
 **Частые ошибки:**
 

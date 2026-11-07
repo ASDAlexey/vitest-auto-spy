@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pathExists, readTextFile, writeTextFile } from './fs-scan';
-import { guardBrokenPipe, runCli } from './main';
+import { guardBrokenPipe, runCli, settle } from './main';
 import type { CliIo } from './main';
 import { doctorArgs, initArgs, initCheckArgs, ordinaryPerfFiles, perfReportJson } from './main.mock';
 import { ESC, TERMINAL } from './paint';
@@ -55,38 +55,38 @@ const HEALTHY = {
 };
 
 describe('runCli', () => {
-  it('says a command is missing in one line, with the short usage, and exits 2', () => {
+  it('says a command is missing in one line, with the short usage, and exits 2', async () => {
     const io = recorder();
 
-    expect(runCli([], io)).toBe(2);
+    expect(await runCli([], io)).toBe(2);
     expect(io.stdout).toEqual([]);
     expect(io.stderr).toEqual([
       'Missing command. Usage: npx vitest-auto-spy <doctor|perf|init|codemod|ng-test> [options]. Run `npx vitest-auto-spy --help` for the options.',
     ]);
   });
 
-  it('treats an explicit help request as a success', () => {
-    expect(runCli(['help'], recorder())).toBe(0);
-    expect(runCli(['doctor', '--help'], recorder())).toBe(0);
-    expect(runCli(['--help'], recorder())).toBe(0);
+  it('treats an explicit help request as a success', async () => {
+    expect(await runCli(['help'], recorder())).toBe(0);
+    expect(await runCli(['doctor', '--help'], recorder())).toBe(0);
+    expect(await runCli(['--help'], recorder())).toBe(0);
   });
 
-  it('prints the installed version', () => {
+  it('prints the installed version', async () => {
     const io = recorder();
 
-    expect(runCli(['--version'], io)).toBe(0);
+    expect(await runCli(['--version'], io)).toBe(0);
     expect(io.stdout[0]).toMatch(/^\d+\.\d+\.\d+/);
   });
 
-  it('rejects an unknown command on stderr', () => {
+  it('rejects an unknown command on stderr', async () => {
     const io = recorder();
 
-    expect(runCli(['dcotor'], io)).toBe(2);
+    expect(await runCli(['dcotor'], io)).toBe(2);
     expect(io.stderr).toEqual(['Unknown command: dcotor. Did you mean `doctor`? Run `npx vitest-auto-spy --help` for the commands.']);
 
     const far = recorder();
 
-    expect(runCli(['deploy'], far)).toBe(2);
+    expect(await runCli(['deploy'], far)).toBe(2);
     expect(far.stderr).toEqual([
       'Unknown command: deploy. Usage: npx vitest-auto-spy <doctor|perf|init|codemod|ng-test> [options]. Run `npx vitest-auto-spy --help` for the options.',
     ]);
@@ -96,44 +96,75 @@ describe('runCli', () => {
     const root = createTempRepo(HEALTHY);
     const io = recorder();
 
-    expect(runCli(['init', '--dryrun', '--cwd', root], io)).toBe(2);
+    expect(await runCli(['init', '--dryrun', '--cwd', root], io)).toBe(2);
     expect(io.stderr).toEqual(['Unknown flag for `init`: --dryrun. Nothing ran.', 'Did you mean `--dry-run`?']);
     expect(readTextFile(join(root, 'AGENTS.md'))).toBe(HEALTHY['AGENTS.md']);
-    expect(runCli(['perf', '--gat', '--cwd', root], recorder())).toBe(2);
+    expect(await runCli(['perf', '--gat', '--cwd', root], recorder())).toBe(2);
     expect(await runCli(['codemod', '--wirte', '--cwd', root], recorder())).toBe(2);
   });
 
-  it('points a --json or --markdown on doctor at --format, and says nothing of it where --format is not taken', () => {
+  it('points a --json or --markdown on doctor at --format, and says nothing of it where --format is not taken', async () => {
     const root = createTempRepo(HEALTHY);
     const doctor = recorder();
     const init = recorder();
 
-    expect(runCli(['doctor', '--json', '--cwd', root], doctor)).toBe(2);
+    expect(await runCli(['doctor', '--json', '--cwd', root], doctor)).toBe(2);
     expect(doctor.stderr.at(-1)).toBe('Did you mean `--format json`?');
-    expect(runCli(['doctor', '--markdown', '--jsn', '--cwd', root], doctor)).toBe(2);
+    expect(await runCli(['doctor', '--markdown', '--jsn', '--cwd', root], doctor)).toBe(2);
     expect(doctor.stderr.at(-2)).toContain('`doctor` accepts --code-quality');
     expect(doctor.stderr.at(-1)).toBe('Did you mean `--format markdown`?');
-    expect(runCli(['init', '--markdown', '--cwd', root], init)).toBe(2);
+    expect(await runCli(['init', '--markdown', '--cwd', root], init)).toBe(2);
     expect(init.stderr.join('\n')).not.toContain('Did you mean');
   });
 
-  it('refuses a --cwd that is not a directory instead of reporting a clean repository', () => {
+  it('refuses a --cwd that is not a directory instead of reporting a clean repository', async () => {
     const root = createTempRepo(HEALTHY);
     const io = recorder();
 
-    expect(runCli(['doctor', '--cwd', join(root, 'nope')], io)).toBe(2);
+    expect(await runCli(['doctor', '--cwd', join(root, 'nope')], io)).toBe(2);
     expect(io.stderr.join('\n')).toContain('is not a directory');
     // A file is the other way to get an empty scan out of a path that exists.
-    expect(runCli(['perf', '--cwd', join(root, 'package.json')], recorder())).toBe(2);
-    expect(runCli(doctorArgs(root), recorder())).toBe(0);
+    expect(await runCli(['perf', '--cwd', join(root, 'package.json')], recorder())).toBe(2);
+    expect(await runCli(doctorArgs(root), recorder())).toBe(0);
+  });
+
+  it('refuses an empty value rather than reading it as no flag at all', async () => {
+    const root = createTempRepo(HEALTHY);
+
+    for (const argv of [
+      ['init', `--cwd=${root}`, '--only='],
+      ['init', `--cwd=${root}`, '--check', '--only=,'],
+      ['doctor', '--cwd='],
+    ]) {
+      const io = recorder();
+
+      expect(await runCli(argv, io)).toBe(2);
+      expect(io.stderr).toEqual([`${argv.at(-1)?.split('=')[0] ?? ''} needs a value, and got an empty one. Nothing ran.`]);
+    }
+
+    expect(pathExists(join(root, 'CLAUDE.md'))).toBe(false);
+  });
+
+  it('turns a crash into exit 2 with the reason, a thrown value and a rejection alike', async () => {
+    const io = recorder();
+
+    expect(await settle(() => 0, io)).toBe(0);
+    expect(
+      await settle(() => {
+        throw new Error('boom');
+      }, io),
+    ).toBe(2);
+    expect(await settle(() => Promise.reject('gone'), io)).toBe(2);
+    expect(io.stderr[0]).toBe('vitest-auto-spy crashed: boom');
+    expect(io.stderr[1]).toBe('vitest-auto-spy crashed: gone');
   });
 
   it('takes every flag its own command documents, and the common ones on any command', async () => {
     const root = createTempRepo(HEALTHY);
 
-    expect(runCli(['init', '--check', '--dry-run', '--uninstall', '--cwd', root], recorder())).toBe(0);
+    expect(await runCli(['init', '--check', '--dry-run', '--uninstall', '--cwd', root], recorder())).toBe(0);
     expect(await runCli(['codemod', '--verify', '--list', '--from', 'auto', '--cwd', root], recorder())).toBe(0);
-    expect(runCli(['doctor', '--min-severity', 'error', '--cwd', root], recorder())).toBe(0);
+    expect(await runCli(['doctor', '--min-severity', 'error', '--cwd', root], recorder())).toBe(0);
   });
 
   it('closes quietly when the pipe it was writing to is gone, and rethrows anything else', () => {
@@ -153,192 +184,213 @@ describe('runCli', () => {
 });
 
 describe('doctor', () => {
-  it('exits 0 and says so on a healthy repository', () => {
+  it('exits 0 and says so on a healthy repository', async () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
 
-    expect(runCli(doctorArgs(root), io)).toBe(0);
+    expect(await runCli(doctorArgs(root), io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('No problems found.');
     expect(io.stdout.join('\n')).toContain('runner: vitest');
   });
 
-  it('exits 1 and prints the tally when something is wrong', () => {
+  it('exits 1 and prints the tally when something is wrong', async () => {
     const io = recorder();
     const root = createTempRepo({ ...HEALTHY, 'tsconfig.json': JSON.stringify({ include: ['src*.ts'] }) });
 
-    expect(runCli(doctorArgs(root), io)).toBe(1);
+    expect(await runCli(doctorArgs(root), io)).toBe(1);
     expect(io.stdout.join('\n')).toContain('1 error, 0 warnings, 0 notes');
   });
 
-  it('leaves the checks named by --ignore out of the report and the exit code', () => {
+  it('leaves the checks named by --ignore out of the report and the exit code', async () => {
     const io = recorder();
     const root = createTempRepo({ ...HEALTHY, 'tsconfig.json': JSON.stringify({ include: ['src*.ts'] }) });
 
-    expect(runCli(['doctor', '--cwd', root, '--ignore', 'no-agent-instructions, tsconfig-glob-matches-nothing'], io)).toBe(0);
+    expect(await runCli(['doctor', '--cwd', root, '--ignore', 'no-agent-instructions, tsconfig-glob-matches-nothing'], io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('No problems found.');
   });
 
-  it('exits 0 when the only finding is the note suggesting init', () => {
+  it('exits 0 when the only finding is the note suggesting init', async () => {
     const io = recorder();
     const root = createTempRepo({ 'package.json': '{}' });
 
-    expect(runCli(doctorArgs(root), io)).toBe(0);
+    expect(await runCli(doctorArgs(root), io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('no-agent-instructions');
   });
 
-  it('--min-severity hides the quieter findings and keeps the tally that counts them', () => {
+  it('--min-severity hides the quieter findings and keeps the tally that counts them', async () => {
     const io = recorder();
     const root = createTempRepo({ 'package.json': '{}' });
 
-    expect(runCli(['doctor', '--cwd', root, '--min-severity', 'warning'], io)).toBe(0);
+    expect(await runCli(['doctor', '--cwd', root, '--min-severity', 'warning'], io)).toBe(0);
     expect(io.stdout.join('\n')).not.toContain('no-agent-instructions');
     expect(io.stdout.join('\n')).toContain('1 note');
 
     const abbreviated = recorder();
 
-    expect(runCli(['doctor', '--cwd', root, '--min-severity', 'warn'], abbreviated)).toBe(0);
+    expect(await runCli(['doctor', '--cwd', root, '--min-severity', 'warn'], abbreviated)).toBe(0);
     expect(abbreviated.stdout.join('\n')).not.toContain('no-agent-instructions');
   });
 
-  it('refuses an unknown --min-severity before running anything, with the accepted values', () => {
+  it('refuses an unknown --min-severity before running anything, with the accepted values', async () => {
     const io = recorder();
     const root = createTempRepo({ 'package.json': '{}' });
 
-    expect(runCli(['doctor', '--cwd', root, '--min-severity', 'loud'], io)).toBe(2);
+    expect(await runCli(['doctor', '--cwd', root, '--min-severity', 'loud'], io)).toBe(2);
     expect(io.stdout).toEqual([]);
     expect(io.stderr).toEqual(['Unknown --min-severity value: loud. Accepted values: error, warning, info. Nothing ran.']);
   });
 
-  it('refuses an unknown check id in --ignore, and suggests the one it most likely meant', () => {
+  it('refuses an unknown check id in --ignore, and suggests the one it most likely meant', async () => {
     const root = createTempRepo({ 'package.json': '{}' });
     const near = recorder();
     const far = recorder();
 
-    expect(runCli(['doctor', '--cwd', root, '--ignore', 'no-agent-instruction'], near)).toBe(2);
+    expect(await runCli(['doctor', '--cwd', root, '--ignore', 'no-agent-instruction'], near)).toBe(2);
     expect(near.stderr).toEqual(['Unknown check id for --ignore: no-agent-instruction. Did you mean no-agent-instructions? Nothing ran.']);
-    expect(runCli(['doctor', '--cwd', root, '--ignore', 'everything'], far)).toBe(2);
+    expect(await runCli(['doctor', '--cwd', root, '--ignore', 'everything'], far)).toBe(2);
     expect(far.stderr[0]).toContain(
       'Unknown check id for --ignore: everything. Known ids: analog-behind-angular-build, analog-fast-compile-ctor-injection,',
     );
-    expect(runCli(['doctor', '--cwd', root, '--ignore', 'no-agent-instructions,'], recorder())).toBe(0);
+    expect(await runCli(['doctor', '--cwd', root, '--ignore', 'no-agent-instructions,'], recorder())).toBe(0);
     expect(far.stderr[0]).toContain(
       'vitest-5-removed, vitest-5-report-path, vitest-5-vite-peer, vitest-entry-without-vitest. Nothing ran.',
     );
-    expect(runCli(['doctor', '--cwd', root, '--ignore', 'vitest-5-available,fs-module-cache-not-persisted'], recorder())).toBe(0);
+    expect(await runCli(['doctor', '--cwd', root, '--ignore', 'vitest-5-available,fs-module-cache-not-persisted'], recorder())).toBe(0);
   });
 });
 
 describe('flag values', () => {
-  it('refuses a value flag with no value, a value flag followed by another flag included', () => {
+  it('refuses a value flag with no value, a value flag followed by another flag included', async () => {
     const io = recorder();
 
-    expect(runCli(['doctor', '--code-quality', '--min-severity', 'error'], io)).toBe(2);
+    expect(await runCli(['doctor', '--code-quality', '--min-severity', 'error'], io)).toBe(2);
     expect(io.stderr).toEqual(['--code-quality needs a value, as in `--code-quality <value>`. Nothing ran.']);
   });
 
-  it('refuses a number flag that is not a number of zero or more, and takes a zero', () => {
+  it('refuses a number flag that is not a number of zero or more, and takes a zero', async () => {
     const root = createTempRepo(HEALTHY);
     const word = recorder();
     const negative = recorder();
 
-    expect(runCli(['perf', '--cwd', root, '--max-test-ms', 'abc'], word)).toBe(2);
+    expect(await runCli(['perf', '--cwd', root, '--max-test-ms', 'abc'], word)).toBe(2);
     expect(word.stderr).toEqual(['--max-test-ms takes a number of zero or more, and got abc. Nothing ran.']);
-    expect(runCli(['perf', '--cwd', root, '--top', '-3'], negative)).toBe(2);
+    expect(await runCli(['perf', '--cwd', root, '--top', '-3'], negative)).toBe(2);
     expect(negative.stderr).toEqual(['--top takes a number of zero or more, and got -3. Nothing ran.']);
-    expect(runCli(['perf', '--cwd', root, '--factor=Infinity'], recorder())).toBe(2);
-    expect(runCli(['perf', '--cwd', root, '--factor', ' '], recorder())).toBe(2);
+    expect(await runCli(['perf', '--cwd', root, '--factor=Infinity'], recorder())).toBe(2);
+    expect(await runCli(['perf', '--cwd', root, '--factor', ' '], recorder())).toBe(2);
   });
 });
 
 describe('ng-test', () => {
-  it('refuses a shard it cannot split by, and a --target with no value', () => {
+  it('refuses a shard it cannot split by, and a --target with no value', async () => {
     const shard = recorder();
     const target = recorder();
 
-    expect(runCli(['ng-test', '--shard', '0/4'], shard)).toBe(2);
+    expect(await runCli(['ng-test', '--shard', '0/4'], shard)).toBe(2);
     expect(shard.stderr).toEqual(['--shard takes <index>/<count>, as in `--shard 1/4`, and got 0/4. Nothing ran.']);
-    expect(runCli(['ng-test', '--target'], target)).toBe(2);
+    expect(await runCli(['ng-test', '--target'], target)).toBe(2);
     expect(target.stderr).toEqual(['--target needs a value, as in `--target <value>`. Nothing ran.']);
   });
 
-  it('takes a bare --changed, and says when the workspace has no unit-test target', () => {
+  it('takes a bare --changed, and says when the workspace has no unit-test target', async () => {
     const root = createTempRepo(HEALTHY);
     const io = recorder();
 
-    expect(runCli(['ng-test', '--cwd', root, '--changed', '--shard', '1/2', '--related', 'src/app.ts', '--', '--coverage'], io)).toBe(2);
+    expect(await runCli(['ng-test', '--cwd', root, '--changed', '--shard', '1/2', '--related', 'src/app.ts', '--', '--coverage'], io)).toBe(
+      2,
+    );
     expect(io.stderr[0]).toContain('No @angular/build:unit-test target in this workspace.');
-    expect(runCli(['ng-test', '--cwd', root], recorder())).toBe(2);
+    expect(await runCli(['ng-test', '--cwd', root], recorder())).toBe(2);
   });
 
-  it('refuses arguments after -- for every other command', () => {
+  it('refuses a spec path a bare --changed swallowed, and a ref git would read as an option', async () => {
+    const root = createTempRepo({ ...HEALTHY, 'src/a.spec.ts': '' });
+    const output = join(root, 'diff.txt');
+
+    for (const command of ['ng-test', 'perf']) {
+      const swallowed = recorder();
+      const option = recorder();
+
+      expect(await runCli([command, '--cwd', root, '--changed', 'src/a.spec.ts'], swallowed)).toBe(2);
+      expect(swallowed.stderr).toEqual([
+        '--changed src/a.spec.ts names a file, not a git ref. Write --changed=<ref>, or put a bare --changed after the paths. Nothing ran.',
+      ]);
+      expect(await runCli([command, '--cwd', root, `--changed=--output=${output}`], option)).toBe(2);
+      expect(option.stderr).toEqual([`--changed takes a git ref, and got --output=${output}. Nothing ran.`]);
+    }
+
+    expect(pathExists(output)).toBe(false);
+  });
+
+  it('refuses arguments after -- for every other command', async () => {
     const io = recorder();
 
-    expect(runCli(['perf', '--', '--coverage'], io)).toBe(2);
+    expect(await runCli(['perf', '--', '--coverage'], io)).toBe(2);
     expect(io.stderr).toEqual(['Only `ng-test` takes arguments after `--`. Nothing ran.']);
   });
 });
 
 describe('init', () => {
-  it('writes the block, then reports it as up to date', () => {
+  it('writes the block, then reports it as up to date', async () => {
     const root = createTempRepo(HEALTHY);
     const first = recorder();
     const second = recorder();
 
-    expect(runCli(initArgs(root), first)).toBe(0);
+    expect(await runCli(initArgs(root), first)).toBe(0);
     expect(first.stdout.join('\n')).toContain('created  ');
-    expect(runCli(initCheckArgs(root), second)).toBe(0);
+    expect(await runCli(initCheckArgs(root), second)).toBe(0);
     expect(second.stdout.join('\n')).toContain('Up to date.');
   });
 
-  it('exits 1 from --check when the block is missing', () => {
+  it('exits 1 from --check when the block is missing', async () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
 
-    expect(runCli(initCheckArgs(root), io)).toBe(1);
+    expect(await runCli(initCheckArgs(root), io)).toBe(1);
     expect(io.stderr.at(-1)).toMatch(/^\nAGENTS\.md, CLAUDE\.md, .* are out of date\. Run `npx vitest-auto-spy init` to update them\.$/);
 
     const one = recorder();
 
-    expect(runCli(['init', '--cwd', root, '--check', '--only', 'AGENTS.md'], one)).toBe(1);
+    expect(await runCli(['init', '--cwd', root, '--check', '--only', 'AGENTS.md'], one)).toBe(1);
     expect(one.stderr.at(-1)).toBe('\nAGENTS.md is out of date. Run `npx vitest-auto-spy init` to update it.');
   });
 
-  it('tells how to replace a stale copy of the shipped skill, and fails --check on it', () => {
+  it('tells how to replace a stale copy of the shipped skill, and fails --check on it', async () => {
     const skill = '.claude/skills/vitest-auto-spy/SKILL.md';
     const root = createTempRepo({ ...HEALTHY, [skill]: '---\nname: vitest-auto-spy\n---\n\nAn old copy.\n' });
     const plain = recorder();
     const check = recorder();
 
-    expect(runCli(initArgs(root), plain)).toBe(0);
+    expect(await runCli(initArgs(root), plain)).toBe(0);
     expect(plain.stdout.join('\n')).toContain(`stale     ${skill}`);
     expect(plain.stderr.join('\n')).toContain('Delete it and re-run `npx vitest-auto-spy init`');
-    expect(runCli(initCheckArgs(root), check)).toBe(1);
+    expect(await runCli(initCheckArgs(root), check)).toBe(1);
     expect(check.stdout.join('\n')).not.toContain('Up to date.');
     expect(check.stderr).not.toContainEqual(expect.stringContaining('out of date'));
     expect(check.stderr.at(-1)).toBe(`\n${skill} is a stale copy of the shipped skill. Delete it, then run \`npx vitest-auto-spy init\`.`);
   });
 
-  it('writes only the files --only names', () => {
+  it('writes only the files --only names', async () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
 
-    expect(runCli(['init', '--cwd', root, '--only', 'CLAUDE.md, .claude'], io)).toBe(0);
+    expect(await runCli(['init', '--cwd', root, '--only', 'CLAUDE.md, .claude'], io)).toBe(0);
     expect(io.stdout.join('\n')).not.toContain('AGENTS.md');
     expect(pathExists(join(root, 'CLAUDE.md'))).toBe(true);
   });
 
-  it('prints the budget warning on stderr', () => {
+  it('prints the budget warning on stderr', async () => {
     const io = recorder();
     const root = createTempRepo({ ...HEALTHY, 'AGENTS.md': 'x'.repeat(33_000) });
 
-    expect(runCli(initArgs(root), io)).toBe(0);
+    expect(await runCli(initArgs(root), io)).toBe(0);
     expect(io.stderr.join('\n')).toContain('warning');
   });
 
-  it('defaults the working directory to the process one', () => {
+  it('defaults the working directory to the process one', async () => {
     const io = recorder();
 
-    expect(runCli(['init', '--dry-run'], io)).toBe(0);
+    expect(await runCli(['init', '--dry-run'], io)).toBe(0);
     expect(io.stdout.join('\n')).toContain(process.cwd());
   });
 });
@@ -376,39 +428,39 @@ function slowRepo(): string {
 
 describe('perf', () => {
   /** The rules and the rendering are pinned in `perf.spec.ts`; this is the dispatch and the flags. */
-  it('reads the report --json names and exits 0', () => {
+  it('reads the report --json names and exits 0', async () => {
     const io = recorder();
     const root = createTempRepo({
       ...HEALTHY,
       'perf.json': JSON.stringify({ version: 1, root: '/r', transform: 0, wall: 0, files: [{ file: '/r/a.spec.ts', tests: 1 }] }),
     });
 
-    expect(runCli(['perf', '--cwd', root, '--json', `${root}/perf.json`], io)).toBe(0);
+    expect(await runCli(['perf', '--cwd', root, '--json', `${root}/perf.json`], io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('vitest-auto-spy perf —');
   });
 
-  it('exits 2 when there is no report to read: nothing was judged, which is not the same as passing', () => {
+  it('exits 2 when there is no report to read: nothing was judged, which is not the same as passing', async () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
 
-    expect(runCli(['perf', '--cwd', root, '--json', `${root}/nowhere.json`], io)).toBe(2);
+    expect(await runCli(['perf', '--cwd', root, '--json', `${root}/nowhere.json`], io)).toBe(2);
     expect(io.stderr.join('\n')).toContain('Cannot read the perf report: nowhere.json does not exist.');
   });
 
-  it('gates a report it was handed, and fails only when told one reading is enough', () => {
+  it('gates a report it was handed, and fails only when told one reading is enough', async () => {
     const io = recorder();
     const root = slowRepo();
 
-    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate'], io)).toBe(0);
+    expect(await runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate'], io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('warn   perf-gate-slow-file slow.spec.ts');
 
     const trusted = recorder();
 
-    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm'], trusted)).toBe(1);
+    expect(await runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm'], trusted)).toBe(1);
     expect(trusted.stdout.join('\n')).toContain('error  perf-gate-slow-file slow.spec.ts');
   });
 
-  it('re-measures a handed report under the config it recorded, and says so when that config is not here', () => {
+  it('re-measures a handed report under the config it recorded, and says so when that config is not here', async () => {
     const root = slowRepo();
     const report = join(root, 'perf.json');
     const io = recorder();
@@ -422,26 +474,26 @@ describe('perf', () => {
       }),
     );
 
-    expect(runCli(['perf', '--cwd', root, '--json', report, '--gate', '--profile-dir', 'profiles'], io)).toBe(0);
+    expect(await runCli(['perf', '--cwd', root, '--json', report, '--gate', '--profile-dir', 'profiles'], io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('perf gate: re-measuring 1 file on its own before failing anything.');
     expect(io.stderr.join('\n')).toContain('The report was measured with the Vitest config libs/tooling/vitest.config.ts');
     expect(io.stderr.join('\n')).not.toContain('--profile-dir keeps the profiles');
   });
 
-  it('runs the suite when there is no report to read, and says --profile-dir needs a gate', () => {
+  it('runs the suite when there is no report to read, and says --profile-dir needs a gate', async () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
 
-    expect(runCli(['perf', '--cwd', root, '--profile-dir', 'profiles'], io)).toBe(2);
+    expect(await runCli(['perf', '--cwd', root, '--profile-dir', 'profiles'], io)).toBe(2);
     expect(io.stderr.join('\n')).toContain('--profile-dir keeps the profiles');
     expect(io.stderr.join('\n')).toContain('No Vitest is installed');
   });
 
-  it('warns that --profile-dir has nothing to keep when the handed report recorded no config', () => {
+  it('warns that --profile-dir has nothing to keep when the handed report recorded no config', async () => {
     const io = recorder();
     const root = slowRepo();
 
-    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--profile-dir', 'profiles'], io)).toBe(0);
+    expect(await runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--profile-dir', 'profiles'], io)).toBe(0);
     expect(io.stderr.join('\n')).toContain('--profile-dir keeps the profiles');
     expect(io.stdout.join('\n')).not.toContain('re-measuring');
   });
@@ -455,22 +507,22 @@ describe('color in a CI job log', () => {
     vi.stubEnv('GITLAB_CI', 'true');
   };
 
-  it('paints doctor findings by severity, and keeps the JSON and the Code Quality report free of escapes', () => {
+  it('paints doctor findings by severity, and keeps the JSON and the Code Quality report free of escapes', async () => {
     inGitLab();
 
     const root = createTempRepo({ ...HEALTHY, 'tsconfig.json': JSON.stringify({ include: ['src*.ts'] }) });
     const text = recorder();
     const json = recorder();
 
-    expect(runCli(doctorArgs(root), text)).toBe(1);
+    expect(await runCli(doctorArgs(root), text)).toBe(1);
     expect(text.stdout.join('\n')).toContain(`${TERMINAL.red('error')}  tsconfig-glob-matches-nothing`);
 
-    expect(runCli(['doctor', '--cwd', root, '--format', 'json', '--code-quality', 'quality.json'], json)).toBe(1);
+    expect(await runCli(['doctor', '--cwd', root, '--format', 'json', '--code-quality', 'quality.json'], json)).toBe(1);
     expect(json.stdout.join('\n')).not.toContain(ESC);
     expect(readTextFile(join(root, 'quality.json'))).not.toContain(ESC);
   });
 
-  it('paints the gate: warning yellow, error red, a failing verdict red, and nothing in its JSON', () => {
+  it('paints the gate: warning yellow, error red, a failing verdict red, and nothing in its JSON', async () => {
     inGitLab();
 
     const root = slowRepo();
@@ -479,15 +531,15 @@ describe('color in a CI job log', () => {
     const failed = recorder();
     const json = recorder();
 
-    expect(runCli(['perf', '--cwd', root, '--json', report, '--gate'], warned)).toBe(0);
+    expect(await runCli(['perf', '--cwd', root, '--json', report, '--gate'], warned)).toBe(0);
     expect(warned.stdout.join('\n')).toContain(`${TERMINAL.yellow('warn')}   perf-gate-slow-file slow.spec.ts`);
 
-    expect(runCli(['perf', '--cwd', root, '--json', report, '--gate', '--no-confirm'], failed)).toBe(1);
+    expect(await runCli(['perf', '--cwd', root, '--json', report, '--gate', '--no-confirm'], failed)).toBe(1);
     expect(failed.stdout.join('\n')).toContain(`${TERMINAL.red('error')}  perf-gate-slow-file slow.spec.ts`);
     expect(failed.stdout.join('\n')).toContain(TERMINAL.red('perf gate verdict — 1 judged, 1 fails the run'));
 
     expect(
-      runCli(
+      await runCli(
         ['perf', '--cwd', root, '--json', report, '--gate', '--no-confirm', '--format', 'json', '--code-quality', 'quality.json'],
         json,
       ),
@@ -521,28 +573,28 @@ describe('perf flags', () => {
     return { root, json: join(root, 'perf.json') };
   };
 
-  it('strips a leading ./ from a scope, since a generated list is where that spelling comes from', () => {
+  it('strips a leading ./ from a scope, since a generated list is where that spelling comes from', async () => {
     const { root, json } = repo();
     const io = recorder();
 
-    expect(runCli(['perf', '--cwd', root, '--json', json, '--gate', '--gate-only', './src', '--no-confirm'], io)).toBe(1);
+    expect(await runCli(['perf', '--cwd', root, '--json', json, '--gate', '--gate-only', './src', '--no-confirm'], io)).toBe(1);
     expect(io.stdout.join('\n')).toContain('perf-gate-slow-file src/slow.spec.ts');
   });
 
-  it('records the baseline next to the repository when --update-baseline names no path', () => {
+  it('records the baseline next to the repository when --update-baseline names no path', async () => {
     const { root, json } = repo();
     const io = recorder();
 
-    expect(runCli(['perf', '--cwd', root, '--json', json, '--update-baseline'], io)).toBe(0);
+    expect(await runCli(['perf', '--cwd', root, '--json', json, '--update-baseline'], io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('perf-baseline.json');
     expect(pathExists(join(root, 'perf-baseline.json'))).toBe(true);
   });
 
-  it('--min-severity error leaves perf with the tally alone, and the exit code where it was', () => {
+  it('--min-severity error leaves perf with the tally alone, and the exit code where it was', async () => {
     const { root, json } = repo();
     const io = recorder();
 
-    expect(runCli(['perf', '--cwd', root, '--json', json, '--gate', '--min-severity', 'error'], io)).toBe(0);
+    expect(await runCli(['perf', '--cwd', root, '--json', json, '--gate', '--min-severity', 'error'], io)).toBe(0);
 
     const out = io.stdout.join('\n');
 
@@ -550,7 +602,7 @@ describe('perf flags', () => {
     expect(out).toContain('0 errors, 1 warning, 0 notes');
   });
 
-  it('clamps a zero budget off the floor, so a file that ran nothing is never a finding', () => {
+  it('clamps a zero budget off the floor, so a file that ran nothing is never a finding', async () => {
     const root = createTempRepo(HEALTHY);
 
     writeTextFile(
@@ -561,7 +613,7 @@ describe('perf flags', () => {
     const io = recorder();
 
     expect(
-      runCli(
+      await runCli(
         [
           'perf',
           '--cwd',
@@ -587,11 +639,11 @@ describe('perf flags', () => {
 });
 
 describe('--format json', () => {
-  it('prints doctor as one JSON document with every finding, whatever --min-severity hides from the text', () => {
+  it('prints doctor as one JSON document with every finding, whatever --min-severity hides from the text', async () => {
     const io = recorder();
     const root = createTempRepo({ 'package.json': '{}', 'src/a.spec.ts': '' });
 
-    expect(runCli(['doctor', '--cwd', root, '--format', 'json', '--min-severity', 'error'], io)).toBe(0);
+    expect(await runCli(['doctor', '--cwd', root, '--format', 'json', '--min-severity', 'error'], io)).toBe(0);
 
     const document: unknown = JSON.parse(io.stdout.join('\n'));
 
@@ -606,14 +658,16 @@ describe('--format json', () => {
     });
   });
 
-  it('prints perf as one JSON document: the run, the budgets, the gate and the findings', () => {
+  it('prints perf as one JSON document: the run, the budgets, the gate and the findings', async () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
     const files = [...ordinaryPerfFiles(root), { file: `${root}/slow.spec.ts`, tests: 9_000, testCount: 4 }];
 
     writeTextFile(join(root, 'perf.json'), perfReportJson(root, files));
 
-    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm', '--format', 'json'], io)).toBe(1);
+    expect(await runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm', '--format', 'json'], io)).toBe(
+      1,
+    );
     expect(io.stdout).toHaveLength(1);
 
     const document: unknown = JSON.parse(io.stdout.join(''));
@@ -628,11 +682,11 @@ describe('--format json', () => {
     });
   });
 
-  it('still prints a document, with the error, when there is no report to read', () => {
+  it('still prints a document, with the error, when there is no report to read', async () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
 
-    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'nowhere.json'), '--format', 'json', '--gate'], io)).toBe(2);
+    expect(await runCli(['perf', '--cwd', root, '--json', join(root, 'nowhere.json'), '--format', 'json', '--gate'], io)).toBe(2);
     expect(JSON.parse(io.stdout.join(''))).toMatchObject({
       exitCode: 2,
       run: null,
@@ -641,21 +695,21 @@ describe('--format json', () => {
     expect(io.stderr.join('\n')).toContain('Cannot read the perf report: nowhere.json does not exist.');
   });
 
-  it('refuses a format it does not know, before anything runs', () => {
+  it('refuses a format it does not know, before anything runs', async () => {
     const io = recorder();
 
-    expect(runCli(['doctor', '--format', 'xml'], io)).toBe(2);
+    expect(await runCli(['doctor', '--format', 'xml'], io)).toBe(2);
     expect(io.stderr.join('\n')).toContain('Unknown --format value: xml');
-    expect(runCli(['doctor', '--format', 'TEXT', '--cwd', createTempRepo(HEALTHY)], recorder())).toBe(0);
+    expect(await runCli(['doctor', '--format', 'TEXT', '--cwd', createTempRepo(HEALTHY)], recorder())).toBe(0);
   });
 });
 
 describe('--format markdown', () => {
-  it('prints doctor as a findings table and the tally', () => {
+  it('prints doctor as a findings table and the tally', async () => {
     const io = recorder();
     const root = createTempRepo({ 'package.json': '{}', 'src/a.spec.ts': '' });
 
-    expect(runCli(['doctor', '--cwd', root, '--format', 'markdown'], io)).toBe(0);
+    expect(await runCli(['doctor', '--cwd', root, '--format', 'markdown'], io)).toBe(0);
 
     const out = io.stdout.join('\n');
 
@@ -665,7 +719,7 @@ describe('--format markdown', () => {
     expect(out).toContain('**0 errors, 0 warnings, 1 notes**');
   });
 
-  it('prints perf with the phases, the slowest files and the gate, and keeps the suite off stdout', () => {
+  it('prints perf with the phases, the slowest files and the gate, and keeps the suite off stdout', async () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
     const files = [...ordinaryPerfFiles(root), { file: `${root}/slow.spec.ts`, tests: 9_000, testCount: 4 }];
@@ -673,7 +727,7 @@ describe('--format markdown', () => {
     writeTextFile(join(root, 'perf.json'), perfReportJson(root, files));
 
     expect(
-      runCli(
+      await runCli(
         ['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm', '--format', 'markdown', '--top', '1'],
         io,
       ),
@@ -691,28 +745,28 @@ describe('--format markdown', () => {
 });
 
 describe('doctor text', () => {
-  it('says how much it read, and ends in the tally even when nothing was found', () => {
+  it('says how much it read, and ends in the tally even when nothing was found', async () => {
     const io = recorder();
     const root = createTempRepo({ ...HEALTHY, 'src/a.spec.ts': '' });
 
-    expect(runCli(doctorArgs(root), io)).toBe(0);
+    expect(await runCli(doctorArgs(root), io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('4 files scanned, 1 of them spec files — runner: vitest');
     expect(io.stdout.at(-1)).toBe('0 errors, 0 warnings, 0 notes');
   });
 
-  it('warns when the scan stopped at its cap, because every other check then read part of the tree', () => {
+  it('warns when the scan stopped at its cap, because every other check then read part of the tree', async () => {
     vi.stubEnv('VITEST_AUTO_SPY_SCAN_CAP', '1');
 
     const io = recorder();
     const root = createTempRepo(HEALTHY);
 
-    expect(runCli(doctorArgs(root), io)).toBe(1);
+    expect(await runCli(doctorArgs(root), io)).toBe(1);
     expect(io.stdout.join('\n')).toContain('warn   scan-cap-reached');
   });
 });
 
 describe('perf budgets without --gate', () => {
-  it('draws the tables against the budgets on the command line, which is what a later --gate judges', () => {
+  it('draws the tables against the budgets on the command line, which is what a later --gate judges', async () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
     const files = [
@@ -722,64 +776,64 @@ describe('perf budgets without --gate', () => {
 
     writeTextFile(join(root, 'perf.json'), perfReportJson(root, files));
 
-    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--max-test-ms', '300'], io)).toBe(0);
+    expect(await runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--max-test-ms', '300'], io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('test bodies over budget — 1, each over --max-test-ms 300ms');
   });
 });
 
 describe('perf gate attribution flags', () => {
-  const gateOf = (argv: readonly string[], io: CliIo = recorder()): perf.GateRequest | undefined => {
+  const gateOf = async (argv: readonly string[], io: CliIo = recorder()): Promise<perf.GateRequest | undefined> => {
     const root = slowRepo();
 
-    runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm', ...argv], io);
+    await runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm', ...argv], io);
 
     return vi.mocked(perf.renderPerf).mock.lastCall?.[3]?.gate;
   };
 
-  it('leaves every one of them out of the gate when none was given', () => {
-    expect(gateOf([])).not.toHaveProperty('scope');
-    expect(gateOf([])).not.toHaveProperty('debt');
-    expect(gateOf([])).not.toHaveProperty('margin');
-    expect(gateOf([])).not.toHaveProperty('confirmRuns');
+  it('leaves every one of them out of the gate when none was given', async () => {
+    expect(await gateOf([])).not.toHaveProperty('scope');
+    expect(await gateOf([])).not.toHaveProperty('debt');
+    expect(await gateOf([])).not.toHaveProperty('margin');
+    expect(await gateOf([])).not.toHaveProperty('confirmRuns');
   });
 
-  it('refuses a --debt it does not know out loud, and judges known debt as a failure', () => {
+  it('refuses a --debt it does not know out loud, and judges known debt as a failure', async () => {
     const io = recorder();
 
-    expect(gateOf(['--debt', 'warm'], io)).not.toHaveProperty('debt');
+    expect(await gateOf(['--debt', 'warm'], io)).not.toHaveProperty('debt');
     expect(io.stderr.join('\n')).toContain('warning  --debt takes warn or fail, not warm; judging known debt as a failure.');
   });
 
-  it('passes --debt warn on, and takes --debt fail silently as the default', () => {
+  it('passes --debt warn on, and takes --debt fail silently as the default', async () => {
     const io = recorder();
 
-    expect(gateOf(['--debt', 'warn'])).toMatchObject({ debt: 'warn' });
-    expect(gateOf(['--debt=fail'], io)).not.toHaveProperty('debt');
+    expect(await gateOf(['--debt', 'warn'])).toMatchObject({ debt: 'warn' });
+    expect(await gateOf(['--debt=fail'], io)).not.toHaveProperty('debt');
     expect(io.stderr.join('\n')).not.toContain('--debt takes');
   });
 
-  it('never lets --gate-margin go under 1', () => {
-    expect(gateOf(['--gate-margin', '0.5'])).toMatchObject({ margin: 1 });
-    expect(gateOf(['--gate-margin', '1.5'])).toMatchObject({ margin: 1.5 });
+  it('never lets --gate-margin go under 1', async () => {
+    expect(await gateOf(['--gate-margin', '0.5'])).toMatchObject({ margin: 1 });
+    expect(await gateOf(['--gate-margin', '1.5'])).toMatchObject({ margin: 1.5 });
   });
 
-  it('keeps --confirm-runs a whole number between 1 and 5', () => {
-    expect(gateOf(['--confirm-runs', '0'])).toMatchObject({ confirmRuns: 1 });
-    expect(gateOf(['--confirm-runs', '2.7'])).toMatchObject({ confirmRuns: 2 });
-    expect(gateOf(['--confirm-runs', '9'])).toMatchObject({ confirmRuns: 5 });
+  it('keeps --confirm-runs a whole number between 1 and 5', async () => {
+    expect(await gateOf(['--confirm-runs', '0'])).toMatchObject({ confirmRuns: 1 });
+    expect(await gateOf(['--confirm-runs', '2.7'])).toMatchObject({ confirmRuns: 2 });
+    expect(await gateOf(['--confirm-runs', '9'])).toMatchObject({ confirmRuns: 5 });
   });
 
-  it('judges every file, and says why, when --changed is given outside a git repository', () => {
+  it('judges every file, and says why, when --changed is given outside a git repository', async () => {
     const io = recorder();
 
     vi.stubEnv('GIT_CEILING_DIRECTORIES', tmpdir());
 
-    expect(gateOf(['--changed'], io)).not.toHaveProperty('scope');
+    expect(await gateOf(['--changed'], io)).not.toHaveProperty('scope');
     expect(io.stderr.join('\n')).toContain('warning  --changed HEAD:');
     expect(io.stderr.join('\n')).toContain('The gate judges every file instead.');
   });
 
-  it('scopes the gate to what --changed reaches, so a file the change never touched fails nothing', () => {
+  it('scopes the gate to what --changed reaches, so a file the change never touched fails nothing', async () => {
     const root = slowRepo();
     const io = recorder();
     const git = (...args: string[]): void => {
@@ -790,7 +844,9 @@ describe('perf gate attribution flags', () => {
     git('add', '-A');
     git('commit', '-q', '-m', 'init');
 
-    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm', '--changed', 'HEAD'], io)).toBe(0);
+    expect(
+      await runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm', '--changed', 'HEAD'], io),
+    ).toBe(0);
     expect(vi.mocked(perf.renderPerf).mock.lastCall?.[3]?.gate?.scope).toMatchObject({ ref: 'HEAD', all: false, changed: 0 });
     expect(io.stdout.join('\n')).toContain('perf gate: nothing changed against HEAD');
     expect(io.stdout.join('\n')).toContain('warn   perf-gate-slow-file slow.spec.ts');

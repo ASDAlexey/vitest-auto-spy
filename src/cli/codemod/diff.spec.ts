@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { unifiedDiff } from './diff';
+import { originLines, unifiedDiff } from './diff';
 
 function numbered(count: number, from: number = 1): string {
   return Array.from({ length: count }, (_unused, index) => `line ${index + from}`).join('\n');
@@ -49,5 +49,20 @@ describe('unifiedDiff', () => {
 
     expect(body.filter((line) => line.startsWith('-'))).toHaveLength(601);
     expect(body.filter((line) => line.startsWith('+'))).toHaveLength(601);
+  });
+});
+
+describe('originLines', () => {
+  it('maps a kept line back across lines added above it, and a rewritten line onto the one it replaced', () => {
+    const origin = originLines('a\nb\nc\nd', 'new\na\nB\nc\nd');
+
+    expect([1, 2, 3, 4, 5].map(origin)).toEqual([1, 1, 2, 3, 4]);
+  });
+
+  it('points a line added after the last one at the last one, and leaves a line it never saw as it is', () => {
+    const origin = originLines('a\nb', 'a\nb\nc\nd');
+
+    expect([3, 4, 9].map(origin)).toEqual([2, 2, 9]);
+    expect(originLines('a\nx\ny\nb', 'a\nX\nb')(2)).toBe(2);
   });
 });

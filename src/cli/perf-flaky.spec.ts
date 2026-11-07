@@ -183,12 +183,12 @@ describe('renderPerf --fail-on-flaky', () => {
     ).toBe(2);
   });
 
-  it('is read from the command line', () => {
+  it('is read from the command line', async () => {
     const root = repo();
 
     writeTextFile(join(root, 'perf.json'), JSON.stringify(run(root, [file(root, 'src/a.spec.ts', { flaky: ['a > retried'] })])));
 
-    expect(runCli(['perf', '--cwd', root, '--json', 'perf.json', '--fail-on-flaky'], recorder())).toBe(1);
+    expect(await runCli(['perf', '--cwd', root, '--json', 'perf.json', '--fail-on-flaky'], recorder())).toBe(1);
   });
 });
 
@@ -203,11 +203,11 @@ describe('renderPerf --fail-on-red', () => {
     expect(renderPerf({ ok: false, error: 'nothing' }, readProfile(root), recorder(), { failOnRed: true })).toBe(2);
   });
 
-  it('is read from the command line', () => {
+  it('is read from the command line', async () => {
     const root = repo();
 
     writeTextFile(join(root, 'perf.json'), JSON.stringify(run(root, [file(root, 'src/a.spec.ts')], { failed: 1 })));
 
-    expect(runCli(['perf', '--cwd', root, '--json', 'perf.json', '--fail-on-red'], recorder())).toBe(1);
+    expect(await runCli(['perf', '--cwd', root, '--json', 'perf.json', '--fail-on-red'], recorder())).toBe(1);
   });
 });

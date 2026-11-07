@@ -19,7 +19,7 @@ import { listImports } from './imports';
 import { LEGACY_PACKAGES } from './jest-api';
 import type { Range } from './mask';
 import { lineOf, maskCode, matchBracket, trimmed } from './mask';
-import type { TransformContext, TransformSpec } from './transform-context';
+import type { Match, TransformContext, TransformSpec } from './transform-context';
 import { group, scan } from './transform-context';
 
 const ROOT = 'vitest-auto-spy';
@@ -287,6 +287,13 @@ const INJECT = /\bTestBed\s*\.\s*inject\s*\(/g;
 const CAST = /^\s*as\s+(?:unknown\s+as\s+)?Spy\s*</;
 const ANY_SPY_CAST = /\bas\s+Spy\s*</g;
 
+const TYPE_CONTINUES = /^\s*(?:\|(?!\|)|&(?!&)|\[|\.|extends\b)/;
+
+/** `as Spy<T> | undefined` is one type; wrapping `Spy<T>` alone turned the rest into a bitwise operator. */
+function continuesType(masked: string, end: number): boolean {
+  return TYPE_CONTINUES.test(masked.slice(end));
+}
+
 interface Cast {
   readonly edit: Edit;
   /** Index of the `<` that opens the cast's type arguments, used to pair it with a stray match. */
@@ -310,20 +317,25 @@ export function castAt(context: TransformContext, index: number, length: number)
   const angle = close + group(tail, 0).length - 1;
   const end = matchBracket(context.masked, angle);
 
-  if (end === undefined) {
+  if (end === undefined || continuesType(context.masked, end)) {
     return undefined;
   }
 
   return { edit: { start: index, end, text: `asSpy${context.source.slice(angle, end)}(${context.source.slice(index, close)})` }, angle };
 }
 
-function castNote(context: TransformContext, index: number): Finding {
+function castNote(context: TransformContext, match: Match): Finding {
+  const end = matchBracket(context.masked, match.index + match.whole.length - 1);
+
   return note({
     check: 'spy-cast-not-on-inject',
     severity: 'warning',
     file: context.file,
-    line: lineOf(context.source, index),
-    message: 'A cast to `Spy<T>` over something other than `TestBed.inject(...)` was left alone.',
+    line: lineOf(context.source, match.index),
+    message:
+      end !== undefined && continuesType(context.masked, end)
+        ? 'A cast to a type built from `Spy<T>` (a union, an intersection or an array) was left alone.'
+        : 'A cast to `Spy<T>` over something other than `TestBed.inject(...)` was left alone.',
     fix: 'If the value really is a spy, wrap it in `asSpy(...)`; if it is a hand-built double, build it with `createAutoMock<T>()` instead of asserting over it.',
   });
 }
@@ -372,7 +384,7 @@ function withHelper(context: TransformContext, casts: readonly Cast[], need: Imp
   const covered = new Set(casts.map((cast) => cast.angle));
   const strays = scan(context.masked, ANY_SPY_CAST)
     .filter((match) => !covered.has(match.index + match.whole.length - 1))
-    .map((match) => castNote(context, match.index));
+    .map((match) => castNote(context, match));
 
   return {
     edits: casts.map((cast) => cast.edit),

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { CliIo } from './main';
 import type { Captured, NgTestOptions, NgTestTools } from './ng-test';
-import { captureProcess, changedRef, resolveNg, runNgTest } from './ng-test';
+import { captureProcess, changedRef, changedRefProblem, resolveNg, runNgTest } from './ng-test';
 import type { SpawnRequest } from './perf-run';
 import { readProfile } from './profile';
 import { createTempRepo, removeTempRepos } from './temp-repo';
@@ -162,7 +162,7 @@ describe('runNgTest', () => {
 
     expect(runNgTest(options(root, { changed: 'origin/main' }), tools, io)).toBe(3);
     expect(captured.slice(1)).toEqual([
-      { command: 'git', args: ['diff', '-z', '--name-only', '--diff-filter=ACMR', '--relative', 'origin/main'] },
+      { command: 'git', args: ['diff', '-z', '--name-only', '--diff-filter=ACMR', '--relative', '--end-of-options', 'origin/main', '--'] },
       { command: 'git', args: ['ls-files', '-z', '--others', '--exclude-standard'] },
     ]);
     expect(includes(spawned[0])).toEqual(['src/app/clock.spec.ts', 'src/app/user.service.spec.ts']);
@@ -197,7 +197,9 @@ describe('runNgTest', () => {
     expect(
       runNgTest(options(root, { changed: 'nope' }), harness({ diff: { status: 128, stdout: '', stderr: 'bad revision\n' } }).tools, diff),
     ).toBe(2);
-    expect(diff.stderr).toEqual(['`git diff --name-only --diff-filter=ACMR --relative nope` failed: bad revision Nothing ran.']);
+    expect(diff.stderr).toEqual([
+      '`git diff --name-only --diff-filter=ACMR --relative --end-of-options nope --` failed: bad revision Nothing ran.',
+    ]);
     expect(
       runNgTest(
         options(root, { changed: 'HEAD' }),
@@ -312,6 +314,46 @@ describe('the command-line limit', () => {
     expect(io.stderr[0]).toMatch(
       /^700 spec files make a \d+-character command line even with whole directories folded into globs, over this platform's 32767\. Split the run into more shards, or set `test\.shard` in the runner config, which has no length limit\. Nothing ran\.$/,
     );
+  });
+});
+
+describe('changedRefProblem', () => {
+  const answering = (status: number): { capture: NgTestTools['capture']; calls: (readonly string[])[] } => {
+    const calls: (readonly string[])[] = [];
+
+    return {
+      calls,
+      capture: (_command, args) => {
+        calls.push(args);
+
+        return { status, stdout: '', stderr: '' };
+      },
+    };
+  };
+
+  it('refuses a ref that git would read as an option', () => {
+    const git = answering(0);
+
+    expect(changedRefProblem(git.capture, '/nowhere', '--output=/tmp/x')).toBe('--changed takes a git ref, and got --output=/tmp/x.');
+    expect(git.calls).toEqual([]);
+  });
+
+  it('refuses a spec path that a bare --changed swallowed, unless git knows it as a commit', () => {
+    const root = createTempRepo({ 'src/a.spec.ts': '' });
+    const unknown = answering(1);
+
+    expect(changedRefProblem(unknown.capture, root, 'src/a.spec.ts')).toBe(
+      '--changed src/a.spec.ts names a file, not a git ref. Write --changed=<ref>, or put a bare --changed after the paths.',
+    );
+    expect(unknown.calls).toEqual([['rev-parse', '--verify', '--quiet', '--end-of-options', 'src/a.spec.ts^{commit}']]);
+    expect(changedRefProblem(answering(0).capture, root, 'src/a.spec.ts')).toBeUndefined();
+  });
+
+  it('asks git nothing about a ref that is not a path', () => {
+    const git = answering(1);
+
+    expect(changedRefProblem(git.capture, createTempRepo({}), 'origin/main')).toBeUndefined();
+    expect(git.calls).toEqual([]);
   });
 });
 

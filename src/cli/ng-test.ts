@@ -9,7 +9,7 @@ import { join, relative, resolve } from 'node:path';
 import { isSpecFile } from './checks/graph';
 import { unitTestTargets } from './checks/unit-test-targets';
 import type { UnitTestTarget } from './checks/unit-test-targets';
-import { toPosix } from './fs-scan';
+import { pathExists, toPosix } from './fs-scan';
 import type { CliIo } from './main';
 import type { Shard } from './ng-test-select';
 import { affectedSpecs, compressIncludes, discoveredFiles, shardFiles, withoutInclude } from './ng-test-select';
@@ -50,6 +50,25 @@ export function changedRef(value: string | true | undefined): string | undefined
   }
 
   return value === true || value === 'true' ? 'HEAD' : value;
+}
+
+/**
+ * A spec path after a bare `--changed` is read as its value, and git takes it for a pathspec: the run
+ * then diffs one file and drops the path it was handed. A ref that is also a file is checked with git.
+ */
+export function changedRefProblem(capture: Capture, cwd: string, ref: string): string | undefined {
+  if (ref.startsWith('-')) {
+    return `--changed takes a git ref, and got ${ref}.`;
+  }
+
+  if (
+    !pathExists(resolve(cwd, ref)) ||
+    capture('git', ['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`], cwd).status === 0
+  ) {
+    return undefined;
+  }
+
+  return `--changed ${ref} names a file, not a git ref. Write --changed=<ref>, or put a bare --changed after the paths.`;
 }
 
 export interface NgTestOptions {
@@ -141,7 +160,7 @@ function gitPaths(capture: Capture, cwd: string, command: string, args: readonly
 
 /** What git says changed against `ref`, untracked files included, as Vitest's `--changed` reads it. */
 export function changedFiles(capture: Capture, cwd: string, ref: string): string[] | string {
-  const diff = gitPaths(capture, cwd, 'diff', ['--name-only', '--diff-filter=ACMR', '--relative', ref]);
+  const diff = gitPaths(capture, cwd, 'diff', ['--name-only', '--diff-filter=ACMR', '--relative', '--end-of-options', ref, '--']);
   const untracked = gitPaths(capture, cwd, 'ls-files', ['--others', '--exclude-standard']);
 
   if (typeof diff === 'string') {

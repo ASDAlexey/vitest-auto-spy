@@ -61,6 +61,34 @@ describe('readPerfRun, a bare run', () => {
   });
 });
 
+describe('readPerfRun, a bare run in a workspace package', () => {
+  it('finds the Vitest hoisted to the workspace root, and reads its version there', () => {
+    const root = createTempRepo({
+      'package.json': '{}',
+      'node_modules/vitest/vitest.mjs': '',
+      'node_modules/vitest/package.json': '{"version": "5.0.0"}',
+      'packages/app/package.json': '{}',
+      'packages/app/vitest.config.ts': 'export default {};\n',
+      'dist/perf-reporter.js': '',
+    });
+    const cwd = join(root, 'packages/app');
+    const seen: SpawnRequest[] = [];
+
+    readPerfRun(
+      { cwd, profile: readProfile(cwd), json: undefined, out: undefined, command: undefined, paths: [] },
+      (request) => {
+        seen.push(request);
+
+        return { status: 0 };
+      },
+      root,
+    );
+
+    expect(seen[0]?.args[0]).toBe(join(root, 'node_modules', 'vitest', 'vitest.mjs'));
+    expect(seen[0]?.args).toContain('--experimental.diagnostics=false');
+  });
+});
+
 describe('perfRemeasure, a report handed over without --command', () => {
   const repo = (): string =>
     createTempRepo({

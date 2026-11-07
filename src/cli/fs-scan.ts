@@ -5,7 +5,7 @@
  * the disk, so `node:fs` must appear in the CLI bundle and nowhere else. Everything above this
  * module works on plain strings and can therefore be tested without a temporary directory.
  */
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
@@ -114,9 +114,35 @@ export function readTextFile(path: string): string | undefined {
   }
 }
 
+/**
+ * Reads a file that may be missing: `undefined` only when it is, and the error otherwise. A file
+ * that exists and cannot be read is not absent, and must not be written over as if it were.
+ */
+export function readPresentTextFile(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+/** Removes `directory` and each empty parent below `stop`, stopping at the first one that is not empty. */
+export function removeEmptyDirectories(directory: string, stop: string): void {
+  for (let current = directory; current.startsWith(`${stop}${sep}`); current = dirname(current)) {
+    try {
+      rmdirSync(current);
+    } catch {
+      return;
+    }
+  }
+}
+
 /** Writes a file atomically, creating the parent directories. */
 export function writeTextFile(path: string, content: string): void {
-  mkdirSync(dirname(path), { recursive: true });
   writeFileAtomic(path, content);
 }
 

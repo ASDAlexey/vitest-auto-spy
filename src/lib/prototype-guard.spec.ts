@@ -57,7 +57,9 @@ describe('guardPrototypePollution', () => {
 
     Object.assign(snapshot.object, { [LEAKED]: () => undefined });
 
-    expect(() => checkPrototypePollution([snapshot], 'throw')).toThrow();
+    expect(() => checkPrototypePollution([snapshot], 'throw')).toThrow(
+      /left "ngOnDestroy" \(a function\) on Object\.prototype as an enumerable property/,
+    );
     expect(Object.keys(snapshot.object)).toEqual([]);
   });
 
@@ -163,7 +165,8 @@ describe('guardPrototypePollution', () => {
   });
 });
 
-describe('guardPrototypePollution, wired into the run', () => {
+// Each check reads what the guard did after the test before it.
+describe('guardPrototypePollution, wired into the run', { shuffle: false }, () => {
   // Before the guard: after-hooks run in reverse, so the guard reports while the spy is still on console.
   const { consoleWarnSpy } = useConsoleSpies();
 
@@ -192,7 +195,8 @@ describe('guardPrototypePollution, wired into the run', () => {
   });
 });
 
-describe('guardPrototypePollution, against a write made in beforeAll', () => {
+// Each check reads what the guard did after the test before it.
+describe('guardPrototypePollution, against a write made in beforeAll', { shuffle: false }, () => {
   const { consoleWarnSpy } = useConsoleSpies();
 
   guardPrototypePollution('warn');

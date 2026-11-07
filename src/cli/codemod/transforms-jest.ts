@@ -12,14 +12,14 @@ import type { Finding } from '../report';
 import type { Edit, ImportNeed, TransformOutput } from './edits';
 import { EMPTY_OUTPUT, note } from './edits';
 import type { ImportStatement } from './imports';
-import { listImports } from './imports';
-import { JASMINE_ALIASES, NO_TWIN, RENAMED, RETURN_FIRST, TYPE_NAMES } from './jest-api';
+import { boundNames, codeOutsideImports, listImports } from './imports';
+import { JASMINE_ALIASES, NO_TWIN, RENAMED, RETURN_FIRST, TYPE_NAMES, table } from './jest-api';
 import type { Range } from './mask';
 import { isCallPosition, lineOf, matchBracket, splitTopLevel, trimmed } from './mask';
 import type { Match, TransformContext, TransformSpec } from './transform-context';
 import { declarationResidue, group, scan, textOf } from './transform-context';
 
-const MEMBER = /\bjest\s*\.\s*([$A-Z_a-z][\w$]*)/g;
+const MEMBER = /(?<![\w$]|(?<!\.)\.\s*)jest\s*\.\s*([$A-Z_a-z][\w$]*)/g;
 const VITEST = 'vitest';
 
 function at(context: TransformContext, index: number): number {
@@ -56,12 +56,12 @@ function bundlingNote(context: TransformContext, member: string, end: number): F
 }
 
 /** Jest's `useFakeTimers` options Vitest does not read, and what Vitest calls the same idea. */
-const FAKE_TIMER_OPTIONS: Readonly<Record<string, string>> = {
+const FAKE_TIMER_OPTIONS = table({
   advanceTimers: '`shouldAdvanceTime: true`, with `advanceTimeDelta` for a number',
   doNotFake: '`toFake`, which lists what to fake rather than what to leave',
   legacyFakeTimers: 'nothing — Vitest has only the modern timers',
   timerLimit: '`loopLimit`',
-};
+});
 
 /** An option Vitest does not know is ignored without a word, so the timers behave differently. */
 function fakeTimerNotes(context: TransformContext, member: string, end: number): Finding[] {
@@ -124,7 +124,7 @@ export const jestNamespace: TransformSpec = {
   id: 'jest-namespace',
   family: 'jest',
   summary: 'jest.<member> → vi.<member>, reporting the members with no vi twin instead of renaming them.',
-  residue: /\bjest\s*\./,
+  residue: /(?<![\w$]|(?<!\.)\.\s*)jest\s*\./,
   run: (context) =>
     collect(
       scan(context.masked, MEMBER).flatMap((match) => {
@@ -235,7 +235,7 @@ export const jestTypes: TransformSpec = {
   family: 'jest',
   summary:
     'jest.Mock<R, [A]> → Mock<(a: A) => R>, jest.SpyInstance → MockInstance the same way, and the four plain type renames, importing the Vitest name.',
-  residue: /\bjest\s*\.\s*(?:Mock|MockedClass|MockedFunction|MockedObject|Mocked|SpyInstance)\b/,
+  residue: /(?<![\w$]|(?<!\.)\.\s*)jest\s*\.\s*(?:Mock|MockedClass|MockedFunction|MockedObject|Mocked|SpyInstance)\b/,
   run: (context) => {
     const functionFirst = importsJestGlobals(context);
 
@@ -262,7 +262,7 @@ function importsJestGlobals(context: TransformContext): boolean {
   return listImports(context.source, context.masked).some((statement) => statement.specifier === JEST_GLOBALS);
 }
 
-const GENERIC_CALL = /\bjest\s*\.\s*(fn|spyOn)\s*</g;
+const GENERIC_CALL = /(?<![\w$]|(?<!\.)\.\s*)jest\s*\.\s*(fn|spyOn)\s*</g;
 
 /**
  * `jest.fn<R, [A]>()` is the same transposition as the type, on a call this codemod does not rewrite.
@@ -340,13 +340,37 @@ export const jestGlobalsImport: TransformSpec = {
   family: 'jest',
   summary: "import … from '@jest/globals' → from 'vitest', with the jest binding renamed to vi.",
   residue: /["']@jest\/globals["']/,
-  run: (context) => ({
-    ...EMPTY_OUTPUT,
-    edits: listImports(context.source, context.masked)
-      .filter((statement) => statement.specifier === JEST_GLOBALS)
-      .flatMap((statement) => globalsEdits(context, statement)),
-  }),
+  run: (context) => {
+    const statements = listImports(context.source, context.masked);
+    const globals = statements.filter((statement) => statement.specifier === JEST_GLOBALS);
+
+    return {
+      ...EMPTY_OUTPUT,
+      edits: globals.flatMap((statement) => globalsEdits(context, statement)),
+      notes: globals.some((statement) => bindsJest(context, statement)) ? unboundJestNotes(context, statements) : [],
+    };
+  },
 };
+
+const BARE_JEST = /(?<![\w$]|(?<!\.)\.\s*)jest(?![\w$]|\s*[.:])/g;
+
+function bindsJest(context: TransformContext, statement: ImportStatement): boolean {
+  return statement.braces !== undefined && boundNames(context.source, statement.braces, context.masked).includes('jest');
+}
+
+/** `const j = jest` loses its binding once the import says `vi`; the namespace rename never sees it. */
+function unboundJestNotes(context: TransformContext, statements: readonly ImportStatement[]): Finding[] {
+  return scan(codeOutsideImports(context.masked, statements), BARE_JEST).map((match) =>
+    note({
+      check: 'jest-binding-removed',
+      severity: 'error',
+      file: context.file,
+      line: at(context, match.index),
+      message: 'This `jest` is not a `jest.<member>` call, and the import that bound it now binds `vi` instead.',
+      fix: 'Replace this `jest` with `vi` by hand; left as it is, it fails with `ReferenceError: jest is not defined`.',
+    }),
+  );
+}
 
 function globalsEdits(context: TransformContext, statement: ImportStatement): Edit[] {
   const specifierAt = context.source.indexOf(JEST_GLOBALS, statement.start);

@@ -221,6 +221,34 @@ describe('jasmine-globals', () => {
     expect(notesWithoutTable("jasmine.createSpyObj('S', []);", jasmineGlobals)[0]).toContain('no-entry-table');
   });
 
+  it('carries the type argument of createSpy, and drops the one createSpyObj cannot take with a note', () => {
+    expect(apply("const w = jasmine.createSpy<(a: number) => string>('w', impl);", jasmineGlobals)).toBe(
+      'const w = vi.fn<(a: number) => string>(impl);',
+    );
+    expect(apply("router = jasmine.createSpyObj<Router>('Router', ['navigate']);", jasmineGlobals)).toBe(
+      "import { createSpyObj } from 'vitest-auto-spy/jasmine';\nrouter = createSpyObj('Router', ['navigate']);",
+    );
+    expect(notesOf("router = jasmine.createSpyObj<Router>('Router', ['navigate']);", jasmineGlobals)).toEqual([
+      'spy-obj-type-argument `jasmine.createSpyObj<Router>` lost its type argument: `createSpyObj` types the double by the names it is given.',
+    ]);
+    expect(notesOf('const f = jasmine.createSpyObj;', jasmineGlobals)).toEqual([
+      'unreadable-jasmine-call `jasmine.createSpyObj` was left alone: its call could not be read.',
+    ]);
+    expect(notesOf('const f = jasmine.createSpy<T;', jasmineGlobals)[0]).toContain('unreadable-jasmine-call');
+  });
+
+  it('leaves a property that happens to be called jasmine, and a prototype key on the real one', () => {
+    const source = "window.jasmine.createSpy('x'); win?.jasmine.any(1); let t: ns.jasmine.SpyObj<S>;";
+
+    expect(applyAll(source, [jasmineGlobals, jasmineTypes], ENTRIES)).toBe(source);
+    expect(residueOf('a.spec.ts', source, [jasmineGlobals, jasmineTypes])).toEqual([]);
+    expect(notesOf('jasmine.clock().toString(); jasmine.constructor;', jasmineGlobals)).toEqual([
+      'unknown-jasmine-member `jasmine.clock().toString` was left alone.',
+      'unknown-jasmine-member `jasmine.constructor` was left alone.',
+    ]);
+    expect(apply('let s: jasmine.toString;', jasmineTypes)).toBe('let s: jasmine.toString;');
+  });
+
   it('rewrites the two matcher registries', () => {
     expect(apply('jasmine.addMatchers(matchers);', jasmineGlobals)).toBe('expect.extend(matchers);');
     expect(apply('jasmine.addCustomEqualityTester(sameId);', jasmineGlobals)).toBe('expect.addEqualityTesters([sameId]);');
@@ -232,7 +260,9 @@ describe('jasmine-globals', () => {
     ]);
     expect(apply('jasmine.DEFAULT_TIMEOUT_INTERVAL = 10000;', jasmineGlobals)).toBe('jasmine.DEFAULT_TIMEOUT_INTERVAL = 10000;');
     expect(notesOf('jasmine.frobnicate(1);', jasmineGlobals)).toEqual(['unknown-jasmine-member `jasmine.frobnicate` was left alone.']);
-    expect(notesOf('jasmine.createSpy(', jasmineGlobals)[0]).toContain('unknown-jasmine-member');
+    expect(notesOf('jasmine.createSpy(', jasmineGlobals)).toEqual([
+      'unreadable-jasmine-call `jasmine.createSpy` was left alone: its call could not be read.',
+    ]);
   });
 
   it('never touches a mention inside a comment or a string, and leaves the types alone', () => {

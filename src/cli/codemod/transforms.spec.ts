@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { runTransforms } from './codemod';
+import { EMPTY_OUTPUT } from './edits';
 import { hintFor } from './entry-hint';
 import type { EntryMap } from './entry-map';
 import { maskCode } from './mask';
@@ -202,6 +203,24 @@ describe('jest-namespace', () => {
   it('leaves the type members to the transform that owns them', () => {
     expect(apply('let a: jest.Mocked<S>;', jestNamespace)).toBe('let a: jest.Mocked<S>;');
   });
+
+  it('leaves a property that happens to be called jest, and still renames a spread one', () => {
+    const source = 'pkg.jest.fn; pkg?.jest.mock; this . jest.spyOn; $jest.fn(); f(...jest.fn());';
+
+    expect(apply(source, jestNamespace)).toBe('pkg.jest.fn; pkg?.jest.mock; this . jest.spyOn; $jest.fn(); f(...vi.fn());');
+    expect(notesOf('packageJson.jest.testMatch;', jestNamespace)).toEqual([]);
+    expect(
+      runTransforms({ file: 'a.spec.ts', source, entries: ENTRIES, preferredEntry: 'vitest-auto-spy', selected: [jestNamespace] }).residue,
+    ).toEqual([]);
+  });
+
+  it('treats a member named after an Object.prototype key as unknown, not as a rename', () => {
+    expect(apply('jest.toString(); jest.constructor; jest.hasOwnProperty("fn");', jestNamespace)).toBe(
+      'jest.toString(); jest.constructor; jest.hasOwnProperty("fn");',
+    );
+    expect(notesOf('jest.constructor;', jestNamespace)).toEqual(['unknown-jest-member `jest.constructor` was left alone.']);
+    expect(apply('let a: jest.toString;', jestTypes)).toBe('let a: jest.toString;');
+  });
 });
 
 describe('mock-implementation-arity and the jasmine aliases', () => {
@@ -239,6 +258,19 @@ describe('jest-globals-import', () => {
 
   it('handles a side-effect import of the same package', () => {
     expect(apply("import '@jest/globals';", jestGlobalsImport)).toBe("import 'vitest';");
+  });
+
+  it('reports a bare jest the renamed import no longer binds', () => {
+    const source = "import { jest } from '@jest/globals';\nconst j = jest;\nfn(jest);\njest.fn();\nconst o = { jest: 1 };\no.jest;\n";
+
+    expect(notesOf(source, jestGlobalsImport)).toEqual([
+      'jest-binding-removed This `jest` is not a `jest.<member>` call, and the import that bound it now binds `vi` instead.',
+      'jest-binding-removed This `jest` is not a `jest.<member>` call, and the import that bound it now binds `vi` instead.',
+    ]);
+    expect(jestGlobalsImport.run(contextFor(source)).notes.map((finding) => finding.file)).toEqual(['a.spec.ts:2', 'a.spec.ts:3']);
+    expect(notesOf("import { jest as j, expect } from '@jest/globals';\nconst x = jest;\n", jestGlobalsImport)).toEqual([]);
+    expect(notesOf("import { expect } from '@jest/globals';\nconst x = jest;\n", jestGlobalsImport)).toEqual([]);
+    expect(notesOf("import '@jest/globals';\nconst x = jest;\n", jestGlobalsImport)).toEqual([]);
   });
 });
 
@@ -419,6 +451,27 @@ describe('inject-cast', () => {
     expect(castAt(contextFor('TestBed.inject(S) as Spy<S;'), 0, 15)).toBeUndefined();
   });
 
+  it('leaves a cast to a union, an intersection or an array of Spy<T>, which wrapping would turn into an operator', () => {
+    for (const tail of [' | undefined', ' & Extra', '[]', ' extends X ? 1 : 2', '.Inner']) {
+      const source = `const s = TestBed.inject(S) as Spy<S>${tail};`;
+
+      expect(apply(source, injectCast)).toBe(source);
+      expect(notesOf(source, injectCast)).toEqual([
+        'spy-cast-not-on-inject A cast to a type built from `Spy<T>` (a union, an intersection or an array) was left alone.',
+      ]);
+    }
+  });
+
+  it('still rewrites a cast followed by a logical operator', () => {
+    expect(apply('const s = TestBed.inject(S) as Spy<S> || other;', injectCast)).toBe(
+      "import { asSpy } from 'vitest-auto-spy';\nconst s = asSpy<S>(TestBed.inject(S)) || other;",
+    );
+    expect(apply('const s = TestBed.inject(S) as Spy<S> && other;', injectCast)).toContain('asSpy<S>(TestBed.inject(S)) && other;');
+    expect(notesOf('const s = {} as Spy<S;', injectCast)).toEqual([
+      'spy-cast-not-on-inject A cast to `Spy<T>` over something other than `TestBed.inject(...)` was left alone.',
+    ]);
+  });
+
   it('says why it cannot add the import when there is no entry table', () => {
     expect(notesWithoutTable('const s = TestBed.inject(S) as Spy<S>;', injectCast)[0]).toContain('no-entry-table');
     expect(notesWithoutTable('const s = TestBed.inject(S);', injectCast)).toEqual([]);
@@ -559,5 +612,20 @@ describe('runTransforms — the report tells what was applied', () => {
     expect(run("import { vi } from 'vitest';\njest.fn();\n", false)).toEqual([]);
     expect(run("import { it } from 'vitest';\nimport def from 'x';\njest.fn();\n", false)).toEqual(['vi-without-globals a.spec.ts:3']);
     expect(run('ctx.vi.fn();\n', false)).toEqual([]);
+  });
+
+  it('numbers the residue by the source it was read from, and finds the note that explains it', () => {
+    const source = "describe('a', () => {\n  jest.fn();\n  jest.frobnicate();\n  jest.frobnicate();\n});\n";
+    const result = runTransforms({
+      file: 'a.spec.ts',
+      source,
+      entries: ENTRIES,
+      preferredEntry: 'vitest-auto-spy',
+      selected: [jestNamespace, { ...first, run: () => ({ ...EMPTY_OUTPUT, edits: [{ start: 0, end: 0, text: 'x;\ny;\n' }] }) }],
+    });
+
+    expect(result.after.split('\n').indexOf('  jest.frobnicate();')).toBe(4);
+    expect(result.residue.map((finding) => finding.file)).toEqual(['a.spec.ts:3', 'a.spec.ts:4']);
+    expect(result.residue[0]?.fix).toBe('`jest-namespace` declined it: `jest.frobnicate` was left alone. Rewrite it by hand.');
   });
 });

@@ -30,7 +30,8 @@ class LeakingComponent {
   }
 }
 
-describe('documentPollution under a TestBed', () => {
+// Each check reads what the guard did after the test before it.
+describe('documentPollution under a TestBed', { shuffle: false }, () => {
   const warnings: string[] = [];
 
   beforeAll(() => {

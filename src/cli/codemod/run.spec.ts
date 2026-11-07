@@ -90,6 +90,8 @@ describe('resolveFrom', () => {
     expect(resolveFrom('jasmine-auto-spies')).toBe('jasmine');
     expect(resolveFrom('jest-auto-spies')).toBe('jest');
     expect(resolveFrom('jest')).toBeUndefined();
+    expect(resolveFrom('toString')).toBeUndefined();
+    expect(resolveFrom('constructor')).toBeUndefined();
   });
 });
 

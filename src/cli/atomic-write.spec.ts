@@ -30,6 +30,19 @@ describe('writeFileAtomic', () => {
     expect(statSync(path).mode & 0o777).toBe(0o755);
   });
 
+  it('refuses a read-only file and leaves it as it was', () => {
+    const root = createTempRepo({ 'locked.ts': 'old' });
+    const path = join(root, 'locked.ts');
+
+    chmodSync(path, 0o444);
+
+    expect(() => writeFileAtomic(path, 'new')).toThrow(/read-only/);
+    expect(readFileSync(path, 'utf8')).toBe('old');
+    expect(readdirSync(root)).toEqual(['locked.ts']);
+
+    chmodSync(path, 0o644);
+  });
+
   it('writes through a symlink rather than replacing it', () => {
     const root = createTempRepo({ 'real.ts': 'old' });
 

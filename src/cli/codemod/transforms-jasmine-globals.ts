@@ -19,11 +19,12 @@ import { EMPTY_OUTPUT, mergeOutputs } from './edits';
 import { entryFor } from './entry-map';
 import { ASYMMETRIC_MATCHERS, CLOCK_MEMBERS, MATCHER_RENAMES, NO_TWIN, TYPE_TARGETS } from './jasmine-api';
 import { callArguments, callRange, jasmineNote, missingEntryNote, replacement, replacements } from './jasmine-calls';
+import type { Range } from './mask';
 import { isCallPosition, matchBracket } from './mask';
 import type { Match, TransformContext, TransformSpec } from './transform-context';
 import { declarationResidue, group, scan } from './transform-context';
 
-const MEMBER = /\bjasmine\s*\.\s*([$A-Z_a-z][\w$]*)/g;
+const MEMBER = /(?<![\w$]|(?<!\.)\.\s*)jasmine\s*\.\s*([$A-Z_a-z][\w$]*)/g;
 const ASYMMETRIC = new Set(ASYMMETRIC_MATCHERS);
 
 /** `jasmine.any(X)` → `expect.any(X)`, and the dozen others, with the members that have no twin reported. */
@@ -33,7 +34,7 @@ export const jasmineGlobals: TransformSpec = {
   summary: 'jasmine.createSpy / createSpyObj / any / clock() / addMatchers → their vi, expect and vitest-auto-spy twins.',
   // The two type names are excluded rather than left to overlap: `jasmine-types` owns them, and a
   // leftover `jasmine.SpyObj` reported twice would name a transform that never intended to touch it.
-  residue: /\bjasmine\s*\.\s*(?!Spy(?:Obj)?\b)/,
+  residue: /(?<![\w$]|(?<!\.)\.\s*)jasmine\s*\.\s*(?!Spy(?:Obj)?\b)/,
   run: (context) =>
     mergeOutputs(
       scan(context.masked, MEMBER).flatMap((match) => {
@@ -62,23 +63,41 @@ function globalOutput(context: TransformContext, match: Match, name: string): Tr
   return calledGlobal(context, match, name, after);
 }
 
+const CALLED = new Set(['addCustomEqualityTester', 'createSpy', 'createSpyObj']);
+
+/** The `<…>` right after `after`, as a source range, when there is one that closes. */
+function typeArguments(context: TransformContext, after: number): Range | undefined {
+  const gap = /^\s*</.exec(context.masked.slice(after));
+  const open = gap === null ? -1 : after + group(gap, 0).length - 1;
+  const close = open === -1 ? undefined : matchBracket(context.masked, open);
+
+  return close === undefined ? undefined : [open, close];
+}
+
 /** The three members whose arguments decide the rewrite, and the fallback that reports the rest. */
 function calledGlobal(context: TransformContext, match: Match, name: string, after: number): TransformOutput {
-  const range = callRange(context, after);
-
-  if (range === undefined) {
+  if (!CALLED.has(name)) {
     return { ...EMPTY_OUTPUT, notes: [leftAloneNote(context, match.index, name)] };
   }
 
+  const types = typeArguments(context, after);
+  const range = callRange(context, types === undefined ? after : types[1]);
+
+  if (range === undefined) {
+    return { ...EMPTY_OUTPUT, notes: [unreadableCallNote(context, match.index, name)] };
+  }
+
   if (name === 'createSpy') {
-    return replacement(match.index, range[1], createSpyText(callArguments(context, range)));
+    const generic = types === undefined ? '' : context.source.slice(types[0], types[1]);
+
+    return replacement(match.index, range[1], createSpyText(generic, callArguments(context, range)));
   }
 
   if (name === 'addCustomEqualityTester') {
     return replacement(match.index, range[1], `expect.addEqualityTesters([${callArguments(context, range).join(', ')}])`);
   }
 
-  return name === 'createSpyObj' ? spyObjOutput(context, match) : { ...EMPTY_OUTPUT, notes: [leftAloneNote(context, match.index, name)] };
+  return spyObjOutput(context, match, types);
 }
 
 /**
@@ -86,24 +105,50 @@ function calledGlobal(context: TransformContext, match: Match, name: string, aft
  * the spy carries. `createSpy(name, original)` keeps the original, which is the one argument that
  * still means something.
  */
-function createSpyText(args: readonly string[]): string {
+function createSpyText(generic: string, args: readonly string[]): string {
   const [, original] = args;
 
-  return original === undefined ? 'vi.fn()' : `vi.fn(${original})`;
+  return original === undefined ? `vi.fn${generic}()` : `vi.fn${generic}(${original})`;
 }
 
-/** `jasmine.createSpyObj(base, [...])` → `createSpyObj(base, [...])`, from wherever the installed package exports it. */
-function spyObjOutput(context: TransformContext, match: Match): TransformOutput {
+/**
+ * `jasmine.createSpyObj(base, [...])` → `createSpyObj(base, [...])`, from wherever the installed
+ * package exports it. Its type parameters are the names, so a `<Router>` argument cannot ride along.
+ */
+function spyObjOutput(context: TransformContext, match: Match, types: Range | undefined): TransformOutput {
   const entry = context.entries === undefined ? undefined : entryFor(context.entries, 'createSpyObj', context.preferredEntry);
 
   if (entry === undefined) {
     return { ...EMPTY_OUTPUT, notes: [missingEntryNote(context, match.index, 'createSpyObj')] };
   }
 
+  const end = types === undefined ? match.index + match.whole.length : types[1];
+
   return {
-    ...replacement(match.index, match.index + match.whole.length, 'createSpyObj'),
+    ...replacement(match.index, end, 'createSpyObj'),
     needs: [{ specifier: entry, name: 'createSpyObj', typeOnly: false }],
+    notes: types === undefined ? [] : [droppedTypeNote(context, match.index, context.source.slice(types[0] + 1, types[1] - 1).trim())],
   };
+}
+
+function droppedTypeNote(context: TransformContext, index: number, type: string): Finding {
+  return jasmineNote(
+    context,
+    'spy-obj-type-argument',
+    index,
+    `\`jasmine.createSpyObj<${type}>\` lost its type argument: \`createSpyObj\` types the double by the names it is given.`,
+    `Where the double has to be a \`${type}\`, build it with \`createAutoMock<${type}>()\` or \`createSpyFromClass(${type})\` instead.`,
+  );
+}
+
+function unreadableCallNote(context: TransformContext, index: number, name: string): Finding {
+  return jasmineNote(
+    context,
+    'unreadable-jasmine-call',
+    index,
+    `\`jasmine.${name}\` was left alone: its call could not be read.`,
+    'The brackets after it do not balance, or it is not called here. Rewrite it by hand.',
+  );
 }
 
 const CLOCK_CALL = /^\s*\(\s*\)\s*\.\s*([$A-Z_a-z][\w$]*)\s*\(/;
@@ -149,7 +194,7 @@ export const jasmineTypes: TransformSpec = {
   id: 'jasmine-types',
   family: 'jasmine',
   summary: 'jasmine.Spy → Mock from vitest, and jasmine.SpyObj<T> → Spy<T> from this package.',
-  residue: /\bjasmine\s*\.\s*Spy(?:Obj)?\b/,
+  residue: /(?<![\w$]|(?<!\.)\.\s*)jasmine\s*\.\s*Spy(?:Obj)?\b/,
   run: (context) =>
     mergeOutputs(
       scan(context.masked, MEMBER).flatMap((match) => {

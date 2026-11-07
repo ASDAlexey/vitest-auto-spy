@@ -2,19 +2,19 @@
  * Where a perf report comes from: a file the consumer already has, one run of their own Vitest with
  * the shipped reporter attached, or the command this repository actually measures its suite with.
  *
- * The bare run is `process.execPath node_modules/vitest/vitest.mjs` rather than `npx vitest` or the
- * `.bin` shim — `npx` is a second install path that can resolve a different version, and the shim
- * is a `.cmd` on Windows. The reporter is passed as a plain filesystem path, so it needs no export
- * subpath of its own; `--reporter=default` is kept alongside it, or the run would look hung. On
- * Vitest 5 `--experimental.diagnostics=false` goes with them: its own after-run hints would repeat
- * the advice `perf` prints next.
+ * The bare run is `process.execPath <vitest>/vitest.mjs`, found the way Node resolves `vitest`, rather
+ * than `npx vitest` or the `.bin` shim — `npx` is a second install path that can resolve a different
+ * version, and the shim is a `.cmd` on Windows. The reporter is passed as a plain filesystem path, so
+ * it needs no export subpath of its own; `--reporter=default` is kept alongside it, or the run would
+ * look hung. On Vitest 5 `--experimental.diagnostics=false` goes with them: its own after-run hints
+ * would repeat the advice `perf` prints next.
  *
  * `--command` exists because the bare run is not always this repository's suite — see
  * `checks/perf-harness`. There the command owns the configuration, so the reporter cannot be pushed
  * in from here; its path arrives in the environment and the consumer's config attaches it.
  */
 import { spawnSync } from 'node:child_process';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 import { bareRunWouldMeasureSomethingElse } from './checks/perf-harness';
 import { BARE_RUN_DOCS, NOTHING_TO_READ_DOCS } from './docs';
@@ -269,17 +269,32 @@ function defaultTarget(options: PerfRunOptions): string {
   return join(options.cwd, 'node_modules', '.cache', 'vitest-auto-spy', `perf-${process.pid}.json`);
 }
 
+/** Node's `node_modules` walk from `cwd`, so a Vitest hoisted to the workspace root is found as `import` would find it. */
+function vitestDirectory(cwd: string): string | undefined {
+  for (let directory = resolve(cwd); ; directory = dirname(directory)) {
+    const candidate = join(directory, 'node_modules', 'vitest');
+
+    if (pathExists(join(candidate, 'vitest.mjs'))) {
+      return candidate;
+    }
+
+    if (dirname(directory) === directory) {
+      return undefined;
+    }
+  }
+}
+
 /** The major version of the Vitest a bare run starts, read from the manifest beside its entry. */
-function vitestMajor(cwd: string): number | undefined {
-  const manifest = parseJsonc(readTextFile(join(cwd, 'node_modules', 'vitest', 'package.json')) ?? '');
+function vitestMajor(directory: string): number | undefined {
+  const manifest = parseJsonc(readTextFile(join(directory, 'package.json')) ?? '');
   const match = isRecord(manifest) && typeof manifest['version'] === 'string' ? /^(\d+)\./.exec(manifest['version']) : null;
 
   return match === null ? undefined : Number(match[1]);
 }
 
 /** Flags only a Vitest of this major understands; an older one would reject them as unknown. */
-function versionFlags(cwd: string): string[] {
-  return (vitestMajor(cwd) ?? 0) >= 5 ? ['--experimental.diagnostics=false'] : [];
+function versionFlags(directory: string): string[] {
+  return (vitestMajor(directory) ?? 0) >= 5 ? ['--experimental.diagnostics=false'] : [];
 }
 
 /**
@@ -291,7 +306,7 @@ function configArgs(config: string | undefined): string[] {
 }
 
 function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | undefined): PerfSource {
-  const entry = join(options.cwd, 'node_modules', 'vitest', 'vitest.mjs');
+  const vitest = vitestDirectory(options.cwd);
   const reporter = reporterPath(packageRoot);
   const mismatch = options.config === undefined ? bareRunWouldMeasureSomethingElse(options.profile) : undefined;
 
@@ -305,7 +320,7 @@ function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | un
     );
   }
 
-  if (!pathExists(entry)) {
+  if (vitest === undefined) {
     return failed(
       `No Vitest is installed in ${options.cwd}, so there is nothing to run. Install vitest there, then measure again.\nDocs: ${NOTHING_TO_READ_DOCS}`,
     );
@@ -324,13 +339,13 @@ function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | un
   const spawned = timed(spawn, {
     command: process.execPath,
     args: [
-      entry,
+      join(vitest, 'vitest.mjs'),
       'run',
       ...configArgs(options.config),
       '--reporter=default',
       `--reporter=${reporter}`,
       '--logHeapUsage',
-      ...versionFlags(options.cwd),
+      ...versionFlags(vitest),
       ...options.paths,
     ],
     cwd: options.cwd,

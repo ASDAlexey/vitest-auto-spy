@@ -314,16 +314,58 @@ describe('runInit --check and --dry-run', () => {
 
 describe('runInit when a write fails', () => {
   it('marks the file failed, puts back the ones already written, and says why', () => {
-    const root = createTempRepo({ 'package.json': MANIFEST, 'CLAUDE.md': 'mine\n', 'GEMINI.md/inner': '' });
-    const result = install(root);
+    const root = createTempRepo({ 'package.json': MANIFEST, 'CLAUDE.md': 'mine\n', '.cursor/rules/': '' });
+    const rule = '.cursor/rules/vitest-auto-spy.mdc';
 
-    expect(statusOf(result, 'GEMINI.md')).toBe('failed');
-    expect(statusOf(result, 'AGENTS.md')).toBe('skipped');
-    expect(result.actions.find((action) => action.path === 'AGENTS.md')?.note).toBe('rolled back — GEMINI.md could not be written');
+    chmodSync(join(root, '.cursor/rules'), 0o555);
+
+    try {
+      const result = install(root);
+
+      expect(statusOf(result, rule)).toBe('failed');
+      expect(statusOf(result, 'AGENTS.md')).toBe('skipped');
+      expect(result.actions.find((action) => action.path === 'AGENTS.md')?.note).toBe(`rolled back — ${rule} could not be written`);
+      expect(result.warnings[0]).toMatch(/^\.cursor\/rules\/vitest-auto-spy\.mdc could not be written \(.+\)\.$/);
+      expect(result.ok).toBe(false);
+    } finally {
+      chmodSync(join(root, '.cursor/rules'), 0o755);
+    }
+
     expect(pathExists(join(root, 'AGENTS.md'))).toBe(false);
+    expect(pathExists(join(root, '.claude'))).toBe(false);
     expect(readTextFile(join(root, 'CLAUDE.md'))).toBe('mine\n');
-    expect(result.warnings[0]).toMatch(/^GEMINI\.md could not be written \(.+\)\.$/);
-    expect(result.ok).toBe(false);
+  });
+
+  it('never writes over a target it could not read, nor removes it on --uninstall', () => {
+    const root = createTempRepo({
+      'package.json': MANIFEST,
+      '.cursor/rules/vitest-auto-spy.mdc': 'written by hand\n',
+      'GEMINI.md/inner': '',
+    });
+    const rule = join(root, '.cursor/rules/vitest-auto-spy.mdc');
+
+    chmodSync(rule, 0o000);
+
+    try {
+      for (const over of [{}, { uninstall: true }, { check: true }]) {
+        const result = install(root, over);
+
+        expect(statusOf(result, '.cursor/rules/vitest-auto-spy.mdc')).toBe('failed');
+        expect(statusOf(result, 'GEMINI.md')).toBe('failed');
+        expect(result.actions.find((action) => action.path === 'GEMINI.md')?.note).toMatch(
+          /^exists and could not be read \(.+\) — left alone$/,
+        );
+        expect(result.warnings).toContainEqual(
+          expect.stringMatching(/^GEMINI\.md exists and could not be read \(.+\), so init did not touch it\./),
+        );
+        expect(result.ok).toBe(false);
+      }
+    } finally {
+      chmodSync(rule, 0o644);
+    }
+
+    expect(readTextFile(rule)).toBe('written by hand\n');
+    expect(readTextFile(join(root, 'GEMINI.md/inner'))).toBe('');
   });
 
   it('puts back the files --uninstall already removed when a later removal fails', () => {
@@ -366,6 +408,35 @@ describe('runInit --uninstall', () => {
     expect(pathExists(join(root, '.cursor/rules/vitest-auto-spy.mdc'))).toBe(false);
     expect(readTextFile(join(root, '.rules'))).toBe('untouched\n');
     expect(removal.warnings).toEqual([]);
+  });
+
+  it('removes the directories it created for its own files, and keeps the ones that were there', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST, '.cursor/': '', '.github/instructions/other.md': 'mine\n' });
+
+    install(root);
+    install(root, { uninstall: true });
+
+    expect(pathExists(join(root, '.claude'))).toBe(false);
+    expect(pathExists(join(root, '.cursor/rules'))).toBe(false);
+    expect(pathExists(join(root, '.cursor'))).toBe(true);
+    expect(readTextFile(join(root, '.github/instructions/other.md'))).toBe('mine\n');
+  });
+
+  it('keeps the line endings of a CRLF file it appends to, and leaves it unchanged on the next run', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST, 'AGENTS.md': '# Team\r\n\r\nOur rules.\r\n' });
+
+    install(root);
+
+    const written = readTextFile(join(root, 'AGENTS.md')) ?? '';
+
+    expect(written.startsWith('# Team\r\n\r\nOur rules.\r\n\r\n<!-- vitest-auto-spy:begin')).toBe(true);
+    expect(written.replace(/\r\n/g, '')).not.toContain('\n');
+    expect(statusOf(install(root), 'AGENTS.md')).toBe('unchanged');
+    expect(install(root, { check: true }).ok).toBe(true);
+
+    install(root, { uninstall: true });
+
+    expect(readTextFile(join(root, 'AGENTS.md'))).toBe('# Team\r\n\r\nOur rules.\r\n');
   });
 
   it('is a no-op on a repository init never touched', () => {

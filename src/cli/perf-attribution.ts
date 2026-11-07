@@ -63,7 +63,7 @@ function baseOf(capture: Capture, cwd: string, ref: string): string {
     return ref;
   }
 
-  const result = capture('git', ['merge-base', ref, 'HEAD'], cwd);
+  const result = capture('git', ['merge-base', '--end-of-options', ref, 'HEAD'], cwd);
   const sha = result.stdout.trim();
 
   return result.status === 0 && sha !== '' ? sha : ref;

@@ -56,6 +56,15 @@ describe('loadParser', () => {
     });
   });
 
+  it('reads the script kind off the file name, as the transpiler did', () => {
+    const parser = loadParser(process.cwd());
+
+    expect(codesOf(parser, 'const a = <div>{</div>;\n')).not.toEqual([]);
+    expect(parser?.diagnosticsOf('a.spec.tsx', 'const a = <div>{</div>;\n')).not.toEqual([]);
+    expect(parser?.diagnosticsOf('a.spec.js', 'const a = 1;\n')).toEqual([]);
+    expect(parser?.diagnosticsOf('a.spec.ts', 'const a = TestBed.inject(S) as Spy<S>[;\n')).not.toEqual([]);
+  });
+
   it('is skipped where typescript cannot be resolved, and where the module is not one', () => {
     expect(
       loadParser(process.cwd(), () => {
@@ -65,7 +74,7 @@ describe('loadParser', () => {
     expect(loadParser(process.cwd(), () => ({ notATranspiler: true }))).toBeUndefined();
     expect(
       codesOf(
-        loadParser(process.cwd(), () => ({ transpileModule: () => ({}) })),
+        loadParser(process.cwd(), () => ({ createSourceFile: () => ({}) })),
         'const a = 1;',
       ),
     ).toEqual([]);
@@ -73,7 +82,7 @@ describe('loadParser', () => {
 
   it('reads a chained message and a diagnostic with no text', () => {
     const parser = loadParser(process.cwd(), () => ({
-      transpileModule: () => ({ diagnostics: [{ code: 1, messageText: { messageText: 'chained' } }, { code: 2 }] }),
+      createSourceFile: () => ({ parseDiagnostics: [{ code: 1, messageText: { messageText: 'chained' } }, { code: 2 }] }),
     }));
 
     expect(parser?.diagnosticsOf('a.spec.ts', '')).toEqual([

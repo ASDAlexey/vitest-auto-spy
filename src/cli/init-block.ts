@@ -165,22 +165,29 @@ export function withoutVersion(text: string): string {
  */
 export function applyManaged(existing: string, managed: string): string {
   const [first, ...duplicates] = managedSpans(existing);
+  const eol = eolOf(existing);
+  const block = managed.replace(/\n/g, eol);
 
   if (first === undefined) {
-    const separator = existing.length === 0 || existing.endsWith('\n\n') ? '' : existing.endsWith('\n') ? '\n' : '\n\n';
+    const separator = existing.length === 0 || existing.endsWith(`${eol}${eol}`) ? '' : existing.endsWith(eol) ? eol : `${eol}${eol}`;
 
-    return `${existing}${separator}${managed}\n`;
+    return `${existing}${separator}${block}${eol}`;
   }
 
   const rest = duplicates.reduceRight((text, span) => cut(text, span), existing);
 
-  return `${rest.slice(0, first.start)}${managed}${rest.slice(first.end)}`;
+  return `${rest.slice(0, first.start)}${block}${rest.slice(first.end)}`;
+}
+
+/** A file checked out with CRLF keeps CRLF: a block appended with LF would leave it with mixed endings. */
+function eolOf(text: string): string {
+  return text.includes('\r\n') ? '\r\n' : '\n';
 }
 
 function cut(text: string, span: ManagedSpan): string {
-  const before = text.slice(0, span.start).replace(/\n{2,}$/, '\n');
+  const before = text.slice(0, span.start).replace(/(\r?\n){2,}$/, '$1');
 
-  return `${before}${text.slice(span.end).replace(/^\n+/, '')}`;
+  return `${before}${text.slice(span.end).replace(/^(\r?\n)+/, '')}`;
 }
 
 /** Removes every managed block and the blank line each was appended with. */

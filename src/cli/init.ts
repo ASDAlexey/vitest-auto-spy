@@ -5,9 +5,9 @@
  * one-hunk diff. `--check` is the CI form: it writes nothing and exits non-zero when the block on
  * disk is not the block this version would write.
  */
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
-import { isDirectory, isSymlink, pathExists, readTextFile, removeFile, writeTextFile } from './fs-scan';
+import { isDirectory, isSymlink, readPresentTextFile, removeEmptyDirectories, removeFile, writeTextFile } from './fs-scan';
 import { ignoredByGit } from './git-ignored';
 import { type BlockFacts, applyManaged, hasHandEditedBlock, hasManaged, managedSpans, removeManaged, withoutVersion } from './init-block';
 import { blockFacts } from './init-facts';
@@ -54,6 +54,8 @@ export interface Plan {
   readonly staleCopy?: true;
   /** A managed block whose body no longer matches its `sha=`: somebody edited it, so init leaves it. */
   readonly handEdited?: true;
+  /** The file exists and could not be read: nothing is known about it, so nothing is written over it. */
+  readonly unreadable?: true;
 }
 
 function planFor(target: Target, content: string | undefined, profile: Profile, version: string, facts: BlockFacts): Plan {
@@ -145,9 +147,14 @@ function collectTargets(profile: Profile, only: readonly string[] | undefined): 
   return [...TIER_ONE_MARKDOWN, skill, ...tierTwo, ...LEGACY_FILES].filter((target) => isSelected(target.path, only));
 }
 
-/** A file that exists but cannot be read is treated as absent — there is nothing to preserve. */
-function readTarget(cwd: string, target: Target): string | undefined {
-  return pathExists(join(cwd, target.path)) ? readTextFile(join(cwd, target.path)) : undefined;
+type Read = { readonly error: string } | { readonly existing: string | undefined };
+
+function readTarget(cwd: string, target: Target): Read {
+  try {
+    return { existing: readPresentTextFile(join(cwd, target.path)) };
+  } catch (error) {
+    return { error: reasonOf(error) };
+  }
 }
 
 /** Only the shipped skill carries this name, so a file with it and no markers was copied out of the package. */
@@ -186,11 +193,16 @@ function buildPlans(profile: Profile, version: string, only: readonly string[] |
   const facts = blockFacts(profile);
 
   return collectTargets(profile, only).map((target) => {
-    const existing = readTarget(profile.cwd, target);
+    const read = readTarget(profile.cwd, target);
+    const existing = 'existing' in read ? read.existing : undefined;
     const plan = planFor(target, existing, profile, version, facts);
 
     if (isSymlink(join(profile.cwd, target.path))) {
       return symlinkPlan(plan);
+    }
+
+    if ('error' in read) {
+      return { target, existing, desired: undefined, unreadable: true, note: `exists and could not be read (${read.error}) — left alone` };
     }
 
     return target.path === SKILL_PATH ? skillPlan(plan, version, skillFrontmatter()) : plan;
@@ -211,6 +223,10 @@ function guardHandEdited(plan: Plan): Plan {
 function uninstallPlan(plan: Plan): Plan {
   const { existing, target } = plan;
 
+  if (plan.unreadable === true) {
+    return plan;
+  }
+
   if (existing === undefined || !hasManaged(existing)) {
     return { ...plan, desired: undefined, note: 'no managed block — left alone' };
   }
@@ -223,6 +239,10 @@ function uninstallPlan(plan: Plan): Plan {
 }
 
 function describeAction(plan: Plan, options: InitOptions): InitAction {
+  if (plan.unreadable === true) {
+    return { path: plan.target.path, status: 'failed', note: plan.note };
+  }
+
   const status = options.uninstall ? uninstallStatus(plan) : statusOf(plan, options.check);
   const note = !options.uninstall && isStampOnly(plan) ? `${plan.note} — ${STAMP_ONLY_NOTE}` : plan.note;
 
@@ -233,10 +253,13 @@ function writes(action: InitAction, plan: Plan, options: InitOptions): boolean {
   return !options.check && !options.dryRun && plan.desired !== undefined && action.status !== 'unchanged' && action.status !== 'skipped';
 }
 
-/** `undefined` means the file should not exist. */
-function put(cwd: string, path: string, content: string | undefined): void {
+/** `undefined` means the file should not exist; the directories init made for it go with it once empty. */
+function put(cwd: string, target: Target, content: string | undefined): void {
+  const path = target.path;
+
   if (content === undefined) {
     removeFile(join(cwd, path));
+    removeEmptyDirectories(dirname(join(cwd, path)), join(cwd, 'requiresDirectory' in target ? String(target.requiresDirectory) : ''));
   } else {
     writeTextFile(join(cwd, path), content);
   }
@@ -273,7 +296,7 @@ function applyPlans(cwd: string, plans: readonly Plan[], options: InitOptions): 
     }
 
     try {
-      put(cwd, action.path, plan.desired === '' ? undefined : plan.desired);
+      put(cwd, plan.target, plan.desired === '' ? undefined : plan.desired);
       done.push(step);
     } catch (error) {
       step.action = { ...action, status: 'failed', note: reasonOf(error) };
@@ -289,7 +312,7 @@ function rollBack(cwd: string, done: readonly Step[], failed: string): string[] 
     const path = step.plan.target.path;
 
     try {
-      put(cwd, path, step.plan.existing);
+      put(cwd, step.plan.target, step.plan.existing);
       step.action = { path, status: 'skipped', note: `rolled back — ${failed} could not be written` };
 
       return [];
@@ -335,6 +358,15 @@ function untouchedWarnings(plans: readonly Plan[]): string[] {
       plan.staleCopy === true
         ? `${plan.target.path} is a copy of the shipped vitest-auto-spy skill, not written by init, so no upgrade refreshes it — left untouched. Delete it and re-run \`npx vitest-auto-spy init\` to replace it with the managed pointer.`
         : `${plan.target.path} exists and was not written by init — left untouched; fold it into the managed block by hand if you want init to own it.`,
+    );
+}
+
+function unreadableWarnings(plans: readonly Plan[]): string[] {
+  return plans
+    .filter((plan) => plan.unreadable === true)
+    .map(
+      (plan) =>
+        `${plan.target.path} ${plan.note.replace(' — left alone', '')}, so init did not touch it. Fix its permissions, then re-run.`,
     );
 }
 
@@ -387,9 +419,10 @@ export function runInit(profile: Profile, version: string, options: InitOptions)
     actions,
     warnings: [
       ...failures,
+      ...unreadableWarnings(plans),
       ...unmatchedWarnings(options.only),
       ...(options.uninstall ? [] : [...untouchedWarnings(plans), ...editedWarnings(plans), ...budgetWarnings(plans)]),
     ],
-    ok: failures.length === 0 && !pending,
+    ok: failures.length === 0 && !pending && !plans.some((plan) => plan.unreadable === true),
   };
 }

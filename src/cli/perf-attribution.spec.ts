@@ -64,7 +64,7 @@ function scopeOf(
   return { scope, errors };
 }
 
-const diffRef = (git: FakeGit): string | undefined => git.calls.find((args) => args[0] === 'diff')?.at(-1);
+const diffRef = (git: FakeGit): string | undefined => git.calls.find((args) => args[0] === 'diff')?.at(-2);
 
 describe('gateScope', () => {
   it('diffs against HEAD itself, without asking for a merge base', () => {
@@ -81,7 +81,7 @@ describe('gateScope', () => {
 
     scopeOf('origin/main', git);
 
-    expect(git.calls[0]).toEqual(['merge-base', 'origin/main', 'HEAD']);
+    expect(git.calls[0]).toEqual(['merge-base', '--end-of-options', 'origin/main', 'HEAD']);
     expect(diffRef(git)).toBe('abc123');
   });
 
@@ -102,7 +102,7 @@ describe('gateScope', () => {
     expect(scope).toBeUndefined();
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain(
-      'warning  --changed origin/main: `git diff --name-only --diff-filter=ACMR --relative base-sha` failed: fatal: bad revision',
+      'warning  --changed origin/main: `git diff --name-only --diff-filter=ACMR --relative --end-of-options base-sha --` failed: fatal: bad revision',
     );
     expect(errors[0]).toContain('The gate judges every file instead.');
   });

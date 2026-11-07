@@ -35,20 +35,21 @@ interface Diagnostic {
   readonly messageText?: string | { readonly messageText: string };
 }
 
-interface TranspileResult {
-  readonly diagnostics?: readonly Diagnostic[];
+/** `parseDiagnostics` is internal to the compiler, but it is what `transpileModule` reports as syntax errors. */
+interface ParsedFile {
+  readonly parseDiagnostics?: readonly Diagnostic[];
 }
 
 interface TypeScriptModule {
-  transpileModule(input: string, options: Record<string, unknown>): TranspileResult;
+  createSourceFile(fileName: string, text: string, languageVersion: number, setParentNodes?: boolean): ParsedFile;
 }
 
 function isTypeScript(loaded: unknown): loaded is TypeScriptModule {
-  return typeof loaded === 'object' && loaded !== null && 'transpileModule' in loaded && typeof loaded.transpileModule === 'function';
+  return typeof loaded === 'object' && loaded !== null && 'createSourceFile' in loaded && typeof loaded.createSourceFile === 'function';
 }
 
-/** `target: esnext`, `jsx: preserve` — enough to parse anything a spec file can hold. */
-const PARSE_OPTIONS = { target: 99, jsx: 1, allowJs: true };
+/** `ScriptTarget.ESNext`; the script kind (`.tsx`, `.js`) is read off the file name. */
+const LATEST = 99;
 
 /**
  * The `typescript` the repository under migration has, or `undefined` when it has none.
@@ -73,16 +74,14 @@ export function loadParser(cwd: string, load: (specifier: string) => unknown = r
 
   return {
     diagnosticsOf: (file, text) =>
-      (typescript.transpileModule(text, { fileName: file, reportDiagnostics: true, compilerOptions: PARSE_OPTIONS }).diagnostics ?? []).map(
-        (diagnostic) => ({
-          code: diagnostic.code,
-          start: diagnostic.start,
-          message:
-            typeof diagnostic.messageText === 'object'
-              ? diagnostic.messageText.messageText
-              : (diagnostic.messageText ?? `TS${diagnostic.code}`),
-        }),
-      ),
+      (typescript.createSourceFile(file, text, LATEST, false).parseDiagnostics ?? []).map((diagnostic) => ({
+        code: diagnostic.code,
+        start: diagnostic.start,
+        message:
+          typeof diagnostic.messageText === 'object'
+            ? diagnostic.messageText.messageText
+            : (diagnostic.messageText ?? `TS${diagnostic.code}`),
+      })),
   };
 }
 

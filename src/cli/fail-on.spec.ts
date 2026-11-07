@@ -46,26 +46,26 @@ describe('doctor --fail-on', () => {
   // One note: no instruction file names the package.
   const noteOnly = (): string => createTempRepo({ 'package.json': '{}' });
 
-  it('keeps a note from failing the run by default, and fails on it under --fail-on info', () => {
+  it('keeps a note from failing the run by default, and fails on it under --fail-on info', async () => {
     const root = noteOnly();
 
-    expect(runCli(['doctor', '--cwd', root], recorder())).toBe(0);
-    expect(runCli(['doctor', '--cwd', root, '--fail-on', 'info'], recorder())).toBe(1);
-    expect(runCli(['doctor', '--cwd', root, '--fail-on=info', '--ignore', 'no-agent-instructions'], recorder())).toBe(0);
+    expect(await runCli(['doctor', '--cwd', root], recorder())).toBe(0);
+    expect(await runCli(['doctor', '--cwd', root, '--fail-on', 'info'], recorder())).toBe(1);
+    expect(await runCli(['doctor', '--cwd', root, '--fail-on=info', '--ignore', 'no-agent-instructions'], recorder())).toBe(0);
   });
 
-  it('lets an error alone fail the run under --fail-on error, and carries the code into --format json', () => {
+  it('lets an error alone fail the run under --fail-on error, and carries the code into --format json', async () => {
     const root = createTempRepo({ 'package.json': '{}', 'tsconfig.json': JSON.stringify({ include: ['src/polyfills.ts'] }) });
     const io = recorder();
 
-    expect(runCli(['doctor', '--cwd', root, '--fail-on', 'error', '--format', 'json'], io)).toBe(1);
+    expect(await runCli(['doctor', '--cwd', root, '--fail-on', 'error', '--format', 'json'], io)).toBe(1);
     expect(JSON.parse(io.stdout.join(''))).toMatchObject({ exitCode: 1 });
   });
 
-  it('refuses a word that is not a severity, before running anything', () => {
+  it('refuses a word that is not a severity, before running anything', async () => {
     const io = recorder();
 
-    expect(runCli(['doctor', '--cwd', noteOnly(), '--fail-on', 'notes'], io)).toBe(2);
+    expect(await runCli(['doctor', '--cwd', noteOnly(), '--fail-on', 'notes'], io)).toBe(2);
     expect(io.stderr.join('\n')).toContain('Unknown --fail-on value: notes. Accepted values: error, warning, info. Nothing ran.');
   });
 });
@@ -84,13 +84,13 @@ describe('perf --fail-on', () => {
     expect(renderPerf(flakySource(root), profile, recorder(), { failOn: 'warning' })).toBe(1);
   });
 
-  it('takes the flag from the command line', () => {
+  it('takes the flag from the command line', async () => {
     const root = createTempRepo({ 'package.json': JSON.stringify({ devDependencies: { vitest: '^4' } }), 'src/a.spec.ts': '' });
     const report = join(root, 'perf.json');
 
     writeTextFile(report, JSON.stringify(flakyRun(root)));
 
-    expect(runCli(['perf', '--cwd', root, '--json', report], recorder())).toBe(0);
-    expect(runCli(['perf', '--cwd', root, '--json', report, '--fail-on', 'warning'], recorder())).toBe(1);
+    expect(await runCli(['perf', '--cwd', root, '--json', report], recorder())).toBe(0);
+    expect(await runCli(['perf', '--cwd', root, '--json', report, '--fail-on', 'warning'], recorder())).toBe(1);
   });
 });

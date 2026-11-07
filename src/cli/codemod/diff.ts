@@ -156,21 +156,46 @@ function render(lines: readonly Line[], span: { readonly start: number; readonly
   return [header(hunk), ...hunk.map((line) => `${line.kind === '=' ? ' ' : line.kind}${line.text}`)].join('\n');
 }
 
+function aligned(left: readonly string[], right: readonly string[]): Line[] {
+  const prefix = commonPrefix(left, right);
+  const suffix = commonSuffix(left, right, prefix);
+
+  return numbered([
+    ...left.slice(0, prefix).map((text): [Kind, string] => ['=', text]),
+    ...align(left.slice(prefix, left.length - suffix), right.slice(prefix, right.length - suffix)),
+    ...left.slice(left.length - suffix).map((text): [Kind, string] => ['=', text]),
+  ]);
+}
+
+/**
+ * Each line of `after` → the line of `before` it came from. A rewritten line is paired with the
+ * line it replaced; an added one points at the line it was inserted before.
+ */
+export function originLines(before: string, after: string): (line: number) => number {
+  const left = before.split('\n');
+  const origins = new Map<number, number>();
+  let removed: number[] = [];
+
+  for (const line of aligned(left, after.split('\n'))) {
+    if (line.kind === '-') {
+      removed.push(line.a);
+      continue;
+    }
+
+    origins.set(line.b, line.kind === '=' ? line.a : (removed.shift() ?? Math.min(line.a, left.length)));
+    removed = line.kind === '=' ? [] : removed;
+  }
+
+  return (line) => origins.get(line) ?? line;
+}
+
 /** The diff of one file, or the empty string when nothing changed. */
 export function unifiedDiff(file: string, before: string, after: string): string {
   if (before === after) {
     return '';
   }
 
-  const left = before.split('\n');
-  const right = after.split('\n');
-  const prefix = commonPrefix(left, right);
-  const suffix = commonSuffix(left, right, prefix);
-  const lines = numbered([
-    ...left.slice(0, prefix).map((text): [Kind, string] => ['=', text]),
-    ...align(left.slice(prefix, left.length - suffix), right.slice(prefix, right.length - suffix)),
-    ...left.slice(left.length - suffix).map((text): [Kind, string] => ['=', text]),
-  ]);
+  const lines = aligned(before.split('\n'), after.split('\n'));
 
   return [`--- a/${file}`, `+++ b/${file}`, ...group(lines).map((span) => render(lines, span))].join('\n');
 }

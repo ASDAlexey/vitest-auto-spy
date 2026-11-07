@@ -2,7 +2,8 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { installPerTest } from './install-per-test';
 
-describe('installPerTest', () => {
+// The second test counts the install the first one got.
+describe('installPerTest', { shuffle: false }, () => {
   let built = 0;
 
   const handle = installPerTest(() => {
@@ -42,7 +43,8 @@ describe('installPerTest, read too early', () => {
   });
 });
 
-describe('installPerTest, read after the test it belongs to', () => {
+// The test reads what the block before it caught in its afterAll.
+describe('installPerTest, read after the test it belongs to', { shuffle: false }, () => {
   let readAfterTheLastTest: unknown;
 
   describe('a block whose stub must not outlive its test', () => {

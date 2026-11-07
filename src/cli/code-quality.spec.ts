@@ -74,7 +74,7 @@ describe('toCodeQuality', () => {
 });
 
 describe('--code-quality', () => {
-  it('writes the doctor findings, and an empty list on a clean repository', () => {
+  it('writes the doctor findings, and an empty list on a clean repository', async () => {
     const broken = createTempRepo({
       'package.json': JSON.stringify({ devDependencies: { vitest: '^4' } }),
       'AGENTS.md': 'read node_modules/vitest-auto-spy/AGENTS.md\n',
@@ -82,7 +82,7 @@ describe('--code-quality', () => {
       'src/app.ts': '',
     });
 
-    expect(runCli(['doctor', '--cwd', broken, '--code-quality', 'out/cq.json'], io)).toBe(1);
+    expect(await runCli(['doctor', '--cwd', broken, '--code-quality', 'out/cq.json'], io)).toBe(1);
     expect(parsed(join(broken, 'out/cq.json'))).toEqual([
       expect.objectContaining({ check_name: 'tsconfig-glob-matches-nothing', location: { path: 'tsconfig.json', lines: { begin: 1 } } }),
     ]);
@@ -93,18 +93,18 @@ describe('--code-quality', () => {
       'src/app.ts': '',
     });
 
-    expect(runCli(['doctor', '--cwd', clean, '--code-quality', 'cq.json'], io)).toBe(0);
+    expect(await runCli(['doctor', '--cwd', clean, '--code-quality', 'cq.json'], io)).toBe(0);
     expect(parsed(join(clean, 'cq.json'))).toEqual([]);
   });
 
   const perfRepo = (): string => createTempRepo({ 'package.json': JSON.stringify({ devDependencies: { vitest: '^4' } }) });
 
-  it('writes what the gate found, through runCli, next to the working directory', () => {
+  it('writes what the gate found, through runCli, next to the working directory', async () => {
     const root = perfRepo();
 
     writeTextFile(join(root, 'perf.json'), JSON.stringify(measuredRun(root, { cases: [{ name: 'slow > waits', ms: 3_000 }] })));
 
-    expect(runCli(['perf', '--cwd', root, '--json', 'perf.json', '--gate', '--no-confirm', '--code-quality', 'cq.json'], io)).toBe(1);
+    expect(await runCli(['perf', '--cwd', root, '--json', 'perf.json', '--gate', '--no-confirm', '--code-quality', 'cq.json'], io)).toBe(1);
     expect(parsed(join(root, 'cq.json'))).toEqual([
       expect.objectContaining({
         check_name: 'perf-gate-slow-test',

@@ -10,8 +10,14 @@
  * guessing produces a silent wrong rewrite.
  */
 
+/** A lookup table with no prototype, so `jest.toString` or `jest.constructor` is not a hit. */
+export function table<V extends string>(entries: Record<string, V>): Readonly<Record<string, V>> {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `Object.create(null)` is `any`; the entries copied in are exactly `Record<string, V>`.
+  return Object.freeze(Object.assign(Object.create(null) as Record<string, V>, entries));
+}
+
 /** `jest.<key>` → `vi.<value>`. Same name unless the value says otherwise. */
-export const RENAMED: Readonly<Record<string, string>> = {
+export const RENAMED = table({
   advanceTimersByTime: 'advanceTimersByTime',
   advanceTimersByTimeAsync: 'advanceTimersByTimeAsync',
   advanceTimersToNextTimer: 'advanceTimersToNextTimer',
@@ -38,10 +44,10 @@ export const RENAMED: Readonly<Record<string, string>> = {
   unmock: 'unmock',
   useFakeTimers: 'useFakeTimers',
   useRealTimers: 'useRealTimers',
-};
+});
 
 /** `jest.<key>` has no `vi` twin. The value is what to do instead, printed in the report. */
-export const NO_TWIN: Readonly<Record<string, string>> = {
+export const NO_TWIN = table({
   createMockFromModule: 'there is no module auto-mock in Vitest; build the double with `createAutoMock<T>()` and provide it.',
   disableAutomock: 'Vitest has no automock mode; the option does not exist to turn off.',
   enableAutomock: 'Vitest has no automock mode; mock the module explicitly or provide a double.',
@@ -54,7 +60,7 @@ export const NO_TWIN: Readonly<Record<string, string>> = {
   runAllTicks: 'there is no `vi` twin; await the promise the code under test returns.',
   setMock: 'provide the double through the TestBed or the container, or pass it as an argument.',
   setTimeout: 'set `testTimeout` in the Vitest config, or `vi.setConfig({ testTimeout: n })` — the argument is not a plain number here.',
-};
+});
 
 /**
  * `jest.<key>` is a type, not a value, and moves to a bare `vitest` type import.
@@ -63,26 +69,26 @@ export const NO_TWIN: Readonly<Record<string, string>> = {
  * second; Vitest takes a single call signature. A rename that leaves the type arguments where they
  * were compiles cleanly into the reverse meaning, and nothing fails until a call site disagrees.
  */
-export const TYPE_NAMES: Readonly<Record<string, string>> = {
+export const TYPE_NAMES = table({
   Mock: 'Mock',
   MockedClass: 'MockedClass',
   MockedFunction: 'MockedFunction',
   MockedObject: 'MockedObject',
   Mocked: 'Mocked',
   SpyInstance: 'MockInstance',
-};
+});
 
 /** The type members whose first argument is a return type rather than the whole signature. */
 export const RETURN_FIRST = new Set(['Mock', 'SpyInstance']);
 
 /** Jasmine-era globals Jest kept and Vitest does not have. `xit` fails as `TS2304`, not as a skip. */
-export const JASMINE_ALIASES: Readonly<Record<string, string>> = {
+export const JASMINE_ALIASES = table({
   fdescribe: 'describe.only',
   fit: 'it.only',
   xdescribe: 'describe.skip',
   xit: 'it.skip',
   xtest: 'test.skip',
-};
+});
 
 /**
  * The packages whose `jest-auto-spies`-shaped API this codemod splits across our entry points.

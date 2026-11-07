@@ -183,11 +183,14 @@ interface Insertion {
  * file or a file that ends without a line break each put something else there, and the statement
  * landed inside the comment or between the `\r` and the `\n`.
  */
+/** A shebang has to stay the first line, and a directive stops being one below an import. */
+const PROLOGUE = /^\uFEFF?(?:#![^\n]*\n)?(?:[\t ]*(?:'[^\n']*'|"[^\n"]*")[\t ]*;?[\t ]*\r?\n)*/;
+
 function insertionPoint(source: string, statements: readonly ImportStatement[]): Insertion {
   const last = statements.filter((statement) => !statement.specifier.startsWith('.')).at(-1);
 
   if (last === undefined) {
-    return { at: statements[0]?.start ?? 0, lead: '', blankAfter: statements.length > 0 };
+    return { at: statements[0]?.start ?? source.length - source.replace(PROLOGUE, '').length, lead: '', blankAfter: statements.length > 0 };
   }
 
   const lineEnd = source.indexOf('\n', last.end);
@@ -294,7 +297,7 @@ function planEdits(source: string, masked: string, statements: readonly ImportSt
 }
 
 /** The code with every import statement blanked, so a name found in it is a real reference. */
-function codeOutsideImports(masked: string, statements: readonly ImportStatement[]): string {
+export function codeOutsideImports(masked: string, statements: readonly ImportStatement[]): string {
   let result = '';
   let cursor = 0;
 

@@ -479,17 +479,17 @@ describe('runCli perf, the new flags', () => {
     return root;
   };
 
-  it('warns that --profile-dir keeps nothing without a confirmation pass', () => {
+  it('warns that --profile-dir keeps nothing without a confirmation pass', async () => {
     const io = recorder();
 
-    expect(runCli(['perf', '--cwd', reportRepo(), '--json', 'perf.json', '--profile-dir', 'profiles'], io)).toBe(0);
+    expect(await runCli(['perf', '--cwd', reportRepo(), '--json', 'perf.json', '--profile-dir', 'profiles'], io)).toBe(0);
     expect(io.stderr.join('\n')).toContain("--profile-dir keeps the profiles the gate's confirmation pass records");
   });
 
-  it('accepts --ab-isolate and says a read report has no suite to run again', () => {
+  it('accepts --ab-isolate and says a read report has no suite to run again', async () => {
     const io = recorder();
 
-    expect(runCli(['perf', '--cwd', reportRepo(), '--json', 'perf.json', '--ab-isolate'], io)).toBe(0);
+    expect(await runCli(['perf', '--cwd', reportRepo(), '--json', 'perf.json', '--ab-isolate'], io)).toBe(0);
     expect(io.stderr.join('\n')).toContain('--ab-isolate needs a suite to run again');
   });
 });
