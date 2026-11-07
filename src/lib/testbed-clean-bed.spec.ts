@@ -45,6 +45,45 @@ describe('cleanTestBed', () => {
     expect(Reflect.get(testBed, '_testModuleRef')).toBeNull();
   });
 
+  it('resets without reporting a module a destroyAfterEach: false suite leaves on purpose', () => {
+    // eslint-disable-next-line vitest-auto-spy/no-disabled-testbed-teardown -- the module an opt-out suite leaves alive on purpose is the state under test
+    TestBed.configureTestingModule({ teardown: { destroyAfterEach: false } });
+    // eslint-disable-next-line vitest-auto-spy/prefer-render-shallow -- a plain fixture left alive is the state under test
+    const fixture = TestBed.createComponent(LeftoverComponent);
+    const destroy = vi.spyOn(fixture, 'destroy');
+
+    expect(cleanTestBed()).toBeUndefined();
+    expect(Reflect.get(testBed, '_testModuleRef')).toBeNull();
+    expect(destroy).toHaveBeenCalled();
+  });
+
+  it('still reports a reset that throws under destroyAfterEach: false', () => {
+    // eslint-disable-next-line vitest-auto-spy/no-disabled-testbed-teardown -- the throwing reset has to run over the leftover only an opt-out suite leaves
+    TestBed.configureTestingModule({ teardown: { destroyAfterEach: false } });
+    TestBed.inject(Injector);
+    Reflect.set(testBed, 'resetTestingModule', () => {
+      throw new Error('teardown broke');
+    });
+
+    const report = cleanTestBed();
+
+    expect(report).toContain('resetting it threw: teardown broke');
+    expect(report).not.toContain('still instantiated');
+    Reflect.deleteProperty(testBed, 'resetTestingModule');
+    TestBed.resetTestingModule();
+  });
+
+  it('reports a leftover module on an Angular with no teardown query', () => {
+    TestBed.inject(Injector);
+    Reflect.set(testBed, 'shouldTearDownTestingModule', undefined);
+
+    try {
+      expect(cleanTestBed()).toContain('a testing module is still instantiated');
+    } finally {
+      Reflect.deleteProperty(testBed, 'shouldTearDownTestingModule');
+    }
+  });
+
   it('counts the fixtures still alive, and destroys them', () => {
     // eslint-disable-next-line vitest-auto-spy/prefer-render-shallow -- a plain fixture left alive is the state under test
     const fixture = TestBed.createComponent(LeftoverComponent);

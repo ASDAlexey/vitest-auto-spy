@@ -51,6 +51,14 @@ function restoreStatic(name: string): void {
   }
 }
 
+// `teardown: { destroyAfterEach: false }` moves Angular's reset to the next test's `beforeEach`, so
+// the last test of a file leaves its module behind by design: reset it, but report nothing.
+function tearsDownAfterEach(testBed: object): boolean {
+  const shouldTearDown: unknown = Reflect.get(testBed, 'shouldTearDownTestingModule');
+
+  return typeof shouldTearDown !== 'function' || Reflect.apply(shouldTearDown, testBed, []) !== false;
+}
+
 function resetLeftoverModule(findings: string[]): void {
   const testBed = getTestBed();
   const fixtures: unknown = Reflect.get(testBed, '_activeFixtures');
@@ -61,11 +69,13 @@ function resetLeftoverModule(findings: string[]): void {
     return;
   }
 
-  findings.push(
-    [instantiated ? 'a testing module is still instantiated' : undefined, live > 0 ? `${count(live, 'fixture')} still alive` : undefined]
-      .filter((part) => part !== undefined)
-      .join(' and '),
-  );
+  if (tearsDownAfterEach(testBed)) {
+    findings.push(
+      [instantiated ? 'a testing module is still instantiated' : undefined, live > 0 ? `${count(live, 'fixture')} still alive` : undefined]
+        .filter((part) => part !== undefined)
+        .join(' and '),
+    );
+  }
 
   try {
     TestBed.resetTestingModule();
