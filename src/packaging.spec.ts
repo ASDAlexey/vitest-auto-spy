@@ -139,12 +139,17 @@ describe('the published manifest', () => {
     const job = workflows.get('ci.yml')?.jobs?.['angular-range'] as WorkflowJob & {
       strategy: { matrix: { angular: string[] } };
     };
-    const floor = Math.min(...job.strategy.matrix.angular.map(Number));
+    // The matrix names exact floors ('20.0.0') and bare majors ('21') side by side; only a full
+    // version comparison picks the lowest, and `Number('20.0.0')` is NaN.
+    const comparable = (parts: number[]) => (parts[0] ?? 0) * 1e4 + (parts[1] ?? 0) * 1e2 + (parts[2] ?? 0);
+    const [major, minor = 0, patch = 0] = job.strategy.matrix.angular
+      .map((version) => version.split('.').map(Number))
+      .reduce((lowest, parts) => (comparable(parts) < comparable(lowest) ? parts : lowest));
     const angular = Object.entries(manifest.peerDependencies).filter(([name]) => name.startsWith('@angular/'));
 
     expect(angular.length).toBeGreaterThan(0);
     for (const [name, range] of angular) {
-      expect({ name, range }).toEqual({ name, range: `>=${floor}.0.0` });
+      expect({ name, range }).toEqual({ name, range: `>=${major}.${minor}.${patch}` });
     }
   });
 
