@@ -53,7 +53,7 @@ function exportedTypes(source) {
 const esm = readFileSync(ESM_TYPES, 'utf8');
 const runtime = readFileSync(RUNTIME, 'utf8');
 
-if (!/module\.exports = \w+;\s*$/.test(runtime)) {
+if (!/module\.exports ?= ?[\w$]+;\s*$/.test(runtime)) {
   fail(`${RUNTIME} no longer ends in \`module.exports = …\` — this file would then describe the wrong shape`);
 }
 
