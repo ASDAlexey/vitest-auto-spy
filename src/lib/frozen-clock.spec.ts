@@ -33,6 +33,14 @@ describe('readFrozenClock', () => {
     expect(readFrozenClock(clockStub(true, 0))).toBeUndefined();
   });
 
+  it("leaves the fake clock's timer table unread when the queue is empty", () => {
+    const read = vi.fn();
+    const host = new Proxy({}, { get: read });
+
+    expect(readFrozenClock(clockStub(true, 0), host)).toBeUndefined();
+    expect(read).not.toHaveBeenCalled();
+  });
+
   it('reads the real runner when nothing is handed to it', () => {
     // The fakes are off in this file, so the honest answer here is "nothing to report".
     expect(readFrozenClock()).toBeUndefined();

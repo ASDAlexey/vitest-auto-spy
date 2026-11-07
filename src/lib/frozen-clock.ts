@@ -83,11 +83,12 @@ export function readFrozenClock(
   }
 
   const pending = clock.getTimerCount();
-  const immediates = queuedImmediates(host);
 
   if (pending === 0) {
     return undefined;
   }
+
+  const immediates = queuedImmediates(host);
 
   return immediates > 0 ? { pending, immediates } : { pending };
 }
