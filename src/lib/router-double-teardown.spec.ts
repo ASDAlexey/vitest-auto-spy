@@ -12,7 +12,8 @@ vi.mock('./runner-hooks', async (importOriginal) => {
   return { ...real, getTestFinishedHook: () => (teardown.missing ? undefined : real.getTestFinishedHook()) };
 });
 
-describe('collectRouterEvents teardown', () => {
+// The second test reads the recording the first one left behind.
+describe('collectRouterEvents teardown', { shuffle: false }, () => {
   let double: RouterDouble;
   let recording: ReturnType<typeof collectRouterEvents>;
 
