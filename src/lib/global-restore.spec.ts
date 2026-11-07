@@ -332,4 +332,59 @@ describe('restoreGlobals', () => {
       }
     }
   });
+
+  it('reads each getter once at capture, with process warnings muted while it does', () => {
+    const host: Record<PropertyKey, unknown> = {};
+    const warned: unknown[] = [];
+    const emit = process.emitWarning;
+    let reads = 0;
+
+    Object.defineProperty(host, 'localStorage', {
+      configurable: true,
+      get: () => {
+        reads += 1;
+        process.emitWarning('localStorage is not available');
+
+        return undefined;
+      },
+      set: () => undefined,
+    });
+
+    process.emitWarning = (warning: string | Error): void => {
+      warned.push(warning);
+    };
+
+    try {
+      captureGlobalBaseline(host);
+
+      expect(reads).toBe(1);
+      expect(restoreGlobals(host)).toEqual([]);
+      expect(reads).toBe(2);
+      expect(warned).toEqual([]);
+
+      process.emitWarning('after');
+
+      expect(warned).toEqual(['after']);
+    } finally {
+      process.emitWarning = emit;
+    }
+  });
+
+  it('notices an unstable getter at restore and leaves it to the descriptor leg from then on', () => {
+    const host: Record<PropertyKey, unknown> = {};
+    let reads = 0;
+
+    Object.defineProperty(host, 'CSS', {
+      configurable: true,
+      get: () => ({ read: (reads += 1) }),
+      set: () => undefined,
+    });
+
+    captureGlobalBaseline(host);
+
+    expect(restoreGlobals(host)).toEqual([]);
+    expect(reads).toBe(3);
+    expect(restoreGlobals(host)).toEqual([]);
+    expect(reads).toBe(4);
+  });
 });

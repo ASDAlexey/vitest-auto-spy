@@ -22,6 +22,7 @@
  * alongside, and one that ignored deletions would leave every later file meeting `undefined`.
  */
 import { isOwnedPatch } from './owned-patch';
+import { withoutProcessWarnings } from './process-warnings';
 
 /**
  * Keys no restore may touch. Assigning `location` or `document` does not replace a value so much as
@@ -41,10 +42,10 @@ interface Baseline {
    */
   readonly through: unknown;
   /**
-   * Whether two reads at capture agreed. happy-dom's `CSS` getter builds a fresh object per read,
-   * which no comparison can tell from a replacement, so such a key only gets the descriptor leg.
+   * Cleared once two reads in a row disagree. happy-dom's `CSS` getter builds a fresh object per
+   * read, which no comparison can tell from a replacement, so such a key only gets the descriptor leg.
    */
-  readonly stable: boolean;
+  stable: boolean;
 }
 
 /**
@@ -117,21 +118,30 @@ export function captureGlobalBaseline(host: object = globalThis): void {
 
   const snapshot = new Map<PropertyKey, Baseline>();
 
-  for (const key of Reflect.ownKeys(host)) {
-    if (isSkipped(key)) {
-      continue;
+  withoutProcessWarnings(() => {
+    for (const key of Reflect.ownKeys(host)) {
+      if (isSkipped(key)) {
+        continue;
+      }
+
+      const descriptor = Object.getOwnPropertyDescriptor(host, key);
+
+      if (descriptor) {
+        snapshot.set(key, { descriptor, through: 'get' in descriptor ? readValue(host, key) : descriptor.value, stable: true });
+      }
     }
-
-    const descriptor = Object.getOwnPropertyDescriptor(host, key);
-
-    if (descriptor) {
-      const through = readValue(host, key);
-
-      snapshot.set(key, { descriptor, through, stable: Object.is(through, readValue(host, key)) });
-    }
-  }
+  });
 
   baselines.set(host, snapshot);
+}
+
+/** Whether the getter answers the same twice in a row; a key that once failed stays unstable. */
+function readsStable(host: object, key: PropertyKey, baseline: Baseline, live: unknown): boolean {
+  if (baseline.stable && !Object.is(live, readValue(host, key))) {
+    baseline.stable = false;
+  }
+
+  return baseline.stable;
 }
 
 /**
@@ -159,10 +169,10 @@ export function captureGlobalBaseline(host: object = globalThis): void {
 export function restoreGlobals(host: object = globalThis): readonly PropertyKey[] {
   const snapshot = registry().get(host);
 
-  if (!snapshot) {
-    return [];
-  }
+  return snapshot ? withoutProcessWarnings(() => restoreSnapshot(host, snapshot)) : [];
+}
 
+function restoreSnapshot(host: object, snapshot: Map<PropertyKey, Baseline>): PropertyKey[] {
   const changed: PropertyKey[] = [];
 
   for (const [key, baseline] of snapshot) {
@@ -185,7 +195,7 @@ export function restoreGlobals(host: object = globalThis): readonly PropertyKey[
       }
     }
 
-    if (typeof baseline.descriptor.get === 'function' && baseline.stable && !Object.is(live, baseline.through)) {
+    if (typeof baseline.descriptor.get === 'function' && !Object.is(live, baseline.through) && readsStable(host, key, baseline, live)) {
       try {
         // `Reflect.set` answers false for an accessor with no setter instead of throwing — a
         // read-only global is as untouchable as a non-configurable one, and just as quiet here.
