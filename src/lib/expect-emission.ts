@@ -884,7 +884,8 @@ function notCompletedError(seen: Seen, context: WaitContext, waited: number): Er
     context,
     `the stream did not complete within ${waited} ms (${describeReceived(seen)}). ` +
       'Nothing completed it — end it upstream with `take` / `first` / `takeUntil`, or call `complete()` on the Subject ' +
-      'that feeds it.' +
+      'that feeds it. A spied method configured with `nextWith()` never completes, and neither does a `forkJoin` over ' +
+      'it: seed a one-shot call (HTTP, IPC) with `nextOneTimeWith()`.' +
       fakeClockAdvice(),
   );
 }

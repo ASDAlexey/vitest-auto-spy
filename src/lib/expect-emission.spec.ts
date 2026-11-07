@@ -218,6 +218,9 @@ describe('expectCompletion', () => {
     await expect(expectCompletion(new Subject<void>(), { timeout: 10, label: 'purged$' })).rejects.toThrow(
       /expectCompletion\(purged\$\): the stream did not complete within 10 ms \(0 emissions received\)\. Nothing completed it/,
     );
+    await expect(expectCompletion(new Subject<void>(), { timeout: 10 })).rejects.toThrow(
+      /seed a one-shot call \(HTTP, IPC\) with `nextOneTimeWith\(\)`/,
+    );
   });
 
   it('counts the emissions it saw in the timeout message', async () => {
