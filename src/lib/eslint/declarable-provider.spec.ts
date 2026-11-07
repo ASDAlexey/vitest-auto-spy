@@ -24,7 +24,10 @@ function lint(fixture: string): ReturnType<typeof runRule> {
   return runRule('prefer-provide-auto-spy', DECLARABLE_FIXTURES[fixture] ?? '', {
     filename: fixture,
     linter,
-    languageOptions: { parser: tsParser, parserOptions: { project: ['./tsconfig.json'], tsconfigRootDir: root } },
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: { disallowAutomaticSingleRunInference: true, project: ['./tsconfig.json'], tsconfigRootDir: root },
+    },
   });
 }
 
@@ -41,7 +44,10 @@ describe('explicit DI providers for declarables', () => {
     const fixed = fixRule('prefer-provide-auto-spy', DECLARABLE_FIXTURES['mixed.spec.ts'] ?? '', {
       filename: 'mixed.spec.ts',
       linter,
-      languageOptions: { parser: tsParser, parserOptions: { project: ['./tsconfig.json'], tsconfigRootDir: root } },
+      languageOptions: {
+        parser: tsParser,
+        parserOptions: { disallowAutomaticSingleRunInference: true, project: ['./tsconfig.json'], tsconfigRootDir: root },
+      },
     });
 
     expect(fixed.output).toContain("import { createSpyFromClass } from 'vitest-auto-spy'");
