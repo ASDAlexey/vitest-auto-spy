@@ -8,8 +8,11 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import type { ConsoleSpies } from '../console';
 import '../index';
+import { expectFailures } from './expected-failure.mock';
 import { setupAutoSpy } from './setup-auto-spy';
 import { stopGuardingConsole } from './stray-console';
+
+const failsWith = expectFailures();
 
 // Silenced before the guard wraps it, so the output the failing test forwards stays out of the log.
 const realError = console.error;
@@ -59,6 +62,7 @@ describe('the console entry under the stray-console guard (file b)', () => {
   });
 
   it.fails('fails a test that prints without installing the spies', () => {
+    failsWith(/wrote to console\.error 1 time and nothing absorbed it/);
     console.error('unexpected in file b');
   });
 });
