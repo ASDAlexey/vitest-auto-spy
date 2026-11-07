@@ -26,14 +26,8 @@ import * as DOCS_LINKS from './docs-links';
 import { fakeClockBacklog } from './fake-clock-state';
 import { withDocs } from './message-link';
 import { count } from './message-text';
+import { unpatchedSetTimeout as setTimer } from './unpatched-timers';
 import { flushEffects } from './zoneless';
-
-/**
- * The real timer, captured at import time for the same reason `zoneless.ts` captures it: the
- * event-loop turn below has to happen even when the spec installed `vi.useFakeTimers()`, and a faked
- * `setTimeout` never fires.
- */
-const setTimer: typeof setTimeout = globalThis.setTimeout.bind(globalThis);
 
 /**
  * The slice of Angular's `ResourceRef` this helper reads.

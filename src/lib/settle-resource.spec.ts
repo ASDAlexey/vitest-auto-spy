@@ -113,6 +113,18 @@ describe('settleResource', () => {
     }
   });
 
+  it('takes its event-loop turn on the timer zone.js has not patched', async () => {
+    const patched = vi.spyOn(globalThis, 'setTimeout');
+
+    try {
+      await settleResource(settlingAfter(3));
+
+      expect(patched).not.toHaveBeenCalled();
+    } finally {
+      patched.mockRestore();
+    }
+  });
+
   it('returns without ticking when the resource has already settled', async () => {
     const settled = { status: (): string => 'resolved' };
 
