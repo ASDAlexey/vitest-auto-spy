@@ -47,7 +47,7 @@ import { assertAngularInternals } from './angular-internals';
 import { HTTP_TESTING_BRAND, type PendingRequest, pendingRequestsReport } from './angular-pending-requests';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
-import { count, taskName } from './message-text';
+import { count, currentTask, taskName } from './message-text';
 import { verifyOnTeardown } from './testbed-diagnostics';
 import { beforeTestBedReset } from './testbed-reset';
 import { writeWarning } from './write-warning';
@@ -175,7 +175,7 @@ let warnedAboutRunnerState = false;
  * silent kind of failure: the check simply never arms, and a suite keeps passing with its unflushed
  * requests unreported. So a missing global says so once, rather than nothing ever.
  */
-function runningTest(): unknown {
+function runningTest(): object | undefined {
   const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
 
   if (worker === undefined) {
@@ -191,10 +191,8 @@ function runningTest(): unknown {
     return undefined;
   }
 
-  const current: unknown = Reflect.get(Object(worker), 'current');
-
   // Only a running test can take an `onTestFinished`; a module built in `beforeAll` has no test to fail.
-  return Reflect.get(Object(current), 'type') === 'test' ? current : undefined;
+  return currentTask();
 }
 
 /**
@@ -232,7 +230,7 @@ const HTTP_TESTING_MARK = new InjectionToken<symbol>('vitest-auto-spy provideHtt
  * suite testing an interceptor keeps the check too.
  */
 export function provideHttpTesting(options: HttpTestingOptions = {}): (EnvironmentProviders | Provider)[] {
-  assertAngularInternals();
+  assertAngularInternals('testModuleRef');
 
   const features = options.interceptors === undefined ? [] : [withInterceptors([...options.interceptors])];
   const providers = [
