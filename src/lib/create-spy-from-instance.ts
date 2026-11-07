@@ -25,6 +25,7 @@ import { DISPOSE } from './dispose-symbol';
 import * as DOCS_LINKS from './docs-links';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
 import { recordInnerDoubles } from './inner-double';
+import type { FromClassOnly } from './internal-types';
 import { withDocs } from './message-link';
 import { reportMisconfiguration } from './misconfiguration';
 import { type RestoreProp, mockAccessorsProp, mockValueProp } from './prop-mock';
@@ -402,7 +403,7 @@ export function restoreSpiedInstance(instance: object): void {
  */
 export function createSpyFromInstance<T extends object, Options extends SpyOptions = SpyOptions>(
   instance: T,
-  methodsToSpyOnOrConfig?: InstanceSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
+  methodsToSpyOnOrConfig?: FromClassOnly<T, InstanceSpyConfiguration<T> | OnlyMethodKeysOf<T>[]>,
 ): Spy<T, Options> {
   // A sealed or frozen object rejects a *new* own property with "object is not extensible", which is
   // a different sentence from the "Cannot redefine property" the journal translates — so the same
