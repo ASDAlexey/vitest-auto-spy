@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.69.0] - 2026-11-07
+
 ### Fixed
 
 - PERF baseline and history confirmation keep `--baseline-floor-ms` in the candidate budget. A noisy first reading no longer fails a file that re-measures below the existing noise floor.
@@ -10519,7 +10521,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.68.1...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.69.0...HEAD
+[5.69.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.68.1...v5.69.0
 [5.68.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.68.0...v5.68.1
 [5.68.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.67.0...v5.68.0
 [5.67.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.66.0...v5.67.0
