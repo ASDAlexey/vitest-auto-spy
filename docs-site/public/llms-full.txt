@@ -3309,6 +3309,7 @@ This is the exact text for a `Cart` whose `checkout(id, when)` nobody configured
 [vitest-auto-spy] Cart.checkout(1, 'now') was called; this strict double has nothing configured for it.
 Called from src/app/cart.component.ts:41:12
 Configure it in the test: cart.checkout.calledWith(1, 'now').mockReturnValue(…) for these arguments, or .mockReturnValue(…) for any — .resolveWith(…) / .nextWith(…) when it returns a Promise / Observable.
+A void method, or a result the code ignores: returnsUndefined: ['checkout'] in the double's options.
 Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#the-message
 ```
 
@@ -3323,6 +3324,10 @@ How to read it:
   without arguments suggests only `.mockReturnValue(…)`.
 - **`cart` is a guess at your variable name**: the class name in lower camel case. If the class name
   is not a valid identifier, the message says `double`.
+- **The `returnsUndefined` line is for a method with nothing to return.** A `void` method, or a
+  `MatDialog.open` whose ref the code drops, needs no value: list it in the double's options,
+  `provideAutoSpy(Cart, { returnsUndefined: ['checkout'] })`. When the code uses what comes back,
+  `returnsClass: { open: MatDialogRef }` answers with a spied instance of that class.
 
 Plain data prints in full, up to 200 characters per argument. A class instance or a DOM node prints as
 its class name: `[HTMLDivElement]`, `[Session]`. Printing such objects in full could run a worker out
@@ -3652,11 +3657,8 @@ They return values immediately, so you need no listener spy, collection array, m
 ```ts
 import { expectEmissionSync, expectEmissionsSync } from 'vitest-auto-spy';
 
-expect(
-  expectEmissionSync(component.closed, {
-    advance: () => component.close(),
-  }),
-).toBeUndefined();
+// `closed` is an `output<void>`: the call is the assertion, it throws unless exactly one value arrives
+expectEmissionSync(component.closed, { advance: () => component.close() });
 
 expect(
   expectEmissionsSync(component.selected, 2, {
@@ -3667,6 +3669,10 @@ expect(
   }),
 ).toEqual([15, 20]);
 ```
+
+On a `void` output, call the helper as a statement, as above. Wrapped in `expect(…).toBeUndefined()`
+it trips `@typescript-eslint/no-confusing-void-expression` under the strict presets, and
+`vitest/expect-expect` already counts it as an assertion when `assertFunctionNames` holds `'expect*'`.
 
 The helper subscribes first, runs `advance` once, then unsubscribes before returning or throwing.
 Values emitted during subscription count too. Use `{ skip: 1 }` to ignore a replayed initial value.
@@ -4247,25 +4253,23 @@ const config = asSpy<FeatureFlagService>(TestBed.inject(FeatureFlagService));
 const config = injectSpy<FeatureFlagService>(FeatureFlagService); // the same, in Angular
 ```
 
-`createSpyFromClass` needs it too in one combination: an accessor list (or `overrides`) together with
-`returns`, on a generic class. TypeScript then infers `T` from `gettersToSpyOn: ['flagsConfig']` as
-`{ flagsConfig: any }` and rejects the `returns` key:
-
-```text
-'isKeyEnabled' does not exist in type 'MethodReturns<{ flagsConfig: any; }>'
-```
+`createSpyFromClass` does not need it. It takes `T` from the class alone, never from the
+configuration, so an `overrides` object held in a variable, or an accessor list next to `returns` on a
+generic class, compiles as written:
 
 ```ts
-createSpyFromClass(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: { isKeyEnabled: false } }); // ❌
-createSpyFromClass<FlagsConfigService>(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: { isKeyEnabled: false } }); // ✅
+const keys = { key: 'k', metaKey: true };
+
+createSpyFromClass(KeyboardEvent, { overrides: keys, returnsUndefined: ['preventDefault'] }); // Spy<KeyboardEvent>
+createSpyFromClass(FlagsConfigService, { gettersToSpyOn: ['flagsConfig'], returns: { isKeyEnabled: false } }); // ✅
 ```
 
-- Either option alone infers the declared default, so no type argument is needed.
-- In `vitest-auto-spy/angular`, `provideAutoSpy`, `overrideAutoSpy`, `overrideComponentProvider` and
-  the class overload of `registerAutoSpyDefaults` take `T` from the class alone, so there the first
-  line compiles as written.
-- The core factories and the core `registerAutoSpyDefaults` do not, so there you pass the type
-  argument. Nothing else is needed.
+- `createSpyFromInstance`, `createSpyClass`, `registerAutoSpyDefaults` and every `provideAutoSpy`
+  infer `T` the same way.
+- Older versions read `T` from the configuration and failed with
+  `'isKeyEnabled' does not exist in type 'MethodReturns<{ flagsConfig: any; }>'` or
+  `Property 'preventDefault' does not exist on type 'Spy<{ key: string; … }>'`. There, pass the type
+  argument: `createSpyFromClass<KeyboardEvent>(…)`.
 
 ## `Spy<T>`, not `Mocked<T>`
 
@@ -5837,22 +5841,22 @@ nothing.
 
 ## Bundle size
 
-The badge says 30.7 kB min+gzip, and that is the whole core entry bundled together. Each subpath is
+The badge says 31.0 kB min+gzip, and that is the whole core entry bundled together. Each subpath is
 a separate entry, and a project pays only for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **30.7 kB** |
-| `vitest-auto-spy/angular` on its own          |     39.1 kB |
-| `vitest-auto-spy/angular/doubles`             |     25.2 kB |
+| `.` — the core entry, what the badge measures | **31.0 kB** |
+| `vitest-auto-spy/angular` on its own          |     39.6 kB |
+| `vitest-auto-spy/angular/doubles`             |     25.4 kB |
 | `vitest-auto-spy/angular/diagnostics`         |      7.5 kB |
 | `vitest-auto-spy/angular/matchers`            |      3.2 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     30.7 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     31.0 kB |
 | `vitest-auto-spy/setup`                       |     31.1 kB |
-| `vitest-auto-spy/node`                        |     30.0 kB |
-| `vitest-auto-spy/dom-stubs`                   |     12.5 kB |
-| `vitest-auto-spy/rxjs`                        |      2.3 kB |
-| `vitest-auto-spy/angular-router`              |     11.2 kB |
+| `vitest-auto-spy/node`                        |     30.3 kB |
+| `vitest-auto-spy/dom-stubs`                   |     13.4 kB |
+| `vitest-auto-spy/rxjs`                        |      2.6 kB |
+| `vitest-auto-spy/angular-router`              |     11.4 kB |
 | `vitest-auto-spy/angular-http`                |      4.3 kB |
 | `vitest-auto-spy/signal-forms`                |      1.3 kB |
 | `vitest-auto-spy/zone`                        |      1.2 kB |
@@ -9709,6 +9713,82 @@ service.items$.nextWith(['a']); // reaches the component that subscribed in ngOn
 service.items$.returnSubject().error(new Error('offline')); // so does this
 ```
 
+## A request method answers once: `nextOneTimeWith`
+
+An HTTP call, a Tauri `invoke`, a database query: each emits one value and completes. Configure
+such a method with `nextOneTimeWith`, not `nextWith`. `nextWith` leaves the stream open, and two
+things go wrong with an open stream:
+
+- **Code that waits for completion waits for ever.** `forkJoin`, `lastValueFrom`, `toArray()` and
+  `expectAllEmissions` need the source to complete. Over a `nextWith` stream nothing emits, nothing
+  fails, and the test reads a `loading` flag still set to `true`.
+- **A value seeded in `beforeEach` comes first.** The stream keeps the value in its buffer. A test
+  that then calls `throwWith` sends the next subscriber the old value and then the error, so the
+  code runs its success branch on stale data.
+
+```ts
+beforeEach(() => {
+  api.getBonds.nextOneTimeWith(BONDS); // emits, completes: forkJoin and lastValueFrom see it
+});
+
+it('shows the error', () => {
+  api.getBonds.throwWith(new Error('offline')); // a fresh stream: only the error
+  component.load();
+  expect(component.error()).toBe('offline');
+});
+```
+
+`nextWith` is for a stream that stays open in the real code too: a store's `state$`, a websocket, a
+router event feed.
+
+A `throwWith` that lands on a buffered `nextWith` value while nobody is subscribed is reported, once
+per stream as a warning, at every call under `setupAutoSpy({ misconfiguration: 'throw' })`:
+
+```text
+[vitest-auto-spy] BondApi.getBonds.throwWith() ran on a stream that still holds a value from an
+earlier nextWith() and has no subscriber, so the next one gets that value first and the error after
+it — the code under test runs its success branch on stale data. …
+```
+
+Three ways out: seed with `nextOneTimeWith`; call `resetAutoSpy(api.getBonds)` before `throwWith`; or,
+when "emit, then fail" is what the test is about, say it in one call:
+`nextWithValues([{ value: BONDS }, { errorValue: error }])`. A subscriber that is already on the
+stream is not reported: it gets the value when `nextWith` runs and the error when `throwWith` runs.
+
+To keep a call pending, `returnSubject()` is the wrong tool after a seeded `nextWith`: it hands back
+the subject that still holds the seed. Use `resetAutoSpy(api.getBonds)` and then
+`api.getBonds.mockReturnValue(NEVER)`, or `returnSubject()` on a spy nothing seeded.
+
+## Where a `throwWith` error goes
+
+`throwWith` errors the stream before anything subscribes, and every later subscriber still gets the
+error. What happens next is up to the consumer, and in Angular several consumers keep the error
+instead of passing it to `ErrorHandler`. The test stays green unless it reads the error from there:
+
+| The code under test                        | Where the error ends up                                   | Assert it with                                                    |
+| ------------------------------------------ | --------------------------------------------------------- | ----------------------------------------------------------------- |
+| `toSignal(api.load())`                     | the signal: it throws when read, and only then            | `expect(() => service.bonds()).toThrow('offline')`                |
+| `rxResource({ stream: () => api.load() })` | the resource: `status()` is `'error'`, `value()` throws   | `await settleResource(service.bonds)`, then read `error()`        |
+| a signal read in an `effect` or a template | `ErrorHandler`, when the effect runs; TestBed rethrows it | `expect(() => TestBed.tick()).toThrow('offline')`                 |
+| `.subscribe(next)` with no error callback  | rxjs rethrows it from a `setTimeout`, after the test      | `strayTimers` fails the test; `expectUnhandledObservableErrors()` |
+
+```ts
+it('shows the error', () => {
+  api.load.throwWith(new Error('offline'));
+  const service = TestBed.inject(BondsService); // bonds = toSignal(api.load())
+
+  expect(() => service.bonds()).toThrow('offline'); // nothing fails until something reads it
+});
+```
+
+An `effect` does not run until something flushes it, so a test that only injects the service sees
+nothing. Call `TestBed.tick()` (or `await fixture.whenStable()`) and expect that call to throw.
+
+A stream helper written after `mockImplementation` / `mockReturnValue` on the same method answers
+nothing: those replace the spy's dispatch, and the dispatch is what reads `throwWith`. That order is
+reported (`throwWith() was configured on 'load' after mockImplementation() had replaced its
+dispatch`). Call `api.load.mockReset()` first, or seed the default with `nextOneTimeWith` instead.
+
 ## Reading a sequence as a marble
 
 `nextWithValues` emits its entries in order. Only `delay` puts time between them. The comments show
@@ -9816,8 +9896,9 @@ service.load$.nextWith(page); // a fresh stream, not a value nobody can receive
 ```
 
 - **Inside one test, calls add up.** `nextWith(a)` then `throwWith(e)` means "emit `a`, then fail".
-  To get a stream that fails on subscription no matter what came before, use
-  `nextWithValues([{ errorValue: e }])`. On a property spy, call it before the code subscribes: see
+  With nobody subscribed in between, that is reported: see
+  [A request method answers once](#a-request-method-answers-once-nextonetimewith). To get a stream
+  that fails on subscription no matter what came before, use `nextWithValues([{ errorValue: e }])`. On a property spy, call it before the code subscribes: see
   [`nextWith` pushes; `nextWithValues` republishes](#nextwith-pushes-nextwithvalues-republishes).
 
 ## Asserting instead of subscribing
@@ -13479,6 +13560,8 @@ expect(trigger.focus).toHaveBeenCalledExactlyOnceWith();
 This replaces a local element factory followed by `mockSignalProp(component, 'dateTrigger', new ElementRef(element))`.
 The query determines the element type. Options are those of `createElementStub` and cannot change that type.
 The handle also returns `ref` (the installed `ElementRef`) and `query` (a writable test signal).
+The handle is not the element: the element the component receives is `trigger.element`. Assert a call
+that was handed the element, such as `expect(chart.render).toHaveBeenCalledWith(trigger.element, …)`, with it.
 Use `trigger.query.set(undefined)` to represent a missing optional query; required queries reject `undefined` in TypeScript.
 Queries returning component or directive instances, and `viewChildren`, need `mockSignalProp` instead.
 
@@ -13556,6 +13639,32 @@ Pass other native event flags directly in `init`.
 **Common mistake:** expecting `data`, `inputType`, or a browser input event constructor check to work.
 This helper returns `Event`, not `InputEvent`. Use a native `InputEvent` when testing those browser features.
 
+**Asserting that the handler cancelled the event.** Pass `spy: true`. `preventDefault`,
+`stopPropagation` and `stopImmediatePropagation` become runner mocks that still do their job, so both
+the call and its effect can be checked:
+
+```ts
+const event = createDomEvent('keydown', { spy: true });
+
+component.onKeydown(event);
+
+expect(event.preventDefault).toHaveBeenCalledOnce();
+expect(event.defaultPrevented).toBe(true);
+```
+
+Without `spy: true` the event is a plain `Event`, with its own methods.
+
+**A `<textarea>` or `<select>` target.** `createInputEvent` always builds an input. For another
+element, build the stub with that class and pass it as `target`. `elementClass` sets the element
+type, so `overrides: { value }` type-checks without a type argument:
+
+```ts
+const textarea = createElementStub({ elementClass: HTMLTextAreaElement, tagName: 'textarea', overrides: { value: 'note' } });
+
+component.onInput(createDomEvent('input', { target: textarea.element }));
+expect(component.note()).toBe('note');
+```
+
 ## Text paste and drop events
 
 Replace local clipboard and drag event factories when a handler only reads plain text.
@@ -13605,9 +13714,10 @@ It fills:
 - `getComputedStyle`, where there is none;
 - `document.doctype`.
 
-| Option               | Type      | Default | Meaning                                                              |
-| -------------------- | --------- | ------- | -------------------------------------------------------------------- |
-| `cheapComputedStyle` | `boolean` | `false` | Replace `getComputedStyle` with one that reads only the inline style |
+| Option               | Type      | Default | Meaning                                                                               |
+| -------------------- | --------- | ------- | ------------------------------------------------------------------------------------- |
+| `cheapComputedStyle` | `boolean` | `false` | Replace `getComputedStyle` with one that reads only the inline style                  |
+| `canvas`             | `boolean` | `false` | Give every `<canvas>` an inert 2D context and a `toDataURL()` that returns `'data:,'` |
 
 How it behaves:
 
@@ -13617,6 +13727,19 @@ How it behaves:
 - Without a `document`, it does nothing.
 - `cheapComputedStyle: true` is fast and never logs for a pseudo-element. But a stylesheet rule no
   longer shows in what it returns, which is why it is off by default.
+- `canvas: true` is for code that draws on mount, such as a chart library. jsdom without the `canvas`
+  package logs "Not implemented" for `getContext()` and returns nothing, which fails a suite with
+  console spies. The filled context accepts every call and setting, keeps what you set, and answers
+  `measureText`, `getImageData` and the gradient factories with empty values. Each canvas gets one
+  context; any id other than `'2d'` gets `null`. It replaces a real context too, so leave it off
+  when the `canvas` package backs jsdom.
+
+```ts
+fillMissingDomApis({ canvas: true });
+
+const context = document.createElement('canvas').getContext('2d');
+context?.fillRect(0, 0, 10, 10); // draws nothing, throws nothing
+```
 
 **Common mistake:** calling it after `setupAutoSpy()`, or adding these globals by hand inside a test
 file. The [global-patch guard](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_20-globals-put-back-at-the-file-boundary) then
@@ -15365,7 +15488,7 @@ stayed silent, or nobody awaited the promise.
 | [`no-constant-expect`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-constant-expect)                     | `expect(true).toBe(true)`: a value written in the spec that decides the matcher                                 | `error` | —          |   green    |
 | [`no-redundant-smoke-test`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-redundant-smoke-test)           | `it('should create', () => expect(pipe).toBeTruthy())` next to tests that already build the subject → delete it | `error` | suggestion |   green    |
 | [`prefer-settle-dynamic-import`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-settle-dynamic-import) | `await import('./thing')` in a test body → `await settleDynamicImport(() => import('./thing'))`                 | `error` | suggestion |   green    |
-| [`no-real-wait-in-test`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-real-wait-in-test)                 | `await new Promise((r) => setTimeout(r, 300))`: a real sleep → `advanceTimers(300)` or `vi.waitFor(…)`          | `warn`  | —          |   green    |
+| [`no-real-wait-in-test`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-real-wait-in-test)                 | `await new Promise((r) => setTimeout(r, 300))`: a real sleep → `advanceTimers(300)` or `vi.waitFor(…)`          | `warn`  | suggestion |   green    |
 | [`no-inline-test-data`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-inline-test-data)                   | a 20-line fixture or the same object three times in a spec → export it from a `*.mock.ts` file                  | `warn`  | —          |     —      |
 | [`no-self-called-spy`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-self-called-spy)                     | the test calls the spied method itself, then asserts it was called → call the real trigger                      | `error` | —          |   green    |
 | [`no-unasserted-argument`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-unasserted-argument)             | a bare `toHaveBeenCalled()` where the file shows the arguments matter → `toHaveBeenCalledWith(…)`               | `warn`  | —          |     —      |
@@ -17429,7 +17552,7 @@ await that promise directly.
 
 ## no-real-wait-in-test
 
-**`warn`** · no fix · syntax only
+**`warn`** · suggestion · syntax only
 
 Reports a sleep on the real clock, such as `await new Promise((r) => setTimeout(r, 300))`. Every run
 pays the delay, and it is a race: the code must finish within it, which it does on a laptop but not
@@ -17457,6 +17580,18 @@ it('debounces', async () => {
 **How to fix.** Move onto fake timers with `setupFakeTimers()` and `advanceTimers(ms)`, as above.
 When you wait for an outcome rather than a duration, wait for the outcome: `await vi.waitFor(…)` or
 `await fixture.whenStable()`.
+
+When the sleep only lets mocked promises settle — a stubbed `invoke()` or `fetch()` that resolves at
+once — one real event-loop turn is enough. Where the sleep is awaited on the spot, the rule suggests
+`await flushEventLoop()` and adds its import:
+
+```ts
+await new Promise((r) => setTimeout(r, 50)); // ❌ 50 ms for promises that are already resolved
+await flushEventLoop(); // ✅ one turn: every resolved chain runs, no timer fires
+```
+
+It is a suggestion, not a fix: `flushEventLoop()` fires no timer the code set, so a test that waits
+for a real `setTimeout` still needs fake timers.
 
 **When to disable.** The sleep is a fact, but the fix changes every timer the test runs, so the rule
 is `warn`. Move files onto fake timers one by one, then raise it to `error`.
@@ -18898,6 +19033,12 @@ where those branches matter; see [renderShallow](https://asdalexey.github.io/vit
 - If the component reads its own template through `viewChild`, `contentChild` or content projection,
   or its behaviour comes from its markup (an event binding, a `@defer` block), use
   `renderShallow(X, { keepTemplate: true })`. It keeps the template and still drops the children.
+  A child bound by a signal-forms `[formField]` renders as a stand-in carrying its `value` /
+  `checked` model, so the form keeps working
+  ([details](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#keeptemplate-and-a-signal-form-bound-to-a-child-control)).
+- If the render exists only to run the AOT-compiled template for coverage, it is the one real render
+  the coverage note above asks for. A shallow render recompiles the template under JIT and loses
+  exactly those branches. Keep it and disable the rule on that line, with the reason.
 - If the constructor reads spy state and each test tunes the spies first, render per test and do the
   tuning in `beforeCreate`, which runs after the module is configured and before the constructor:
 
@@ -18952,9 +19093,10 @@ is nothing to save, so you can ignore the report there. A project that has decid
 **What counts as reading the template.** The rule looks at the identifiers of the **whole file**, not
 at the fixture the call returned. The words are `nativeElement`, `debugElement`, `elementRef`,
 `hostElement`, `queryElement`, `querySelector`, `getComputedStyle`, `triggerEventHandler`,
-`innerHTML`, `innerText`, `textContent`, `getAttribute`, `classList` and `shadowRoot`, matched inside
-an identifier or member name (a `nativeElementOf()` helper counts too), plus `By.css` and
-`By.directive`. One read anywhere silences the file.
+`innerHTML`, `innerText`, `textContent`, `getAttribute`, `classList` and `shadowRoot`, matched as
+whole camelCase words of an identifier or member name (a `nativeElementOf()` helper counts too, and
+so does a plural at the end, `debugElements`), plus `By.css` and `By.directive`. A longer word that
+only contains one, such as `getAttributesLayer()`, is not a read. One read anywhere silences the file.
 
 Only code counts. A comment, a string or template literal, and a member the spec **declares** rather
 than reads (the key of `{ getAttribute: 'nope' }`, a field or method of a fake class, an interface
@@ -23827,19 +23969,19 @@ const { fixture, component } = renderShallow(TaskListComponent, {
 `fixture` is a real `ComponentFixture`. Lifecycle hooks, inputs, signals and DI all work; only the
 template is blank.
 
-| Option               | Default | What it does                                                                                                                            |
-| -------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `providers`          | `[]`    | providers for the testing module; `EnvironmentProviders` such as `provideHttpClient()` work                                             |
-| `imports`            | `[]`    | extra imports for the testing module (a stub module, a routing harness)                                                                 |
-| `inputs`             | —       | input values; a signal input takes the **value**, not a signal; keyed by class field or public name                                     |
-| `keepTemplate`       | `false` | keep the real template (for `viewChild`, content projection, host bindings); child components are still dropped                         |
-| `keepChildren`       | `[]`    | child components, directives and pipes to keep                                                                                          |
-| `keepModules`        | `[]`    | `NgModule`s to put back whole under `keepTemplate`, such as `ReactiveFormsModule`                                                       |
-| `keepHostDirectives` | `true`  | `false` drops the component's `hostDirectives` and every service they inject                                                            |
-| `template`           | `''`    | a stand-in template to render instead of a blank one                                                                                    |
-| `beforeCreate`       | —       | runs after the module is configured, before the component exists; read the injector here                                                |
-| `detectChanges`      | `true`  | run the first change detection, and so `ngOnInit`                                                                                       |
-| `testBed`            | —       | the rest of `configureTestingModule`: `deferBlockBehavior`, `errorOnUnknownElements`, `errorOnUnknownProperties`, `teardown`, `schemas` |
+| Option               | Default | What it does                                                                                                                                         |
+| -------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `providers`          | `[]`    | providers for the testing module; `EnvironmentProviders` such as `provideHttpClient()` work                                                          |
+| `imports`            | `[]`    | extra imports for the testing module (a stub module, a routing harness)                                                                              |
+| `inputs`             | —       | input values; a signal input takes the **value**, not a signal; keyed by class field or public name                                                  |
+| `keepTemplate`       | `false` | keep the real template (for `viewChild`, content projection, host bindings); child components are still dropped, custom form controls get a stand-in |
+| `keepChildren`       | `[]`    | child components, directives and pipes to keep                                                                                                       |
+| `keepModules`        | `[]`    | `NgModule`s to put back whole under `keepTemplate`, such as `ReactiveFormsModule`                                                                    |
+| `keepHostDirectives` | `true`  | `false` drops the component's `hostDirectives` and every service they inject                                                                         |
+| `template`           | `''`    | a stand-in template to render instead of a blank one                                                                                                 |
+| `beforeCreate`       | —       | runs after the module is configured, before the component exists; read the injector here                                                             |
+| `detectChanges`      | `true`  | run the first change detection, and so `ngOnInit`                                                                                                    |
+| `testBed`            | —       | the rest of `configureTestingModule`: `deferBlockBehavior`, `errorOnUnknownElements`, `errorOnUnknownProperties`, `teardown`, `schemas`              |
 
 ```ts
 renderShallow(CardComponent, { testBed: { deferBlockBehavior: DeferBlockBehavior.Playthrough } });
@@ -23911,6 +24053,33 @@ Fixes, in order of preference:
 
 Without this check, Angular's own error says the pipe "is not standalone", which sends you to change
 a pipe that is fine. The same call works under JIT, where the module stays in the list.
+
+### `keepTemplate` and a signal form bound to a child control
+
+A kept template can bind a signal-forms `[formField]` to a child component:
+`<app-code-input [formField]="connectForm.code" />`. The directive is kept, the child is dropped,
+and a bare tag is no host for it. Angular would throw `NG01914 … is an invalid [formField] directive
+host`.
+
+So a dropped child that is a custom form control renders as a stand-in. A custom form control is
+what Angular checks for: a `value` input with a `valueChange` output, or `checked` with
+`checkedChange`, which is what `model()` declares. The stand-in is
+[`createComponentStub`](#a-stand-in-for-a-child-createcomponentstub) of the child: same selector, inputs, outputs
+and models, no template, no providers, no constructor. The form writes into it and reads back from
+it:
+
+```ts
+const { fixture, component } = renderShallow(ConnectComponent, { keepTemplate: true });
+const input = fixture.debugElement.query(By.css('app-code-input')).componentInstance;
+
+input.value.set('1234'); // what the user typing into the real control does
+fixture.detectChanges();
+
+expect(component.connectForm.code().value()).toBe('1234');
+```
+
+To keep the real control, name it: `keepChildren: [CodeInputComponent]`. A stub of your own with
+the same selector in `keepChildren` replaces the automatic one.
 
 ### Changing an input mid-test
 
@@ -32714,21 +32883,21 @@ One-call hygiene for a whole run, plus timers and network. Put `setupAutoSpy()` 
 Stand-ins for browser APIs the code under test creates itself. Registers the Vitest adapter only if no
 runner entry did. Stubs restore with `restoreMockedProps()`.
 
-| Export                                                                                                                                 | What it does                                                      | Docs                                                                      |
-| -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `stubIntersectionObserver(options?)`, `stubResizeObserver(options?)`, `stubMutationObserver(options?)`, `stubObserver(name, options?)` | Replace an observer global with one the spec drives               | [Observer stubs](https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs)                               |
-| `intersectionEntry(target, isIntersecting, overrides?)`, `resizeEntry(target, rect?)`, `mutationRecord(target, init?)`                 | Build one observer entry without the unused fields                | same                                                                      |
-| `stubMediaElement(options?)`                                                                                                           | A `<video>` or `<audio>` that plays and fires media events        | [Media element](https://asdalexey.github.io/vitest-auto-spy/utilities/media-element)                                 |
-| `stubAnimationFrame(options?)`                                                                                                         | `requestAnimationFrame` run at once or on `flush(timestamp?)`     | [Frame and rect](https://asdalexey.github.io/vitest-auto-spy/utilities/frame-and-rect)                               |
-| `stubElementRect(element, rect?)`                                                                                                      | `getBoundingClientRect()` answering a real `DOMRect`              | same                                                                      |
-| `stubAbortController()`                                                                                                                | An `AbortController` whose signal works with jsdom listeners      | [Constructor doubles](https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles)                     |
-| `stubWebStorage(key?, options?)`                                                                                                       | An in-memory `localStorage` or `sessionStorage` with `snapshot()` | [Mocking localStorage](https://asdalexey.github.io/vitest-auto-spy/guides/mocking-local-storage)                     |
-| `stubWorker(options?)`                                                                                                                 | A `Worker` whose script is the spec                               | [Worker stub](https://asdalexey.github.io/vitest-auto-spy/utilities/worker-stub)                                     |
-| `createElementStub(options?)`                                                                                                          | An `HTMLElement` for `ElementRef` whose spies keep state          | [Element stub](https://asdalexey.github.io/vitest-auto-spy/utilities/element-stub)                                   |
-| `createDomEvent(type, init?)`                                                                                                          | A native `Event` with fixed targets for direct handler calls      | [Handler events](https://asdalexey.github.io/vitest-auto-spy/utilities/element-stub#events-for-direct-handler-calls) |
-| `createInputEvent(value, init?)`                                                                                                       | An `Event` with an input stub carrying the value as `target`      | same                                                                      |
-| `createPasteEvent(text, init?)` / `createDropEvent(text, init?)`                                                                       | Plain text paste and drop events                                  | [Text events](https://asdalexey.github.io/vitest-auto-spy/utilities/element-stub#text-paste-and-drop-events)         |
-| `fillMissingDomApis(options?)`                                                                                                         | Fills DOM members jsdom and happy-dom leave out, once             | same                                                                      |
+| Export                                                                                                                                 | What it does                                                                                               | Docs                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `stubIntersectionObserver(options?)`, `stubResizeObserver(options?)`, `stubMutationObserver(options?)`, `stubObserver(name, options?)` | Replace an observer global with one the spec drives                                                        | [Observer stubs](https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs)                               |
+| `intersectionEntry(target, isIntersecting, overrides?)`, `resizeEntry(target, rect?)`, `mutationRecord(target, init?)`                 | Build one observer entry without the unused fields                                                         | same                                                                      |
+| `stubMediaElement(options?)`                                                                                                           | A `<video>` or `<audio>` that plays and fires media events                                                 | [Media element](https://asdalexey.github.io/vitest-auto-spy/utilities/media-element)                                 |
+| `stubAnimationFrame(options?)`                                                                                                         | `requestAnimationFrame` run at once or on `flush(timestamp?)`                                              | [Frame and rect](https://asdalexey.github.io/vitest-auto-spy/utilities/frame-and-rect)                               |
+| `stubElementRect(element, rect?)`                                                                                                      | `getBoundingClientRect()` answering a real `DOMRect`                                                       | same                                                                      |
+| `stubAbortController()`                                                                                                                | An `AbortController` whose signal works with jsdom listeners                                               | [Constructor doubles](https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles)                     |
+| `stubWebStorage(key?, options?)`                                                                                                       | An in-memory `localStorage` or `sessionStorage` with `snapshot()`                                          | [Mocking localStorage](https://asdalexey.github.io/vitest-auto-spy/guides/mocking-local-storage)                     |
+| `stubWorker(options?)`                                                                                                                 | A `Worker` whose script is the spec                                                                        | [Worker stub](https://asdalexey.github.io/vitest-auto-spy/utilities/worker-stub)                                     |
+| `createElementStub(options?)`                                                                                                          | An `HTMLElement` for `ElementRef` whose spies keep state                                                   | [Element stub](https://asdalexey.github.io/vitest-auto-spy/utilities/element-stub)                                   |
+| `createDomEvent(type, init?)`                                                                                                          | A native `Event` with fixed targets for direct handler calls; `{ spy: true }` spies its cancelling methods | [Handler events](https://asdalexey.github.io/vitest-auto-spy/utilities/element-stub#events-for-direct-handler-calls) |
+| `createInputEvent(value, init?)`                                                                                                       | An `Event` with an input stub carrying the value as `target`                                               | same                                                                      |
+| `createPasteEvent(text, init?)` / `createDropEvent(text, init?)`                                                                       | Plain text paste and drop events                                                                           | [Text events](https://asdalexey.github.io/vitest-auto-spy/utilities/element-stub#text-paste-and-drop-events)         |
+| `fillMissingDomApis(options?)`                                                                                                         | Fills DOM members jsdom and happy-dom leave out, once                                                      | same                                                                      |
 
 ## `vitest-auto-spy/diagnostics`
 
