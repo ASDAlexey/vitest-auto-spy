@@ -117,19 +117,25 @@ export type ClassType<T> = abstract new (...args: any[]) => T;
 // Key filters — pick keys of `T` whose value matches a given type
 // ---------------------------------------------------------------------------
 
-// Wrapped in a tuple: a member whose type failed to resolve is the error type, and a bare conditional
-// on it answers `any` for the whole union — one broken global augmentation erased every key of `Window`.
-type StringKeysForPropertyType<ObjectType, PropType> = Extract<
-  { [Key in keyof ObjectType]: [ObjectType[Key]] extends [PropType] ? Key : never }[keyof ObjectType],
+// Tuples: a bare conditional on a member that failed to resolve answers `any` for the whole union.
+// `NonNullable`: `x?: F`, `x: F | undefined` and `onclick: F | null` count; a bare `null` member does not.
+type StringKeysForPresentType<ObjectType, PropType> = Extract<
+  {
+    [Key in keyof ObjectType]-?: [NonNullable<ObjectType[Key]>] extends [never]
+      ? never
+      : [NonNullable<ObjectType[Key]>] extends [PropType]
+        ? Key
+        : never;
+  }[keyof ObjectType],
   string
 >;
 
-/** Keys of `T` that are methods. */
-export type OnlyMethodKeysOf<T> = StringKeysForPropertyType<Required<T>, Func>;
+/** Keys of `T` that are methods — optional and nullable ones included. */
+export type OnlyMethodKeysOf<T> = StringKeysForPresentType<T, Func>;
 
-/** Keys of `T` that are `Observable` properties. */
+/** Keys of `T` that are `Observable` properties — optional and nullable ones included. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- `ObservableLike<any>` matches an observable property of *any* element type; `ObservableLike<unknown>` would not structurally match e.g. `Observable<number>` here.
-export type OnlyObservablePropsOf<T> = StringKeysForPropertyType<T, ObservableLike<any>>;
+export type OnlyObservablePropsOf<T> = StringKeysForPresentType<T, ObservableLike<any>>;
 
 /** Keys of `T` that are *not* methods (plain props, getters, setters). */
 export type OnlyPropsOf<ObjectType> = Extract<
@@ -402,13 +408,15 @@ export type AddSpyMethodsByReturnTypes<Method extends Func> = AddThrowHelper &
   (Method extends (...args: any[]) => infer ReturnType
     ? 0 extends ReturnType & 1
       ? AddCalledWithAny<Method> & AnyReturnHelpers
-      : [ReturnType] extends [Promise<infer P>]
-        ? AddCalledWithPromise<Method, P> & AddPromiseSpyMethods<P>
-        : [ReturnType] extends [ObservableLike<infer O>]
-          ? AddCalledWithObservable<Method, O> & AddObservableSpyMethods<O>
-          : [ReturnType] extends [void]
-            ? AddCalledWithSpyMethods<Method> & AddVoidReturnHelpers
-            : AddCalledWithSpyMethods<Method>
+      : [ReturnType] extends [never]
+        ? AddCalledWithSpyMethods<Method>
+        : [ReturnType] extends [Promise<infer P>]
+          ? AddCalledWithPromise<Method, P> & AddPromiseSpyMethods<P>
+          : [ReturnType] extends [ObservableLike<infer O>]
+            ? AddCalledWithObservable<Method, O> & AddObservableSpyMethods<O>
+            : [ReturnType] extends [void]
+              ? AddCalledWithSpyMethods<Method> & AddVoidReturnHelpers
+              : AddCalledWithSpyMethods<Method>
     : AddCalledWithSpyMethods<Method>);
 
 /**
@@ -429,20 +437,63 @@ export type FunctionSpy<Fn extends Func> = AddSpyMethodsByReturnTypes<Fn>;
  * `observe: 'events'` last, so `Spy<VenuesService>` types a method against `HttpEvent<T>` and
  * `nextWith(body)` stops compiling — with no hint that overload order is what happened.
  *
- * Four signatures is the practical ceiling (the generated `observe` clients have three or four);
- * a function with fewer matches the same pattern, with the extra slots repeating what it has.
+ * Sixteen signatures is the ceiling — `HttpClient.get` has fifteen. TypeScript pairs the *trailing*
+ * signatures, so past sixteen the list starts at the seventeenth-from-last and `'first'` is not the
+ * first. A function with fewer matches the same pattern with its first signature repeated in front,
+ * and those repeats are dropped here.
  */
-export type Overloads<F> = F extends {
+export type Overloads<F> = DropLeadingRepeats<SixteenSignatures<F>>;
+
+type SixteenSignatures<F> = F extends {
   (...args: infer A1): infer R1;
   (...args: infer A2): infer R2;
   (...args: infer A3): infer R3;
   (...args: infer A4): infer R4;
+  (...args: infer A5): infer R5;
+  (...args: infer A6): infer R6;
+  (...args: infer A7): infer R7;
+  (...args: infer A8): infer R8;
+  (...args: infer A9): infer R9;
+  (...args: infer A10): infer R10;
+  (...args: infer A11): infer R11;
+  (...args: infer A12): infer R12;
+  (...args: infer A13): infer R13;
+  (...args: infer A14): infer R14;
+  (...args: infer A15): infer R15;
+  (...args: infer A16): infer R16;
 }
-  ? [(...args: A1) => R1, (...args: A2) => R2, (...args: A3) => R3, (...args: A4) => R4]
+  ? [
+      (...args: A1) => R1,
+      (...args: A2) => R2,
+      (...args: A3) => R3,
+      (...args: A4) => R4,
+      (...args: A5) => R5,
+      (...args: A6) => R6,
+      (...args: A7) => R7,
+      (...args: A8) => R8,
+      (...args: A9) => R9,
+      (...args: A10) => R10,
+      (...args: A11) => R11,
+      (...args: A12) => R12,
+      (...args: A13) => R13,
+      (...args: A14) => R14,
+      (...args: A15) => R15,
+      (...args: A16) => R16,
+    ]
   : never;
 
-/** One call signature of an overloaded function, by index — `Overload<Client['get'], 0>`. */
-export type Overload<F, N extends 0 | 1 | 2 | 3> = Overloads<F>[N];
+type Identical<A, B> = (<G>() => G extends A ? 1 : 2) extends <G>() => G extends B ? 1 : 2 ? true : false;
+
+type DropLeadingRepeats<List> = List extends [infer Head, infer Next, ...infer Rest]
+  ? Identical<Head, Next> extends true
+    ? DropLeadingRepeats<[Next, ...Rest]>
+    : List
+  : List;
+
+type OverloadIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
+
+/** One call signature of an overloaded function, by declaration index — `Overload<Client['get'], 0>`. */
+export type Overload<F, N extends OverloadIndex> = Overloads<F> extends infer List extends readonly unknown[] ? List[N] : never;
 
 /** Which call signature to read, for one method or for the whole double. */
 export type OverloadChoice = 'first' | 'last';
@@ -508,9 +559,16 @@ type OverloadFor<Options extends SpyOptions, Key extends PropertyKey> = Options[
     ? Options['overload'][Key]
     : 'last';
 
-/** Apply {@link SpyOptions.overload} to one method type. */
+/**
+ * Apply {@link SpyOptions.overload} to one method type. The `Pick` keeps what a callable object carries
+ * beside its call signature — a `WritableSignal`'s `set` / `update` and its brand.
+ */
 type SelectOverload<Method extends Func, Options extends SpyOptions, Key extends PropertyKey> =
-  OverloadFor<Options, Key> extends 'first' ? (Overload<Method, 0> extends Func ? Overload<Method, 0> : Method) : Method;
+  OverloadFor<Options, Key> extends 'first'
+    ? SixteenSignatures<Method>[0] extends infer First extends Func
+      ? First & Pick<Method, keyof Method>
+      : Method
+    : Method;
 
 // ---------------------------------------------------------------------------
 // Accessor spies + the assembled `Spy<T>`
@@ -623,7 +681,13 @@ export type AddAccessorsSpies<
  * silently inert on a member replaced by a spied accessor, and `mockValueProp` is not.
  */
 export type DeepMockProxy<T> = SpyDisposable & {
-  [K in keyof T]: T[K] extends Func ? AddSpyMethodsByReturnTypes<T[K]> : T[K] extends object ? DeepMockProxy<T[K]> : T[K];
+  [K in keyof T]: [NonNullable<T[K]>] extends [never]
+    ? T[K]
+    : NonNullable<T[K]> extends Func
+      ? AddSpyMethodsByReturnTypes<NonNullable<T[K]>> | Extract<T[K], null | undefined>
+      : NonNullable<T[K]> extends object
+        ? DeepMockProxy<NonNullable<T[K]>> | Extract<T[K], null | undefined>
+        : T[K];
 };
 
 /**
@@ -673,11 +737,14 @@ export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<
   ConfiguredAccessorList<Options, 'settersToSpyOn'>
 > &
   SpyDisposable & {
-    [K in keyof T]: Required<T>[K] extends Func
-      ? AddSpyMethodsByReturnTypes<SelectOverload<Required<T>[K], Options, K>>
-      : T[K] extends ObservableLike<infer O>
-        ? AddObservableSpyMethods<O> & ObservablePropSpyMethods & T[K]
-        : T[K];
+    // `NonNullable` so a member typed `F | undefined` or `F | null` is a spy too; the nullish half stays.
+    [K in keyof T]: [NonNullable<T[K]>] extends [never]
+      ? T[K]
+      : NonNullable<T[K]> extends Func
+        ? AddSpyMethodsByReturnTypes<SelectOverload<NonNullable<T[K]>, Options, K>> | Extract<T[K], null | undefined>
+        : NonNullable<T[K]> extends ObservableLike<infer O>
+          ? Extract<T[K], null | undefined> | (AddObservableSpyMethods<O> & NonNullable<T[K]> & ObservablePropSpyMethods)
+          : T[K];
   };
 
 /**
@@ -782,8 +849,8 @@ type DistributedPartial<T> = T extends Func
   ? T | ((...args: Parameters<T>) => ReturnType<T>)
   : T extends BuiltIn
     ? T
-    : T extends readonly (infer Element)[]
-      ? DeepPartial<Element>[]
+    : T extends readonly unknown[]
+      ? T | { [I in keyof T]: DeepPartial<T[I]> }
       : T extends object
         ? ConstructSignature<T> | T | { [K in keyof T]?: DeepPartial<T[K]> | PresentButUndefined<T, K> }
         : T;
@@ -829,12 +896,12 @@ type BuiltIn = Date | Func | Promise<unknown> | ReadonlyMap<unknown, unknown> | 
  * otherwise refused for every return type that does not already include it.
  */
 export type MethodReturns<T> = {
-  [K in Exclude<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: Required<T>[K] extends Func ? ReturnType<Required<T>[K]> | undefined : never;
+  [K in Exclude<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: NonNullable<T[K]> extends Func
+    ? ReturnType<NonNullable<T[K]>> | undefined
+    : never;
 } & {
-  [K in Exclude<OptionalFunctionKeysOf<T>, ObjectPrototypeKey | OnlyMethodKeysOf<T>>]?: ReturnType<Extract<T[K], Func>> | undefined;
-} & {
-  [K in Extract<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: Required<T>[K] extends Func
-    ? ObjectPrototypeMembers[K] | ReturnType<Required<T>[K]>
+  [K in Extract<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: NonNullable<T[K]> extends Func
+    ? ObjectPrototypeMembers[K] | ReturnType<NonNullable<T[K]>>
     : never;
 };
 
@@ -843,7 +910,7 @@ export type MethodReturns<T> = {
  * built with — see `ClassSpyConfiguration.returnsClass`.
  */
 export type MethodReturnsClass<T> = {
-  [K in OnlyMethodKeysOf<T>]?: Required<T>[K] extends Func ? ReturnsClassEntry<ReturnType<Required<T>[K]>> : never;
+  [K in OnlyMethodKeysOf<T>]?: NonNullable<T[K]> extends Func ? ReturnsClassEntry<ReturnType<NonNullable<T[K]>>> : never;
 };
 
 /**
@@ -851,13 +918,6 @@ export type MethodReturnsClass<T> = {
  * `{ build }` — a function that builds the double, such as a preset, called once per outer double.
  */
 export type ReturnsClassEntry<R> = ClassType<R> | readonly [ClassType<R>, ClassSpyConfiguration<R>] | { readonly build: () => R };
-
-// `getMinZoom?: (() => number) | undefined` — a third-party typing's optional method written as a
-// property — keeps its explicit `undefined` through `Required`, so it is not a method key of its own.
-type OptionalFunctionKeysOf<T> = Extract<
-  { [K in keyof T]-?: [NonNullable<T[K]>] extends [never] ? never : [NonNullable<T[K]>] extends [Func] ? K : never }[keyof T],
-  string
->;
 
 // Split so that only the few keys `Object.prototype` has pay for the extra union: a conditional on every
 // key made a generic method over a large event map excessively deep (TS2589).
