@@ -344,18 +344,23 @@ Angular создал сам; класс, который тестовый мод�
 
 ## Компонент — не провайдер {#a-component-is-not-a-provider}
 
-`provideAutoSpy(SomeComponent)` бросает ошибку, и для директивы тоже. Angular объявляет или
-импортирует компонент, но никогда не получает его через DI, так что такой провайдер ничего бы не
-сделал.
+`provideAutoSpy(SomeComponent)` бросает ошибку, и для директивы тоже. Провайдер подменяет то, что
+код получает через `inject()`, а не экземпляры, которые Angular рендерит по селектору.
 
 ```text
-[vitest-auto-spy] provideAutoSpy(ChartComponent): ChartComponent is a component. Angular declares or imports a component, it never injects one, so this provider is never read and the double replaces nothing.
+[vitest-auto-spy] provideAutoSpy(ChartComponent): ChartComponent is a component. A provider replaces references read through DI, not instances Angular renders from a selector.
+For an injected collaborator, use { provide: ChartComponent, useValue: createSpyFromClass(ChartComponent) }.
+To keep it out of the render, swap it for a stand-in (createComponentStub for a child component) or render the host with renderShallow; to test ChartComponent itself, create it through TestBed.
 ```
 
 Чтобы убрать дочерний компонент из рендера, возьмите
 [`createComponentStub`](#a-stand-in-for-a-child-createcomponentstub) или
 [`renderShallow`](#shallow-component-rendering). Чтобы протестировать сам компонент, создайте его
 через `TestBed`. Сервис, который наследует класс компонента без собственного декоратора, принимается.
+
+Если код инжектит директиву, например дочерний элемент вызывает `inject(FocusDirective)`, передайте
+дубль сами: `{ provide: FocusDirective, useValue: createSpyFromClass(FocusDirective) }`. Так
+подменяется то, что возвращает `inject()`, а не директива, которую рендерит Angular.
 
 ## Ленивые спаи по умолчанию {#lazy-spies-by-default}
 

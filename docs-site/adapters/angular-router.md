@@ -330,9 +330,50 @@ What the stand-in's members are:
 | `lastSuccessfulNavigation`  | the last successful navigation and its `finalUrl`: a signal on Angular 21+, a value on Angular 20; follows `setUrl()` and `NavigationEnd` |
 | `getCurrentNavigation()`    | the same answer through the deprecated method                                                                                             |
 
-`RouterLinkActive` can use this double with the real `RouterLink` directive. On Angular 21+, read `lastSuccessfulNavigation()` as a signal. Angular 20 exposes the same navigation as the `lastSuccessfulNavigation` value.
+**Active links.** The real `RouterLink` and `RouterLinkActive` directives work with this double.
+`RouterLink` also injects `ActivatedRoute`, so add `provideActivatedRoute()` next to it. `routerLink="/products"` is active on `/products` and on any URL
+below it, such as `/products/7`. The
+directive sets its class in a microtask, so await `fixture.whenStable()` before you check it:
 
-On Angular 21+, `navigated` is `true` by default and `lastSuccessfulNavigation()` holds a navigation whose `finalUrl` is the starting URL. Pass `{ navigated: false }` before the first navigation: `events` starts empty and does not replay events, and `lastSuccessfulNavigation()` is `null`. A successful `emitNavigation()` updates both fields before delivering `NavigationEnd`. This example uses Angular 21+ signal syntax:
+```ts
+import { Component } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { RouterLink, RouterLinkActive } from '@angular/router';
+
+import 'vitest-auto-spy/angular';
+
+import { injectRouterDouble, provideActivatedRoute, provideRouterDouble } from 'vitest-auto-spy/angular-router';
+
+@Component({
+  imports: [RouterLink, RouterLinkActive],
+  template: `<a routerLink="/products" routerLinkActive="active">Products</a>`,
+})
+class NavComponent {}
+
+it('marks the link of the current section active', async () => {
+  TestBed.configureTestingModule({
+    imports: [NavComponent],
+    providers: [provideRouterDouble({ url: '/products/7' }), provideActivatedRoute()],
+  });
+  const fixture = TestBed.createComponent(NavComponent);
+  fixture.detectChanges();
+  await fixture.whenStable();
+  const link: HTMLAnchorElement = fixture.nativeElement.querySelector('a');
+  expect(link.classList).toContain('active');
+
+  await injectRouterDouble().emitNavigation('/checkout');
+  fixture.detectChanges();
+  await fixture.whenStable();
+  expect(link.classList).not.toContain('active');
+});
+```
+
+**Before the first navigation.** By default the double has already navigated: `navigated` is
+`true` and `lastSuccessfulNavigation` holds the starting URL. To test an app that has not
+navigated yet, pass `{ navigated: false }`. Then `navigated` is `false`,
+`lastSuccessfulNavigation` is `null` and `events` replays nothing. `RouterLinkActive` adds no
+class until `navigated` is `true`, even when `url` matches the link. An `emitNavigation()` that ends
+in `NavigationEnd` sets `navigated` and `lastSuccessfulNavigation` before subscribers see the event:
 
 ```ts
 const { router, emitNavigation } = createRouterDouble({ navigated: false });
@@ -343,6 +384,9 @@ await emitNavigation('/products');
 expect(router.navigated).toBe(true);
 expect(router.lastSuccessfulNavigation()?.finalUrl?.toString()).toBe('/products');
 ```
+
+`lastSuccessfulNavigation` is a signal on Angular 21+ and a plain value on Angular 20. The example
+uses the signal.
 
 Any other `Router` member (`resetConfig`, `initialNavigation`, …) throws when
 read. The error names the member and lists what the stand-in covers. You get a clear failure
@@ -390,7 +434,8 @@ The work is synchronous, so a spec does not need `await`: the next line already 
 The promise exists for code under test that awaits a navigation. It resolves once the
 event is delivered and any navigation it ended is cleared.
 
-`events` is a `BehaviorSubject`, not a plain `Subject` like the real router's. Two things follow:
+By default `events` is a `BehaviorSubject`, not a plain `Subject` like the real router's. With
+`{ navigated: false }` it is a plain `Subject`. With the default, two things follow:
 
 - **A late subscriber still sees the last navigation.** It no longer matters whether
   `emitNavigation()` runs before or after `fixture.detectChanges()`.
@@ -443,8 +488,8 @@ expect(navigate).toHaveBeenCalledWith(['/login']);
 - **It does not navigate.** `navigate()` and `navigateByUrl()` record the call and resolve `true`;
   `url` stays where it was. Move it with `setUrl()` or `emitNavigation()`. To test the navigation
   itself (guards, cancellation), use `RouterTestingHarness` over a real `provideRouter()`.
-- **It is only the `Router` token.** No routes, no outlet, no `RouterLinkActive`. A `routerLink` in
-  the template still gets a correct `href`, because `createUrlTree` and `serializeUrl` are the
+- **It is only the `Router` token.** No routes and no outlet. `routerLink` and `routerLinkActive`
+  in the template still work, because `createUrlTree`, `serializeUrl` and `isActive` are the
   router's own. When the spec is about routing rather than a component, use the real router.
 - **It does not provide the component's `ActivatedRoute`.** A component that reads route params and
   calls `navigate()` needs both `provideActivatedRoute()` and `provideRouterDouble()`, in any order.

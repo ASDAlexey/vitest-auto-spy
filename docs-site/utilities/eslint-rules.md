@@ -2032,6 +2032,9 @@ are never reported:
   an object that holds one of them, such as the argument of `configureTestingModule`;
 - a case table passed to `it.each` / `describe.each`;
 - the return value of a `vi.mock` factory;
+- the options passed to a spy factory, such as `createSpyFromClass` or `provideAutoSpy`;
+- an array returned from a function whose declared return type is a provider array, such as
+  `Provider[]`;
 - a literal that holds a function, such as a hand-written double.
 
 **Repeats** are compared by source text with whitespace ignored. A literal needs at least `minValues`
@@ -2065,7 +2068,7 @@ most three keys, each a string, number or boolean written out, is not counted th
 gets a message that asks for a `const` in the spec instead of a mock file. Imports, globals, property
 keys and types do not count as such a name.
 
-**Mock files are skipped:** `*.mock.ts`, `*.mocks.ts`, `*.fixture.ts`, `*.fixtures.ts` and files
+**Mock files are skipped:** `*.mock.ts`, `*.mocks.ts`, `*.mock-data.ts`, `*.fixture.ts`, `*.fixtures.ts` and files
 under `__mocks__/`.
 
 **Severity.** `warn`, graded on the evidence: size and repeat count suggest a move, and only the
@@ -2390,7 +2393,9 @@ finds the targets itself:
 1. It walks up from the linted file to the workspace root (`angular.json`, `workspace.json` or
    `nx.json`).
 2. It takes every target of either builder whose project root holds the file. The executor may come
-   from `targetDefaults` in `nx.json`.
+   from `targetDefaults` in `nx.json`. A local builder (`"builder": "./tools/unit-test:run"`) counts
+   too when its implementation imports `executeUnitTestBuilder` and calls it. The target's `include`
+   and `exclude` must select the file, resolved against the project's `sourceRoot`.
 3. It resolves `runnerConfig` as the builder does: a path against the workspace root; `true` or `""`
    to the first `vitest-base.config.*` in the project root, then the workspace root; absent or
    `false` to no config at all.
@@ -2920,6 +2925,10 @@ providers: [provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel
   `{ provide, useValue }`, and `overrideProvider` reads the `useValue` from it.
 - A component that declares the token in its own `providers` cannot be reached by a module-level
   provider. There the override stays, and only what it hands over changes.
+- A component or directive provided under its own class, such as
+  `{ provide: FocusDirective, useValue: createSpyFromClass(FocusDirective) }`, is not reported when
+  the lint has type information. `provideAutoSpy` rejects a component or directive, so this explicit
+  form is the one to keep.
 
 **When to disable.** Rarely; every report has a `provide:` or an override token next to it. On a
 large project, land it with [the gradual recipe](/utilities/eslint-plugin#land-it-on-a-large-existing-suite-without-a-red-ci)

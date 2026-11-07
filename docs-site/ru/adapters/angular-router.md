@@ -330,9 +330,52 @@ provideRouterDouble({
 | `lastSuccessfulNavigation`  | последняя успешная навигация с `finalUrl`: сигнал в Angular 21+, значение в Angular 20; обновляется через `setUrl()` и `NavigationEnd` |
 | `getCurrentNavigation()`    | тот же ответ через устаревший метод                                                                                                    |
 
-`RouterLinkActive` работает с этой подменой и настоящей директивой `RouterLink`. В Angular 21+ читайте сигнал `lastSuccessfulNavigation()`. В Angular 20 та же навигация доступна как значение `lastSuccessfulNavigation`.
+**Активные ссылки.** Настоящие директивы `RouterLink` и `RouterLinkActive` работают с этой
+подменой. `RouterLink` ещё инжектит `ActivatedRoute`, поэтому добавьте рядом
+`provideActivatedRoute()`. `routerLink="/products"` активна на `/products` и на любом URL под ним,
+например `/products/7`. Класс
+директива ставит в микрозадаче, поэтому перед проверкой дождитесь `fixture.whenStable()`:
 
-В Angular 21+ по умолчанию `navigated` равен `true`, а `lastSuccessfulNavigation()` содержит навигацию с начальным URL в `finalUrl`. Передайте `{ navigated: false }` для состояния до первой навигации: `events` начнётся пустым и не будет повторять события, а `lastSuccessfulNavigation()` вернёт `null`. Успешный `emitNavigation()` обновит оба значения до доставки `NavigationEnd`. Пример использует синтаксис сигнала Angular 21+:
+```ts
+import { Component } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { RouterLink, RouterLinkActive } from '@angular/router';
+
+import 'vitest-auto-spy/angular';
+
+import { injectRouterDouble, provideActivatedRoute, provideRouterDouble } from 'vitest-auto-spy/angular-router';
+
+@Component({
+  imports: [RouterLink, RouterLinkActive],
+  template: `<a routerLink="/products" routerLinkActive="active">Products</a>`,
+})
+class NavComponent {}
+
+it('marks the link of the current section active', async () => {
+  TestBed.configureTestingModule({
+    imports: [NavComponent],
+    providers: [provideRouterDouble({ url: '/products/7' }), provideActivatedRoute()],
+  });
+  const fixture = TestBed.createComponent(NavComponent);
+  fixture.detectChanges();
+  await fixture.whenStable();
+  const link: HTMLAnchorElement = fixture.nativeElement.querySelector('a');
+  expect(link.classList).toContain('active');
+
+  await injectRouterDouble().emitNavigation('/checkout');
+  fixture.detectChanges();
+  await fixture.whenStable();
+  expect(link.classList).not.toContain('active');
+});
+```
+
+**До первой навигации.** По умолчанию подмена уже прошла навигацию: `navigated` равен `true`, а
+`lastSuccessfulNavigation` хранит стартовый URL. Чтобы проверить приложение, которое ещё ни разу
+не навигировало, передайте `{ navigated: false }`. Тогда `navigated` равен `false`,
+`lastSuccessfulNavigation` равен `null`, а `events` ничего не повторяет. `RouterLinkActive`
+не ставит класс, пока `navigated` не станет `true`, даже если `url` совпадает со ссылкой.
+`emitNavigation()`, который заканчивается `NavigationEnd`, выставляет `navigated` и
+`lastSuccessfulNavigation` до того, как подписчики увидят событие:
 
 ```ts
 const { router, emitNavigation } = createRouterDouble({ navigated: false });
@@ -343,6 +386,9 @@ await emitNavigation('/products');
 expect(router.navigated).toBe(true);
 expect(router.lastSuccessfulNavigation()?.finalUrl?.toString()).toBe('/products');
 ```
+
+В Angular 21+ `lastSuccessfulNavigation` — сигнал, в Angular 20 — обычное значение. Пример
+читает сигнал.
 
 Любое другое поле или метод `Router` (`resetConfig`, `initialNavigation`, …) при чтении
 бросает ошибку. Она называет это поле и перечисляет, что подмена умеет. Вместо тихого `undefined` вы
@@ -390,8 +436,8 @@ router.navigate.resolveWith(false); // следующий navigate() вернё�
 тестируемому коду, который ждёт окончания навигации. Он резолвится, когда событие доставлено
 и завершённая им навигация закончилась.
 
-У настоящего роутера `events` — обычный `Subject`, а у подмены — `BehaviorSubject`. Из этого
-следуют две вещи:
+У настоящего роутера `events` — обычный `Subject`, а у подмены по умолчанию — `BehaviorSubject`.
+С `{ navigated: false }` это обычный `Subject`. По умолчанию из этого следуют две вещи:
 
 - **Поздний подписчик всё равно видит последнюю навигацию.** Уже не важно, что было раньше:
   `emitNavigation()` или `fixture.detectChanges()`.
@@ -445,8 +491,8 @@ expect(navigate).toHaveBeenCalledWith(['/login']);
 - **Он не навигирует.** `navigate()` и `navigateByUrl()` записывают вызов и резолвятся в `true`;
   `url` остаётся на месте. Двигайте его через `setUrl()` или `emitNavigation()`. Саму навигацию
   (гарды, отмену) проверяйте через `RouterTestingHarness` поверх настоящего `provideRouter()`.
-- **Это только токен `Router`.** Ни маршрутов, ни аутлета, ни `RouterLinkActive`. У `routerLink` в
-  шаблоне всё равно будет правильный `href`: `createUrlTree` и `serializeUrl` — настоящие, из
+- **Это только токен `Router`.** Ни маршрутов, ни аутлета. `routerLink` и `routerLinkActive` в
+  шаблоне всё равно работают: `createUrlTree`, `serializeUrl` и `isActive` — настоящие, из
   роутера. Если спека про маршрутизацию, а не про компонент, берите настоящий роутер.
 - **Он не выдаёт компоненту `ActivatedRoute`.** Компоненту, который читает параметры маршрута и
   вызывает `navigate()`, нужны оба провайдера: `provideActivatedRoute()` и `provideRouterDouble()`,

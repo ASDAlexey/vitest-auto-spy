@@ -339,17 +339,23 @@ name and different signatures leave the import order in each file to decide whic
 
 ## A component is not a provider
 
-`provideAutoSpy(SomeComponent)` throws, and so does a directive. Angular declares or imports a
-component; it never injects one, so the provider would do nothing.
+`provideAutoSpy(SomeComponent)` throws, and so does a directive. A provider replaces what code reads
+through `inject()`, not the instances Angular renders from a selector.
 
 ```text
-[vitest-auto-spy] provideAutoSpy(ChartComponent): ChartComponent is a component. Angular declares or imports a component, it never injects one, so this provider is never read and the double replaces nothing.
+[vitest-auto-spy] provideAutoSpy(ChartComponent): ChartComponent is a component. A provider replaces references read through DI, not instances Angular renders from a selector.
+For an injected collaborator, use { provide: ChartComponent, useValue: createSpyFromClass(ChartComponent) }.
+To keep it out of the render, swap it for a stand-in (createComponentStub for a child component) or render the host with renderShallow; to test ChartComponent itself, create it through TestBed.
 ```
 
 To keep a child out of the render, use
 [`createComponentStub`](#a-stand-in-for-a-child-createcomponentstub) or
 [`renderShallow`](#shallow-component-rendering). To test the component, create it with `TestBed`. A
 service that extends a component class, without a decorator of its own, is still accepted.
+
+When code injects a directive, for example a child that calls `inject(FocusDirective)`, provide
+the double yourself: `{ provide: FocusDirective, useValue: createSpyFromClass(FocusDirective) }`.
+This replaces what `inject()` returns, not the directive Angular renders.
 
 ## Lazy spies by default
 
