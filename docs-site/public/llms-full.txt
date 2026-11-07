@@ -9715,34 +9715,113 @@ service.items$.returnSubject().error(new Error('offline')); // so does this
 
 ## A request method answers once: `nextOneTimeWith`
 
-An HTTP call, a Tauri `invoke`, a database query: each emits one value and completes. Configure
-such a method with `nextOneTimeWith`, not `nextWith`. `nextWith` leaves the stream open, and two
-things go wrong with an open stream:
+An HTTP call, a Tauri `invoke`, a database query: each emits one value and completes. Configure such
+a method with `nextOneTimeWith`. It emits the value and then completes the stream, like the real
+request does.
 
-- **Code that waits for completion waits for ever.** `forkJoin`, `lastValueFrom`, `toArray()` and
-  `expectAllEmissions` need the source to complete. Over a `nextWith` stream nothing emits, nothing
-  fails, and the test reads a `loading` flag still set to `true`.
-- **A value seeded in `beforeEach` comes first.** The stream keeps the value in its buffer. A test
-  that then calls `throwWith` sends the next subscriber the old value and then the error, so the
-  code runs its success branch on stale data.
+On Angular CLI's `@angular/build:unit-test` builder, put `import 'vitest-auto-spy/rxjs';` in the file
+that `setupFiles` lists in `angular.json` (see [Angular unit-test builder](https://asdalexey.github.io/vitest-auto-spy/guides/angular-unit-test-builder)):
+
+```json
+"test": {
+  "builder": "@angular/build:unit-test",
+  "options": { "setupFiles": ["src/test-setup.ts"] }
+}
+```
+
+A complete Angular example. The component calls `OrderService.load()` once and keeps the result, or
+the error message, in signals:
 
 ```ts
-beforeEach(() => {
-  api.getBonds.nextOneTimeWith(BONDS); // emits, completes: forkJoin and lastValueFrom see it
-});
+// order-list.component.ts
+import { Component, type OnInit, inject, signal } from '@angular/core';
 
-it('shows the error', () => {
-  api.getBonds.throwWith(new Error('offline')); // a fresh stream: only the error
-  component.load();
-  expect(component.error()).toBe('offline');
+import { type Order, OrderService } from './order.service';
+
+@Component({ selector: 'app-order-list', template: '' })
+export class OrderListComponent implements OnInit {
+  private readonly orderService = inject(OrderService);
+  readonly orders = signal<Order[]>([]);
+  readonly error = signal<string | null>(null);
+
+  ngOnInit(): void {
+    this.orderService.load().subscribe({
+      next: (orders) => this.orders.set(orders),
+      error: (err: Error) => this.error.set(err.message),
+    });
+  }
+}
+```
+
+```ts
+// order-list.component.spec.ts
+import { TestBed } from '@angular/core/testing';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { type Spy, injectSpy, provideAutoSpy, stable } from 'vitest-auto-spy/angular';
+
+import { OrderListComponent } from './order-list.component';
+// load(): Observable<Order[]>, one HTTP request
+import { OrderService } from './order.service';
+
+describe('OrderListComponent', () => {
+  let orderService: Spy<OrderService>;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [OrderListComponent],
+      providers: [provideAutoSpy(OrderService)], // TestBed injects a spy instead of the real service
+    });
+    orderService = injectSpy(OrderService); // the same spy the component gets
+    orderService.load.nextOneTimeWith([{ id: 1 }]); // emits one list, then completes
+  });
+
+  it('shows the orders', async () => {
+    const fixture = TestBed.createComponent(OrderListComponent);
+    await stable(fixture); // runs ngOnInit and change detection
+
+    expect(fixture.componentInstance.orders()).toEqual([{ id: 1 }]);
+  });
+
+  it('shows the error', async () => {
+    orderService.load.throwWith(new Error('offline')); // replaces the completed stream from beforeEach
+    const fixture = TestBed.createComponent(OrderListComponent);
+    await stable(fixture);
+
+    expect(fixture.componentInstance.error()).toBe('offline');
+  });
 });
 ```
+
+More on `provideAutoSpy` and `injectSpy`: [Angular](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#replace-a-service-provideautospy-and-injectspy).
+
+A stream that `nextOneTimeWith` completed is replaced when you call the next stream helper on that
+method. So the `throwWith` in the second test starts a new stream that holds only the error, and the
+seeded list is gone. See [Reset streams between tests](#reset-streams-between-tests).
+
+**Why not `nextWith`.** `nextWith` emits the value but leaves the stream open. Every spy stream
+replays its last value to later subscribers, and an open one keeps doing so until you reset it. For a request method, that breaks two things:
+
+- **Operators that wait for completion never answer.** `forkJoin`, `lastValueFrom`, `toArray()` and
+  `expectAllEmissions` give a result only after the source completes. Over a `nextWith` stream they
+  never give one, and they never fail either. A component built on them stays in its loading state
+  (its `loading` signal, say, is still `true`), and nothing tells you why.
+- **The value seeded in `beforeEach` arrives before the error.** If a test then calls `throwWith`,
+  the next subscriber gets the old value first and the error second. The code runs its success
+  branch on stale data.
 
 `nextWith` is for a stream that stays open in the real code too: a store's `state$`, a websocket, a
 router event feed.
 
-A `throwWith` that lands on a buffered `nextWith` value while nobody is subscribed is reported, once
-per stream as a warning, at every call under `setupAutoSpy({ misconfiguration: 'throw' })`:
+**The library warns about `throwWith` after `nextWith`.** This never applies when you seed with
+`nextOneTimeWith`. The warning fires when `throwWith` runs and all of this is true:
+
+- the method was seeded with `nextWith`;
+- the stream has not completed or errored since;
+- nothing is subscribed to it at that moment.
+
+By default it prints a warning, once per spy. With
+[`setupAutoSpy({ misconfiguration: 'throw' })`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#misconfiguration-reports-that-fail-at-the-call),
+every such `throwWith` call throws instead:
 
 ```text
 [vitest-auto-spy] BondApi.getBonds.throwWith() ran on a stream that still holds a value from an
@@ -9750,27 +9829,54 @@ earlier nextWith() and has no subscriber, so the next one gets that value first 
 it — the code under test runs its success branch on stale data. …
 ```
 
-Three ways out: seed with `nextOneTimeWith`; call `resetAutoSpy(api.getBonds)` before `throwWith`; or,
-when "emit, then fail" is what the test is about, say it in one call:
-`nextWithValues([{ value: BONDS }, { errorValue: error }])`. A subscriber that is already on the
-stream is not reported: it gets the value when `nextWith` runs and the error when `throwWith` runs.
+Three ways out:
 
-To keep a call pending, `returnSubject()` is the wrong tool after a seeded `nextWith`: it hands back
-the subject that still holds the seed. Use `resetAutoSpy(api.getBonds)` and then
-`api.getBonds.mockReturnValue(NEVER)`, or `returnSubject()` on a spy nothing seeded.
+- seed the method with `nextOneTimeWith` instead of `nextWith`;
+- call `resetAutoSpy(api.getBonds)` (from `vitest-auto-spy`) before `throwWith`;
+- when "emit, then fail" is what the test is about, say it in one call:
+  `nextWithValues([{ value: BONDS }, { errorValue: error }])`.
+
+If the code under test is already subscribed when `throwWith` runs, there is no warning. That
+subscriber got the value when `nextWith` ran, and it gets the error now.
+
+**Keeping a call pending.** To test a loading state, make the method return a stream that never
+emits. If the method was seeded with `nextWith`, `returnSubject()` cannot give you that stream: it
+returns the seeded stream, which hands the value to the next subscriber. Reset the spy and return
+rxjs's `NEVER` instead:
+
+```ts
+import { NEVER } from 'rxjs';
+import { resetAutoSpy } from 'vitest-auto-spy';
+
+resetAutoSpy(api.getBonds); // drops the seeded value
+api.getBonds.mockReturnValue(NEVER); // every call stays pending
+```
+
+`mockReturnValue` switches the stream helpers off for this spy (see the end of
+[Where a `throwWith` error goes](#where-a-throwwith-error-goes)). To use `nextWith` or `throwWith` on
+it again, call `api.getBonds.mockReset()` first.
+
+On a spy nothing has seeded, `returnSubject()` works too: its stream stays silent until you call
+`next` on it.
 
 ## Where a `throwWith` error goes
 
-`throwWith` errors the stream before anything subscribes, and every later subscriber still gets the
-error. What happens next is up to the consumer, and in Angular several consumers keep the error
-instead of passing it to `ErrorHandler`. The test stays green unless it reads the error from there:
+`throwWith` errors the stream even when nothing has subscribed yet. Every later subscriber still gets
+the error. Where it goes from there depends on how the code under test subscribes. Two Angular APIs,
+`toSignal` and `rxResource`, store the error instead of passing it to `ErrorHandler`. That is a false
+pass trap: nothing fails, and the test stays green until it reads the error from the signal or the
+resource:
 
-| The code under test                        | Where the error ends up                                   | Assert it with                                                    |
-| ------------------------------------------ | --------------------------------------------------------- | ----------------------------------------------------------------- |
-| `toSignal(api.load())`                     | the signal: it throws when read, and only then            | `expect(() => service.bonds()).toThrow('offline')`                |
-| `rxResource({ stream: () => api.load() })` | the resource: `status()` is `'error'`, `value()` throws   | `await settleResource(service.bonds)`, then read `error()`        |
-| a signal read in an `effect` or a template | `ErrorHandler`, when the effect runs; TestBed rethrows it | `expect(() => TestBed.tick()).toThrow('offline')`                 |
-| `.subscribe(next)` with no error callback  | rxjs rethrows it from a `setTimeout`, after the test      | `strayTimers` fails the test; `expectUnhandledObservableErrors()` |
+| The code under test                                                     | Where the error ends up                                        | Assert it with                                                                                                                                                                                                |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.subscribe({ next, error })` or `catchError`, into state               | your error callback, synchronously, when the code subscribes   | the state it wrote: `expect(component.error()).toBe('offline')`                                                                                                                                               |
+| `toSignal(api.load())`, and the test reads the signal itself            | the signal: it throws when read, and only then                 | `expect(() => service.bonds()).toThrow('offline')`                                                                                                                                                            |
+| `rxResource({ stream: () => api.load() })`                              | the resource: `status()` is `'error'`, `value()` throws        | [`await settleResource(service.bonds)`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#resources-httpresource-and-resource) (from `vitest-auto-spy/angular`), then read `error()`                                                          |
+| any signal read in an `effect` or a template, a `toSignal` one included | `ErrorHandler`, during change detection; TestBed rethrows it   | `expect(() => TestBed.tick()).toThrow('offline')`                                                                                                                                                             |
+| `.subscribe(next)` with no error callback                               | rxjs rethrows it from a `setTimeout`, after the test has ended | the [`strayTimers`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#an-observable-error-nothing-handled) option of `setupAutoSpy` fails the test. To expect the error, call `expectUnhandledObservableErrors()` from `vitest-auto-spy/setup` |
+
+The first row is the one in the [complete example above](#a-request-method-answers-once-nextonetimewith).
+The `toSignal` case:
 
 ```ts
 it('shows the error', () => {
@@ -9781,13 +9887,24 @@ it('shows the error', () => {
 });
 ```
 
-An `effect` does not run until something flushes it, so a test that only injects the service sees
-nothing. Call `TestBed.tick()` (or `await fixture.whenStable()`) and expect that call to throw.
+A `toSignal` value that a template renders belongs to the `effect`-or-template row: the error comes
+out of change detection, not out of a read in your test. An `effect` or a template does not run
+until change detection does, so a test that only injects the service or creates the component sees
+nothing. Run change detection and expect that step to fail:
 
-A stream helper written after `mockImplementation` / `mockReturnValue` on the same method answers
-nothing: those replace the spy's dispatch, and the dispatch is what reads `throwWith`. That order is
-reported (`throwWith() was configured on 'load' after mockImplementation() had replaced its
-dispatch`). Call `api.load.mockReset()` first, or seed the default with `nextOneTimeWith` instead.
+```ts
+expect(() => TestBed.tick()).toThrow('offline');
+// or, through the fixture
+await expect(fixture.whenStable()).rejects.toThrow('offline');
+```
+
+**Stream helpers stop working after `mockImplementation` or `mockReturnValue`.** Those two replace
+the spy's own implementation (the warning below calls it the spy's "dispatch"), and that
+implementation is what returns the stream the helpers set up. So a later `throwWith` changes nothing: every call keeps returning what `mockReturnValue` or
+`mockImplementation` installed. The library reports this order
+(`throwWith() was configured on 'load' after mockImplementation() had replaced its dispatch`), as a
+warning or, under `misconfiguration: 'throw'`, as an error. Call `api.load.mockReset()` first, or
+seed the default with `nextOneTimeWith` instead of `mockReturnValue`.
 
 ## Reading a sequence as a marble
 
@@ -9868,9 +9985,9 @@ expect(store.items$.subscriberCount()).toBe(0);
 
 ## Reset streams between tests
 
-Each spied member keeps one `ReplaySubject(1)`. Its buffered value is configuration, like a
-`calledWith` rule (an answer set up for specific arguments). If a spy lives across tests, reset it,
-or the next test sees the old value first.
+Each spied member keeps one `ReplaySubject(1)`: a stream that replays its last value to every new
+subscriber. That value stays until you reset the spy, like any other answer you set on it. If a spy
+lives across tests, reset it, or the next test sees the old value first.
 
 ```ts
 import { beforeEach } from 'vitest';
@@ -9883,9 +10000,9 @@ beforeEach(() => {
 
 - **`vi.clearAllMocks()` and `clearMocks: true` do not reset the stream.** The stream is library
   state, not part of the runner's mock. Call `resetAutoSpy(spy)`.
-- **A finished stream is replaced.** The stream is finished after `throwWith()` or `complete()` on the
-  spy, or after `complete()` or `error()` on the subject from `returnSubject()`. Then the next
-  `nextWith` starts a new stream:
+- **A finished stream is replaced.** The stream is finished after `nextOneTimeWith()`, `throwWith()` or
+  `complete()` on the spy, or after `complete()` or `error()` on the subject from `returnSubject()`.
+  Then the next stream helper (`nextWith`, `throwWith` and the rest) starts a new stream:
 
 ```ts
 const subject = service.load$.returnSubject();
@@ -20618,16 +20735,20 @@ config file, no network and no token.
 npx vitest-auto-spy doctor
 ```
 
-| Command                                                                          | Use it when                                                       | Writes files             |
-| -------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------ |
-| [`doctor`](#doctor-—-defects-that-never-fail)                                    | you want to find setup mistakes that leave the run green          | never                    |
-| [`perf`](#perf-—-where-the-cpu-time-actually-goes)                               | the suite is slow and you want to know which files to fix         | never                    |
-| [`perf --gate`](#the-gate)                                                       | CI should fail when a test or a file gets slow                    | never                    |
-| [`init`](#init-—-the-pointer-an-agent-actually-reads)                            | coding agents in your repository should know about the library    | yes, between its markers |
-| [`codemod`](#codemod)                                                            | you migrate a suite off `jest-auto-spies` or `jasmine-auto-spies` | only with `--write`      |
-| [`ng-test`](#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder) | you run tests through the Angular builder and need shards         | never                    |
+| Command                                                                          | Use it when                                                       | Writes files               |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------- |
+| [`doctor`](#doctor-—-defects-that-never-fail)                                    | you want to find setup mistakes that leave the run green          | only with `--code-quality` |
+| [`perf`](#perf-—-where-the-cpu-time-actually-goes)                               | the suite is slow and you want to know which files to fix         | only with an output flag   |
+| [`perf --gate`](#the-gate)                                                       | CI should fail when a test or a file gets slow                    | only with an output flag   |
+| [`perf --gate --changed`](#fail-a-merge-request-only-for-what-it-changed)        | a merge request should fail only for slow specs it changed        | only with an output flag   |
+| [`init`](#init-—-the-pointer-an-agent-actually-reads)                            | coding agents in your repository should know about the library    | yes, between its markers   |
+| [`codemod`](#codemod)                                                            | you migrate a suite off `jest-auto-spies` or `jasmine-auto-spies` | only with `--write`        |
+| [`ng-test`](#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder) | you run tests through the Angular builder and need shards         | never                      |
 
-Ready-made GitLab and GitHub jobs are in [In CI](#in-ci). Every `doctor` and `perf` finding ends in a `Docs:` line that links to its entry on this page.
+`perf` leaves a file behind only when you pass an output flag: `--out`, `--update-baseline`,
+`--code-quality` or `--profile-dir`. Without `--out`, the report of its own run is temporary and
+deleted. `--json` names a report to read, never one to write. Ready-made GitLab and GitHub
+jobs are in [In CI](#in-ci). Every `doctor` and `perf` finding ends in a `Docs:` line that links to its entry on this page.
 
 ## Exit codes
 
@@ -21060,13 +21181,13 @@ error  perf-gate-slow-test libs/a/src/lib/thing.spec.ts
 
 **The verdict table** has one row per candidate:
 
-| Column    | Meaning                                                                                                                                                |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `kind`    | `test`, `file`, `grew` (a baseline regression) or `run` (a whole-run budget)                                                                           |
-| `first`   | The first reading                                                                                                                                      |
-| `again`   | The reading on its own                                                                                                                                 |
-| `budget`  | The candidate's own budget                                                                                                                             |
-| `verdict` | `confirmed`, `not reproduced`, `unconfirmed` (nothing could re-measure it), `single reading` (`--no-confirm`), or `over budget` for a whole-run budget |
+| Column    | Meaning                                                                                                                                                                                                                                                                                       |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`    | `test`, `file`, `grew` (a baseline regression) or `run` (a whole-run budget)                                                                                                                                                                                                                  |
+| `first`   | The first reading                                                                                                                                                                                                                                                                             |
+| `again`   | The reading on its own                                                                                                                                                                                                                                                                        |
+| `budget`  | The candidate's own budget                                                                                                                                                                                                                                                                    |
+| `verdict` | `confirmed`, `not reproduced`, `unconfirmed` (nothing could re-measure it), `single reading` (`--no-confirm`), `over budget` for a whole-run budget, and the three warnings of [attribution](#fail-a-merge-request-only-for-what-it-changed): `outside change`, `known debt`, `within margin` |
 
 **A confirmed finding says why.** During the re-measurement `perf` records a CPU profile of each file.
 Under the finding it prints a card: the slowest tests, hooks against test bodies, where the time went
@@ -21141,7 +21262,8 @@ section out.
 looks exactly like 30 s of slow code. A red or unfinished suite under `--gate` exits 2.
 
 **Gate only what a branch changed.** `--gate-only` takes comma-separated paths; the gate judges only
-those, and the median is still taken over the whole run.
+those, and the median is still taken over the whole run. `--changed` works the paths out from git
+and still reports what lies outside them; see [Fail a merge request only for what it changed](#fail-a-merge-request-only-for-what-it-changed).
 
 In a terminal the card and the tables are colored. [Report formats](#report-formats) lists when color
 is on. Why the gate is built this way: [Why the gate works like this](#why-the-gate-works-like-this).
@@ -21183,6 +21305,213 @@ perf:
     - if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then npx vitest-auto-spy perf --json out/perf.json --baseline perf-history.jsonl --update-baseline; fi
 ```
 
+To fail a merge request only for findings its own diff caused, see the next section.
+
+### Fail a merge request only for what it changed
+
+This setup fails a merge request only for slow spec files that its own diff reaches. You need it when
+a spec that is already slow on the default branch keeps failing merge requests that never touched it.
+
+In GitLab, use two jobs. The default branch records a history of runs; a merge request is judged
+against that history. The example runs an Angular project through the `@angular/build:unit-test`
+builder; replace `app:test` with your project and test target:
+
+```yaml
+default:
+  image: node:22
+
+# Default branch: record this run into the history. This job never fails over a slow test.
+perf-history:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  cache:
+    key: perf-history
+    paths: [perf-history.jsonl]
+  script:
+    - npm ci
+    - |
+      npx vitest-auto-spy perf --baseline perf-history.jsonl --update-baseline \
+        --command 'npx ng run app:test --reporters=default --reporters="$VITEST_AUTO_SPY_PERF_REPORTER" {paths:--include=}'
+
+# Merge request: fail only for slow spec files this change reaches.
+perf-gate:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  cache:
+    key: perf-history
+    paths: [perf-history.jsonl]
+    policy: pull # read the history, never write it back
+  script:
+    - npm ci
+    # --changed diffs against the base commit; a shallow CI clone may not have it. One commit is enough.
+    - git fetch --depth=1 origin "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+    - |
+      npx vitest-auto-spy perf --gate \
+        --command 'npx ng run app:test --reporters=default --reporters="$VITEST_AUTO_SPY_PERF_REPORTER" {paths:--include=}' \
+        --changed "$CI_MERGE_REQUEST_DIFF_BASE_SHA" \
+        --baseline perf-history.jsonl --debt warn \
+        --gate-margin 1.2 --confirm-runs 2
+```
+
+A plain Vitest project (a root `vitest.config.*`, or a `test` script that calls `vitest`) drops the
+`--command` line, and `perf` runs Vitest itself.
+
+What the two commands do:
+
+- **Recording.** `--update-baseline` with a `.jsonl` path runs the suite and appends one line to
+  `perf-history.jsonl`. The file keeps the last 30 runs. This command records instead of judging, so it
+  exits 0 even over a slow test.
+- **Gating.** `--gate` runs the suite and fails over a confirmed finding, exit 1. The
+  flags `--changed`, `--debt warn`, `--gate-margin` and `--confirm-runs` decide which findings may
+  fail the merge request; each one is described below. `--baseline` names the history they read.
+- **Where the run comes from.** `--command` runs the Angular builder with the perf reporter attached.
+  Replace `app:test` with your project and test target. `perf` sets
+  `$VITEST_AUTO_SPY_PERF_REPORTER` itself, and fills `{paths:--include=}` with the spec files to
+  re-measure; keep the single quotes so the shell `perf` starts expands them, not yours. [When a bare run is not your suite](#when-a-bare-run-is-not-your-suite)
+  explains the line and gives the Nx form.
+- **Reusing a report.** If an earlier step already wrote a perf report, add `--json <that report>` to
+  both commands. `perf` then reads that report instead of running the suite again. `--json` is an
+  input: `perf` never writes to it.
+
+**The GitLab cache carries the history from one job to the other.** Three things decide whether the
+gate job sees it:
+
+- `policy: pull` on the gate job. It reads the history and never writes a merge request's run back
+  into it, so only the default branch records.
+- The project setting **Use separate caches for protected branches** must be off. GitLab keeps separate caches for protected and
+  unprotected branches by default. Your default branch is usually protected and merge-request
+  branches are not, so the gate job would never see the history. Turn this off under Settings ›
+  CI/CD › General pipelines.
+- **A cache shared between runners.** By default each runner keeps its cache on its own disk. A gate
+  job on another runner then finds no history, prints the warnings described below, and judges every
+  finding in the reached spec files as new. Configure a distributed cache (S3, GCS or Azure) for the
+  runners, or give both jobs a `tags` entry that only one runner carries.
+
+**The same in GitHub Actions.** One job does both; a pull request can restore a cache the default
+branch saved. For an Angular project, add the same `--command` to both `perf` lines:
+
+```yaml
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # --changed needs the base branch
+      - uses: actions/setup-node@v4
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: perf-history.jsonl
+          key: perf-history-${{ github.run_id }}
+          restore-keys: perf-history-
+      - if: github.event_name == 'push'
+        run: npx vitest-auto-spy perf --baseline perf-history.jsonl --update-baseline
+      - if: github.event_name == 'pull_request'
+        run: |
+          npx vitest-auto-spy perf --gate \
+            --changed "origin/$GITHUB_BASE_REF" \
+            --baseline perf-history.jsonl --debt warn \
+            --gate-margin 1.2 --confirm-runs 2
+```
+
+**Terms used below.** The rest of [The gate](#the-gate) defines them in full.
+
+- **Test body** — one `it` or `test` callback, as Vitest times it.
+- **Budget** — how long a test body or a spec file may take before the gate reports it. For a test
+  body it is `--max-test-ms` (default 1000 ms). For a file it is the largest of three limits, listed
+  under [What is over budget](#the-gate); with the defaults, a file under 5 s is never over budget.
+- **Finding** — one file or test body the gate reports. It prints as an error, which fails the run, or
+  as a warning or a note, which do not.
+- **Suspect** and **confirmation pass** — a suspect is a file with a finding that may fail the run. Before failing
+  anything, the gate runs each suspect file again on its own. That second run is the confirmation pass.
+- **The `--baseline` file** — what you pass to `--baseline`: a `.json` baseline (one recorded run) or a
+  `.jsonl` history (the last 30 runs). See
+  [Catch slow growth with a baseline](#catch-slow-growth-with-a-baseline).
+- **Known debt** and **new** — a finding is known debt when the `--baseline` file shows it was already
+  this slow (see `--debt warn` below). Every other finding is new, and a new finding can fail the run.
+- **`grew`** — the history's growth check: a file got much slower than in its own recorded runs. It
+  needs three recorded runs of that file. The rule is in
+  [Catch slow growth with a baseline](#catch-slow-growth-with-a-baseline).
+
+**The first merge requests, before any history exists.** The gate prints two warnings:
+`No history to compare against at …` and `--debt warn has nothing to read debt from: …`. It then
+judges every finding in the reached spec files as new, so those can still fail the run. Known debt
+works from the first recorded run; `grew` needs three.
+
+**Why the budget alone is not enough.** A budget says that a file is slow, not who made it slow. A spec
+that has been over budget on the default branch for a month fails every merge request opened since.
+Each author then gets a file they never opened. The four flags below fix that. None of them can fail a
+file that the plain gate would pass. A finding that becomes a warning is still printed, with the
+reason.
+
+**`--changed [ref]` — judge only spec files the change reaches.** The gate collects the changed files:
+the diff against the merge base of `ref` and `HEAD` (the last commit both share), plus uncommitted and
+untracked files. It then judges only the spec files that import a changed file, directly or through
+other files. Imports are followed the way
+[`ng-test --changed`](#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder) follows
+them: relative imports and tsconfig `paths` aliases. A changed template or stylesheet counts for the
+component that names it. A finding in any other spec file becomes a warning with the verdict
+`outside change`, and the gate does not re-measure it.
+
+Before the verdict, the gate prints one line that says how many spec files it judges and against which
+ref. These cases change which files it judges:
+
+- **Always pass the base ref in CI.** `--changed` without a value diffs against `HEAD`, which covers
+  only uncommitted and untracked files. A CI checkout has none, so no finding can fail the run.
+- **An empty diff** prints
+  `perf gate: nothing changed against <ref>, so no finding is this change's — each one is reported, none fails the run.`
+- **Config changes judge every file.** That covers `package.json`, a lockfile, `angular.json`, a
+  `tsconfig*.json` and a Vite or Vitest config.
+- **Setup-file changes judge every file.** Every spec loads the setup files, so a changed setup file
+  judges every file. So does a changed file that a setup file imports, directly or through other files.
+- **Which files count as setup files.** The `setupFiles` of your Vitest config count. So do the
+  `setupFiles` and `providersFile` of every unit-test target in `angular.json`.
+- **A shallow clone may not find the merge base.** With only the base commit fetched, git cannot link
+  it to `HEAD`. The gate then diffs against `ref` itself. `$CI_MERGE_REQUEST_DIFF_BASE_SHA` already is
+  the merge request's merge base, so the changed files are the same. That is why one fetched commit is
+  enough. A branch name such as `origin/main` in its place would also list what that branch changed
+  since, so more files would be judged, never fewer.
+- **A repository too large to scan whole is judged whole.** The scan stops at 50 000 files; ignored
+  folders such as `node_modules` do not count. `VITEST_AUTO_SPY_SCAN_CAP` raises the limit. An
+  incomplete import graph could miss the spec a change reaches, so you see this warning:
+  `warning  --changed <ref>: the scan stopped at its file limit, so the import graph may miss the spec a change reaches. The gate judges every file instead.`
+- **If git fails**, every file is judged, and a warning quotes the git error. The usual cause is a
+  depth-1 CI clone without the base commit. Fetch that commit, as the GitLab example does.
+
+**`--debt warn` — skip what the default branch already had.** It needs `--baseline`. A slow file or
+test body is `known debt` when the `--baseline` file holds it at 80 % of its current budget or more.
+Example: with the default 1000 ms test-body budget, a body recorded at 800 ms or more is known debt.
+Known debt is a warning: the gate does not re-measure it, and it never fails the run. The default,
+`--debt fail`, judges known debt like any other finding.
+
+- The file does not store milliseconds. It stores each time as a share of the median file of the run
+  it recorded (the median of every file's test-body total). The gate multiplies that share by this
+  run's median file. A slower runner slows the recorded file and the median file alike, so
+  the share stays put: the runner alone turns nothing into debt or into a new finding.
+- A history is read as the median of its runs. One unusually fast or slow run does not decide what
+  is debt.
+- Growth is never debt. A file the growth check flags as `grew` is judged like any other finding;
+  `--debt warn` does not excuse it.
+- Debt for a single test body comes from the file's `tests` key, which lists each test body slower
+  than 100 ms. A baseline recorded by an older release has no `tests` key, so it gives file debt only
+  until you record it again.
+
+**`--gate-margin <x>` — how far over the budget a failure starts.** A confirmed finding fails only when
+its reading reaches budget × `x` (default `1`). Example: with `--gate-margin 1.2` and a 1000 ms budget,
+a test body fails at 1200 ms. Between the budget and that line, it is a warning with the verdict
+`within margin`. Without a margin, a file that sits right at its budget passes on one CI runner and
+fails on the next.
+
+**`--confirm-runs <n>` — run the confirmation pass more than once.** The gate runs the confirmation
+pass `n` times (default `1`, at most `5`). It judges each file by its fastest reading. Noise on a busy
+runner only adds time, never removes it, so the fastest reading is closest to the file's real cost.
+
 ### Merge sharded reports
 
 A sharded pipeline writes one report per job. Judged alone, each shard sees only part of the suite, so
@@ -21201,33 +21530,37 @@ root, because CI jobs often clone into different directories.
 A positional path (`npx vitest-auto-spy perf src/cli`) is passed to Vitest as a file filter; without
 one, `perf` measures the whole suite.
 
-| Flag                  | Default              | What it does                                                                                                                   |
-| --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `--cwd <dir>`         | current directory    | Run against another directory                                                                                                  |
-| `--command <c>`       | —                    | Measure this shell line instead of running Vitest; `{paths}` / `{paths:<prefix>}` take the files to re-measure                 |
-| `--json <path>`       | —                    | Read reports instead of running Vitest: a file, a directory, or a pattern such as `coverage/**/perf-*.json`                    |
-| `--out <path>`        | temporary, deleted   | Keep the report at this path (relative to `--cwd`); a directory gets `perf-report.json` inside                                 |
-| `--gate`              | off                  | Fail over a confirmed budget, exit 1                                                                                           |
-| `--max-test-ms`       | `1000`               | Budget for one test body. Bodies under 100 ms are not recorded, so that is the floor                                           |
-| `--max-file-ms`       | `5000`               | A file whose bodies add up to less is never a finding                                                                          |
-| `--max-file-tests`    | `2000`               | How many of the run's median tests a file's bodies may add up to                                                               |
-| `--factor <n>`        | `10`                 | How many times the median test one test of a file may cost                                                                     |
-| `--max-wall-ms`       | off                  | A whole-run budget. Wall clock depends on the runner, so nothing derives it for you                                            |
-| `--gate-only`         | —                    | Comma-separated paths the gate may judge; the median still covers the whole run                                                |
-| `--no-confirm`        | —                    | Skip the re-measurement and gate on one reading. `--json` alone re-measures under the config the report recorded               |
-| `--profile-dir <dir>` | —                    | Keep each re-measured file's CPU profile as `<dir>/<spec path with / as __>.cpuprofile`. Needs `--gate` without `--no-confirm` |
-| `--ab-isolate`        | —                    | Run the suite again with `isolate` flipped and report both wall clocks. `--json` alone warns; with `--command` it works        |
-| `--baseline <p>`      | —                    | Compare with a recorded baseline and fail on what grew. A `.jsonl` path is a history of runs                                   |
-| `--update-baseline`   | `perf-baseline.json` | Record this run into the baseline instead of judging it; a `.jsonl` history keeps 30 runs                                      |
-| `--baseline-factor`   | `2`                  | How many times its recorded share a file must take to regress                                                                  |
-| `--baseline-floor-ms` | `500`                | A file whose bodies take less is noise, whatever its share did                                                                 |
-| `--fail-on-flaky`     | off                  | A test that passed only on a retry fails the run, exit 1                                                                       |
-| `--fail-on-red`       | off                  | A failed suite fails `perf` too, exit 1. Without it a red suite is a warning and `perf` exits 0                                |
-| `--top <n>`           | `10`                 | Rows in the over-budget tables; `0` turns them off                                                                             |
-| `--min-severity`      | `info`               | The lowest level printed. Shared with `doctor`                                                                                 |
-| `--fail-on`           | only the gate fails  | The lowest level that exits 1. Shared with `doctor`                                                                            |
-| `--format <f>`        | `text`               | `json` or `markdown`; the suite's own output goes to stderr. Shared with `doctor`                                              |
-| `--code-quality <p>`  | —                    | Also write a GitLab Code Quality report. Shared with `doctor`                                                                  |
+| Flag                  | Default              | What it does                                                                                                                    |
+| --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `--cwd <dir>`         | current directory    | Run against another directory                                                                                                   |
+| `--command <c>`       | —                    | Measure this shell line instead of running Vitest; `{paths}` / `{paths:<prefix>}` take the files to re-measure                  |
+| `--json <path>`       | —                    | Read reports instead of running Vitest: a file, a directory, or a pattern such as `coverage/**/perf-*.json`                     |
+| `--out <path>`        | temporary, deleted   | Keep the report at this path (relative to `--cwd`); a directory gets `perf-report.json` inside                                  |
+| `--gate`              | off                  | Fail over a confirmed budget, exit 1                                                                                            |
+| `--max-test-ms`       | `1000`               | Budget for one test body. Bodies under 100 ms are not recorded, so that is the floor                                            |
+| `--max-file-ms`       | `5000`               | A file whose bodies add up to less is never a finding                                                                           |
+| `--max-file-tests`    | `2000`               | How many of the run's median tests a file's bodies may add up to                                                                |
+| `--factor <n>`        | `10`                 | How many times the median test one test of a file may cost                                                                      |
+| `--max-wall-ms`       | off                  | A whole-run budget. Wall clock depends on the runner, so nothing derives it for you                                             |
+| `--gate-only`         | —                    | Comma-separated paths the gate may judge; the median still covers the whole run                                                 |
+| `--no-confirm`        | —                    | Skip the re-measurement and gate on one reading. `--json` alone re-measures under the config the report recorded                |
+| `--changed [ref]`     | —                    | Judge only the spec files the diff against the merge base of `ref` reaches (`HEAD` when bare); a finding elsewhere is a warning |
+| `--debt <warn\|fail>` | `fail`               | `warn`: a finding the `--baseline` already had at 80 % of its budget or more is known debt, a warning                           |
+| `--gate-margin <x>`   | `1`                  | A confirmed reading has to reach budget × `x` to fail; below that it is a warning                                               |
+| `--confirm-runs <n>`  | `1`                  | Re-measure the suspects `n` times (at most 5) and judge each file at its fastest reading                                        |
+| `--profile-dir <dir>` | —                    | Keep each re-measured file's CPU profile as `<dir>/<spec path with / as __>.cpuprofile`. Needs `--gate` without `--no-confirm`  |
+| `--ab-isolate`        | —                    | Run the suite again with `isolate` flipped and report both wall clocks. `--json` alone warns; with `--command` it works         |
+| `--baseline <p>`      | —                    | Compare with a recorded baseline and fail on what grew. A `.jsonl` path is a history of runs                                    |
+| `--update-baseline`   | `perf-baseline.json` | Record this run into the baseline instead of judging it; a `.jsonl` history keeps 30 runs                                       |
+| `--baseline-factor`   | `2`                  | How many times its recorded share a file must take to regress                                                                   |
+| `--baseline-floor-ms` | `500`                | A file whose bodies take less is noise, whatever its share did                                                                  |
+| `--fail-on-flaky`     | off                  | A test that passed only on a retry fails the run, exit 1                                                                        |
+| `--fail-on-red`       | off                  | A failed suite fails `perf` too, exit 1. Without it a red suite is a warning and `perf` exits 0                                 |
+| `--top <n>`           | `10`                 | Rows in the over-budget tables; `0` turns them off                                                                              |
+| `--min-severity`      | `info`               | The lowest level printed. Shared with `doctor`                                                                                  |
+| `--fail-on`           | only the gate fails  | The lowest level that exits 1. Shared with `doctor`                                                                             |
+| `--format <f>`        | `text`               | `json` or `markdown`; the suite's own output goes to stderr. Shared with `doctor`                                               |
+| `--code-quality <p>`  | —                    | Also write a GitLab Code Quality report. Shared with `doctor`                                                                   |
 
 ## `init` — the pointer an agent actually reads
 
@@ -22757,7 +23090,7 @@ lines rather than failing anything.
 ### Why the gate works like this
 
 The advice `perf` prints must never fail a merge request. The gate must, so every finding in it has to
-be something the author of the diff did and can undo. Three decisions follow.
+be something the author of the diff did and can undo. Four decisions follow.
 
 - **It judges test bodies, not the machine.** `environment`, `prepare`, `setup` and `transform` grow
   with the file count and the CPU; no spec author makes them smaller. `import` is hard to attribute:
@@ -22770,6 +23103,10 @@ be something the author of the diff did and can undo. Three decisions follow.
   files, and splitting a file passed it.
 - **Nothing fails on one measurement.** "Your test is slow" and "your test shared a worker with four
   others" are different statements. A gate that cannot tell them apart gets switched off within a week.
+- **On request, it asks whose a finding is.** A slow file the diff does not reach, or one that was
+  already that slow on the default branch, is not something the author did. `--changed` and
+  `--debt warn` turn such a finding into a warning instead of hiding it: a gate that hides the slow
+  file is as useless as one that blames the wrong person for it.
 
 The over-budget tables come from the same functions the gate judges with, and `--gate-only` narrows
 both the same way, so the table and the verdict cannot disagree. The card compares each candidate with
@@ -24056,30 +24393,136 @@ a pipe that is fine. The same call works under JIT, where the module stays in th
 
 ### `keepTemplate` and a signal form bound to a child control
 
-A kept template can bind a signal-forms `[formField]` to a child component:
-`<app-code-input [formField]="connectForm.code" />`. The directive is kept, the child is dropped,
-and a bare tag is no host for it. Angular would throw `NG01914 … is an invalid [formField] directive
-host`.
+Your template may put `[formField]` on a child component: `<app-code-input [formField]="form.code" />`.
+If that child is a custom form control (a component with a `value` or `checked` model; the exact rule is below),
+`renderShallow` replaces it with a stub. This happens on its own; there is no option.
 
-So a dropped child that is a custom form control renders as a stand-in. A custom form control is
-what Angular checks for: a `value` input with a `valueChange` output, or `checked` with
-`checkedChange`, which is what `model()` declares. The stand-in is
-[`createComponentStub`](#a-stand-in-for-a-child-createcomponentstub) of the child: same selector, inputs, outputs
-and models, no template, no providers, no constructor. The form writes into it and reads back from
-it:
+Take a form whose `code` field is edited by a child component:
 
 ```ts
-const { fixture, component } = renderShallow(ConnectComponent, { keepTemplate: true });
-const input = fixture.debugElement.query(By.css('app-code-input')).componentInstance;
+import { Component, model, signal } from '@angular/core';
+import { FormField, form } from '@angular/forms/signals';
 
-input.value.set('1234'); // what the user typing into the real control does
-fixture.detectChanges();
+@Component({
+  selector: 'app-code-input',
+  template: `<input [value]="value()" (input)="value.set($any($event.target).value)" />`,
+})
+export class CodeInputComponent {
+  readonly value = model('');
+}
 
-expect(component.connectForm.code().value()).toBe('1234');
+@Component({
+  selector: 'app-connect',
+  imports: [FormField, CodeInputComponent],
+  template: `<app-code-input [formField]="connectForm.code" />`,
+})
+export class ConnectComponent {
+  readonly connectForm = form(signal({ code: '' }));
+}
 ```
 
-To keep the real control, name it: `keepChildren: [CodeInputComponent]`. A stub of your own with
-the same selector in `keepChildren` replaces the automatic one.
+The test keeps the template and plays the user typing into the stub:
+
+```ts
+import { By } from '@angular/platform-browser';
+import { expect, it } from 'vitest';
+import { renderShallow } from 'vitest-auto-spy/angular';
+
+it('stores the typed code in the form', () => {
+  const { fixture, component } = renderShallow(ConnectComponent, { keepTemplate: true });
+  const codeInput = fixture.debugElement.query(By.css('app-code-input')).componentInstance;
+
+  codeInput.value.set('1234'); // what typing into the real control does
+  fixture.detectChanges();
+
+  expect(component.connectForm.code().value()).toBe('1234');
+});
+```
+
+**Why a stub is needed.** With `keepTemplate: true`, `renderShallow` keeps the directives and pipes
+the component imports, so `FormField` stays. It still drops child components that `keepChildren`
+does not name (see [Shallow component rendering](#shallow-component-rendering)).
+So `[formField]` stays on an `<app-code-input>` tag that has no component. The directive only works
+on a form control: a native `<input>`, `<select>` or `<textarea>`, or a custom form control. On a bare
+tag, Angular throws `NG01914 … is an invalid [formField] directive host`, and `renderShallow` fails.
+
+**Which children get a stub.** A dropped child gets a stub only if it is a custom form control.
+Angular counts a component as one when it has:
+
+- a `value` input and a `valueChange` output, or
+- a `checked` input and a `checkedChange` output.
+
+`value = model('')` declares both the `value` input and the `valueChange` output. A hand-written
+`value = input('')` with `valueChange = output<string>()` counts too, and so does an `@Input()` and
+`@Output()` pair.
+
+Other children get no stub. If `[formField]` sits on one of them, `renderShallow` fails with
+`NG01914`; keep that child with `keepChildren`.
+
+**What the stub is.** It is [`createComponentStub`](#a-stand-in-for-a-child-createcomponentstub) of
+the child. It has the same selector, inputs, outputs and `model()` properties. It has no template and no
+providers. The child's constructor never runs, so none of its `inject()` calls run either. You do
+not need to provide the child's services.
+
+**How the form and the stub talk.**
+
+- The form sets the stub's `value`. After `component.connectForm.code().value.set('42')` and
+  `fixture.detectChanges()`, `codeInput.value()` returns `'42'`.
+- Setting `value` on the stub updates the form, as typing would: `model.set()` emits
+  `valueChange`, and the form listens to it.
+- A child with `input()` and `output()` rather than `model()` gives the stub a read-only `value`.
+  Call `codeInput.valueChange.emit('1234')` to play the user.
+- A `checked` control works the same way, through `checked` and `checkedChange`.
+
+**Keep the real control.** Name it in `keepChildren`. You still need `keepTemplate: true`; without
+it the template is blank and there is no `<app-code-input>` at all.
+
+```ts
+import { expect, it } from 'vitest';
+import { renderShallow } from 'vitest-auto-spy/angular';
+
+it('stores the code typed into the real input', () => {
+  const { fixture, component } = renderShallow(ConnectComponent, {
+    keepTemplate: true,
+    keepChildren: [CodeInputComponent],
+  });
+  const field: HTMLInputElement = fixture.nativeElement.querySelector('app-code-input input');
+
+  field.value = '1234';
+  field.dispatchEvent(new Event('input')); // drive the real control through its DOM
+  fixture.detectChanges();
+
+  expect(component.connectForm.code().value()).toBe('1234');
+});
+```
+
+The real child renders its own template, and its constructor runs. If it injects a service, say a
+`CodeService`, pass it in the `providers` option of the same call:
+
+```ts
+renderShallow(ConnectComponent, {
+  keepTemplate: true,
+  keepChildren: [CodeInputComponent],
+  providers: [provideAutoSpy(CodeService)],
+});
+```
+
+**Use a stub of your own** when the parent calls a method on the child, which the automatic stub
+does not have. Build it with `createComponentStub` and list it in `keepChildren`. When `keepChildren` already holds a component with the same selector, `renderShallow` adds no
+automatic stub:
+
+```ts
+import { createComponentStub, renderShallow } from 'vitest-auto-spy/angular';
+
+const CodeInputStub = createComponentStub(CodeInputComponent);
+
+renderShallow(ConnectComponent, { keepTemplate: true, keepChildren: [CodeInputStub] });
+```
+
+The full signature is `createComponentStub(CodeInputComponent, members, { template })`; both extra
+arguments are optional. `members` seeds members, such as a method the parent calls. `template` is
+markup the stub renders instead of nothing. See
+[A stand-in for a child](#a-stand-in-for-a-child-createcomponentstub).
 
 ### Changing an input mid-test
 
