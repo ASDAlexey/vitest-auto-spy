@@ -24,6 +24,7 @@
  *   the target is sealed or `ownKeys` starts throwing.
  */
 import { type UnstubbedGuard, createFunctionSpy } from './function-spy';
+import { rememberSpyRecord } from './spy-mark';
 import type { Func } from './types';
 
 const hasOwn = (target: object, key: PropertyKey): boolean => Object.prototype.hasOwnProperty.call(target, key);
@@ -54,6 +55,7 @@ function sharedNameSet(methodNames: readonly PropertyKey[]): ReadonlySet<string>
 
 const NO_DELETED: ReadonlySet<string> = new Set<string>();
 const ONLY_ACCESSOR_BAG: readonly string[] = ['accessorSpies'];
+const ONLY_ACCESSOR_BAG_SET: ReadonlySet<string> = new Set(ONLY_ACCESSOR_BAG);
 
 /** The traps and everything they share, as one object per double rather than seven closures. */
 class LazySpyHandler implements ProxyHandler<Record<string, unknown>> {
@@ -63,6 +65,7 @@ class LazySpyHandler implements ProxyHandler<Record<string, unknown>> {
   readonly #target: Record<string, unknown>;
   readonly #names: ReadonlySet<string>;
   readonly #preKeys: readonly string[];
+  readonly #preSet: ReadonlySet<string>;
   readonly #unstubbed: UnstubbedGuard | undefined;
 
   constructor(
@@ -74,13 +77,14 @@ class LazySpyHandler implements ProxyHandler<Record<string, unknown>> {
     this.#target = target;
     this.#names = names;
     this.#preKeys = preKeys;
+    this.#preSet = preKeys === ONLY_ACCESSOR_BAG ? ONLY_ACCESSOR_BAG_SET : new Set(preKeys);
     this.#unstubbed = unstubbed;
   }
 
   get(target: Record<string, unknown>, key: PropertyKey): unknown {
     // Without the receiver on purpose: an accessor spy must see the record as `this`, exactly as
-    // it does when no proxy is in the way.
-    return this.#isPending(key) ? this.#materialize(target, key) : Reflect.get(target, key);
+    // it does when no proxy is in the way. An own key first: a materialised spy is the common read.
+    return !hasOwn(target, key) && this.#isPending(key) ? this.#materialize(target, key) : Reflect.get(target, key);
   }
 
   set(target: Record<string, unknown>, key: PropertyKey, value: unknown): boolean {
@@ -102,11 +106,15 @@ class LazySpyHandler implements ProxyHandler<Record<string, unknown>> {
       return Reflect.getOwnPropertyDescriptor(target, key);
     }
 
+    // Through the traps rather than straight to `#materialize`: a shallow clone built from these
+    // descriptors reads each getter again, and every read must reach the one spy the first one built.
     return {
       configurable: true,
       enumerable: true,
-      get: (): unknown => this.#materialize(target, key),
-      set: (value: unknown): void => defineSpy(target, key, value),
+      get: (): unknown => this.get(target, key),
+      set: (value: unknown): void => {
+        this.set(target, key, value);
+      },
     };
   }
 
@@ -134,16 +142,33 @@ class LazySpyHandler implements ProxyHandler<Record<string, unknown>> {
       return own;
     }
 
-    const ownStrings = own.filter((key): key is string => typeof key === 'string');
-    const present = new Set(ownStrings);
-    const preSet = new Set(this.#preKeys);
+    const keys: (string | symbol)[] = [];
 
-    return [
-      ...this.#preKeys.filter((key) => present.has(key)),
-      ...[...this.#names].filter((key) => this.#isPending(key) || present.has(key)),
-      ...ownStrings.filter((key) => !preSet.has(key) && !this.#names.has(key)),
-      ...own.filter((key): key is symbol => typeof key === 'symbol'),
-    ];
+    for (const key of this.#preKeys) {
+      if (hasOwn(target, key)) {
+        keys.push(key);
+      }
+    }
+
+    for (const key of this.#names) {
+      if (hasOwn(target, key) || this.#isPending(key)) {
+        keys.push(key);
+      }
+    }
+
+    for (const key of own) {
+      if (typeof key === 'string' && !this.#preSet.has(key) && !this.#names.has(key)) {
+        keys.push(key);
+      }
+    }
+
+    for (const key of own) {
+      if (typeof key === 'symbol') {
+        keys.push(key);
+      }
+    }
+
+    return keys;
   }
 
   preventExtensions(target: Record<string, unknown>): boolean {
@@ -192,5 +217,9 @@ export function createLazySpyProxy(
   const preKeys = own.length === 1 && own[0] === 'accessorSpies' ? ONLY_ACCESSOR_BAG : own;
   const names = shared ? sharedNameSet(methodNames) : stringNames(methodNames);
 
-  return new Proxy(autoSpy, new LazySpyHandler(autoSpy, names, preKeys, unstubbed));
+  const proxy = new Proxy(autoSpy, new LazySpyHandler(autoSpy, names, preKeys, unstubbed));
+
+  rememberSpyRecord(proxy, autoSpy);
+
+  return proxy;
 }

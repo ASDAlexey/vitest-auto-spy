@@ -303,3 +303,69 @@ describe('lazySpies: "proxy"', () => {
     expect(Object.keys(spy)).toEqual(['first', 'second', 'third', 'extra']);
   });
 });
+
+describe('lazySpies: "proxy" — a descriptor read', () => {
+  it('hands back a getter that reaches one spy however often it runs', () => {
+    const spy = proxySpy();
+    const descriptor = Object.getOwnPropertyDescriptor(spy, 'first');
+    const read = descriptor?.get;
+
+    expect(read?.()).toBe(read?.());
+    expect(spy['first']).toBe(read?.());
+  });
+
+  it('keeps a shallow clone built from the descriptors on the original spies', () => {
+    const spy = createSpyFromClass(classOfWidth(PROXY_MIN_METHODS)) as unknown as Record<string, () => number>;
+    const clone = Object.defineProperties({}, Object.getOwnPropertyDescriptors(spy)) as Record<string, () => number>;
+
+    clone['m1']?.();
+
+    expect(clone['m1']).toBe(clone['m1']);
+    expect(clone['m1']).toBe(spy['m1']);
+    expect(spy['m1']).toHaveBeenCalledOnce();
+  });
+
+  it('writes through the descriptor setter like an assignment', () => {
+    const spy = proxySpy();
+    const replacement = vi.fn();
+
+    Object.getOwnPropertyDescriptor(spy, 'second')?.set?.(replacement);
+
+    expect(spy['second']).toBe(replacement);
+  });
+
+  it('reports a materialised, an assigned and a deleted name the way the accessor path does', () => {
+    const proxy = proxySpy();
+    const accessor = accessorSpy();
+
+    for (const spy of [proxy, accessor]) {
+      spy['second'];
+      spy['extra'] = 1;
+      Reflect.deleteProperty(spy, 'third');
+    }
+
+    expect(Reflect.ownKeys(proxy)).toEqual(Reflect.ownKeys(accessor));
+  });
+});
+
+describe('lazySpies: "proxy" — resetAutoSpy', () => {
+  it('resets the materialised spies from the record, without the ownKeys trap', () => {
+    const spy = proxySpy() as Record<string, (...args: unknown[]) => unknown>;
+
+    spy['first']?.();
+    vi.mocked(spy['second'] as (id: number) => string).mockReturnValue('configured');
+
+    const ownKeys = vi.spyOn(Reflect, 'ownKeys');
+
+    try {
+      resetAutoSpy(spy);
+
+      expect(ownKeys.mock.calls.some(([target]) => target === spy)).toBe(false);
+    } finally {
+      ownKeys.mockRestore();
+    }
+
+    expect(spy['first']).not.toHaveBeenCalled();
+    expect(spy['second']?.(1)).toBeUndefined();
+  });
+});
