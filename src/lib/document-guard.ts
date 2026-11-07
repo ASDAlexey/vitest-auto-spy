@@ -33,6 +33,7 @@ import * as DOCS_LINKS from './docs-links';
 import type { GuardReaction } from './guard-reaction';
 import { withDocs } from './message-link';
 import { displayPath } from './message-text';
+import { searchesPattern } from './text-pattern';
 import { writeWarning } from './write-warning';
 
 /** How {@link guardDocumentPollution} reacts to a document a test left changed. */
@@ -106,7 +107,7 @@ export function resolveDocumentPollution(
 }
 
 function isIgnoredAttribute(name: string, ignore: readonly (RegExp | string)[]): boolean {
-  return ignore.some((pattern) => (typeof pattern === 'string' ? pattern === name : pattern.test(name)));
+  return ignore.some((pattern) => (typeof pattern === 'string' ? pattern === name : searchesPattern(pattern, name)));
 }
 
 // `classList.add` then `remove` leaves `class=""` where there was no attribute, and `style` does the same;

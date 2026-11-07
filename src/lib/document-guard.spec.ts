@@ -224,6 +224,18 @@ describe('checkDocumentPollution — attributes', () => {
     expect(doc.body.getAttribute('aria-hidden')).toBe('true');
   });
 
+  it('leaves a patterned attribute alone on every check, even for a global or sticky RegExp', () => {
+    const doc = freshDocument();
+    const snapshot = snapshotDocument(resolveDocumentPollution({ ignoreAttributes: [/^data-cdk-/g, /data-live/y] }), doc);
+
+    doc.body.setAttribute('data-cdk-focus', '');
+    doc.body.setAttribute('data-live', '');
+
+    expect(() => checkDocumentPollution(snapshot, 'the test')).not.toThrow();
+    expect(() => checkDocumentPollution(snapshot, 'the next test')).not.toThrow();
+    expect(() => checkDocumentPollution(snapshot, 'the third test')).not.toThrow();
+  });
+
   it('prints and repairs without failing when asked to warn', () => {
     const doc = freshDocument();
     const write = vi.fn<(message: string) => void>();
@@ -336,7 +348,8 @@ describe('guardDocumentPollution', () => {
   });
 });
 
-describe('guardDocumentPollution, wired into the run', () => {
+// Each check reads what the guard did after the test or block before it.
+describe('guardDocumentPollution, wired into the run', { shuffle: false }, () => {
   const warnings: string[] = [];
 
   beforeAll(() => {
