@@ -469,19 +469,19 @@ const { fixture, component } = renderShallow(TaskListComponent, {
 `fixture` — настоящий `ComponentFixture`. Хуки жизненного цикла, входы, сигналы и DI работают; пуст
 только шаблон.
 
-| Опция                | По умолчанию | Что делает                                                                                                                               |
-| -------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `providers`          | `[]`         | провайдеры тестового модуля; `EnvironmentProviders` вроде `provideHttpClient()` подходят                                                 |
-| `imports`            | `[]`         | дополнительные импорты тестового модуля (модуль-заглушка, обвязка роутинга)                                                              |
-| `inputs`             | —            | значения входов; сигнальный вход получает **значение**, а не сигнал; ключ — поле класса или публичное имя                                |
-| `keepTemplate`       | `false`      | оставить настоящий шаблон (для `viewChild`, проекции контента, host-привязок); дочерние компоненты всё равно убираются                   |
-| `keepChildren`       | `[]`         | дочерние компоненты, директивы и пайпы, которые надо оставить                                                                            |
-| `keepModules`        | `[]`         | `NgModule`, которые под `keepTemplate` надо вернуть целиком, например `ReactiveFormsModule`                                              |
-| `keepHostDirectives` | `true`       | `false` убирает `hostDirectives` компонента и все сервисы, которые они получают через DI                                                 |
-| `template`           | `''`         | шаблон-замена вместо пустого                                                                                                             |
-| `beforeCreate`       | —            | выполняется после настройки модуля, до создания компонента; читать инжектор нужно здесь                                                  |
-| `detectChanges`      | `true`       | выполнить первое обнаружение изменений, а значит и `ngOnInit`                                                                            |
-| `testBed`            | —            | остальное из `configureTestingModule`: `deferBlockBehavior`, `errorOnUnknownElements`, `errorOnUnknownProperties`, `teardown`, `schemas` |
+| Опция                | По умолчанию | Что делает                                                                                                                                                  |
+| -------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `providers`          | `[]`         | провайдеры тестового модуля; `EnvironmentProviders` вроде `provideHttpClient()` подходят                                                                    |
+| `imports`            | `[]`         | дополнительные импорты тестового модуля (модуль-заглушка, обвязка роутинга)                                                                                 |
+| `inputs`             | —            | значения входов; сигнальный вход получает **значение**, а не сигнал; ключ — поле класса или публичное имя                                                   |
+| `keepTemplate`       | `false`      | оставить настоящий шаблон (для `viewChild`, проекции контента, host-привязок); дочерние компоненты всё равно убираются, контролы форм заменяются заглушками |
+| `keepChildren`       | `[]`         | дочерние компоненты, директивы и пайпы, которые надо оставить                                                                                               |
+| `keepModules`        | `[]`         | `NgModule`, которые под `keepTemplate` надо вернуть целиком, например `ReactiveFormsModule`                                                                 |
+| `keepHostDirectives` | `true`       | `false` убирает `hostDirectives` компонента и все сервисы, которые они получают через DI                                                                    |
+| `template`           | `''`         | шаблон-замена вместо пустого                                                                                                                                |
+| `beforeCreate`       | —            | выполняется после настройки модуля, до создания компонента; читать инжектор нужно здесь                                                                     |
+| `detectChanges`      | `true`       | выполнить первое обнаружение изменений, а значит и `ngOnInit`                                                                                               |
+| `testBed`            | —            | остальное из `configureTestingModule`: `deferBlockBehavior`, `errorOnUnknownElements`, `errorOnUnknownProperties`, `teardown`, `schemas`                    |
 
 ```ts
 renderShallow(CardComponent, { testBed: { deferBlockBehavior: DeferBlockBehavior.Playthrough } });
@@ -556,6 +556,31 @@ An AOT build flattened that module away, so name it and it is put back whole: ke
 Без этой проверки собственная ошибка Angular говорит, что пайп «is not standalone», и отправляет
 вас править пайп, с которым всё в порядке. Под JIT тот же вызов работает: там модуль остаётся в
 списке.
+
+### `keepTemplate` и сигнальная форма на дочернем контроле {#keeptemplate-and-a-signal-form-bound-to-a-child-control}
+
+Сохранённый шаблон может привязывать `[formField]` из сигнальных форм к дочернему компоненту:
+`<app-code-input [formField]="connectForm.code" />`. Директива остаётся, потомок отбрасывается, а
+голый тег ей не подходит. Angular бросил бы `NG01914 … is an invalid [formField] directive host`.
+
+Поэтому отброшенный потомок, который является пользовательским контролом формы, рендерится
+заглушкой. Контролом Angular считает компонент со входом `value` и выходом `valueChange` или со
+входом `checked` и выходом `checkedChange` — ровно то, что объявляет `model()`. Заглушка — это
+[`createComponentStub`](#a-stand-in-for-a-child-createcomponentstub) потомка: тот же селектор, входы, выходы и
+модели, без шаблона, провайдеров и конструктора. Форма пишет в неё и читает из неё:
+
+```ts
+const { fixture, component } = renderShallow(ConnectComponent, { keepTemplate: true });
+const input = fixture.debugElement.query(By.css('app-code-input')).componentInstance;
+
+input.value.set('1234'); // то же, что ввод пользователя в настоящий контрол
+fixture.detectChanges();
+
+expect(component.connectForm.code().value()).toBe('1234');
+```
+
+Чтобы оставить настоящий контрол, назовите его: `keepChildren: [CodeInputComponent]`. Своя
+заглушка с тем же селектором в `keepChildren` заменяет автоматическую.
 
 ### Смена входа посреди теста {#changing-an-input-mid-test}
 

@@ -65,13 +65,11 @@ export type AngularValueProvider<T> = { provide: ClassType<T>; useValue: Spy<T> 
  * ```
  *
  * **A generic class keeps its declared default, whatever the configuration names.** TypeScript
- * checks a generic class argument after the configuration, so the core factory reads `T` back from
- * `gettersToSpyOn` or `overrides` first: `createSpyFromClass(FlagsConfigService, { gettersToSpyOn:
- * ['flagsConfig'], returns: { isKeyEnabled: false } })` fails with `'isKeyEnabled' does not exist in
- * type 'MethodReturns<{ flagsConfig: any; }>'`. Here `T` comes from the class alone (`NoInfer`:
- * TypeScript 5.4, which every Angular this entry supports already requires), so the same
- * configuration compiles. The core factories still need the argument spelled out:
- * `createSpyFromClass<FlagsConfigService>(…)`.
+ * checks a generic class argument after the configuration, so a signature that lets the
+ * configuration infer reads `T` back from `gettersToSpyOn` or `overrides` first and rejects
+ * `returns: { isKeyEnabled: false }` against `MethodReturns<{ flagsConfig: any; }>`. Here `T` comes
+ * from the class alone (`NoInfer`: TypeScript 5.4, which every Angular this entry supports already
+ * requires), as it does in the core factories.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- read only while the generic class argument is deferred, so the configuration passes that first check; the class then decides `T`.
 export function provideAutoSpy<T = any>(
