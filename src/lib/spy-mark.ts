@@ -32,6 +32,8 @@ export interface MarkHooks {
    * dispatch to lose.
    */
   implementationReplaced?(implementation: unknown, via: string): void;
+  /** Told before a helper writes the default the dispatch answers, so one written under a replaced dispatch is reported. */
+  configuringDefault?(helper: string): void;
   /** Which member last replaced the dispatch — put back by `withImplementation` when its callback ends. */
   replacedBy?: string | undefined;
   /** The rxjs layer's per-spy state, when that layer is loaded — reached through the mark so it costs no property of its own. */
