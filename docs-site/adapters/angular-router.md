@@ -300,6 +300,7 @@ import.
 | `init` member       | Type                     | Default | What it sets                                                                 |
 | ------------------- | ------------------------ | ------- | ---------------------------------------------------------------------------- |
 | `url`               | `string`                 | `'/'`   | where the router stands; `routerState` and `events` follow from it           |
+| `navigated`         | `boolean`                | `true`  | whether a navigation has finished; use `false` before initial navigation     |
 | `currentNavigation` | `NavigationInit \| null` | `null`  | a navigation in flight, for a component that reads it in a field initializer |
 | `children`          | `ActivatedRouteInit[]`   | none    | routes under `routerState.root`, nested as deep as you need                  |
 
@@ -315,18 +316,35 @@ provideRouterDouble({
 
 What the stand-in's members are:
 
-| Member                      | What it is                                                                                                |
-| --------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `url`                       | the URL, serialized like the real router's: `setUrl('users/7')` reads back `/users/7`                     |
-| `events`                    | a `BehaviorSubject` that starts with the `NavigationEnd` for the starting URL                             |
-| `navigate`, `navigateByUrl` | spies that resolve `true` and record the call; they do not change the URL                                 |
-| `serializeUrl`, `parseUrl`  | Angular's own `DefaultUrlSerializer`                                                                      |
-| `createUrlTree`             | Angular's `createUrlTreeFromSnapshot`, so `relativeTo`, `queryParamsHandling` and `preserveFragment` work |
-| `routerState`               | Angular's own `RouterState`: `snapshot.url` is the URL; `root` carries its query params and fragment      |
-| `currentNavigation`         | the navigation in flight (Angular 20.2+ signal), `null` while the router is idle                          |
-| `getCurrentNavigation()`    | the same answer through the deprecated method                                                             |
+| Member                      | What it is                                                                                                                                |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`                       | the URL, serialized like the real router's: `setUrl('users/7')` reads back `/users/7`                                                     |
+| `events`                    | a `BehaviorSubject` replaying the starting `NavigationEnd`; with `navigated: false`, a `Subject` that starts empty                        |
+| `navigate`, `navigateByUrl` | spies that resolve `true` and record the call; they do not change the URL                                                                 |
+| `serializeUrl`, `parseUrl`  | Angular's own `DefaultUrlSerializer`                                                                                                      |
+| `createUrlTree`             | Angular's `createUrlTreeFromSnapshot`, so `relativeTo`, `queryParamsHandling` and `preserveFragment` work                                 |
+| `routerState`               | Angular's own `RouterState`: `snapshot.url` is the URL; `root` carries its query params and fragment                                      |
+| `currentNavigation`         | the navigation in flight (Angular 20.2+ signal), `null` while the router is idle                                                          |
+| `navigated`                 | `true` after a completed navigation; updated before subscribers receive `NavigationEnd`                                                   |
+| `isActive(url, options)`    | Angular URL matching, including exact/subset paths, query parameters, matrix parameters and fragments                                     |
+| `lastSuccessfulNavigation`  | the last successful navigation and its `finalUrl`: a signal on Angular 21+, a value on Angular 20; follows `setUrl()` and `NavigationEnd` |
+| `getCurrentNavigation()`    | the same answer through the deprecated method                                                                                             |
 
-Any other `Router` member (`isActive`, `resetConfig`, `lastSuccessfulNavigation`, …) throws when
+`RouterLinkActive` can use this double with the real `RouterLink` directive. On Angular 21+, read `lastSuccessfulNavigation()` as a signal. Angular 20 exposes the same navigation as the `lastSuccessfulNavigation` value.
+
+On Angular 21+, `navigated` is `true` by default and `lastSuccessfulNavigation()` holds a navigation whose `finalUrl` is the starting URL. Pass `{ navigated: false }` before the first navigation: `events` starts empty and does not replay events, and `lastSuccessfulNavigation()` is `null`. A successful `emitNavigation()` updates both fields before delivering `NavigationEnd`. This example uses Angular 21+ signal syntax:
+
+```ts
+const { router, emitNavigation } = createRouterDouble({ navigated: false });
+expect(router.navigated).toBe(false);
+expect(router.lastSuccessfulNavigation()).toBeNull();
+
+await emitNavigation('/products');
+expect(router.navigated).toBe(true);
+expect(router.lastSuccessfulNavigation()?.finalUrl?.toString()).toBe('/products');
+```
+
+Any other `Router` member (`resetConfig`, `initialNavigation`, …) throws when
 read. The error names the member and lists what the stand-in covers. You get a clear failure
 instead of a silent `undefined`.
 
@@ -554,7 +572,7 @@ subscriber runs between the two steps. It gets the finished navigation, and `nul
 that cleared it first would break the common pattern "read the navigation state when the
 navigation lands".
 
-**Why unknown Router members throw.** `currentNavigation`, `config` and `navigated` live on the
+**Why unknown Router members throw.** `currentNavigation`, `config` and `routeReuseStrategy` live on the
 `Router` instance, not on `Router.prototype`. A mock built from the prototype would return
 `undefined` for them, and `router.currentNavigation()` would then fail as "is not a function"
 far from the cause. The stand-in throws on read instead, with the member's name.

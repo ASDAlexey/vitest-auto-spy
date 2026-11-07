@@ -10,6 +10,25 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Fixed
+
+- PERF baseline and history confirmation keep `--baseline-floor-ms` in the candidate budget. A noisy first reading no longer fails a file that re-measures below the existing noise floor.
+- `renderShallow` restores an AOT component's original writable factory after TestBed compilation, including failed renders. Loading a derived component later no longer fails on an inherited getter-only `ɵfac`; JIT factory accessors retain their behavior.
+- `/angular-router`: router doubles expose `navigated`, `isActive` and `lastSuccessfulNavigation`, including the state needed by Angular 22 `RouterLinkActive`. `navigated: false` models a router before its first navigation.
+- Typed ESLint checks preserve explicit DI providers for components and directives instead of suggesting `provideAutoSpy`, whose rendering guard rejects those tokens. The diagnostic explains the supported DI form.
+
+- PERF hook timing uses the original monotonic clock. Mocking or restoring `performance.now` no longer produces artificial hook durations.
+- `createComponentStub` preserves required properties supplied through overrides while leaving unspecified component members optional.
+
+- PERF confirmation runs use one worker, disable file parallelism and clear the original shard. Suspect files no longer compete during the measurement used to fail the gate.
+- Repeated PERF confirmations keep the fastest measurement of each test body as well as the fastest file total. A faster body in another pass can now clear its candidate. Confirmation reports retain every body; a missing row in an older truncated report is never treated as a zero-duration measurement.
+- Angular unit-test discovery recognizes local builder wrappers that directly delegate to `executeUnitTestBuilder`. ESLint associates shared benches with their selected spec files through source roots and include/exclude patterns.
+- The listener guard preserves jsdom selector-engine hover listeners from nwsapi. User and framework mouse listeners remain subject to the leak check.
+- Null and undefined event listeners used by feature probes no longer produce phantom listener leaks; native option getters still run.
+- `no-inline-test-data` recognizes `.mock-data.ts` fixture files and keeps named provider arrays and typed spy configuration as test wiring.
+- `MethodReturns` infers generic method return values without the redundant type instantiation that could cause TS2589 in a large consumer program.
+- Bundle measurements updated for the fixes: `/angular-router` grows by 291 min+gzip bytes for navigation compatibility; `/eslint-plugin` grows by 1.75 kB for builder selection and typed declarable-provider checks.
+
 ## [5.68.1] - 2026-11-07
 
 ### Fixed

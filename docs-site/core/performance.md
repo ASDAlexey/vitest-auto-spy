@@ -1336,16 +1336,16 @@ a separate entry, and a project pays only for the ones it imports:
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
 | `.` — the core entry, what the badge measures | **31.9 kB** |
-| `vitest-auto-spy/angular` on its own          |     41.0 kB |
+| `vitest-auto-spy/angular` on its own          |     41.1 kB |
 | `vitest-auto-spy/angular/doubles`             |     26.4 kB |
-| `vitest-auto-spy/angular/diagnostics`         |      8.1 kB |
+| `vitest-auto-spy/angular/diagnostics`         |      8.2 kB |
 | `vitest-auto-spy/angular/matchers`            |      3.2 kB |
 | `vitest-auto-spy/react` / `/vue` / `/svelte`  |     31.9 kB |
-| `vitest-auto-spy/setup`                       |     31.9 kB |
-| `vitest-auto-spy/node`                        |     31.1 kB |
+| `vitest-auto-spy/setup`                       |     32.0 kB |
+| `vitest-auto-spy/node`                        |     31.2 kB |
 | `vitest-auto-spy/dom-stubs`                   |     13.4 kB |
 | `vitest-auto-spy/rxjs`                        |      2.8 kB |
-| `vitest-auto-spy/angular-router`              |     11.7 kB |
+| `vitest-auto-spy/angular-router`              |     12.0 kB |
 | `vitest-auto-spy/angular-http`                |      4.3 kB |
 | `vitest-auto-spy/signal-forms`                |      1.3 kB |
 | `vitest-auto-spy/zone`                        |      1.2 kB |

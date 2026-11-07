@@ -1334,16 +1334,16 @@ README бенчмарка Angular-рендера описывает методи
 | Импортировано                                    |    min+gzip |
 | ------------------------------------------------ | ----------: |
 | `.` — корневая точка входа, то, что меряет бейдж | **31,9 кБ** |
-| `vitest-auto-spy/angular` сам по себе            |     41,0 кБ |
+| `vitest-auto-spy/angular` сам по себе            |     41,1 кБ |
 | `vitest-auto-spy/angular/doubles`                |     26,4 кБ |
-| `vitest-auto-spy/angular/diagnostics`            |      8,1 кБ |
+| `vitest-auto-spy/angular/diagnostics`            |      8,2 кБ |
 | `vitest-auto-spy/angular/matchers`               |      3,2 кБ |
 | `vitest-auto-spy/react` / `/vue` / `/svelte`     |     31,9 кБ |
-| `vitest-auto-spy/setup`                          |     31,9 кБ |
-| `vitest-auto-spy/node`                           |     31,1 кБ |
+| `vitest-auto-spy/setup`                          |     32,0 кБ |
+| `vitest-auto-spy/node`                           |     31,2 кБ |
 | `vitest-auto-spy/dom-stubs`                      |     13,4 кБ |
 | `vitest-auto-spy/rxjs`                           |      2,8 кБ |
-| `vitest-auto-spy/angular-router`                 |     11,7 кБ |
+| `vitest-auto-spy/angular-router`                 |     12,0 кБ |
 | `vitest-auto-spy/angular-http`                   |      4,3 кБ |
 | `vitest-auto-spy/signal-forms`                   |      1,3 кБ |
 | `vitest-auto-spy/zone`                           |      1,2 кБ |

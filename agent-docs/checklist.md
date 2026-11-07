@@ -272,7 +272,8 @@ reaches through the import graph (`outside change` elsewhere; every file when gi
 depth-1 clone without the base commit); `--debt warn` with `--baseline` excuses a slow file or body
 the baseline or `.jsonl` history already had at 80 % of its budget (`known debt`; a regression never
 is); `--gate-margin <x>` fails only at budget × `x` (`within margin` below it); `--confirm-runs <n>`
-re-measures up to 5 times and keeps each file's fastest reading. Recommended on a merge request:
+re-measures up to 5 times and keeps the fastest file total and each test body's fastest reading.
+Confirmation uses one worker with file parallelism off and the original shard cleared. Recommended on a merge request:
 `perf --gate --changed "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --baseline perf-history.jsonl --debt warn --gate-margin 1.2 --confirm-runs 2`,
 with the default branch recording into the same history with `--update-baseline` and not gating.
 

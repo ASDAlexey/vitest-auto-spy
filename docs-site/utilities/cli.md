@@ -787,8 +787,9 @@ a test body fails at 1200 ms. Between the budget and that line, it is a warning 
 fails on the next.
 
 **`--confirm-runs <n>` — run the confirmation pass more than once.** The gate runs the confirmation
-pass `n` times (default `1`, at most `5`). It judges each file by its fastest reading. Noise on a busy
-runner only adds time, never removes it, so the fastest reading is closest to the file's real cost.
+pass `n` times (default `1`, at most `5`). It uses the fastest file total and the fastest reading of
+each test body across those passes. Confirmation uses one worker, disables file parallelism and
+clears the original shard. Suspect files therefore run without competing with one another.
 
 ### Merge sharded reports
 

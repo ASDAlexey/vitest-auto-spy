@@ -1324,7 +1324,8 @@ setupAutoSpy({ strayListeners: true });
 ```
 
 Listeners registered while modules are imported (a framework's one-time setup) are kept. Everything
-added later in a file is removed at the end of that file.
+added later in a file is removed at the end of that file. The jsdom selector engine's internal
+hover listeners are kept; user and framework mouse listeners are still checked.
 
 To fail the file instead of cleaning up quietly:
 
