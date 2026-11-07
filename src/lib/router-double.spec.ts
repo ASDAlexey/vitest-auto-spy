@@ -4,19 +4,21 @@
  * real `TestBed` rather than calling the factory — an Angular provider that only works outside DI
  * is not a provider.
  */
-import { Component, Injector, computed, inject } from '@angular/core';
+import { Component, Injector, VERSION, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { TestBed } from '@angular/core/testing';
 import {
   ActivatedRoute,
   type Navigation,
   NavigationCancel,
+  NavigationCancellationCode,
   NavigationEnd,
   NavigationError,
   NavigationSkipped,
   NavigationStart,
   Router,
   RouterLink,
+  RouterLinkActive,
   Scroll,
   provideRouter,
 } from '@angular/router';
@@ -25,6 +27,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import '../angular';
 import { provideActivatedRoute } from './angular-router';
+import { mockReadonlyProp } from './prop-mock';
 import { collectRouterEvents, createRouterDouble, injectRouterDouble, provideRouterDouble } from './router-double';
 import { NAVIGATION_END_CHECKOUT, REPORT_MAP_OUTLETS, SCROLL_ORIGIN } from './router-double.mock';
 import { registerSignalMatchers } from './signal-matchers';
@@ -68,6 +71,147 @@ class OwnRouterComponent {}
   template: `<a [routerLink]="['reviews']" [queryParams]="{ page: '2' }">reviews</a>`,
 })
 class LinkedComponent {}
+
+@Component({
+  standalone: true,
+  imports: [RouterLink, RouterLinkActive],
+  template: `<a routerLink="/products" routerLinkActive="active">products</a>`,
+})
+class ActiveLinkComponent {}
+
+describe('the navigation state RouterLinkActive reads', () => {
+  it('starts navigated, matching the NavigationEnd replayed by events', () => {
+    expect(createRouterDouble().router.navigated).toBe(true);
+  });
+
+  it('can start before initial navigation and updates before delivering NavigationEnd', async () => {
+    const double = createRouterDouble({ navigated: false });
+    const seen: boolean[] = [];
+    double.router.events.subscribe(() => seen.push(double.router.navigated));
+
+    expect(double.router.navigated).toBe(false);
+    await double.emitNavigation(new NavigationStart(2, '/products'));
+    await double.emitNavigation(new NavigationEnd(2, '/products', '/products'));
+
+    expect(seen).toEqual([false, true]);
+  });
+
+  it.each([
+    [NavigationCancellationCode.Redirect, false],
+    [NavigationCancellationCode.SupersededByNewNavigation, false],
+    [NavigationCancellationCode.GuardRejected, true],
+    [NavigationCancellationCode.NoDataFromResolver, true],
+    [undefined, true],
+  ])('matches Angular when cancellation code is %s', async (code, expected) => {
+    const double = createRouterDouble({ navigated: false });
+
+    await double.emitNavigation(new NavigationCancel(2, '/products', 'cancelled', code));
+
+    expect(double.router.navigated).toBe(expected);
+  });
+
+  it('leaves failed and skipped initial navigations pending', async () => {
+    const double = createRouterDouble({ navigated: false });
+
+    await double.emitNavigation(new NavigationError(2, '/products', new Error('failed')));
+    await double.emitNavigation(new NavigationSkipped(3, '/products', 'skipped'));
+
+    expect(double.router.navigated).toBe(false);
+  });
+
+  /* eslint-disable @typescript-eslint/no-deprecated -- Angular 20 RouterLinkActive calls this legacy method; verify its boolean and options overloads while that peer remains supported. */
+  it('compares paths, query parameters and fragments with Angular match options', () => {
+    const { router, setUrl } = createRouterDouble({ url: '/products/7?tab=reviews#details' });
+
+    expect(router.isActive('/products', false)).toBe(true);
+    expect(router.isActive('/products', true)).toBe(false);
+    expect(router.isActive(router.parseUrl('/products/7?tab=reviews#other'), true)).toBe(true);
+    expect(router.isActive('/products/7?tab=reviews#other', { fragment: 'exact' })).toBe(false);
+
+    setUrl('/checkout');
+
+    expect(router.isActive('/products', false)).toBe(false);
+    expect(router.isActive('/checkout', true)).toBe(true);
+  });
+  /* eslint-enable @typescript-eslint/no-deprecated */
+
+  it('keeps the last successful navigation through a failure and updates it before NavigationEnd', async () => {
+    const double = createRouterDouble({ navigated: false });
+    const seen: (string | undefined)[] = [];
+    double.router.events.subscribe(() => seen.push(double.router.lastSuccessfulNavigation()?.finalUrl?.toString()));
+
+    expect(double.router.lastSuccessfulNavigation).toHaveSignalValue(null);
+    double.setCurrentNavigation({ id: 2, extras: { state: { from: 'card' } } });
+    await double.emitNavigation(new NavigationEnd(2, '/products', '/products/7'));
+    await double.emitNavigation(new NavigationError(3, '/broken', new Error('failed')));
+
+    expect(seen).toEqual(['/products/7', '/products/7']);
+    expect(double.router.lastSuccessfulNavigation()?.extras.state).toEqual({ from: 'card' });
+
+    double.setUrl('/checkout');
+
+    expect(double.router.lastSuccessfulNavigation()?.finalUrl?.toString()).toBe('/checkout');
+    expect(double.router.navigated).toBe(true);
+  });
+
+  it('starts with no events before initial navigation and records the first real event', async () => {
+    const double = createRouterDouble({ navigated: false });
+    const recording = collectRouterEvents(double.router.events);
+
+    recording.expect([]);
+    expect(double.router.lastSuccessfulNavigation).toHaveSignalValue(null);
+
+    await double.emitNavigation(new NavigationStart(2, '/products'));
+    await double.emitNavigation(new NavigationEnd(2, '/products', '/products'));
+
+    recording.expect([
+      [NavigationStart, '/products'],
+      [NavigationEnd, '/products'],
+    ]);
+    const later = collectRouterEvents(double.router.events);
+    later.expect([]);
+    await double.emitNavigation('/checkout');
+    later.expect([[NavigationEnd, '/checkout']]);
+  });
+
+  it('exposes the navigation value directly on Angular 20, including the initial null', async () => {
+    const restoreVersion = mockReadonlyProp(VERSION, 'major', '20');
+
+    try {
+      const double = createRouterDouble({ navigated: false });
+      expect(double.router.lastSuccessfulNavigation).toBeNull();
+
+      await double.emitNavigation('/products');
+
+      expect(double.router.lastSuccessfulNavigation).toMatchObject({ finalUrl: double.router.parseUrl('/products') });
+
+      double.setUrl('/checkout');
+
+      expect(double.router.lastSuccessfulNavigation).toMatchObject({ finalUrl: double.router.parseUrl('/checkout') });
+    } finally {
+      restoreVersion();
+    }
+  });
+
+  it('renders real RouterLinkActive and follows the double to another URL', async () => {
+    TestBed.configureTestingModule({
+      imports: [ActiveLinkComponent],
+      providers: [provideRouterDouble({ url: '/products/7' }), provideActivatedRoute()],
+    });
+    const fixture = TestBed.createComponent(ActiveLinkComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const anchor: HTMLAnchorElement = fixture.nativeElement.querySelector('a');
+
+    expect(anchor.classList.contains('active')).toBe(true);
+
+    await injectRouterDouble().emitNavigation('/checkout');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(anchor.classList.contains('active')).toBe(false);
+  });
+});
 
 describe('createRouterDouble — where the router starts', () => {
   it('stands at the root until the spec moves it', () => {
@@ -548,11 +692,11 @@ describe('the members it does not have', () => {
   it('names the one the code under test reached for, and what the double covers', () => {
     const { router } = createRouterDouble();
 
-    expect(() => router.lastSuccessfulNavigation).toThrow(/the Router double has no lastSuccessfulNavigation/);
+    expect(() => router.resetConfig([])).toThrow(/the Router double has no resetConfig/);
     // A field, not a prototype member: read off Router.prototype alone this one answered undefined,
     // and a component calling the signal died on "is not a function" somewhere below the read.
     expect(() => router.config).toThrow(/the Router double has no config/);
-    expect(() => router.initialNavigation()).toThrow(/It answers url, events, navigate/);
+    expect(() => router.initialNavigation()).toThrow(/It answers url, events, navigated, navigate/);
   });
 
   it('ends that message with the docs link', () => {

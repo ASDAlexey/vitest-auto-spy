@@ -10,10 +10,11 @@
  *
  * So the double keeps one URL and derives the rest of it: `url` is that URL serialized the way the
  * real router serializes it, `routerState` is Angular's own `RouterState` over a root route holding
- * its query parameters and fragment, `events` is a `BehaviorSubject` that starts at the
+ * its query parameters and fragment, `events` defaults to a `BehaviorSubject` that starts at the
  * `NavigationEnd` which put the router there, `currentNavigation()` is `null` because a router
  * standing at a URL is idle, and `createUrlTree` / `serializeUrl` / `parseUrl` are the router's real
- * URL work rather than stubs.
+ * URL work rather than stubs. `navigated: false` starts before the first navigation instead:
+ * no initial event, no event replay and no last successful navigation.
  *
  * Navigation itself stays a spy, because a navigation in an application is asynchronous, runs
  * guards and can be cancelled: a double that moved its own URL on `navigate()` would be testing the
@@ -23,7 +24,7 @@
  * Lives behind `vitest-auto-spy/angular-router` with the `ActivatedRoute` double, for the same
  * reason: `@angular/router` is an optional peer, paid for by the suites that import this entry.
  */
-import { type FactoryProvider, type Injector, type Signal, type Type, type WritableSignal, signal } from '@angular/core';
+import { type FactoryProvider, type Injector, type Signal, type Type, VERSION, type WritableSignal, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
   type ActivatedRoute,
@@ -31,6 +32,7 @@ import {
   DefaultUrlSerializer,
   type Navigation,
   NavigationCancel,
+  NavigationCancellationCode,
   NavigationEnd,
   NavigationError,
   NavigationSkipped,
@@ -44,7 +46,7 @@ import {
   type UrlTree,
   createUrlTreeFromSnapshot,
 } from '@angular/router';
-import { BehaviorSubject, type Observable, skip } from 'rxjs';
+import { BehaviorSubject, type Observable, Subject, skip } from 'rxjs';
 
 import { type ActivatedRouteDouble, type ActivatedRouteInit, createActivatedRoute } from './angular-router';
 import * as DOCS_LINKS from './docs-links';
@@ -61,6 +63,8 @@ export type NavigationInit = Partial<Navigation>;
 export interface RouterDoubleInit {
   /** The URL the router reports until the spec moves it. Serialized as the router would. Default `'/'`. */
   url?: string;
+  /** Whether a navigation has finished. Default `true`, matching the initial `NavigationEnd`. */
+  navigated?: boolean;
   /**
    * The navigation `currentNavigation()` and `getCurrentNavigation()` answer with. Default `null` —
    * a router standing at a URL is idle, which is what the real one answers between navigations.
@@ -116,7 +120,7 @@ interface UrlState {
 
 /** The members the double answers. Everything else Angular's `Router` declares throws by name. */
 const COVERED =
-  'url, events, navigate, navigateByUrl, createUrlTree, serializeUrl, parseUrl, routerState, currentNavigation and getCurrentNavigation';
+  'url, events, navigated, navigate, navigateByUrl, createUrlTree, serializeUrl, parseUrl, isActive, routerState, lastSuccessfulNavigation, currentNavigation and getCurrentNavigation';
 
 /**
  * The public fields Angular's `Router` declares. A field lives on the instance, so
@@ -139,6 +143,7 @@ const DECLARED_FIELDS = [
 const DECLARED: ReadonlySet<string> = new Set([...Object.getOwnPropertyNames(Router.prototype), ...DECLARED_FIELDS]);
 
 const doubles = new WeakMap<object, RouterDouble>();
+const nonReplayingEvents = new WeakSet<Router['events']>();
 
 const serializer = new DefaultUrlSerializer();
 
@@ -302,6 +307,32 @@ interface RouterParts {
   readonly navigate: AddSpyMethodsByReturnTypes<Router['navigate']>;
   readonly navigateByUrl: AddSpyMethodsByReturnTypes<Router['navigateByUrl']>;
   readonly currentNavigation: Signal<Navigation | null>;
+  readonly lastSuccessfulNavigation: Signal<Navigation | null>;
+  navigated(): boolean;
+}
+
+interface NavigationProgress {
+  inFlight: WritableSignal<Navigation | null>;
+  successful: WritableSignal<Navigation | null>;
+  navigationOf(named: NavigationInit): Navigation;
+}
+
+/** Angular marks a completed attempt before delivering its terminal event to subscribers. */
+function finishNavigation(event: RouterNavigationEvent, state: UrlState, progress: NavigationProgress): boolean {
+  if (event instanceof NavigationEnd) {
+    state.set(event.urlAfterRedirects);
+    progress.successful.set({
+      ...(progress.inFlight() ?? progress.navigationOf({ id: event.id, initialUrl: serializer.parse(event.url) })),
+      finalUrl: state.tree(),
+    });
+  }
+
+  return (
+    event instanceof NavigationEnd ||
+    (event instanceof NavigationCancel &&
+      event.code !== NavigationCancellationCode.Redirect &&
+      event.code !== NavigationCancellationCode.SupersededByNewNavigation)
+  );
 }
 
 /** Every member the double answers, over the one piece of state behind it. */
@@ -316,6 +347,9 @@ function buildRouter(state: UrlState, stream: Observable<RouterNavigationEvent>,
     get routerState(): RouterState {
       return state.routerState;
     },
+    get navigated(): boolean {
+      return parts.navigated();
+    },
     navigate: parts.navigate,
     navigateByUrl: parts.navigateByUrl,
     createUrlTree: (commands: readonly unknown[], extras: UrlCreationOptions = {}): UrlTree =>
@@ -327,8 +361,20 @@ function buildRouter(state: UrlState, stream: Observable<RouterNavigationEvent>,
       ),
     serializeUrl: (target: UrlTree): string => serializer.serialize(target),
     parseUrl: (target: string): UrlTree => serializer.parse(target),
+    // Angular's own pure URL comparison preserves exact/subset, matrix, query and fragment rules.
+    isActive: (target: UrlTree | string, options: Parameters<Router['isActive']>[1] | boolean): boolean =>
+      Boolean(
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- Angular 20 RouterLinkActive uses this method; its pure comparator preserves that supported peer's semantics.
+        Reflect.apply(Router.prototype.isActive, { currentUrlTree: state.tree(), parseUrl: (url: string) => serializer.parse(url) }, [
+          target,
+          options,
+        ]),
+      ),
     get currentNavigation(): Signal<Navigation | null> {
       return parts.currentNavigation;
+    },
+    get lastSuccessfulNavigation(): Navigation | Signal<Navigation | null> | null {
+      return Number(VERSION.major) < 21 ? parts.lastSuccessfulNavigation() : parts.lastSuccessfulNavigation;
     },
     getCurrentNavigation: (): Navigation | null => parts.currentNavigation(),
     // Inert, and present rather than guarded: Angular's injector reads `ngOnDestroy` off every
@@ -351,13 +397,20 @@ function buildRouter(state: UrlState, stream: Observable<RouterNavigationEvent>,
  */
 export function createRouterDouble(init: RouterDoubleInit = {}): RouterDouble {
   const state = createUrlState(init.url ?? '/', init.children ?? []);
-  const events = new BehaviorSubject<RouterNavigationEvent>(new NavigationEnd(1, state.url(), state.url()));
+  let navigated = init.navigated ?? true;
+  const events = navigated
+    ? new BehaviorSubject<RouterNavigationEvent>(new NavigationEnd(1, state.url(), state.url()))
+    : new Subject<RouterNavigationEvent>();
   const stream = events.asObservable();
   let navigationId = 1;
 
+  if (!navigated) {
+    nonReplayingEvents.add(stream);
+  }
+
   const navigationOf = (named: NavigationInit): Navigation => buildNavigation(state, navigationId, named);
+  const successful = signal<Navigation | null>(navigated ? navigationOf({ finalUrl: state.tree() }) : null);
   const inFlight = signal<Navigation | null>(init.currentNavigation ? navigationOf(init.currentNavigation) : null);
-  const currentNavigation = inFlight.asReadonly();
 
   const navigate = createFunctionSpy<Router['navigate']>('Router.navigate');
   const navigateByUrl = createFunctionSpy<Router['navigateByUrl']>('Router.navigateByUrl');
@@ -365,22 +418,30 @@ export function createRouterDouble(init: RouterDoubleInit = {}): RouterDouble {
   navigate.resolveWith(true);
   navigateByUrl.resolveWith(true);
 
-  const router = buildRouter(state, stream, { navigate, navigateByUrl, currentNavigation });
+  const router = buildRouter(state, stream, {
+    navigate,
+    navigateByUrl,
+    currentNavigation: inFlight.asReadonly(),
+    lastSuccessfulNavigation: successful.asReadonly(),
+    navigated: () => navigated,
+  });
 
   const double: RouterDouble = {
     router,
     navigate,
     navigateByUrl,
-    setUrl: state.set,
+    setUrl: (url: string): void => {
+      state.set(url);
+      navigated = true;
+      successful.set(navigationOf({ finalUrl: state.tree() }));
+    },
     setCurrentNavigation: (navigation?: NavigationInit | null): void => {
       inFlight.set(navigation === null ? null : navigationOf(navigation ?? {}));
     },
     emitNavigation: async (event?: RouterNavigationEvent | string): Promise<void> => {
       const next = typeof event === 'object' ? event : new NavigationEnd(++navigationId, event ?? state.url(), event ?? state.url());
 
-      if (next instanceof NavigationEnd) {
-        state.set(next.urlAfterRedirects);
-      }
+      navigated = finishNavigation(next, state, { inFlight, successful, navigationOf }) || navigated;
 
       navigationId = startEvent(next, inFlight, navigationOf) ?? navigationId;
       events.next(next);
@@ -487,13 +548,16 @@ export interface RouterEventsHandle {
  * ]);
  * ```
  *
- * The recording starts empty: the double's `events` is a `BehaviorSubject`, and the value it replays
- * on subscribe is where the router stands, not something it emitted. The subscription ends with the
+ * The recording starts empty: the default double's `BehaviorSubject` replays where the router stands,
+ * which is not something it just emitted. A double started with `navigated: false` has no replay,
+ * so its first real event is recorded too. The subscription ends with the
  * test that started the recording, on a runner with a per-test teardown (Vitest, Bun).
  */
 export function collectRouterEvents(source: Router['events']): RouterEventsHandle {
   const recorded: RouterNavigationEvent[] = [];
-  const subscription = source.pipe(skip(1)).subscribe((event: RouterNavigationEvent) => recorded.push(event));
+  const subscription = source
+    .pipe(skip(nonReplayingEvents.has(source) ? 0 : 1))
+    .subscribe((event: RouterNavigationEvent) => recorded.push(event));
 
   // node:test has no per-test teardown: the subscription then lives exactly as long as the double.
   getTestFinishedHook()?.(() => subscription.unsubscribe());
