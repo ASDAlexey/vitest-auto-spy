@@ -21,6 +21,7 @@
  * `eslint-plugin-*` packages, which a subpath export of this package can never be.
  */
 import { hookRegisteringHelpers } from './lib/eslint/hook-registering-helpers';
+import { PLUGIN_VERSION } from './lib/eslint/plugin-version';
 import type { RuleModule } from './lib/eslint/rule-types';
 import { rules } from './lib/eslint/rules';
 
@@ -29,6 +30,8 @@ export type RuleSeverity = 'error' | 'off' | 'warn';
 
 /** A flat-config object: the plugin under its name, plus the rules it turns on. */
 export interface FlatConfig {
+  /** What `--print-config` and the config inspector call it. */
+  name: string;
   plugins: Record<string, AutoSpyEslintPlugin>;
   rules: Record<string, RuleSeverity>;
 }
@@ -47,6 +50,8 @@ export interface PluginRule {
 
 /** The plugin object, as ESLint consumes it. */
 export interface AutoSpyEslintPlugin {
+  /** ESLint builds the `--cache` key from it, so an upgrade relints the files the cache holds as clean. */
+  meta: { name: string; version: string };
   rules: Record<string, PluginRule>;
   configs: { recommended: FlatConfig; strict: FlatConfig; typeErrors: FlatConfig };
   /**
@@ -276,17 +281,18 @@ const typeErrorRules: Record<string, RuleSeverity> = {
  * `recommended` with its `warn` rules raised to `error`, for a project that wants every finding to
  * stop the build and would otherwise map `Object.keys(plugin.rules)` by hand. The grading above is
  * advice about adoption, not about correctness, so a suite that has adopted the plugin can drop it.
- * `no-compile-components` and `no-redundant-mock-reset` still report nothing until their options say
- * what the project's builder and runner do.
+ * `no-compile-components` still reports nothing until its option says what the project's builder does, and
+ * `no-redundant-mock-reset` until its options or a runner config it can read say what the runner resets.
  */
 const strictRules: Record<string, RuleSeverity> = Object.fromEntries(Object.keys(recommendedRules).map((id) => [id, 'error']));
 
 const plugin: AutoSpyEslintPlugin = {
+  meta: { name: PLUGIN_NAME, version: PLUGIN_VERSION },
   rules,
   configs: {
-    recommended: { plugins: {}, rules: recommendedRules },
-    strict: { plugins: {}, rules: strictRules },
-    typeErrors: { plugins: {}, rules: typeErrorRules },
+    recommended: { name: `${PLUGIN_NAME}/recommended`, plugins: {}, rules: recommendedRules },
+    strict: { name: `${PLUGIN_NAME}/strict`, plugins: {}, rules: strictRules },
+    typeErrors: { name: `${PLUGIN_NAME}/typeErrors`, plugins: {}, rules: typeErrorRules },
   },
   hookRegisteringHelpers,
 };
