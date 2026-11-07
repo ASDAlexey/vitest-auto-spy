@@ -68,7 +68,7 @@ describe('calledWith(…).once() / .times(n)', () => {
     load.mustBeCalledWith(1).once().mockReturnValue('first');
 
     expect(load(1)).toBe('first');
-    expect(() => load(1)).toThrow();
+    expect(() => load(1)).toThrow(/load is set up with mustBeCalledWith, and this call matches none of its configs/);
   });
 
   it.each([0, -1, 1.5, Number.NaN])('refuses times(%s)', (count) => {
