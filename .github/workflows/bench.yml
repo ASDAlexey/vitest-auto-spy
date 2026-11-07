@@ -4,8 +4,8 @@ name: Benchmarks
 # itself — a benchmark nobody re-runs is a claim, not evidence. `workflow_dispatch` is for a
 # maintainer re-running it deliberately (the button needs write access, so a visitor forks first);
 # the monthly schedule is what keeps the published numbers from silently rotting; the
-# `pull_request` trigger is what makes a Dependabot bump of a competitor re-measure against the new
-# version, which is the only anti-rot mechanism that survives a single maintainer.
+# `pull_request` trigger re-measures against new competitor versions when the maintainer opens
+# a dependency update PR.
 on:
   workflow_dispatch:
   # Not on the hour: GitHub documents that scheduled runs are delayed under load at the top of
@@ -44,7 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -128,7 +128,7 @@ jobs:
 
       # `always()`: a mid-run failure still leaves the passes that did complete, and those
       # measurements are exactly the evidence the failure needs.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: bench-results
