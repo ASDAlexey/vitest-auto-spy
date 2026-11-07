@@ -14,9 +14,9 @@
  * simply point at `vitest-auto-spy`: upstream puts every async helper behind `.and`
  * (`spy.load.and.nextWith(…)`), because that is where jasmine's own spy strategies live.
  *
- * **On Bun or `node:test`**, import `enableJasmineCompat` from `vitest-auto-spy/bun` or
- * `vitest-auto-spy/node` instead and call it once in your setup — this entry pulls in Vitest, which
- * those runtimes cannot load.
+ * **On Bun or `node:test`**, import `enableJasmineCompat` from `vitest-auto-spy/jasmine-compat`
+ * instead and call it once in your setup — this entry pulls in Vitest, which those runtimes cannot
+ * load.
  *
  * **Observables** still come from `vitest-auto-spy/rxjs`, imported once as usual; this entry adds no
  * rxjs of its own, and `createObservableWithValues` is exported from there.
@@ -59,6 +59,14 @@ export { registerJasmineMatchers } from './lib/jasmine-matchers';
  * once the calls have been rewritten to their `expect.*` / `vi.*` equivalents.
  */
 export { jasmine, type JasmineClock } from './lib/jasmine-global';
+export type {
+  JasmineCustomEqualityTester,
+  JasmineCustomMatcher,
+  JasmineCustomMatcherFactories,
+  JasmineCustomMatcherFactory,
+  JasmineCustomMatcherResult,
+  JasmineMatchersUtil,
+} from './lib/jasmine-custom-matchers';
 
 export type {
   JasmineAccessorSpies,
