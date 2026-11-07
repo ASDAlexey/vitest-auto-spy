@@ -13,7 +13,7 @@ import { withDocs } from './message-link';
 import { count, displayPath } from './message-text';
 import { type PrototypePollutionReaction, type PrototypeSnapshot, checkPrototypePollution, snapshotPrototypes } from './prototype-guard';
 import { currentSpecFile } from './spec-file';
-import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
+import { type StrayRejection, droppedStrayRejections, flushStrayRejections, trackStrayRejections } from './stray-rejections';
 import { describeSwallowedStrictCalls } from './swallowed-strict';
 import { openReadWindow, reportUnconfiguredReads } from './unconfigured-reads';
 import { writeWarning } from './write-warning';
@@ -50,18 +50,24 @@ function surfacedIn(testName: string): string {
  * Turn what was captured into the failure message. "Attributed to" names the test the runner was in
  * when zone.js gave up, which is not always the test that created the promise. Exported for its spec.
  */
-export function describeStrayRejections(rejections: readonly StrayRejection[]): string {
+export function describeStrayRejections(rejections: readonly StrayRejection[], dropped = 0): string {
   const tests = new Set(rejections.map((rejection) => rejection.testName));
   const [only] = tests;
   const shared = tests.size === 1 && only !== undefined ? ` ${surfacedIn(only)}` : '';
   const lines = rejections.map(
     (rejection) => `  - ${describeReason(rejection.reason)}${shared === '' ? ` — surfaced ${surfacedIn(rejection.testName)}` : ''}`,
   );
+
+  if (dropped > 0) {
+    lines.push(`  … and ${dropped} more, counted but not kept`);
+  }
+
   const advice = rejections.some((rejection) => rejection.assertion) ? LATE_ASSERTION_ADVICE : UNHANDLED_ERROR_ADVICE;
-  const one = rejections.length === 1;
+  const total = rejections.length + dropped;
+  const one = total === 1;
 
   return withDocs(
-    `[vitest-auto-spy] ${count(rejections.length, 'promise rejection')} went unhandled${shared}, and zone.js swallowed ` +
+    `[vitest-auto-spy] ${count(total, 'promise rejection')} went unhandled${shared}, and zone.js swallowed ` +
       `${one ? 'it' : 'them'} into console.error:\n${lines.join('\n')}\n${advice}`,
     DOCS_LINKS.setupRejections,
   );
@@ -99,10 +105,11 @@ function sameFailure(reported: unknown, reason: unknown): boolean {
  */
 export function reportStrayRejections(context?: unknown): void {
   const reported = reportedErrors(context);
+  const dropped = droppedStrayRejections();
   const stray = flushStrayRejections().filter((rejection) => !alreadyReported(rejection.reason, reported));
 
-  if (stray.length > 0) {
-    throw new Error(describeStrayRejections(stray));
+  if (stray.length > 0 || dropped > 0) {
+    throw new Error(describeStrayRejections(stray, dropped));
   }
 }
 
@@ -120,12 +127,20 @@ export function reportSwallowedStrictCalls(context: unknown, reaction: GuardReac
  * per test, since `vi.setConfig` in a spec runs after the setup file. Exported for its spec.
  */
 export function annotateTimedOutHooks(context?: unknown): void {
-  annotateHookTimeout(reportedErrors(context), readRunnerTimeouts());
+  const errors = reportedErrors(context);
+
+  if (errors.length > 0) {
+    annotateHookTimeout(errors, readRunnerTimeouts());
+  }
 }
 
 /** Explain a timeout the frozen clock accounts for; runs after {@link annotateTimedOutHooks}. Exported for its spec. */
 export function annotateFrozenClockTimeouts(context?: unknown): void {
-  annotateFrozenClockTimeout(reportedErrors(context), readFrozenClock());
+  const errors = reportedErrors(context);
+
+  if (errors.length > 0) {
+    annotateFrozenClockTimeout(errors, readFrozenClock());
+  }
 }
 
 declare global {
@@ -233,7 +248,7 @@ function watchStrayRejections(registry: GuardRegistry, enabled: boolean): void {
     return;
   }
 
-  // The claim happens now, once per worker, exactly as `strayTimers` does.
+  // Claimed per file: the setup file runs again for every file, and this `afterAll` lets go at its end.
   afterAll(trackStrayRejections());
   registry.teardown.push(reportStrayRejections);
 }
