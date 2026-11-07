@@ -334,7 +334,7 @@
     "prepublishOnly": "npm run build",
     "prepack": "node scripts/pack-changelog.mjs --trim",
     "postpack": "node scripts/pack-changelog.mjs --restore",
-    "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && node scripts/generate-export-map.mjs && node scripts/stamp-changelog.mjs && node scripts/size-entries.mjs --release && node scripts/cold-import.mjs --release && git add .claude-plugin alias src/cli/checks/export-map.generated.ts CHANGELOG.md size-entries.json cold-import.json"
+    "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && node scripts/generate-export-map.mjs && node scripts/stamp-changelog.mjs && node scripts/size-entries.mjs --release && node scripts/cold-import.mjs --release && git add .claude-plugin alias src/lib/eslint/plugin-version.ts src/cli/checks/export-map.generated.ts CHANGELOG.md size-entries.json cold-import.json"
   },
   "peerDependencies": {
     "@angular/common": ">=20.0.0",
