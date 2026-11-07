@@ -447,16 +447,20 @@ declare class FlagService<T extends object = FlagDefaults> {
 }
 
 /**
- * The one combination the core factory cannot infer: an accessor list plus `returns` on a generic
- * class. TypeScript checks a generic class argument after the configuration, reads `T` back from the
- * list as `{ flags: any }`, and rejects the `returns` key before the class is ever read. The
- * `@ts-expect-error` is the ratchet — if a future signature infers this, the directive goes unused
- * and the documentation that says to spell the argument out has to change with it.
+ * An accessor list plus `returns` on a generic class. TypeScript checks a generic class argument
+ * after the configuration, and the signature used to read `T` back from the list as `{ flags: any }`,
+ * rejecting the `returns` key before the class was read. The configuration no longer infers `T`.
  */
 describe('a generic class, an accessor list and returns', () => {
-  it('is rejected inferred, which is what AGENTS.md §17 names', () => {
-    // @ts-expect-error -- 'isEnabled' does not exist in type 'MethodReturns<{ flags: any; }>'
-    createSpyFromClass(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabled: false } });
+  it('infers the declared default from the class', () => {
+    const flags = createSpyFromClass(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabled: false } });
+
+    expectTypeOf(flags.isEnabled).parameter(0).toEqualTypeOf<'beta'>();
+  });
+
+  it('still checks returns against the class', () => {
+    // @ts-expect-error -- 'flags' is an accessor, not a method `returns` can configure
+    createSpyFromClass(FlagService, { gettersToSpyOn: ['flags'], returns: { flags: {} } });
   });
 
   it('compiles with the type argument spelled out, and keeps the default', () => {
@@ -474,9 +478,10 @@ describe('a generic class, an accessor list and returns', () => {
       .toEqualTypeOf<'beta'>();
   });
 
-  it('is rejected inferred by the core registerAutoSpyDefaults too, and compiles spelled out', () => {
-    // @ts-expect-error -- 'isEnabled' does not exist in type 'MethodReturns<{ flags: any; }>'
+  it('compiles inferred and spelled out through the core registerAutoSpyDefaults too', () => {
     registerAutoSpyDefaults(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabled: false } });
+    // @ts-expect-error -- 'isEnabledd' is not a method of FlagService
+    registerAutoSpyDefaults(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabledd: false } });
     registerAutoSpyDefaults<FlagService>(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabled: false } });
   });
 });

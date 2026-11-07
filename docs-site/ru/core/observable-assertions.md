@@ -58,11 +58,8 @@ await expectCompletion(service.purgeCache()); // поток завершился
 ```ts
 import { expectEmissionSync, expectEmissionsSync } from 'vitest-auto-spy';
 
-expect(
-  expectEmissionSync(component.closed, {
-    advance: () => component.close(),
-  }),
-).toBeUndefined();
+// `closed` — `output<void>`: вызов сам и есть проверка, он бросает, если пришло не ровно одно значение
+expectEmissionSync(component.closed, { advance: () => component.close() });
 
 expect(
   expectEmissionsSync(component.selected, 2, {
@@ -73,6 +70,10 @@ expect(
   }),
 ).toEqual([15, 20]);
 ```
+
+На `void`-output вызывайте хелпер отдельной инструкцией, как выше. Обёрнутый в
+`expect(…).toBeUndefined()`, он нарушает `@typescript-eslint/no-confusing-void-expression` в строгих
+пресетах, а `vitest/expect-expect` и так считает его проверкой, если в `assertFunctionNames` есть `'expect*'`.
 
 Хелпер сначала подписывается, один раз выполняет `advance` и отписывается перед возвратом или ошибкой.
 Значения, выданные при подписке, тоже считаются. Передайте `{ skip: 1 }`, чтобы пропустить начальное значение с повторной выдачей.

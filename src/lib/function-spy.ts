@@ -175,9 +175,11 @@ function strictCallAdvice(call: UnstubbedCall, rendered: string): string {
   const any = `.mockReturnValue(…)`;
   const streams = ' — .resolveWith(…) / .nextWith(…) when it returns a Promise / Observable.';
 
+  const ignored = `\nA void method, or a result the code ignores: returnsUndefined: ['${call.method}'] in the double's options.`;
+
   return call.args.length === 0
-    ? `Configure it in the test: ${spy}${any}${streams}`
-    : `Configure it in the test: ${spy}.calledWith(${rendered}).mockReturnValue(…) for these arguments, or ${any} for any${streams}`;
+    ? `Configure it in the test: ${spy}${any}${streams}${ignored}`
+    : `Configure it in the test: ${spy}.calledWith(${rendered}).mockReturnValue(…) for these arguments, or ${any} for any${streams}${ignored}`;
 }
 
 function throwUnstubbedCall(call: UnstubbedCall): never {
@@ -469,25 +471,29 @@ function configuredChain(state: SpyState): 'calledWith' | 'mustBeCalledWith' | u
  * left to the reader. Both orders are a mistake and both are reported; the message names the order,
  * because the repair is the same line in each and it is easier to find when it is pointed at.
  */
-function dispatchReplacedMessage(name: string, via: string, chain: string, order: 'erased' | 'late'): string {
+function dispatchReplacedMessage(name: string, via: string, chain: string, order: 'default' | 'erased' | 'late'): string {
   const what =
     order === 'erased'
       ? `${via}() replaced the dispatch of '${name}' after ${chain}() was configured on it`
       : `${chain}() was configured on '${name}' after ${via}() had replaced its dispatch`;
+  const repair =
+    order === 'default'
+      ? `Call mockReset() on the spy before ${chain}() to hand the answer back to it, or seed the earlier default with ` +
+        `the 'returns' option or resolveWith/nextWith/failWith instead of ${via}(), so the later call supersedes it.`
+      : `A fallback the ${chain}() still wins over goes in the spy's own container instead: the 'returns' option where the ` +
+        'double is built, or resolveWith/nextWith/failWith.' +
+        (order === 'erased'
+          ? ` To drop the ${chain}() and answer one value for every call, resetAutoSpy(spy) first: mockReset() leaves the chain in place.`
+          : '');
 
   return withDocs(
-    `[vitest-auto-spy] ${what}, so the ${chain}() decides nothing — every call answers what ${via}() installed. ` +
-      `A fallback the ${chain}() still wins over goes in the spy's own container instead: the 'returns' option where the ` +
-      'double is built, or resolveWith/nextWith/failWith.' +
-      (order === 'erased'
-        ? ` To drop the ${chain}() and answer one value for every call, resetAutoSpy(spy) first: mockReset() leaves the chain in place.`
-        : ''),
+    `[vitest-auto-spy] ${what}, so the ${chain}() decides nothing — every call answers what ${via}() installed. ${repair}`,
     DOCS_LINKS.createSpyFromClass,
   );
 }
 
-/** The other order of the same mistake: a chain opened on a spy whose dispatch is already gone. */
-function reportLateChain(internals: FunctionSpyInternals, chain: string): void {
+/** The other order of the same mistake: a chain, or a default for the dispatch to answer, configured on a spy whose dispatch is already gone. */
+function reportLateChain(internals: FunctionSpyInternals, chain: string, order: 'default' | 'late' = 'late'): void {
   if (internals.replacedBy === undefined) {
     return;
   }
@@ -498,7 +504,7 @@ function reportLateChain(internals: FunctionSpyInternals, chain: string): void {
   Reflect.get(recorded, 'calls');
 
   if (internals.replacedBy !== undefined) {
-    reportMisconfiguration(dispatchReplacedMessage(internals.name, internals.replacedBy, chain, 'late'));
+    reportMisconfiguration(dispatchReplacedMessage(internals.name, internals.replacedBy, chain, order));
   }
 }
 
@@ -613,6 +619,11 @@ class FunctionSpyInternals implements MarkHooks, SpyState {
     this.unstubbed = unstubbed;
   }
 
+  /** `Class.method` where the guard knows the class — what a report about this spy calls it. */
+  get label(): string {
+    return describeTarget({ className: this.unstubbed?.className, method: this.name, args: [] });
+  }
+
   /** The chains, for `explainSpy`, which reads them off the mark without importing this module. */
   get state(): SpyState {
     return this;
@@ -642,6 +653,11 @@ class FunctionSpyInternals implements MarkHooks, SpyState {
     }
   }
 
+  /** A helper is about to write the default the dispatch answers — reported when no call will reach it. */
+  configuringDefault(helper: string): void {
+    reportLateChain(this, helper, 'default');
+  }
+
   /**
    * The rxjs layer's state for this spy, materialised on first use.
    *
@@ -650,7 +666,7 @@ class FunctionSpyInternals implements MarkHooks, SpyState {
    * pays for the object.
    */
   get observable(): ObservableStream {
-    this.#observable ??= requireObservableSupport().streamForFunctionSpy(this.valueContainer);
+    this.#observable ??= requireObservableSupport().streamForFunctionSpy(this.valueContainer, this.label);
 
     return this.#observable;
   }
@@ -759,11 +775,17 @@ const SPY_HELPERS = /* @__PURE__ */ Object.assign(
   // The inner call carries its own mark: a pure annotation covers the call it precedes, not its
   // arguments, and an unmarked argument call is evaluated — and everything it reaches kept.
   /* @__PURE__ */ promiseHelpers<unknown>((self, container, helper) => {
-    storePromiseConfig(internalsOf(self, helper).valueContainer, container);
+    const internals = internalsOf(self, helper);
+
+    internals.configuringDefault(helper);
+    storePromiseConfig(internals.valueContainer, container);
   }),
   {
     failWith(this: unknown, error?: unknown): void {
-      const { valueContainer } = internalsOf(this, 'failWith');
+      const internals = internalsOf(this, 'failWith');
+      const { valueContainer } = internals;
+
+      internals.configuringDefault('failWith');
 
       valueContainer.value = error;
       valueContainer._isThrown = true;

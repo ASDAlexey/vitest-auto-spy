@@ -58,11 +58,8 @@ They return values immediately, so you need no listener spy, collection array, m
 ```ts
 import { expectEmissionSync, expectEmissionsSync } from 'vitest-auto-spy';
 
-expect(
-  expectEmissionSync(component.closed, {
-    advance: () => component.close(),
-  }),
-).toBeUndefined();
+// `closed` is an `output<void>`: the call is the assertion, it throws unless exactly one value arrives
+expectEmissionSync(component.closed, { advance: () => component.close() });
 
 expect(
   expectEmissionsSync(component.selected, 2, {
@@ -73,6 +70,10 @@ expect(
   }),
 ).toEqual([15, 20]);
 ```
+
+On a `void` output, call the helper as a statement, as above. Wrapped in `expect(…).toBeUndefined()`
+it trips `@typescript-eslint/no-confusing-void-expression` under the strict presets, and
+`vitest/expect-expect` already counts it as an assertion when `assertFunctionNames` holds `'expect*'`.
 
 The helper subscribes first, runs `advance` once, then unsubscribes before returning or throwing.
 Values emitted during subscription count too. Use `{ skip: 1 }` to ignore a replayed initial value.

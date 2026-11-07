@@ -229,6 +229,7 @@ users.currentTenant(); // throws here, not four frames later inside the componen
 [vitest-auto-spy] Cart.checkout(1, 'now') was called; this strict double has nothing configured for it.
 Called from src/app/cart.component.ts:41:12
 Configure it in the test: cart.checkout.calledWith(1, 'now').mockReturnValue(…) for these arguments, or .mockReturnValue(…) for any — .resolveWith(…) / .nextWith(…) when it returns a Promise / Observable.
+A void method, or a result the code ignores: returnsUndefined: ['checkout'] in the double's options.
 Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#the-message
 ```
 
@@ -257,6 +258,9 @@ Precedence, first one set wins: the double's `onUnstubbedCall` → the double's 
   for its callback, which is reported too, as is a chain configured inside that callback. When both a fallback and a
   per-argument value are wanted, the fallback goes in the spy's container — `returns:` where the
   double is built, or `resolveWith` / `nextWith` / `failWith` — which a `calledWith` still wins over.
+  The same report covers a container helper written after the replacement — `throwWith`, `nextWith`,
+  `resolveWith`, `failWith` and the rest answer nothing under a replaced dispatch; `mockReset()` the
+  spy first (it keeps the chains and the container, and puts the dispatch back).
   The report is this library's own spy engine's, so Vitest and Rstest have it; Bun, `node:test` and
   `setSpyEngine('runner')` do not. The `Once` family is never reported.
   `vi.when(spy)` (Vitest 5) is not reported either, nor any `mockImplementation` built from

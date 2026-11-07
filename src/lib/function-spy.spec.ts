@@ -362,14 +362,26 @@ describe('createFunctionSpy — a host implementation over a configured chain', 
     await expect(promised()).resolves.toBe('flat');
   });
 
-  it('says nothing for a spy that has no chain, whichever order the two are written in', () => {
+  it('says nothing for a spy that has no chain when the host implementation comes last', () => {
     const load = createFunctionSpy<(id: number) => string>('load');
 
+    load.failWith(new Error('container'));
     load.mockReturnValue('first');
     load.mockReturnValue('second');
-    load.failWith(new Error('container'));
 
     expect(warnings).toEqual([]);
+  });
+
+  it('reports a failWith written under a replaced dispatch, which no call reaches', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    load.mockReturnValue('flat');
+    load.failWith(new Error('container'));
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("failWith() was configured on 'load' after mockReturnValue() had replaced its dispatch");
+    expect(warnings[0]).toContain('Call mockReset() on the spy before failWith()');
+    expect(load(1)).toBe('flat');
   });
 
   it('says nothing about a `Once` queue, which drains back onto the dispatch instead of taking it away', () => {
