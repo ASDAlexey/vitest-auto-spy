@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.68.0] - 2026-11-07
+
 ### Added
 
 - `/jasmine`: `jasmine.addMatchers` runs real jasmine custom matchers. A factory
@@ -10491,7 +10493,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.67.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.68.0...HEAD
+[5.68.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.67.0...v5.68.0
 [5.67.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.66.0...v5.67.0
 [5.66.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.65.0...v5.66.0
 [5.65.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.64.0...v5.65.0
