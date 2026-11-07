@@ -7,7 +7,10 @@ import { HttpClient } from '@angular/common/http';
 import { TestBed, getTestBed } from '@angular/core/testing';
 import { beforeAll, describe, expect, it } from 'vitest';
 
+import { expectFailures } from './expected-failure.mock';
 import { mockValueProp } from './prop-mock';
+
+const failsWith = expectFailures();
 
 type AngularHttp = typeof import('./angular-http');
 
@@ -23,6 +26,7 @@ function openRequest(url: string): void {
 
 describe('a block that configures HTTP testing', () => {
   it.fails('fails a test that ends holding an unanswered request', () => {
+    failsWith(/GET \/api\/first-block was never answered/);
     TestBed.configureTestingModule({ providers: [...http.provideHttpTesting()] });
     openRequest('/api/first-block');
   });
@@ -34,17 +38,20 @@ describe('a block that configures HTTP testing', () => {
 
 describe('a later block', () => {
   it.fails('is verified as well', () => {
+    failsWith(/GET \/api\/later-block was never answered/);
     TestBed.configureTestingModule({ providers: [...http.provideHttpTesting()] });
     openRequest('/api/later-block');
   });
 
   it.fails('reports a request a reset in the middle of the test took down with the module', () => {
+    failsWith(/GET \/api\/abandoned was never answered/);
     TestBed.configureTestingModule({ providers: [...http.provideHttpTesting()] });
     openRequest('/api/abandoned');
     TestBed.resetTestingModule();
   });
 
   it.fails('arms the check once for a module that spreads the providers twice', () => {
+    failsWith(/^\[vitest-auto-spy\] GET \/api\/twice was never answered/);
     TestBed.configureTestingModule({ providers: [...http.provideHttpTesting(), ...http.provideHttpTesting()] });
     openRequest('/api/twice');
   });
