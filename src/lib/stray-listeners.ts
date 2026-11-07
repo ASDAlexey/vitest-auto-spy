@@ -228,6 +228,11 @@ function signalOf(
  * was taken over, in which case the copy without it.
  */
 function recordEntry(tracking: TargetTracking, boundary: Func, type: string, listener: unknown, options: unknown): unknown {
+  // DOM feature probes still pass their options to the platform, but a missing callback adds nothing.
+  if (listener === null || listener === undefined) {
+    return options;
+  }
+
   const capture = captureOf(options);
   const key = slotKey(type, capture);
   const slot = tracking.index.get(key) ?? new Map<unknown, RecordedListener>();
@@ -284,6 +289,9 @@ function forgetEntries(tracking: TargetTracking, type: string, listener: unknown
 /** The stack frames of the wrappers in this file, which say nothing about where the call came from. */
 const OWN_MODULE_FRAME = /stray-listeners\.[jt]s/;
 
+/** jsdom before its dom-selector migration lazily wires :hover through nwsapi's selector engine. */
+const SELECTOR_ENGINE_FRAME = /[/\\]node_modules[/\\]nwsapi[/\\]src[/\\]nwsapi\.js:/;
+
 const environmentVerdicts = new WeakMap<RecordedListener, boolean>();
 
 /** Decided on the first caller frame, lazily, so only an entry that outlived the baseline pays for formatting its stack. */
@@ -293,7 +301,7 @@ function isEnvironmentEntry(entry: RecordedListener): boolean {
   if (verdict === undefined) {
     const caller = stackFrames(entry.trace.stack).find((frame) => !OWN_MODULE_FRAME.test(frame) && !isLibraryFrame(frame));
 
-    verdict = caller !== undefined && isEnvironmentFrame(caller);
+    verdict = caller !== undefined && (isEnvironmentFrame(caller) || SELECTOR_ENGINE_FRAME.test(caller));
     environmentVerdicts.set(entry, verdict);
   }
 

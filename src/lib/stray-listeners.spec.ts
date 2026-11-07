@@ -164,6 +164,47 @@ describe('stray listeners', () => {
     expect(countStrayListeners([named])).toBe(0);
   });
 
+  it.each([null, undefined])('forwards a %s callback feature probe without recording a listener', (listener) => {
+    const named = namedTarget('passive feature probe');
+    const platformAdd = named.target.addEventListener;
+    const passiveRead = vi.fn(() => true);
+    const nativeCall = vi.fn(function nativeAdd(
+      this: EventTarget,
+      type: string,
+      callback: unknown,
+      settings?: boolean | AddEventListenerOptions,
+    ): unknown {
+      if (settings && typeof settings === 'object') {
+        void settings.passive;
+      }
+      return Reflect.apply(platformAdd, this, [type, callback, settings]);
+    });
+    const options = {
+      get passive(): boolean {
+        return passiveRead();
+      },
+    };
+    const realListener = vi.fn();
+
+    named.target.addEventListener = nativeCall;
+    track(named);
+    baselineStrayListeners([named]);
+    Reflect.apply(named.target.addEventListener, named.target, ['test', listener, options]);
+
+    expect(nativeCall).toHaveBeenCalledWith('test', listener, options);
+    expect(passiveRead).toHaveBeenCalled();
+    expect(countStrayListeners([named])).toBe(0);
+    expect(describeStrayListeners([named])).toEqual([]);
+    expect(removeStrayListeners([named])).toBe(0);
+    Reflect.apply(named.target.removeEventListener, named.target, ['test', listener, options]);
+
+    named.target.addEventListener('test', realListener);
+    expect(countStrayListeners([named])).toBe(1);
+    expect(removeStrayListeners([named])).toBe(1);
+    named.target.dispatchEvent(new Event('test'));
+    expect(realListener).not.toHaveBeenCalled();
+  });
+
   it('keeps a capture-phase entry when the removal leaves the flag out, and drops it when it matches', () => {
     const named = namedTarget('stand-in');
     const heard = vi.fn();
@@ -307,6 +348,28 @@ describe('stray listeners', () => {
 
     expect(countStrayListeners([named])).toBe(1);
     expect(removeStrayListeners([named])).toBe(1);
+  });
+
+  it('keeps nwsapi hover wiring while still removing consumer and framework mouse listeners', () => {
+    const named = namedTarget('document');
+    const environment = vi.fn();
+    const consumer = vi.fn();
+    const framework = vi.fn();
+
+    track(named);
+    baselineStrayListeners([named]);
+    registerFrom('/app/node_modules/nwsapi/src/nwsapi.js', named.target, 'mouseover', environment);
+    registerFrom('C:\\app\\node_modules\\nwsapi\\src\\nwsapi.js', named.target, 'mouseout', environment);
+    registerFrom('/app/src/hover.ts', named.target, 'mouseover', consumer);
+    registerFrom('/app/node_modules/@angular/cdk/fesm2022/a11y.mjs', named.target, 'mouseout', framework);
+
+    expect(describeStrayListeners([named]).map(({ type }) => type)).toEqual(['mouseover', 'mouseout']);
+    expect(removeStrayListeners([named])).toBe(2);
+    named.target.dispatchEvent(new Event('mouseover'));
+    named.target.dispatchEvent(new Event('mouseout'));
+    expect(environment).toHaveBeenCalledTimes(2);
+    expect(consumer).not.toHaveBeenCalled();
+    expect(framework).not.toHaveBeenCalled();
   });
 
   it('forgets a listener its AbortSignal took off', () => {

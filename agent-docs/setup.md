@@ -259,7 +259,8 @@ something removes it: the wrapper cannot observe the firing without breaking ide
 `removeEventListener` from the code under test, and removing an already-fired listener is a no-op
 anyway. happy-dom detaches it through the public `removeEventListener`, so there it leaves the count.
 A listener added with `{ signal }` leaves the count when the signal aborts; one whose signal had
-already aborted is never recorded.
+already aborted is never recorded. The guard keeps jsdom selector-engine hover listeners from
+nwsapi; user and framework mouse listeners are still tracked.
 
 **The one no registry tracks:** `vi.stubGlobal` is undone by `unstubGlobals` and
 `vi.spyOn(globalThis, …)` by `restoreMocks`, but a plain assignment —
