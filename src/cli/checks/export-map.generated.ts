@@ -445,6 +445,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   SignalPropValues: '12',
   SignalValueOptions: '15',
   SpecTiming: '13',
+  SpiedDomEvent: '7',
   SpiedFixtures: '12',
   Spy: '0 1 2 3 4 9 12 20 21 22',
   SpyClassOptions: '0 1 2 3 4 20 21 22',
