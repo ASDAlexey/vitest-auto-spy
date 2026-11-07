@@ -75,7 +75,7 @@ store.items$.nextWith([{ id: 1 }]);
 | `throwWith(error)`        | завершает поток ошибкой                                           |
 | `complete()`              | завершает поток                                                   |
 | `nextWithValues(configs)` | выдаёт последовательность: значения, ошибку, завершение, задержки |
-| `nextWithPerCall(list)`   | даёт каждому вызову свой поток; возвращает их subject'ы           |
+| `nextWithPerCall(list)`   | даёт каждому вызову свой поток; возвращает `Subject` каждого      |
 | `returnSubject()`         | возвращает `Subject` за спаем — для полного ручного управления    |
 | `subscriberCount()`       | число открытых подписок (только у свойств)                        |
 
@@ -103,15 +103,15 @@ subject.next([{ name: 'Coffee' }]);
 | `ValueConfig` (для `nextWithValues`)     | `{ value, delay? }`, `{ errorValue, delay? }` или `{ complete?, delay? }`               |
 | `ValueConfigPerCall` (`nextWithPerCall`) | `{ value, delay?, doNotComplete? }`; каждый поток завершается, если нет `doNotComplete` |
 
-## `nextWith` пишет в общий subject; `nextWithValues` публикует новый {#nextwith-pushes-nextwithvalues-republishes}
+## `nextWith` пишет в текущий поток; `nextWithValues` подменяет поток {#nextwith-pushes-nextwithvalues-republishes}
 
 С виду они взаимозаменяемы. На observable-**свойстве** — нет. На спае **метода** они ведут себя
 одинаково: каждый вызов читает текущий поток.
 
-| Хелпер                                                    | Что делает с потоком                 | Подписчик, который уже на нём |
-| --------------------------------------------------------- | ------------------------------------ | ----------------------------- |
-| `nextWith` / `nextOneTimeWith` / `throwWith` / `complete` | пишет в subject, общий для всех      | получает значение             |
-| `nextWithValues` (на свойстве-спае)                       | подменяет свойство **новым** потоком | остаётся на старом            |
+| Хелпер                                                    | Что делает с потоком                 | Кто уже подписан   |
+| --------------------------------------------------------- | ------------------------------------ | ------------------ |
+| `nextWith` / `nextOneTimeWith` / `throwWith` / `complete` | пишет в поток, общий для всех        | получает значение  |
+| `nextWithValues` (на свойстве-спае)                       | подменяет свойство **новым** потоком | остаётся на старом |
 
 Компонент обычно подписывается на свойство один раз, в `ngOnInit`, и держит поток, полученный тогда.
 Если вызвать `nextWithValues` после этого, компонент значений не увидит. Библиотека один раз
@@ -137,34 +137,117 @@ service.items$.returnSubject().error(new Error('offline')); // это тоже
 ## Метод-запрос отвечает один раз: `nextOneTimeWith` {#a-request-method-answers-once-nextonetimewith}
 
 HTTP-вызов, `invoke` в Tauri, запрос к базе: каждый выдаёт одно значение и завершается. Такой метод
-настраивайте через `nextOneTimeWith`, а не `nextWith`. `nextWith` оставляет поток открытым, и с
-открытым потоком ломаются две вещи:
+настраивайте через `nextOneTimeWith`. Он выдаёт значение и завершает поток — так же, как настоящий
+запрос.
 
-- **Код, который ждёт завершения, ждёт вечно.** `forkJoin`, `lastValueFrom`, `toArray()` и
-  `expectAllEmissions` ждут, пока источник завершится. Над потоком из `nextWith` ничего не выдаётся и
-  ничего не падает, а тест читает флаг `loading`, который так и остался `true`.
-- **Значение из `beforeEach` приходит первым.** Поток держит значение в буфере. Если тест потом
-  вызывает `throwWith`, следующий подписчик получает сначала старое значение, а затем ошибку, и код
-  идёт по успешной ветке на устаревших данных.
+Если тесты запускает билдер Angular CLI `@angular/build:unit-test`, добавьте
+`import 'vitest-auto-spy/rxjs';` в файл из `setupFiles` в `angular.json` (см.
+[Билдер unit-test в Angular](/ru/guides/angular-unit-test-builder)):
+
+```json
+"test": {
+  "builder": "@angular/build:unit-test",
+  "options": { "setupFiles": ["src/test-setup.ts"] }
+}
+```
+
+Полный пример на Angular. Компонент один раз вызывает `OrderService.load()` и хранит результат или
+текст ошибки в сигналах:
 
 ```ts
-beforeEach(() => {
-  api.getBonds.nextOneTimeWith(BONDS); // выдаёт и завершается: forkJoin и lastValueFrom это увидят
-});
+// order-list.component.ts
+import { Component, type OnInit, inject, signal } from '@angular/core';
 
-it('shows the error', () => {
-  api.getBonds.throwWith(new Error('offline')); // новый поток: только ошибка
-  component.load();
-  expect(component.error()).toBe('offline');
+import { type Order, OrderService } from './order.service';
+
+@Component({ selector: 'app-order-list', template: '' })
+export class OrderListComponent implements OnInit {
+  private readonly orderService = inject(OrderService);
+  readonly orders = signal<Order[]>([]);
+  readonly error = signal<string | null>(null);
+
+  ngOnInit(): void {
+    this.orderService.load().subscribe({
+      next: (orders) => this.orders.set(orders),
+      error: (err: Error) => this.error.set(err.message),
+    });
+  }
+}
+```
+
+```ts
+// order-list.component.spec.ts
+import { TestBed } from '@angular/core/testing';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { type Spy, injectSpy, provideAutoSpy, stable } from 'vitest-auto-spy/angular';
+
+import { OrderListComponent } from './order-list.component';
+// load(): Observable<Order[]>, один HTTP-запрос
+import { OrderService } from './order.service';
+
+describe('OrderListComponent', () => {
+  let orderService: Spy<OrderService>;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [OrderListComponent],
+      providers: [provideAutoSpy(OrderService)], // TestBed внедряет спай вместо настоящего сервиса
+    });
+    orderService = injectSpy(OrderService); // тот же спай, что получит компонент
+    orderService.load.nextOneTimeWith([{ id: 1 }]); // выдаёт один список и завершается
+  });
+
+  it('shows the orders', async () => {
+    const fixture = TestBed.createComponent(OrderListComponent);
+    await stable(fixture); // запускает ngOnInit и обнаружение изменений
+
+    expect(fixture.componentInstance.orders()).toEqual([{ id: 1 }]);
+  });
+
+  it('shows the error', async () => {
+    orderService.load.throwWith(new Error('offline')); // заменяет завершённый поток из beforeEach
+    const fixture = TestBed.createComponent(OrderListComponent);
+    await stable(fixture);
+
+    expect(fixture.componentInstance.error()).toBe('offline');
+  });
 });
 ```
+
+Подробнее о `provideAutoSpy` и `injectSpy`: [Angular](/ru/adapters/angular#replace-a-service-provideautospy-and-injectspy).
+
+Поток, который завершил `nextOneTimeWith`, заменяется новым в тот момент, когда вы вызываете
+следующий хелпер потока на этом методе. Поэтому `throwWith` во втором тесте начинает новый поток, в
+котором только ошибка, а списка из `beforeEach` там уже нет. См.
+[Сбрасывать потоки между тестами](#reset-streams-between-tests).
+
+**Почему не `nextWith`.** `nextWith` выдаёт значение, но оставляет поток открытым. Любой поток спая
+повторяет последнее значение тем, кто подпишется позже, а открытый делает это, пока вы его не
+сбросите. Для метода-запроса это
+ломает две вещи:
+
+- **Операторы, которые ждут завершения, так и не отвечают.** `forkJoin`, `lastValueFrom`, `toArray()`
+  и `expectAllEmissions` выдают результат только после того, как источник завершится. С потоком из
+  `nextWith` они не выдают ничего и не падают. Компонент на их основе так и остаётся в состоянии
+  загрузки (например, его сигнал `loading` всё ещё `true`), и ничто не подсказывает почему.
+- **Значение из `beforeEach` приходит раньше ошибки.** Если тест потом вызывает `throwWith`,
+  следующий подписчик получает сначала старое значение, а затем ошибку. Код идёт по успешной ветке
+  на устаревших данных.
 
 `nextWith` нужен для потока, который и в настоящем коде остаётся открытым: `state$` стора, websocket,
 поток событий роутера.
 
-`throwWith` поверх значения из `nextWith`, которое лежит в буфере, пока никто не подписан, библиотека
-сообщает: один раз на поток предупреждением, при каждом вызове под
-`setupAutoSpy({ misconfiguration: 'throw' })`:
+**Библиотека предупреждает о `throwWith` после `nextWith`.** Если метод настроен через
+`nextOneTimeWith`, это предупреждение вас не касается. Оно срабатывает, когда вызван `throwWith` и
+выполнено всё сразу:
+
+- метод настроен через `nextWith`;
+- поток с тех пор не завершился и не упал с ошибкой;
+- в этот момент на поток никто не подписан.
+
+По умолчанию библиотека выводит предупреждение, один раз для каждого спая. С
+[`setupAutoSpy({ misconfiguration: 'throw' })`](/ru/utilities/setup#misconfiguration-reports-that-fail-at-the-call)
+каждый такой вызов `throwWith` вместо этого бросает ошибку:
 
 ```text
 [vitest-auto-spy] BondApi.getBonds.throwWith() ran on a stream that still holds a value from an
@@ -172,27 +255,54 @@ earlier nextWith() and has no subscriber, so the next one gets that value first 
 it — the code under test runs its success branch on stale data. …
 ```
 
-Три выхода: настроить через `nextOneTimeWith`; вызвать `resetAutoSpy(api.getBonds)` перед
-`throwWith`; или, если тест как раз про «выдать, потом упасть», сказать это одним вызовом:
-`nextWithValues([{ value: BONDS }, { errorValue: error }])`. Подписчика, который уже на потоке,
-сообщение не касается: он получает значение в момент `nextWith` и ошибку в момент `throwWith`.
+Три выхода:
 
-Чтобы вызов остался в ожидании, `returnSubject()` после `nextWith` из `beforeEach` не подходит: он
-возвращает subject, в котором всё ещё лежит то значение. Вызовите `resetAutoSpy(api.getBonds)`, затем
-`api.getBonds.mockReturnValue(NEVER)`, или берите `returnSubject()` у спая, которого никто не настраивал.
+- настроить метод через `nextOneTimeWith` вместо `nextWith`;
+- вызвать `resetAutoSpy(api.getBonds)` (из `vitest-auto-spy`) перед `throwWith`;
+- если тест как раз про «выдать, потом упасть», сказать это одним вызовом:
+  `nextWithValues([{ value: BONDS }, { errorValue: error }])`.
+
+Если проверяемый код уже подписан, когда вызывается `throwWith`, предупреждения нет. Этот подписчик
+получил значение в момент `nextWith`, а теперь получает ошибку.
+
+**Как оставить вызов без ответа.** Чтобы проверить состояние загрузки, метод должен вернуть поток,
+который ничего не выдаёт. Если метод настроен через `nextWith`, `returnSubject()` такого потока не
+даст: он возвращает тот же поток, и следующий подписчик получит из него сохранённое значение.
+Сбросьте спай и верните `NEVER` из rxjs:
+
+```ts
+import { NEVER } from 'rxjs';
+import { resetAutoSpy } from 'vitest-auto-spy';
+
+resetAutoSpy(api.getBonds); // убирает значение из beforeEach
+api.getBonds.mockReturnValue(NEVER); // каждый вызов остаётся без ответа
+```
+
+`mockReturnValue` отключает хелперы потоков у этого спая (см. конец раздела
+[Куда уходит ошибка `throwWith`](#where-a-throwwith-error-goes)). Чтобы снова пользоваться `nextWith`
+или `throwWith`, сначала вызовите `api.getBonds.mockReset()`.
+
+У спая, которого никто не настраивал, подойдёт и `returnSubject()`: его поток молчит, пока вы не
+вызовете на нём `next`.
 
 ## Куда уходит ошибка `throwWith` {#where-a-throwwith-error-goes}
 
-`throwWith` завершает поток ошибкой ещё до подписки, и каждый следующий подписчик всё равно её
-получает. Дальше решает потребитель, а в Angular несколько потребителей оставляют ошибку у себя и не
-передают её в `ErrorHandler`. Тест остаётся зелёным, пока не прочитает ошибку оттуда:
+`throwWith` завершает поток ошибкой, даже если на него ещё никто не подписан. Каждый, кто подпишется
+позже, всё равно получит эту ошибку. Что с ней будет дальше, зависит от того, как проверяемый код
+подписывается. Два API Angular, `toSignal` и `rxResource`, сохраняют ошибку у себя и не передают её
+в `ErrorHandler`. Это ловушка: ничего не падает, и тест остаётся зелёным, пока сам не
+прочитает ошибку из сигнала или ресурса:
 
-| Код под тестом                             | Где оказывается ошибка                                              | Как проверить                                                    |
-| ------------------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `toSignal(api.load())`                     | в сигнале: он бросает её при чтении, и только тогда                 | `expect(() => service.bonds()).toThrow('offline')`               |
-| `rxResource({ stream: () => api.load() })` | в ресурсе: `status()` равен `'error'`, `value()` бросает            | `await settleResource(service.bonds)`, затем прочитать `error()` |
-| сигнал, прочитанный в `effect` или шаблоне | в `ErrorHandler`, когда effect выполнится; TestBed бросает её снова | `expect(() => TestBed.tick()).toThrow('offline')`                |
-| `.subscribe(next)` без обработчика ошибки  | rxjs бросает её из `setTimeout`, уже после теста                    | `strayTimers` роняет тест; `expectUnhandledObservableErrors()`   |
+| Код под тестом                                                              | Где оказывается ошибка                                                     | Как проверить                                                                                                                                                                                              |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.subscribe({ next, error })` или `catchError`, пишет в состояние           | в вашем обработчике ошибки, синхронно, в момент подписки                   | прочитать записанное состояние: `expect(component.error()).toBe('offline')`                                                                                                                                |
+| `toSignal(api.load())`, и тест сам читает сигнал                            | в сигнале: он бросает её при чтении, и только тогда                        | `expect(() => service.bonds()).toThrow('offline')`                                                                                                                                                         |
+| `rxResource({ stream: () => api.load() })`                                  | в ресурсе: `status()` равен `'error'`, `value()` бросает                   | [`await settleResource(service.bonds)`](/ru/adapters/angular#resources-httpresource-and-resource) (из `vitest-auto-spy/angular`), затем прочитать `error()`                                                |
+| любой сигнал, прочитанный в `effect` или шаблоне, в том числе из `toSignal` | в `ErrorHandler`, во время обнаружения изменений; TestBed бросает её снова | `expect(() => TestBed.tick()).toThrow('offline')`                                                                                                                                                          |
+| `.subscribe(next)` без обработчика ошибки                                   | rxjs бросает её из `setTimeout`, когда тест уже закончился                 | опция [`strayTimers`](/ru/utilities/setup#an-observable-error-nothing-handled) в `setupAutoSpy` роняет тест. Чтобы ожидать ошибку, вызовите `expectUnhandledObservableErrors()` из `vitest-auto-spy/setup` |
+
+Первая строка — это [полный пример выше](#a-request-method-answers-once-nextonetimewith). Случай с
+`toSignal`:
 
 ```ts
 it('shows the error', () => {
@@ -203,15 +313,24 @@ it('shows the error', () => {
 });
 ```
 
-`effect` не выполняется, пока его не запустят, поэтому тест, который только получает сервис через
-`inject`, ничего не увидит. Вызовите `TestBed.tick()` (или `await fixture.whenStable()`) и ожидайте,
-что этот вызов бросит ошибку.
+Сигнал из `toSignal`, который выводит шаблон, относится к строке про `effect` и шаблон: ошибка
+вылетает из обнаружения изменений, а не из чтения в вашем тесте. `effect` и шаблон не выполняются,
+пока не запущено обнаружение изменений, поэтому тест, который только получает сервис или создаёт
+компонент, ничего не увидит. Запустите обнаружение изменений и ожидайте, что этот шаг упадёт:
 
-Хелпер потока, вызванный после `mockImplementation` / `mockReturnValue` на том же методе, ни на что не
-влияет: они заменяют диспетчер спая, а `throwWith` читает именно диспетчер. Такой порядок библиотека
-сообщает (`throwWith() was configured on 'load' after mockImplementation() had replaced its
-dispatch`). Сначала вызовите `api.load.mockReset()` или задайте значение по умолчанию через
-`nextOneTimeWith`.
+```ts
+expect(() => TestBed.tick()).toThrow('offline');
+// или через фикстуру
+await expect(fixture.whenStable()).rejects.toThrow('offline');
+```
+
+**После `mockImplementation` или `mockReturnValue` хелперы потоков перестают работать.** Эти два
+метода заменяют собственную реализацию спая (в предупреждении ниже она названа «dispatch»), а именно
+она возвращает поток, настроенный хелперами. Поэтому последующий `throwWith` ничего не меняет:
+каждый вызов по-прежнему возвращает то, что задали `mockReturnValue` или `mockImplementation`. Такой порядок библиотека сообщает
+(`throwWith() was configured on 'load' after mockImplementation() had replaced its dispatch`):
+предупреждением или, под `misconfiguration: 'throw'`, ошибкой. Сначала вызовите `api.load.mockReset()`
+или задайте значение по умолчанию через `nextOneTimeWith` вместо `mockReturnValue`.
 
 ## Как читать последовательность как marble-диаграмму {#reading-a-sequence-as-a-marble}
 
@@ -292,9 +411,10 @@ expect(store.items$.subscriberCount()).toBe(0);
 
 ## Сбрасывать потоки между тестами {#reset-streams-between-tests}
 
-У каждого члена-спая один `ReplaySubject(1)`. Сохранённое в нём значение — это настройка, как правило
-`calledWith` (ответ, заданный для конкретных аргументов). Если спай живёт дольше одного теста,
-сбрасывайте его, иначе следующий тест первым получит старое значение.
+У каждого члена-спая один `ReplaySubject(1)` — поток, который повторяет последнее значение каждому
+новому подписчику. Это значение хранится, пока вы не сбросите спай, как и любой другой ответ, заданный
+спаю. Если спай живёт дольше одного теста, сбрасывайте его, иначе следующий тест первым получит
+старое значение.
 
 ```ts
 import { beforeEach } from 'vitest';
@@ -307,9 +427,9 @@ beforeEach(() => {
 
 - **`vi.clearAllMocks()` и `clearMocks: true` поток не сбрасывают.** Поток — состояние библиотеки, а не
   часть мока раннера. Вызывайте `resetAutoSpy(spy)`.
-- **Завершённый поток заменяется.** Поток завершён после `throwWith()` или `complete()` на спае либо
-  после `complete()` или `error()` на subject из `returnSubject()`. Тогда следующий `nextWith` начинает
-  новый поток:
+- **Завершённый поток заменяется.** Поток завершён после `nextOneTimeWith()`, `throwWith()` или
+  `complete()` на спае либо после `complete()` или `error()` на `Subject` из `returnSubject()`. Тогда
+  следующий хелпер потока (`nextWith`, `throwWith` и остальные) начинает новый поток:
 
 ```ts
 const subject = service.load$.returnSubject();
@@ -324,7 +444,7 @@ service.load$.nextWith(page); // новый поток, а не значение
   [Метод-запрос отвечает один раз](#a-request-method-answers-once-nextonetimewith). Поток, который
   падает сразу при подписке, что бы ни было до этого, даёт
   `nextWithValues([{ errorValue: e }])`. На свойстве-спае вызывайте его до подписки: см.
-  [`nextWith` пишет в общий subject; `nextWithValues` публикует новый](#nextwith-pushes-nextwithvalues-republishes).
+  [`nextWith` пишет в текущий поток; `nextWithValues` подменяет поток](#nextwith-pushes-nextwithvalues-republishes).
 
 ## Проверять вместо того, чтобы подписываться {#asserting-instead-of-subscribing}
 
@@ -422,7 +542,7 @@ setup-файл. Правило то же, что выше. Обычный `.ts`,
 ## `subscribeSpyTo` — для набора, пришедшего с observer-spy {#subscribespyto-for-a-suite-arriving-with-observer-spy}
 
 `vitest-auto-spy/observer-spy` повторяет API пакета `@hirez_io/observer-spy`. Он нужен при переезде
-тестов, которые уже на нём: они запускаются до того, как вы перепишете проверки потоков.
+тестов, которые уже используют этот пакет: они запускаются до того, как вы перепишете проверки потоков.
 
 ```ts
 import { subscribeSpyTo } from 'vitest-auto-spy/observer-spy';
