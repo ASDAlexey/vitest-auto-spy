@@ -37,22 +37,28 @@
  * three assertions later.
  */
 import { type Signal, type WritableSignal, isSignal, signal } from '@angular/core';
-import { type SignalNode, signalGetFn, signalSetFn, signalUpdateFn } from '@angular/core/primitives/signals';
+import {
+  type LinkedSignalNode,
+  type SignalNode,
+  linkedSignalSetFn,
+  linkedSignalUpdateFn,
+  signalGetFn,
+  signalSetFn,
+  signalUpdateFn,
+} from '@angular/core/primitives/signals';
 
-import { assertAngularInternals } from './angular-internals';
+import { assertAngularInternals, hasLiveConsumerLinks } from './angular-internals';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { mockReadonlyProp } from './prop-mock';
 import { readSignalSymbol, signalSymbol } from './signal-symbol';
 import type { NotAPublicKey } from './types';
 
-/** The three members of Angular's reactive node this helper reads, all optional across versions. */
+/** The two members of Angular's reactive node this helper reads, all optional across versions. */
 interface ReactiveNode {
   /** Present on an `input()` and a `model()` node: how Angular writes an input, bypassing `set`. */
   applyValueToInputSignal?: unknown;
-  /** The head of the live-consumer list — a rendered template, an `effect()`, a live `computed()`. */
-  consumers?: unknown;
-  /** `'signal'` for a node that holds a value, `'computed'` for one that derives it. */
+  /** `'signal'` / `'linkedSignal'` for a node that holds a value, `'computed'` for one that derives it. */
   kind?: unknown;
 }
 
@@ -81,21 +87,54 @@ function isInput(candidate: Signal<unknown>): boolean {
 
 /** Whether something live is already attached to the node, which the swap can no longer reach. */
 function hasLiveConsumers(candidate: Signal<unknown>): boolean {
-  return readNode(candidate).consumers !== undefined;
+  return hasLiveConsumerLinks(readNode(candidate));
+}
+
+/** How to write one kind of node: a `signal()` and a `linkedSignal()` each have their own setter. */
+interface NodeWriter<TValue> {
+  node: object;
+  read(): TValue;
+  set(value: TValue): void;
+  update(updater: (value: TValue) => TValue): void;
 }
 
 /**
- * The node behind a read-only member that is a plain `signal()` underneath — what `asReadonly()`
- * returns, and by far the most common way a service publishes one.
+ * The writer behind a read-only member that is a `signal()` or a `linkedSignal()` underneath — what
+ * `asReadonly()` returns, and by far the most common way a service publishes one.
  *
  * It is the *same* node the writable half holds, so writing through it is what `signal()` and
  * `model()` members already get: every consumer stays on the node it linked to, live or not.
  */
-function writableNode<TValue>(candidate: Signal<unknown>): SignalNode<TValue> | undefined {
+function nodeWriter<TValue>(candidate: Signal<unknown>): NodeWriter<TValue> | undefined {
   const node = readNode(candidate);
 
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `kind: 'signal'` is precisely the node `signalSetFn` writes; the value type is the property's own, which the signature already states.
-  return node.kind === 'signal' ? (node as SignalNode<TValue>) : undefined;
+  if (node.kind === 'signal') {
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `kind: 'signal'` is precisely the node `signalSetFn` writes; the value type is the property's own, which the signature already states.
+    const plain = node as SignalNode<TValue>;
+
+    return {
+      node,
+      read: (): TValue => signalGetFn(plain),
+      set: (value): void => signalSetFn(plain, value),
+      update: (updater): void => signalUpdateFn(plain, updater),
+    };
+  }
+
+  if (node.kind === 'linkedSignal') {
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `kind: 'linkedSignal'` is the node `linkedSignalSetFn` writes; its getter recomputes from the source first, so reads go through the member itself.
+    const linked = node as LinkedSignalNode<unknown, TValue>;
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the member is the read-only view of this very node, so it returns the node's own value type.
+    const read = candidate as Signal<TValue>;
+
+    return {
+      node,
+      read: (): TValue => read(),
+      set: (value): void => linkedSignalSetFn(linked, value),
+      update: (updater): void => linkedSignalUpdateFn(linked, updater),
+    };
+  }
+
+  return undefined;
 }
 
 /**
@@ -118,14 +157,14 @@ type WritableView<TValue> = Signal<TValue> & {
  * the member it published and the graph keeps every edge it had. `asReadonly()` hands back that same
  * member, which is what the service exposes anyway.
  */
-function writableView<TValue>(existing: Signal<unknown>, node: SignalNode<TValue>): WritableSignal<TValue> {
-  const getter: object = Object.assign((): TValue => signalGetFn(node), { [signalSymbol()]: node });
+function writableView<TValue>(existing: Signal<unknown>, writer: NodeWriter<TValue>): WritableSignal<TValue> {
+  const getter: object = Object.assign((): TValue => writer.read(), { [signalSymbol()]: writer.node });
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the node sits under Angular's own symbol, found at run time rather than imported, so the brand cannot be spelled here.
   const read = getter as Signal<TValue>;
   const view: WritableView<TValue> = Object.assign(read, {
     asReadonly: (): Signal<unknown> => existing,
-    set: (value: TValue): void => signalSetFn(node, value),
-    update: (updater: (value: TValue) => TValue): void => signalUpdateFn(node, updater),
+    set: (value: TValue): void => writer.set(value),
+    update: (updater: (value: TValue) => TValue): void => writer.update(updater),
   });
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `WritableSignal` carries a brand Angular declares but never exports as a value; every member of its surface is above, over the node the property already holds.
@@ -206,18 +245,18 @@ export function mockSignalProp<TValue>(object: unknown, property: PropertyKey, i
   }
 
   if (isSignal(existing)) {
-    assertAngularInternals();
+    assertAngularInternals('reactiveNode');
 
     if (isInput(existing)) {
       throw new Error(describeInput(property));
     }
 
-    const node = writableNode<TValue>(existing);
+    const writer = nodeWriter<TValue>(existing);
 
-    if (node) {
-      signalSetFn(node, initialValue);
+    if (writer) {
+      writer.set(initialValue);
 
-      return writableView<TValue>(existing, node);
+      return writableView<TValue>(existing, writer);
     }
 
     if (hasLiveConsumers(existing)) {

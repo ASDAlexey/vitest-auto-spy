@@ -11,13 +11,14 @@ import {
   linkedSignal,
   model,
   signal,
+  ɵSIGNAL,
 } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import '../angular';
 import { injectSpy, provideAutoSpy } from './angular';
-import { restoreMockedProps } from './prop-mock';
+import { mockValueProp, restoreMockedProps } from './prop-mock';
 import { registerSignalMatchers } from './signal-matchers';
 import { mockSignalProp, mockSignalProps } from './signal-prop';
 import { stable } from './zoneless';
@@ -259,6 +260,41 @@ describe('mockSignalProp', () => {
 
     expect(label).toHaveSignalValue('7 items');
     expect(service.count).toBe(count.asReadonly());
+  });
+
+  it('writes through a read-only view of a linkedSignal a live effect has already read', () => {
+    const source = signal(1);
+    const store = { value: linkedSignal(() => source() * 10).asReadonly() };
+    const view = computed(() => store.value());
+    const seen: number[] = [];
+
+    TestBed.runInInjectionContext(() => effect(() => seen.push(view())));
+    TestBed.tick();
+
+    const value = mockSignalProp(store, 'value', 99);
+
+    TestBed.tick();
+    value.update((current) => current + 1);
+    TestBed.tick();
+
+    expect(seen).toEqual([10, 99, 100]);
+    expect(value).toHaveSignalValue(100);
+    expect(store.value).toBe(value.asReadonly());
+
+    source.set(2);
+    TestBed.tick();
+
+    expect(seen.at(-1)).toBe(20);
+  });
+
+  it('sees a live consumer in the array a pre-20.1.6 node kept it in', () => {
+    const legacy = computed(() => 1);
+    const node: object = Object(Reflect.get(legacy, ɵSIGNAL));
+
+    mockValueProp(node, 'liveConsumerNode', [{}]);
+    mockValueProp(node, 'consumers', undefined);
+
+    expect(() => mockSignalProp({ total: legacy }, 'total', 2)).toThrow(/already read/);
   });
 
   it('hands back a handle that reads, updates and stays the member the object published', () => {

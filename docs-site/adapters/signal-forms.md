@@ -237,7 +237,7 @@ import { renderShallow, setInputs } from 'vitest-auto-spy/angular';
 import { PublishCheckboxComponent } from './publish-checkbox.component';
 
 it('takes a value', async () => {
-  const fixture = renderShallow(PublishCheckboxComponent, { inputs: { label: 'Published' } });
+  const { fixture } = renderShallow(PublishCheckboxComponent, { inputs: { label: 'Published' } });
 
   await setInputs(fixture, { value: true });
 
