@@ -35,7 +35,8 @@ class MeasuredComponent {
 const reported: SpecTiming[] = [];
 const suppressed: SpecTiming[] = [];
 
-describe('enableTestBedDiagnostics', () => {
+// The last two tests switch the instrumentation off that the others read.
+describe('enableTestBedDiagnostics', { shuffle: false }, () => {
   enableTestBedDiagnostics({ report: (timing) => reported.push(timing) });
   // A second registration: proves instrumentation is idempotent, and exercises the threshold that
   // keeps cheap files out of the report.
