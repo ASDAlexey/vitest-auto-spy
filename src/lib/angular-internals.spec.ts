@@ -8,10 +8,11 @@
 /* eslint-disable vitest-auto-spy/no-reflect-member-access -- these are Angular's private members, which have no typed surface to read them through */
 import { Component, VERSION, input, signal, ɵSIGNAL } from '@angular/core';
 import { TestBed, getTestBed } from '@angular/core/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { assertAngularInternals, resetAngularInternalsCheck } from './angular-internals';
+import { assertAngularInternals, hasLiveConsumerLinks, resetAngularInternalsCheck } from './angular-internals';
 import { angularInternalsError } from './angular-internals-error';
+import { mockValueProp } from './prop-mock';
 
 @Component({
   selector: 'app-pinned',
@@ -23,7 +24,8 @@ class PinnedComponent {
 
 describe('the shapes this package reads off Angular', () => {
   it('passes the canary on the Angular this repository pins', () => {
-    expect(() => assertAngularInternals()).not.toThrow();
+    expect(() => assertAngularInternals('testModuleRef')).not.toThrow();
+    expect(() => assertAngularInternals('reactiveNode')).not.toThrow();
   });
 
   it('TestBed keeps the live module under `_testModuleRef`', () => {
@@ -34,6 +36,14 @@ describe('the shapes this package reads off Angular', () => {
     // What makes one wrapper on the instance enough — and two wrappers a double count.
     expect(TestBed.createComponent).not.toBe(getTestBed().createComponent);
     expect(String(TestBed.createComponent)).toContain('INSTANCE.createComponent');
+  });
+
+  it('reads a live consumer off either list shape Angular 20+ has shipped', () => {
+    expect(hasLiveConsumerLinks({ consumers: {} })).toBe(true);
+    expect(hasLiveConsumerLinks({ consumers: undefined })).toBe(false);
+    expect(hasLiveConsumerLinks({ liveConsumerNode: [{}] })).toBe(true);
+    expect(hasLiveConsumerLinks({ liveConsumerNode: [] })).toBe(false);
+    expect(hasLiveConsumerLinks({})).toBe(false);
   });
 
   it('a signal node carries `kind` and a consumer list', () => {
@@ -64,6 +74,10 @@ describe('the shapes this package reads off Angular', () => {
 });
 
 describe('assertAngularInternals', () => {
+  beforeEach(() => {
+    resetAngularInternalsCheck();
+  });
+
   afterEach(() => {
     resetAngularInternalsCheck();
   });
@@ -75,7 +89,7 @@ describe('assertAngularInternals', () => {
     Reflect.deleteProperty(testBed, '_testModuleRef');
     resetAngularInternalsCheck();
 
-    const thrown = (): void => assertAngularInternals();
+    const thrown = (): void => assertAngularInternals('testModuleRef');
 
     try {
       expect(thrown).toThrow(/TestBed#_testModuleRef/);
@@ -85,6 +99,34 @@ describe('assertAngularInternals', () => {
       expect(thrown).toThrow(/provideHttpTesting\(\{ verifyOnTeardown \}\)/);
     } finally {
       Reflect.set(testBed, '_testModuleRef', removed);
+    }
+  });
+
+  it('keeps a moved TestBed shape from failing the signal helpers', () => {
+    const testBed = getTestBed();
+    const removed: unknown = Reflect.get(testBed, '_testModuleRef');
+
+    Reflect.deleteProperty(testBed, '_testModuleRef');
+
+    try {
+      expect(() => assertAngularInternals('testModuleRef')).toThrow(/TestBed#_testModuleRef/);
+      expect(() => assertAngularInternals('reactiveNode')).not.toThrow();
+    } finally {
+      Reflect.set(testBed, '_testModuleRef', removed);
+    }
+  });
+
+  it('names the reactive node when neither consumer shape is there', () => {
+    const prototype: object = Object.getPrototypeOf(Reflect.get(signal(0), ɵSIGNAL));
+    // Only the journal entry matters; the delete below is the shape under test.
+    const restore = mockValueProp(prototype, 'consumers', undefined);
+
+    Reflect.deleteProperty(prototype, 'consumers');
+
+    try {
+      expect(() => assertAngularInternals('reactiveNode')).toThrow(/ReactiveNode#consumers \(or #liveConsumerNode\)/);
+    } finally {
+      restore();
     }
   });
 
