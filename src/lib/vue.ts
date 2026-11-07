@@ -9,6 +9,7 @@
  * module compiles and runs without those packages installed.
  */
 import { createSpyFromClass } from './create-spy-from-class';
+import type { FromClassOnly } from './internal-types';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
 
 /** A Vue injection token: a plain string/symbol key, or a typed `InjectionKey<T>` (a branded `symbol`). */
@@ -27,10 +28,11 @@ export type VueProvideSpy<Token extends VueInjectionToken, T> = Record<Token, Sp
  * mount(Cmp, { global: { provide } });
  * ```
  */
-export function provideAutoSpy<Token extends VueInjectionToken, T>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- read only while a generic class argument is deferred; the class then decides `T`.
+export function provideAutoSpy<Token extends VueInjectionToken, T = any>(
   token: Token,
   ObjectClass: ClassType<T>,
-  methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
+  methodsToSpyOnOrConfig?: FromClassOnly<T, ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[]>,
 ): VueProvideSpy<Token, T> {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a single-key computed-property object is `Record<Token, Spy<T>>` by construction, but TS widens the literal to `{ [x: string]: Spy<T> }` and cannot prove the exact `Token` key without the assertion.
   return { [token]: createSpyFromClass(ObjectClass, methodsToSpyOnOrConfig) } as VueProvideSpy<Token, T>;
