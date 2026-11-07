@@ -31,7 +31,7 @@ export interface ReturnValueContainer {
   _isThrown?: boolean;
   /** Set by the `returns` option: {@link ReturnValueContainer.value} is configured, even when it is `undefined`. */
   _isSeeded?: boolean;
-  valuesPerCalls?: PerCallValue[];
+  valuesPerCalls?: PerCallValue[] | undefined;
   /** Set by `calledWith(…).once()` / `.times(n)`: how many more matching calls this answer covers. */
   remaining?: number;
   /** What the same arguments answered before a limited answer was stacked over it. */
