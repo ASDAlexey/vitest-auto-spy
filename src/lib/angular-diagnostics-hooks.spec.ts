@@ -12,7 +12,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import '../angular';
 import { provideAutoSpy } from './angular';
 import { disableAngularDiagnostics, enableAngularDiagnostics } from './angular-diagnostics';
+import { expectFailures } from './expected-failure.mock';
 import { mockValueProp } from './prop-mock';
+
+const failsWith = expectFailures();
 
 @Injectable()
 class RealService {
@@ -74,6 +77,7 @@ describe.each(['list', 'stack'] as const)('pendingRequests with sequence.hooks: 
   });
 
   it.fails('still reports a request the reset took down with the module', () => {
+    failsWith(/GET \/api\/reset-first was never answered/);
     openRequest('/api/reset-first');
   });
 
@@ -88,6 +92,7 @@ describe('another block that enables the group', () => {
   enableAngularDiagnostics();
 
   it.fails('fails a test that leaves a request open', () => {
+    failsWith(/GET \/api\/first-block was never answered/);
     openRequest('/api/first-block');
   });
 });
@@ -96,6 +101,7 @@ describe('a third block that enables the group', () => {
   enableAngularDiagnostics();
 
   it.fails('has hooks of its own, so a request left open still fails the test', () => {
+    failsWith(/GET \/api\/second-block was never answered/);
     openRequest('/api/second-block');
   });
 
@@ -136,6 +142,7 @@ describe('a block that enables the group twice', () => {
   enableAngularDiagnostics();
 
   it.fails('still fails a test that leaves a request open', () => {
+    failsWith(/GET \/api\/twice was never answered/);
     openRequest('/api/twice');
   });
 
