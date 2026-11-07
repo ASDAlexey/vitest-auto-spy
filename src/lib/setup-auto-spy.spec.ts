@@ -10,6 +10,7 @@ import { resetAngularBuildNotice } from './angular-build-notice';
 import { useConsoleSpies } from './console-spy';
 import { createSpyFromClass } from './create-spy-from-class';
 import { abandonEmissionWaits, registerEmissionWait } from './emission-timeout';
+import { expectFailures } from './expected-failure.mock';
 import { takeStrictViolations } from './function-spy';
 import { captureMockRegistry, getMockRegistrySize, resetMockRegistryTracking } from './mock-registry';
 import { registerPackageCopy, resetPackageCopies } from './package-identity';
@@ -37,9 +38,11 @@ import {
   testNameOf,
 } from './setup-teardown';
 import { stopGuardingConsole } from './stray-console';
-import { type StrayRejection, flushStrayRejections } from './stray-rejections';
+import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
 import { countStrayTimers, trackStrayTimers } from './stray-timers';
 import { describeSwallowedStrictCalls } from './swallowed-strict';
+
+const failsWith = expectFailures();
 
 const DUPLICATE = 'file:///app/node_modules/other/node_modules/vitest-auto-spy/dist/index.js';
 
@@ -57,1321 +60,1370 @@ const stubTarget = {
   },
 };
 
-/**
- * The suite-wide strict-mode default, and — the half that matters — its release.
- *
- * `setDefaultStrictMode` writes a module-level binding, so under `isolate: false` it is shared by
- * every file in the worker. A default that outlived the file that armed it would fail specs that
- * never opted in, with a message ("X.load() was called; this strict double has nothing configured for it") naming a
- * switch their setup never touched.
- *
- * First in the file on purpose, and the only block here that arms it. `setupAutoSpy()` installs the
- * default when the suite factory runs — during collection, before any test — so the window in which
- * it is live is "from collection until this block's `afterAll`", and putting the block anywhere
- * else would put unrelated tests inside that window.
- */
-describe('suite-wide strict mode (opted in)', () => {
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strict: true });
+// Most blocks come in pairs: the second reads what the first one's hooks did or released.
+describe('setupAutoSpy, in file order', { shuffle: false }, () => {
+  /**
+   * The suite-wide strict-mode default, and — the half that matters — its release.
+   *
+   * `setDefaultStrictMode` writes a module-level binding, so under `isolate: false` it is shared by
+   * every file in the worker. A default that outlived the file that armed it would fail specs that
+   * never opted in, with a message ("X.load() was called; this strict double has nothing configured for it") naming a
+   * switch their setup never touched.
+   *
+   * First in the file on purpose, and the only block here that arms it. `setupAutoSpy()` installs the
+   * default when the suite factory runs — during collection, before any test — so the window in which
+   * it is live is "from collection until this block's `afterAll`", and putting the block anywhere
+   * else would put unrelated tests inside that window.
+   */
+  describe('suite-wide strict mode (opted in)', () => {
+    setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strict: true });
 
-  it('reaches a double built afterwards, without that call site mentioning it', () => {
-    expect(() => createSpyFromClass(Cart).total()).toThrow(/Cart\.total\(\) was called; this strict double has nothing configured/);
-    // Caught by the assertion, so it is taken here rather than reported as swallowed after the test.
-    expect(takeStrictViolations()).toHaveLength(1);
+    it('reaches a double built afterwards, without that call site mentioning it', () => {
+      expect(() => createSpyFromClass(Cart).total()).toThrow(/Cart\.total\(\) was called; this strict double has nothing configured/);
+      // Caught by the assertion, so it is taken here rather than reported as swallowed after the test.
+      expect(takeStrictViolations()).toHaveLength(1);
+    });
+
+    it('is still overridden by a double that opted out explicitly', () => {
+      expect(createSpyFromClass(Cart, { strict: false }).total()).toBeUndefined();
+    });
   });
 
-  it('is still overridden by a double that opted out explicitly', () => {
-    expect(createSpyFromClass(Cart, { strict: false }).total()).toBeUndefined();
-  });
-});
-
-describe('suite-wide strict mode, after the block that armed it', () => {
-  it('finds the default released, so it cannot travel into the next file', () => {
-    expect(createSpyFromClass(Cart).total()).toBeUndefined();
-  });
-});
-
-describe('duplicate installs', () => {
-  const { consoleWarnSpy } = useConsoleSpies();
-
-  afterEach(() => {
-    resetPackageCopies();
-    registerPackageCopy();
+  describe('suite-wide strict mode, after the block that armed it', () => {
+    it('finds the default released, so it cannot travel into the next file', () => {
+      expect(createSpyFromClass(Cart).total()).toBeUndefined();
+    });
   });
 
-  it('stops the run by default, explaining how to collapse the tree', () => {
-    registerPackageCopy(DUPLICATE);
+  describe('duplicate installs', () => {
+    const { consoleWarnSpy } = useConsoleSpies();
 
-    expect(() => setupAutoSpy()).toThrow(
-      /^\[vitest-auto-spy\] vitest-auto-spy is loaded 2 times, from different installs[\s\S]*npm ls vitest-auto-spy/,
-    );
+    afterEach(() => {
+      resetPackageCopies();
+      registerPackageCopy();
+    });
+
+    it('stops the run by default, explaining how to collapse the tree', () => {
+      registerPackageCopy(DUPLICATE);
+
+      expect(() => setupAutoSpy()).toThrow(
+        /^\[vitest-auto-spy\] vitest-auto-spy is loaded 2 times, from different installs[\s\S]*npm ls vitest-auto-spy/,
+      );
+    });
+
+    it('only warns when asked to', () => {
+      registerPackageCopy(DUPLICATE);
+      setupAutoSpy({ duplicateCopies: 'warn', restoreProps: false });
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('loaded 2 times'));
+    });
+
+    it('says nothing when the check is off, or when the tree is clean', () => {
+      registerPackageCopy(DUPLICATE);
+      setupAutoSpy(NO_RESTORE_PROPS);
+
+      resetPackageCopies();
+      registerPackageCopy(DUPLICATE);
+      setupAutoSpy({ duplicateCopies: 'warn', restoreProps: false });
+
+      expect(consoleWarnSpy).not.toHaveBeenCalled();
+    });
   });
 
-  it('only warns when asked to', () => {
-    registerPackageCopy(DUPLICATE);
-    setupAutoSpy({ duplicateCopies: 'warn', restoreProps: false });
+  describe('property restoration (default)', () => {
+    setupAutoSpy({ duplicateCopies: 'off' });
 
-    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('loaded 2 times'));
+    it('leaves the patch in place for the test that made it', () => {
+      mockValueProp(patchTarget, 'value', 'patched');
+
+      expect(patchTarget.value).toBe('patched');
+    });
+
+    it('has undone it by the next test', () => {
+      expect(patchTarget.value).toBe('real');
+      expect(countMockedProps()).toBe(0);
+    });
   });
 
-  it('says nothing when the check is off, or when the tree is clean', () => {
-    registerPackageCopy(DUPLICATE);
+  describe('property restoration (opted out)', () => {
     setupAutoSpy(NO_RESTORE_PROPS);
 
-    resetPackageCopies();
-    registerPackageCopy(DUPLICATE);
-    setupAutoSpy({ duplicateCopies: 'warn', restoreProps: false });
+    afterAll(restoreMockedProps);
 
-    expect(consoleWarnSpy).not.toHaveBeenCalled();
-  });
-});
+    it('patches', () => {
+      mockValueProp(patchTarget, 'value', 'sticky');
 
-describe('property restoration (default)', () => {
-  setupAutoSpy({ duplicateCopies: 'off' });
-
-  it('leaves the patch in place for the test that made it', () => {
-    mockValueProp(patchTarget, 'value', 'patched');
-
-    expect(patchTarget.value).toBe('patched');
-  });
-
-  it('has undone it by the next test', () => {
-    expect(patchTarget.value).toBe('real');
-    expect(countMockedProps()).toBe(0);
-  });
-});
-
-describe('property restoration (opted out)', () => {
-  setupAutoSpy(NO_RESTORE_PROPS);
-
-  afterAll(restoreMockedProps);
-
-  it('patches', () => {
-    mockValueProp(patchTarget, 'value', 'sticky');
-
-    expect(patchTarget.value).toBe('sticky');
-  });
-
-  it('still sees the patch in the next test', () => {
-    expect(patchTarget.value).toBe('sticky');
-  });
-});
-
-describe('runner mock restoration (opted in)', () => {
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, restoreMocks: true });
-
-  it('keeps a spyOn stub inside its own test', () => {
-    vi.spyOn(stubTarget, 'compute').mockReturnValue('stubbed');
-
-    expect(stubTarget.compute()).toBe('stubbed');
-  });
-
-  it('finds the stub restored in the next test', () => {
-    expect(stubTarget.compute()).toBe('real');
-  });
-});
-
-describe('the teardown net, for the run where the hook never happened', () => {
-  // Vitest runs `afterEach` in reverse registration order, so this one — registered *after*
-  // `setupAutoSpy()` — runs *first*, and taking it down takes the library's hook with it. That is
-  // the shape that let a patch travel: a long-standing `afterEach(() => vi.restoreAllMocks())`
-  // started throwing once a restored getter came back `undefined` and `ngOnDestroy` called it.
-  const target = { cookie: 'real' };
-
-  setupAutoSpy({ duplicateCopies: 'off' });
-
-  afterEach(() => {
-    if (target.cookie === 'patched') {
-      throw new Error('the hook that runs first, and throws');
-    }
-  });
-
-  const warnings: string[] = [];
-
-  it.fails('leaves a patch behind when the hook above the library throws', () => {
-    // A raw spy on purpose: the warning lands between tests, where setupAutoSpy clears the library's console spies.
-    vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
-      warnings.push(String(message));
-    });
-    mockValueProp(target, 'cookie', 'patched');
-
-    expect(countMockedProps()).toBe(1);
-  });
-
-  it('finds it put back all the same, and says why it had to be', () => {
-    vi.restoreAllMocks();
-
-    // Without `onTestFinished` this would still read `patched`, and the failure would have surfaced
-    // in whichever later test happened to care.
-    expect(target.cookie).toBe('real');
-    expect(countMockedProps()).toBe(0);
-    // The net says what happened, because the symptom is two tests away from the cause.
-    expect(warnings.join('\n')).toMatch(
-      /afterEach did not run for "the teardown net, for the run where the hook never happened > leaves a patch behind when the hook above the library throws": an afterEach the spec registered threw/,
-    );
-    expect(warnings.join('\n')).toContain('1 mock*Prop patch was still in place and is put back now.');
-    expect(warnings.join('\n')).toMatch(/Fix the hook that threw[\s\S]*#_1-restoring-patched-properties/);
-  });
-
-  it.fails('leaves a patch behind a second time in the same file', () => {
-    vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
-      warnings.push(String(message));
-    });
-    mockValueProp(target, 'cookie', 'patched');
-
-    expect(countMockedProps()).toBe(1);
-  });
-
-  it('explains it in full once per file, and in one line after that', () => {
-    vi.restoreAllMocks();
-
-    expect(target.cookie).toBe('real');
-    expect(warnings.at(-1)).toMatch(
-      /did not run for ".* > leaves a patch behind a second time in the same file" either \(2 tests in this file\); 1 mock\*Prop patch put back/,
-    );
-    expect(warnings.at(-1)).not.toContain('Fix the hook');
-  });
-});
-
-describe('network blocking (opted in)', () => {
-  setupAutoSpy({ duplicateCopies: 'off', blockNetwork: true });
-
-  it('rejects instead of reaching the network, and names what was requested', async () => {
-    await expect(fetch('https://cdn.example.test/icon.svg')).rejects.toThrow(/fetch is stubbed[\s\S]*icon\.svg/);
-  });
-
-  it('re-installs the stub for the next test, after restoreProps took it off', async () => {
-    await expect(fetch('https://cdn.example.test/other.svg')).rejects.toThrow(/fetch is stubbed/);
-  });
-});
-
-describe('network blocking, narrowed to one channel', () => {
-  setupAutoSpy({ duplicateCopies: 'off', blockNetwork: { fetch: false, xhr: 'empty' } });
-
-  it('reads the options once, and applies exactly the ones it was given', async () => {
-    const answered = await new Promise<string>((resolve) => {
-      const xhr = new XMLHttpRequest();
-
-      xhr.addEventListener('load', () => resolve(`${xhr.status} ${JSON.stringify(xhr.responseText)}`));
-      xhr.open('GET', 'https://tracker.example.test/ping.gif');
-      xhr.send();
+      expect(patchTarget.value).toBe('sticky');
     });
 
-    // Blocked, but answered rather than failed — and `fetch` was left as the environment had it,
-    // which is what proves the object reached `blockNetwork` instead of a `TestContext`.
-    expect(answered).toBe(`200 ""`);
-    expect(typeof fetch).toBe('function');
-    await expect(fetch('data:text/plain;charset=utf-8,ok').then((response) => response.text())).resolves.toBe('ok');
-  });
-});
-
-describe('timer globals (on by default)', () => {
-  setupAutoSpy(NO_RESTORE_PROPS);
-
-  it('puts back a timer global that went missing during the previous test', () => {
-    // Standing in for what happy-dom's realm does when the fakes come off: the global is gone,
-    // not replaced. The hook installed above repaired it before this test started.
-    expect(typeof Date).toBe('function');
-    expect(typeof clearInterval).toBe('function');
-  });
-});
-
-describe('timer globals (opted out)', () => {
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, restoreTimerGlobals: false });
-
-  it('installs no repair hook, leaving the environment entirely to the suite', () => {
-    // Nothing observable to assert beyond the run staying healthy: the point of the option is that
-    // a project managing its own globals is not second-guessed.
-    expect(typeof Date).toBe('function');
-  });
-});
-
-describe('stray-timer containment (opted in)', () => {
-  // Installs the wrappers immediately and registers the per-file sweep. The sweep itself runs after
-  // this file's last test, so what is asserted here is that tracking is live and counting.
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers: true });
-
-  afterAll(() => {
-    // Hand the globals back, so the option under test does not colour the rest of the run.
-    trackStrayTimers()();
+    it('still sees the patch in the next test', () => {
+      expect(patchTarget.value).toBe('sticky');
+    });
   });
 
-  it('records a timeout the test leaves behind', () => {
-    const before = countStrayTimers();
+  describe('runner mock restoration (opted in)', () => {
+    setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, restoreMocks: true });
 
-    setTimeout(() => undefined, 60_000);
+    it('keeps a spyOn stub inside its own test', () => {
+      vi.spyOn(stubTarget, 'compute').mockReturnValue('stubbed');
 
-    expect(countStrayTimers()).toBe(before + 1);
+      expect(stubTarget.compute()).toBe('stubbed');
+    });
+
+    it('finds the stub restored in the next test', () => {
+      expect(stubTarget.compute()).toBe('real');
+    });
   });
 
-  it('is not installed twice when setupAutoSpy runs again', () => {
-    const scheduler = globalThis.setTimeout;
+  describe('the teardown net, for the run where the hook never happened', () => {
+    // Vitest runs `afterEach` in reverse registration order, so this one — registered *after*
+    // `setupAutoSpy()` — runs *first*, and taking it down takes the library's hook with it. That is
+    // the shape that let a patch travel: a long-standing `afterEach(() => vi.restoreAllMocks())`
+    // started throwing once a restored getter came back `undefined` and `ngOnDestroy` called it.
+    const target = { cookie: 'real' };
 
+    setupAutoSpy({ duplicateCopies: 'off' });
+
+    afterEach(() => {
+      if (target.cookie === 'patched') {
+        throw new Error('the hook that runs first, and throws');
+      }
+    });
+
+    const warnings: string[] = [];
+
+    it.fails('leaves a patch behind when the hook above the library throws', () => {
+      failsWith('the hook that runs first, and throws');
+      // A raw spy on purpose: the warning lands between tests, where setupAutoSpy clears the library's console spies.
+      vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
+        warnings.push(String(message));
+      });
+      mockValueProp(target, 'cookie', 'patched');
+
+      expect(countMockedProps()).toBe(1);
+    });
+
+    it('finds it put back all the same, and says why it had to be', () => {
+      vi.restoreAllMocks();
+
+      // Without `onTestFinished` this would still read `patched`, and the failure would have surfaced
+      // in whichever later test happened to care.
+      expect(target.cookie).toBe('real');
+      expect(countMockedProps()).toBe(0);
+      // The net says what happened, because the symptom is two tests away from the cause.
+      expect(warnings.join('\n')).toMatch(
+        /afterEach did not run for "setupAutoSpy, in file order > the teardown net, for the run where the hook never happened > leaves a patch behind when the hook above the library throws": an afterEach the spec registered threw/,
+      );
+      expect(warnings.join('\n')).toContain('1 mock*Prop patch was still in place and is put back now.');
+      expect(warnings.join('\n')).toMatch(/Fix the hook that threw[\s\S]*#_1-restoring-patched-properties/);
+    });
+
+    it.fails('leaves a patch behind a second time in the same file', () => {
+      failsWith('the hook that runs first, and throws');
+      vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
+        warnings.push(String(message));
+      });
+      mockValueProp(target, 'cookie', 'patched');
+
+      expect(countMockedProps()).toBe(1);
+    });
+
+    it('explains it in full once per file, and in one line after that', () => {
+      vi.restoreAllMocks();
+
+      expect(target.cookie).toBe('real');
+      expect(warnings.at(-1)).toMatch(
+        /did not run for ".* > leaves a patch behind a second time in the same file" either \(2 tests in this file\); 1 mock\*Prop patch put back/,
+      );
+      expect(warnings.at(-1)).not.toContain('Fix the hook');
+    });
+  });
+
+  describe('network blocking (opted in)', () => {
+    setupAutoSpy({ duplicateCopies: 'off', blockNetwork: true });
+
+    it('rejects instead of reaching the network, and names what was requested', async () => {
+      await expect(fetch('https://cdn.example.test/icon.svg')).rejects.toThrow(/fetch is stubbed[\s\S]*icon\.svg/);
+    });
+
+    it('re-installs the stub for the next test, after restoreProps took it off', async () => {
+      await expect(fetch('https://cdn.example.test/other.svg')).rejects.toThrow(/fetch is stubbed/);
+    });
+  });
+
+  describe('network blocking, narrowed to one channel', () => {
+    setupAutoSpy({ duplicateCopies: 'off', blockNetwork: { fetch: false, xhr: 'empty' } });
+
+    it('reads the options once, and applies exactly the ones it was given', async () => {
+      const answered = await new Promise<string>((resolve) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.addEventListener('load', () => resolve(`${xhr.status} ${JSON.stringify(xhr.responseText)}`));
+        xhr.open('GET', 'https://tracker.example.test/ping.gif');
+        xhr.send();
+      });
+
+      // Blocked, but answered rather than failed — and `fetch` was left as the environment had it,
+      // which is what proves the object reached `blockNetwork` instead of a `TestContext`.
+      expect(answered).toBe(`200 ""`);
+      expect(typeof fetch).toBe('function');
+      await expect(fetch('data:text/plain;charset=utf-8,ok').then((response) => response.text())).resolves.toBe('ok');
+    });
+  });
+
+  describe('timer globals (on by default)', () => {
+    setupAutoSpy(NO_RESTORE_PROPS);
+
+    it('puts back a timer global that went missing during the previous test', () => {
+      // Standing in for what happy-dom's realm does when the fakes come off: the global is gone,
+      // not replaced. The hook installed above repaired it before this test started.
+      expect(typeof Date).toBe('function');
+      expect(typeof clearInterval).toBe('function');
+    });
+  });
+
+  describe('timer globals (opted out)', () => {
+    setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, restoreTimerGlobals: false });
+
+    it('installs no repair hook, leaving the environment entirely to the suite', () => {
+      // Nothing observable to assert beyond the run staying healthy: the point of the option is that
+      // a project managing its own globals is not second-guessed.
+      expect(typeof Date).toBe('function');
+    });
+  });
+
+  describe('stray-timer containment (opted in)', () => {
+    // Installs the wrappers immediately and registers the per-file sweep. The sweep itself runs after
+    // this file's last test, so what is asserted here is that tracking is live and counting.
     setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers: true });
 
-    expect(globalThis.setTimeout).toBe(scheduler);
-  });
-});
-
-/**
- * What the per-file sweep says about what it swept.
- *
- * Asserted on the reporter directly rather than through the option, because the sweep runs in an
- * `afterAll` at the very end of a file: a test can neither choose the count it will see nor watch
- * what it printed. The pairing that matters is the one with Vitest 4.1's `detectAsyncLeaks` —
- * cancelling in `afterAll` empties that report, and saying nothing about it leaves a leaking suite
- * with a clean bill of health.
- */
-describe('reporting what the stray-timer sweep cancelled', () => {
-  const { consoleWarnSpy } = useConsoleSpies();
-
-  /** Turn the runner's own flag on for the duration of `run`, whatever it was before. */
-  function withLeakDetection<T>(run: () => T): T {
-    const { config }: { config: { detectAsyncLeaks?: unknown } } = Reflect.get(globalThis, '__vitest_worker__');
-    const before = config.detectAsyncLeaks;
-
-    config.detectAsyncLeaks = true;
-
-    try {
-      return run();
-    } finally {
-      config.detectAsyncLeaks = before;
-    }
-  }
-
-  /** Watch the channel the warning actually uses — stderr, not the intercepted console. */
-  function captureStderr(): { written: string[]; restore: () => void } {
-    const written: string[] = [];
-    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
-      written.push(String(chunk));
-
-      return true;
+    afterAll(() => {
+      // Hand the globals back, so the option under test does not colour the rest of the run.
+      trackStrayTimers()();
     });
 
-    return { written, restore: () => spy.mockRestore() };
-  }
+    it('records a timeout the test leaves behind', () => {
+      const before = countStrayTimers();
 
-  it('says nothing when the file left nothing behind', () => {
-    const { written, restore } = captureStderr();
-    const handler = vi.fn();
+      setTimeout(() => undefined, 60_000);
 
-    try {
-      withLeakDetection(() => reportStrayTimers(0, handler));
-    } finally {
-      restore();
-    }
+      expect(countStrayTimers()).toBe(before + 1);
+    });
 
-    expect(handler).not.toHaveBeenCalled();
-    expect(written).toEqual([]);
-  });
+    it('is not installed twice when setupAutoSpy runs again', () => {
+      const scheduler = globalThis.setTimeout;
 
-  it('hands the count and the origins to a handler instead of printing anything', () => {
-    const { written, restore } = captureStderr();
-    const handler = vi.fn();
-    const timers = [{ kind: 'timeout' as const, file: '/a/cart.spec.ts', frames: ['at load (src/cart.ts:12:5)'] }];
+      setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers: true });
 
-    try {
-      withLeakDetection(() => reportStrayTimers(3, handler, timers));
-    } finally {
-      restore();
-    }
-
-    expect(handler).toHaveBeenCalledWith({ cancelled: 3, timers });
-    expect(written).toEqual([]);
-  });
-
-  it('fails the file with every stray named by kind, delay, file and first frame', () => {
-    const { written, restore } = captureStderr();
-    const timers = [
-      { kind: 'timeout' as const, delay: 300, file: '/a/cart.spec.ts', frames: ['at load (src/cart.ts:12:5)'], test: 'cart > loads' },
-      { kind: 'frame' as const, file: undefined, frames: [] },
-    ];
-
-    try {
-      expect(() => withLeakDetection(() => reportStrayTimers(2, 'throw', timers))).toThrow(
-        '[vitest-auto-spy] src/lib/setup-auto-spy.spec.ts left 2 timers pending when it ended:\n' +
-          '  - setTimeout 300 ms, scheduled in "cart > loads", in /a/cart.spec.ts at load (src/cart.ts:12:5)\n' +
-          '  - requestAnimationFrame, outside any spec file\n' +
-          'They were cancelled so none can fire in the next file. Clear each where it was scheduled — clearTimeout, unsubscribe, ' +
-          'fixture.destroy().\nDocs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_4-cancelling-timers-that-outlive-their-file',
-      );
-    } finally {
-      restore();
-    }
-
-    expect(written).toEqual([]);
-  });
-
-  it('stays quiet with no handler when the run is not looking for leaks', () => {
-    const { written, restore } = captureStderr();
-
-    try {
-      reportStrayTimers(3, undefined);
-    } finally {
-      restore();
-    }
-
-    expect(written).toEqual([]);
-  });
-
-  it('warns when the sweep emptied a leak report nobody else will fill', () => {
-    const { written, restore } = captureStderr();
-
-    try {
-      withLeakDetection(() => reportStrayTimers(2, undefined));
-    } finally {
-      restore();
-    }
-
-    expect(written).toHaveLength(1);
-    expect(written[0]).toContain('left 2 timers pending when it ended.');
-  });
-
-  it('puts the diagnosis first and the leak report last, in one sentence, with nothing about silencing it', () => {
-    const printed: string[] = [];
-
-    warnAboutSuppressedLeaks(4, (message) => printed.push(message));
-
-    const lines = String(printed[0]).split('\n');
-
-    expect(lines[0]).toBe('[vitest-auto-spy] src/lib/setup-auto-spy.spec.ts left 4 timers pending when it ended.');
-    expect(lines.at(-2)).toBe(
-      'Vitest\'s detectAsyncLeaks looks after that cancel, so these timers are missing from its "Async Leaks" report.',
-    );
-    expect(lines.at(-1)).toMatch(/^Docs: \S+#with-vitest-4-1-s-detect-async-leaks$/);
-    expect(printed[0]).not.toContain('onStrayTimers');
-  });
-
-  it('says where the first three were scheduled, and from which file', () => {
-    const printed: string[] = [];
-    const stray = (file: string | undefined, frames: string[]) => ({ kind: 'interval' as const, file, frames });
-
-    warnAboutSuppressedLeaks(4, (message) => printed.push(message), [
-      stray('/a/one.spec.ts', ['at poll (src/poller.ts:3:1)']),
-      stray(undefined, []),
-      stray('/a/two.spec.ts', []),
-      stray('/a/four.spec.ts', []),
-    ]);
-
-    expect(printed[0]).toContain(
-      'left 4 timers pending when it ended:\n  - setInterval, in /a/one.spec.ts at poll (src/poller.ts:3:1)\n' +
-        '  - setInterval, outside any spec file\n  - setInterval, in /a/two.spec.ts\n  … and 1 more\n',
-    );
-    expect(printed[0]).not.toContain('four.spec.ts');
-  });
-
-  it('names the delay a timer was scheduled with, and none for a frame', () => {
-    const printed: string[] = [];
-
-    warnAboutSuppressedLeaks(2, (message) => printed.push(message), [
-      { kind: 'timeout', delay: 300, file: '/a/angle.spec.ts', frames: ['at open (src/angle.ts:8:3)'] },
-      { kind: 'frame', file: '/a/angle.spec.ts', frames: [] },
-    ]);
-
-    expect(printed[0]).toContain(
-      '/a/angle.spec.ts left 2 timers pending when it ended:\n  - setTimeout 300 ms at open (src/angle.ts:8:3)\n  - requestAnimationFrame\n',
-    );
-  });
-
-  it('falls back to the console where the environment has no process', () => {
-    const real = globalThis.process;
-
-    Reflect.deleteProperty(globalThis, 'process');
-
-    try {
-      warnAboutSuppressedLeaks(1);
-    } finally {
-      Reflect.set(globalThis, 'process', real);
-    }
-
-    expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('mock-registry pruning (opted in)', () => {
-  // The capture happens in the `beforeAll` the option registers, and it is memoised — so the call
-  // below re-reads that attempt rather than making one; the prune it pairs with runs after this
-  // block's last test.
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, pruneMockRegistry: true });
-
-  afterAll(resetMockRegistryTracking);
-
-  it('leaves the tracking in step with what the runner exposes', () => {
-    expect(getMockRegistrySize()).toBe(captureMockRegistry()?.size);
-  });
-});
-
-/**
- * A stand-in for zone.js, on the globals for exactly as long as the option below needs it.
- *
- * `setupAutoSpy({ strayRejections: true })` refuses to arm without zone.js — deliberately, since a
- * silent no-op would read as "the check is on" — and this repository's suite is zoneless. Vitest
- * runs every suite factory *after* the file body, so the stub cannot be taken off between the two
- * describes; it comes off in the file's own `afterAll`, which is late enough for the option under
- * test and early enough that nothing outside this file ever sees a `Zone`.
- */
-const zoneStub = Object.assign(() => undefined, { __symbol__: (name: string): string => `__zone_symbol__${name}` });
-const rejectionSlot = zoneStub.__symbol__('unhandledPromiseRejectionHandler');
-
-vi.stubGlobal('Zone', zoneStub);
-
-afterAll(() => {
-  vi.unstubAllGlobals();
-});
-
-/** What zone.js does after its `console.error`, minus zone.js. */
-function fireRejection(error: unknown): void {
-  const handler = Reflect.get(zoneStub, rejectionSlot);
-
-  handler(error);
-}
-
-describe('stray-rejection containment (opted in)', () => {
-  // Claims the handler slot immediately and registers the per-test check. Every test here has to
-  // hand back what it fired, because that check's job is to fail the test it runs after.
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayRejections: true });
-
-  it('captures what zone.js would have swallowed into console.error', () => {
-    const reason = new Error('nobody awaited me');
-
-    fireRejection({ rejection: reason, zone: { name: 'ProxyZone' }, task: { source: 'Promise.then' } });
-
-    expect(flushStrayRejections().map((rejection) => rejection.reason)).toEqual([reason]);
-  });
-
-  it('turns one into a failure that names the assertion and the test it belongs to', () => {
-    fireRejection(Object.assign(new Error('expected 1 to be 2'), { matcherResult: { pass: false } }));
-
-    expect(() => reportStrayRejections()).toThrow(
-      /^\[vitest-auto-spy\] 1 promise rejection went unhandled in ".*names the assertion.*", and zone\.js swallowed it into console\.error:\n {2}- Error: expected 1 to be 2\n/,
-    );
-  });
-
-  it('does not report again what the runner has already blamed the test for', () => {
-    const failure = Object.assign(new Error('expected 1 to be 2'), { matcherResult: { pass: false } });
-
-    fireRejection(failure);
-
-    // An `async` test that fails an assertion leaves its own error here as well: the runner names it
-    // once, and a second message about the same throw sends the reader looking for a defect that is
-    // not there.
-    expect(() => reportStrayRejections({ task: { result: { errors: [failure] } } })).not.toThrow();
-  });
-
-  it('recognises the runner’s copy of the same throw, not only the object itself', () => {
-    const thrown = new Error('expected 1 to be 2');
-    const processed = { message: thrown.message, stack: thrown.stack };
-
-    fireRejection(thrown);
-
-    expect(() => reportStrayRejections({ task: { result: { errors: [processed] } } })).not.toThrow();
-  });
-
-  it('still reports a rejection the runner said nothing about', () => {
-    fireRejection(new Error('nobody awaited me'));
-
-    expect(() => reportStrayRejections({ task: { result: { errors: [new Error('a different failure')] } } })).toThrow(/nobody awaited me/);
-    fireRejection(new Error('nobody awaited me'));
-    // Same message, different throw: the stacks part company, so it keeps its own message.
-    expect(() => reportStrayRejections({ task: { result: { errors: [new Error('nobody awaited me')] } } })).toThrow(/nobody awaited me/);
-    fireRejection('a bare string');
-    // A reason with no message at all is nothing the runner's error list can be mistaken for.
-    expect(() => reportStrayRejections({ task: { result: { errors: [new Error('something else')] } } })).toThrow(
-      /rejected with a bare string/,
-    );
-  });
-
-  it('reads an empty list out of every shape of context the runner might not have filled in', () => {
-    expect(reportedErrors(undefined)).toEqual([]);
-    expect(reportedErrors({})).toEqual([]);
-    expect(reportedErrors({ task: {} })).toEqual([]);
-    expect(reportedErrors({ task: { result: {} } })).toEqual([]);
-    expect(reportedErrors({ task: { result: { errors: ['boom'] } } })).toEqual(['boom']);
-  });
-
-  it('is not claimed twice when setupAutoSpy runs again', () => {
-    const claimed: unknown = Reflect.get(zoneStub, rejectionSlot);
-
-    setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayRejections: true });
-
-    expect(Reflect.get(zoneStub, rejectionSlot)).toBe(claimed);
-  });
-});
-
-/**
- * The bug this covers: the diagnostics and the restores used to be separate `afterEach`
- * registrations, so which ran first was decided by `sequence.hooks` — and under its default
- * `'stack'` the throwing diagnostic went first and took every restore with it. Both settings are
- * exercised because a project that pins `'list'` is accidentally immune and would not see a
- * regression the other half of the world does.
- *
- * `it.fails` is what lets the throwing hook be asserted on: the runner flips the result after the
- * `afterEach` hooks have run, so the failure the diagnostic causes is the expected outcome here.
- */
-describe.each(['list', 'stack'] as const)('a diagnostic that throws, with sequence.hooks: %s', (hooks) => {
-  const guarded = { value: 'real' };
-
-  setupAutoSpy({ duplicateCopies: 'off', strayRejections: true });
-
-  beforeAll(() => {
-    vi.setConfig({ sequence: { hooks } });
-  });
-
-  afterAll(() => {
-    vi.resetConfig();
-  });
-
-  it.fails('fails the test its finding is attributed to', () => {
-    mockValueProp(guarded, 'value', 'patched');
-    fireRejection(new Error('nobody awaited me'));
-  });
-
-  it('had the restores run all the same', () => {
-    expect(guarded.value).toBe('real');
-    expect(countMockedProps()).toBe(0);
-  });
-});
-
-describe('runTeardown', () => {
-  const step = (log: string[], name: string, error?: Error) => (): void => {
-    log.push(name);
-
-    if (error) {
-      throw error;
-    }
-  };
-
-  it('runs every step even after one threw, and reports the first failure', () => {
-    const ran: string[] = [];
-    const diagnostic = new Error('the finding');
-
-    expect(() =>
-      runTeardown([step(ran, 'diagnostic', diagnostic), step(ran, 'restore'), step(ran, 'late', new Error('a restore'))]),
-    ).toThrow(diagnostic);
-    expect(ran).toEqual(['diagnostic', 'restore', 'late']);
-  });
-
-  it('throws nothing when every step succeeded', () => {
-    const ran: string[] = [];
-
-    runTeardown([step(ran, 'restore')]);
-
-    expect(ran).toEqual(['restore']);
-  });
-});
-
-describe('the report a captured rejection turns into', () => {
-  const rejection = (overrides: Partial<StrayRejection>): StrayRejection => ({
-    reason: new Error('boom'),
-    assertion: false,
-    testName: 'a suite > a test',
-    ...overrides,
-  });
-
-  it('points a late assertion at the missing await', () => {
-    const message = describeStrayRejections([rejection({ assertion: true, reason: new Error('boom\n  at somewhere') })]);
-
-    expect(message).toMatch(/^\[vitest-auto-spy\] 1 promise rejection went unhandled in "a suite > a test", and zone\.js swallowed it/);
-    expect(message).toContain('\n  - Error: boom\n');
-    expect(message).toMatch(/cannot fail it[\s\S]*Return or await the promise/);
-    expect(message).toMatch(/\nDocs: \S+#_8-failing-on-a-rejection-zone-js-swallowed$/);
-  });
-
-  it('says something else for an error nothing handled, and for a reason that is not one', () => {
-    const message = describeStrayRejections([rejection({ reason: 'a bare string', testName: '' })]);
-
-    expect(message).toContain('went unhandled outside any test, and zone.js swallowed it');
-    expect(message).toContain('  - rejected with a bare string\n');
-    expect(message).toMatch(/fails no test[\s\S]*rejects\.toThrow/);
-  });
-
-  it('names the test on each line when they differ', () => {
-    const message = describeStrayRejections([rejection({}), rejection({ testName: '' })]);
-
-    expect(message).toMatch(/^\[vitest-auto-spy\] 2 promise rejections went unhandled, and zone\.js swallowed them/);
-    expect(message).toContain('  - Error: boom — surfaced in "a suite > a test"\n  - Error: boom — surfaced outside any test\n');
-  });
-});
-
-describe('global-patch guard (opted in)', () => {
-  // What the guard reports is covered in `global-patch-guard.spec.ts`, on a hand-built snapshot: a
-  // finding here would mean sealing a real global, which is by definition permanent. What this pair
-  // covers is the wiring — snapshot before the test, check after it, as one of the teardown steps.
-  setupAutoSpy({ duplicateCopies: 'off', guardGlobals: 'throw' });
-
-  it('lets a patch of a global that can be undone through', () => {
-    mockValueProp(globalThis, 'aStubbedGlobal', 'stub');
-
-    expect(Reflect.get(globalThis, 'aStubbedGlobal')).toBe('stub');
-  });
-
-  it('reported nothing about it, and the patch is off again', () => {
-    expect('aStubbedGlobal' in globalThis).toBe(false);
-  });
-});
-
-describe('console-spy clearing (on by default)', () => {
-  // A plain counter, not the spy's own history: the second test asserts what the first test's
-  // teardown did, and a run with `clearMocks` — Vitest 5's default — clears history in between.
-  let resetCalls = 0;
-  const reset = vi.fn(() => {
-    resetCalls += 1;
-  });
-
-  setupAutoSpy(NO_RESTORE_PROPS);
-
-  const registered = globalThis.__vitestAutoSpyResetConsoleSpies__;
-
-  beforeAll(() => {
-    // Standing in for what `vitest-auto-spy/console` registers on import: the setup entry must not
-    // pull that module in, so the hook only ever reaches it through this slot.
-    globalThis.__vitestAutoSpyResetConsoleSpies__ = reset;
-  });
-
-  afterAll(() => {
-    globalThis.__vitestAutoSpyResetConsoleSpies__ = registered;
-  });
-
-  it('leaves the recorded calls alone while a test is running', () => {
-    expect(resetCalls).toBe(0);
-  });
-
-  it('cleared them once the test was over', () => {
-    expect(resetCalls).toBe(1);
-  });
-});
-
-describe('every step opted out', () => {
-  const reset = vi.fn();
-
-  setupAutoSpy({
-    duplicateCopies: 'off',
-    frozenClockHint: false,
-    hookTimeoutHint: false,
-    prototypePollution: 'off',
-    resetConsoleSpies: false,
-    restoreProps: false,
-    restoreTimerGlobals: false,
-  });
-
-  const registered = globalThis.__vitestAutoSpyResetConsoleSpies__;
-
-  beforeAll(() => {
-    globalThis.__vitestAutoSpyResetConsoleSpies__ = reset;
-  });
-
-  afterAll(() => {
-    globalThis.__vitestAutoSpyResetConsoleSpies__ = registered;
-  });
-
-  it('registers a first test to be followed by nothing', () => {
-    expect(reset).not.toHaveBeenCalled();
-  });
-
-  it('installed no per-test hook at all', () => {
-    expect(reset).not.toHaveBeenCalled();
-  });
-});
-
-describe('setupAutoSpy({ angularBuildHint })', () => {
-  // The check itself is pinned in its own spec; here only the seam is: the builder's marker is set
-  // while the setup call runs, so the notice records that it looked — this repository's own
-  // `@angular/build` is outside the window, so it prints nothing.
-  const marker = Symbol.for('@angular/cli/vitest-mock-patch');
-
-  function withBuilderMarker(run: () => void): boolean | undefined {
-    resetAngularBuildNotice();
-    Reflect.set(globalThis, marker, true);
-
-    try {
-      run();
-    } finally {
-      Reflect.deleteProperty(globalThis, marker);
-    }
-
-    const looked = globalThis.__vitestAutoSpyAngularBuildNoticed__;
-
-    resetAngularBuildNotice();
-
-    return looked;
-  }
-
-  const onByDefault = withBuilderMarker(() => setupAutoSpy({ duplicateCopies: 'off' }));
-  const optedOut = withBuilderMarker(() => setupAutoSpy({ duplicateCopies: 'off', angularBuildHint: false }));
-
-  it('looks for the builder by default', () => {
-    expect(onByDefault).toBe(true);
-  });
-
-  it('does not look when opted out', () => {
-    expect(optedOut).toBeUndefined();
-  });
-});
-
-describe('setupAutoSpy({ restoreWebStorage })', () => {
-  // Shaped like a storage and unable to keep anything, which is what Node 25 hands out.
-  const broken = { setItem: () => undefined, getItem: () => null, removeItem: () => undefined };
-
-  function withBrokenStorage(run: () => void): unknown {
-    const real = globalThis.localStorage;
-
-    // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- runs while the describe is collected, where no per-test helper applies; the finally puts it back
-    Object.defineProperty(globalThis, 'localStorage', { value: broken, writable: true, configurable: true });
-
-    try {
-      run();
-
-      return globalThis.localStorage;
-    } finally {
-      // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- the restore of the line above
-      Object.defineProperty(globalThis, 'localStorage', { value: real, writable: true, configurable: true });
-    }
-  }
-
-  const repaired = withBrokenStorage(() => setupAutoSpy({ duplicateCopies: 'off' }));
-  const leftAlone = withBrokenStorage(() => setupAutoSpy({ duplicateCopies: 'off', restoreWebStorage: false }));
-
-  it('replaces a storage that cannot keep a value', () => {
-    expect(repaired).not.toBe(broken);
-  });
-
-  it('leaves it alone when opted out', () => {
-    expect(leftAlone).toBe(broken);
-  });
-});
-
-describe('setupAutoSpy({ globalFakeTimers })', () => {
-  setupAutoSpy({ duplicateCopies: 'off', globalFakeTimers: { toFake: ['Date'] } });
-
-  it('installs fake timers for the first test', () => {
-    expect(vi.isFakeTimers()).toBe(true);
-  });
-
-  it('installs them again for the next one, without a double uninstall in between', () => {
-    expect(vi.isFakeTimers()).toBe(true);
-  });
-});
-
-describe('setupAutoSpy({ globalFakeTimers: true })', () => {
-  setupAutoSpy({ duplicateCopies: 'off', globalFakeTimers: true });
-
-  it('accepts the boolean shorthand', () => {
-    expect(vi.isFakeTimers()).toBe(true);
-  });
-
-  it('runs a test before the nested block below, so its beforeAll meets an afterEach', () => {
-    expect(vi.isFakeTimers()).toBe(true);
+      expect(globalThis.setTimeout).toBe(scheduler);
+    });
   });
 
   /**
-   * The gap that arming in `beforeEach` alone leaves: a nested `beforeAll` runs *after* the previous
-   * test's `afterEach`, so it meets whatever that hook left behind. A suite preparing its samples
-   * there — an animation clock driven with `vi.advanceTimersByTimeAsync`, say — failed with
-   * `A function to advance timers was called but the timers APIs are not mocked`, in a set whose own
-   * tests never touch a timer.
+   * What the per-file sweep says about what it swept.
+   *
+   * Asserted on the reporter directly rather than through the option, because the sweep runs in an
+   * `afterAll` at the very end of a file: a test can neither choose the count it will see nor watch
+   * what it printed. The pairing that matters is the one with Vitest 4.1's `detectAsyncLeaks` —
+   * cancelling in `afterAll` empties that report, and saying nothing about it leaves a leaking suite
+   * with a clean bill of health.
    */
-  describe('a nested block whose beforeAll drives the clock', () => {
-    let advanced = false;
+  describe('reporting what the stray-timer sweep cancelled', () => {
+    const { consoleWarnSpy } = useConsoleSpies();
+
+    /** Turn the runner's own flag on for the duration of `run`, whatever it was before. */
+    function withLeakDetection<T>(run: () => T): T {
+      const { config }: { config: { detectAsyncLeaks?: unknown } } = Reflect.get(globalThis, '__vitest_worker__');
+      const before = config.detectAsyncLeaks;
+
+      config.detectAsyncLeaks = true;
+
+      try {
+        return run();
+      } finally {
+        config.detectAsyncLeaks = before;
+      }
+    }
+
+    /** Watch the channel the warning actually uses — stderr, not the intercepted console. */
+    function captureStderr(): { written: string[]; restore: () => void } {
+      const written: string[] = [];
+      const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+        written.push(String(chunk));
+
+        return true;
+      });
+
+      return { written, restore: () => spy.mockRestore() };
+    }
+
+    it('says nothing when the file left nothing behind', () => {
+      const { written, restore } = captureStderr();
+      const handler = vi.fn();
+
+      try {
+        withLeakDetection(() => reportStrayTimers(0, handler));
+      } finally {
+        restore();
+      }
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(written).toEqual([]);
+    });
+
+    it('hands the count and the origins to a handler instead of printing anything', () => {
+      const { written, restore } = captureStderr();
+      const handler = vi.fn();
+      const timers = [{ kind: 'timeout' as const, file: '/a/cart.spec.ts', frames: ['at load (src/cart.ts:12:5)'] }];
+
+      try {
+        withLeakDetection(() => reportStrayTimers(3, handler, timers));
+      } finally {
+        restore();
+      }
+
+      expect(handler).toHaveBeenCalledWith({ cancelled: 3, timers });
+      expect(written).toEqual([]);
+    });
+
+    it('fails the file with every stray named by kind, delay, file and first frame', () => {
+      const { written, restore } = captureStderr();
+      const timers = [
+        { kind: 'timeout' as const, delay: 300, file: '/a/cart.spec.ts', frames: ['at load (src/cart.ts:12:5)'], test: 'cart > loads' },
+        { kind: 'frame' as const, file: undefined, frames: [] },
+      ];
+
+      try {
+        expect(() => withLeakDetection(() => reportStrayTimers(2, 'throw', timers))).toThrow(
+          '[vitest-auto-spy] src/lib/setup-auto-spy.spec.ts left 2 timers pending when it ended:\n' +
+            '  - setTimeout 300 ms, scheduled in "cart > loads", in /a/cart.spec.ts at load (src/cart.ts:12:5)\n' +
+            '  - requestAnimationFrame, outside any spec file\n' +
+            'They were cancelled so none can fire in the next file. Clear each where it was scheduled — clearTimeout, unsubscribe, ' +
+            'fixture.destroy().\nDocs: https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_4-cancelling-timers-that-outlive-their-file',
+        );
+      } finally {
+        restore();
+      }
+
+      expect(written).toEqual([]);
+    });
+
+    it('stays quiet with no handler when the run is not looking for leaks', () => {
+      const { written, restore } = captureStderr();
+
+      try {
+        reportStrayTimers(3, undefined);
+      } finally {
+        restore();
+      }
+
+      expect(written).toEqual([]);
+    });
+
+    it('warns when the sweep emptied a leak report nobody else will fill', () => {
+      const { written, restore } = captureStderr();
+
+      try {
+        withLeakDetection(() => reportStrayTimers(2, undefined));
+      } finally {
+        restore();
+      }
+
+      expect(written).toHaveLength(1);
+      expect(written[0]).toContain('left 2 timers pending when it ended.');
+    });
+
+    it('puts the diagnosis first and the leak report last, in one sentence, with nothing about silencing it', () => {
+      const printed: string[] = [];
+
+      warnAboutSuppressedLeaks(4, (message) => printed.push(message));
+
+      const lines = String(printed[0]).split('\n');
+
+      expect(lines[0]).toBe('[vitest-auto-spy] src/lib/setup-auto-spy.spec.ts left 4 timers pending when it ended.');
+      expect(lines.at(-2)).toBe(
+        'Vitest\'s detectAsyncLeaks looks after that cancel, so these timers are missing from its "Async Leaks" report.',
+      );
+      expect(lines.at(-1)).toMatch(/^Docs: \S+#with-vitest-4-1-s-detect-async-leaks$/);
+      expect(printed[0]).not.toContain('onStrayTimers');
+    });
+
+    it('says where the first three were scheduled, and from which file', () => {
+      const printed: string[] = [];
+      const stray = (file: string | undefined, frames: string[]) => ({ kind: 'interval' as const, file, frames });
+
+      warnAboutSuppressedLeaks(4, (message) => printed.push(message), [
+        stray('/a/one.spec.ts', ['at poll (src/poller.ts:3:1)']),
+        stray(undefined, []),
+        stray('/a/two.spec.ts', []),
+        stray('/a/four.spec.ts', []),
+      ]);
+
+      expect(printed[0]).toContain(
+        'left 4 timers pending when it ended:\n  - setInterval, in /a/one.spec.ts at poll (src/poller.ts:3:1)\n' +
+          '  - setInterval, outside any spec file\n  - setInterval, in /a/two.spec.ts\n  … and 1 more\n',
+      );
+      expect(printed[0]).not.toContain('four.spec.ts');
+    });
+
+    it('names the delay a timer was scheduled with, and none for a frame', () => {
+      const printed: string[] = [];
+
+      warnAboutSuppressedLeaks(2, (message) => printed.push(message), [
+        { kind: 'timeout', delay: 300, file: '/a/angle.spec.ts', frames: ['at open (src/angle.ts:8:3)'] },
+        { kind: 'frame', file: '/a/angle.spec.ts', frames: [] },
+      ]);
+
+      expect(printed[0]).toContain(
+        '/a/angle.spec.ts left 2 timers pending when it ended:\n  - setTimeout 300 ms at open (src/angle.ts:8:3)\n  - requestAnimationFrame\n',
+      );
+    });
+
+    it('falls back to the console where the environment has no process', () => {
+      const real = globalThis.process;
+
+      Reflect.deleteProperty(globalThis, 'process');
+
+      try {
+        warnAboutSuppressedLeaks(1);
+      } finally {
+        Reflect.set(globalThis, 'process', real);
+      }
+
+      expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('mock-registry pruning (opted in)', () => {
+    // The capture happens in the `beforeAll` the option registers, and it is memoised — so the call
+    // below re-reads that attempt rather than making one; the prune it pairs with runs after this
+    // block's last test.
+    setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, pruneMockRegistry: true });
+
+    afterAll(resetMockRegistryTracking);
+
+    it('leaves the tracking in step with what the runner exposes', () => {
+      expect(getMockRegistrySize()).toBe(captureMockRegistry()?.size);
+    });
+  });
+
+  /**
+   * A stand-in for zone.js, on the globals for exactly as long as the option below needs it.
+   *
+   * `setupAutoSpy({ strayRejections: true })` refuses to arm without zone.js — deliberately, since a
+   * silent no-op would read as "the check is on" — and this repository's suite is zoneless. Vitest
+   * runs every suite factory *after* the file body, so the stub cannot be taken off between the two
+   * describes; it comes off in the file's own `afterAll`, which is late enough for the option under
+   * test and early enough that nothing outside this file ever sees a `Zone`.
+   */
+  const zoneStub = Object.assign(() => undefined, { __symbol__: (name: string): string => `__zone_symbol__${name}` });
+  const rejectionSlot = zoneStub.__symbol__('unhandledPromiseRejectionHandler');
+
+  vi.stubGlobal('Zone', zoneStub);
+
+  afterAll(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** What zone.js does after its `console.error`, minus zone.js. */
+  function fireRejection(error: unknown): void {
+    const handler = Reflect.get(zoneStub, rejectionSlot);
+
+    handler(error);
+  }
+
+  describe('stray-rejection containment (opted in)', () => {
+    // Claims the handler slot immediately and registers the per-test check. Every test here has to
+    // hand back what it fired, because that check's job is to fail the test it runs after.
+    setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayRejections: true });
+
+    it('captures what zone.js would have swallowed into console.error', () => {
+      const reason = new Error('nobody awaited me');
+
+      fireRejection({ rejection: reason, zone: { name: 'ProxyZone' }, task: { source: 'Promise.then' } });
+
+      expect(flushStrayRejections().map((rejection) => rejection.reason)).toEqual([reason]);
+    });
+
+    it('turns one into a failure that names the assertion and the test it belongs to', () => {
+      fireRejection(Object.assign(new Error('expected 1 to be 2'), { matcherResult: { pass: false } }));
+
+      expect(() => reportStrayRejections()).toThrow(
+        /^\[vitest-auto-spy\] 1 promise rejection went unhandled in ".*names the assertion.*", and zone\.js swallowed it into console\.error:\n {2}- Error: expected 1 to be 2\n/,
+      );
+    });
+
+    it('does not report again what the runner has already blamed the test for', () => {
+      const failure = Object.assign(new Error('expected 1 to be 2'), { matcherResult: { pass: false } });
+
+      fireRejection(failure);
+
+      // An `async` test that fails an assertion leaves its own error here as well: the runner names it
+      // once, and a second message about the same throw sends the reader looking for a defect that is
+      // not there.
+      expect(() => reportStrayRejections({ task: { result: { errors: [failure] } } })).not.toThrow();
+    });
+
+    it('recognises the runner’s copy of the same throw, not only the object itself', () => {
+      const thrown = new Error('expected 1 to be 2');
+      const processed = { message: thrown.message, stack: thrown.stack };
+
+      fireRejection(thrown);
+
+      expect(() => reportStrayRejections({ task: { result: { errors: [processed] } } })).not.toThrow();
+    });
+
+    it('still reports a rejection the runner said nothing about', () => {
+      fireRejection(new Error('nobody awaited me'));
+
+      expect(() => reportStrayRejections({ task: { result: { errors: [new Error('a different failure')] } } })).toThrow(
+        /nobody awaited me/,
+      );
+      fireRejection(new Error('nobody awaited me'));
+      // Same message, different throw: the stacks part company, so it keeps its own message.
+      expect(() => reportStrayRejections({ task: { result: { errors: [new Error('nobody awaited me')] } } })).toThrow(/nobody awaited me/);
+      fireRejection('a bare string');
+      // A reason with no message at all is nothing the runner's error list can be mistaken for.
+      expect(() => reportStrayRejections({ task: { result: { errors: [new Error('something else')] } } })).toThrow(
+        /rejected with a bare string/,
+      );
+    });
+
+    it('reads an empty list out of every shape of context the runner might not have filled in', () => {
+      expect(reportedErrors(undefined)).toEqual([]);
+      expect(reportedErrors({})).toEqual([]);
+      expect(reportedErrors({ task: {} })).toEqual([]);
+      expect(reportedErrors({ task: { result: {} } })).toEqual([]);
+      expect(reportedErrors({ task: { result: { errors: ['boom'] } } })).toEqual(['boom']);
+    });
+
+    it('counts the rejections past the retention cap in the report', () => {
+      for (let index = 0; index < 105; index += 1) {
+        fireRejection(new Error(`lost ${index}`));
+      }
+
+      expect(() => reportStrayRejections()).toThrow(
+        /^\[vitest-auto-spy\] 105 promise rejections went unhandled[\S\s]*\n {2}… and 5 more, counted but not kept\n/,
+      );
+    });
+
+    it('still reports the rejections past the cap when the runner already named every kept one', () => {
+      const failure = new Error('expected 1 to be 2');
+
+      for (let index = 0; index < 101; index += 1) {
+        fireRejection(failure);
+      }
+
+      expect(() => reportStrayRejections({ task: { result: { errors: [failure] } } })).toThrow(
+        /^\[vitest-auto-spy\] 1 promise rejection went unhandled, and zone\.js swallowed it into console\.error:\n {2}… and 1 more, counted but not kept\n/,
+      );
+    });
+
+    it('is not claimed twice when setupAutoSpy runs again', () => {
+      const claimed: unknown = Reflect.get(zoneStub, rejectionSlot);
+
+      setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayRejections: true });
+
+      expect(Reflect.get(zoneStub, rejectionSlot)).toBe(claimed);
+    });
+  });
+
+  /**
+   * The bug this covers: the diagnostics and the restores used to be separate `afterEach`
+   * registrations, so which ran first was decided by `sequence.hooks` — and under its default
+   * `'stack'` the throwing diagnostic went first and took every restore with it. Both settings are
+   * exercised because a project that pins `'list'` is accidentally immune and would not see a
+   * regression the other half of the world does.
+   *
+   * `it.fails` is what lets the throwing hook be asserted on: the runner flips the result after the
+   * `afterEach` hooks have run, so the failure the diagnostic causes is the expected outcome here.
+   */
+  describe.each(['list', 'stack'] as const)('a diagnostic that throws, with sequence.hooks: %s', (hooks) => {
+    const guarded = { value: 'real' };
+
+    setupAutoSpy({ duplicateCopies: 'off', strayRejections: true });
+
+    // The claim is per file and the first block's `afterAll` already gave it back.
+    let stopTracking: () => void = () => undefined;
 
     beforeAll(() => {
+      vi.setConfig({ sequence: { hooks } });
+      stopTracking = trackStrayRejections();
+    });
+
+    afterAll(() => {
+      stopTracking();
+      vi.resetConfig();
+    });
+
+    it.fails('fails the test its finding is attributed to', () => {
+      failsWith(/^\[vitest-auto-spy\] 1 promise rejection went unhandled in ".*fails the test its finding is attributed to"/);
+      mockValueProp(guarded, 'value', 'patched');
+      fireRejection(new Error('nobody awaited me'));
+    });
+
+    it('had the restores run all the same', () => {
+      expect(guarded.value).toBe('real');
+      expect(countMockedProps()).toBe(0);
+    });
+  });
+
+  describe('runTeardown', () => {
+    const step = (log: string[], name: string, error?: Error) => (): void => {
+      log.push(name);
+
+      if (error) {
+        throw error;
+      }
+    };
+
+    it('runs every step even after one threw, and reports the first failure', () => {
+      const ran: string[] = [];
+      const diagnostic = new Error('the finding');
+
+      expect(() =>
+        runTeardown([step(ran, 'diagnostic', diagnostic), step(ran, 'restore'), step(ran, 'late', new Error('a restore'))]),
+      ).toThrow(diagnostic);
+      expect(ran).toEqual(['diagnostic', 'restore', 'late']);
+    });
+
+    it('throws nothing when every step succeeded', () => {
+      const ran: string[] = [];
+
+      runTeardown([step(ran, 'restore')]);
+
+      expect(ran).toEqual(['restore']);
+    });
+  });
+
+  describe('the report a captured rejection turns into', () => {
+    const rejection = (overrides: Partial<StrayRejection>): StrayRejection => ({
+      reason: new Error('boom'),
+      assertion: false,
+      testName: 'a suite > a test',
+      ...overrides,
+    });
+
+    it('points a late assertion at the missing await', () => {
+      const message = describeStrayRejections([rejection({ assertion: true, reason: new Error('boom\n  at somewhere') })]);
+
+      expect(message).toMatch(/^\[vitest-auto-spy\] 1 promise rejection went unhandled in "a suite > a test", and zone\.js swallowed it/);
+      expect(message).toContain('\n  - Error: boom\n');
+      expect(message).toMatch(/cannot fail it[\s\S]*Return or await the promise/);
+      expect(message).toMatch(/\nDocs: \S+#_8-failing-on-a-rejection-zone-js-swallowed$/);
+    });
+
+    it('says something else for an error nothing handled, and for a reason that is not one', () => {
+      const message = describeStrayRejections([rejection({ reason: 'a bare string', testName: '' })]);
+
+      expect(message).toContain('went unhandled outside any test, and zone.js swallowed it');
+      expect(message).toContain('  - rejected with a bare string\n');
+      expect(message).toMatch(/fails no test[\s\S]*rejects\.toThrow/);
+    });
+
+    it('names the test on each line when they differ', () => {
+      const message = describeStrayRejections([rejection({}), rejection({ testName: '' })]);
+
+      expect(message).toMatch(/^\[vitest-auto-spy\] 2 promise rejections went unhandled, and zone\.js swallowed them/);
+      expect(message).toContain('  - Error: boom — surfaced in "a suite > a test"\n  - Error: boom — surfaced outside any test\n');
+    });
+  });
+
+  describe('global-patch guard (opted in)', () => {
+    // What the guard reports is covered in `global-patch-guard.spec.ts`, on a hand-built snapshot: a
+    // finding here would mean sealing a real global, which is by definition permanent. What this pair
+    // covers is the wiring — snapshot before the test, check after it, as one of the teardown steps.
+    setupAutoSpy({ duplicateCopies: 'off', guardGlobals: 'throw' });
+
+    it('lets a patch of a global that can be undone through', () => {
+      mockValueProp(globalThis, 'aStubbedGlobal', 'stub');
+
+      expect(Reflect.get(globalThis, 'aStubbedGlobal')).toBe('stub');
+    });
+
+    it('reported nothing about it, and the patch is off again', () => {
+      expect('aStubbedGlobal' in globalThis).toBe(false);
+    });
+  });
+
+  describe('console-spy clearing (on by default)', () => {
+    // A plain counter, not the spy's own history: the second test asserts what the first test's
+    // teardown did, and a run with `clearMocks` — Vitest 5's default — clears history in between.
+    let resetCalls = 0;
+    const reset = vi.fn(() => {
+      resetCalls += 1;
+    });
+
+    setupAutoSpy(NO_RESTORE_PROPS);
+
+    const registered = globalThis.__vitestAutoSpyResetConsoleSpies__;
+
+    beforeAll(() => {
+      // Standing in for what `vitest-auto-spy/console` registers on import: the setup entry must not
+      // pull that module in, so the hook only ever reaches it through this slot.
+      globalThis.__vitestAutoSpyResetConsoleSpies__ = reset;
+    });
+
+    afterAll(() => {
+      globalThis.__vitestAutoSpyResetConsoleSpies__ = registered;
+    });
+
+    it('leaves the recorded calls alone while a test is running', () => {
+      expect(resetCalls).toBe(0);
+    });
+
+    it('cleared them once the test was over', () => {
+      expect(resetCalls).toBe(1);
+    });
+  });
+
+  describe('every step opted out', () => {
+    const reset = vi.fn();
+
+    setupAutoSpy({
+      duplicateCopies: 'off',
+      frozenClockHint: false,
+      hookTimeoutHint: false,
+      prototypePollution: 'off',
+      resetConsoleSpies: false,
+      restoreProps: false,
+      restoreTimerGlobals: false,
+    });
+
+    const registered = globalThis.__vitestAutoSpyResetConsoleSpies__;
+
+    beforeAll(() => {
+      globalThis.__vitestAutoSpyResetConsoleSpies__ = reset;
+    });
+
+    afterAll(() => {
+      globalThis.__vitestAutoSpyResetConsoleSpies__ = registered;
+    });
+
+    it('registers a first test to be followed by nothing', () => {
+      expect(reset).not.toHaveBeenCalled();
+    });
+
+    it('installed no per-test hook at all', () => {
+      expect(reset).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('setupAutoSpy({ angularBuildHint })', () => {
+    // The check itself is pinned in its own spec; here only the seam is: the builder's marker is set
+    // while the setup call runs, so the notice records that it looked — this repository's own
+    // `@angular/build` is outside the window, so it prints nothing.
+    const marker = Symbol.for('@angular/cli/vitest-mock-patch');
+
+    function withBuilderMarker(run: () => void): boolean | undefined {
+      resetAngularBuildNotice();
+      Reflect.set(globalThis, marker, true);
+
+      try {
+        run();
+      } finally {
+        Reflect.deleteProperty(globalThis, marker);
+      }
+
+      const looked = globalThis.__vitestAutoSpyAngularBuildNoticed__;
+
+      resetAngularBuildNotice();
+
+      return looked;
+    }
+
+    const onByDefault = withBuilderMarker(() => setupAutoSpy({ duplicateCopies: 'off' }));
+    const optedOut = withBuilderMarker(() => setupAutoSpy({ duplicateCopies: 'off', angularBuildHint: false }));
+
+    it('looks for the builder by default', () => {
+      expect(onByDefault).toBe(true);
+    });
+
+    it('does not look when opted out', () => {
+      expect(optedOut).toBeUndefined();
+    });
+  });
+
+  describe('setupAutoSpy({ restoreWebStorage })', () => {
+    // Shaped like a storage and unable to keep anything, which is what Node 25 hands out.
+    const broken = { setItem: () => undefined, getItem: () => null, removeItem: () => undefined };
+
+    function withBrokenStorage(run: () => void): unknown {
+      const real = globalThis.localStorage;
+
+      // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- runs while the describe is collected, where no per-test helper applies; the finally puts it back
+      Object.defineProperty(globalThis, 'localStorage', { value: broken, writable: true, configurable: true });
+
+      try {
+        run();
+
+        return globalThis.localStorage;
+      } finally {
+        // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- the restore of the line above
+        Object.defineProperty(globalThis, 'localStorage', { value: real, writable: true, configurable: true });
+      }
+    }
+
+    const repaired = withBrokenStorage(() => setupAutoSpy({ duplicateCopies: 'off' }));
+    const leftAlone = withBrokenStorage(() => setupAutoSpy({ duplicateCopies: 'off', restoreWebStorage: false }));
+
+    it('replaces a storage that cannot keep a value', () => {
+      expect(repaired).not.toBe(broken);
+    });
+
+    it('leaves it alone when opted out', () => {
+      expect(leftAlone).toBe(broken);
+    });
+  });
+
+  describe('setupAutoSpy({ globalFakeTimers })', () => {
+    setupAutoSpy({ duplicateCopies: 'off', globalFakeTimers: { toFake: ['Date'] } });
+
+    it('installs fake timers for the first test', () => {
       expect(vi.isFakeTimers()).toBe(true);
-
-      setTimeout(() => {
-        advanced = true;
-      }, 10);
-      vi.advanceTimersByTime(10);
     });
 
-    it('found the clock already fake', () => {
-      expect(advanced).toBe(true);
+    it('installs them again for the next one, without a double uninstall in between', () => {
+      expect(vi.isFakeTimers()).toBe(true);
     });
   });
-});
 
-/**
- * The hint appended to a `beforeEach` that ran out of the run-wide `hookTimeout`.
- *
- * Vitest resolves `hookTimeout` (10 000 ms by default) independently of `testTimeout` (5 000 ms),
- * where Jest applied one number to both. A suite that carried its Jest preset's `testTimeout: 30000`
- * across and left `hookTimeout` alone gives hooks a third of the budget — and the timeout is
- * reported against the *test*, its duration pinned at the limit, so the log reads as a slow test
- * whose body never ran.
- *
- * The step is called directly here: making a hook actually time out would cost the budget under
- * discussion, once per case, and would fail the test doing the asserting. That it is reachable at
- * all was settled against the real runner with a `beforeEach(fn, 300)` probe.
- */
-describe('hook timeout hint', () => {
-  afterEach(() => {
-    vi.resetConfig();
-  });
+  describe('setupAutoSpy({ globalFakeTimers: true })', () => {
+    setupAutoSpy({ duplicateCopies: 'off', globalFakeTimers: true });
 
-  function timedOutHook(limit: number): Error {
-    return new Error(`Hook timed out in ${limit}ms.`);
-  }
-
-  it('explains the asymmetry once the budgets are the migrated shape', () => {
-    // Also the check that the budgets are read live: `vi.setConfig` is the public writer, and the
-    // step has to see what it wrote rather than a pair cached when the setup file ran.
-    vi.setConfig({ testTimeout: 30_000, hookTimeout: 10_000 });
-
-    const error = timedOutHook(10_000);
-
-    annotateTimedOutHooks({ task: { result: { errors: [error] } } });
-
-    expect(error.message).toContain('[vitest-auto-spy] hookTimeout is 10000ms while testTimeout is 30000ms');
-  });
-
-  it("stays quiet on this suite's own budgets, where the hook has the larger one", () => {
-    const error = timedOutHook(10_000);
-
-    annotateTimedOutHooks({ task: { result: { errors: [error] } } });
-
-    expect(error.message).toBe('Hook timed out in 10000ms.');
-  });
-});
-
-/**
- * The sentence a timeout gets when the clock, not the code, is what stalled.
- *
- * Called directly for the same reason as its neighbour above: a real timeout costs the budget it
- * reports on. That the pieces line up under the real runner was settled with a probe test —
- * `setImmediate` awaited under `vi.useFakeTimers()` with a 300 ms limit produced
- * `Test timed out in 300ms.`, an `afterEach` that ran anyway, and `vi.getTimerCount() === 1`.
- */
-describe('frozen clock hint', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('explains a timeout the frozen clock accounts for', () => {
-    vi.useFakeTimers();
-    setTimeout(() => undefined, 10_000);
-
-    const error = new Error('Test timed out in 5000ms.');
-
-    annotateFrozenClockTimeouts({ task: { result: { errors: [error] } } });
-
-    expect(error.message).toContain('[vitest-auto-spy] the clock is frozen and 1 callback is queued on it');
-  });
-
-  it('stays quiet while the clock is real, which is how the rest of this file runs', () => {
-    const error = new Error('Test timed out in 5000ms.');
-
-    annotateFrozenClockTimeouts({ task: { result: { errors: [error] } } });
-
-    expect(error.message).toBe('Test timed out in 5000ms.');
-  });
-});
-
-/** A double whose `returns` can name a method a whitelist left out: a misconfiguration that type-checks. */
-class Basket {
-  total(): number {
-    return 0;
-  }
-
-  clear(): void {
-    /* empties the basket */
-  }
-}
-
-const misconfigured = (): unknown => createSpyFromClass(Basket, { onlyMethodsToSpyOn: ['total'], returns: { clear: undefined } });
-
-/** Run with zone.js present or absent, whatever an earlier block of this file loaded. */
-function withZone(present: boolean, run: () => void): void {
-  const loaded: unknown = Reflect.get(globalThis, 'Zone');
-
-  Reflect.set(globalThis, 'Zone', present ? { __symbol__: (name: string): string => name } : undefined);
-
-  try {
-    run();
-  } finally {
-    Reflect.set(globalThis, 'Zone', loaded);
-  }
-}
-
-describe('swallowedStrictCalls', () => {
-  const { consoleWarnSpy } = useConsoleSpies();
-
-  function swallow(run: () => unknown): void {
-    try {
-      run();
-    } catch {
-      // What a production try/catch, or an RxJS error parked on a fake clock, does to the throw.
-    }
-  }
-
-  afterEach(() => {
-    takeStrictViolations();
-  });
-
-  it('fails the test whose strict throw never reached it, naming the call and where it was made', () => {
-    swallow(() => createSpyFromClass(Cart, { strict: true }).total());
-
-    expect(() => reportSwallowedStrictCalls(undefined, 'throw')).toThrow(
-      new RegExp(
-        '^\\[vitest-auto-spy\\] "swallowedStrictCalls > fails the test whose strict throw never reached it, naming the call and ' +
-          'where it was made" made 1 call a strict double had nothing configured for, and the throw never reached the test:\\n' +
-          '  - Cart\\.total\\(\\) at src/lib/setup-auto-spy\\.spec\\.ts:\\d+:\\d+ — the code under test caught it \\(try/catch, \\.catch or catchError\\)\\n' +
-          'Configure that method [\\s\\S]*takeStrictViolations\\(\\)[\\s\\S]*#a-throw-that-never-reached-the-test$',
-      ),
-    );
-  });
-
-  it('names each call with its arguments, blames an RxJS subscriber from the stack, and falls back when the error says less', () => {
-    const rxjs = Object.assign(
-      new Error('[vitest-auto-spy] Cart.load(42, "eu") was called; this strict double has nothing configured for it.'),
-      {
-        stack: 'Error\n    at Cart.load (/app/node_modules/rxjs/dist/cjs/internal/Subscriber.js:1:1)\n    at load (/app/src/cart.ts:3:7)',
-      },
-    );
-    const legacy = Object.assign(new Error('[vitest-auto-spy] Nothing configured Cart.clear.\nCalled as: Cart.clear(1,2)'), {
-      stack: 'Error\n    at throwUnstubbedCall (/repo/vitest-auto-spy/src/lib/function-spy.ts:1:1)',
+    it('accepts the boolean shorthand', () => {
+      expect(vi.isFakeTimers()).toBe(true);
     });
-    const bare = Object.assign(new Error('something else'), { stack: undefined });
-    const pointed = new Error('[vitest-auto-spy] Cart.total() was called; x\nCalled from at total (src/cart.ts:9:1)');
-    const message = describeSwallowedStrictCalls([rxjs, legacy, bare, pointed], undefined);
 
-    expect(message).toMatch(
-      /^\[vitest-auto-spy\] This test made 4 calls a strict double had nothing configured for, and none of the throws/,
-    );
-    expect(message).toContain(
-      '  - Cart.load(42, "eu") at load (/app/src/cart.ts:3:7) — an RxJS subscriber with no error callback took it\n',
-    );
-    expect(message).toContain('  - Cart.clear(1,2) — the code under test');
-    expect(message).toContain('  - something else — the code under test caught it');
-    expect(message).toContain('  - Cart.total() at total (src/cart.ts:9:1) — ');
-    expect(message).toContain('Configure each method');
-  });
+    it('runs a test before the nested block below, so its beforeAll meets an afterEach', () => {
+      expect(vi.isFakeTimers()).toBe(true);
+    });
 
-  it('leaves a throw the runner already reported to the runner', () => {
-    let thrown: unknown;
+    /**
+     * The gap that arming in `beforeEach` alone leaves: a nested `beforeAll` runs *after* the previous
+     * test's `afterEach`, so it meets whatever that hook left behind. A suite preparing its samples
+     * there — an animation clock driven with `vi.advanceTimersByTimeAsync`, say — failed with
+     * `A function to advance timers was called but the timers APIs are not mocked`, in a set whose own
+     * tests never touch a timer.
+     */
+    describe('a nested block whose beforeAll drives the clock', () => {
+      let advanced = false;
 
-    try {
-      createSpyFromClass(Cart, { strict: true }).total();
-    } catch (error) {
-      thrown = error;
-    }
+      beforeAll(() => {
+        expect(vi.isFakeTimers()).toBe(true);
 
-    expect(() => reportSwallowedStrictCalls({ task: { result: { errors: [thrown] } } }, 'throw')).not.toThrow();
-  });
+        setTimeout(() => {
+          advanced = true;
+        }, 10);
+        vi.advanceTimersByTime(10);
+      });
 
-  it('prints instead of failing under warn', () => {
-    swallow(() => createSpyFromClass(Cart, { strict: true }).total());
-    reportSwallowedStrictCalls(undefined, 'warn');
-
-    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Cart.total('));
-  });
-
-  it('lets a test that provokes the throw on purpose take it, and says nothing afterwards', () => {
-    expect(() => createSpyFromClass(Cart, { strict: true }).total()).toThrow('Cart.total(');
-    expect(takeStrictViolations()).toHaveLength(1);
-    expect(() => reportSwallowedStrictCalls(undefined, 'throw')).not.toThrow();
-  });
-
-  it('keeps at most fifty throws when nothing drains them', () => {
-    const cart = createSpyFromClass(Cart, { strict: true });
-
-    for (let call = 0; call < 60; call++) {
-      swallow(() => cart.total());
-    }
-
-    expect(takeStrictViolations()).toHaveLength(50);
-  });
-});
-
-describe('applyPreset', () => {
-  it('leaves options without a preset exactly as they were', () => {
-    const options = { restoreProps: false };
-
-    expect(applyPreset(options)).toBe(options);
-  });
-
-  it('fills every grade the caller left out under strict, and keeps every one the caller passed', () => {
-    withZone(false, () => {
-      expect(applyPreset({ preset: 'strict', guardGlobals: 'warn', strayTimers: false })).toEqual({
-        preset: 'strict',
-        duplicateCopies: 'throw',
-        propsOutsideHooks: 'throw',
-        guardGlobals: 'warn',
-        prototypePollution: 'throw',
-        documentPollution: 'throw',
-        strayConsole: 'throw',
-        misconfiguration: 'throw',
-        swallowedStrictCalls: 'throw',
-        cleanTestBed: 'throw',
-        strayTimers: false,
-        strayRejections: false,
+      it('found the clock already fake', () => {
+        expect(advanced).toBe(true);
       });
     });
   });
 
-  it('turns strayRejections on under strict only where zone.js is loaded', () => {
-    withZone(true, () => {
-      expect(applyPreset({ preset: 'strict' }).strayRejections).toBe(true);
+  /**
+   * The hint appended to a `beforeEach` that ran out of the run-wide `hookTimeout`.
+   *
+   * Vitest resolves `hookTimeout` (10 000 ms by default) independently of `testTimeout` (5 000 ms),
+   * where Jest applied one number to both. A suite that carried its Jest preset's `testTimeout: 30000`
+   * across and left `hookTimeout` alone gives hooks a third of the budget — and the timeout is
+   * reported against the *test*, its duration pinned at the limit, so the log reads as a slow test
+   * whose body never ran.
+   *
+   * The step is called directly here: making a hook actually time out would cost the budget under
+   * discussion, once per case, and would fail the test doing the asserting. That it is reachable at
+   * all was settled against the real runner with a `beforeEach(fn, 300)` probe.
+   */
+  describe('hook timeout hint', () => {
+    afterEach(() => {
+      vi.resetConfig();
     });
-  });
-});
 
-describe('misconfiguration: "throw" (opted in)', () => {
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, misconfiguration: 'throw' });
-
-  it('fails a misconfigured double at the call site', () => {
-    expect(misconfigured).toThrow(/returns names 'clear'/);
-  });
-});
-
-describe('misconfiguration, after the block that armed it', () => {
-  const { consoleWarnSpy } = useConsoleSpies();
-
-  it('prints again, so the grade cannot travel into the next file', () => {
-    misconfigured();
-
-    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining("returns names 'clear'"));
-  });
-});
-
-describe('preset: "strict", wired', () => {
-  const silent = { log: console.log };
-
-  // Silenced before the guard wraps it, so the output the first test makes stays out of the run log.
-  // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- has to sit under the guard, which owns the console from here on
-  console.log = (): void => undefined;
-
-  // Registered first so it runs after the library's own file-end hooks: the guard is run-wide, as a setup
-  // file installs it, and has to be off before the next file of a shared worker.
-  afterAll(() => {
-    stopGuardingConsole();
-    // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- the restore of the silencing above
-    console.log = silent.log;
-  });
-
-  setupAutoSpy({ duplicateCopies: 'off', preset: 'strict', strayTimers: false });
-
-  it.fails('fails a test that prints', () => {
-    // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- the stray output the preset must fail
-    console.log('unexpected output');
-  });
-
-  it('fails a misconfigured double at the call site', () => {
-    expect(misconfigured).toThrow(/returns names 'clear'/);
-  });
-});
-
-/**
- * The key an earlier file left on a built-in prototype.
- *
- * The write itself happens where no hook can see it — while a file is imported, while it is
- * collected, or in an `afterAll` — and the file that pays for it is the next one, which dies during
- * collection with no stack. A setup file runs before that collection, which is the seam the check
- * stands in; it is driven here against a stand-in prototype, because a key that will not delete off
- * the real `Object.prototype` would take the rest of the worker down with it.
- */
-describe('a prototype key left behind by a file that has already finished', () => {
-  const written: string[] = [];
-  const write = (message: string): void => {
-    written.push(message);
-  };
-  let stand: Record<string, unknown>;
-
-  beforeEach(() => {
-    written.length = 0;
-    stand = {};
-    globalThis.__vitestAutoSpyPrototypeBaseline__ = snapshotPrototypes([{ name: 'Stand.prototype', object: stand }]);
-  });
-
-  afterEach(() => {
-    // Back to the worker's own baseline, which the next `setupAutoSpy()` in this file compares against.
-    globalThis.__vitestAutoSpyPrototypeBaseline__ = undefined;
-  });
-
-  it('says nothing when every prototype is as the worker found it', () => {
-    reportPrototypeLeftovers(write);
-
-    expect(written).toEqual([]);
-  });
-
-  it('takes the key off and names what it was, without failing the file about to run', () => {
-    stand['leakedFromEarlierFile'] = 1;
-
-    expect(() => reportPrototypeLeftovers(write)).not.toThrow();
-    expect('leakedFromEarlierFile' in stand).toBe(false);
-    expect(written.join('\n')).toMatch(
-      /^\[vitest-auto-spy\] "leakedFromEarlierFile" was left on Stand\.prototype by the previous spec file of this worker, src\/lib\/setup-auto-spy\.spec\.ts — while it was imported, collected or in an afterAll — and has been taken off\.\n/,
-    );
-    expect(written.join('\n')).toMatch(/for…in\. In that file, patch the prototype[\s\S]*#the-key-an-earlier-file-left-behind$/);
-  });
-
-  it('remembers the file each setup ran for, and says "a spec file" when there was none before', () => {
-    const worker: { filepath: unknown } = Reflect.get(globalThis, '__vitest_worker__');
-    const filepath = worker.filepath;
-
-    worker.filepath = undefined;
-
-    try {
-      reportPrototypeLeftovers(write);
-      stand['leakedFromEarlierFile'] = 1;
-      reportPrototypeLeftovers(write);
-    } finally {
-      worker.filepath = filepath;
+    function timedOutHook(limit: number): Error {
+      return new Error(`Hook timed out in ${limit}ms.`);
     }
 
-    expect(globalThis.__vitestAutoSpyPreviousSpecFile__).toBeUndefined();
-    expect(written.join('\n')).toContain('by a spec file that ran earlier in this worker —');
-  });
+    it('explains the asymmetry once the budgets are the migrated shape', () => {
+      // Also the check that the budgets are read live: `vi.setConfig` is the public writer, and the
+      // step has to see what it wrote rather than a pair cached when the setup file ran.
+      vi.setConfig({ testTimeout: 30_000, hookTimeout: 10_000 });
 
-  it('adopts a key it cannot delete, so the next file is not told about it again', () => {
-    Object.defineProperty(stand, 'sealedLeftover', { value: 1, enumerable: true, configurable: false });
+      const error = timedOutHook(10_000);
 
-    reportPrototypeLeftovers(write);
-    reportPrototypeLeftovers(write);
+      annotateTimedOutHooks({ task: { result: { errors: [error] } } });
 
-    expect(written).toHaveLength(1);
-  });
-
-  it('writes to stderr by default, since there is no task to attribute a console line to', () => {
-    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-
-    stand['leakedFromEarlierFile'] = 1;
-    reportPrototypeLeftovers();
-
-    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('leakedFromEarlierFile'));
-    stderr.mockRestore();
-  });
-});
-
-describe('what the teardown net says', () => {
-  it('counts the patches it put back, and says "this test" where the runner names none', () => {
-    expect(describeSkippedTeardown(0, undefined)).toMatch(
-      /^\[vitest-auto-spy\] setupAutoSpy\(\)'s afterEach did not run for this test: [\s\S]*No mock\*Prop patch was left in place\.\n/,
-    );
-    expect(describeSkippedTeardown(2, 't')).toContain('2 mock*Prop patches were still in place and are put back now.');
-    expect(describeSkippedAgain(3, 4, undefined)).toBe(
-      "[vitest-auto-spy] setupAutoSpy()'s afterEach did not run for this test either (4 tests in this file); 3 mock*Prop patches put back. " +
-        'The first report in this file says why.',
-    );
-  });
-
-  it('says "a test" for a concurrent test the runner names none for', () => {
-    expect(describeConcurrentTest(undefined)).toMatch(/^\[vitest-auto-spy\] A test runs as test\.concurrent/);
-  });
-
-  it('reads the test name off a hook context, and nothing off a context with no task', () => {
-    expect(testNameOf({ task: { name: 'loads', suite: { name: 'cart', suite: { name: 'a.spec.ts', filepath: '/a.spec.ts' } } } })).toBe(
-      'cart > loads',
-    );
-    expect(testNameOf(undefined)).toBeUndefined();
-  });
-});
-
-describe('the ledger the teardown net reads', () => {
-  it('answers per test, so a concurrent neighbour cannot clear the other flag', () => {
-    const ledger = createTeardownLedger();
-    const first = { task: { name: 'first' } };
-    const second = { task: { name: 'second' } };
-
-    const closeFirst = vi.fn();
-
-    ledger.begin(first, closeFirst);
-    ledger.begin(second);
-    ledger.done(second);
-
-    expect(ledger.settle(second)).toEqual({ ran: true, closeDocument: undefined });
-    expect(ledger.settle(first)).toEqual({ ran: false, closeDocument: closeFirst });
-    // Settled once: a second read finds nothing, as for a test whose `beforeEach` step never ran.
-    expect(ledger.settle(first)).toBeUndefined();
-    ledger.done(first);
-    expect(ledger.settle(first)).toBeUndefined();
-  });
-
-  it('falls back to a single slot where the runner hands a context with no task', () => {
-    const ledger = createTeardownLedger();
-
-    ledger.begin(undefined);
-    ledger.done(undefined);
-    expect(ledger.settle(undefined)).toEqual({ ran: true, closeDocument: undefined });
-
-    ledger.begin(undefined);
-    expect(ledger.settle(undefined)).toEqual({ ran: false, closeDocument: undefined });
-    expect(ledger.settle(undefined)).toBeUndefined();
-  });
-});
-
-describe('the notice a concurrent test earns', () => {
-  const written: string[] = [];
-  const write = (message: string): void => {
-    written.push(message);
-  };
-
-  beforeEach(() => {
-    written.length = 0;
-    resetConcurrencyNotice();
-  });
-
-  afterAll(resetConcurrencyNotice);
-
-  it('says nothing for an ordinary test', () => {
-    noticeConcurrentTest({ task: { concurrent: false } }, write);
-    noticeConcurrentTest(undefined, write);
-
-    expect(written).toEqual([]);
-  });
-
-  it('says once per worker what the per-test guards cannot promise', () => {
-    noticeConcurrentTest({ task: { concurrent: true, name: 'loads', suite: { name: 'cart' } } }, write);
-    noticeConcurrentTest({ task: { concurrent: true } }, write);
-
-    expect(written).toHaveLength(1);
-    expect(written[0]).toMatch(
-      /^\[vitest-auto-spy\] "cart > loads" runs as test\.concurrent, and setupAutoSpy\(\)'s per-test guards judge one test at a time/,
-    );
-    expect(written[0]).toMatch(
-      /Run this file's tests sequentially, or give the files that keep test\.concurrent a setup with strayConsole: 'off' and documentPollution: 'off'\. Said once per worker\.\nDocs: \S+#under-test-concurrent$/,
-    );
-    // Unconfigured reads no longer lose a sibling's reads under test.concurrent, so the advice leaves them out.
-    expect(written[0]).not.toContain('unconfigured');
-  });
-});
-
-/**
- * An emission helper registers a wait for as long as it holds a subscription, and a dropped promise
- * leaves it registered: the test passed without the assertion it was written around, and the
- * subscription outlives it.
- */
-describe('an emission wait nobody awaited', () => {
-  setupAutoSpy({ duplicateCopies: 'off' });
-
-  const warnings: string[] = [];
-  let abandoned = 0;
-
-  it('is left alone while the test that opened it runs', () => {
-    // A raw spy on purpose: the warning lands between tests, where setupAutoSpy clears the library's console spies.
-    vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
-      warnings.push(String(message));
-    });
-    registerEmissionWait({
-      describe: 'the price stream',
-      abandon: () => {
-        abandoned += 1;
-      },
+      expect(error.message).toContain('[vitest-auto-spy] hookTimeout is 10000ms while testTimeout is 30000ms');
     });
 
-    expect(abandoned).toBe(0);
+    it("stays quiet on this suite's own budgets, where the hook has the larger one", () => {
+      const error = timedOutHook(10_000);
+
+      annotateTimedOutHooks({ task: { result: { errors: [error] } } });
+
+      expect(error.message).toBe('Hook timed out in 10000ms.');
+    });
   });
 
-  it('is torn down by the next test, which is told what it was waiting for', () => {
-    vi.restoreAllMocks();
+  /**
+   * The sentence a timeout gets when the clock, not the code, is what stalled.
+   *
+   * Called directly for the same reason as its neighbour above: a real timeout costs the budget it
+   * reports on. That the pieces line up under the real runner was settled with a probe test —
+   * `setImmediate` awaited under `vi.useFakeTimers()` with a 300 ms limit produced
+   * `Test timed out in 300ms.`, an `afterEach` that ran anyway, and `vi.getTimerCount() === 1`.
+   */
+  describe('frozen clock hint', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
 
-    expect(abandoned).toBe(1);
-    expect(warnings.join('\n')).toContain(
-      '[vitest-auto-spy] "an emission wait nobody awaited > is left alone while the test that opened it runs" never awaited ' +
-        '1 emission wait (the price stream), so its assertion never ran.\nAwait it, or return it from the test. Its subscription is torn down now.',
-    );
-    expect(abandonEmissionWaits()).toEqual([]);
+    it('explains a timeout the frozen clock accounts for', () => {
+      vi.useFakeTimers();
+      setTimeout(() => undefined, 10_000);
+
+      const error = new Error('Test timed out in 5000ms.');
+
+      annotateFrozenClockTimeouts({ task: { result: { errors: [error] } } });
+
+      expect(error.message).toContain('[vitest-auto-spy] the clock is frozen and 1 callback is queued on it');
+    });
+
+    it('does not ask the clock anything for a test that reported no error', () => {
+      vi.useFakeTimers();
+      setTimeout(() => undefined, 10_000);
+
+      const isFakeTimers = vi.spyOn(vi, 'isFakeTimers');
+
+      annotateFrozenClockTimeouts({ task: { result: { errors: [] } } });
+      annotateTimedOutHooks({ task: { result: { errors: [] } } });
+
+      expect(isFakeTimers).not.toHaveBeenCalled();
+      isFakeTimers.mockRestore();
+    });
+
+    it('stays quiet while the clock is real, which is how the rest of this file runs', () => {
+      const error = new Error('Test timed out in 5000ms.');
+
+      annotateFrozenClockTimeouts({ task: { result: { errors: [error] } } });
+
+      expect(error.message).toBe('Test timed out in 5000ms.');
+    });
   });
 
-  it('counts several waits, and says "this test" where the runner names none', () => {
-    expect(describeAbandonedWaits(['a$', 'b$'], undefined)).toMatch(
-      /^\[vitest-auto-spy\] This test never awaited 2 emission waits \(a\$, b\$\), so their assertions never ran\.\nAwait each one, or return it from the test\. Their subscriptions are torn down now\.\nDocs: /,
-    );
+  /** A double whose `returns` can name a method a whitelist left out: a misconfiguration that type-checks. */
+  class Basket {
+    total(): number {
+      return 0;
+    }
+
+    clear(): void {
+      /* empties the basket */
+    }
+  }
+
+  const misconfigured = (): unknown => createSpyFromClass(Basket, { onlyMethodsToSpyOn: ['total'], returns: { clear: undefined } });
+
+  /** Run with zone.js present or absent, whatever an earlier block of this file loaded. */
+  function withZone(present: boolean, run: () => void): void {
+    const loaded: unknown = Reflect.get(globalThis, 'Zone');
+
+    Reflect.set(globalThis, 'Zone', present ? { __symbol__: (name: string): string => name } : undefined);
+
+    try {
+      run();
+    } finally {
+      Reflect.set(globalThis, 'Zone', loaded);
+    }
+  }
+
+  describe('swallowedStrictCalls', () => {
+    const { consoleWarnSpy } = useConsoleSpies();
+
+    function swallow(run: () => unknown): void {
+      try {
+        run();
+      } catch {
+        // What a production try/catch, or an RxJS error parked on a fake clock, does to the throw.
+      }
+    }
+
+    afterEach(() => {
+      takeStrictViolations();
+    });
+
+    it('fails the test whose strict throw never reached it, naming the call and where it was made', () => {
+      swallow(() => createSpyFromClass(Cart, { strict: true }).total());
+
+      expect(() => reportSwallowedStrictCalls(undefined, 'throw')).toThrow(
+        new RegExp(
+          '^\\[vitest-auto-spy\\] "setupAutoSpy, in file order > swallowedStrictCalls > fails the test whose strict throw never reached it, naming the call and ' +
+            'where it was made" made 1 call a strict double had nothing configured for, and the throw never reached the test:\\n' +
+            '  - Cart\\.total\\(\\) at src/lib/setup-auto-spy\\.spec\\.ts:\\d+:\\d+ — the code under test caught it \\(try/catch, \\.catch or catchError\\)\\n' +
+            'Configure that method [\\s\\S]*takeStrictViolations\\(\\)[\\s\\S]*#a-throw-that-never-reached-the-test$',
+        ),
+      );
+    });
+
+    it('names each call with its arguments, blames an RxJS subscriber from the stack, and falls back when the error says less', () => {
+      const rxjs = Object.assign(
+        new Error('[vitest-auto-spy] Cart.load(42, "eu") was called; this strict double has nothing configured for it.'),
+        {
+          stack: 'Error\n    at Cart.load (/app/node_modules/rxjs/dist/cjs/internal/Subscriber.js:1:1)\n    at load (/app/src/cart.ts:3:7)',
+        },
+      );
+      const legacy = Object.assign(new Error('[vitest-auto-spy] Nothing configured Cart.clear.\nCalled as: Cart.clear(1,2)'), {
+        stack: 'Error\n    at throwUnstubbedCall (/repo/vitest-auto-spy/src/lib/function-spy.ts:1:1)',
+      });
+      const bare = Object.assign(new Error('something else'), { stack: undefined });
+      const pointed = new Error('[vitest-auto-spy] Cart.total() was called; x\nCalled from at total (src/cart.ts:9:1)');
+      const message = describeSwallowedStrictCalls([rxjs, legacy, bare, pointed], undefined);
+
+      expect(message).toMatch(
+        /^\[vitest-auto-spy\] This test made 4 calls a strict double had nothing configured for, and none of the throws/,
+      );
+      expect(message).toContain(
+        '  - Cart.load(42, "eu") at load (/app/src/cart.ts:3:7) — an RxJS subscriber with no error callback took it\n',
+      );
+      expect(message).toContain('  - Cart.clear(1,2) — the code under test');
+      expect(message).toContain('  - something else — the code under test caught it');
+      expect(message).toContain('  - Cart.total() at total (src/cart.ts:9:1) — ');
+      expect(message).toContain('Configure each method');
+    });
+
+    it('leaves a throw the runner already reported to the runner', () => {
+      let thrown: unknown;
+
+      try {
+        createSpyFromClass(Cart, { strict: true }).total();
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(() => reportSwallowedStrictCalls({ task: { result: { errors: [thrown] } } }, 'throw')).not.toThrow();
+    });
+
+    it('prints instead of failing under warn', () => {
+      swallow(() => createSpyFromClass(Cart, { strict: true }).total());
+      reportSwallowedStrictCalls(undefined, 'warn');
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Cart.total('));
+    });
+
+    it('lets a test that provokes the throw on purpose take it, and says nothing afterwards', () => {
+      expect(() => createSpyFromClass(Cart, { strict: true }).total()).toThrow('Cart.total(');
+      expect(takeStrictViolations()).toHaveLength(1);
+      expect(() => reportSwallowedStrictCalls(undefined, 'throw')).not.toThrow();
+    });
+
+    it('keeps at most fifty throws when nothing drains them', () => {
+      const cart = createSpyFromClass(Cart, { strict: true });
+
+      for (let call = 0; call < 60; call++) {
+        swallow(() => cart.total());
+      }
+
+      expect(takeStrictViolations()).toHaveLength(50);
+    });
+  });
+
+  describe('applyPreset', () => {
+    it('leaves options without a preset exactly as they were', () => {
+      const options = { restoreProps: false };
+
+      expect(applyPreset(options)).toBe(options);
+    });
+
+    it('fills every grade the caller left out under strict, and keeps every one the caller passed', () => {
+      withZone(false, () => {
+        expect(applyPreset({ preset: 'strict', guardGlobals: 'warn', strayTimers: false })).toEqual({
+          preset: 'strict',
+          duplicateCopies: 'throw',
+          propsOutsideHooks: 'throw',
+          guardGlobals: 'warn',
+          prototypePollution: 'throw',
+          documentPollution: 'throw',
+          strayConsole: 'throw',
+          misconfiguration: 'throw',
+          swallowedStrictCalls: 'throw',
+          cleanTestBed: 'throw',
+          strayTimers: false,
+          strayRejections: false,
+        });
+      });
+    });
+
+    it('turns strayRejections on under strict only where zone.js is loaded', () => {
+      withZone(true, () => {
+        expect(applyPreset({ preset: 'strict' }).strayRejections).toBe(true);
+      });
+    });
+  });
+
+  describe('misconfiguration: "throw" (opted in)', () => {
+    setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, misconfiguration: 'throw' });
+
+    it('fails a misconfigured double at the call site', () => {
+      expect(misconfigured).toThrow(/returns names 'clear'/);
+    });
+  });
+
+  describe('misconfiguration, after the block that armed it', () => {
+    const { consoleWarnSpy } = useConsoleSpies();
+
+    it('prints again, so the grade cannot travel into the next file', () => {
+      misconfigured();
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining("returns names 'clear'"));
+    });
+  });
+
+  describe('preset: "strict", wired', () => {
+    const silent = { log: console.log };
+
+    // Silenced before the guard wraps it, so the output the first test makes stays out of the run log.
+    // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- has to sit under the guard, which owns the console from here on
+    console.log = (): void => undefined;
+
+    // Registered first so it runs after the library's own file-end hooks: the guard is run-wide, as a setup
+    // file installs it, and has to be off before the next file of a shared worker.
+    afterAll(() => {
+      stopGuardingConsole();
+      // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- the restore of the silencing above
+      console.log = silent.log;
+    });
+
+    setupAutoSpy({ duplicateCopies: 'off', preset: 'strict', strayTimers: false });
+
+    it.fails('fails a test that prints', () => {
+      failsWith(/fails a test that prints" wrote to console\.log 1 time and nothing absorbed it/);
+      // eslint-disable-next-line vitest-auto-spy/no-console-in-spec -- the stray output the preset must fail
+      console.log('unexpected output');
+    });
+
+    it('fails a misconfigured double at the call site', () => {
+      expect(misconfigured).toThrow(/returns names 'clear'/);
+    });
+  });
+
+  /**
+   * The key an earlier file left on a built-in prototype.
+   *
+   * The write itself happens where no hook can see it — while a file is imported, while it is
+   * collected, or in an `afterAll` — and the file that pays for it is the next one, which dies during
+   * collection with no stack. A setup file runs before that collection, which is the seam the check
+   * stands in; it is driven here against a stand-in prototype, because a key that will not delete off
+   * the real `Object.prototype` would take the rest of the worker down with it.
+   */
+  describe('a prototype key left behind by a file that has already finished', () => {
+    const written: string[] = [];
+    const write = (message: string): void => {
+      written.push(message);
+    };
+    let stand: Record<string, unknown>;
+
+    beforeEach(() => {
+      written.length = 0;
+      stand = {};
+      globalThis.__vitestAutoSpyPrototypeBaseline__ = snapshotPrototypes([{ name: 'Stand.prototype', object: stand }]);
+    });
+
+    afterEach(() => {
+      // Back to the worker's own baseline, which the next `setupAutoSpy()` in this file compares against.
+      globalThis.__vitestAutoSpyPrototypeBaseline__ = undefined;
+    });
+
+    it('says nothing when every prototype is as the worker found it', () => {
+      reportPrototypeLeftovers(write);
+
+      expect(written).toEqual([]);
+    });
+
+    it('takes the key off and names what it was, without failing the file about to run', () => {
+      stand['leakedFromEarlierFile'] = 1;
+
+      expect(() => reportPrototypeLeftovers(write)).not.toThrow();
+      expect('leakedFromEarlierFile' in stand).toBe(false);
+      expect(written.join('\n')).toMatch(
+        /^\[vitest-auto-spy\] "leakedFromEarlierFile" was left on Stand\.prototype by the previous spec file of this worker, src\/lib\/setup-auto-spy\.spec\.ts — while it was imported, collected or in an afterAll — and has been taken off\.\n/,
+      );
+      expect(written.join('\n')).toMatch(/for…in\. In that file, patch the prototype[\s\S]*#the-key-an-earlier-file-left-behind$/);
+    });
+
+    it('remembers the file each setup ran for, and says "a spec file" when there was none before', () => {
+      const worker: { filepath: unknown } = Reflect.get(globalThis, '__vitest_worker__');
+      const filepath = worker.filepath;
+
+      worker.filepath = undefined;
+
+      try {
+        reportPrototypeLeftovers(write);
+        stand['leakedFromEarlierFile'] = 1;
+        reportPrototypeLeftovers(write);
+      } finally {
+        worker.filepath = filepath;
+      }
+
+      expect(globalThis.__vitestAutoSpyPreviousSpecFile__).toBeUndefined();
+      expect(written.join('\n')).toContain('by a spec file that ran earlier in this worker —');
+    });
+
+    it('adopts a key it cannot delete, so the next file is not told about it again', () => {
+      Object.defineProperty(stand, 'sealedLeftover', { value: 1, enumerable: true, configurable: false });
+
+      reportPrototypeLeftovers(write);
+      reportPrototypeLeftovers(write);
+
+      expect(written).toHaveLength(1);
+    });
+
+    it('writes to stderr by default, since there is no task to attribute a console line to', () => {
+      const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+      stand['leakedFromEarlierFile'] = 1;
+      reportPrototypeLeftovers();
+
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('leakedFromEarlierFile'));
+      stderr.mockRestore();
+    });
+  });
+
+  describe('what the teardown net says', () => {
+    it('counts the patches it put back, and says "this test" where the runner names none', () => {
+      expect(describeSkippedTeardown(0, undefined)).toMatch(
+        /^\[vitest-auto-spy\] setupAutoSpy\(\)'s afterEach did not run for this test: [\s\S]*No mock\*Prop patch was left in place\.\n/,
+      );
+      expect(describeSkippedTeardown(2, 't')).toContain('2 mock*Prop patches were still in place and are put back now.');
+      expect(describeSkippedAgain(3, 4, undefined)).toBe(
+        "[vitest-auto-spy] setupAutoSpy()'s afterEach did not run for this test either (4 tests in this file); 3 mock*Prop patches put back. " +
+          'The first report in this file says why.',
+      );
+    });
+
+    it('says "a test" for a concurrent test the runner names none for', () => {
+      expect(describeConcurrentTest(undefined)).toMatch(/^\[vitest-auto-spy\] A test runs as test\.concurrent/);
+    });
+
+    it('reads the test name off a hook context, and nothing off a context with no task', () => {
+      expect(testNameOf({ task: { name: 'loads', suite: { name: 'cart', suite: { name: 'a.spec.ts', filepath: '/a.spec.ts' } } } })).toBe(
+        'cart > loads',
+      );
+      expect(testNameOf(undefined)).toBeUndefined();
+    });
+  });
+
+  describe('the ledger the teardown net reads', () => {
+    it('answers per test, so a concurrent neighbour cannot clear the other flag', () => {
+      const ledger = createTeardownLedger();
+      const first = { task: { name: 'first' } };
+      const second = { task: { name: 'second' } };
+
+      const closeFirst = vi.fn();
+
+      ledger.begin(first, closeFirst);
+      ledger.begin(second);
+      ledger.done(second);
+
+      expect(ledger.settle(second)).toEqual({ ran: true, closeDocument: undefined });
+      expect(ledger.settle(first)).toEqual({ ran: false, closeDocument: closeFirst });
+      // Settled once: a second read finds nothing, as for a test whose `beforeEach` step never ran.
+      expect(ledger.settle(first)).toBeUndefined();
+      ledger.done(first);
+      expect(ledger.settle(first)).toBeUndefined();
+    });
+
+    it('falls back to a single slot where the runner hands a context with no task', () => {
+      const ledger = createTeardownLedger();
+
+      ledger.begin(undefined);
+      ledger.done(undefined);
+      expect(ledger.settle(undefined)).toEqual({ ran: true, closeDocument: undefined });
+
+      ledger.begin(undefined);
+      expect(ledger.settle(undefined)).toEqual({ ran: false, closeDocument: undefined });
+      expect(ledger.settle(undefined)).toBeUndefined();
+    });
+  });
+
+  describe('the notice a concurrent test earns', () => {
+    const written: string[] = [];
+    const write = (message: string): void => {
+      written.push(message);
+    };
+
+    beforeEach(() => {
+      written.length = 0;
+      resetConcurrencyNotice();
+    });
+
+    afterAll(resetConcurrencyNotice);
+
+    it('says nothing for an ordinary test', () => {
+      noticeConcurrentTest({ task: { concurrent: false } }, write);
+      noticeConcurrentTest(undefined, write);
+
+      expect(written).toEqual([]);
+    });
+
+    it('says once per worker what the per-test guards cannot promise', () => {
+      noticeConcurrentTest({ task: { concurrent: true, name: 'loads', suite: { name: 'cart' } } }, write);
+      noticeConcurrentTest({ task: { concurrent: true } }, write);
+
+      expect(written).toHaveLength(1);
+      expect(written[0]).toMatch(
+        /^\[vitest-auto-spy\] "cart > loads" runs as test\.concurrent, and setupAutoSpy\(\)'s per-test guards judge one test at a time/,
+      );
+      expect(written[0]).toMatch(
+        /Run this file's tests sequentially, or give the files that keep test\.concurrent a setup with strayConsole: 'off' and documentPollution: 'off'\. Said once per worker\.\nDocs: \S+#under-test-concurrent$/,
+      );
+      // Unconfigured reads no longer lose a sibling's reads under test.concurrent, so the advice leaves them out.
+      expect(written[0]).not.toContain('unconfigured');
+    });
+  });
+
+  /**
+   * An emission helper registers a wait for as long as it holds a subscription, and a dropped promise
+   * leaves it registered: the test passed without the assertion it was written around, and the
+   * subscription outlives it.
+   */
+  describe('an emission wait nobody awaited', () => {
+    setupAutoSpy({ duplicateCopies: 'off' });
+
+    const warnings: string[] = [];
+    let abandoned = 0;
+
+    it('is left alone while the test that opened it runs', () => {
+      // A raw spy on purpose: the warning lands between tests, where setupAutoSpy clears the library's console spies.
+      vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
+        warnings.push(String(message));
+      });
+      registerEmissionWait({
+        describe: 'the price stream',
+        abandon: () => {
+          abandoned += 1;
+        },
+      });
+
+      expect(abandoned).toBe(0);
+    });
+
+    it('is torn down by the next test, which is told what it was waiting for', () => {
+      vi.restoreAllMocks();
+
+      expect(abandoned).toBe(1);
+      expect(warnings.join('\n')).toContain(
+        '[vitest-auto-spy] "setupAutoSpy, in file order > an emission wait nobody awaited > is left alone while the test that opened it runs" never awaited ' +
+          '1 emission wait (the price stream), so its assertion never ran.\nAwait it, or return it from the test. Its subscription is torn down now.',
+      );
+      expect(abandonEmissionWaits()).toEqual([]);
+    });
+
+    it('counts several waits, and says "this test" where the runner names none', () => {
+      expect(describeAbandonedWaits(['a$', 'b$'], undefined)).toMatch(
+        /^\[vitest-auto-spy\] This test never awaited 2 emission waits \(a\$, b\$\), so their assertions never ran\.\nAwait each one, or return it from the test\. Their subscriptions are torn down now\.\nDocs: /,
+      );
+    });
   });
 });
