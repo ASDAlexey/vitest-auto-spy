@@ -4,7 +4,9 @@
  * `nextWith`, `calledWith`, …) and the argument-matching logic that decides what
  * a call returns.
  */
+import { ANGULAR_LIFECYCLE_HOOKS } from './angular-hooks';
 import { ArgsMap } from './args-map';
+import { frameLocation, isCallingCode } from './call-site';
 import * as DOCS_LINKS from './docs-links';
 import { errorHandler } from './error-handler';
 import { libraryWarn } from './guard-reaction';
@@ -133,32 +135,12 @@ function renderArgument(value: unknown): string {
   return text.length > RENDERED_ARGUMENT_LENGTH ? `${text.slice(0, RENDERED_ARGUMENT_LENGTH)}…` : text;
 }
 
-function frameLocation(frame: string): string {
-  return /((?:file:\/\/)?[^\s()]+:\d+:\d+)\)?$/.exec(frame)?.[1] ?? '';
-}
-
-let libraryDirectory: string | undefined;
-
-// In the repository the library's source sits next to its specs, where `ownFrames` would quote the dispatch.
-// Lazy: the first formatted stack in a spec file costs ~1 ms under Vitest.
-export function ownDirectory(): string {
-  libraryDirectory ??= frameLocation(String(stackFrames(new Error('probe').stack)[0])).replace(/[^/\\]*$/, '');
-
-  return libraryDirectory;
-}
-
-function isCallingCode(location: string): boolean {
-  return (
-    location !== '' &&
-    !/node_modules|node:/.test(location) &&
-    (!location.startsWith(ownDirectory()) || /\.(spec|test)\.[cm]?[jt]sx?:/.test(location))
-  );
-}
-
 /** `cart.component.ts:41:12` — the first frame of the calling code, or nothing when the stack has none. */
 function callSite(stack: string | undefined): string | undefined {
   const frames = stackFrames(stack);
-  const location = ownFrames(frames, frames.length).map(frameLocation).find(isCallingCode);
+  const location = ownFrames(frames, frames.length)
+    .map(frameLocation)
+    .find((frame) => isCallingCode(frame));
 
   return location === undefined ? undefined : displayPath(location.replace(/^file:\/\//, ''));
 }
@@ -190,9 +172,13 @@ function throwUnstubbedCall(call: UnstubbedCall): never {
   // Deep enough to reach the calling code past a Proxy double, an RxJS operator and the dispatch.
   Error.stackTraceLimit = 30;
 
-  const error = new Error(`[vitest-auto-spy] ${target}(${rendered}) was called; this strict double has nothing configured for it.`);
+  let error: Error;
 
-  Error.stackTraceLimit = limit;
+  try {
+    error = new Error(`[vitest-auto-spy] ${target}(${rendered}) was called; this strict double has nothing configured for it.`);
+  } finally {
+    Error.stackTraceLimit = limit;
+  }
 
   const site = callSite(error.stack);
   const lines = [error.message, ...(site === undefined ? [] : [`Called from ${site}`]), strictCallAdvice(call, rendered)];
@@ -395,19 +381,6 @@ function hintLenientMiss(state: SpyState, chain: CalledWithObject, actualArgs: u
  * exists, so no configured lookup is skipped by putting it here. A non-strict spy pays one
  * `undefined` check, which is what it paid before.
  */
-// Angular calls these itself — `ngOnDestroy` on every provided value at teardown — so no spec asked for
-// the call; throwing there broke the teardown and every test after it.
-const FRAMEWORK_HOOKS: ReadonlySet<string> = new Set([
-  'ngAfterContentChecked',
-  'ngAfterContentInit',
-  'ngAfterViewChecked',
-  'ngAfterViewInit',
-  'ngDoCheck',
-  'ngOnChanges',
-  'ngOnDestroy',
-  'ngOnInit',
-]);
-
 function returnTheCorrectFakeValue(
   state: SpyState,
   actualArgs: unknown[],
@@ -415,7 +388,8 @@ function returnTheCorrectFakeValue(
   unstubbed: UnstubbedGuard | undefined,
   receiver: unknown,
 ): unknown {
-  if (unstubbed && isUnconfigured(state) && (unstubbed.implementation === true || !FRAMEWORK_HOOKS.has(functionName))) {
+  // Throwing from a hook Angular called itself broke the teardown and every test after it.
+  if (unstubbed && isUnconfigured(state) && (unstubbed.implementation === true || !ANGULAR_LIFECYCLE_HOOKS.has(functionName))) {
     const call: UnstubbedCall = { className: unstubbed.className, method: functionName, args: actualArgs };
 
     return unstubbed.receiver === true ? unstubbed.handle(call, receiver) : unstubbed.handle(call);
@@ -683,11 +657,12 @@ class FunctionSpyInternals implements MarkHooks, SpyState {
     // spy allocated, so a reset spy costs exactly what a fresh one costs.
     this.calledWith = undefined;
     this.mustBeCalledWith = undefined;
+    // Assigned rather than deleted: a `delete` turns the container into a dictionary-mode object that every call then reads.
     valueContainer.value = undefined;
-    delete valueContainer._isRejectedPromise;
-    delete valueContainer._isThrown;
-    delete valueContainer._isSeeded;
-    delete valueContainer.valuesPerCalls;
+    valueContainer._isRejectedPromise = false;
+    valueContainer._isThrown = false;
+    valueContainer._isSeeded = false;
+    valueContainer.valuesPerCalls = undefined;
     // The observable layer keeps its `ReplaySubject` in a closure the container cannot reach, and
     // its buffer is configuration in exactly the sense `calledWith` is: without this, a value from
     // one test is replayed to the next one — ahead of the error that test configured.
@@ -720,9 +695,9 @@ export function seedReturnValue(spy: Func, value: unknown): boolean {
 
   valueContainer.value = value;
   valueContainer._isSeeded = true;
-  delete valueContainer._isRejectedPromise;
-  delete valueContainer._isThrown;
-  delete valueContainer.valuesPerCalls;
+  valueContainer._isRejectedPromise = false;
+  valueContainer._isThrown = false;
+  valueContainer.valuesPerCalls = undefined;
 
   return true;
 }

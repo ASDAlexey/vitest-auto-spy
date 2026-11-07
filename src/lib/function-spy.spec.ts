@@ -29,6 +29,10 @@ function warmingAdapter(): MockAdapter {
   };
 }
 
+beforeEach(() => {
+  registerMockAdapter(vitestMockAdapter);
+});
+
 afterEach(() => {
   registerMockAdapter(vitestMockAdapter);
 });
@@ -154,7 +158,15 @@ describe('createFunctionSpy — failWith', () => {
 
     load.failWith();
 
-    expect(() => load()).toThrow();
+    let thrown: unknown = 'nothing';
+
+    try {
+      load();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeUndefined();
   });
 
   it('throws for exactly the arguments a chain configured, leaving the rest alone', () => {
@@ -753,7 +765,7 @@ describe('ownDirectory', () => {
     try {
       vi.resetModules();
 
-      const { ownDirectory } = await import('./function-spy');
+      const { ownDirectory } = await import('./call-site');
 
       expect(probes).toBe(0);
 
