@@ -117,12 +117,20 @@ export function storeDefinedProp(store: ProxyPropStore, key: string | symbol, de
   // Defining a property is a write: it revives a key a previous `delete` tombstoned.
   store.deleted.delete(key);
 
+  const existing = store.accessors.get(key);
+
   // `??` and not `||`: a descriptor is an accessor one when it carries *either* half, and a
   // write-only `{ set }` has no `get` to test.
   if ((descriptor.get ?? descriptor.set) !== undefined) {
-    ownAccessors(store).set(key, descriptor);
+    // Merged as the language merges a redefinition: `{ get }` alone keeps the setter already there.
+    ownAccessors(store).set(key, existing ? { ...existing, ...descriptor } : descriptor);
     store.values.delete(key);
 
+    return true;
+  }
+
+  // A descriptor with no `value` (`{ enumerable: false }`) keeps what the key already held.
+  if (!('value' in descriptor) && (store.values.has(key) || (existing && !('writable' in descriptor)))) {
     return true;
   }
 
@@ -209,30 +217,6 @@ export function readStoredAccessor(store: ProxyPropStore, key: string | symbol, 
   return accessor.get?.call(receiver);
 }
 
-/**
- * The three traps that route every write into `store`.
- *
- * Shared, because a node that answers reads from the store but writes past it is the silent half of
- * the failure this module exists for — see the trap note in `mock-deep.ts`.
- */
-export function storeWriteTraps<T extends object>(
-  store: ProxyPropStore,
-): Required<Pick<ProxyHandler<T>, 'defineProperty' | 'deleteProperty' | 'set'>> {
-  return {
-    set(_target, key, value, receiver): boolean {
-      if (!writeStoredAccessor(store, key, value, receiver)) {
-        writeStoredValue(store, key, value);
-      }
-
-      return true;
-    },
-
-    defineProperty: (_target, key, descriptor): boolean => storeDefinedProp(store, key, descriptor),
-
-    deleteProperty: (_target, key): boolean => dropStoredProp(store, key),
-  };
-}
-
 /** Returned by {@link readStoredAccessor} when the key has no patched accessor. */
 export const NOT_STORED = Symbol('vitest-auto-spy.notStored');
 
@@ -294,6 +278,26 @@ export function isProtocolKey(key: string | symbol): boolean {
   return typeof key === 'string' && PROTOCOL_KEYS.has(key);
 }
 
+// Read by pretty-format's plugins, `JSON.stringify` and the runner's `equals`; keep in step with
+// `fill-missing.ts`, which holds back the same keys on the class path.
+const PRINTER_PROBE_KEYS: ReadonlySet<string> = new Set(['toJSON', '$$typeof', 'asymmetricMatch', 'nodeType', 'tagName', 'hasAttribute']);
+
+/**
+ * Keys a printer or a serializer reads to decide how to render a value. A spy there made a failure
+ * diff print the double as `undefined` (`toJSON()` answered it) and left the probes in `ownKeys`.
+ * Consulted after the store, so a seed or an assignment still wins.
+ */
+export function isPrinterProbeKey(key: string | symbol): boolean {
+  return typeof key === 'string' && (PRINTER_PROBE_KEYS.has(key) || key.startsWith('@@__IMMUTABLE_'));
+}
+
+const WITHHELD_KEYS: ReadonlySet<string> = new Set(['then', ...PROTOCOL_KEYS, ...PRINTER_PROBE_KEYS]);
+
+/** `then`, a protocol key or a printer probe in one lookup — a proxy double's hot read path. */
+export function isWithheldKey(key: string): boolean {
+  return WITHHELD_KEYS.has(key) || (key.charCodeAt(0) === 64 && key.startsWith('@@__IMMUTABLE_'));
+}
+
 const OBJECT_METHOD_KEYS: ReadonlySet<string> = new Set(['toString', 'valueOf']);
 
 /**
@@ -303,4 +307,15 @@ const OBJECT_METHOD_KEYS: ReadonlySet<string> = new Set(['toString', 'valueOf'])
  */
 export function isObjectMethodKey(key: string | symbol): boolean {
   return typeof key === 'string' && OBJECT_METHOD_KEYS.has(key);
+}
+
+/**
+ * A double that makes members on first read cannot be frozen: the proxy would have to report every
+ * future member as already present. Thrown in place of the engine's invariant error, which names no library.
+ */
+export function cannotFreeze(factory: string): TypeError {
+  return new TypeError(
+    `[vitest-auto-spy] A ${factory} double cannot be frozen, sealed or made non-extensible: it builds its members on first read. ` +
+      'Freeze a copy instead ({ ...double }), or build the double with createSpyFromClass, which supports Object.freeze.',
+  );
 }

@@ -330,3 +330,36 @@ describe('a proxy double must not impersonate a protocol', () => {
     expect(scheduler['schedule']).toBeTypeOf('function');
   });
 });
+
+describe('storeDefinedProp — a partial descriptor', () => {
+  const get = (): number => 1;
+
+  it('keeps an accessor a descriptor without value or writable leaves alone', () => {
+    const store = createProxyPropStore({});
+
+    storeDefinedProp(store, 'x', { get, configurable: true });
+    storeDefinedProp(store, 'x', { enumerable: false });
+
+    expect(store.accessors.get('x')?.get).toBe(get);
+    expect(store.values.has('x')).toBe(false);
+  });
+
+  it('turns an accessor into an undefined data member on a writable-only descriptor, as the language does', () => {
+    const store = createProxyPropStore({});
+
+    storeDefinedProp(store, 'x', { get, configurable: true });
+    storeDefinedProp(store, 'x', { writable: true });
+
+    expect(store.accessors.has('x')).toBe(false);
+    expect(store.values.has('x')).toBe(true);
+    expect(store.values.get('x')).toBeUndefined();
+  });
+
+  it('defines an undefined member for a new key', () => {
+    const store = createProxyPropStore({});
+
+    storeDefinedProp(store, 'y', { enumerable: true });
+
+    expect(store.values.has('y')).toBe(true);
+  });
+});
