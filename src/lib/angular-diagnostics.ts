@@ -31,7 +31,7 @@ import { componentInjector, describeResolved, failDeadNgModuleImports, isDeadNgM
 import { HTTP_TESTING_BRAND, type PendingRequest, pendingRequestsReport } from './angular-pending-requests';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
-import { count, sourceClassName, taskName } from './message-text';
+import { count, currentTask, sourceClassName, taskName } from './message-text';
 import { isAutoSpyLike } from './spy-mark';
 import { onTestBedFileEnd } from './testbed-clean-bed';
 import { instrumentTestBed, onComponentCreated, onTestingModuleConfigured, verifyOnTeardown } from './testbed-diagnostics';
@@ -522,7 +522,7 @@ let preparedTest: object | undefined;
 
 /** A call made while a test or one of its hooks runs cannot register hooks of its own. */
 function insideTest(): boolean {
-  return readProperty(readProperty(Reflect.get(globalThis, '__vitest_worker__'), 'current'), 'type') === 'test';
+  return currentTask() !== undefined;
 }
 
 /**
@@ -576,7 +576,7 @@ export function enableAngularDiagnostics(options: AngularDiagnosticsOptions = {}
     shadowedProviders: options.shadowedProviders ?? true,
   };
 
-  assertAngularInternals();
+  assertAngularInternals('testModuleRef');
   failOnUnspiedProvider(active.unspiedProviders);
   instrumentTestBed();
 

@@ -10,7 +10,7 @@ import { HttpClient, provideHttpClient } from '@angular/common/http';
 import { HttpClientTestingModule, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Component, Injectable, InjectionToken, NO_ERRORS_SCHEMA, NgModule, inject } from '@angular/core';
 import { TestBed, getTestBed } from '@angular/core/testing';
-import { afterAll, describe, expect, it, onTestFinished } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFinished } from 'vitest';
 
 import '../angular';
 import { injectSpy } from './angular';
@@ -102,6 +102,15 @@ class ModuleProvidersComponent {
 }
 
 describe('enableAngularDiagnostics', () => {
+  let leftOff = false;
+
+  // Ahead of the group's own hooks: enabling forgets the test they prepared.
+  beforeEach(() => {
+    if (!leftOff) {
+      enableAngularDiagnostics();
+    }
+  });
+
   enableAngularDiagnostics();
 
   afterAll(disableAngularDiagnostics);
@@ -162,8 +171,6 @@ describe('enableAngularDiagnostics', () => {
     injectSpy(RealService);
 
     expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('got a real RealService'));
-
-    enableAngularDiagnostics();
   });
 
   it('fails a test that ends with an unflushed request, naming every one of them', () => {
@@ -254,7 +261,6 @@ describe('enableAngularDiagnostics', () => {
     expect(() => assertNoPendingRequests({ ignoreCancelled: false })).not.toThrow();
 
     TestBed.inject(HttpClient).get('/api/cancelled-at-teardown').subscribe().unsubscribe();
-    onTestFinished(() => enableAngularDiagnostics());
   });
 
   it('finds the controller behind the legacy HttpClientTestingModule too', () => {
@@ -338,8 +344,6 @@ describe('enableAngularDiagnostics', () => {
     TestBed.inject(HttpClient).get('/ignored').subscribe();
 
     expect(assertNoPendingRequests).not.toThrow();
-
-    enableAngularDiagnostics();
   });
 
   /**
@@ -427,8 +431,6 @@ describe('enableAngularDiagnostics', () => {
       TestBed.configureTestingModule({ imports: [OwnProvidersComponent], providers: [provideAutoSpy(RealService)] });
 
       expect(() => TestBed.createComponent(OwnProvidersComponent)).not.toThrow();
-
-      enableAngularDiagnostics();
     });
 
     it('says nothing when the fixture never rendered that component', () => {
@@ -452,18 +454,29 @@ describe('enableAngularDiagnostics', () => {
     });
   });
 
-  // Last on purpose: it leaves the group off, so the per-test hook registered above runs once with
-  // nothing to check — the state a suite is in after `disableAngularDiagnostics()`.
-  it('checks nothing once the group is off, and neither does the hook it left behind', () => {
-    disableAngularDiagnostics();
+  // Off before these tests start, so the per-test hooks registered above run with nothing to check —
+  // the state a suite is in after `disableAngularDiagnostics()`.
+  describe('once the group is off', () => {
+    beforeAll(() => {
+      leftOff = true;
+      disableAngularDiagnostics();
+    });
 
-    expect(() => TestBed.configureTestingModule({ imports: [EmptyModule, DiagnosedComponent], schemas: [NO_ERRORS_SCHEMA] })).not.toThrow();
-  });
+    afterAll(() => {
+      leftOff = false;
+    });
 
-  it('leaves an explicit check with no controller to read while the group is off', () => {
-    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
-    TestBed.inject(HttpClient).get('/api/cancelled-while-off').subscribe().unsubscribe();
+    it('checks nothing, and neither does the hook it left behind', () => {
+      expect(() =>
+        TestBed.configureTestingModule({ imports: [EmptyModule, DiagnosedComponent], schemas: [NO_ERRORS_SCHEMA] }),
+      ).not.toThrow();
+    });
 
-    expect(assertNoPendingRequests).not.toThrow();
+    it('leaves an explicit check with no controller to read', () => {
+      TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+      TestBed.inject(HttpClient).get('/api/cancelled-while-off').subscribe().unsubscribe();
+
+      expect(assertNoPendingRequests).not.toThrow();
+    });
   });
 });
