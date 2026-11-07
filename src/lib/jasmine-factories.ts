@@ -9,6 +9,7 @@
 import { createSpyFromClass as createCoreSpyFromClass } from './create-spy-from-class';
 import * as DOCS_LINKS from './docs-links';
 import { createFunctionSpy as createCoreFunctionSpy } from './function-spy';
+import type { FromClassOnly } from './internal-types';
 import type { JasmineMethodSpy, JasmineSpy } from './jasmine-types';
 import { withDocs } from './message-link';
 import { reportMisconfiguration } from './misconfiguration';
@@ -66,9 +67,10 @@ function normalizeConfiguration<T>(
  * (`onlyMethodsToSpyOn`, `strict`, `returns`, `fillMissing`, matcher-aware `calledWith`) is
  * available to a migrating suite the day it lands.
  */
-export function createSpyFromClass<T>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- read only while a generic class argument is deferred; the class then decides `T`.
+export function createSpyFromClass<T = any>(
   ObjectClass: ClassType<T>,
-  methodsToSpyOnOrConfig?: JasmineClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
+  methodsToSpyOnOrConfig?: FromClassOnly<T, JasmineClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[]>,
 ): JasmineSpy<T> {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions, no-restricted-syntax -- the runtime object is the one the core builds; the `/jasmine` entry adds the namespaces to it, and they are by design invisible to the core's `Spy<T>`, so the two views cannot be related structurally.
   return createCoreSpyFromClass<T>(ObjectClass, normalizeConfiguration(methodsToSpyOnOrConfig)) as unknown as JasmineSpy<T>;
@@ -98,9 +100,10 @@ export type AngularValueProvider<T> = { provide: ClassType<T>; useValue: Jasmine
  * `TestBed.inject<any>(Class)`, losing the type on the way out; `injectSpy(Class)` from
  * `vitest-auto-spy/angular` returns it typed.
  */
-export function provideAutoSpy<T>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- read only while a generic class argument is deferred; the class then decides `T`.
+export function provideAutoSpy<T = any>(
   ObjectClass: ClassType<T>,
-  methodsToSpyOnOrConfig?: JasmineClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
+  methodsToSpyOnOrConfig?: FromClassOnly<T, JasmineClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[]>,
 ): AngularValueProvider<T> {
   return { provide: ObjectClass, useValue: createSpyFromClass(ObjectClass, methodsToSpyOnOrConfig) };
 }
