@@ -364,3 +364,38 @@ Two traps, recorded because they are easy to get wrong and expensive to undo:
   gets looked at. What does matter — the recipient's status, the platform's role as payer,
   residency — is a question for an accountant, to be settled _before_ a channel is switched on
   rather than after. Not a coding decision, and not something to design around in the repository.
+
+## Mutation testing — faster feedback than Stryker, 2026-11-07
+
+A consumer suite of 10–12k specs on the library runs in 2–3 minutes; Stryker over the same specs
+takes about 40. The last report here (`reports/mutation/mutation.json`) says where the time goes:
+3227 mutants over 2732 tests, covering-test count median 34 / p90 448 / max 1185, and 350 static
+mutants that each run the whole suite — an upper bound of ~956k test runs against ~306k for every
+other mutant combined (76 %; bail on first kill makes the real share lower, not different in
+kind). Three ideas, cheapest first; each wants a measurement before the next is started.
+
+- [ ] **Tune Stryker before writing anything.** `ignoreStatic: true` (measure the score it costs);
+      mutate only the lines a branch changed — `git diff master` ranges into `--mutate file:a-b` —
+      with the full run kept nightly in `mutation.yml`; drop the low-signal mutators
+      (`StringLiteral` 364, `ObjectLiteral`, `ArrayDeclaration`, `Regex` — ~15 % of mutants).
+      Expected: a branch run in minutes. Record the before/after wall time, not an estimate.
+- [ ] **Report unverified spy interactions during the normal run.** The library sees every call
+      to every spy, so it can say which calls no assertion looked at, which were asserted without
+      their arguments (`toHaveBeenCalled()`, `expect.anything()`), and which `resolveWith` /
+      `nextWith` values never reached an assertion. Those are the usual survivors of
+      `BlockStatement` (631 here), argument and return-value mutants. Shape: an opt-in
+      `setupAutoSpy({ unverifiedCalls: 'warn' | 'error' })`, near-zero cost, in the 2-minute run.
+      Validate it against the survivors in `mutation.json` — worth shipping if it predicts more
+      than half of them; a lint rule in `/eslint-plugin` for the static half is the follow-up.
+- [ ] **An in-process mutation runner, `vitest-auto-spy/mutate`.** A Vite plugin on `oxc-parser`
+      writes mutant schemata switched by a global; a custom Vitest `runner` imports each spec once,
+      collects per-test coverage, then per mutant re-runs only the covering tests' hooks and bodies
+      without re-importing modules. That removes the per-mutant import/setup/TestBed cost, which
+      dwarfs the test bodies, and is sound because spies are rebuilt in `beforeEach` and
+      `resetAutoSpy` / stray-timer and stray-listener tracking catch state leaking between reruns.
+      Start with extreme mutation only (a method body becomes `return` of a default — 1–3 mutants
+      per method, finds pseudo-tested methods), not Stryker's operator set. Open problems: infinite
+      loops in a mutant (loop hit counters plus a worker restart), `beforeAll` and module-level
+      state breaking reruns (detect by rerunning the unmutated code and falling back to a fresh
+      import for that file). The orchestrating CLI belongs with `mutate-file`; the runner is TS.
+      Prototype on two or three `src/lib/*` files and compare against Stryker on the same set.
