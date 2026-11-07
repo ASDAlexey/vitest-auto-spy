@@ -47,5 +47,6 @@ export const FIXTURES: Record<string, string> = {
     "import { Counter } from './counter';\ndeclare const counter: Counter;\ndeclare const list: readonly string[];\nexpect(counter.items()).toEqual(list);\n",
   'primitive-to-be.spec.ts':
     "import { Counter } from './counter';\ndeclare const counter: Counter;\ndeclare const three: number;\nexpect(counter.total()).toBe(three);\nexpect(counter.loose()).toBe(-1);\nexpect(counter.loose()).toBe(undefined);\nexpect(counter.loose()).toBe(`a`);\n",
+  'called-with-arguments.spec.ts': 'export {};\ndeclare const pick: { (n: number): number; ɵSIGNAL: true };\nexpect(pick(1)).toBe(1);\n',
   'plain-value.spec.ts': 'declare const box: { value: number };\nexpect(box.value).toBe(1);\n',
 };

@@ -199,6 +199,12 @@ describe(RULE, () => {
     expect(
       autofix(`import { createSpyFromInstance, restoreSpiedInstance } from 'vitest-auto-spy/bun';\ncreateSpyFromInstance(player, ${OWN});`),
     ).toBe("import { restoreSpiedInstance, spyOnOwnMethod } from 'vitest-auto-spy/bun';\nspyOnOwnMethod(player, 'seek');");
+    // The factory stays for its other use, so the helper joins the same adapter entry beside it.
+    expect(
+      autofix(
+        `import { createSpyFromInstance } from 'vitest-auto-spy/bun';\ncreateSpyFromInstance(player, ${OWN});\ncreateSpyFromInstance(other);`,
+      ),
+    ).toContain("spyOnOwnMethod } from 'vitest-auto-spy/bun';");
     expect(
       autofix(`import { asSpy, createSpyFromInstance, setupAutoSpy } from 'vitest-auto-spy';\ncreateSpyFromInstance(player, ${OWN});`),
     ).toBe("import { asSpy, setupAutoSpy, spyOnOwnMethod } from 'vitest-auto-spy';\nspyOnOwnMethod(player, 'seek');");

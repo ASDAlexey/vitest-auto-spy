@@ -27,7 +27,7 @@
  *   than of the provider.
  */
 import { count as plural } from '../message-text';
-import { PACKAGE, bindingState, dropNamedImport, findBinding, importNamed } from './bindings';
+import { PACKAGE, angularEntryOf, bindingState, dropNamedImport, findBinding, importNamed, importSpecifierOf } from './bindings';
 import { defineRule } from './define-rule';
 import { handRolledProvider, providesToken } from './hand-rolled-doubles';
 import { argumentList, excerpt, excerptOr } from './message-data';
@@ -165,18 +165,24 @@ function longFormFixes(context: RuleContext, fixer: EsFixer, descriptor: EsObjec
   const scope = sourceCode.getScope(descriptor);
   const args = sourceCode.getText().slice(call.callee.range[1], call.range[1]);
   const edits = [fixer.replaceText(descriptor, `${PROVIDE_AUTO_SPY}${args}`)];
+  const free = bindingState(scope, PROVIDE_AUTO_SPY) === 'free';
+  const factory = findBinding(scope, SPY_FROM_CLASS);
+  const orphaned = factory?.references.every((reference) => rewrittenAway(reference.identifier)) ? factory : undefined;
+  const specifier = orphaned && importSpecifierOf(orphaned);
 
-  if (bindingState(scope, PROVIDE_AUTO_SPY) === 'free') {
+  // `/bun-angular` ships both names: the import the drop would delete is the one `provideAutoSpy` joins.
+  if (free && specifier?.parent.specifiers.length === 1 && specifier.parent.source.value === angularEntryOf(descriptor)) {
+    return [...edits, fixer.replaceText(specifier, PROVIDE_AUTO_SPY)];
+  }
+
+  if (free) {
     edits.push(importNamed(fixer, descriptor, PROVIDE_AUTO_SPY, ANGULAR_ENTRY));
   }
 
-  const factory = findBinding(scope, SPY_FROM_CLASS);
-  const orphaned = factory?.references.every((reference) => rewrittenAway(reference.identifier))
-    ? dropNamedImport(sourceCode, fixer, factory)
-    : undefined;
+  const dropped = orphaned && dropNamedImport(sourceCode, fixer, orphaned);
 
-  if (orphaned) {
-    edits.push(orphaned);
+  if (dropped) {
+    edits.push(dropped);
   }
 
   return edits;

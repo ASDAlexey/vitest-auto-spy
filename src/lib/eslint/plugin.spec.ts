@@ -2,6 +2,8 @@
  * The plugin's own surface: every rule wired into the configs that recommend it, and the severity
  * map spelled out rather than derived.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import plugin from '../../eslint-plugin';
@@ -15,6 +17,17 @@ describe('the plugin', () => {
     expect(recommended.sort()).toEqual(Object.keys(rules).sort());
     expect(plugin.configs.recommended.plugins['vitest-auto-spy']).toBe(plugin);
     expect(plugin.rules).toBe(rules);
+  });
+
+  it('names itself and its version, so ESLint relints a cached file after an upgrade', () => {
+    const manifest: unknown = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8'));
+
+    expect(plugin.meta).toEqual({ name: 'vitest-auto-spy', version: (manifest as { version: string }).version });
+    expect(Object.values(plugin.configs).map((config) => config.name)).toEqual([
+      'vitest-auto-spy/recommended',
+      'vitest-auto-spy/strict',
+      'vitest-auto-spy/typeErrors',
+    ]);
   });
 
   it('declares a fix or a suggestion exactly where it ships one', () => {
@@ -34,7 +47,6 @@ describe('the plugin', () => {
       'prefer-native-spy-api',
       'prefer-provide-auto-spy',
       'prefer-spy-on-own-method',
-      'prefer-to-have-signal-value',
     ]);
     // `no-mocked-for-spy`, `no-redundant-mock-reset`, `prefer-native-spy-api` and `prefer-spy-on-own-method` declare both: the
     // same edit is applied where the file settles it and offered where something outside the file —

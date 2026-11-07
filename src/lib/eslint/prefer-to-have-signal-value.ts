@@ -17,8 +17,11 @@
  * `projectService` absent) it reports nothing at all rather than guessing, like every type-aware
  * rule here.
  *
- * The fix is two text edits — drop the parentheses, rename the matcher — and is issued only for a
- * received call without type arguments of its own, which a text move would silently drop.
+ * The repair is two text edits — drop the parentheses, rename the matcher — offered as a suggestion, not
+ * applied by `--fix`: the matcher exists only once a setup file this lint cannot see calls
+ * `registerSignalMatchers()`, and without it the edit turns a green test into `toHaveSignalValue is not a
+ * function`. It is offered only for a received call without type arguments of its own, which a text move
+ * would silently drop. A received call with arguments is never a signal read, so it is not asked about.
  *
  * `toBe` is an identity check and `toHaveSignalValue` compares deeply, so a `toBe` is left alone unless
  * the expected value is a primitive literal or the signal holds a primitive type.
@@ -99,7 +102,7 @@ function signalAssertionOf(node: EsCallExpression): SignalAssertion | undefined 
 
   const received = expected.arguments.at(0);
 
-  return received !== undefined && isCallExpression(received)
+  return received !== undefined && isCallExpression(received) && received.arguments.length === 0
     ? { received, matcher: callee.property, strict: callee.property.name === 'toStrictEqual' }
     : undefined;
 }
@@ -112,12 +115,15 @@ function readsSignal(context: RuleContext, node: EsNode): boolean {
     return false;
   }
 
-  const type = program.getTypeChecker().getTypeAtLocation(esTreeNodeToTSNodeMap.get(node));
-  const signatures = type.getCallSignatures();
-
   return (
-    type.getProperties().some((property) => property.getName() === SIGNAL_BRAND || SIGNAL_BRAND_PROPERTY.test(property.getName())) &&
-    signatures.length > 0
+    askChecker(() => {
+      const type = program.getTypeChecker().getTypeAtLocation(esTreeNodeToTSNodeMap.get(node));
+
+      return (
+        type.getProperties().some((property) => property.getName() === SIGNAL_BRAND || SIGNAL_BRAND_PROPERTY.test(property.getName())) &&
+        type.getCallSignatures().length > 0
+      );
+    }) === true
   );
 }
 
@@ -165,7 +171,7 @@ export const preferToHaveSignalValue: RuleModule = defineRule({
     preferToHaveSignalValue:
       "Assert the signal, not the value it happens to hold: `expect({{signal}}).toHaveSignalValue(…)` keeps the signal's name in the failure output and refuses a value that is not a signal.",
   },
-  fixable: true,
+  hasSuggestions: true,
   create: (context) => ({
     CallExpression: (node: EsCallExpression): void => {
       const shape = signalAssertionOf(node);
@@ -179,22 +185,27 @@ export const preferToHaveSignalValue: RuleModule = defineRule({
         messageId: 'preferToHaveSignalValue',
         data: { signal: excerpt(context, shape.received.callee, 40) },
         ...(shape.received.typeArguments === undefined && {
-          fix: (fixer): EsFix[] => {
-            const value = VALUE_MATCHERS.get(shape.matcher.name);
-            const fixes = [
-              fixer.replaceText(shape.received, context.sourceCode.getText(shape.received.callee)),
-              value === undefined
-                ? fixer.replaceText(shape.matcher, 'toHaveSignalValue')
-                : fixer.replaceTextRange([shape.matcher.range[0], node.range[1]], `toHaveSignalValue(${value})`),
-            ];
-            const last = node.arguments.at(-1);
+          suggest: [
+            {
+              desc: 'Assert the signal with toHaveSignalValue (needs registerSignalMatchers() in a setup file)',
+              fix: (fixer): EsFix[] => {
+                const value = VALUE_MATCHERS.get(shape.matcher.name);
+                const fixes = [
+                  fixer.replaceText(shape.received, context.sourceCode.getText(shape.received.callee)),
+                  value === undefined
+                    ? fixer.replaceText(shape.matcher, 'toHaveSignalValue')
+                    : fixer.replaceTextRange([shape.matcher.range[0], node.range[1]], `toHaveSignalValue(${value})`),
+                ];
+                const last = node.arguments.at(-1);
 
-            if (shape.strict && last !== undefined) {
-              fixes.push(fixer.insertTextBeforeRange([last.range[1], last.range[1]], ', { strict: true }'));
-            }
+                if (shape.strict && last !== undefined) {
+                  fixes.push(fixer.insertTextBeforeRange([last.range[1], last.range[1]], ', { strict: true }'));
+                }
 
-            return fixes;
-          },
+                return fixes;
+              },
+            },
+          ],
         }),
       });
     },

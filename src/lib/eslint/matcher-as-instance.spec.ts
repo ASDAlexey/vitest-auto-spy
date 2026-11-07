@@ -78,6 +78,16 @@ describe(RULE, () => {
     expect(reported(['expect(result).toBe(view(ref));'], aliased)).toEqual([]);
   });
 
+  it('reports but leaves a spread or a commented argument, which the unwrap would break or lose', () => {
+    const spread = `${IMPORT}expect(a).toEqual(asInstance(...[b]));`;
+    const commented = `${IMPORT}expect(a).toEqual(asInstance(/* keep */ b));`;
+
+    expect(verify(spread)).toHaveLength(1);
+    expect(autofix(spread)).toBe(spread);
+    expect(verify(commented)).toHaveLength(1);
+    expect(autofix(commented)).toBe(commented);
+  });
+
   it('drops the wrapper and the import with it, and only once the import is orphaned', () => {
     expect(autofix(`${IMPORT}expect(service.open()).toBe(asInstance(ref));`)).toBe('\nexpect(service.open()).toBe(ref);');
     expect(autofix(`${IMPORT}expect(service.open()).toBe(asInstance<CartStore>(store));`)).toBe('\nexpect(service.open()).toBe(store);');

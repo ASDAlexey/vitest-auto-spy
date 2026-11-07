@@ -110,8 +110,8 @@ describe('prefer-inject-spy tokens kept real', () => {
   });
 
   it('rejects an options object the rule does not understand', () => {
-    expect(() => count('vi.spyOn(x, "y");', { ignoreTokens: 'DestroyRef' })).toThrow();
-    expect(() => count('vi.spyOn(x, "y");', { ignoreClasses: ['DestroyRef'] })).toThrow();
+    expect(() => count('vi.spyOn(x, "y");', { ignoreTokens: 'DestroyRef' })).toThrow(/Value "DestroyRef" should be array/);
+    expect(() => count('vi.spyOn(x, "y");', { ignoreClasses: ['DestroyRef'] })).toThrow(/Unexpected property "ignoreClasses"/);
   });
 
   it('reports a kept token spelled under another name, and says what to do about it', () => {
@@ -179,6 +179,12 @@ describe('prefer-inject-spy', () => {
     expect(suggestionsFor("vi.spyOn(TestBed.inject(Cart), 'total');")).toEqual(['Read the spy from DI instead: injectSpy(Cart).total']);
     expect(applySuggestion("vi.spyOn(TestBed.inject(Cart), 'total');")).toBe(
       "import { injectSpy } from 'vitest-auto-spy/angular';\ninjectSpy(Cart).total;",
+    );
+  });
+
+  it('imports injectSpy from /bun-angular in a file that runs on it', () => {
+    expect(applySuggestion("import { asSpy } from 'vitest-auto-spy/bun-angular';\nvi.spyOn(TestBed.inject(Cart), 'total');")).toBe(
+      "import { injectSpy } from 'vitest-auto-spy/bun-angular';\nimport { asSpy } from 'vitest-auto-spy/bun-angular';\ninjectSpy(Cart).total;",
     );
   });
 

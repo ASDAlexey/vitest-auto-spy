@@ -15,7 +15,9 @@
  *    `@angular/build:unit-test` resolves) and read as **text** — a `clearMocks: true` and its two
  *    siblings, nothing evaluated, no module loaded. A lint run must not execute a project's config
  *    to decide what to report, and the three values this needs are written as literals in every
- *    config that sets them.
+ *    config that sets them. Comments and strings are cut first, and a config the text cannot settle —
+ *    `projects` / `workspace` giving some tests settings of their own, a flag written twice — reads as
+ *    every flag off, so the rule stays silent rather than delete a reset one project still needs.
  *
  * With neither, the answer is `undefined` and the rule reports nothing. That is the whole reason
  * this file exists rather than a default of "assume Vitest's defaults": a rule that deletes lines on
@@ -42,12 +44,13 @@
  * flags are read from the file that sets them rather than copied into the lint config and kept in
  * step by hand. The search is a convenience for the ordinary layout, not a promise.
  *
- * The result is cached per directory for the length of the lint run, because a suite asks the same
- * question once per spec file and the answer is one directory walk shared by all of them.
+ * Which file a directory resolves to is cached per directory, because a suite asks the same question
+ * once per spec file; what the file says is cached by its mtime, so an editor's ESLint server sees an edit.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
+import { findStringEnd } from '../jsonc';
 import { builderConfigs } from './builder-targets';
 import { type RuleContext } from './rule-types';
 
@@ -73,26 +76,92 @@ const CONFIG_NAMES = ['vitest.config', 'vite.config', 'vitest-base.config'].flat
   ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs'].map((extension) => `${base}.${extension}`),
 );
 
-/** One walk's answer per directory: the config's flags, or `null` for "searched, found nothing". */
-const configCache = new Map<string, ConfigFlags | null>();
+/** One walk's answer per directory: the config's path, or `null` for "searched, found nothing". */
+const configCache = new Map<string, string | null>();
+
+/** Each config's reading, kept while its mtime holds, so an editor's long-lived ESLint sees an edit. */
+const flagsCache = new Map<string, { mtimeMs: number; flags: ConfigFlags }>();
 
 /** The installed Vitest's major per directory, or `null` for "searched, found nothing". */
 const versionCache = new Map<string, number | null>();
 
-/** The three flags as a config's text sets them; anything but a literal `true` reads as off, and an unnamed `clearMocks` as unknown. */
+/** Every flag off and `clearMocks` named: what a config this reading cannot settle counts as. */
+const UNREADABLE: ConfigFlags = { clearMocks: false, mockReset: false, restoreMocks: false };
+
+/** A key that gives some tests a config of their own, which a text reading cannot tell apart from the root's. */
+const PER_PROJECT = /\b(?:projects|workspace)\b/;
+
+/** The config's code with comments cut and every string emptied, so neither can spell a flag. */
+function codeOf(text: string): string {
+  const parts: string[] = [];
+  let index = 0;
+
+  while (index < text.length) {
+    const char = text.charAt(index);
+
+    if (text.startsWith('//', index) || text.startsWith('/*', index)) {
+      const terminator = text.startsWith('//', index) ? '\n' : '*/';
+      const end = text.indexOf(terminator, index + 2);
+
+      index = end === -1 ? text.length : end + terminator.length;
+      parts.push(' ');
+    } else if (char === '"' || char === "'" || char === '`') {
+      index = findStringEnd(text, index);
+      parts.push(`${char}${char}`);
+    } else {
+      parts.push(char);
+      index += 1;
+    }
+  }
+
+  return parts.join('');
+}
+
+/**
+ * The three flags as a config's code sets them; anything but a literal `true` reads as off, and an unnamed `clearMocks`
+ * as unknown. A config with per-project settings, or a flag written twice, is unreadable: every flag off.
+ */
 function flagsIn(text: string): ConfigFlags {
+  const code = codeOf(text);
+  const mentions = (flag: string): number => code.match(new RegExp(`\\b${flag}\\b`, 'g'))?.length ?? 0;
+
+  if (PER_PROJECT.test(code) || Object.keys(UNREADABLE).some((flag) => mentions(flag) > 1)) {
+    return UNREADABLE;
+  }
+
   return {
-    clearMocks: /\bclearMocks\b/.test(text) ? /\bclearMocks\s*:\s*true\b/.test(text) : undefined,
-    mockReset: /\bmockReset\s*:\s*true\b/.test(text),
-    restoreMocks: /\brestoreMocks\s*:\s*true\b/.test(text),
+    clearMocks: mentions('clearMocks') === 0 ? undefined : /\bclearMocks\s*:\s*true\b/.test(code),
+    mockReset: /\bmockReset\s*:\s*true\b/.test(code),
+    restoreMocks: /\brestoreMocks\s*:\s*true\b/.test(code),
   };
 }
 
-/** The first runner config in one directory, read. */
-function configIn(directory: string): ConfigFlags | null {
-  const name = CONFIG_NAMES.find((candidate) => existsSync(join(directory, candidate)));
+/** A config file's flags, read again whenever its mtime moves; `null` once it is gone. */
+function flagsAt(path: string): ConfigFlags | null {
+  let mtimeMs: number;
 
-  return name === undefined ? null : flagsIn(readFileSync(join(directory, name), 'utf8'));
+  try {
+    ({ mtimeMs } = statSync(path));
+  } catch {
+    return null;
+  }
+
+  const cached = flagsCache.get(path);
+
+  if (cached?.mtimeMs === mtimeMs) {
+    return cached.flags;
+  }
+
+  const flags = flagsIn(readFileSync(path, 'utf8'));
+
+  flagsCache.set(path, { mtimeMs, flags });
+
+  return flags;
+}
+
+/** The first runner config in one directory. */
+function configIn(directory: string): string | null {
+  return CONFIG_NAMES.map((candidate) => join(directory, candidate)).find((path) => existsSync(path)) ?? null;
 }
 
 /** The major of the Vitest installed in one directory's `node_modules`. */
@@ -166,11 +235,11 @@ interface NamedConfig {
 /** A config's flags narrowed to what every unit-test builder target serving the file also resets. */
 function underBuilders(context: RuleContext, found: RunnerResets, named?: NamedConfig): RunnerResets {
   const read = (config: string | undefined): ConfigFlags => {
-    if (config === undefined || !existsSync(config)) {
+    if (config === undefined) {
       return NO_CONFIG;
     }
 
-    return config === named?.path ? named.flags : flagsIn(readFileSync(config, 'utf8'));
+    return config === named?.path ? named.flags : (flagsAt(config) ?? NO_CONFIG);
   };
 
   return builderConfigs(context.filename).reduce((flags, config) => meet(flags, settled(context, read(config))), found);
@@ -191,15 +260,14 @@ function isResetOptions(value: unknown): value is ResetOptions {
 /** The runner config `configFile` names, read with `configFlags` over its text; loud when it is not there. */
 function namedConfig(context: RuleContext, configFile: string, extra: ResetFlags = {}): NamedConfig {
   const path = resolve(context.cwd, configFile);
+  const text = flagsAt(path);
 
-  if (!existsSync(path)) {
+  if (text === null) {
     throw new Error(
       `[vitest-auto-spy] no-redundant-mock-reset: the configFile option names ${path}, which does not exist. ` +
         'Point it at the runner config that sets clearMocks / restoreMocks / mockReset, relative to the directory ESLint runs in.',
     );
   }
-
-  const text = flagsIn(readFileSync(path, 'utf8'));
 
   return {
     path,
@@ -223,7 +291,8 @@ export function runnerResets(context: RuleContext): RunnerResets | undefined {
   const [options] = context.options;
 
   if (!isResetOptions(options)) {
-    const found = nearest(dirname(context.filename), configCache, configIn);
+    const path = nearest(dirname(context.filename), configCache, configIn);
+    const found = path === null ? null : flagsAt(path);
 
     return found === null ? undefined : underBuilders(context, settled(context, found));
   }

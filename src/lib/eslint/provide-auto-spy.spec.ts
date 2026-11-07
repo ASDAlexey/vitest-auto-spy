@@ -59,6 +59,16 @@ describe('prefer-provide-auto-spy — the long-form arm', () => {
     expect(autofix(code)).toBe("import { provideAutoSpy } from 'vitest-auto-spy/angular';\n\nconst p = provideAutoSpy(Cart);");
   });
 
+  it('imports provideAutoSpy from /bun-angular in a file that runs on it', () => {
+    const code =
+      "import { createSpyFromClass } from 'vitest-auto-spy/bun-angular';\nconst p = { provide: Cart, useValue: createSpyFromClass(Cart) };";
+
+    expect(autofix(code)).toBe("import { provideAutoSpy } from 'vitest-auto-spy/bun-angular';\nconst p = provideAutoSpy(Cart);");
+    expect(autofix(`import { asSpy, createSpyFromClass } from 'vitest-auto-spy/bun-angular';\n${code.split('\n')[1]}\nasSpy(x);`)).toBe(
+      "import { asSpy, provideAutoSpy } from 'vitest-auto-spy/bun-angular';\nconst p = provideAutoSpy(Cart);\nasSpy(x);",
+    );
+  });
+
   it('carries the configuration over character for character', () => {
     const code = [
       'TestBed.configureTestingModule({',

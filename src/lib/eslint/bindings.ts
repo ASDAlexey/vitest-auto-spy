@@ -140,6 +140,17 @@ export function coreEntryOf(node: EsNode): string {
   );
 }
 
+const ANGULAR_ENTRY = `${PACKAGE}/angular`;
+const BUN_ANGULAR_ENTRY = `${PACKAGE}/bun-angular`;
+
+/**
+ * `/bun-angular` where the file already imports it, else `/angular`. Only for helpers both entries ship:
+ * `/angular` loads `vitest`, which a `bun:test` suite does not have.
+ */
+export function angularEntryOf(node: EsNode): string {
+  return importsOf(node).some((declaration) => declaration.source.value === BUN_ANGULAR_ENTRY) ? BUN_ANGULAR_ENTRY : ANGULAR_ENTRY;
+}
+
 /** The file's own `import … from 'module'`, when it has exactly one and every specifier in it is named. */
 function namedImportFrom(node: EsNode, module: string): EsImportDeclaration | undefined {
   const declarations = importsOf(node).filter((declaration) => declaration.source.value === module && declaration.importKind !== 'type');
@@ -159,10 +170,11 @@ function namedImportFrom(node: EsNode, module: string): EsImportDeclaration | un
  *
  * Into a list that is already in order — case aside, which is how `sort-imports` and most formatters
  * read it — the name goes where it sorts; into one that is not, at the end. A root request resolves
- * through {@link coreEntryOf}, so the helper joins the adapter entry the file already runs on.
+ * through {@link coreEntryOf}, so the helper joins the adapter entry the file already runs on; an `/angular`
+ * request through {@link angularEntryOf}, for the same reason.
  */
 export function importNamed(fixer: EsFixer, node: EsNode, name: string, requested: string): EsFix {
-  const module = requested === PACKAGE ? coreEntryOf(node) : requested;
+  const module = requested === PACKAGE ? coreEntryOf(node) : requested === ANGULAR_ENTRY ? angularEntryOf(node) : requested;
   const specifiers = namedImportFrom(node, module)?.specifiers.filter(isNamedImportSpecifier) ?? [];
   const entries = specifiers.map((specifier) => ({
     specifier,
@@ -238,11 +250,23 @@ export function dropNamedImport(source: EsSourceCode, fixer: EsFixer, variable: 
  * same count.
  */
 export function boundValueOf(scope: EsScope, identifier: EsIdentifier): EsNode | undefined {
-  const written =
-    findBinding(scope, identifier.name)?.references.flatMap((reference) => (reference.writeExpr ? [reference.writeExpr] : [])) ?? [];
+  const binding = findBinding(scope, identifier.name);
 
-  return written.length === 1 ? written[0] : undefined;
+  if (!binding) {
+    return undefined;
+  }
+
+  if (!boundValues.has(binding)) {
+    const written = binding.references.flatMap((reference) => (reference.writeExpr ? [reference.writeExpr] : []));
+
+    boundValues.set(binding, written.length === 1 ? written[0] : undefined);
+  }
+
+  return boundValues.get(binding);
 }
+
+/** One answer per variable: a widely read import would otherwise walk every reference once per mention. */
+const boundValues = new WeakMap<EsVariable, EsNode | undefined>();
 
 /**
  * The same reading, restricted to a name that was **declared** with its value.

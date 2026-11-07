@@ -212,6 +212,12 @@ describe(RULE, () => {
     );
   });
 
+  it('imports the helper from /bun-angular in a file that runs on it', () => {
+    const code = `import { injectSpy } from 'vitest-auto-spy/bun-angular';\n${test("  fixture.componentRef.setInput('title', 'Hi');")}`;
+
+    expect(fixed(code)).toMatch(/^import \{ injectSpy, setInputs \} from 'vitest-auto-spy\/bun-angular';\n/);
+  });
+
   it('adds the import once when two callbacks need it', () => {
     const code = [
       "beforeEach(() => {\n  fixture.componentRef.setInput('title', 'Hi');\n});",

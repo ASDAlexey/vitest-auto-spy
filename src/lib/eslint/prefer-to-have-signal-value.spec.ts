@@ -97,9 +97,35 @@ describe('prefer-to-have-signal-value — the shapes it must report', () => {
   });
 });
 
-describe('prefer-to-have-signal-value — the fix', () => {
-  const autofix = (fixture: string): ReturnType<typeof fixRule> =>
-    fixRule(RULE, FIXTURES[fixture] ?? '', { filename: fixture, ...typedOptions() });
+describe('prefer-to-have-signal-value — the suggestion', () => {
+  /** Every report's suggestion applied, one at a time, the way an editor's quick fix would. */
+  const autofix = (fixture: string): { output: string; messages: LintMessage[] } => {
+    let output = FIXTURES[fixture] ?? '';
+
+    for (;;) {
+      const messages = runRule(RULE, output, { filename: fixture, ...typedOptions() });
+      const fix = messages.find((message) => message.suggestions?.length)?.suggestions?.[0]?.fix;
+
+      if (fix === undefined) {
+        return { output, messages };
+      }
+
+      output = output.slice(0, fix.range[0]) + fix.text + output.slice(fix.range[1]);
+    }
+  };
+
+  it('leaves the file to --fix as it was: the matcher exists only once a setup file registers it', () => {
+    const [message] = lintTyped('signal-to-be.spec.ts');
+
+    expect(fixRule(RULE, FIXTURES['signal-to-be.spec.ts'] ?? '', { filename: 'signal-to-be.spec.ts', ...typedOptions() }).fixed).toBe(
+      false,
+    );
+    expect(message?.suggestions?.[0]?.desc).toContain('registerSignalMatchers()');
+  });
+
+  it('asks nothing about a received call with arguments, which is never a signal read', () => {
+    expect(lintTyped('called-with-arguments.spec.ts')).toStrictEqual([]);
+  });
 
   it('rewrites toBe and toEqual into toHaveSignalValue over the signal itself', () => {
     expect(autofix('signal-to-be.spec.ts').output).toBe(
@@ -147,9 +173,8 @@ describe('prefer-to-have-signal-value — the fix', () => {
   });
 
   it('reports but leaves a received call that carries type arguments of its own', () => {
-    const fixed = autofix('generic-type-arguments.spec.ts');
+    const [message] = lintTyped('generic-type-arguments.spec.ts');
 
-    expect(fixed.output).toBe(FIXTURES['generic-type-arguments.spec.ts']);
-    expect(fixed.messages).toHaveLength(1);
+    expect(message?.suggestions).toBeUndefined();
   });
 });

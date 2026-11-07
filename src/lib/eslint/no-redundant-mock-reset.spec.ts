@@ -3,7 +3,7 @@
  * runner config on disk, which needs real directories and gets them from `mkdtempSync`.
  */
 import { type LintMessage } from 'eslint';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -225,6 +225,55 @@ describe('no-redundant-mock-reset, finding the runner config itself', () => {
     expect(inDirectory(configured, code, { configFile: join(bare, 'tools', 'vitest-runner.config.ts') })).toBe(1);
     // A flag written beside it still has the last word.
     expect(inDirectory(bare, code, { configFile: 'tools/vitest-runner.config.ts', clearMocks: false })).toBe(0);
+  });
+
+  it('reads no flag out of a comment or a string', () => {
+    const commented = join(root, 'commented');
+
+    mkdirSync(join(commented, 'nested'), { recursive: true });
+    writeFileSync(
+      join(commented, 'vitest.config.ts'),
+      `export default {\n  test: {\n    // clearMocks: true, -- turned off\n    /* clearMocks: true */ name: 'clearMocks: true',\n  },\n};\n// mockReset: true`,
+    );
+
+    expect(inDirectory(commented)).toBe(0);
+    expect(inDirectory(commented, `beforeEach(() => { vi.resetAllMocks(); });`)).toBe(0);
+  });
+
+  it('reads a config with per-project settings, or a flag written twice, as setting nothing', () => {
+    const projects = join(root, 'projects');
+    const twice = join(root, 'twice');
+    const unclosed = join(root, 'unclosed');
+
+    [projects, twice, unclosed].forEach((directory) => mkdirSync(join(directory, 'nested'), { recursive: true }));
+    writeFileSync(
+      join(projects, 'vitest.config.ts'),
+      `export default { test: { projects: [{ test: { name: 'legacy', clearMocks: true } }] } };\n`,
+    );
+    writeFileSync(join(twice, 'vitest.config.ts'), `export default { test: { clearMocks: true }, other: { clearMocks: false } };\n`);
+    writeFileSync(join(unclosed, 'vitest.config.ts'), `export default { test: { clearMocks: true } }; /* clearMocks: false`);
+
+    expect(fixRule(RULE, code, { filename: join(projects, 'nested', 'thing.spec.ts'), linter: createFlatLinter(projects) }).output).toBe(
+      code,
+    );
+    expect(inDirectory(twice)).toBe(0);
+    expect(inDirectory(unclosed)).toBe(1);
+  });
+
+  it('reads the config again once it changes, and goes silent once it is gone', () => {
+    const edited = join(root, 'edited');
+    const config = join(edited, 'vitest.config.ts');
+
+    mkdirSync(join(edited, 'nested'), { recursive: true });
+    writeFileSync(config, `export default { test: { clearMocks: true } };\n`);
+    expect(inDirectory(edited)).toBe(1);
+
+    writeFileSync(config, `export default { test: { clearMocks: false } };\n`);
+    utimesSync(config, new Date(), new Date(Date.now() + 60_000));
+    expect(inDirectory(edited)).toBe(0);
+
+    rmSync(config);
+    expect(inDirectory(edited)).toBe(0);
   });
 
   it('fails loudly on a configFile that is not there, rather than going quiet', () => {

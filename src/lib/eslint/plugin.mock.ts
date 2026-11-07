@@ -19,4 +19,5 @@ export const RULES_WITH_SUGGESTIONS = [
   'prefer-set-inputs',
   'prefer-settle-dynamic-import',
   'prefer-spy-on-own-method',
+  'prefer-to-have-signal-value',
 ];

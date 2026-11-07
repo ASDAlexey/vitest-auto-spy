@@ -10,7 +10,7 @@
  * reports the instance being re-spied with `vi.spyOn`, which is a run-time defect; `prefer-as-spy`
  * reports the cast, which is a correct intention spelled in a way the compiler no longer takes.
  */
-import { PACKAGE, bindingState, dropNamedImport, findBinding, importNamed, initializerOf, insertImport } from './bindings';
+import { PACKAGE, angularEntryOf, bindingState, dropNamedImport, findBinding, importNamed, initializerOf, insertImport } from './bindings';
 import { defineRule } from './define-rule';
 import { excerpt } from './message-data';
 import {
@@ -145,7 +145,7 @@ export function injectSpySuggestion(
       const edits = [fixer.replaceText(node, replacement)];
 
       if (state === 'free') {
-        edits.push(insertImport(fixer, node, `${PACKAGE}/angular`, '{ injectSpy }'));
+        edits.push(insertImport(fixer, node, angularEntryOf(node), '{ injectSpy }'));
       }
 
       return edits;

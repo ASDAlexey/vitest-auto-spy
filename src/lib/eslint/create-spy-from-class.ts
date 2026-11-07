@@ -31,6 +31,7 @@ import {
   isIdentifier,
   isObjectExpression,
   isVariableDeclarator,
+  memberName,
   propertyName,
   propertyValue,
 } from './rule-types';
@@ -54,6 +55,36 @@ function isRenderShallowInputs(node: EsObjectExpression): boolean {
   const call = options.parent;
 
   return isCallExpression(call) && isIdentifier(call.callee) && call.callee.name === 'renderShallow' && call.arguments[1] === options;
+}
+
+const HANDLER_KEY = /^on[A-Z]/;
+const OBSERVER_KEYS: ReadonlySet<string> = new Set(['next', 'error', 'complete']);
+const MOUNTS: ReadonlySet<string> = new Set(['mount', 'shallowMount', 'render']);
+const PROP_SLOTS: ReadonlySet<string> = new Set(['props', 'attrs', 'propsData']);
+
+/**
+ * Event-handler props (`{ onChange, onSubmit }`), an observer (`{ next, error, complete }`), or the props a
+ * component is mounted with: callbacks with no class behind them for `createSpyFromClass` to read.
+ */
+function isCallbackBag(node: EsObjectExpression): boolean {
+  const keys = node.properties.map(propertyName).filter((key) => key !== undefined);
+  const named = keys.length > 1 && keys.length === node.properties.length;
+
+  if (named && (keys.every((key) => HANDLER_KEY.test(key)) || keys.every((key) => OBSERVER_KEYS.has(key)))) {
+    return true;
+  }
+
+  const property = node.parent;
+  const options = property.parent;
+  const call = options.parent;
+
+  return (
+    PROP_SLOTS.has(propertyName(property) ?? '') &&
+    propertyValue(property) === node &&
+    isCallExpression(call) &&
+    call.arguments[1] === options &&
+    MOUNTS.has((isIdentifier(call.callee) ? call.callee.name : memberName(call.callee)) ?? '')
+  );
 }
 
 /**
@@ -264,6 +295,7 @@ export const preferCreateSpyFromClass = defineRule({
         isObserverArgument(node) ||
         isSetInputsMap(node) ||
         isRenderShallowInputs(node) ||
+        isCallbackBag(node) ||
         returnsInstalledHandles(context, node)
       ) {
         return;

@@ -73,13 +73,16 @@ export const noRedundantAsInstance = defineRule({
         }
 
         const binding = importedAsInstance(context, argument.callee);
+        // A spread unwrapped is a spread argument (TS2556), and the unwrap would drop a comment beside the value.
+        const around = context.sourceCode.getText(argument).replace(context.sourceCode.getText(value), '');
+        const fixable = value.type !== 'SpreadElement' && !/\/[*/]/.test(around);
 
         if (binding) {
           context.report({
             node: argument,
             messageId: 'noRedundantAsInstance',
             data: { matcher: matcher.name, value: excerpt(context, value, 40) },
-            fix: (fixer: EsFixer): EsFix[] => unwrap(context, fixer, argument, value, binding),
+            ...(fixable && { fix: (fixer: EsFixer): EsFix[] => unwrap(context, fixer, argument, value, binding) }),
           });
         }
       }

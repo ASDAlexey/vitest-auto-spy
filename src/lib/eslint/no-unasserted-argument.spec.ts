@@ -35,6 +35,19 @@ describe('no-unasserted-argument', () => {
     expect(text).toContain('expect(api.save).toHaveBeenCalledWith(…)');
   });
 
+  it('reads the aliases of both matchers, and the last- and nth-call forms, as the same claims', () => {
+    expect(count(`it('a', () => { expect(api.save).toBeCalled(); });\nit('b', () => { expect(api.save).toBeCalledWith(1); });`)).toBe(1);
+    expect(
+      count(`it('a', () => { expect(api.save).toHaveBeenCalled(); });\nit('b', () => { expect(api.save).toHaveBeenLastCalledWith(1); });`),
+    ).toBe(1);
+    expect(
+      count(
+        `it('a', () => { expect(api.save).toHaveBeenCalled(); });\nit('b', () => { expect(api.save).toHaveBeenNthCalledWith(2, 1); });`,
+      ),
+    ).toBe(1);
+    expect(count(`it('a', () => { expect(api.save).toHaveBeenCalled(); expect(api.save).toHaveBeenLastCalledWith(1); });`)).toBe(0);
+  });
+
   it('matches the two assertions by the text of the subject', () => {
     expect(count(`expect( api . save ).toHaveBeenCalled();\nexpect(api.save).toHaveBeenCalledWith(1);`)).toBe(1);
     // A spy under a second name is a second subject: identity is what is written, never what it is.

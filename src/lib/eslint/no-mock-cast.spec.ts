@@ -71,6 +71,12 @@ describe('no-mock-cast', () => {
     expect(applied(code)).toContain(`(injectSpy(Metrics).send).mockClear();`);
   });
 
+  it('imports the helper from /bun-angular in a file that runs on it', () => {
+    const code = `import type { Mock } from 'vitest';\nimport { asSpy } from 'vitest-auto-spy/bun-angular';\n(TestBed.inject(Metrics).send as Mock).mockClear();`;
+
+    expect(applied(code)).toContain(`import { asSpy, injectSpy } from 'vitest-auto-spy/bun-angular';`);
+  });
+
   it('follows a name the file settled with a TestBed.inject, and keeps the whole member path', () => {
     const code =
       `import { Mock } from 'vitest';\nimport { injectSpy } from 'vitest-auto-spy/angular';\n` +

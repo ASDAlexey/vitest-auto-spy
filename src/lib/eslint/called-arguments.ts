@@ -58,11 +58,19 @@ import {
 } from './rule-types';
 import { isExpectCall } from './subscribe-repair';
 
-/** The matcher this rule is about: a call, and nothing said about what it was called with. */
-const BARE = 'toHaveBeenCalled';
+/** The matcher this rule is about, under both its names: a call, and nothing said about what it was called with. */
+const BARE: ReadonlySet<string> = new Set(['toHaveBeenCalled', 'toBeCalled']);
 
 /** The matchers that do say it — one of these on a subject is the file declaring its arguments matter. */
-const WITH_ARGUMENTS = new Set(['toHaveBeenCalledWith']);
+const WITH_ARGUMENTS: ReadonlySet<string> = new Set([
+  'toHaveBeenCalledWith',
+  'toBeCalledWith',
+  'toHaveBeenLastCalledWith',
+  'lastCalledWith',
+  'toHaveBeenNthCalledWith',
+  'nthCalledWith',
+  'toHaveBeenCalledExactlyOnceWith',
+]);
 
 /** A title that promises an argument list. `without` is not a match, which is what the word boundary is for. */
 const NAMES_ARGUMENTS = /\bwith\b/i;
@@ -93,9 +101,26 @@ interface Assertion {
   withArguments: boolean;
 }
 
-/** What the file said about one subject, gathered before anything is reported. */
+/** What the file said, indexed once at `Program:exit`: the assertions naming arguments by subject key, and every one by test. */
 interface Scan {
-  assertions: Assertion[];
+  pinning: (key: string) => readonly Assertion[];
+  byTest: (test: EsCallExpression | undefined) => readonly Assertion[];
+}
+
+function grouped<K>(assertions: readonly Assertion[], keyOf: (assertion: Assertion) => K): (key: K) => readonly Assertion[] {
+  const groups = new Map<K, Assertion[]>();
+
+  assertions.forEach((assertion) => {
+    const key = keyOf(assertion);
+
+    groups.set(key, [...lookup(groups, key), assertion]);
+  });
+
+  return (key) => lookup(groups, key);
+}
+
+function lookup<K>(groups: ReadonlyMap<K, Assertion[]>, key: K): readonly Assertion[] {
+  return groups.get(key) ?? [];
 }
 
 /** The identifier a subject's text starts from: `spy` in `spy`, `api` in `api.save` and `TestBed.inject(X).m`. */
@@ -149,7 +174,7 @@ function chainEnd(node: EsNode): EsNode {
 
 /** Whether a chain is nothing but "this ran", in either polarity. */
 function isCallOnly(matcher: Matcher): boolean {
-  return matcher.name === BARE && matcher.args.length === 0;
+  return BARE.has(matcher.name) && matcher.args.length === 0;
 }
 
 /**
@@ -185,7 +210,7 @@ function sameTest(one: Assertion, other: Assertion): boolean {
 
 /** Whether some *other* test in the file pins the arguments of this subject. */
 function pinnedElsewhere(scan: Scan, assertion: Assertion): boolean {
-  const pinning = scan.assertions.filter((other) => other.withArguments && sameSubject(assertion, other));
+  const pinning = scan.pinning(assertion.key).filter((other) => sameSubject(assertion, other));
 
   return pinning.length > 0 && !pinning.some((other) => sameTest(assertion, other));
 }
@@ -216,7 +241,7 @@ function titlePromisesArguments(context: RuleContext, scan: Scan, assertion: Ass
     return false;
   }
 
-  const inTest = scan.assertions.filter((other) => other.test === test);
+  const inTest = scan.byTest(test);
   const title = inTest.reduce(
     (text, other) => {
       const name = spelledName(other.subject);
@@ -240,18 +265,26 @@ export const noUnassertedArgument: RuleModule = defineRule({
       'The title of this test says what `{{subject}}` is called with, yet the test only checks that it ran, so it passes on any arguments, including the ones the title rules out. Assert them: `expect({{subject}}).toHaveBeenCalledWith(…)`.',
   },
   create: (context) => {
-    const scan: Scan = { assertions: [] };
+    const assertions: Assertion[] = [];
 
     return {
       CallExpression: (node: EsCallExpression): void => {
         const assertion = isExpectCall(node) ? assertionOf(context, node) : undefined;
 
         if (assertion) {
-          scan.assertions.push(assertion);
+          assertions.push(assertion);
         }
       },
       'Program:exit': (): void => {
-        scan.assertions
+        const scan: Scan = {
+          pinning: grouped(
+            assertions.filter((assertion) => assertion.withArguments),
+            (assertion) => assertion.key,
+          ),
+          byTest: grouped(assertions, (assertion) => assertion.test),
+        };
+
+        assertions
           .filter((assertion) => assertion.bare && !takesNoArguments(assertion.subject))
           .forEach((assertion) => {
             const data = { subject: assertion.subject };

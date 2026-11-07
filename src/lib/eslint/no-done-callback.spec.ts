@@ -26,6 +26,28 @@ describe('no-done-callback', () => {
     expect(lint("test('emits', function (done) { done(); });")).toHaveLength(1);
   });
 
+  it('flags it behind a modifier, a condition and each, where Jest passed done last', () => {
+    expect(lint("it.only('a', (done) => { done(); });")).toHaveLength(1);
+    expect(lint("test.concurrent('c', (done) => { done(); });")).toHaveLength(1);
+    expect(lint("it.concurrent.skip('c', (done) => { done(); });")).toHaveLength(1);
+    expect(lint("it.skipIf(ci)('c', (done) => { done(); });")).toHaveLength(1);
+    expect(lint("it.each([1])('d', (n, done) => { done(); });")).toHaveLength(1);
+    expect(lint("test.each([[1, 2]])('d', (a, b, done) => { expect(a).toBe(b); done(); });")).toHaveLength(1);
+  });
+
+  it('leaves a row of each, test.for, and calls that only look like a test alone', () => {
+    expect(lint("it.each([1])('d', (n) => { expect(n).toBe(1); });")).toEqual([]);
+    expect(lint("it.each([[1, 2]])('d', (a, b) => { expect(a).toBe(b); });")).toEqual([]);
+    expect(lint("it.each([fn])('d', (done) => { done(); });")).toEqual([]);
+    expect(lint("test.for([1])('d', (n, ctx) => { ctx.skip(); });")).toEqual([]);
+    expect(lint("describe.only('a', (done) => { done(); });")).toEqual([]);
+    expect(lint("it[mode]('a', (done) => { done(); });")).toEqual([]);
+    expect(lint("factory()('a', (done) => { done(); });")).toEqual([]);
+    expect(lint("suite.each([1])('a', (n, done) => { done(); });")).toEqual([]);
+    expect(lint("it.each([1])('d', ({ done }) => { done(); });")).toEqual([]);
+    expect(lint('((done) => { done(); })();')).toEqual([]);
+  });
+
   it('leaves a context destructuring and a plain callback alone', () => {
     expect(lint("it('skips', ({ task }) => task.skip());")).toEqual([]);
     expect(lint("it('works', () => expect(1).toBe(1));")).toEqual([]);

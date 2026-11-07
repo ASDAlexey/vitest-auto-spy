@@ -143,6 +143,21 @@ describe('prefer-create-spy-from-class', () => {
     expect(lintWith('(factory())({ next: vi.fn() });', one)).toHaveLength(1);
   });
 
+  it('leaves handler props, an observer held by name and mount props alone — no class stands behind them', () => {
+    expect(lint('const props = { onChange: vi.fn(), onSubmit: vi.fn(), onCancel: vi.fn() };')).toEqual([]);
+    expect(lint('const handlers = { next: vi.fn(), error: vi.fn(), complete: vi.fn() };\nsource$.subscribe(handlers);')).toEqual([]);
+    expect(lint('mount(Form, { props: { change: vi.fn(), submit: vi.fn() } });')).toEqual([]);
+    expect(lint('const w = TL.render(Form, { attrs: { change: vi.fn(), submit: vi.fn() } });')).toEqual([]);
+    // A service double that happens to share one of those keys is still one.
+    expect(lint('const cart = { onChange: vi.fn(), clear: vi.fn() };')).toEqual(REPORTED);
+    expect(lint('mount(Form, { global: { change: vi.fn(), submit: vi.fn() } });')).toEqual(REPORTED);
+    expect(lint('build(Form, { props: { change: vi.fn(), submit: vi.fn() } });')).toEqual(REPORTED);
+    expect(lint('mount({ props: { change: vi.fn(), submit: vi.fn() } });')).toEqual(REPORTED);
+    expect(lint('helpers[name](Form, { props: { change: vi.fn(), submit: vi.fn() } });')).toEqual(REPORTED);
+    expect(lint('const o = { next: vi.fn(), load: vi.fn() };')).toEqual(REPORTED);
+    expect(lintWith('source$.pipe(map({ onNext: vi.fn() }));', { minRunnerFns: 1 })).toHaveLength(1);
+  });
+
   it('names createMock<T> for a one-member object, which has no class to read', () => {
     const [thenable] = verify('const pending = { then: vi.fn() };', { minRunnerFns: 1 });
 

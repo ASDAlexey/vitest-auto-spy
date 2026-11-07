@@ -158,6 +158,12 @@ describe('prefer-render-shallow', () => {
     );
   });
 
+  it('imports the helper from /bun-angular in a file that runs on it', () => {
+    const code = `import { injectSpy } from 'vitest-auto-spy/bun-angular';\n${spec(configure, 'fixture = TestBed.createComponent(CardComponent);')}`;
+
+    expect(applied(code)).toContain("import { injectSpy, renderShallow } from 'vitest-auto-spy/bun-angular';");
+  });
+
   it('merges the helper into an import the file already has from the Angular entry', () => {
     const code = `import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';\n${spec(configure, 'fixture = TestBed.createComponent(CardComponent);')}`;
 

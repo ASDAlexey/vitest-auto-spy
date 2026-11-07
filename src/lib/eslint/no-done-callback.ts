@@ -8,6 +8,7 @@ import {
   type EsMemberExpression,
   type EsNode,
   type RuleContext,
+  isCallExpression,
   isCallee,
   isIdentifier,
   isMemberExpression,
@@ -58,6 +59,38 @@ function readsTheTestContext(context: RuleContext, callback: EsFunction, paramet
   return members.length > 0 && !members.includes('fail') && !references.some(({ identifier }) => isCallee(identifier));
 }
 
+const RUNNERS: ReadonlySet<string> = new Set(['it', 'test', 'beforeAll', 'beforeEach', 'afterAll', 'afterEach']);
+const TESTS: ReadonlySet<string> = new Set(['it', 'test']);
+const MODIFIERS: ReadonlySet<string> = new Set(['only', 'skip', 'concurrent', 'sequential', 'fails', 'todo']);
+const CONDITIONS: ReadonlySet<string> = new Set(['skipIf', 'runIf']);
+
+/** `it`, `test.only`, `it.concurrent.skip`: a test function with any modifiers in front of it. */
+function isTestChain(node: EsNode): boolean {
+  if (isIdentifier(node)) {
+    return TESTS.has(node.name);
+  }
+
+  return isMemberExpression(node) && MODIFIERS.has(String(memberName(node))) && isTestChain(node.object);
+}
+
+/**
+ * Which callback parameter a call's function receives where Jest passed `done`: the first for a test or
+ * hook, the last for `it.each(…)(…)`, which spreads the row first. `test.for` passes a context second.
+ */
+function doneSlotOf(callee: EsNode): 'first' | 'last' | undefined {
+  if (isIdentifier(callee) ? RUNNERS.has(callee.name) : isTestChain(callee)) {
+    return 'first';
+  }
+
+  if (!isCallExpression(callee) || !isMemberExpression(callee.callee) || !isTestChain(callee.callee.object)) {
+    return undefined;
+  }
+
+  const name = String(memberName(callee.callee));
+
+  return name === 'each' ? 'last' : CONDITIONS.has(name) ? 'first' : undefined;
+}
+
 export const noDoneCallback = defineRule({
   name: 'no-done-callback',
   description: 'Vitest has no done callback — the first parameter of a test or hook is its TestContext',
@@ -74,20 +107,27 @@ export const noDoneCallback = defineRule({
     const callbacks = new Set<EsNode>();
 
     return {
-      'CallExpression[callee.name=/^(it|test|beforeAll|beforeEach|afterAll|afterEach)$/] > :matches(ArrowFunctionExpression, FunctionExpression)':
-        (node: EsFunction): void => {
-          // An identifier parameter, not a destructuring pattern: a `test.extend` fixture has to be
-          // destructured, so a plain name here is either a `done` carried over from Jest or the
-          // `TestContext` taken whole — and what the body does with it is what tells the two apart.
-          const [parameter] = node.params;
+      'CallExpression > :matches(ArrowFunctionExpression, FunctionExpression)': (node: EsFunction): void => {
+        const call = node.parent;
+        const slot = isCallExpression(call) && call.arguments.includes(node) ? doneSlotOf(call.callee) : undefined;
+        // An identifier parameter, not a destructuring pattern: a `test.extend` fixture has to be
+        // destructured, so a plain name here is either a `done` carried over from Jest or the
+        // `TestContext` taken whole — and what the body does with it is what tells the two apart.
+        // A row of `each` is no context, so there only a last parameter spelled `done` is one.
+        const parameter = slot === 'last' ? node.params.at(-1) : slot === 'first' ? node.params[0] : undefined;
 
-          if (!parameter || !isIdentifier(parameter) || readsTheTestContext(context, node, parameter)) {
-            return;
-          }
+        if (
+          !parameter ||
+          !isIdentifier(parameter) ||
+          (slot === 'last' && (node.params.length < 2 || parameter.name !== 'done')) ||
+          (slot === 'first' && readsTheTestContext(context, node, parameter))
+        ) {
+          return;
+        }
 
-          callbacks.add(node);
-          context.report({ node: parameter, messageId: 'noDoneCallback', data: { name: parameter.name } });
-        },
+        callbacks.add(node);
+        context.report({ node: parameter, messageId: 'noDoneCallback', data: { name: parameter.name } });
+      },
       'MemberExpression[property.name="fail"]': (node: EsMemberExpression): void => {
         if (isCallee(node) && isTestCallbackParameter(context, node.object, callbacks)) {
           context.report({
