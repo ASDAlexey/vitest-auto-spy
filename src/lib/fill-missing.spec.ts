@@ -42,67 +42,70 @@ afterEach(() => {
   takeStrictViolations();
 });
 
-/**
- * The suite-wide half, kept here rather than in `setup-auto-spy.spec.ts` because only one block per
- * file can arm it: `setupAutoSpy()` installs the default when the suite factory runs, during
- * collection, so a second armer in the same file would overwrite the first before either ran. The
- * pairing is the right one anyway — a filled-in member is the case where "nobody configured this"
- * is not an omission but the definition, so it is where a suite-wide handler has to reach.
- *
- * First in the file, and its `afterAll` releases the default before anything below runs.
- */
-describe('a suite-wide onUnstubbedCall', () => {
-  const seen: string[] = [];
+// The suite-wide block arms a default the blocks after it must not see.
+describe('fill-missing members, in file order', { shuffle: false }, () => {
+  /**
+   * The suite-wide half, kept here rather than in `setup-auto-spy.spec.ts` because only one block per
+   * file can arm it: `setupAutoSpy()` installs the default when the suite factory runs, during
+   * collection, so a second armer in the same file would overwrite the first before either ran. The
+   * pairing is the right one anyway — a filled-in member is the case where "nobody configured this"
+   * is not an omission but the definition, so it is where a suite-wide handler has to reach.
+   *
+   * First in the file, and its `afterAll` releases the default before anything below runs.
+   */
+  describe('a suite-wide onUnstubbedCall', () => {
+    const seen: string[] = [];
 
-  setupAutoSpy({
-    duplicateCopies: 'off',
-    restoreProps: false,
-    onUnstubbedCall: ({ className, method }) => {
-      seen.push(`${String(className)}.${method}`);
+    setupAutoSpy({
+      duplicateCopies: 'off',
+      restoreProps: false,
+      onUnstubbedCall: ({ className, method }) => {
+        seen.push(`${String(className)}.${method}`);
 
-      return 'recorded';
-    },
+        return 'recorded';
+      },
+    });
+
+    it('reaches a filled-in member, and its return value becomes the call result', () => {
+      const filled = fillMissingMembers({}, guardFor('LocalStorage'));
+
+      expect((filled['read'] as (key: string) => unknown)('token')).toBe('recorded');
+      expect(seen).toEqual(['LocalStorage.read']);
+    });
   });
 
-  it('reaches a filled-in member, and its return value becomes the call result', () => {
-    const filled = fillMissingMembers({}, guardFor('LocalStorage'));
+  describe('fillMissingMembers', () => {
+    it('mints a spy for a name the record does not carry, and caches it on the record', () => {
+      const record: Record<string, unknown> = {};
+      const filled = fillMissingMembers(record);
+      const first = filled['read'];
 
-    expect((filled['read'] as (key: string) => unknown)('token')).toBe('recorded');
-    expect(seen).toEqual(['LocalStorage.read']);
-  });
-});
+      expect(typeof first).toBe('function');
+      expect(filled['read']).toBe(first);
+      expect(Object.keys(record)).toEqual(['read']);
+    });
 
-describe('fillMissingMembers', () => {
-  it('mints a spy for a name the record does not carry, and caches it on the record', () => {
-    const record: Record<string, unknown> = {};
-    const filled = fillMissingMembers(record);
-    const first = filled['read'];
+    it('gives a filled-in member the same strict guard the assembled record got', () => {
+      const filled = fillMissingMembers({}, strictGuard('LocalStorage'));
 
-    expect(typeof first).toBe('function');
-    expect(filled['read']).toBe(first);
-    expect(Object.keys(record)).toEqual(['read']);
-  });
+      expect(() => (filled['read'] as (key: string) => unknown)('token')).toThrow(
+        /^\[vitest-auto-spy\] LocalStorage\.read\('token'\) was called/,
+      );
+    });
 
-  it('gives a filled-in member the same strict guard the assembled record got', () => {
-    const filled = fillMissingMembers({}, strictGuard('LocalStorage'));
+    it('leaves a filled-in member configurable, so strict mode reports the omission rather than forbidding the member', () => {
+      const filled = fillMissingMembers({}, strictGuard('LocalStorage'));
+      const read = filled['read'] as Mock & ((key: string) => unknown);
 
-    expect(() => (filled['read'] as (key: string) => unknown)('token')).toThrow(
-      /^\[vitest-auto-spy\] LocalStorage\.read\('token'\) was called/,
-    );
-  });
+      read.mockReturnValue('cached');
 
-  it('leaves a filled-in member configurable, so strict mode reports the omission rather than forbidding the member', () => {
-    const filled = fillMissingMembers({}, strictGuard('LocalStorage'));
-    const read = filled['read'] as Mock & ((key: string) => unknown);
+      expect(read('token')).toBe('cached');
+    });
 
-    read.mockReturnValue('cached');
+    it('stays non-strict when no guard is handed to it, which is every double that never asked', () => {
+      const filled = fillMissingMembers({});
 
-    expect(read('token')).toBe('cached');
-  });
-
-  it('stays non-strict when no guard is handed to it, which is every double that never asked', () => {
-    const filled = fillMissingMembers({});
-
-    expect((filled['read'] as (key: string) => unknown)('token')).toBeUndefined();
+      expect((filled['read'] as (key: string) => unknown)('token')).toBeUndefined();
+    });
   });
 });
