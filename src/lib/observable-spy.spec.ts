@@ -5,7 +5,7 @@
  * publish, so the configuration written last is the one that answers — `rejectWith` used to win
  * forever, silently ignoring every `nextWith` after it.
  */
-import { type Observable, firstValueFrom } from 'rxjs';
+import { type Observable, firstValueFrom, of } from 'rxjs';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { createSpyFromClass } from './create-spy-from-class';
@@ -157,9 +157,14 @@ describe('the backing subject does not outlive the configuration that filled it'
     // reset (or a terminal call) starts a new one.
     const service = createSpyFromClass(AccountService);
     const failure = new Error('later');
+    const restore = mockValueProp(console, 'warn', () => undefined);
 
-    service.createTransition.nextWith('a');
-    service.createTransition.throwWith(failure);
+    try {
+      service.createTransition.nextWith('a');
+      service.createTransition.throwWith(failure);
+    } finally {
+      restore();
+    }
 
     const seen = record(service.createTransition());
 
@@ -204,6 +209,231 @@ describe('the backing subject does not outlive the configuration that filled it'
     expect(seen.error).toBeUndefined();
   });
 });
+
+describe('throwWith over a value nextWith left in the buffer', () => {
+  class AccountService {
+    createTransition(): Observable<string> {
+      throw new Error('not implemented in the double');
+    }
+  }
+
+  class Feed {
+    items$!: Observable<number>;
+  }
+
+  /** Runs `act` with `console.warn` captured, and returns what it printed. */
+  function warningsOf(act: () => void): string[] {
+    const warnings: string[] = [];
+    const restore = mockValueProp(console, 'warn', (line: string) => {
+      warnings.push(line);
+    });
+
+    try {
+      act();
+    } finally {
+      restore();
+    }
+
+    return warnings;
+  }
+
+  it('warns once that the next subscriber is replayed the stale value ahead of the error', () => {
+    // The beforeEach shape: a success seeded for every test, the failure configured in one of them.
+    const service = createSpyFromClass(AccountService);
+
+    const warnings = warningsOf(() => {
+      service.createTransition.nextWith('seeded');
+      service.createTransition.throwWith(new Error('first'));
+      service.createTransition.nextWith('again');
+      service.createTransition.throwWith(new Error('second'));
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(
+      /^\[vitest-auto-spy\] createTransition\.throwWith\(\) ran on a stream that still holds a value from an earlier nextWith\(\) and has no subscriber/,
+    );
+    expect(warnings[0]).toContain('nextOneTimeWith()');
+    expect(warnings[0]).toContain('resetAutoSpy() on the spy');
+    expect(warnings[0]).toContain('nextWithValues([{ value }, { errorValue }])');
+    expect(warnings[0]).toMatch(/\nDocs: \S+\/runtimes\/rxjs#a-request-method-answers-once-nextonetimewith$/);
+  });
+
+  it('names the class on a strict double, and throws on every call under the throw grade', () => {
+    const service = createSpyFromClass(AccountService, { strict: true });
+
+    setMisconfigurationReaction('throw');
+
+    try {
+      service.createTransition.nextWith('seeded');
+      expect(() => service.createTransition.throwWith(new Error('x'))).toThrow(
+        '[vitest-auto-spy] AccountService.createTransition.throwWith() ran on a stream',
+      );
+      service.createTransition.nextWith('seeded');
+      expect(() => service.createTransition.throwWith(new Error('y'))).toThrow('AccountService.createTransition.throwWith()');
+    } finally {
+      setMisconfigurationReaction(undefined);
+    }
+  });
+
+  it('stays quiet when a subscriber is on the stream, which is told "emit, then fail" as it happens', () => {
+    const service = createSpyFromClass(AccountService);
+    const values: string[] = [];
+    const failure = new Error('later');
+    let error: unknown;
+
+    const warnings = warningsOf(() => {
+      service.createTransition.nextWith('a');
+      service.createTransition().subscribe({ next: (value) => values.push(value), error: (reason: unknown) => (error = reason) });
+      service.createTransition.throwWith(failure);
+    });
+
+    expect(warnings).toEqual([]);
+    expect(values).toEqual(['a']);
+    expect(error).toBe(failure);
+  });
+
+  it('stays quiet after nextOneTimeWith, a reset, or a throwWith on a stream with no value', () => {
+    const service = createSpyFromClass(AccountService);
+
+    const warnings = warningsOf(() => {
+      service.createTransition.nextOneTimeWith('once');
+      service.createTransition.throwWith(new Error('a'));
+      service.createTransition.nextWith('seeded');
+      resetAutoSpy(service);
+      service.createTransition.throwWith(new Error('b'));
+      service.createTransition.returnSubject().next('pushed by the spec');
+      service.createTransition.throwWith(new Error('c'));
+    });
+
+    expect(warnings).toEqual([]);
+  });
+
+  it('names an observable property and a calledWith chain by what they are', () => {
+    const feed = createSpyFromClass(Feed, { observablePropsToSpyOn: ['items$'] });
+    const load = createFunctionSpy<(id: number) => Observable<string>>('load');
+    const chain = load.calledWith(1);
+
+    const warnings = warningsOf(() => {
+      feed.items$.nextWith(1);
+      feed.items$.throwWith(new Error('feed'));
+      chain.nextWith('one');
+      chain.throwWith(new Error('chain'));
+    });
+
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain('[vitest-auto-spy] items$.throwWith() ran on a stream');
+    expect(warnings[1]).toContain('[vitest-auto-spy] this calledWith() chain.throwWith() ran on a stream');
+  });
+
+  it('falls back to a generic label for a stream built without a name', () => {
+    const container = { value: undefined };
+    const stream = createFunctionSpyStream(container);
+
+    expect(stream).toBeDefined();
+    setMisconfigurationReaction('throw');
+
+    try {
+      const items$ = createObservablePropSpy<number>();
+
+      items$.nextWith(1);
+      expect(() => items$.throwWith(new Error('x'))).toThrow('[vitest-auto-spy] this observable property.throwWith()');
+    } finally {
+      setMisconfigurationReaction(undefined);
+    }
+  });
+});
+
+describe('a stream helper after mockImplementation replaced the dispatch', () => {
+  /** Runs `act` with `console.warn` captured, and returns what it printed. */
+  function warningsOf(act: () => void): string[] {
+    const warnings: string[] = [];
+    const restore = mockValueProp(console, 'warn', (line: string) => {
+      warnings.push(line);
+    });
+
+    try {
+      act();
+    } finally {
+      restore();
+    }
+
+    return warnings;
+  }
+
+  it('reports a throwWith that the installed implementation still answers over', () => {
+    const load = createFunctionSpy<() => Observable<string>>('load');
+    const failure = new Error('configured later');
+
+    const warnings = warningsOf(() => {
+      load.mockImplementation(() => of('from mockImplementation'));
+      load.throwWith(failure);
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("throwWith() was configured on 'load' after mockImplementation() had replaced its dispatch");
+    expect(warnings[0]).toContain('mockReset()');
+    expect(collectValues(load())).toEqual(['from mockImplementation']);
+  });
+
+  it('reports every container helper, and throws under the throw grade', () => {
+    const load = createMixedSpy();
+
+    load.mockReturnValue(of('flat'));
+    setMisconfigurationReaction('throw');
+
+    try {
+      expect(() => load.nextWith('a')).toThrow("nextWith() was configured on 'load' after mockReturnValue()");
+      expect(() => load.nextOneTimeWith('a')).toThrow('nextOneTimeWith() was configured');
+      expect(() => load.nextWithValues([{ value: 'a' }])).toThrow('nextWithValues() was configured');
+      expect(() => load.nextWithPerCall([{ value: 'a' }])).toThrow('nextWithPerCall() was configured');
+      expect(() => load.complete()).toThrow('complete() was configured');
+      expect(() => load.returnSubject()).toThrow('returnSubject() was configured');
+      expect(() => load.rejectWith(new Error('x'))).toThrow('rejectWith() was configured');
+      expect(() => load.resolveWithPerCall([{ value: 'a' }])).toThrow('resolveWithPerCall() was configured');
+    } finally {
+      setMisconfigurationReaction(undefined);
+    }
+  });
+
+  it('stays quiet once mockReset put the dispatch back, and the later throwWith answers', () => {
+    const load = createFunctionSpy<() => Observable<string>>('load');
+    const failure = new Error('configured later');
+    let error: unknown;
+
+    const warnings = warningsOf(() => {
+      load.mockImplementation(() => of('from mockImplementation'));
+      load.mockReset();
+      load.throwWith(failure);
+    });
+
+    load().subscribe({ error: (reason: unknown) => (error = reason) });
+
+    expect(warnings).toEqual([]);
+    expect(error).toBe(failure);
+  });
+
+  it('stays quiet for the Once family, whose queue drains back onto the dispatch', () => {
+    const load = createFunctionSpy<() => Observable<string>>('load');
+
+    const warnings = warningsOf(() => {
+      load.mockReturnValueOnce(of('once'));
+      load.nextWith('default');
+    });
+
+    expect(warnings).toEqual([]);
+    expect(collectValues(load())).toEqual(['once']);
+    expect(collectValues(load())).toEqual(['default']);
+  });
+});
+
+/** The values one synchronous subscription saw. */
+function collectValues<T>(source$: Observable<T>): T[] {
+  const values: T[] = [];
+
+  source$.subscribe((value) => values.push(value));
+
+  return values;
+}
 
 describe('nextWithValues on a property somebody is already subscribed to', () => {
   class Feed {

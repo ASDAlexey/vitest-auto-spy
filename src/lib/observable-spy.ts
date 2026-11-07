@@ -113,11 +113,15 @@ function mergeSubjectWithDefaultValues<T>(subject: ReplaySubject<T>, valuesConfi
 abstract class ObservableTarget<T> {
   subject: ReplaySubject<T> | undefined = undefined;
   terminated = false;
+  /** The subject buffers a `nextWith` value, which every later subscriber is replayed first. */
+  holdsValue = false;
+  #warnedAboutStaleValue = false;
 
   get(): ReplaySubject<T> {
     if (!this.subject || this.terminated) {
       this.subject = this.#selfReporting(createReplaySubject<T>());
       this.terminated = false;
+      this.holdsValue = false;
     }
 
     return this.subject;
@@ -147,6 +151,39 @@ abstract class ObservableTarget<T> {
   reset(): void {
     this.subject = undefined;
     this.terminated = false;
+    this.holdsValue = false;
+  }
+
+  /** What a report calls this stream: `Class.member` where it is known. */
+  abstract label(): string;
+
+  /**
+   * `throwWith` over a buffered `nextWith` value with nobody subscribed: no subscriber is told
+   * "emit, then fail" — the next one is replayed the stale value ahead of the error.
+   */
+  failingOverStaleValue(): void {
+    if (!this.holdsValue || this.terminated || this.subject?.observed === true) {
+      return;
+    }
+
+    if (this.#warnedAboutStaleValue && !misconfigurationThrows()) {
+      return;
+    }
+
+    this.#warnedAboutStaleValue = true;
+
+    const name = this.label();
+
+    reportMisconfiguration(
+      withDocs(
+        `[vitest-auto-spy] ${name}.throwWith() ran on a stream that still holds a value from an earlier nextWith() and has no ` +
+          'subscriber, so the next one gets that value first and the error after it — the code under test runs its success ' +
+          'branch on stale data. Seed a request/response method (HTTP, IPC) with nextOneTimeWith(), which completes and lets a ' +
+          'later throwWith() start a fresh stream, or call resetAutoSpy() on the spy before throwWith(). When "emit, then fail" ' +
+          'is the point, say it in one call: nextWithValues([{ value }, { errorValue }]).',
+        DOCS_LINKS.requestMethods,
+      ),
+    );
   }
 
   /**
@@ -207,6 +244,7 @@ function observableHelpers<Self, T>(
       const target = resolve(this, 'nextWith');
       const subject = target.get();
       subject.next(value);
+      target.holdsValue = true;
       target.publish(subject);
     },
     nextOneTimeWith(this: Self, value: T): void {
@@ -226,7 +264,10 @@ function observableHelpers<Self, T>(
       target.publish(mergeSubjectWithDefaultValues(target.get(), valuesConfigs));
     },
     throwWith(this: Self, value: unknown): void {
-      closeAndPublish(resolve(this, 'throwWith'), (subject) => subject.error(value));
+      const target = resolve(this, 'throwWith');
+
+      target.failingOverStaleValue();
+      closeAndPublish(target, (subject) => subject.error(value));
     },
     complete(this: Self): void {
       closeAndPublish(resolve(this, 'complete'), (subject) => subject.complete());
@@ -299,10 +340,16 @@ function nextWithPerCallHelper<Self, T>(
  */
 class SpyObservableState<T> extends ObservableTarget<T> implements ObservableStream, PerCallTarget {
   readonly container: ReturnValueContainer;
+  readonly #name: string;
 
-  constructor(container: ReturnValueContainer) {
+  constructor(container: ReturnValueContainer, name: string) {
     super();
     this.container = container;
+    this.#name = name;
+  }
+
+  label(): string {
+    return this.#name;
   }
 
   publish(stream: Observable<T>): void {
@@ -317,9 +364,12 @@ class SpyObservableState<T> extends ObservableTarget<T> implements ObservableStr
 
 /** The observable state behind `this`, for a helper installed on a function spy. */
 function spyObservableStateOf(self: unknown, helper: string): SpyObservableState<unknown> {
-  const state = typeof self === 'function' || (typeof self === 'object' && self !== null) ? hooksOf(self)?.observable : undefined;
+  const hooks = typeof self === 'function' || (typeof self === 'object' && self !== null) ? hooksOf(self) : undefined;
+  const state = hooks?.observable;
 
   if (state instanceof SpyObservableState) {
+    hooks?.configuringDefault?.(helper);
+
     return state;
   }
 
@@ -336,8 +386,8 @@ export function addObservableHelpersToFunctionSpy(spyFunction: object): void {
   attachHelpers(spyFunction, SPY_OBSERVABLE_HELPERS);
 }
 
-export function createFunctionSpyStream(valueContainer: ReturnValueContainer): ObservableStream {
-  return new SpyObservableState(valueContainer);
+export function createFunctionSpyStream(valueContainer: ReturnValueContainer, name = 'this spy'): ObservableStream {
+  return new SpyObservableState(valueContainer, name);
 }
 
 /** A `calledWith` chain's observable target: its own container, registered for the chain's arguments once configured. */
@@ -357,6 +407,10 @@ class ChainObservableTarget<T> extends ObservableTarget<T> implements PerCallTar
     clearPreviousConfig(this.container);
     this.container.value = stream;
     this.configured();
+  }
+
+  label(): string {
+    return 'this calledWith() chain';
   }
 
   configured(): void {
@@ -412,6 +466,10 @@ class PropObservableTarget<T> extends ObservableTarget<T> {
     this.fed = true;
   }
 
+  label(): string {
+    return this.#name ?? 'this observable property';
+  }
+
   /**
    * `nextWithValues` publishes a *new* stream, and `defer` only re-reads it for the next
    * subscription — so a component that subscribed in `ngOnInit` sees nothing, with no error and no
@@ -426,7 +484,7 @@ class PropObservableTarget<T> extends ObservableTarget<T> {
 
     this.#warnedAboutLateValues = true;
 
-    const property = this.#name ?? 'this observable property';
+    const property = this.label();
 
     reportMisconfiguration(
       withDocs(
