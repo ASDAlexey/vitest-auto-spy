@@ -90,6 +90,7 @@ describe('createSpyFromClass — strict mode', () => {
           String.raw`Called from src/lib/create-spy-from-class\.spec\.ts:\d+:\d+\n` +
           String.raw`Configure it in the test: cart\.checkout\.calledWith\(1, 'now'\)\.mockReturnValue\(…\) for these arguments, ` +
           String.raw`or \.mockReturnValue\(…\) for any — \.resolveWith\(…\) / \.nextWith\(…\) when it returns a Promise / Observable\.\n` +
+          String.raw`A void method, or a result the code ignores: returnsUndefined: \['checkout'\] in the double's options\.\n` +
           String.raw`Docs: https://asdalexey\.github\.io/vitest-auto-spy/core/strict-mode#the-message$`,
       ),
     );

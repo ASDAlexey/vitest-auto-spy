@@ -10,6 +10,7 @@ import { fillMissingMembers } from './fill-missing';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedReturnValue } from './function-spy';
 import { libraryWarn } from './guard-reaction';
 import { recordInnerDoubles } from './inner-double';
+import type { FromClassOnly } from './internal-types';
 import { createLazySpyProxy } from './lazy-spy-proxy';
 import { withDocs } from './message-link';
 import { sourceClassName } from './message-text';
@@ -530,10 +531,14 @@ function warnOnHeldBackThen(ObjectClass: ClassType<unknown>, config: ResolvedSpy
  * it: an arrow-function property, an Angular `signal()` field. Name those in `instanceMethodsToSpyOn`
  * — or build the double from the type instead, with `createAutoMock<T>()`, which reads no prototype
  * at all. A class built on an ngrx `signalStore()` gets `fillMissing: true` by default.
+ *
+ * `T` comes from the class alone, so an `overrides` object held in a variable, or an accessor list
+ * next to `returns` on a generic class, needs no type argument.
  */
-export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- read only while a generic class argument is deferred, so the configuration passes that first check; the class then decides `T`.
+export function createSpyFromClass<T = any, Options extends SpyOptions = SpyOptions>(
   ObjectClass: ClassType<T>,
-  methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
+  methodsToSpyOnOrConfig?: FromClassOnly<T, ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[]>,
 ): Spy<T, Options> {
   // The class's registration first, the call site's own configuration merged over it — so a spec
   // that needs one extra member names one extra member instead of restating the composition.
