@@ -172,7 +172,7 @@ describe('a property that refuses to be replaced', () => {
 
   it('leaves nothing in the journal, because the entry is only made once the define succeeds', () => {
     expect(countMockedProps()).toBe(0);
-    expect(() => mockValueProp(sealed(), 'value', 'patched')).toThrow();
+    expect(() => mockValueProp(sealed(), 'value', 'patched')).toThrow(/Cannot mock the property 'value': it is not configurable/);
 
     expect(countMockedProps()).toBe(0);
     expect(() => restoreMockedProps()).not.toThrow();

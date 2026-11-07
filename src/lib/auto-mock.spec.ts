@@ -609,6 +609,7 @@ describe('createAutoMock — returnsUndefined', () => {
   }
 
   it('configures the named methods, so strict mode accepts the calls', () => {
+    takeStrictViolations();
     const store = createAutoMock<CartStore>(undefined, { strict: true, returnsUndefined: ['add', 'total'], returns: { total: 2 } });
 
     expect(store.add(1)).toBeUndefined();
@@ -726,5 +727,131 @@ describe('createAutoMock — returnsClass', () => {
 
     expect(factory.create('a')).toBe(report);
     expect(innerDouble(factory, 'create')).toBe(report);
+  });
+});
+
+describe('createAutoMock — printer and serializer probes', () => {
+  const { consoleWarnSpy } = useConsoleSpies();
+
+  interface Shown {
+    load(): number;
+    x: number;
+  }
+
+  function diffOf(run: () => void): string {
+    try {
+      run();
+    } catch (error) {
+      return String(error instanceof Error ? error.message : error);
+    }
+
+    return '';
+  }
+
+  it('prints the double in a failure diff instead of what a toJSON spy answered', () => {
+    const caller = vi.fn();
+    const mock = createAutoMock<Shown>({ x: 1 });
+
+    caller(mock);
+
+    const message = diffOf(() => expect(caller).toHaveBeenCalledWith(1));
+
+    expect(message).toContain('"x": 1');
+    expect(message).not.toContain('+   undefined');
+    expect(Reflect.ownKeys(mock)).toEqual(['x']);
+  });
+
+  it('adds no phantom member to a strict double that a diff printed', () => {
+    const caller = vi.fn();
+    const mock = createAutoMock<Shown>({ x: 1 }, { strict: true });
+
+    caller(mock);
+
+    const message = diffOf(() => expect(caller).toHaveBeenCalledWith(1));
+
+    expect(message).toContain('"x": 1');
+    expect(message).not.toContain('[Function');
+    expect(Reflect.ownKeys(mock)).toEqual(['x']);
+  });
+
+  it('serializes with JSON.stringify, strict or not', () => {
+    expect(JSON.stringify(createAutoMock<Shown>({ x: 1 }))).toBe('{"x":1}');
+    expect(JSON.stringify({ a: createAutoMock<Shown>({ x: 1 }, { strict: true }) })).toBe('{"a":{"x":1}}');
+  });
+
+  it('answers every probed key with undefined and keeps it out of ownKeys', () => {
+    const mock: Record<string, unknown> = createAutoMock<Shown>();
+    const probes = [
+      'toJSON',
+      '$$typeof',
+      'asymmetricMatch',
+      'nodeType',
+      'tagName',
+      'hasAttribute',
+      '@@__IMMUTABLE_ITERABLE__@@',
+      '@@__IMMUTABLE_RECORD__@@',
+    ];
+
+    expect(probes.map((key) => mock[key])).toEqual(probes.map(() => undefined));
+    expect(Reflect.ownKeys(mock)).toEqual([]);
+    expect(mock).toEqual({});
+  });
+
+  it('keeps a seeded or assigned probe key', () => {
+    const mock = createAutoMock<{ toJSON(): string; tagName: string }>({ toJSON: () => 'seeded' });
+
+    mock.tagName = 'DIV';
+
+    expect(JSON.stringify(mock)).toBe('"seeded"');
+    expect(mock.tagName).toBe('DIV');
+  });
+
+  it('reports returns naming a probe key instead of dropping it silently', () => {
+    createAutoMock<{ toJSON(): string }>(undefined, { returns: { toJSON: 'x' } });
+
+    expect(String(consoleWarnSpy.mock.calls[0]?.[0])).toContain(
+      "returns names 'toJSON', which this double never turns into a spy: a printer or a serializer probes that key",
+    );
+  });
+});
+
+describe('createAutoMock — Object.freeze', () => {
+  it('refuses with an error that names the library rather than a proxy invariant', () => {
+    const mock = createAutoMock<{ load(): number }>();
+
+    expect(() => Object.freeze(mock)).toThrow(/\[vitest-auto-spy\] A createAutoMock double cannot be frozen/);
+    expect(() => Object.seal(mock)).toThrow(TypeError);
+    expect(Object.isFrozen(mock)).toBe(false);
+  });
+
+  it('leaves a frozen copy of it possible', () => {
+    const copy = Object.freeze({ ...createAutoMock<{ x: number }>({ x: 1 }) });
+
+    expect(copy).toEqual({ x: 1 });
+  });
+});
+
+describe('createAutoMock — a partial Object.defineProperty', () => {
+  it('keeps the value when the descriptor carries none', () => {
+    const mock = createAutoMock<{ x: number }>({ x: 5 });
+
+    // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- the descriptor without a value is the trap under test
+    Object.defineProperty(mock, 'x', { enumerable: false });
+
+    expect(mock.x).toBe(5);
+  });
+
+  it('keeps the setter when a redefinition names only the getter', () => {
+    const mock = createAutoMock<{ x: number }>();
+    const set = vi.fn();
+
+    // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- the accessor pair goes in through the trap under test
+    Object.defineProperty(mock, 'x', { configurable: true, get: () => 1, set });
+    // eslint-disable-next-line vitest-auto-spy/no-object-define-property -- the redefinition naming only the getter is the trap under test
+    Object.defineProperty(mock, 'x', { get: () => 2 });
+    mock.x = 3;
+
+    expect(mock.x).toBe(2);
+    expect(set).toHaveBeenCalledWith(3);
   });
 });

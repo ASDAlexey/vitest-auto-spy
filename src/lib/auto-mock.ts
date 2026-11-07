@@ -21,6 +21,7 @@
  *    method keys and property keys are indistinguishable at runtime. Seed plain
  *    properties through `overrides` (or assign them) when you need real values.
  */
+import { isCallable } from './callable';
 import { classDoubles } from './create-spy-from-class';
 import { DISPOSE } from './dispose-symbol';
 import * as DOCS_LINKS from './docs-links';
@@ -31,12 +32,14 @@ import { reportMisconfiguration } from './misconfiguration';
 import {
   NOT_STORED,
   type ProxyPropStore,
+  cannotFreeze,
   createProxyPropStore,
   describeStoredProp,
   dropStoredProp,
   hasStoredProp,
   isDeletedProp,
   isObjectMethodKey,
+  isPrinterProbeKey,
   isProtocolKey,
   readStoredAccessor,
   storeDefinedProp,
@@ -310,11 +313,6 @@ export interface AutoMockConfiguration<T> extends StrictSpyConfiguration {
   returnsClass?: MethodReturnsClass<T>;
 }
 
-/** Narrow an unknown member to the callable the adapter needs, without an assertion. */
-function isCallable(value: unknown): value is Func {
-  return typeof value === 'function';
-}
-
 function heldBackReason(name: string): string {
   if (name === 'then') {
     return 'a double with a then would be awaited as a Promise. ';
@@ -322,6 +320,10 @@ function heldBackReason(name: string): string {
 
   if (isObjectMethodKey(name)) {
     return `it answers Object.prototype.${name}, so printing the double does not add a spy to it. `;
+  }
+
+  if (isPrinterProbeKey(name)) {
+    return 'a printer or a serializer probes that key to decide how to render the double, so it answers undefined. ';
   }
 
   return name === 'constructor'
@@ -433,6 +435,10 @@ const AUTO_MOCK_HANDLER: ProxyHandler<Record<PropertyKey, unknown>> = {
   },
 
   getOwnPropertyDescriptor: (target, key): PropertyDescriptor | undefined => describeStoredProp(internalsOf(target).store, key),
+
+  preventExtensions(): boolean {
+    throw cannotFreeze('createAutoMock');
+  },
 };
 
 /** Answer one property read: a patched accessor, a known value, the brand, the dispose hook, or a freshly-made spy. */
@@ -478,7 +484,7 @@ function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown,
     return Reflect.get(Object.prototype, key);
   }
 
-  if (typeof key === 'symbol' || key === 'then' || isProtocolKey(key) || isDeletedProp(store, key)) {
+  if (typeof key === 'symbol' || key === 'then' || isProtocolKey(key) || isPrinterProbeKey(key) || isDeletedProp(store, key)) {
     return undefined;
   }
 
