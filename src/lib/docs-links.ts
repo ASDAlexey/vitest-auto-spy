@@ -127,6 +127,7 @@ export const setupAsyncLeaks = 'https://asdalexey.github.io/vitest-auto-spy/util
 export const setupNetwork = 'https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_5-keeping-the-run-off-the-network';
 export const setupStubResponse = 'https://asdalexey.github.io/vitest-auto-spy/utilities/setup#answering-a-stubbed-fetch-—-stubresponse';
 export const setupGlobals = 'https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_7-naming-the-file-that-sealed-a-global';
+export const setupHookOrder = 'https://asdalexey.github.io/vitest-auto-spy/utilities/setup#hook-order-differs-from-jest';
 export const setupRejections = 'https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_8-failing-on-a-rejection-zone-js-swallowed';
 export const setupHookBudget = 'https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_11-the-hook-budget-jest-had-only-one-of';
 export const setupFrozenClock = 'https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_12-a-timeout-the-clock-explains-not-the-code';
