@@ -8,23 +8,8 @@ import { defineConfig } from 'tsup';
 import { PEER_EXTERNALS } from './scripts/externals.mjs';
 import { planHostedEntries } from './scripts/host-entries.mjs';
 
-// Ship no sourcemaps, and do NOT minify — not even whitespace. Two separate reasons, and the second
-// one is the expensive one to rediscover:
-//
-//  1. Supply-chain scanners (Socket, Snyk) flag minified published code as unauditable, and this is
-//     a dev-only dependency where a few extra kB never reach a production bundle.
-//  2. **`minifyWhitespace` deletes every `/* @__PURE__ */` annotation** — 259 of them across 18
-//     files — and those exist for the *consumer's* bundler, not for ours. esbuild uses them for its
-//     own tree-shaking and then drops them as comments; downstream, without them, a module-level
-//     `new WeakSet()` or `Symbol.for(…)` can no longer be proven side-effect free and is retained.
-//     Measured 2026-09-03 with `minifyWhitespace: true`: `dist` on disk −144 kB, but `/setup`
-//     min+gzip **10 585 → 11 816 B, +11.6 %** in every consumer's bundle. `minifySyntax` on top
-//     changes nothing either way (11 809 B). `/setup` is where the audit could see it because it is
-//     the entry whose module-level state the marks were added for — see `DECISIONS.md`; this is the
-//     second time that same 1.2 kB has appeared there.
-//
-// So install weight is not a free lever: the bytes that come off `dist` are also the bytes that
-// tell a bundler what it may remove. Do not re-propose this without measuring `/setup` min+gzip.
+// Library entries are never minified: whitespace minification drops the `/* @__PURE__ */` marks the
+// consumer's bundler needs (+11.6 % min+gzip on `/setup`). Only the CLI and ESLint plugin are (DECISIONS.md).
 const SHARED = {
   dts: true,
   sourcemap: false,
@@ -49,11 +34,8 @@ const CHUNKED_ENTRIES = [
   'src/bun-angular.ts',
   'src/rstest.ts',
   'src/rxjs.ts',
-  'src/console.ts',
-  'src/jasmine.ts',
   'src/jasmine-compat.ts',
   'src/observer-spy.ts',
-  'src/nestjs.ts',
   'src/signal-forms.ts',
   'src/zone.ts',
 ];
@@ -65,17 +47,16 @@ const CHUNKED_ENTRIES = [
 // interop gives an ESM importer, so the wrapper is total.
 const WRAPPED_CJS_ENTRIES = ['src/eslint-plugin.ts'];
 
-// The entries built as one file each. Every consumer imports the root on every spec, every Angular
-// consumer imports the root and `/angular`, and every project with a setup file loads `/setup` in
-// every spec file on top of that.
-const SOLO_ENTRIES = ['src/dom-stubs.ts', 'src/diagnostics.ts', 'src/setup.ts', 'src/node.ts'];
+// Entries loaded in every spec file, built as one file each: import cost is module count, not bytes.
+// `/nestjs` and `/console` are Vitest-free, so they cannot be hosted on the root (DECISIONS.md).
+const SOLO_ENTRIES = ['src/dom-stubs.ts', 'src/diagnostics.ts', 'src/setup.ts', 'src/node.ts', 'src/nestjs.ts', 'src/console.ts'];
 
 // The root entry is solo too, and it hosts the core for the entries loaded beside it: each of these
 // imports whatever the root already bundles from `./index.js` instead of inlining a second copy
 // (scripts/host-entries.mjs). `/node` cannot join: it must not load Vitest.
 const HOST_ENTRY = 'src/index.ts';
 
-const HOSTED_ENTRIES = ['src/angular.ts', 'src/react.ts', 'src/vue.ts', 'src/svelte.ts'];
+const HOSTED_ENTRIES = ['src/angular.ts', 'src/react.ts', 'src/vue.ts', 'src/svelte.ts', 'src/jasmine.ts'];
 
 // tsup runs the array below with `Promise.all`, so `clean: true` on any one pass is a race against
 // every other pass's output — and the passes here are no longer independent: three of them emit
@@ -206,14 +187,8 @@ export default defineConfig([
     entry: CHUNKED_ENTRIES,
     format: ['esm'] as const,
     clean: false,
-    // Types for *all eighteen* ESM entries, not just the sixteen this pass bundles. The declaration
-    // build has no reason to follow the JavaScript split — one pass over every entry keeps the
-    // shared `.d.ts` chunks shared, where letting the unsplit pass below emit its own gave
-    // `index.d.ts` and `angular.d.ts` a private copy of the type graph and cost ~106 kB.
-    //
-    // `core` is not an entry anyone imports: naming the core barrel here is what names the shared
-    // declaration chunk. Left to rollup it took the first entry that re-exports all of it, `bun`, so
-    // go-to-definition from the root landed in `bun.d.ts` and size audits booked ~58 kB to Bun.
+    // Types for every ESM entry, not only the chunked ones, so the shared `.d.ts` chunks stay shared.
+    // `core` names the shared declaration chunk; left to rollup it was named after `bun`.
     dts: {
       entry: {
         core: 'src/auto-spy.ts',
@@ -224,41 +199,7 @@ export default defineConfig([
   },
   {
     ...SHARED,
-    // The solo entries, each one file plus `shared-state.js`.
-    //
-    // The cost of importing an entry is module count, not code volume: the same 58.8 kB bundled into
-    // a single module costs 0.1 ms. The root reached the loader as 8 files and `angular` as 10, and
-    // every Angular consumer pays for both on every spec. `splitting: false` collapses each entry to
-    // one file; `useSharedState()` keeps the five stateful modules outside it, so there is still
-    // exactly one registry.
-    //
-    // Measured under Node's native loader, before and after, on identical sources: the root entry
-    // goes 3.2 → 2.4 ms and root + `angular` 4.7 → 3.7 ms, so **−0.8 ms and −1.0 ms per spec file**.
-    // Treat those as a lower bound rather than the whole win — under Vitest each module additionally
-    // goes through Vite's transform and SSR module-runner path, where per-module overhead is higher.
-    // An earlier figure of 5.9 ms/file circulated from a Vitest-side harness; it could not be
-    // reproduced here and is not claimed. The trade is +120 kB of `dist` in a dev-only dependency
-    // that never reaches a production bundle.
-    //
-    // `/setup`, `/node`, `/react`, `/vue` and `/svelte` joined them on the same evidence, measured
-    // the same way (a fresh process per sample, `vitest` loaded before the timer, 25 runs, median):
-    // `/setup` 5.57 → 3.05 ms, root + `/setup` — what a Vitest project with a setup file loads in
-    // **every** spec file — 7.03 → 4.93 ms, `/react` (and `/vue`, `/svelte`) 5.46 → 3.09 ms,
-    // `/node` 3.37 → 1.65 ms, root + `/angular` + `/setup` 7.74 → 5.85 ms. `/setup` is the one that
-    // compounds: a setup file is evaluated per spec file beside the root entry, so before this it
-    // loaded a solo core *and* a twelve-module chunked one.
-    //
-    // What used to rule this out was not the bytes but the registries, and that argument expired
-    // when the five stateful modules moved into `dist/shared-state.js`: `useSharedState()` below
-    // keeps every entry — solo or chunked — pointing at the one copy, and `smoke:dist` asserts it
-    // across `index`+`setup`, `index`+`angular`+`setup` and `index`+`vue`. The remaining entries
-    // stay chunked because nobody loads them per spec file.
-    //
-    // The root, `/angular` and the framework entries left this pass on 2026-09-26 for the two below:
-    // solo, each carried the same ~130 kB core, and an Angular spec loads the root and `/angular`
-    // both. Root + `/angular` 7.28 → 5.83 ms, root + `/react` 6.72 → 4.92 ms, root alone unchanged.
-    // `/setup` stays solo: hosted, root + `/setup` gained 0.55 ms but `/setup` alone lost 2.0 ms, and
-    // a setup file runs in every spec, including the ones that never import the root.
+    // The solo entries, each one file plus `shared-state.js`; timings are in DECISIONS.md.
     entry: SOLO_ENTRIES,
     format: ['esm'] as const,
     splitting: false,
@@ -280,8 +221,7 @@ export default defineConfig([
   },
   {
     ...SHARED,
-    // `/angular`, `/react`, `/vue` and `/svelte`: their own code plus `index.js` and
-    // `shared-state.js`. `/react` and `/svelte` shrink to a re-export of the root.
+    // Their own code plus `index.js` and `shared-state.js`; `/react` and `/svelte` are a re-export.
     entry: HOSTED_ENTRIES,
     format: ['esm'] as const,
     splitting: false,
@@ -291,28 +231,21 @@ export default defineConfig([
   },
   {
     ...SHARED,
-    // CommonJS only where a `require()` can actually succeed, which is a much shorter list than it
-    // looks. Two independent reasons rule the rest out:
-    //
-    //  1. **Vitest refuses to be required at all** (`Vitest cannot be imported in a CommonJS module
-    //     using require()`), so every Vitest-backed entry — `index`, `angular`, `nestjs`, `react`,
-    //     `vue`, `svelte`, `console`, `setup` — threw on the first line of its own `.cjs`. Those
-    //     files could never load in any consumer; they were ~230 kB of unreachable output.
-    //  2. **esbuild cannot code-split CommonJS**, so each `.cjs` is a self-contained bundle with its
-    //     own copy of the `MockAdapter` / `ObservableSupport` registries. Requiring two entries gave
-    //     two disconnected registries: `require('…/rxjs')` next to `require('…/node')` still failed
-    //     with "Observable spies require rxjs". Only a *single* self-contained entry works in CJS.
-    //
-    // What survives is what is genuinely usable: `node` (a `node --test` suite written in CJS, used
-    // on its own) and `eslint-plugin` (loaded by a CommonJS `eslint.config.cjs`, no registry
-    // involved). `bun` is dropped too — Bun runs ESM natively and `bun test` files are ESM. And for
-    // the same reason these two must stay self-contained, `useSharedState()` is not applied here.
-    entry: ['src/node.ts', ...WRAPPED_CJS_ENTRIES],
+    // CommonJS only where a `require()` can succeed: Vitest refuses `require()`, and esbuild cannot
+    // split CJS, so each `.cjs` is self-contained with its own registries. `/node` is used alone.
+    entry: ['src/node.ts'],
     format: ['cjs'] as const,
     clean: false,
-    // `dist/eslint-plugin.js`, the ESM half of the `exports` entry, written here rather than built:
-    // see `WRAPPED_CJS_ENTRIES`. Node loads a `.cjs` from an ESM graph and hands `module.exports`
-    // over as the default import, which is the plugin object itself.
+  },
+  {
+    ...SHARED,
+    // Minified like the CLI: loaded once per ESLint run, never bundled. The ESM half,
+    // `dist/eslint-plugin.js`, is a re-export of it, written rather than built.
+    entry: WRAPPED_CJS_ENTRIES,
+    format: ['cjs'] as const,
+    minify: true,
+    keepNames: true,
+    clean: false,
     onSuccess: async (): Promise<void> => {
       const { writeFileSync } = await import('node:fs');
 
@@ -321,14 +254,13 @@ export default defineConfig([
   },
   {
     ...SHARED,
-    // The `vitest-auto-spy` executable — `doctor` and `init`. Its own pass, and deliberately not
-    // part of the shared-chunk one: it imports nothing from the library core (the core loads
-    // Vitest, which refuses to be imported outside a test run), and a `bin` that resolves a chunk
-    // in a sibling directory is one more thing that can go wrong in a consumer's node_modules.
-    // No `dts`: nobody imports a bin.
+    // The executable: no library core (it loads Vitest) and no chunk shared with the library.
+    // Minified with `keepNames`: it never reaches a consumer bundle, so no PURE marks are lost.
     entry: ['src/cli.ts'],
     format: ['esm'] as const,
     dts: false,
+    minify: true,
+    keepNames: true,
     clean: false,
     banner: { js: '#!/usr/bin/env node' },
     // `codemod` is loaded with `import()`, so `--version`, `doctor` and `init` do not parse it. Its
