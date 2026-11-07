@@ -253,6 +253,7 @@
     "**/jasmine-compat.js",
     "**/observer-spy.js",
     "**/setup.js",
+    "**/shared-state.js",
     "**/zone.js"
   ],
   "engines": {
@@ -365,7 +366,13 @@
     "@angular/router": {
       "optional": true
     },
+    "@happy-dom/global-registrator": {
+      "optional": true
+    },
     "@rstest/core": {
+      "optional": true
+    },
+    "jsdom": {
       "optional": true
     },
     "rxjs": {
