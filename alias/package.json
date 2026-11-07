@@ -222,7 +222,13 @@
     "@angular/router": {
       "optional": true
     },
+    "@happy-dom/global-registrator": {
+      "optional": true
+    },
     "@rstest/core": {
+      "optional": true
+    },
+    "jsdom": {
       "optional": true
     },
     "rxjs": {
