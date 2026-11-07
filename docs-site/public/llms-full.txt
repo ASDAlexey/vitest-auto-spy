@@ -17888,6 +17888,9 @@ are never reported:
   an object that holds one of them, such as the argument of `configureTestingModule`;
 - a case table passed to `it.each` / `describe.each`;
 - the return value of a `vi.mock` factory;
+- the options passed to a spy factory, such as `createSpyFromClass` or `provideAutoSpy`;
+- an array returned from a function whose declared return type is a provider array, such as
+  `Provider[]`;
 - a literal that holds a function, such as a hand-written double.
 
 **Repeats** are compared by source text with whitespace ignored. A literal needs at least `minValues`
@@ -17921,7 +17924,7 @@ most three keys, each a string, number or boolean written out, is not counted th
 gets a message that asks for a `const` in the spec instead of a mock file. Imports, globals, property
 keys and types do not count as such a name.
 
-**Mock files are skipped:** `*.mock.ts`, `*.mocks.ts`, `*.fixture.ts`, `*.fixtures.ts` and files
+**Mock files are skipped:** `*.mock.ts`, `*.mocks.ts`, `*.mock-data.ts`, `*.fixture.ts`, `*.fixtures.ts` and files
 under `__mocks__/`.
 
 **Severity.** `warn`, graded on the evidence: size and repeat count suggest a move, and only the
@@ -18243,7 +18246,9 @@ finds the targets itself:
 1. It walks up from the linted file to the workspace root (`angular.json`, `workspace.json` or
    `nx.json`).
 2. It takes every target of either builder whose project root holds the file. The executor may come
-   from `targetDefaults` in `nx.json`.
+   from `targetDefaults` in `nx.json`. A local builder (`"builder": "./tools/unit-test:run"`) counts
+   too when its implementation imports `executeUnitTestBuilder` and calls it. The target's `include`
+   and `exclude` must select the file, resolved against the project's `sourceRoot`.
 3. It resolves `runnerConfig` as the builder does: a path against the workspace root; `true` or `""`
    to the first `vitest-base.config.*` in the project root, then the workspace root; absent or
    `false` to no config at all.
@@ -18766,6 +18771,10 @@ providers: [provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel
   `{ provide, useValue }`, and `overrideProvider` reads the `useValue` from it.
 - A component that declares the token in its own `providers` cannot be reached by a module-level
   provider. There the override stays, and only what it hands over changes.
+- A component or directive provided under its own class, such as
+  `{ provide: FocusDirective, useValue: createSpyFromClass(FocusDirective) }`, is not reported when
+  the lint has type information. `provideAutoSpy` rejects a component or directive, so this explicit
+  form is the one to keep.
 
 **When to disable.** Rarely; every report has a `provide:` or an override token next to it. On a
 large project, land it with [the gradual recipe](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin#land-it-on-a-large-existing-suite-without-a-red-ci)
@@ -24292,17 +24301,23 @@ name and different signatures leave the import order in each file to decide whic
 
 ## A component is not a provider
 
-`provideAutoSpy(SomeComponent)` throws, and so does a directive. Angular declares or imports a
-component; it never injects one, so the provider would do nothing.
+`provideAutoSpy(SomeComponent)` throws, and so does a directive. A provider replaces what code reads
+through `inject()`, not the instances Angular renders from a selector.
 
 ```text
-[vitest-auto-spy] provideAutoSpy(ChartComponent): ChartComponent is a component. Angular declares or imports a component, it never injects one, so this provider is never read and the double replaces nothing.
+[vitest-auto-spy] provideAutoSpy(ChartComponent): ChartComponent is a component. A provider replaces references read through DI, not instances Angular renders from a selector.
+For an injected collaborator, use { provide: ChartComponent, useValue: createSpyFromClass(ChartComponent) }.
+To keep it out of the render, swap it for a stand-in (createComponentStub for a child component) or render the host with renderShallow; to test ChartComponent itself, create it through TestBed.
 ```
 
 To keep a child out of the render, use
 [`createComponentStub`](#a-stand-in-for-a-child-createcomponentstub) or
 [`renderShallow`](#shallow-component-rendering). To test the component, create it with `TestBed`. A
 service that extends a component class, without a decorator of its own, is still accepted.
+
+When code injects a directive, for example a child that calls `inject(FocusDirective)`, provide
+the double yourself: `{ provide: FocusDirective, useValue: createSpyFromClass(FocusDirective) }`.
+This replaces what `inject()` returns, not the directive Angular renders.
 
 ## Lazy spies by default
 
@@ -26644,9 +26659,50 @@ What the stand-in's members are:
 | `lastSuccessfulNavigation`  | the last successful navigation and its `finalUrl`: a signal on Angular 21+, a value on Angular 20; follows `setUrl()` and `NavigationEnd` |
 | `getCurrentNavigation()`    | the same answer through the deprecated method                                                                                             |
 
-`RouterLinkActive` can use this double with the real `RouterLink` directive. On Angular 21+, read `lastSuccessfulNavigation()` as a signal. Angular 20 exposes the same navigation as the `lastSuccessfulNavigation` value.
+**Active links.** The real `RouterLink` and `RouterLinkActive` directives work with this double.
+`RouterLink` also injects `ActivatedRoute`, so add `provideActivatedRoute()` next to it. `routerLink="/products"` is active on `/products` and on any URL
+below it, such as `/products/7`. The
+directive sets its class in a microtask, so await `fixture.whenStable()` before you check it:
 
-On Angular 21+, `navigated` is `true` by default and `lastSuccessfulNavigation()` holds a navigation whose `finalUrl` is the starting URL. Pass `{ navigated: false }` before the first navigation: `events` starts empty and does not replay events, and `lastSuccessfulNavigation()` is `null`. A successful `emitNavigation()` updates both fields before delivering `NavigationEnd`. This example uses Angular 21+ signal syntax:
+```ts
+import { Component } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { RouterLink, RouterLinkActive } from '@angular/router';
+
+import 'vitest-auto-spy/angular';
+
+import { injectRouterDouble, provideActivatedRoute, provideRouterDouble } from 'vitest-auto-spy/angular-router';
+
+@Component({
+  imports: [RouterLink, RouterLinkActive],
+  template: `<a routerLink="/products" routerLinkActive="active">Products</a>`,
+})
+class NavComponent {}
+
+it('marks the link of the current section active', async () => {
+  TestBed.configureTestingModule({
+    imports: [NavComponent],
+    providers: [provideRouterDouble({ url: '/products/7' }), provideActivatedRoute()],
+  });
+  const fixture = TestBed.createComponent(NavComponent);
+  fixture.detectChanges();
+  await fixture.whenStable();
+  const link: HTMLAnchorElement = fixture.nativeElement.querySelector('a');
+  expect(link.classList).toContain('active');
+
+  await injectRouterDouble().emitNavigation('/checkout');
+  fixture.detectChanges();
+  await fixture.whenStable();
+  expect(link.classList).not.toContain('active');
+});
+```
+
+**Before the first navigation.** By default the double has already navigated: `navigated` is
+`true` and `lastSuccessfulNavigation` holds the starting URL. To test an app that has not
+navigated yet, pass `{ navigated: false }`. Then `navigated` is `false`,
+`lastSuccessfulNavigation` is `null` and `events` replays nothing. `RouterLinkActive` adds no
+class until `navigated` is `true`, even when `url` matches the link. An `emitNavigation()` that ends
+in `NavigationEnd` sets `navigated` and `lastSuccessfulNavigation` before subscribers see the event:
 
 ```ts
 const { router, emitNavigation } = createRouterDouble({ navigated: false });
@@ -26657,6 +26713,9 @@ await emitNavigation('/products');
 expect(router.navigated).toBe(true);
 expect(router.lastSuccessfulNavigation()?.finalUrl?.toString()).toBe('/products');
 ```
+
+`lastSuccessfulNavigation` is a signal on Angular 21+ and a plain value on Angular 20. The example
+uses the signal.
 
 Any other `Router` member (`resetConfig`, `initialNavigation`, …) throws when
 read. The error names the member and lists what the stand-in covers. You get a clear failure
@@ -26704,7 +26763,8 @@ The work is synchronous, so a spec does not need `await`: the next line already 
 The promise exists for code under test that awaits a navigation. It resolves once the
 event is delivered and any navigation it ended is cleared.
 
-`events` is a `BehaviorSubject`, not a plain `Subject` like the real router's. Two things follow:
+By default `events` is a `BehaviorSubject`, not a plain `Subject` like the real router's. With
+`{ navigated: false }` it is a plain `Subject`. With the default, two things follow:
 
 - **A late subscriber still sees the last navigation.** It no longer matters whether
   `emitNavigation()` runs before or after `fixture.detectChanges()`.
@@ -26757,8 +26817,8 @@ expect(navigate).toHaveBeenCalledWith(['/login']);
 - **It does not navigate.** `navigate()` and `navigateByUrl()` record the call and resolve `true`;
   `url` stays where it was. Move it with `setUrl()` or `emitNavigation()`. To test the navigation
   itself (guards, cancellation), use `RouterTestingHarness` over a real `provideRouter()`.
-- **It is only the `Router` token.** No routes, no outlet, no `RouterLinkActive`. A `routerLink` in
-  the template still gets a correct `href`, because `createUrlTree` and `serializeUrl` are the
+- **It is only the `Router` token.** No routes and no outlet. `routerLink` and `routerLinkActive`
+  in the template still work, because `createUrlTree`, `serializeUrl` and `isActive` are the
   router's own. When the spec is about routing rather than a component, use the real router.
 - **It does not provide the component's `ActivatedRoute`.** A component that reads route params and
   calls `navigate()` needs both `provideActivatedRoute()` and `provideRouterDouble()`, in any order.
