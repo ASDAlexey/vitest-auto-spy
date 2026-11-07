@@ -134,6 +134,85 @@ service.items$.nextWith(['a']); // дойдёт до компонента, по�
 service.items$.returnSubject().error(new Error('offline')); // это тоже
 ```
 
+## Метод-запрос отвечает один раз: `nextOneTimeWith` {#a-request-method-answers-once-nextonetimewith}
+
+HTTP-вызов, `invoke` в Tauri, запрос к базе: каждый выдаёт одно значение и завершается. Такой метод
+настраивайте через `nextOneTimeWith`, а не `nextWith`. `nextWith` оставляет поток открытым, и с
+открытым потоком ломаются две вещи:
+
+- **Код, который ждёт завершения, ждёт вечно.** `forkJoin`, `lastValueFrom`, `toArray()` и
+  `expectAllEmissions` ждут, пока источник завершится. Над потоком из `nextWith` ничего не выдаётся и
+  ничего не падает, а тест читает флаг `loading`, который так и остался `true`.
+- **Значение из `beforeEach` приходит первым.** Поток держит значение в буфере. Если тест потом
+  вызывает `throwWith`, следующий подписчик получает сначала старое значение, а затем ошибку, и код
+  идёт по успешной ветке на устаревших данных.
+
+```ts
+beforeEach(() => {
+  api.getBonds.nextOneTimeWith(BONDS); // выдаёт и завершается: forkJoin и lastValueFrom это увидят
+});
+
+it('shows the error', () => {
+  api.getBonds.throwWith(new Error('offline')); // новый поток: только ошибка
+  component.load();
+  expect(component.error()).toBe('offline');
+});
+```
+
+`nextWith` нужен для потока, который и в настоящем коде остаётся открытым: `state$` стора, websocket,
+поток событий роутера.
+
+`throwWith` поверх значения из `nextWith`, которое лежит в буфере, пока никто не подписан, библиотека
+сообщает: один раз на поток предупреждением, при каждом вызове под
+`setupAutoSpy({ misconfiguration: 'throw' })`:
+
+```text
+[vitest-auto-spy] BondApi.getBonds.throwWith() ran on a stream that still holds a value from an
+earlier nextWith() and has no subscriber, so the next one gets that value first and the error after
+it — the code under test runs its success branch on stale data. …
+```
+
+Три выхода: настроить через `nextOneTimeWith`; вызвать `resetAutoSpy(api.getBonds)` перед
+`throwWith`; или, если тест как раз про «выдать, потом упасть», сказать это одним вызовом:
+`nextWithValues([{ value: BONDS }, { errorValue: error }])`. Подписчика, который уже на потоке,
+сообщение не касается: он получает значение в момент `nextWith` и ошибку в момент `throwWith`.
+
+Чтобы вызов остался в ожидании, `returnSubject()` после `nextWith` из `beforeEach` не подходит: он
+возвращает subject, в котором всё ещё лежит то значение. Вызовите `resetAutoSpy(api.getBonds)`, затем
+`api.getBonds.mockReturnValue(NEVER)`, или берите `returnSubject()` у спая, которого никто не настраивал.
+
+## Куда уходит ошибка `throwWith` {#where-a-throwwith-error-goes}
+
+`throwWith` завершает поток ошибкой ещё до подписки, и каждый следующий подписчик всё равно её
+получает. Дальше решает потребитель, а в Angular несколько потребителей оставляют ошибку у себя и не
+передают её в `ErrorHandler`. Тест остаётся зелёным, пока не прочитает ошибку оттуда:
+
+| Код под тестом                             | Где оказывается ошибка                                              | Как проверить                                                    |
+| ------------------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `toSignal(api.load())`                     | в сигнале: он бросает её при чтении, и только тогда                 | `expect(() => service.bonds()).toThrow('offline')`               |
+| `rxResource({ stream: () => api.load() })` | в ресурсе: `status()` равен `'error'`, `value()` бросает            | `await settleResource(service.bonds)`, затем прочитать `error()` |
+| сигнал, прочитанный в `effect` или шаблоне | в `ErrorHandler`, когда effect выполнится; TestBed бросает её снова | `expect(() => TestBed.tick()).toThrow('offline')`                |
+| `.subscribe(next)` без обработчика ошибки  | rxjs бросает её из `setTimeout`, уже после теста                    | `strayTimers` роняет тест; `expectUnhandledObservableErrors()`   |
+
+```ts
+it('shows the error', () => {
+  api.load.throwWith(new Error('offline'));
+  const service = TestBed.inject(BondsService); // bonds = toSignal(api.load())
+
+  expect(() => service.bonds()).toThrow('offline'); // пока сигнал никто не читает, ничего не падает
+});
+```
+
+`effect` не выполняется, пока его не запустят, поэтому тест, который только получает сервис через
+`inject`, ничего не увидит. Вызовите `TestBed.tick()` (или `await fixture.whenStable()`) и ожидайте,
+что этот вызов бросит ошибку.
+
+Хелпер потока, вызванный после `mockImplementation` / `mockReturnValue` на том же методе, ни на что не
+влияет: они заменяют диспетчер спая, а `throwWith` читает именно диспетчер. Такой порядок библиотека
+сообщает (`throwWith() was configured on 'load' after mockImplementation() had replaced its
+dispatch`). Сначала вызовите `api.load.mockReset()` или задайте значение по умолчанию через
+`nextOneTimeWith`.
+
 ## Как читать последовательность как marble-диаграмму {#reading-a-sequence-as-a-marble}
 
 `nextWithValues` выдаёт элементы по порядку. Время между ними задаёт только `delay`. В комментариях
@@ -241,7 +320,9 @@ service.load$.nextWith(page); // новый поток, а не значение
 ```
 
 - **В одном тесте вызовы складываются.** `nextWith(a)`, затем `throwWith(e)` — это «выдать `a`, потом
-  упасть». Поток, который падает сразу при подписке, что бы ни было до этого, даёт
+  упасть». Если между ними никто не подписан, библиотека об этом сообщает: см.
+  [Метод-запрос отвечает один раз](#a-request-method-answers-once-nextonetimewith). Поток, который
+  падает сразу при подписке, что бы ни было до этого, даёт
   `nextWithValues([{ errorValue: e }])`. На свойстве-спае вызывайте его до подписки: см.
   [`nextWith` пишет в общий subject; `nextWithValues` публикует новый](#nextwith-pushes-nextwithvalues-republishes).
 

@@ -115,6 +115,7 @@ export const observerStubsInstall =
 // about the *silent* half of the same problem and the reader arriving here has the loud one.
 export const realSeam = 'https://asdalexey.github.io/vitest-auto-spy/utilities/module-mocks#provide-a-real-seam';
 export const rxjs = 'https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs';
+export const requestMethods = 'https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#a-request-method-answers-once-nextonetimewith';
 export const nextWithValuesLate = 'https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#nextwith-pushes-nextwithvalues-republishes';
 export const setup = 'https://asdalexey.github.io/vitest-auto-spy/utilities/setup';
 // One per section of the setup page: every guard reports through it, and the page is long enough
