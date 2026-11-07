@@ -10,7 +10,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { mockValueProp } from './prop-mock';
-import { type RejectionHost, type ZoneStatic, countStrayRejections, flushStrayRejections, trackStrayRejections } from './stray-rejections';
+import {
+  type RejectionHost,
+  type ZoneStatic,
+  countStrayRejections,
+  droppedStrayRejections,
+  flushStrayRejections,
+  trackStrayRejections,
+} from './stray-rejections';
 
 const HANDLER_SLOT = 'unhandledPromiseRejectionHandler';
 
@@ -167,8 +174,11 @@ describe('stray rejections', () => {
     // the life of the worker.
     expect(countStrayRejections(host)).toBe(150);
 
+    expect(droppedStrayRejections(host)).toBe(50);
+
     const flushed = flushStrayRejections(host);
 
+    expect(droppedStrayRejections(host)).toBe(0);
     expect(flushed).toHaveLength(100);
     expect(String(flushed[99]?.reason)).toContain('reason 99');
     expect(countStrayRejections(host)).toBe(0);
@@ -187,6 +197,7 @@ describe('stray rejections', () => {
 
   it('flushing an untracked host is a no-op rather than an error', () => {
     expect(flushStrayRejections(createHost().host)).toEqual([]);
+    expect(droppedStrayRejections(createHost().host)).toBe(0);
   });
 
   it('counting an untracked host says what is missing', () => {
@@ -221,6 +232,6 @@ describe('stray rejections', () => {
       restore();
     }
 
-    expect(() => countStrayRejections()).toThrow();
+    expect(() => countStrayRejections()).toThrow(/countStrayRejections\(\) found no tracking to count/);
   });
 });

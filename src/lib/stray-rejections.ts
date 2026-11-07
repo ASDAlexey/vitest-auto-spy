@@ -279,6 +279,11 @@ export function countStrayRejections(host: RejectionHost = defaultHost()): numbe
   return tracked.captured.length + tracked.dropped.count;
 }
 
+/** How many rejections past the retention cap the next {@link flushStrayRejections} will drop uncounted. */
+export function droppedStrayRejections(host: RejectionHost = defaultHost()): number {
+  return registry().get(host)?.dropped.count ?? 0;
+}
+
 /**
  * Take what was captured and start again from empty.
  *
