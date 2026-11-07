@@ -26,6 +26,11 @@
  * A registration made by the DOM environment's own code (jsdom, happy-dom) is neither counted nor
  * swept: it belongs to no file, and taking it off breaks the environment for every later one.
  *
+ * A listener added with `{ signal }` is detached by the wrapper itself when the signal aborts — the
+ * signal never reaches the wrapped method, whose own abort watcher (happy-dom's) survives
+ * `removeEventListener` and later takes off whatever sits at that key next. One whose signal had
+ * already aborted is never recorded, since the platform never adds it.
+ *
  * One blind spot, by construction: a `{ once: true }` listener the platform already detached after
  * firing. Watching it go means wrapping the listener itself, which would change its identity — the
  * very thing the platform and the code under test match `removeEventListener` by — so the entry
@@ -38,8 +43,9 @@ import { defineHelper } from './define-helper';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { markOwnedPatch } from './owned-patch';
-import { isLibraryFrame, stackFrames } from './stack-frames';
+import { captureStack, isEnvironmentFrame, isLibraryFrame, stackFrames } from './stack-frames';
 import { type MadeIn, describeOriginOf, originNow } from './stray-failure';
+import type { Func } from './types';
 
 /** One registration past the baseline, and where it was added — what {@link describeStrayListeners} hands back. */
 export interface StrayListener {
@@ -93,16 +99,26 @@ interface RecordedListener {
   readonly capture: boolean;
   readonly file: unknown;
   readonly where: MadeIn;
-  readonly trace: Error;
+  readonly trace: { readonly stack?: string };
+  /** The index slot the entry sits in, under {@link key}. */
+  readonly slot: Map<unknown, RecordedListener>;
+  readonly key: string;
+  /** Takes the abort watch off the entry's signal, when it has one. */
+  readonly unwatch: () => void;
 }
 
 /** Per target: the registrations, the baseline they are measured against, and the undo. */
 interface TargetTracking {
   readonly name: string;
-  entries: RecordedListener[];
+  /** In registration order, which is the order reports list them in. */
+  readonly entries: Set<RecordedListener>;
+  /** The same entries by the platform's own key — type and capture flag, then listener — so add and remove stay O(1). */
+  readonly index: Map<string, Map<unknown, RecordedListener>>;
   /** Present once {@link baselineStrayListeners} has drawn the line; until then nothing is removable. */
   baseline: Set<RecordedListener> | undefined;
   readonly stop: StopTrackingListeners;
+  /** Takes a listener off through the original method, the way the platform's own abort watch does. */
+  readonly detach: (type: string, listener: unknown, options: unknown) => void;
 }
 
 /**
@@ -169,38 +185,86 @@ function captureOf(options: unknown): boolean {
   return Reflect.get(options, 'capture') === true;
 }
 
+/** Deep enough to get past Angular's `Renderer2` → `EventManager` → plugin chain, and a zone's, to the component. */
+const ORIGIN_DEPTH = 40;
+
+function slotKey(type: string, capture: boolean): string {
+  return `${capture ? 'capture' : 'bubble'}:${type}`;
+}
+
 /**
- * Where the listener was added, cheaply: the stack is captured at registration and formatted only
- * if the entry turns out to be a stray. The depth cap keeps a framework's dispatch chain from
- * crowding out the line that made the call.
+ * The `AbortSignal` an options object carries, read the way the platform reads it, beside the
+ * options the wrapped method should get instead: a live signal is left out of those, because
+ * happy-dom's abort watcher outlives `removeEventListener` and takes off whatever sits at that
+ * key when the signal aborts later.
  */
-function captureOrigin(): { file: unknown; where: MadeIn; trace: Error } {
-  const limit = Error.stackTraceLimit;
-
-  try {
-    Error.stackTraceLimit = 12;
-
-    return { ...originNow(), trace: new Error() };
-  } finally {
-    Error.stackTraceLimit = limit;
+function signalOf(
+  options: unknown,
+): { readonly signal: EventTarget & { readonly aborted?: unknown }; readonly optionsForPlatform: unknown } | undefined {
+  if (options === null || typeof options !== 'object') {
+    return undefined;
   }
+
+  const signal: unknown = Reflect.get(options, 'signal');
+
+  if (!isEventTargetShaped(signal)) {
+    return undefined;
+  }
+
+  const optionsForPlatform = { ...options };
+
+  Reflect.deleteProperty(optionsForPlatform, 'signal');
+
+  return { signal, optionsForPlatform };
 }
 
 /**
  * Remember the registration — unless the platform would have ignored it. A second
  * `addEventListener` with the same type, listener and capture flag replaces the first entry's
  * options rather than adding a second listener, so recording it twice would make the sweep call
- * `removeEventListener` twice for one registration.
+ * `removeEventListener` twice for one registration. An already-aborted signal adds nothing at all.
+ *
+ * Returns the options the wrapped method should receive: the caller's own, unless a live signal
+ * was taken over, in which case the copy without it.
  */
-function recordEntry(tracking: TargetTracking, type: string, listener: unknown, options: unknown): void {
+function recordEntry(tracking: TargetTracking, boundary: Func, type: string, listener: unknown, options: unknown): unknown {
   const capture = captureOf(options);
-  const duplicate = tracking.entries.some((entry) => entry.type === type && entry.listener === listener && entry.capture === capture);
+  const key = slotKey(type, capture);
+  const slot = tracking.index.get(key) ?? new Map<unknown, RecordedListener>();
+  const watched = signalOf(options);
 
-  if (duplicate) {
+  if (slot.has(listener) || watched?.signal.aborted === true) {
+    return options;
+  }
+
+  const onAbort = (): void => {
+    forgetEntries(tracking, type, listener, capture);
+    tracking.detach(type, listener, options);
+  };
+  const unwatch = watched ? (): void => watched.signal.removeEventListener('abort', onAbort) : (): void => undefined;
+  const trace = captureStack(boundary, ORIGIN_DEPTH);
+  const entry: RecordedListener = { type, listener, options, capture, ...originNow(), trace, slot, key, unwatch };
+
+  watched?.signal.addEventListener('abort', onAbort, { once: true });
+  slot.set(listener, entry);
+  tracking.index.set(key, slot);
+  tracking.entries.add(entry);
+
+  return watched?.optionsForPlatform ?? options;
+}
+
+/** Idempotent: the sweep's own `removeEventListener` has usually forgotten the entry already. */
+function forgetEntry(tracking: TargetTracking, entry: RecordedListener): void {
+  if (!tracking.entries.delete(entry)) {
     return;
   }
 
-  tracking.entries.push({ type, listener, options, capture, ...captureOrigin() });
+  entry.unwatch();
+  entry.slot.delete(entry.listener);
+
+  if (entry.slot.size === 0) {
+    tracking.index.delete(entry.key);
+  }
 }
 
 /**
@@ -210,14 +274,15 @@ function recordEntry(tracking: TargetTracking, type: string, listener: unknown, 
  * genuinely still attached, and blaming a file for a leak it plugged.
  */
 function forgetEntries(tracking: TargetTracking, type: string, listener: unknown, capture: boolean): void {
-  tracking.entries = tracking.entries.filter((entry) => entry.type !== type || entry.listener !== listener || entry.capture !== capture);
+  const entry = tracking.index.get(slotKey(type, capture))?.get(listener);
+
+  if (entry) {
+    forgetEntry(tracking, entry);
+  }
 }
 
 /** The stack frames of the wrappers in this file, which say nothing about where the call came from. */
 const OWN_MODULE_FRAME = /stray-listeners\.[jt]s/;
-
-/** The DOM environments' own packages; `@asamuzakjp/dom-selector` is jsdom's selector engine. */
-const ENVIRONMENT_FRAME = /[/\\]node_modules[/\\](?:jsdom|happy-dom|@asamuzakjp[/\\][^/\\]+)[/\\]/;
 
 const environmentVerdicts = new WeakMap<RecordedListener, boolean>();
 
@@ -228,7 +293,7 @@ function isEnvironmentEntry(entry: RecordedListener): boolean {
   if (verdict === undefined) {
     const caller = stackFrames(entry.trace.stack).find((frame) => !OWN_MODULE_FRAME.test(frame) && !isLibraryFrame(frame));
 
-    verdict = caller !== undefined && ENVIRONMENT_FRAME.test(caller);
+    verdict = caller !== undefined && isEnvironmentFrame(caller);
     environmentVerdicts.set(entry, verdict);
   }
 
@@ -243,7 +308,7 @@ function strayEntries(tracking: TargetTracking): RecordedListener[] {
     return [];
   }
 
-  return tracking.entries.filter((entry) => !baseline.has(entry) && !isEnvironmentEntry(entry));
+  return [...tracking.entries].filter((entry) => !baseline.has(entry) && !isEnvironmentEntry(entry));
 }
 
 /**
@@ -263,14 +328,24 @@ function installTracking({ name, target }: TrackedListenerTarget): StopTrackingL
     host.removeEventListener = originalRemove;
     registry().delete(target);
   };
-  const tracking: TargetTracking = { name, entries: [], baseline: undefined, stop };
+  const tracking: TargetTracking = {
+    name,
+    entries: new Set(),
+    index: new Map(),
+    baseline: undefined,
+    stop,
+    detach(type: string, listener: unknown, options: unknown): void {
+      Reflect.apply(originalRemove, target, [type, listener, options]);
+    },
+  };
 
   // `defineHelper`, so a throw inside either original is reported at the caller's line rather than
   // inside this file.
-  const add = defineHelper((type: string, listener: unknown, ...rest: unknown[]): unknown => {
-    recordEntry(tracking, type, listener, rest[0]);
+  const add: Func = defineHelper((type: string, listener: unknown, ...rest: unknown[]): unknown => {
+    const platformOptions = recordEntry(tracking, add, type, listener, rest[0]);
+    const args = platformOptions === rest[0] ? [type, listener, ...rest] : [type, listener, platformOptions, ...rest.slice(1)];
 
-    return Reflect.apply(originalAdd, target, [type, listener, ...rest]);
+    return Reflect.apply(originalAdd, target, args);
   });
   const remove = defineHelper((type: string, listener: unknown, ...rest: unknown[]): unknown => {
     forgetEntries(tracking, type, listener, captureOf(rest[0]));
@@ -412,19 +487,16 @@ export function removeStrayListeners(targets?: readonly TrackedListenerTarget[])
     }
 
     const host: ListenerHost = target;
-    const strays = new Set(strayEntries(tracking));
-
-    for (const entry of strays) {
+    for (const entry of strayEntries(tracking)) {
       if (entry.options === undefined) {
         host.removeEventListener(entry.type, entry.listener);
       } else {
         host.removeEventListener(entry.type, entry.listener, entry.options);
       }
 
+      forgetEntry(tracking, entry);
       removed += 1;
     }
-
-    tracking.entries = tracking.entries.filter((entry) => !strays.has(entry));
   }
 
   return removed;

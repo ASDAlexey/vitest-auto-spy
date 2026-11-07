@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { compileFunction } from 'node:vm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -96,6 +97,37 @@ describe('stray listeners', () => {
 
     expect(named.target.addEventListener('resize', heard, options)).toBe('handle');
     expect(received).toEqual([{ self: target, args: ['resize', heard, options] }]);
+  });
+
+  it('keeps a live signal from the wrapped method and detaches the listener itself on abort', () => {
+    const target = new EventTarget();
+    const platformAdd = target.addEventListener;
+    const platformRemove = target.removeEventListener;
+    const received: unknown[] = [];
+
+    target.addEventListener = function recordOptions(this: unknown, ...args: unknown[]): unknown {
+      received.push(args[2]);
+      return Reflect.apply(platformAdd, target, args);
+    };
+    target.removeEventListener = function passThrough(this: unknown, ...args: unknown[]): unknown {
+      return Reflect.apply(platformRemove, target, args);
+    };
+
+    const named: TrackedListenerTarget = { name: 'recording host', target };
+    const controller = new AbortController();
+    const heard = vi.fn();
+
+    track(named);
+    baselineStrayListeners([named]);
+    named.target.addEventListener('ping', heard, { signal: controller.signal, passive: true });
+
+    expect(received).toEqual([{ passive: true }]);
+
+    controller.abort();
+    named.target.dispatchEvent(new Event('ping'));
+
+    expect(heard).not.toHaveBeenCalled();
+    expect(countStrayListeners([named])).toBe(0);
   });
 
   it('does not wrap a target twice, and either undo puts the originals back', () => {
@@ -277,6 +309,94 @@ describe('stray listeners', () => {
     expect(removeStrayListeners([named])).toBe(1);
   });
 
+  it('forgets a listener its AbortSignal took off', () => {
+    const named = namedTarget('stand-in');
+    const controller = new AbortController();
+    const heard = vi.fn();
+
+    track(named);
+    baselineStrayListeners([named]);
+    named.target.addEventListener('ping', heard, { signal: controller.signal });
+
+    expect(countStrayListeners([named])).toBe(1);
+
+    controller.abort();
+    named.target.dispatchEvent(new Event('ping'));
+
+    expect(heard).not.toHaveBeenCalled();
+    expect(countStrayListeners([named])).toBe(0);
+    expect(removeStrayListeners([named])).toBe(0);
+  });
+
+  it('never records a listener whose signal had already aborted, the way the platform never adds it', () => {
+    const named = namedTarget('stand-in');
+
+    track(named);
+    baselineStrayListeners([named]);
+    named.target.addEventListener('ping', () => undefined, { signal: AbortSignal.abort() });
+
+    expect(countStrayListeners([named])).toBe(0);
+  });
+
+  it('stops watching a signal once the listener was removed by hand', () => {
+    const named = namedTarget('stand-in');
+    const controller = new AbortController();
+    const listener = vi.fn();
+
+    track(named);
+    baselineStrayListeners([named]);
+    named.target.addEventListener('ping', listener, { signal: controller.signal });
+    named.target.removeEventListener('ping', listener);
+    named.target.addEventListener('ping', listener);
+    controller.abort();
+    named.target.dispatchEvent(new Event('ping'));
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(countStrayListeners([named])).toBe(1);
+    expect(removeStrayListeners([named])).toBe(1);
+  });
+
+  it('keeps the other listeners of a type when one of them goes', () => {
+    const named = namedTarget('stand-in');
+    const first = vi.fn();
+
+    track(named);
+    baselineStrayListeners([named]);
+    named.target.addEventListener('ping', first);
+    named.target.addEventListener('ping', () => undefined);
+    named.target.removeEventListener('ping', first);
+    named.target.addEventListener('ping', first);
+
+    expect(countStrayListeners([named])).toBe(2);
+    expect(removeStrayListeners([named])).toBe(2);
+
+    named.target.addEventListener('ping', first);
+
+    expect(countStrayListeners([named])).toBe(1);
+  });
+
+  it('reaches the caller behind a deep chain of dependency frames', () => {
+    const named = namedTarget('stand-in');
+    const emitter = new EventEmitter();
+
+    track(named);
+    baselineStrayListeners([named]);
+
+    // What Renderer2, EventManager and a zone look like from here: twelve frames used to run out inside them.
+    emitter.on(
+      'hop-0',
+      named.target.addEventListener.bind(named.target, 'keydown', () => undefined),
+    );
+
+    for (let hop = 1; hop <= 15; hop += 1) {
+      emitter.on(`hop-${hop}`, emitter.emit.bind(emitter, `hop-${hop - 1}`));
+    }
+
+    emitter.emit('hop-15');
+
+    expect(describeStrayListeners([named])[0]?.frames[0]).toMatch(/stray-listeners\.spec\.ts:\d+:\d+/);
+  });
+
   it('names the target, the type, the spec file and the registration line', () => {
     const named = namedTarget('reports');
 
@@ -322,7 +442,7 @@ describe('an installation that cannot be completed', () => {
 
     mockReadonlyProp(named.target, 'removeEventListener', EventTarget.prototype.removeEventListener);
 
-    expect(() => trackStrayListeners([named])).toThrow();
+    expect(() => trackStrayListeners([named])).toThrow(/Cannot set property removeEventListener/);
     expect(named.target.addEventListener).toBe(originalAdd);
     expect(() => countStrayListeners([named])).toThrow(/nothing called trackStrayListeners\(\) for this target/);
   });
@@ -332,7 +452,7 @@ describe('an installation that cannot be completed', () => {
 
     mockReadonlyProp(named.target, 'addEventListener', EventTarget.prototype.addEventListener);
 
-    expect(() => trackStrayListeners([named])).toThrow();
+    expect(() => trackStrayListeners([named])).toThrow(/Cannot set property addEventListener/);
     expect(() => countStrayListeners([named])).toThrow(/nothing called trackStrayListeners\(\) for this target/);
   });
 
@@ -343,7 +463,7 @@ describe('an installation that cannot be completed', () => {
 
     mockReadonlyProp(hostile.target, 'removeEventListener', EventTarget.prototype.removeEventListener);
 
-    expect(() => trackStrayListeners([fine, hostile])).toThrow();
+    expect(() => trackStrayListeners([fine, hostile])).toThrow(/Cannot set property removeEventListener/);
     expect(fine.target.addEventListener).toBe(fineAdd);
     expect(() => countStrayListeners([fine])).toThrow(/nothing called trackStrayListeners\(\) for this target/);
   });
