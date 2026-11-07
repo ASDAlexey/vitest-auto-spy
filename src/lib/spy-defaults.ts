@@ -34,6 +34,7 @@
  * the composition of doubles in files nobody was looking at, which is the failure this exists to
  * remove rather than to relocate.
  */
+import type { FromClassOnly } from './internal-types';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf } from './types';
 
 /** What a class's registration holds, read back as the loose shape the merge walks. */
@@ -189,7 +190,8 @@ type AutoSpyDefaultEntries<Entries extends readonly unknown[]> = {
  * ]);
  * ```
  */
-export function registerAutoSpyDefaults<T>(ObjectClass: ClassType<T>, config: ClassSpyConfiguration<T>): void;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- read only while a generic class argument is deferred; the class then decides `T`.
+export function registerAutoSpyDefaults<T = any>(ObjectClass: ClassType<T>, config: FromClassOnly<T, ClassSpyConfiguration<T>>): void;
 export function registerAutoSpyDefaults<const Entries extends AutoSpyDefaultEntries<Entries> & readonly (readonly [unknown, unknown])[]>(
   entries: Entries,
 ): void;
