@@ -4,6 +4,7 @@ import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { displayPath } from './message-text';
 import { currentSpecFile } from './spec-file';
+import { captureStack } from './stack-frames';
 import { writeWarning } from './write-warning';
 
 interface SetupRegistration {
@@ -135,6 +136,11 @@ export function watchCurrentTask(state: object, onTest: (file: string) => void):
   return true;
 }
 
+/** Windows paths reach the stack and the config spelled either way. */
+function forwardSlashes(path: string): string {
+  return path.replaceAll('\\', '/');
+}
+
 /** Whether a configured setup file is on the stack, rather than a spec that called `setupAutoSpy()` itself. */
 function calledFromSetupFile(worker: object): boolean {
   const setupFiles: unknown = Reflect.get(Object(Reflect.get(worker, 'config')), 'setupFiles');
@@ -143,14 +149,9 @@ function calledFromSetupFile(worker: object): boolean {
     return false;
   }
 
-  const limit = Error.stackTraceLimit;
+  const stack = forwardSlashes(String(captureStack(calledFromSetupFile, 100).stack));
 
-  Error.stackTraceLimit = 100;
-  const stack = String(new Error().stack);
-
-  Error.stackTraceLimit = limit;
-
-  return setupFiles.some((file) => typeof file === 'string' && stack.includes(file));
+  return setupFiles.some((file) => typeof file === 'string' && stack.includes(forwardSlashes(file)));
 }
 
 /** Record the spec file a setup-file call registered its hooks for, and watch the worker's tests once. */

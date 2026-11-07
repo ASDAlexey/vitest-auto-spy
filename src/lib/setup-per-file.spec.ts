@@ -188,6 +188,14 @@ describe('recordSetupRegistration', () => {
     expect(globalThis.__vitestAutoSpySetupRegistration__).toEqual({ file: THIS_FILE, seen: THIS_FILE, warned: false });
   });
 
+  it('finds the setup file on the stack when the config spells it with backslashes', () => {
+    const worker = { config: { setupFiles: [THIS_FILE.replaceAll('/', '\\')] }, current: undefined };
+
+    recordSetupRegistration(worker);
+
+    expect(globalThis.__vitestAutoSpySetupRegistration__?.file).toBe(THIS_FILE);
+  });
+
   it('records the setup modules the call ran in, and watches with them', () => {
     const evaluatedModules = {
       fileToModulesMap: new Map<string, Set<{ exports: object }>>([[THIS_FILE, new Set([{ exports: { first: true } }])]]),
