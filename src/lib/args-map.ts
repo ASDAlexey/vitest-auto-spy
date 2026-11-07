@@ -11,7 +11,7 @@
  *    neither of which a string key can stand for — is stored as a predicate and evaluated against
  *    the actual args on lookup, after the exact map misses. See `structural-equals`.
  */
-import { isDeepValue, serializePrimitive, serializeValue } from './serialize-args';
+import { isDeepValue, serializeMatchKey, serializePrimitive, serializeValue } from './serialize-args';
 import { describeWithMatchers, isAsymmetricMatcher, matchesStructurally, needsStructuralMatch, sameExpectation } from './structural-equals';
 
 type SerializedArgs = string;
@@ -83,7 +83,13 @@ function matchValue(configArg: unknown, actualArg: unknown): boolean {
 
 /** The key of an argument list of only primitives — no cycle bookkeeping, no deep walk. */
 function serializePrimitiveArgs(args: unknown[]): string {
-  return `[${args.map((arg) => serializePrimitive(arg)).join(',')}]`;
+  let key = '[';
+
+  for (let index = 0; index < args.length; index += 1) {
+    key += `${index === 0 ? '' : ','}${serializePrimitive(args[index])}`;
+  }
+
+  return `${key}]`;
 }
 
 /**
@@ -214,7 +220,7 @@ export class ArgsMap {
         }
       }
 
-      const serializedArgs = deep ? serializeValue(key) : serializePrimitiveArgs(key);
+      const serializedArgs = deep ? serializeMatchKey(key) : serializePrimitiveArgs(key);
 
       return serializedArgs in this.#map ? this.#map[serializedArgs] : this.#findByMatcher(key);
     }
@@ -364,7 +370,7 @@ export class ArgsMap {
     );
   }
 
-  // Keys are always argument arrays; `serializeValue` renders them to a stable,
+  // Keys are always argument arrays; `serializeMatchKey` renders them to a stable,
   // total string (single-quoted strings, bracketed arrays, distinct `undefined`
   // / function / symbol / BigInt / Date renderings, circular-ref safe). Arrays of
   // only primitive args take a fast path that skips the circular-ref bookkeeping.
@@ -373,7 +379,7 @@ export class ArgsMap {
       return serializePrimitiveArgs(key);
     }
 
-    return serializeValue(key);
+    return serializeMatchKey(key);
   }
 
   /**
