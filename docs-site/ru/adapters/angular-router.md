@@ -300,6 +300,7 @@ it('goes to checkout', async () => {
 | Поле `init`         | Тип                      | По умолчанию | Что задаёт                                                                     |
 | ------------------- | ------------------------ | ------------ | ------------------------------------------------------------------------------ |
 | `url`               | `string`                 | `'/'`        | где стоит роутер; `routerState` и `events` выводятся из него                   |
+| `navigated`         | `boolean`                | `true`       | завершалась ли навигация; `false` задаёт состояние до первой навигации         |
 | `currentNavigation` | `NavigationInit \| null` | `null`       | навигация в процессе — для компонента, который читает её в инициализаторе поля |
 | `children`          | `ActivatedRouteInit[]`   | нет          | маршруты под `routerState.root`, любой вложенности                             |
 
@@ -315,18 +316,35 @@ provideRouterDouble({
 
 Из чего состоит подмена:
 
-| Поле                        | Что это                                                                                                           |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `url`                       | URL в том же формате, что у настоящего роутера: после `setUrl('users/7')` читается `/users/7`                     |
-| `events`                    | `BehaviorSubject`, который начинается с `NavigationEnd` стартового URL                                            |
-| `navigate`, `navigateByUrl` | спаи: резолвятся в `true`, записывают вызов и не меняют URL                                                       |
-| `serializeUrl`, `parseUrl`  | собственный `DefaultUrlSerializer` Angular                                                                        |
-| `createUrlTree`             | `createUrlTreeFromSnapshot` из Angular, поэтому `relativeTo`, `queryParamsHandling` и `preserveFragment` работают |
-| `routerState`               | собственный `RouterState` Angular: `snapshot.url` — это URL, `root` несёт его query-параметры и фрагмент          |
-| `currentNavigation`         | навигация в процессе (сигнал Angular 20.2+), `null`, пока роутер стоит на месте                                   |
-| `getCurrentNavigation()`    | тот же ответ через устаревший метод                                                                               |
+| Поле                        | Что это                                                                                                                                |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`                       | URL в том же формате, что у настоящего роутера: после `setUrl('users/7')` читается `/users/7`                                          |
+| `events`                    | `BehaviorSubject` с `NavigationEnd` стартового URL; при `navigated: false` — `Subject`, в котором ещё нет событий                      |
+| `navigate`, `navigateByUrl` | спаи: резолвятся в `true`, записывают вызов и не меняют URL                                                                            |
+| `serializeUrl`, `parseUrl`  | собственный `DefaultUrlSerializer` Angular                                                                                             |
+| `createUrlTree`             | `createUrlTreeFromSnapshot` из Angular, поэтому `relativeTo`, `queryParamsHandling` и `preserveFragment` работают                      |
+| `routerState`               | собственный `RouterState` Angular: `snapshot.url` — это URL, `root` несёт его query-параметры и фрагмент                               |
+| `currentNavigation`         | навигация в процессе (сигнал Angular 20.2+), `null`, пока роутер стоит на месте                                                        |
+| `navigated`                 | `true` после завершения навигации; обновляется до доставки `NavigationEnd` подписчикам                                                 |
+| `isActive(url, options)`    | сравнение URL средствами Angular: точные и вложенные пути, query-параметры, matrix-параметры и фрагменты                               |
+| `lastSuccessfulNavigation`  | последняя успешная навигация с `finalUrl`: сигнал в Angular 21+, значение в Angular 20; обновляется через `setUrl()` и `NavigationEnd` |
+| `getCurrentNavigation()`    | тот же ответ через устаревший метод                                                                                                    |
 
-Любое другое поле или метод `Router` (`isActive`, `resetConfig`, `lastSuccessfulNavigation`, …) при чтении
+`RouterLinkActive` работает с этой подменой и настоящей директивой `RouterLink`. В Angular 21+ читайте сигнал `lastSuccessfulNavigation()`. В Angular 20 та же навигация доступна как значение `lastSuccessfulNavigation`.
+
+В Angular 21+ по умолчанию `navigated` равен `true`, а `lastSuccessfulNavigation()` содержит навигацию с начальным URL в `finalUrl`. Передайте `{ navigated: false }` для состояния до первой навигации: `events` начнётся пустым и не будет повторять события, а `lastSuccessfulNavigation()` вернёт `null`. Успешный `emitNavigation()` обновит оба значения до доставки `NavigationEnd`. Пример использует синтаксис сигнала Angular 21+:
+
+```ts
+const { router, emitNavigation } = createRouterDouble({ navigated: false });
+expect(router.navigated).toBe(false);
+expect(router.lastSuccessfulNavigation()).toBeNull();
+
+await emitNavigation('/products');
+expect(router.navigated).toBe(true);
+expect(router.lastSuccessfulNavigation()?.finalUrl?.toString()).toBe('/products');
+```
+
+Любое другое поле или метод `Router` (`resetConfig`, `initialNavigation`, …) при чтении
 бросает ошибку. Она называет это поле и перечисляет, что подмена умеет. Вместо тихого `undefined` вы
 получаете понятное падение.
 
@@ -558,7 +576,7 @@ location.simulateUrlPop('/'); // «назад/вперёд» в браузере
 Подмена, которая сбрасывала бы навигацию раньше, сломала бы частый приём «прочитать state навигации,
 когда она завершилась».
 
-**Почему неизвестные поля `Router` бросают ошибку.** `currentNavigation`, `config` и `navigated`
+**Почему неизвестные поля `Router` бросают ошибку.** `currentNavigation`, `config` и `routeReuseStrategy`
 лежат на экземпляре `Router`, а не на `Router.prototype`. Мок по прототипу вернул бы для них
 `undefined`, и `router.currentNavigation()` упал бы с «is not a function» далеко от причины. Подмена
 вместо этого падает при чтении и называет поле.

@@ -64,6 +64,10 @@ export type AngularValueProvider<T> = { provide: ClassType<T>; useValue: Spy<T> 
  * ];
  * ```
  *
+ * A directive or component used as an injected collaborator can be provided explicitly:
+ * `{ provide: FocusDirective, useValue: createSpyFromClass(FocusDirective) }`. This replaces what
+ * `inject(FocusDirective)` reads; replacing a rendered declaration needs `createComponentStub`.
+ *
  * **A generic class keeps its declared default, whatever the configuration names.** TypeScript
  * checks a generic class argument after the configuration, so a signature that lets the
  * configuration infer reads `T` back from `gettersToSpyOn` or `overrides` first and rejects
@@ -104,8 +108,9 @@ function assertInjectable(ObjectClass: ClassType<unknown>): void {
 
   throw new Error(
     withDocs(
-      `[vitest-auto-spy] provideAutoSpy(${name}): ${name} is a ${kind}. Angular declares or imports a ${kind}, it never ` +
-        `injects one, so this provider is never read and the double replaces nothing.\n` +
+      `[vitest-auto-spy] provideAutoSpy(${name}): ${name} is a ${kind}. A provider replaces references read through DI, ` +
+        `not instances Angular renders from a selector.\n` +
+        `For an injected collaborator, use { provide: ${name}, useValue: createSpyFromClass(${name}) }.\n` +
         `To keep it out of the render, swap it for a stand-in (createComponentStub for a child component) or render the ` +
         `host with renderShallow; to test ${name} itself, create it through TestBed.`,
       DOCS_LINKS.angularComponentStub,
