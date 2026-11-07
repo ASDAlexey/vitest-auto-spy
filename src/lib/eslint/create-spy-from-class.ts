@@ -204,10 +204,21 @@ function signalMemberName(node: EsObjectExpression, member: string): string | un
     : undefined;
 }
 
+/**
+ * A declared type worth naming in `createAutoMock<T>()`. `{ load: Mock }` and `Record<string, Mock>`
+ * describe the hand-written double itself, so the report names the class factory instead.
+ */
+function serviceTypeOf(context: RuleContext, node: EsObjectExpression): EsNode | undefined {
+  const type = declaredTypeOf(context, node);
+  const typeName: unknown = Reflect.get(Object(Reflect.get(Object(type), 'typeName')), 'name');
+
+  return type && type.type !== 'TSTypeLiteral' && typeName !== 'Record' ? type : undefined;
+}
+
 /** What the report quotes: the name the double is bound to, its mocks, and the factory for its declared type. */
 function describeDouble(context: RuleContext, node: EsObjectExpression, callbacks: readonly string[]): Record<string, string> {
   const name = boundName(node);
-  const type = declaredTypeOf(context, node);
+  const type = serviceTypeOf(context, node);
 
   return {
     subject: name ? `\`${bindingName(context, name)}\`` : 'This object',

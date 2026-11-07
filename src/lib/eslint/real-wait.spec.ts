@@ -29,6 +29,32 @@ describe('no-real-wait-in-test', () => {
     expect(lint("import { setTimeout } from 'timers/promises';\nawait setTimeout(20);")).toHaveLength(1);
   });
 
+  /** The source after accepting the first report's suggestion, or `undefined` without one. */
+  function suggested(code: string): string | undefined {
+    const fix = verify(code)[0]?.suggestions?.[0]?.fix;
+
+    return fix && `${code.slice(0, fix.range[0])}${fix.text}${code.slice(fix.range[1])}`;
+  }
+
+  it('names flushEventLoop for a wait that only lets mocked promises settle', () => {
+    expect(verify('await new Promise((r) => setTimeout(r, 50));')[0]?.message).toContain('`await flushEventLoop()`');
+  });
+
+  it('suggests flushEventLoop() for an awaited sleep, importing it when the name is free', () => {
+    const fixed = suggested("import { setupAutoSpy } from 'vitest-auto-spy';\nawait new Promise((r) => setTimeout(r, 50));");
+
+    expect(fixed).toBe("import { flushEventLoop, setupAutoSpy } from 'vitest-auto-spy';\nawait flushEventLoop();");
+    expect(suggested("import { flushEventLoop } from 'vitest-auto-spy';\nawait new Promise((r) => setTimeout(r, 50));")).toBe(
+      "import { flushEventLoop } from 'vitest-auto-spy';\nawait flushEventLoop();",
+    );
+    expect(suggested("import { setTimeout as delay } from 'node:timers/promises';\nawait delay(20);")).toContain('await flushEventLoop();');
+  });
+
+  it('offers nothing where the sleep is not awaited on the spot, or the name is taken', () => {
+    expect(verify('const sleep = (ms) => new Promise((r) => setTimeout(r, ms));')[0]?.suggestions).toBeUndefined();
+    expect(verify('const flushEventLoop = 1;\nawait new Promise((r) => setTimeout(r, 50));')[0]?.suggestions).toBeUndefined();
+  });
+
   it('leaves a macrotask flush alone', () => {
     expect(lint('await new Promise((r) => setTimeout(r));')).toEqual([]);
     expect(lint('await new Promise((r) => setTimeout(r, 0));')).toEqual([]);

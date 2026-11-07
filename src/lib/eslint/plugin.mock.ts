@@ -7,6 +7,7 @@ export const RULES_WITH_SUGGESTIONS = [
   'no-object-define-property',
   'no-overridden-provider',
   'no-passthrough-console-spy',
+  'no-real-wait-in-test',
   'no-redundant-mock-reset',
   'no-redundant-smoke-test',
   'no-reflect-member-access',

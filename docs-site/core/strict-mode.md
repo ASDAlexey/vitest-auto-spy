@@ -139,6 +139,7 @@ This is the exact text for a `Cart` whose `checkout(id, when)` nobody configured
 [vitest-auto-spy] Cart.checkout(1, 'now') was called; this strict double has nothing configured for it.
 Called from src/app/cart.component.ts:41:12
 Configure it in the test: cart.checkout.calledWith(1, 'now').mockReturnValue(…) for these arguments, or .mockReturnValue(…) for any — .resolveWith(…) / .nextWith(…) when it returns a Promise / Observable.
+A void method, or a result the code ignores: returnsUndefined: ['checkout'] in the double's options.
 Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#the-message
 ```
 
@@ -153,6 +154,10 @@ How to read it:
   without arguments suggests only `.mockReturnValue(…)`.
 - **`cart` is a guess at your variable name**: the class name in lower camel case. If the class name
   is not a valid identifier, the message says `double`.
+- **The `returnsUndefined` line is for a method with nothing to return.** A `void` method, or a
+  `MatDialog.open` whose ref the code drops, needs no value: list it in the double's options,
+  `provideAutoSpy(Cart, { returnsUndefined: ['checkout'] })`. When the code uses what comes back,
+  `returnsClass: { open: MatDialogRef }` answers with a spied instance of that class.
 
 Plain data prints in full, up to 200 characters per argument. A class instance or a DOM node prints as
 its class name: `[HTMLDivElement]`, `[Session]`. Printing such objects in full could run a worker out

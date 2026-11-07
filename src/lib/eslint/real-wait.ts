@@ -3,13 +3,16 @@
  * from `node:timers/promises`. A zero or missing delay is a macrotask flush rather than a wait, and
  * is left alone.
  */
-import { findBinding } from './bindings';
+import { PACKAGE, bindingState, findBinding, importNamed } from './bindings';
 import { defineRule } from './define-rule';
 import { excerpt } from './message-data';
 import {
   type EsCallExpression,
+  type EsFix,
+  type EsFixer,
   type EsNode,
   type RuleContext,
+  type SuggestionDescriptor,
   anyInSubtree,
   isCallExpression,
   isFunctionNode,
@@ -91,34 +94,62 @@ function isPromiseTimer(context: RuleContext, node: EsCallExpression): boolean {
   return imported === 'setTimeout' && PROMISE_TIMERS.has(String(source));
 }
 
+const FLUSH = 'flushEventLoop';
+
 const MESSAGE =
-  '`{{call}}` waits `{{delay}}` ms of real time, which every run of this test pays and a loaded CI machine can outlast. Drive the clock instead: `setupFakeTimers()` in the describe and `await advanceTimers({{delay}})` in the test (`vitest-auto-spy/setup`) — or wait for the thing itself: `await vi.waitFor(…)`, `await fixture.whenStable()`.';
+  '`{{call}}` waits `{{delay}}` ms of real time, which every run of this test pays and a loaded CI machine can outlast. Drive the clock instead: `setupFakeTimers()` in the describe and `await advanceTimers({{delay}})` in the test (`vitest-auto-spy/setup`) — or wait for the thing itself: `await vi.waitFor(…)`, `await fixture.whenStable()`. When the wait only lets mocked promises settle, `await flushEventLoop()` takes one real turn instead.';
+
+/**
+ * `await sleep` → `await flushEventLoop()`, offered only where the sleep is awaited on the spot.
+ *
+ * A suggestion, not a fix: one event-loop turn drains every resolved promise chain, which is what a
+ * spec sleeping past a mocked `invoke()` or `fetch()` waits for, but it fires no timer the code set.
+ */
+function flushInstead(context: RuleContext, node: EsNode): SuggestionDescriptor[] {
+  const state = bindingState(context.sourceCode.getScope(node), FLUSH);
+
+  if (node.parent.type !== 'AwaitExpression' || state === 'taken') {
+    return [];
+  }
+
+  return [
+    {
+      desc: `Take one real event-loop turn with ${FLUSH}(), which settles promise chains but fires no timer`,
+      fix: (fixer: EsFixer): EsFix[] =>
+        state === 'free'
+          ? [fixer.replaceText(node, `${FLUSH}()`), importNamed(fixer, node, FLUSH, PACKAGE)]
+          : [fixer.replaceText(node, `${FLUSH}()`)],
+    },
+  ];
+}
+
+function report(context: RuleContext, node: EsNode, delay: EsNode): void {
+  context.report({
+    node,
+    messageId: 'noRealWaitInTest',
+    data: { call: excerpt(context, node), delay: context.sourceCode.getText(delay) },
+    suggest: flushInstead(context, node),
+  });
+}
 
 export const noRealWaitInTest = defineRule({
   name: 'no-real-wait-in-test',
   description: 'Do not sleep on the real clock in a spec — drive fake timers or wait for the outcome',
+  hasSuggestions: true,
   messages: { noRealWaitInTest: MESSAGE },
   create: (context) => ({
     'NewExpression[callee.name="Promise"]': (node: EsCallExpression): void => {
       const delay = sleepingDelay(context, node);
 
       if (delay) {
-        context.report({
-          node,
-          messageId: 'noRealWaitInTest',
-          data: { call: excerpt(context, node), delay: context.sourceCode.getText(delay) },
-        });
+        report(context, node, delay);
       }
     },
     'CallExpression[callee.type="Identifier"]': (node: EsCallExpression): void => {
       const [delay] = node.arguments;
 
       if (isRealDelay(delay) && isPromiseTimer(context, node)) {
-        context.report({
-          node,
-          messageId: 'noRealWaitInTest',
-          data: { call: excerpt(context, node), delay: context.sourceCode.getText(delay) },
-        });
+        report(context, node, delay);
       }
     },
   }),

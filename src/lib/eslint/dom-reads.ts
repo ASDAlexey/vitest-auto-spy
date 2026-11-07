@@ -28,9 +28,9 @@ import type { EsNode, RuleContext, RuleListener } from './rule-types';
 /**
  * Members and helpers that only mean something against a rendered template.
  *
- * Matched as substrings of an identifier, not resolved: a `querySelector` on a node pulled out three
- * helpers ago, a `nativeElementOf(fixture)` helper and a `textContent` read inside a matcher all
- * count, and each one is a reason to leave the file alone.
+ * Matched as whole camelCase words of an identifier, not resolved: a `querySelector` on a node pulled
+ * out three helpers ago, a `nativeElementOf(fixture)` helper and a `textContent` read inside a matcher
+ * all count. A substring match also counted `getAttributesLayer()` as `getAttribute`.
  */
 const TEMPLATE_READS = [
   'nativeElement',
@@ -48,6 +48,31 @@ const TEMPLATE_READS = [
   'classList',
   'shadowRoot',
 ];
+
+/** An identifier split into lower-case words: `innerHTML` → `inner`, `html`; `text_content` → `text`, `content`. */
+function camelWords(name: string): string[] {
+  return (name.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+/g) ?? []).map((word) => word.toLowerCase());
+}
+
+const TEMPLATE_READ_WORDS = TEMPLATE_READS.map(camelWords);
+
+/** Whether `words` holds `read` in a row; the last word may take a plural `s` when it ends the name. */
+function holdsRead(words: readonly string[], read: readonly string[]): boolean {
+  return words.some((_, start) =>
+    read.every((word, offset) => {
+      const actual = words[start + offset];
+
+      return actual === word || (start + offset === words.length - 1 && offset === read.length - 1 && actual === `${word}s`);
+    }),
+  );
+}
+
+/** Whether a name spells one of {@link TEMPLATE_READS} as words of its own. */
+function namesTemplateRead(name: string): boolean {
+  const words = camelWords(name);
+
+  return TEMPLATE_READ_WORDS.some((read) => holdsRead(words, read));
+}
 
 /** The `By` predicates, whose own names are too common to count without the `By.` in front. */
 const BY_PREDICATES = new Set(['css', 'directive']);
@@ -174,7 +199,7 @@ function readsTemplate(node: EsNode): boolean {
     return BY_PREDICATES.has(name);
   }
 
-  return TEMPLATE_READS.some((member) => name.includes(member)) && !declaresMember(node) && !delegatesToDocument(name, parent);
+  return namesTemplateRead(name) && !declaresMember(node) && !delegatesToDocument(name, parent);
 }
 
 /**

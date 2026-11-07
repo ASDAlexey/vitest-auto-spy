@@ -47,6 +47,12 @@ describe('prefer-create-spy-from-class', () => {
       /^`p` holds 2 `vi\.fn\(\)`s \(`a` and `b`\)[\s\S]*`createSpyFromClass\(Class\)` or `createAutoMock<T>\(\)`/,
     );
     expect(firstMessage('const p: Api = { a: vi.fn(), b: vi.fn() };')).toMatch(/^`p` holds[\s\S]*Build it with `createAutoMock<Api>\(\)`/);
+    expect(firstMessage('let p: { a: Mock; b: Mock };\np = { a: vi.fn(), b: vi.fn() };')).toMatch(
+      /Build it with `createSpyFromClass\(Class\)` or `createAutoMock<T>\(\)`/,
+    );
+    expect(firstMessage('const p: Record<string, Mock> = { a: vi.fn(), b: vi.fn() };')).toMatch(
+      /Build it with `createSpyFromClass\(Class\)` or `createAutoMock<T>\(\)`/,
+    );
     expect(firstMessage('use({ a: vi.fn(), b: vi.fn(), c: vi.fn(), d: vi.fn() });')).toMatch(
       /^This object holds 4 `vi\.fn\(\)`s \(`a`, `b`, `c` and 1 more\)/,
     );

@@ -31,6 +31,11 @@ describe('prefer-render-shallow, { templates: "never" } on a whole spec', () => 
     expect(messages[0]?.message).toContain('/guides/testing-without-the-dom');
   });
 
+  it('reports a read spelled as words of a name, not one only contained in a longer word', () => {
+    expect(reads('nativeElementOf(fixture);\nfixture.debugElements;')).toEqual(['`nativeElementOf`', '`debugElements`']);
+    expect(reads('layersApi.getAttributesLayer();\nconst textContentsByRow = 1;')).toEqual([]);
+  });
+
   it('reports the document, however the spec reaches it', () => {
     expect(reads('document.body.append(host);')).toEqual(['`document`']);
     expect(reads('const doc = TestBed.inject(DOCUMENT);')).toEqual(['`DOCUMENT`']);

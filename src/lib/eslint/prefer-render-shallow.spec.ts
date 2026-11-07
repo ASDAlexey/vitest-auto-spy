@@ -64,6 +64,9 @@ describe('prefer-render-shallow', () => {
     ['a computed member', "expect(host['textContent']).toContain('3 items');"],
     ['a helper named after the read', 'const host = nativeElementOf(fixture);'],
     ['a bare getComputedStyle', 'const style = getComputedStyle(host);'],
+    ['an acronym-cased read', 'host.innerHTML;'],
+    ['a plural at the end of the name', 'const rows = nativeElements(fixture);'],
+    ['a snake_case helper', 'const text = read_text_content(fixture);'],
   ])('stays silent when the file reads the template through %s', (_label, read) => {
     expect(lint(`${stateOnly}\n${read}`)).toEqual([]);
   });
@@ -78,6 +81,9 @@ describe('prefer-render-shallow', () => {
     ['a class member', 'class FakeElement { textContent = ""; getAttribute() { return null; } }'],
     ['a type member', 'interface Row { nativeElement: unknown; querySelector(selector: string): void }'],
     ['a By that is not the Angular one', 'const other = Things.css;'],
+    ['a longer word that only contains a read', 'layersApi.getAttributesLayer();'],
+    ['a plural word inside the name', 'const classListsByRow = mapRows();'],
+    ['a name with no letters', 'const $ = load();'],
   ])('still reports when the word only appears in %s', (_label, noise) => {
     expect(lint(`${noise}\n${stateOnly}`)).toEqual([`vitest-auto-spy/${RULE}`]);
   });
