@@ -95,6 +95,25 @@ describe('createComponentStub', () => {
     createComponentStub(ChartComponent, { reset: 'nope' });
     // @ts-expect-error -- ChartComponent has no member called zoom
     createComponentStub(ChartComponent, { zoom: 1 });
+    // @ts-expect-error -- a valid member must not allow an additional misspelled member
+    createComponentStub(ChartComponent, { reset: () => undefined, zoom: 1 });
+  });
+
+  it('keeps supplied override members required while other members remain partial', () => {
+    const reset = (): void => undefined;
+    const Stub = createComponentStub(ChartComponent, { reset });
+
+    expectTypeOf(Stub).toExtend<Type<{ reset: () => void }>>();
+    expectTypeOf<InstanceType<typeof Stub>['reset']>().toEqualTypeOf<() => void>();
+    expectTypeOf<InstanceType<typeof Stub>['series']>().toEqualTypeOf<InputSignal<number[]> | undefined>();
+    expectTypeOf(createComponentStub(ChartComponent, undefined)).toEqualTypeOf<Type<Partial<ChartComponent>>>();
+  });
+
+  it('does not promise a member a partial overrides variable may omit', () => {
+    const overrides: Partial<ChartComponent> = {};
+    const Stub = createComponentStub(ChartComponent, overrides);
+
+    expectTypeOf(Stub).instance.toHaveProperty('reset').toEqualTypeOf<(() => void) | undefined>();
   });
 });
 

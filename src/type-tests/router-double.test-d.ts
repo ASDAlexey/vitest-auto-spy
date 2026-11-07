@@ -16,6 +16,7 @@ describe('provideRouterDouble', () => {
   it('is a provider, for a providers array as it is', () => {
     expectTypeOf(provideRouterDouble({ url: '/products/7' })).toExtend<Provider>();
     expectTypeOf(provideRouterDouble()).toExtend<Provider>();
+    expectTypeOf(provideRouterDouble({ navigated: false })).toExtend<Provider>();
   });
 
   it('takes a URL and nothing else', () => {
@@ -24,6 +25,9 @@ describe('provideRouterDouble', () => {
 
     // @ts-expect-error — `events` is not something the double is configured with; emitNavigation moves it
     provideRouterDouble({ events: [] });
+
+    // @ts-expect-error — navigation completion is a boolean
+    provideRouterDouble({ navigated: 'yes' });
   });
 });
 
