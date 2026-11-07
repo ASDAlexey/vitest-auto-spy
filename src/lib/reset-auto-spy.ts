@@ -14,7 +14,7 @@
  */
 import { DISPOSE } from './dispose-symbol';
 import { type MockFn, getMockAdapter } from './mock-adapter';
-import { isMarkedMock, readDeepChildren, runClearHook, runConfigReset } from './spy-mark';
+import { type MarkHooks, hooksOf, isMarkedMock, readDeepChildren, spyRecordOf, streamHooksOf } from './spy-mark';
 
 /** The `accessorSpies` bag attached to class-based spies. */
 interface AccessorSpiesBag {
@@ -38,9 +38,12 @@ function collectAccessorMocks(spy: object): MockFn[] {
   return [...Object.values(bag.getters), ...Object.values(bag.setters)].filter(isMarkedMock);
 }
 
-/** The mocks held directly by an assembled spy: method spies (by value) plus accessor spies (from the bag). */
-function collectOwnMocks(spy: object): MockFn[] {
-  const mocks: MockFn[] = [];
+/** The mocks held directly by an assembled spy: method spies and observable prop spies (by value) plus accessor spies (from the bag). */
+function collectOwnMocks(double: object): object[] {
+  const mocks: object[] = [];
+  // Walked on the record rather than through a lazy double's traps: a key the proxy still answers
+  // lazily holds no spy, so the two walks collect the same mocks at a fraction of the cost.
+  const spy = spyRecordOf(double);
 
   // `Reflect.ownKeys`, so a **symbol-keyed** method spy is reset with the rest of the double: a
   // class that declares `[SERIALIZE]()` gets a spy on that key like any other member, and the
@@ -56,8 +59,10 @@ function collectOwnMocks(spy: object): MockFn[] {
       return;
     }
 
-    if (isMarkedMock(descriptor.value)) {
-      mocks.push(descriptor.value);
+    const { value }: { value?: unknown } = descriptor;
+
+    if (isMarkedMock(value) || (typeof value === 'object' && value !== null && streamHooksOf(value) !== undefined)) {
+      mocks.push(value);
     }
   });
 
@@ -78,8 +83,9 @@ function collectOwnMocks(spy: object): MockFn[] {
  * `vitest-mock-extended`'s `mockReset` recurses, and a nested double surviving a reset reads as a
  * bug wherever the expectation came from.
  */
-function collectMocks(spy: object): MockFn[] {
+function collectMocks(spy: object): Collected {
   const mocks: MockFn[] = [];
+  const streams: MarkHooks[] = [];
   const seen = new Set<object>();
 
   const visit = (value: object): void => {
@@ -91,7 +97,18 @@ function collectMocks(spy: object): MockFn[] {
 
     if (isMarkedMock(value)) {
       mocks.push(value);
-      readDeepChildren(value).forEach(visit);
+
+      if (mayHaveDeepChildren(value)) {
+        readDeepChildren(value).forEach(visit);
+      }
+
+      return;
+    }
+
+    const stream = streamHooksOf(value);
+
+    if (stream) {
+      streams.push(stream);
 
       return;
     }
@@ -101,7 +118,23 @@ function collectMocks(spy: object): MockFn[] {
 
   visit(spy);
 
-  return mocks;
+  return { mocks, streams };
+}
+
+interface Collected {
+  mocks: MockFn[];
+  /** Observable prop spies: no host mock behind them, only the buffered subject to drop. */
+  streams: MarkHooks[];
+}
+
+/**
+ * A `mockDeep` node is a Proxy over a function spy, so a spy that is its own host has no children —
+ * and skips a symbol lookup that misses down the whole prototype chain of every plain spy.
+ */
+function mayHaveDeepChildren(mock: MockFn): boolean {
+  const host = hooksOf(mock)?.host;
+
+  return host !== undefined && host !== mock;
 }
 
 /**
@@ -115,9 +148,14 @@ function collectMocks(spy: object): MockFn[] {
 export function clearAutoSpy(spy: object): void {
   const adapter = getMockAdapter();
 
-  collectMocks(spy).forEach((mock) => {
+  const { mocks, streams } = collectMocks(spy);
+
+  mocks.forEach((mock) => {
     adapter.clear(mock);
-    runClearHook(mock);
+    hooksOf(mock)?.clear();
+  });
+  streams.forEach((stream) => {
+    stream.clear();
   });
 }
 
@@ -132,7 +170,11 @@ export function clearAutoSpy(spy: object): void {
 export function resetAutoSpy(spy: object): void {
   const adapter = getMockAdapter();
 
-  collectMocks(spy).forEach((mock) => {
+  const { mocks, streams } = collectMocks(spy);
+
+  mocks.forEach((mock) => {
+    const hooks = hooksOf(mock);
+
     // The host's own reset, not a clear, and that is the difference between "reverts the
     // configuration" and "reverts the configuration this library knows about". Two things live
     // inside the host mock where a `clear` cannot reach them: a `mockReturnValueOnce` queue, which
@@ -141,10 +183,13 @@ export function resetAutoSpy(spy: object): void {
     // at all, so a spied getter kept answering what the previous test told it to.
     // `vi.resetAllMocks()` drops both, and this is documented as the per-double form of it.
     adapter.reset(mock);
-    runClearHook(mock);
+    hooks?.clear();
     // After the host reset, never before: a function spy's hook re-installs the library dispatch,
     // which the reset above has just replaced with whatever the spy was created with.
-    runConfigReset(mock);
+    hooks?.reset();
+  });
+  streams.forEach((stream) => {
+    stream.reset();
   });
 }
 

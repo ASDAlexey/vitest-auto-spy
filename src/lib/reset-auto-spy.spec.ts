@@ -9,9 +9,12 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
+import { createFunctionSpy } from './function-spy';
+import { createLazySpyProxy } from './lazy-spy-proxy';
 import { registerMockAdapter } from './mock-adapter';
 import { mockDeep } from './mock-deep';
 import { clearAutoSpy, resetAutoSpy } from './reset-auto-spy';
+import { rememberSpyRecord } from './spy-mark';
 import { asInstance } from './spy-typing';
 import { vitestMockAdapter } from './vitest-adapter';
 
@@ -125,6 +128,16 @@ describe('resetAutoSpy', () => {
     expect(spy.a).toHaveBeenCalledTimes(0);
   });
 
+  it('resets a spy a spec wrapped in a Proxy of its own', () => {
+    const inner = createFunctionSpy<(n: number) => number>('inner');
+    const wrapped = new Proxy(inner, {});
+    inner.calledWith(1).mockReturnValue(2);
+
+    resetAutoSpy({ wrapped });
+
+    expect(inner(1)).toBeUndefined();
+  });
+
   it('reaches a nested mockDeep child, not just the root node', () => {
     const api = mockDeep<{ repo: { user: { find(id: number): string } } }>();
     api.repo.user.find.calledWith(1).mockReturnValue('found');
@@ -191,5 +204,45 @@ describe('resetAutoSpy — configuration the host mock holds', () => {
 
     expect(spy.a(1)).toBeUndefined();
     expect(spy.a(2)).toBe('after');
+  });
+});
+
+describe('resetAutoSpy on a registered proxy double', () => {
+  it('walks the record behind the proxy instead of its traps', () => {
+    const record: Record<string, unknown> = { kept: createFunctionSpy('kept') };
+    const double = new Proxy(record, {
+      ownKeys: (): never => {
+        throw new Error('the walk went through the trap');
+      },
+    });
+    rememberSpyRecord(double, record);
+    (record['kept'] as () => void)();
+
+    resetAutoSpy(double);
+
+    expect(record['kept']).toHaveBeenCalledTimes(0);
+  });
+
+  it('resets the same spies a walk through the lazy traps reaches', () => {
+    const record: Record<string, unknown> = {};
+    const double = createLazySpyProxy(record, ['a', 'b', 'c', 'd'], undefined, false);
+    rememberSpyRecord(double, record);
+    const call = (key: string): void => (Reflect.get(double, key) as () => void)();
+    const replaced = createFunctionSpy('replaced');
+
+    call('a');
+    call('b');
+    double['c'] = replaced;
+    call('c');
+    Reflect.deleteProperty(double, 'b');
+    Reflect.defineProperty(double, 'extra', { value: createFunctionSpy('extra'), enumerable: true, configurable: true });
+    call('extra');
+
+    resetAutoSpy(double);
+
+    expect(double['a']).toHaveBeenCalledTimes(0);
+    expect(replaced).toHaveBeenCalledTimes(0);
+    expect(double['extra']).toHaveBeenCalledTimes(0);
+    expect(Object.keys(record)).toEqual(['a', 'c', 'extra']);
   });
 });
