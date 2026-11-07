@@ -45,9 +45,15 @@
  * identical strings, which is the only property matching rests on.
  */
 interface SerializeContext {
-  seen: WeakSet<object>;
+  seen: Set<object>;
   cache: Map<object, string>;
   budget: number;
+  /**
+   * Whether this walk builds a match key rather than text for a human. A key follows the runner's
+   * non-strict `equals`, which skips string keys holding `undefined` and reads an array hole as
+   * `undefined`: `{ id: 1 }` and `{ id: 1, q: undefined }` are one argument to `toHaveBeenCalledWith`.
+   */
+  matching: boolean;
 }
 
 /**
@@ -62,11 +68,15 @@ interface SerializeContext {
  */
 const KEY_BUDGET = 50_000;
 
-function createContext(): SerializeContext {
-  return { seen: new WeakSet<object>(), cache: new Map<object, string>(), budget: KEY_BUDGET };
+function createContext(matching: boolean): SerializeContext {
+  return { seen: new Set<object>(), cache: new Map<object, string>(), budget: KEY_BUDGET, matching };
 }
 
 function quoteString(value: string): string {
+  if (!value.includes('\\') && !value.includes("'")) {
+    return `'${value}'`;
+  }
+
   return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
@@ -79,7 +89,7 @@ function quoteString(value: string): string {
  */
 const NEEDS_QUOTING = /[^\w$]/;
 
-function serializeKey(key: string): string {
+function renderKey(key: string): string {
   return NEEDS_QUOTING.test(key) ? quoteString(key) : key;
 }
 
@@ -103,19 +113,36 @@ function serializeEntries(value: object, context: SerializeContext): string {
   // makes `mustBeCalledWith` mismatch messages stable rather than dependent on construction order —
   // and the children are rendered in that order, so a memoised subtree and the budget see the same
   // walk for two objects that differ only in the order they were built.
-  // Keys within one object are unique, so the comparator never has to report equality.
-  const entries = Object.entries(value).sort(([left], [right]) => (left > right ? 1 : -1));
-  const rendered = entries.map(([key, entryValue]) => `${serializeKey(key)}:${serializeInContext(entryValue, context)}`);
+  // Keys within one object are unique, so the default code-unit sort orders them as `>` would.
+  const keys = Object.keys(value);
+
+  if (keys.length > 1) {
+    keys.sort();
+  }
+
+  let rendered = '';
+
+  for (const key of keys) {
+    const entryValue: unknown = Reflect.get(value, key);
+
+    if (entryValue !== undefined || !context.matching) {
+      rendered += `${rendered === '' ? '' : ','}${renderKey(key)}:${serializeInContext(entryValue, context)}`;
+    }
+  }
+
   const symbols = ownEnumerableSymbols(value);
 
+  // The runner counts a symbol key even when it holds `undefined`, so a key keeps it too.
   if (symbols.length > 0) {
     symbols
       .map((symbol): [string, symbol] => [symbol.toString(), symbol])
       .sort(([left], [right]) => (left > right ? 1 : -1))
-      .forEach(([key, symbol]) => rendered.push(`${key}:${serializeInContext(Reflect.get(value, symbol), context)}`));
+      .forEach(([key, symbol]) => {
+        rendered += `${rendered === '' ? '' : ','}${key}:${serializeInContext(Reflect.get(value, symbol), context)}`;
+      });
   }
 
-  return rendered.join(',');
+  return rendered;
 }
 
 /**
@@ -182,7 +209,13 @@ function serializeShape(value: object, context: SerializeContext): string {
   }
 
   if (Array.isArray(value)) {
-    return `[${value.map((item) => serializeInContext(item, context)).join(',')}]`;
+    return serializeArray(value, context);
+  }
+
+  const wrapped = serializeWrapper(value);
+
+  if (wrapped !== undefined) {
+    return wrapped;
   }
 
   const entries = serializeEntries(value, context);
@@ -195,6 +228,45 @@ function serializeShape(value: object, context: SerializeContext): string {
   }
 
   return `{${entries}}`;
+}
+
+/** A hole reads as `undefined` in a key, as it does to the runner's `equals`; text for a human keeps it empty. */
+function serializeArray(value: unknown[], context: SerializeContext): string {
+  let rendered = '[';
+
+  for (let index = 0; index < value.length; index += 1) {
+    const hole = !context.matching && !(index in value);
+
+    rendered += `${index === 0 ? '' : ','}${hole ? '' : serializeInContext(value[index], context)}`;
+  }
+
+  return `${rendered}]`;
+}
+
+/**
+ * A boxed primitive or a typed array, whose value sits in an internal slot: `Object(1)` and
+ * `Object(2)` both rendered as `Number{}`. The runner compares a box by its `valueOf()` whatever its
+ * subclass, and a typed array by its class and its elements.
+ */
+function serializeWrapper(value: object): string | undefined {
+  if (value instanceof Number || value instanceof String || value instanceof Boolean) {
+    const box = value instanceof Number ? 'Number' : value instanceof String ? 'String' : 'Boolean';
+
+    return `new ${box}(${serializePrimitive(value.valueOf())})`;
+  }
+
+  if (ArrayBuffer.isView(value) && !(value instanceof DataView)) {
+    const length = Number(Reflect.get(value, 'length'));
+    let items = '';
+
+    for (let index = 0; index < length; index += 1) {
+      items += `${index === 0 ? '' : ','}${serializePrimitive(Reflect.get(value, index))}`;
+    }
+
+    return `new ${constructorNameOf(value)}([${items}])`;
+  }
+
+  return undefined;
 }
 
 /** Whether the object is a plain record — the only shape whose entries are the whole of it. */
@@ -253,7 +325,7 @@ function serializeObject(value: object, context: SerializeContext): string {
 /**
  * Render a non-object value (string, number, boolean, bigint, symbol, function,
  * null, undefined). Extracted so the {@link ArgsMap} hot path can key arrays of
- * primitives without allocating the circular-ref `WeakSet` — its output is
+ * primitives without allocating the circular-ref `Set` — its output is
  * byte-identical to what {@link serializeValue} produces for the same value.
  */
 export function serializePrimitive(value: unknown): string {
@@ -295,10 +367,22 @@ function serializeInContext(value: unknown, context: SerializeContext): string {
   return serializePrimitive(value);
 }
 
-/** Serialize any value into a stable, collision-resistant string. Always total. */
+/** Serialize any value into a stable, collision-resistant string for a human to read. Always total. */
 export function serializeValue(value: unknown): string {
   if (typeof value === 'object' && value !== null) {
-    return serializeObject(value, createContext());
+    return serializeObject(value, createContext(false));
+  }
+
+  return serializePrimitive(value);
+}
+
+/**
+ * The key `calledWith` matches by: {@link serializeValue}, except that a string key holding
+ * `undefined` is left out and an array hole renders as `undefined` — see {@link SerializeContext}.
+ */
+export function serializeMatchKey(value: unknown): string {
+  if (typeof value === 'object' && value !== null) {
+    return serializeObject(value, createContext(true));
   }
 
   return serializePrimitive(value);

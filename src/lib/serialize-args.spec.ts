@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isDeepValue, serializePrimitive, serializeValue } from './serialize-args';
+import { isDeepValue, serializeMatchKey, serializePrimitive, serializeValue } from './serialize-args';
 import { ASCENDING_PAIR } from './serialize-args.mock';
 
 describe('serializeValue', () => {
@@ -110,17 +110,30 @@ describe('serializeValue', () => {
 
   it('stays linear in distinct nodes on a deep diamond', () => {
     // 17 distinct objects reachable by 65 536 paths. Before identity memoisation this walk was
-    // 2^depth serialisations — 37 ms here, and 1.1 s two levels deeper.
+    // 2^depth serialisations; counted in reads rather than milliseconds, so a loaded runner cannot flake it.
+    let reads = 0;
     let level: object = { leaf: true };
 
     for (let index = 0; index < 16; index += 1) {
-      level = { left: level, right: level };
+      const child = level;
+
+      level = {
+        get left(): object {
+          reads += 1;
+
+          return child;
+        },
+        get right(): object {
+          reads += 1;
+
+          return child;
+        },
+      };
     }
 
-    const startedAt = Date.now();
     serializeValue(level);
 
-    expect(Date.now() - startedAt).toBeLessThan(20);
+    expect(reads).toBe(32);
   });
 
   it('reuses a rendering that emitted a back-edge, and stays deterministic for the structure', () => {
@@ -250,6 +263,47 @@ describe('serializeValue', () => {
     const rendered = serializeValue(Array.from({ length: 40 }, () => wide));
 
     expect(rendered).toContain('[…600]');
+  });
+});
+
+describe('boxed primitives and typed arrays', () => {
+  it('renders a box by the value it holds', () => {
+    expect(serializeValue(Object(1))).toBe('new Number(1)');
+    expect(serializeValue(Object('a'))).toBe("new String('a')");
+    expect(serializeValue(Object(false))).toBe('new Boolean(false)');
+    expect(serializeValue(Object(1))).not.toBe(serializeValue(Object(2)));
+    expect(serializeValue(Object('ab'))).not.toBe(serializeValue({ 0: 'a', 1: 'b' }));
+  });
+
+  it('renders a typed array by its class and elements', () => {
+    expect(serializeValue(new Uint8Array([1, 2]))).toBe('new Uint8Array([1,2])');
+    expect(serializeValue(new Uint8Array([1]))).not.toBe(serializeValue(new Int8Array([1])));
+    expect(serializeValue(new DataView(new ArrayBuffer(1)))).toBe('DataView{}');
+  });
+});
+
+describe('serializeMatchKey', () => {
+  it('leaves out a string key holding undefined, as the runner equals does', () => {
+    expect(serializeMatchKey({ id: 1, query: undefined })).toBe(serializeMatchKey({ id: 1 }));
+    expect(serializeMatchKey({ a: undefined })).toBe('{}');
+    expect(serializeValue({ id: 1, query: undefined })).toBe('{id:1,query:undefined}');
+  });
+
+  it('keeps a symbol key holding undefined, as the runner equals does', () => {
+    expect(serializeMatchKey({ [Symbol('s')]: undefined })).toBe('{Symbol(s):undefined}');
+  });
+
+  it('reads an array hole as undefined, where text for a human keeps it empty', () => {
+    const holed: unknown[] = [1];
+
+    holed[2] = 3;
+
+    expect(serializeMatchKey(holed)).toBe(serializeMatchKey([1, undefined, 3]));
+    expect(serializeValue(holed)).toBe('[1,,3]');
+  });
+
+  it('renders a primitive as serializeValue does', () => {
+    expect(serializeMatchKey("it's")).toBe(serializeValue("it's"));
   });
 });
 
