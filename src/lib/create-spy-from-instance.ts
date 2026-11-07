@@ -13,6 +13,8 @@
  * spec ran — a closure, a DI container, a subscription — sees the doubles.
  */
 import { createAccessorsSpies } from './accessor-spy';
+import { ANGULAR_LIFECYCLE_HOOKS } from './angular-hooks';
+import { carriesOwnApi, isClass, isPlainImplementation, seededMethodSpy } from './callable';
 import {
   type ResolvedSpyConfiguration,
   applyConfiguredReturns,
@@ -260,18 +262,28 @@ function installAccessorSpies(
   createAccessorsSpies(instance as Record<string, unknown>, getters, setters, reads);
 }
 
-// The strict guard never fires for these (see function-spy.ts), so a passthrough spy on one would
-// skip the real teardown silently. Under passthrough they stay the real methods instead.
-const LIFECYCLE_HOOKS: ReadonlySet<PropertyKey> = new Set([
-  'ngOnChanges',
-  'ngOnInit',
-  'ngDoCheck',
-  'ngAfterContentInit',
-  'ngAfterContentChecked',
-  'ngAfterViewInit',
-  'ngAfterViewChecked',
-  'ngOnDestroy',
-]);
+/**
+ * Write the caller's `overrides` bag onto the instance, journaled like every other member, so a
+ * seed is undone with the rest by `restoreSpiedInstance`.
+ */
+function installOverrides(
+  instance: object,
+  overrides: object,
+  methods: ReadonlySet<PropertyKey>,
+  className: string | undefined,
+  restores: RestoreProp[],
+): void {
+  for (const key of Reflect.ownKeys(overrides)) {
+    const seeded: unknown = Reflect.get(overrides, key);
+    // A function seeded on a method becomes its spy, as on the class factory, so `Spy<T>` stays true of it.
+    const value: unknown =
+      isPlainImplementation(seeded) && methods.has(key) && Object.getOwnPropertyDescriptor(overrides, key)?.value === seeded
+        ? seededMethodSpy(instance, key, seeded, className)
+        : seeded;
+
+    installMember(instance, key, value, restores);
+  }
+}
 
 /** `passthrough` split off the rest, which is the class factory's configuration unchanged. */
 function splitPassthrough<T>(
@@ -301,16 +313,6 @@ function splitPassthrough<T>(
   return { passthrough: passthrough === true, rest };
 }
 
-/** A callable carrying an API of its own — an Angular `signal()` with `set`/`update`, a mock — rather than a plain method. */
-function carriesOwnApi(value: object): boolean {
-  return Reflect.ownKeys(value).some((key) => key !== 'length' && key !== 'name' && key !== 'prototype');
-}
-
-/** A `class` (or a built-in constructor): the one callable whose `prototype` cannot be reassigned, and which cannot be applied without `new`. */
-function isClass(value: object): boolean {
-  return Object.getOwnPropertyDescriptor(value, 'prototype')?.writable === false;
-}
-
 /**
  * The passthrough guard for one member: `undefined` when there is no real method it can run, `'real'`
  * when the member is better left untouched than spied.
@@ -332,7 +334,8 @@ function passthroughFor(
 
   const constructor = isClass(original);
 
-  if (LIFECYCLE_HOOKS.has(name) || (!named.has(name) && (constructor || carriesOwnApi(original)))) {
+  // The strict guard never fires for a hook, so a passthrough spy on one would skip the real teardown silently.
+  if (ANGULAR_LIFECYCLE_HOOKS.has(name) || (!named.has(name) && (constructor || carriesOwnApi(original)))) {
     return 'real';
   }
 
@@ -455,9 +458,7 @@ export function createSpyFromInstance<T extends object, Options extends SpyOptio
   applyConfiguredReturns(instance, label, applied, () => getCallableMemberNames(instance));
   recordInnerDoubles(instance, applied.classReturns);
 
-  for (const key of Reflect.ownKeys(config.overrides)) {
-    installMember(instance, key, Reflect.get(config.overrides, key), restores);
-  }
+  installOverrides(instance, config.overrides, new Set(methodNames), className, restores);
 
   restores.push(mockValueProp(instance, DISPOSE, disposeSpiedInstance));
 

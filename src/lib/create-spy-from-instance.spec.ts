@@ -762,3 +762,41 @@ describe('createSpyFromInstance — returnsClass', () => {
     expect(() => innerDouble(spy, 'close')).toThrow("'close' has no returnsClass entry");
   });
 });
+
+describe('createSpyFromInstance — a function in overrides', () => {
+  class Client {
+    base = 10;
+
+    load(id: number): number {
+      return id;
+    }
+  }
+
+  it('becomes the method spy, recording calls and running the seed with the instance as this', () => {
+    const client = new Client();
+    const spy = createSpyFromInstance(client, {
+      overrides: {
+        load(this: Client, id: number): number {
+          return this.base + id;
+        },
+      },
+    });
+
+    expect(client.load(1)).toBe(11);
+    expect(spy.load).toHaveBeenCalledWith(1);
+
+    spy.load.calledWith(2).mockReturnValue(99);
+
+    expect(client.load(2)).toBe(99);
+  });
+
+  it('stores a vi.fn() as written, keeping its identity', () => {
+    const load = vi.fn((): number => 7);
+    const client = new Client();
+
+    createSpyFromInstance(client, { overrides: { load } });
+
+    expect(client.load).toBe(load);
+    expect(client.load(1)).toBe(7);
+  });
+});
