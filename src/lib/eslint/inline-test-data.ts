@@ -33,7 +33,7 @@ const DEFAULT_REPEATS = 3;
 const DEFAULT_MIN_VALUES = 2;
 
 /** Where the literal is the file the rule points at, not the spec. */
-const MOCK_FILE = /(?:^|[/\\])__mocks__[/\\]|\.(?:fixtures?|mocks?)\.[cm]?[jt]sx?$/;
+const MOCK_FILE = /(?:^|[/\\])__mocks__[/\\]|\.(?:fixtures?|mocks?(?:-data)?)\.[cm]?[jt]sx?$/;
 
 /** Keys whose value wires a testing module rather than holding data. */
 const WIRING_KEYS = new Set([
@@ -49,6 +49,15 @@ const WIRING_KEYS = new Set([
 ]);
 
 const MOCK_FACTORIES = new Set(['doMock', 'mock']);
+const SPY_CONFIGURATIONS = new Set([
+  'createSpyFromClass',
+  'createSpyFromInstance',
+  'createSpyClass',
+  'createAutoMock',
+  'provideAutoSpy',
+  'provideAutoSpyForToken',
+  'overrideAutoSpy',
+]);
 
 /** Calls whose argument is the value the test expects rather than data it feeds in. */
 const EXPECTATIONS = new Set([
@@ -114,7 +123,31 @@ function container(node: EsNode): EsNode {
 }
 
 function isWiring(node: EsNode): boolean {
-  return WIRING_KEYS.has(propertyName(node) ?? '');
+  if (WIRING_KEYS.has(propertyName(node) ?? '')) {
+    return true;
+  }
+
+  const binding = node.type === 'VariableDeclarator' ? Reflect.get(node, 'id') : undefined;
+
+  return binding !== undefined && isIdentifier(binding) && WIRING_KEYS.has(binding.name);
+}
+
+/** Options that configure a typed double are wiring, even when their members are plain values. */
+function isSpyConfiguration(node: EsNode): boolean {
+  let argument = node;
+
+  while (isWrapper(argument.parent)) {
+    argument = argument.parent;
+  }
+
+  const call = argument.parent;
+
+  if (!isCallExpression(call) || !isIdentifier(call.callee)) {
+    return false;
+  }
+
+  const position = call.callee.name === 'provideAutoSpyForToken' ? 2 : 1;
+  return SPY_CONFIGURATIONS.has(call.callee.name) && call.arguments[position] === argument;
 }
 
 /** `it.each([...])`, `describe.each([...])`: a table of cases reads best next to the test it drives. */
@@ -135,12 +168,47 @@ function holdsBehaviour(node: EsArrayExpression | EsObjectExpression): boolean {
   });
 }
 
-function isData(node: EsArrayExpression | EsObjectExpression): boolean {
+/** Explicit provider-array return types identify DI setup helpers without trusting their names. */
+function isProviderFactory(context: RuleContext, node: EsNode, literal: EsNode): boolean {
+  if (!isFunctionNode(node)) {
+    return false;
+  }
+
+  let current = literal;
+  let returned = false;
+
+  while (current.parent !== node) {
+    if (current.parent.type === 'VariableDeclarator' || isFunctionNode(current.parent)) {
+      return false;
+    }
+    current = current.parent;
+    returned ||= current.type === 'ReturnStatement';
+  }
+
+  if (current !== node.body || (current.type === 'BlockStatement' && !returned)) {
+    return false;
+  }
+
+  const signature = context.sourceCode
+    .getText(node)
+    .slice(0, node.body.range[0] - node.range[0])
+    .replace(/\s+/g, '');
+  const provider = '(?:Provider|EnvironmentProviders)';
+  const item = `${provider}(?:\\|${provider})*`;
+
+  return new RegExp(`:(?:(?:Readonly)?Array<${item}>|(?:readonly)?(?:${provider}|\\(${item}\\))\\[\\])(?:=>)?$`).test(signature);
+}
+
+function isData(context: RuleContext, node: EsArrayExpression | EsObjectExpression): boolean {
   return (
     members(node).length > 0 &&
+    !isSpyConfiguration(node) &&
     !members(node).some(isWiring) &&
     !holdsBehaviour(node) &&
-    !hasAncestor(node.parent, (ancestor) => isWiring(ancestor) || isEachTable(ancestor) || isInMockFactory(ancestor))
+    !hasAncestor(
+      node.parent,
+      (ancestor) => isWiring(ancestor) || isEachTable(ancestor) || isInMockFactory(ancestor) || isProviderFactory(context, ancestor, node),
+    )
   );
 }
 
@@ -436,7 +504,7 @@ export const noInlineTestData = defineRule({
     const collect = (node: EsArrayExpression | EsObjectExpression): void => {
       const key = tally(node);
 
-      if (!isData(node) || !isRecord(node, minValues)) {
+      if (!isData(context, node) || !isRecord(node, minValues)) {
         return;
       }
 
@@ -451,7 +519,7 @@ export const noInlineTestData = defineRule({
 
     return {
       'ObjectExpression, ArrayExpression': (node: EsArrayExpression | EsObjectExpression): void => {
-        if (!isLiteral(container(node)) && isData(node) && lineCount(node) > maxLines) {
+        if (!isLiteral(container(node)) && isData(context, node) && lineCount(node) > maxLines) {
           long.push(node);
         }
 

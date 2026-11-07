@@ -28,6 +28,7 @@
  */
 import { count as plural } from '../message-text';
 import { PACKAGE, angularEntryOf, bindingState, dropNamedImport, findBinding, importNamed, importSpecifierOf } from './bindings';
+import { isDeclarableProvider } from './declarable-provider';
 import { defineRule } from './define-rule';
 import { handRolledProvider, providesToken } from './hand-rolled-doubles';
 import { argumentList, excerpt, excerptOr } from './message-data';
@@ -135,7 +136,7 @@ function isTransposition(descriptor: EsObjectExpression, call: EsCallExpression)
 }
 
 /** Whether a mention of the factory is the callee of a provider this rule rewrites away. */
-function rewrittenAway(identifier: EsNode): boolean {
+function rewrittenAway(context: RuleContext, identifier: EsNode): boolean {
   const call = identifier.parent;
 
   if (!isCallExpression(call) || call.callee !== identifier) {
@@ -144,7 +145,12 @@ function rewrittenAway(identifier: EsNode): boolean {
 
   const descriptor = call.parent.parent;
 
-  return isObjectExpression(descriptor) && longFormAutoSpy(descriptor) === call && isTransposition(descriptor, call);
+  return (
+    isObjectExpression(descriptor) &&
+    longFormAutoSpy(descriptor) === call &&
+    isTransposition(descriptor, call) &&
+    !isDeclarableProvider(context, findProperty(descriptor, 'provide')?.value)
+  );
 }
 
 /**
@@ -167,7 +173,7 @@ function longFormFixes(context: RuleContext, fixer: EsFixer, descriptor: EsObjec
   const edits = [fixer.replaceText(descriptor, `${PROVIDE_AUTO_SPY}${args}`)];
   const free = bindingState(scope, PROVIDE_AUTO_SPY) === 'free';
   const factory = findBinding(scope, SPY_FROM_CLASS);
-  const orphaned = factory?.references.every((reference) => rewrittenAway(reference.identifier)) ? factory : undefined;
+  const orphaned = factory?.references.every((reference) => rewrittenAway(context, reference.identifier)) ? factory : undefined;
   const specifier = orphaned && importSpecifierOf(orphaned);
 
   // `/bun-angular` ships both names: the import the drop would delete is the one `provideAutoSpy` joins.
@@ -249,7 +255,7 @@ export const preferProvideAutoSpy: RuleModule = defineRule({
         // for a token and takes no registration mode — so the replacement this rule asks for would
         // silently turn an accumulating provider into an overriding one. Nothing to recommend, so
         // nothing said.
-        if (!provide || findProperty(node, 'multi')) {
+        if (!provide || findProperty(node, 'multi') || isDeclarableProvider(context, propertyValue(provide))) {
           return;
         }
 
@@ -280,7 +286,7 @@ export const preferProvideAutoSpy: RuleModule = defineRule({
         const descriptor = overrideDescriptor(node);
         const handed = descriptor && handedOver(descriptor);
 
-        if (handed) {
+        if (handed && !isDeclarableProvider(context, node.arguments[0])) {
           const [token] = node.arguments;
           const messageId = namesActivatedRoute(token) ? 'preferProvideActivatedRoute' : 'preferProvideAutoSpyInOverride';
 

@@ -18,11 +18,10 @@
  * configurations, as `context.getTargetOptions` does): the builder leaves those specifiers out of the
  * bundle, so Vitest resolves them and a `vi.mock` of one replaces the module.
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
+import { existsSync, globSync, readFileSync, statSync } from 'node:fs';
+import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 
-/** Keep in step with `UNIT_TEST_BUILDERS` in `src/cli/checks/unit-test-targets.ts`. */
-const UNIT_TEST_BUILDERS: ReadonlySet<string> = new Set(['@angular/build:unit-test', '@nx/angular:unit-test']);
+import { isAngularUnitTestBuilder } from '../angular-unit-test-builder';
 
 const WORKSPACE_FILES = ['angular.json', 'workspace.json'];
 
@@ -64,10 +63,6 @@ function recordAt(value: Json | undefined, key: string): Json | undefined {
   const found = value?.[key];
 
   return isJson(found) ? found : undefined;
-}
-
-function contains(root: string, directory: string): boolean {
-  return directory === root || directory.startsWith(join(root, sep));
 }
 
 /** Where the builder's own search for `runnerConfig: true` lands. */
@@ -126,28 +121,149 @@ function lastSet(blocks: readonly (Json | undefined)[], key: string, fallback: u
 }
 
 /** The run of the target's options, and of each configuration that overrides its runner config or build target. */
-function targetRuns(target: Json, name: string, projectRoot: string, workspace: Workspace): readonly BuilderRun[] {
+function targetRuns(
+  target: Json,
+  name: string,
+  projectRoot: string,
+  sourceRoot: string,
+  filename: string,
+  workspace: Workspace,
+): readonly BuilderRun[] {
   const byName = recordAt(workspace.defaults, name);
   const builder = target['builder'] ?? target['executor'] ?? byName?.['executor'];
 
-  if (typeof builder !== 'string' || !UNIT_TEST_BUILDERS.has(builder)) {
+  if (typeof builder !== 'string' || !isAngularUnitTestBuilder(builder, workspace.root)) {
     return [];
   }
 
   const blocks = [recordAt(recordAt(workspace.defaults, builder), 'options'), recordAt(byName, 'options'), recordAt(target, 'options')];
   const overrides = Object.values(recordAt(target, 'configurations') ?? {})
     .filter(isJson)
-    .filter((configuration) => 'runnerConfig' in configuration || 'buildTarget' in configuration);
+    .filter((configuration) => ['runnerConfig', 'buildTarget', 'include', 'exclude'].some((key) => key in configuration));
 
-  return [blocks, ...overrides.map((configuration) => [...blocks, configuration])].map((chain) => ({
-    config: configOf(lastSet(chain, 'runnerConfig', false), projectRoot, workspace.root),
-    externals: externalsOf(lastSet(chain, 'buildTarget', undefined), workspace),
-  }));
+  return [blocks, ...overrides.map((configuration) => [...blocks, configuration])]
+    .filter((chain) => servesFile(chain, sourceRoot, filename, workspace.root))
+    .map((chain) => ({
+      config: configOf(lastSet(chain, 'runnerConfig', false), projectRoot, workspace.root),
+      externals: externalsOf(lastSet(chain, 'buildTarget', undefined), workspace),
+    }));
 }
 
-function projectRuns(project: Json, projectRoot: string, workspace: Workspace): readonly BuilderRun[] {
+/** One filesystem walk per source root and pattern for the length of the lint run. */
+const selectionCache = new Map<string, ReadonlySet<string> | undefined>();
+
+/** Angular expands directory includes and resolves a source filename to its neighbouring spec. */
+function includePattern(pattern: string, sourceRoot: string): string {
+  const path = resolve(sourceRoot, pattern);
+
+  if (existsSync(path) && statSync(path).isDirectory()) {
+    return `${pattern.replace(/\/$/, '')}/**/*.@(spec|test).@(ts|tsx)`;
+  }
+
+  const extension = extname(path);
+  const name = basename(path, extension);
+
+  for (const infix of ['.spec', '.test']) {
+    const spec = join(dirname(path), `${name}${infix}${extension}`);
+
+    if (existsSync(spec)) {
+      return spec;
+    }
+  }
+
+  return pattern;
+}
+
+/** Unsaved lintText inputs have no disk entry; ordinary globs can still prove their selection. */
+function virtualMatch(pattern: string, filename: string, sourceRoot: string): boolean | undefined {
+  const file = relative(sourceRoot, resolve(filename)).replaceAll('\\', '/');
+  const normalized = relative(sourceRoot, resolve(sourceRoot, pattern)).replaceAll('\\', '/');
+
+  if ((file === '..' || file.startsWith('../')) && !(normalized === '..' || normalized.startsWith('../'))) {
+    return false;
+  }
+
+  // Unsupported constructs retain runner context rather than claiming a reset is redundant.
+  if (/[!()+@[\]{}]/.test(normalized)) {
+    return undefined;
+  }
+
+  const source = normalized.replace(/\*\*\/|\*\*|[*?]|[^*?]+/g, (token) => {
+    if (token === '**/') {
+      return '(?:[^/]+/)*';
+    }
+
+    if (token === '**') {
+      return '[\\s\\S]*';
+    }
+
+    if (token === '*') {
+      return '[^/]*';
+    }
+
+    if (token === '?') {
+      return '[^/]';
+    }
+    return token.replace(/[$()+.?[\\\]^{|}]/g, '\\$&');
+  });
+
+  return new RegExp(`^${source}$`).test(file);
+}
+
+/** Node 22's globber supports Angular's braces, character classes and extglobs without a dependency. */
+function matches(pattern: string, filename: string, sourceRoot: string): boolean | undefined {
+  // lintText can supply an unsaved file; an absent disk entry cannot disprove its builder context.
+  if (!existsSync(filename)) {
+    return virtualMatch(pattern, filename, sourceRoot);
+  }
+
+  const key = JSON.stringify([sourceRoot, pattern]);
+
+  if (!selectionCache.has(key)) {
+    try {
+      selectionCache.set(
+        key,
+        new Set(
+          globSync(pattern, {
+            cwd: sourceRoot,
+            exclude: (path) => path.replaceAll('\\', '/').split('/').includes('node_modules'),
+          }).map((path) => resolve(sourceRoot, path)),
+        ),
+      );
+    } catch {
+      // An unreadable selection cannot prove that a runner does not serve this file.
+      selectionCache.set(key, undefined);
+    }
+  }
+
+  return selectionCache.get(key)?.has(resolve(filename));
+}
+
+function servesFile(blocks: readonly (Json | undefined)[], sourceRoot: string, filename: string, workspaceRoot: string): boolean {
+  const prefix = relative(workspaceRoot, sourceRoot).replaceAll('\\', '/');
+  const normalize = (pattern: string): string => {
+    const clean = pattern.replaceAll('\\', '/').replace(/^\.\//, '');
+    return prefix !== '' && clean.startsWith(`${prefix}/`) ? clean.slice(prefix.length + 1) : clean;
+  };
+  const include = lastSet(blocks, 'include', ['**/*.spec.ts']);
+  const exclude = lastSet(blocks, 'exclude', []);
+
+  return (
+    Array.isArray(include) &&
+    include.some(
+      (pattern) => typeof pattern === 'string' && matches(includePattern(normalize(pattern), sourceRoot), filename, sourceRoot) !== false,
+    ) &&
+    !(
+      Array.isArray(exclude) &&
+      exclude.some((pattern) => typeof pattern === 'string' && matches(normalize(pattern), filename, sourceRoot) === true)
+    )
+  );
+}
+
+function projectRuns(project: Json, projectRoot: string, filename: string, workspace: Workspace): readonly BuilderRun[] {
+  const sourceRoot = typeof project['sourceRoot'] === 'string' ? resolve(workspace.root, project['sourceRoot']) : projectRoot;
   return Object.entries(targetsOf(project)).flatMap(([name, target]) =>
-    isJson(target) ? targetRuns(target, name, projectRoot, workspace) : [],
+    isJson(target) ? targetRuns(target, name, projectRoot, sourceRoot, filename, workspace) : [],
   );
 }
 
@@ -170,7 +286,7 @@ function locate(directory: string): { projectDir: string | undefined; workspaceR
   }
 }
 
-function runsFor(directory: string): readonly BuilderRun[] {
+function runsFor(directory: string, filename: string): readonly BuilderRun[] {
   const { projectDir, workspaceRoot = projectDir } = locate(directory);
 
   if (workspaceRoot === undefined) {
@@ -197,9 +313,9 @@ function runsFor(directory: string): readonly BuilderRun[] {
     .flatMap((project) => {
       const root = resolve(workspaceRoot, typeof project['root'] === 'string' ? project['root'] : '');
 
-      return contains(root, directory) ? projectRuns(project, root, workspace) : [];
+      return projectRuns(project, root, filename, workspace);
     });
-  const fromProject = projectDir === undefined || ownProject === undefined ? [] : projectRuns(ownProject, projectDir, workspace);
+  const fromProject = projectDir === undefined || ownProject === undefined ? [] : projectRuns(ownProject, projectDir, filename, workspace);
 
   return [...fromWorkspace, ...fromProject];
 }
@@ -207,15 +323,15 @@ function runsFor(directory: string): readonly BuilderRun[] {
 /** Every unit-test builder run serving this file; empty where no such target serves it. */
 export function builderRuns(filename: string): readonly BuilderRun[] {
   const directory = resolve(dirname(filename));
-  const cached = runsCache.get(directory);
+  const cached = runsCache.get(filename);
 
   if (cached !== undefined) {
     return cached;
   }
 
-  const runs = runsFor(directory);
+  const runs = runsFor(directory, filename);
 
-  runsCache.set(directory, runs);
+  runsCache.set(filename, runs);
 
   return runs;
 }

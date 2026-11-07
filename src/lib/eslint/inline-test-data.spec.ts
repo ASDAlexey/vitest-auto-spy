@@ -61,14 +61,48 @@ describe(RULE, () => {
 
   it('does not count wiring, doubles, case tables or vi.mock factories as data', () => {
     const wiring = `TestBed.configureTestingModule({ providers: [${literalOf(25)}], imports: [{ a: 1 }] });`;
+    const namedWiring = `const providers = [${literalOf(25)}]; TestBed.configureTestingModule({ providers });`;
     const double = `const api = { load: () => of(1), save() {}, nested: { run: function () {} }, ${literalOf(25).slice(1)};`;
     const table = `it.each([${literalOf(25)}])('works', () => {});`;
     const factory = `vi.mock('./api', () => (${literalOf(25)}));`;
     const holes = 'save([, { id: 1 }]);\nsave([, { id: 2 }]);';
 
-    for (const code of [wiring, double, table, factory, holes]) {
+    for (const code of [wiring, namedWiring, double, table, factory, holes]) {
       expect(verify(code)).toEqual([]);
     }
+  });
+
+  it('keeps typed-double configuration beside its live spy but still reports repeated payloads', () => {
+    for (const factory of [
+      'createSpyFromClass',
+      'createSpyFromInstance',
+      'createSpyClass',
+      'createAutoMock',
+      'provideAutoSpy',
+      'overrideAutoSpy',
+    ]) {
+      expect(verify(`${factory}(Api, { returns: ${literalOf(25)} });`)).toEqual([]);
+    }
+
+    expect(verify(`provideAutoSpyForToken(API, undefined, { returns: ${literalOf(25)} });`)).toEqual([]);
+    expect(verify(`createSpyFromClass(Api, { returns: { load: { id: 1, name: 'Ann' } } });`.repeat(3))).toHaveLength(2);
+    expect(verify(`save(Api, ${literalOf(25)});`)).toHaveLength(1);
+  });
+
+  it('keeps typed Angular provider factories inline without exempting ordinary data factories', () => {
+    const entries = Array.from({ length: 25 }, (_, index) => `  provideAutoSpy(Service${String(index)}),`).join('\n');
+
+    for (const type of ['Array<Provider | EnvironmentProviders>', 'Provider[]', 'readonly Provider[]', 'ReadonlyArray<Provider>']) {
+      expect(verify(`const createProviders = (): ${type} => [\n${entries}\n];`)).toEqual([]);
+      expect(verify(`function createProviders(): ${type} { return [\n${entries}\n]; }`)).toEqual([]);
+    }
+
+    expect(verify(`const createData = (): Array<Order> => [\n${literalOf(25)}\n];`)).toHaveLength(1);
+    expect(verify(`const createProviders = () => [\n${literalOf(25)}\n];`)).toHaveLength(1);
+    expect(verify(`function setup(): Provider[] { const data = ${literalOf(25)}; return []; }`)).toHaveLength(1);
+    expect(verify(`function setup(): Provider[] { consume(${literalOf(25)}); return []; }`)).toHaveLength(1);
+    expect(verify(`function setup(): Provider[] { return make(() => (${literalOf(25)})); }`)).toHaveLength(1);
+    expect(verify(`function setup(value = ${literalOf(25)}): Provider[] { return []; }`)).toHaveLength(1);
   });
 
   it('reads through casts, satisfies and spreads to the literal that holds the data', () => {
@@ -80,7 +114,7 @@ describe(RULE, () => {
   it('stays silent in the mock files it points at', () => {
     const code = `export const order = ${literalOf(25)};\nsave({ a: 1 });\nsave({ a: 1 });\nsave({ a: 1 });`;
 
-    for (const filename of ['order.mock.ts', 'order.mocks.ts', 'order.fixture.ts', 'src/__mocks__/api.ts']) {
+    for (const filename of ['order.mock.ts', 'order.mocks.ts', 'order.mock-data.ts', 'order.fixture.ts', 'src/__mocks__/api.ts']) {
       expect(verify(code, { filename })).toEqual([]);
     }
   });
