@@ -92,6 +92,12 @@ export interface ComponentStubOptions {
  *   and outputs are created, so an override of one of those replaces it.
  * @param options {@link ComponentStubOptions}.
  */
+export function createComponentStub<T, Overrides extends Partial<T> = Partial<T>>(
+  real: Type<T>,
+  overrides: Overrides & Record<Exclude<keyof Overrides, keyof T>, never>,
+  options?: ComponentStubOptions,
+): Type<Overrides & Partial<T>>;
+export function createComponentStub<T>(real: Type<T>, overrides?: Partial<T>, options?: ComponentStubOptions): Type<Partial<T>>;
 export function createComponentStub<T>(real: Type<T>, overrides: Partial<T> = {}, options: ComponentStubOptions = {}): Type<Partial<T>> {
   const realName = typeof real === 'function' ? sourceClassName(real.name) : String(real);
   const name = `${realName}Stub`;
