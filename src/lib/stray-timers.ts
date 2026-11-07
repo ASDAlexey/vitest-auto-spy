@@ -33,8 +33,9 @@ import { defineHelper } from './define-helper';
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
 import { markOwnedPatch } from './owned-patch';
-import { isLibraryFrame, stackFrames } from './stack-frames';
+import { captureStack, isEnvironmentFrame, isLibraryFrame, stackFrames } from './stack-frames';
 import { type MadeIn, describeMadeIn, describeOriginOf, describeThrown, madeIn, originNow } from './stray-failure';
+import { includesAnyPattern } from './text-pattern';
 import type { Func } from './types';
 
 /**
@@ -107,6 +108,11 @@ interface Origin {
 /** What a wrapper knows when it schedules: the kind, the delay, the call's arguments, and itself — where the stack is cut. */
 type OriginRequest = Pick<Origin, 'delay' | 'kind' | 'rest'> & { readonly boundary: Func };
 
+interface IgnoreRules {
+  patterns: readonly (RegExp | string)[];
+  verdicts: WeakMap<Origin, boolean>;
+}
+
 /** Undo the wrapping installed by {@link trackStrayTimers}, cancelling anything still outstanding. */
 export type StopTrackingTimers = () => void;
 
@@ -136,8 +142,11 @@ interface Tracking {
   readonly frames: Map<number, Origin>;
   /** Set while the library schedules on its own behalf, so its timers are never charged to a file. */
   readonly pause: { paused: boolean };
-  /** {@link StrayTimersOptions.ignore}, replaced by every call to {@link trackStrayTimers}. */
-  readonly ignore: { patterns: readonly (RegExp | string)[] };
+  /**
+   * {@link StrayTimersOptions.ignore}, replaced by every call to {@link trackStrayTimers}, with the
+   * verdicts already reached under it: a stack is parsed once per timer, not on every count.
+   */
+  readonly ignore: IgnoreRules;
   /** The real `clearTimeout`, which still reaches a tracked handle once fake timers took the global over. */
   readonly clearTimeout: (handle: unknown) => void;
   readonly stop: StopTrackingTimers;
@@ -235,28 +244,7 @@ const ORIGIN_DEPTH = 40;
  * frames before counting toward the depth; elsewhere they are filtered out when described.
  */
 function captureOrigin({ kind, delay, rest, boundary }: OriginRequest, callback: ScheduledCallback): Origin {
-  const limit = Error.stackTraceLimit;
-
-  Error.stackTraceLimit = ORIGIN_DEPTH;
-
-  const trace = captureTrace(boundary);
-
-  Error.stackTraceLimit = limit;
-
-  return { kind, delay, ...originNow(), trace, callback, rest };
-}
-
-/** Into a plain object where V8 allows, which skips building the string until a report reads it. */
-function captureTrace(boundary: Func): { stack?: string } {
-  if (typeof Error.captureStackTrace !== 'function') {
-    return new Error();
-  }
-
-  const holder: { stack?: string } = {};
-
-  Error.captureStackTrace(holder, boundary);
-
-  return holder;
+  return { kind, delay, ...originNow(), trace: captureStack(boundary, ORIGIN_DEPTH), callback, rest };
 }
 
 /** What the runtime makes of a timer's delay argument: a number, and nothing below zero. */
@@ -451,6 +439,7 @@ export function trackStrayTimers(host: SchedulerHost = defaultHost(), options: S
 
   if (tracked) {
     tracked.ignore.patterns = patterns;
+    tracked.ignore.verdicts = new WeakMap();
 
     return tracked.stop;
   }
@@ -489,7 +478,7 @@ export function trackStrayTimers(host: SchedulerHost = defaultHost(), options: S
     throw error;
   }
 
-  registry().set(host, { handles, numeric, opaque, frames, pause, ignore: { patterns }, clearTimeout, stop });
+  registry().set(host, { handles, numeric, opaque, frames, pause, ignore: { patterns, verdicts: new WeakMap() }, clearTimeout, stop });
 
   return stop;
 }
@@ -526,7 +515,7 @@ export function cancelStrayTimers(host: SchedulerHost = defaultHost()): number {
   // cheaper than recording which scheduler produced it. An ignored one is only forgotten: undici
   // keeps its connection pool's timers for reuse, and one cancelled behind its back never fires again.
   tracked.handles.forEach((origin, handle) => {
-    if (!isIgnored(origin, tracked.ignore.patterns)) {
+    if (!isIgnored(origin, tracked.ignore)) {
       host.clearTimeout(handle);
       host.clearInterval(handle);
     }
@@ -542,7 +531,7 @@ export function cancelStrayTimers(host: SchedulerHost = defaultHost()): number {
 
   if (cancelFrame) {
     tracked.frames.forEach((origin, handle) => {
-      if (!isIgnored(origin, tracked.ignore.patterns)) {
+      if (!isIgnored(origin, tracked.ignore)) {
         cancelFrame(handle);
       }
     });
@@ -590,7 +579,7 @@ function pendingHandles(tracked: Tracking): Origin[] {
   const pending: Origin[] = [];
 
   tracked.handles.forEach((origin, handle) => {
-    if (isPending(handle) && !isIgnored(origin, tracked.ignore.patterns)) {
+    if (isPending(handle) && !isIgnored(origin, tracked.ignore)) {
       pending.push(origin);
     }
   });
@@ -599,7 +588,7 @@ function pendingHandles(tracked: Tracking): Origin[] {
 }
 
 function pendingFrames(tracked: Tracking): Origin[] {
-  return [...tracked.frames.values()].filter((origin) => !isIgnored(origin, tracked.ignore.patterns));
+  return [...tracked.frames.values()].filter((origin) => !isIgnored(origin, tracked.ignore));
 }
 
 /** Node's bundled undici behind the global `fetch()`, or the `undici` package itself. */
@@ -617,22 +606,23 @@ function schedulingFrame(frames: readonly string[]): string | undefined {
   return frames.find((frame) => !OWN_MODULE_FRAME.test(frame) && !isLibraryFrame(frame) && !ZONE_FRAME.test(frame));
 }
 
-function isIgnored(origin: Origin, patterns: readonly (RegExp | string)[]): boolean {
-  const stack = String(origin.trace.stack);
-  const caller = schedulingFrame(stackFrames(stack));
+/**
+ * A timer undici or the DOM environment scheduled for itself — jsdom's `requestAnimationFrame` runs
+ * on an internal `setInterval` — or one the `ignore` list names.
+ */
+function isIgnored(origin: Origin, ignore: IgnoreRules): boolean {
+  let verdict = ignore.verdicts.get(origin);
 
-  if (caller !== undefined && UNDICI_FRAME.test(caller)) {
-    return true;
+  if (verdict === undefined) {
+    const stack = String(origin.trace.stack);
+    const caller = schedulingFrame(stackFrames(stack));
+
+    verdict =
+      (caller !== undefined && (UNDICI_FRAME.test(caller) || isEnvironmentFrame(caller))) || includesAnyPattern(stack, ignore.patterns);
+    ignore.verdicts.set(origin, verdict);
   }
 
-  return patterns.some((pattern) => (typeof pattern === 'string' ? stack.includes(pattern) : searches(pattern, stack)));
-}
-
-/** `test` without the `lastIndex` a global or sticky RegExp carries from one call to the next. */
-function searches(pattern: RegExp, text: string): boolean {
-  pattern.lastIndex = 0;
-
-  return pattern.test(text);
+  return verdict;
 }
 
 /** The stack frames of the wrappers in this file, which say nothing about where the call came from. */
@@ -739,11 +729,20 @@ function rethrown(callback: (...args: unknown[]) => unknown, args: readonly unkn
   }
 }
 
+/** The callback's source first: it is cheap, and the stack is formatted only for a timer that passes it. */
+function isRxjsRethrow(origin: Origin): boolean {
+  return (
+    typeof origin.callback === 'function' &&
+    RXJS_RETHROW_SOURCE.test(Function.prototype.toString.call(origin.callback)) &&
+    RXJS_RETHROW_FRAME.test(String(origin.trace.stack))
+  );
+}
+
 function flushTracked(tracked: Tracking): UnhandledObservableError[] {
   const found: UnhandledObservableError[] = [];
 
   tracked.handles.forEach((origin, handle) => {
-    if (origin.kind !== 'timeout' || origin.delay !== 0 || !isPending(handle) || !RXJS_RETHROW_FRAME.test(String(origin.trace.stack))) {
+    if (origin.kind !== 'timeout' || origin.delay !== 0 || !isPending(handle) || !isRxjsRethrow(origin)) {
       return;
     }
 

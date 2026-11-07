@@ -393,7 +393,7 @@ describe('stray timers', () => {
       stop();
     }
 
-    expect(() => countStrayTimers()).toThrow();
+    expect(() => countStrayTimers()).toThrow(/countStrayTimers\(\) found no tracking to count/);
   });
 });
 
@@ -670,7 +670,7 @@ describe('an installation that cannot be completed', () => {
     // the run, and a second call wrapped everything twice.
     const restore = mockReadonlyProp(host, 'requestAnimationFrame', () => 1);
 
-    expect(() => trackStrayTimers(host)).toThrow();
+    expect(() => trackStrayTimers(host)).toThrow(/Cannot set property requestAnimationFrame/);
     expect(host.setTimeout).toBe(realSetTimeout);
     expect(() => countStrayTimers(host)).toThrow(/nothing called trackStrayTimers\(\) for this host/);
     restore();
@@ -747,6 +747,46 @@ describe('timers left alone', () => {
     expect(cancelStrayTimers(host)).toBe(1);
     expect(host.cleared).toEqual([4, 4]);
     expect(host.clearedFrames).toEqual([]);
+  });
+
+  it.each(['/app/node_modules/jsdom/lib/jsdom/browser/Window.js', 'C:\\app\\node_modules\\happy-dom\\lib\\window\\BrowserWindow.js'])(
+    'neither counts nor cancels the interval the DOM environment runs its frames on (%s)',
+    (file) => {
+      const host = createHost();
+
+      stops.push(trackStrayTimers(host));
+      relayFrom(file)(host.setInterval, () => undefined, 1000 / 60);
+
+      expect(countStrayTimers(host)).toBe(0);
+      expect(cancelStrayTimers(host)).toBe(0);
+      expect(host.cleared).toEqual([]);
+    },
+  );
+
+  it('matches the ignore list once per timer, not on every count', () => {
+    const host = createHost();
+    let searched = 0;
+
+    class CountingPattern extends RegExp {
+      override [Symbol.search](text: string): number {
+        searched += 1;
+
+        return super[Symbol.search](text);
+      }
+    }
+
+    stops.push(trackStrayTimers(host, { ignore: [new CountingPattern('some-sdk')] }));
+    host.setTimeout(() => undefined, 100);
+
+    expect(countStrayTimers(host)).toBe(1);
+    expect(countStrayTimers(host)).toBe(1);
+    expect(describeStrayTimers(host)).toHaveLength(1);
+    expect(searched).toBe(1);
+
+    trackStrayTimers(host, { ignore: [new CountingPattern('stray-timers.spec')] });
+
+    expect(countStrayTimers(host)).toBe(0);
+    expect(searched).toBe(2);
   });
 
   it('takes the ignore list of the latest call', () => {
@@ -830,6 +870,24 @@ describe('flushUnhandledObservableErrors', () => {
 
     expect(flushUnhandledObservableErrors(host)).toEqual([]);
     expect(countStrayTimers(host)).toBe(4);
+  });
+
+  it('leaves a timer whose callback only reads like the rethrow, or is no function at all', () => {
+    const host = createHost();
+    const lookalike = (): void => {
+      const onUnhandledError = null;
+
+      if (onUnhandledError === null) {
+        throw new Error('not rxjs');
+      }
+    };
+
+    stops.push(trackStrayTimers(host));
+    host.setTimeout(lookalike);
+    callFrom('/app/node_modules/rxjs/dist/cjs/internal/util/reportUnhandledError.js', () => host.setTimeout(42 as never));
+
+    expect(flushUnhandledObservableErrors(host)).toEqual([]);
+    expect(countStrayTimers(host)).toBe(2);
   });
 
   it('skips a rethrow already cancelled through its own close()', () => {
