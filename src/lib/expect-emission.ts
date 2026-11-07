@@ -235,6 +235,8 @@ export interface EmissionOptions<T = unknown> {
   until?: (value: T) => boolean;
   /**
    * Run once, immediately after the subscription exists and before the promise is handed back.
+   * Skipped when the source already settled the wait during `subscribe` — a `BehaviorSubject`, `of(…)`
+   * — because nothing is listening any more; advance the clock yourself after such a wait.
    *
    * This is the window a spec cannot otherwise reach. Under fake timers a stream driven by a
    * `debounceTime`, a retry or a poll needs the clock advanced *after* something is listening, and
@@ -621,15 +623,19 @@ export function timeoutError(seen: Seen, context: WaitContext, waited: number): 
  * `rejects.toBe(original)` or `rejects.toBeInstanceOf(HttpErrorResponse)`, use {@link expectError},
  * which resolves *with* the error and needs no unwrapping at all.
  */
-export function rejectAsSourceError(error: unknown, context: WaitContext, settle: Rejecter): void {
-  settle.reject(
-    emissionFailure(
-      context,
-      `the stream errored instead of emitting: ${String(error)}. ` +
-        'If that error is what the test is about, await `expectError(source$)` — it resolves with the error itself.',
-      { cause: error },
-    ),
-  );
+export const rejectAsSourceError = sourceErrorRejecter('instead of emitting');
+
+/** The stream errored where silence was expected — `expectNoEmission` and its sync twin. */
+export const rejectAsErroredWhileSilent = sourceErrorRejecter('while it was expected to stay silent');
+
+const rejectAsNotCompleted = sourceErrorRejecter('instead of completing');
+
+function sourceErrorRejecter(expectation: string): (error: unknown, context: WaitContext, settle: Rejecter) => void {
+  return (error, context, settle) => {
+    const hint = 'If that error is what the test is about, await `expectError(source$)` — it resolves with the error itself.';
+
+    settle.reject(emissionFailure(context, `the stream errored ${expectation}: ${String(error)}. ${hint}`, { cause: error }));
+  };
 }
 
 function completedError(seen: Seen, context: WaitContext): Error {
@@ -767,6 +773,18 @@ export function expectNoEmission<T>(source$: EmissionSource<T>, options?: Emissi
   let quietWindow: ReturnType<typeof setTimer> | undefined = undefined;
   const context: WaitContext = { helper: 'expectNoEmission', options, expected: 1 };
 
+  // Node turns a delay that is not a finite, non-negative 32-bit number into ~1 ms, which passed a
+  // window that was never waited for.
+  if (!Number.isFinite(quietFor) || quietFor < 0) {
+    const problem =
+      `{ timeout: ${String(quietFor)} } is not a quiet window: it needs a finite, non-negative number of milliseconds. ` +
+      'Silence can only be proven for a bounded time — pass the longest delay the stream could plausibly emit after.';
+
+    return Promise.reject(anchor(emissionFailure(context, problem)));
+  }
+
+  const quietDelay = Math.min(quietFor, MAX_TIMER_DELAY);
+
   return new Promise<void>((resolve, reject) => {
     const fail = anchoredRejecter(reject, anchor);
     const collector = subscribeAndCollect<T>(
@@ -784,7 +802,7 @@ export function expectNoEmission<T>(source$: EmissionSource<T>, options?: Emissi
         // Never reached — the watchdog is off (`timeout: 0`) and the quiet window below is this
         // helper's own timer. Named rather than inlined so it is not an uncalled arrow.
         onTimeout: timeoutError,
-        onError: rejectAsSourceError,
+        onError: rejectAsErroredWhileSilent,
         emissionsSettle: true,
         helper: context.helper,
         expected: context.expected,
@@ -797,7 +815,7 @@ export function expectNoEmission<T>(source$: EmissionSource<T>, options?: Emissi
     quietWindow = setTimer(() => {
       collector.stop();
       resolve();
-    }, quietFor);
+    }, quietDelay);
 
     // A test that ended without awaiting this promise has no `finally` to reach: the collector's
     // teardown clears the window too.
@@ -887,17 +905,6 @@ function notCompletedError(seen: Seen, context: WaitContext, waited: number): Er
       'that feeds it. A spied method configured with `nextWith()` never completes, and neither does a `forkJoin` over ' +
       'it: seed a one-shot call (HTTP, IPC) with `nextOneTimeWith()`.' +
       fakeClockAdvice(),
-  );
-}
-
-function rejectAsNotCompleted(error: unknown, context: WaitContext, settle: Rejecter): void {
-  settle.reject(
-    emissionFailure(
-      context,
-      `the stream errored instead of completing: ${String(error)}. ` +
-        'If that error is what the test is about, await `expectError(source$)` — it resolves with the error itself.',
-      { cause: error },
-    ),
   );
 }
 

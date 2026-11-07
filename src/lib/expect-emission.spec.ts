@@ -1,4 +1,4 @@
-import { BehaviorSubject, EMPTY, Subject, from, of, repeat, tap } from 'rxjs';
+import { BehaviorSubject, EMPTY, Subject, from, of, repeat, tap, throwError } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { expectNoEmissionSync } from './emission-sync';
@@ -131,6 +131,29 @@ describe('expectNoEmission', () => {
 
   it('resolves when the stream stays silent', async () => {
     await expect(expectNoEmission(new Subject<number>(), { timeout: 5 })).resolves.toBeUndefined();
+  });
+
+  it.each([Infinity, Number.NaN, -1])('rejects a quiet window of %s instead of waiting ~1 ms', async (timeout) => {
+    await expect(expectNoEmission(new Subject<number>(), { timeout })).rejects.toThrow(
+      `expectNoEmission(source$): { timeout: ${String(timeout)} } is not a quiet window: it needs a finite, non-negative number of milliseconds.`,
+    );
+  });
+
+  it('caps a window past the timer limit instead of letting it fire after ~1 ms', async () => {
+    const source$ = new Subject<number>();
+    const silence = expectNoEmission(source$, { timeout: 2 ** 31 });
+
+    // eslint-disable-next-line vitest-auto-spy/no-real-wait-in-test -- an overflowing window fires on the real clock, so only real time shows it no longer does
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    source$.next(1);
+
+    await expect(silence).rejects.toThrow(/emitted 1 but was expected to stay silent/);
+  });
+
+  it('says the stream errored while it was expected to stay silent', async () => {
+    await expect(expectNoEmission(throwError(() => new Error('boom')))).rejects.toThrow(
+      'expectNoEmission(source$): the stream errored while it was expected to stay silent: Error: boom.',
+    );
   });
 
   it('rejects, printing the value, when the stream does emit', async () => {
@@ -1055,7 +1078,7 @@ describe('expectNoEmissionSync', () => {
     const failing$ = new Subject<number>();
 
     expect(() => expectNoEmissionSync(failing$, { advance: () => failing$.error(new Error('boom')) })).toThrow(
-      /expectNoEmissionSync\(source\$\): the stream errored instead of emitting: Error: boom/,
+      /expectNoEmissionSync\(source\$\): the stream errored while it was expected to stay silent: Error: boom/,
     );
     expect(() => expectNoEmissionSync(notSubscribable())).toThrow(/expectNoEmissionSync\(source\$\): the source is not subscribable/);
   });
