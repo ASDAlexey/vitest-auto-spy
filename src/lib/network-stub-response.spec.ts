@@ -153,7 +153,7 @@ describe('stubResponse', () => {
 
     await response.json();
 
-    await expect(response.json()).rejects.toThrow();
+    await expect(response.json()).rejects.toThrow(/Body has already been (read|used)/);
   });
 
   it('serves a stubbed fetch without a cast', async () => {
