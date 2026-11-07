@@ -28,13 +28,16 @@ import { type UnstubbedGuard, createFunctionSpy } from './function-spy';
 import {
   NOT_STORED,
   type ProxyPropStore,
+  cannotFreeze,
   createProxyPropStore,
   describeStoredProp,
+  dropStoredProp,
   hasStoredProp,
   isDeletedProp,
-  isProtocolKey,
+  isWithheldKey,
   readStoredAccessor,
-  storeWriteTraps,
+  storeDefinedProp,
+  writeStoredAccessor,
   writeStoredValue,
 } from './proxy-props';
 import { disposeAutoSpy } from './reset-auto-spy';
@@ -104,21 +107,21 @@ function isSpySurfaceKey(spy: Func, key: PropertyKey): boolean {
  * read would make every deep node unusable on `bun:test`. Cached, because binding per read
  * allocates a function per property access — and made `api.log.info !== api.log.info`.
  */
-function readSpyMember(target: Func, key: PropertyKey, boundSpyMethods: Map<PropertyKey, Func>): unknown {
+function readSpyMember(target: Func, key: PropertyKey, state: DeepNodeState): unknown {
   const value: unknown = Reflect.get(target, key, target);
 
   if (typeof value !== 'function') {
     return value;
   }
 
-  const cached = boundSpyMethods.get(key);
+  const cached = state.boundSpyMethods?.get(key);
 
   if (cached) {
     return cached;
   }
 
   const bound: Func = value.bind(target);
-  boundSpyMethods.set(key, bound);
+  (state.boundSpyMethods ??= new Map()).set(key, bound);
 
   return bound;
 }
@@ -137,7 +140,7 @@ interface DeepNodeState {
   name: string;
   tree: DeepTree;
   children: Map<PropertyKey, unknown>;
-  boundSpyMethods: Map<PropertyKey, Func>;
+  boundSpyMethods: Map<PropertyKey, Func> | undefined;
   store: ProxyPropStore;
   home: NodeHome;
   key: string;
@@ -285,7 +288,7 @@ function readNodeMember(state: DeepNodeState, target: Func, key: string | symbol
 
   // Not thenable, and not a scheduler / Observable either: awaiting a node must not treat it as
   // a Promise, and `of(node)` must not eat it as a scheduler. See `isProtocolKey`.
-  if (key === 'then' || isProtocolKey(key)) {
+  if (typeof key === 'string' && isWithheldKey(key)) {
     return undefined;
   }
 
@@ -294,7 +297,7 @@ function readNodeMember(state: DeepNodeState, target: Func, key: string | symbol
   // member named `name`, `length`, `call`, `bind`, `apply`, `constructor` or `toString` never
   // materialised at all; see `isSpySurfaceKey`.
   if (isSpySurfaceKey(target, key)) {
-    return readSpyMember(target, key, state.boundSpyMethods);
+    return readSpyMember(target, key, state);
   }
 
   // Never spawn children for JS-internal symbol protocols, nor for a key a spec deleted —
@@ -323,12 +326,75 @@ function hasNodeMember(state: DeepNodeState, target: Func, key: string | symbol)
     return Reflect.has(target, key);
   }
 
-  if (key === 'then' || isProtocolKey(key)) {
+  if (isWithheldKey(key)) {
     return false;
   }
 
   return isSpySurfaceKey(target, key) || !isDeletedProp(state.store, key);
 }
+
+// Keyed by the node's spy, so one handler serves every node of every tree instead of a handler and
+// its closures per node.
+const deepNodes = new WeakMap<Func, DeepNodeState>();
+
+function stateOf(target: Func): DeepNodeState {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- every target reaching these traps was registered by `createDeepNode` before its Proxy existed.
+  return deepNodes.get(target) as DeepNodeState;
+}
+
+const DEEP_NODE_HANDLER: ProxyHandler<Func> = {
+  get: (target, property, receiver): unknown => readNodeMember(stateOf(target), target, property, receiver),
+
+  has: (target, property): boolean => hasNodeMember(stateOf(target), target, property),
+
+  // The traps that make `mockValueProp` / `mockReadonlyProp` / `mockAccessorsProp` reach a node at
+  // all — see `proxy-props.ts` for why their absence was silent rather than loud.
+  set(target, property, value, receiver): boolean {
+    const { store } = stateOf(target);
+
+    if (!writeStoredAccessor(store, property, value, receiver)) {
+      writeStoredValue(store, property, value);
+    }
+
+    return true;
+  },
+
+  defineProperty: (target, property, descriptor): boolean => storeDefinedProp(stateOf(target).store, property, descriptor),
+
+  deleteProperty: (target, property): boolean => dropStoredProp(stateOf(target).store, property),
+
+  getOwnPropertyDescriptor(target, property): PropertyDescriptor | undefined {
+    // Falls through to the spy itself for everything the store does not answer, and that is not
+    // optional: the target is a function, `prototype` and `length` are its own properties, and a
+    // trap that hid a non-configurable one would make the Proxy throw on `Object.keys`.
+    return describeStoredProp(stateOf(target).store, property) ?? Reflect.getOwnPropertyDescriptor(target, property);
+  },
+
+  preventExtensions(): boolean {
+    throw cannotFreeze('mockDeep');
+  },
+
+  apply(target, thisArg, args): unknown {
+    // The spy runs first, always: it records the call and answers whatever `mockReturnValue` /
+    // `calledWith(...)` configured — or, on a node nobody configured, the tree's fallback — so
+    // `selfReturning` never takes configuration away.
+    const returned: unknown = Reflect.apply(target, thisArg, args);
+    const state = stateOf(target);
+
+    // `undefined` is what an unconfigured spy returns, and under `selfReturning` it is also the
+    // only thing a fluent API can never have meant — `a.b()` exists to be chained from. Handing
+    // the node back turns `logger.channel('app').info('x')` into a call on `logger.channel.info`,
+    // the same node the next property read would have produced.
+    //
+    // The cost is exact and worth stating: a node deliberately configured to return `undefined`
+    // returns the node instead. That is why this is opt-in rather than the default.
+    if (state.tree.selfReturning && returned === undefined) {
+      return state.node;
+    }
+
+    return returned;
+  },
+};
 
 /** Build one deep-mock node: a function spy wrapped in a child-materializing Proxy. */
 function createDeepNode(name: string, overrides: object, tree: DeepTree, home: NodeHome, key: string): unknown {
@@ -337,59 +403,18 @@ function createDeepNode(name: string, overrides: object, tree: DeepTree, home: N
     name,
     tree,
     children: new Map<PropertyKey, unknown>(),
-    boundSpyMethods: new Map<PropertyKey, Func>(),
+    boundSpyMethods: undefined,
     store: createProxyPropStore(overrides),
     home,
     key,
     node: undefined,
     elements: undefined,
   };
-  const { store } = state;
 
-  const handler: ProxyHandler<Func> = {
-    get: (target, property, receiver): unknown => readNodeMember(state, target, property, receiver),
+  deepNodes.set(spy, state);
+  state.node = new Proxy(spy, DEEP_NODE_HANDLER);
 
-    has: (target, property): boolean => hasNodeMember(state, target, property),
-
-    // The traps that make `mockValueProp` / `mockReadonlyProp` / `mockAccessorsProp` reach a node at
-    // all — see `proxy-props.ts` for why their absence was silent rather than loud.
-    ...storeWriteTraps<Func>(store),
-
-    getOwnPropertyDescriptor(target, property): PropertyDescriptor | undefined {
-      // Falls through to the spy itself for everything the store does not answer, and that is not
-      // optional: the target is a function, `prototype` and `length` are its own properties, and a
-      // trap that hid a non-configurable one would make the Proxy throw on `Object.keys`.
-      return describeStoredProp(store, property) ?? Reflect.getOwnPropertyDescriptor(target, property);
-    },
-
-    apply(target, thisArg, args): unknown {
-      // The spy runs first, always: it records the call and answers whatever `mockReturnValue` /
-      // `calledWith(...)` configured — or, on a node nobody configured, the tree's fallback — so
-      // `selfReturning` never takes configuration away.
-      const returned: unknown = Reflect.apply(target, thisArg, args);
-
-      // `undefined` is what an unconfigured spy returns, and under `selfReturning` it is also the
-      // only thing a fluent API can never have meant — `a.b()` exists to be chained from. Handing
-      // the node back turns `logger.channel('app').info('x')` into a call on `logger.channel.info`,
-      // the same node the next property read would have produced.
-      //
-      // The cost is exact and worth stating: a node deliberately configured to return `undefined`
-      // returns the node instead. That is why this is opt-in rather than the default.
-      if (tree.selfReturning && returned === undefined) {
-        return node;
-      }
-
-      return returned;
-    },
-  };
-
-  // Declared after the handler that closes over it; only `apply` reads it, and a node cannot be
-  // called before it exists.
-  const node: unknown = new Proxy(spy, handler);
-
-  state.node = node;
-
-  return node;
+  return state.node;
 }
 
 /**

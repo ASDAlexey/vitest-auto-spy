@@ -336,3 +336,63 @@ describe('mockDeep — Symbol.dispose', () => {
     expect(disposed).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('mockDeep — printer and serializer probes', () => {
+  it('answers them with undefined at every depth, so a diff prints the node rather than a toJSON call', () => {
+    const api = mockDeep<{ repo: { find(): number } }>();
+    const caller = vi.fn();
+    const node: Record<string, unknown> = api.repo;
+
+    caller(api.repo);
+
+    let message = '';
+
+    try {
+      expect(caller).toHaveBeenCalledWith(1);
+    } catch (error) {
+      message = String(error instanceof Error ? error.message : error);
+    }
+
+    expect(message).toContain('[Function');
+    expect(message).not.toContain('+   undefined');
+    expect(['toJSON', '$$typeof', 'nodeType', 'tagName', 'hasAttribute', '@@__IMMUTABLE_RECORD__@@'].map((key) => node[key])).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect('toJSON' in node).toBe(false);
+  });
+
+  it('keeps a seeded probe key', () => {
+    const api = mockDeep<{ toJSON(): string }>({ toJSON: () => 'seeded' });
+
+    expect(api.toJSON()).toBe('seeded');
+  });
+});
+
+describe('mockDeep — Object.freeze', () => {
+  it('refuses with an error that names the library', () => {
+    expect(() => Object.freeze(mockDeep<{ a: number }>())).toThrow(/\[vitest-auto-spy\] A mockDeep double cannot be frozen/);
+  });
+});
+
+describe('mockDeep — one handler for every node', () => {
+  it('keeps the state of sibling nodes and trees apart', () => {
+    const first = mockDeep<{ a: { run(): number }; b: { run(): number } }>({}, { selfReturning: true });
+    const second = mockDeep<{ a: { run(): number } }>();
+    const a: Record<string, unknown> = first.a;
+    const b: Record<string, unknown> = first.b;
+
+    first.a.run.mockReturnValue(1);
+    b['x'] = 'b';
+
+    expect(first.a.run()).toBe(1);
+    expect(first.b.run()).toBe(first.b.run);
+    expect(second.a.run()).toBeUndefined();
+    expect(a['x']).not.toBe('b');
+    expect(b['x']).toBe('b');
+  });
+});
