@@ -210,7 +210,7 @@ function build(version) {
 
   // AGENTS.md only exists from 1.13.0 on; linking it from an older release would 404.
   if (fileExistsAtTag(tag, 'AGENTS.md')) {
-    links.push(`🤖 [AGENTS.md](${REPO}/blob/${tag}/AGENTS.md)`);
+    links.push(`📘 [AGENTS.md](${REPO}/blob/${tag}/AGENTS.md)`);
   }
 
   parts.push([links.join(' · '), '', `**Full changelog:** ${compare}`].join('\n'));
