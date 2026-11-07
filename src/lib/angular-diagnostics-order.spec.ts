@@ -10,6 +10,9 @@ import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 
 import '../angular';
 import { disableAngularDiagnostics, enableAngularDiagnostics } from './angular-diagnostics';
+import { expectFailures } from './expected-failure.mock';
+
+const failsWith = expectFailures();
 
 afterEach(() => {
   getTestBed().resetTestingModule();
@@ -27,6 +30,7 @@ afterAll(() => {
 });
 
 it.fails('reports a request the suite reset took down before the check ran', () => {
+  failsWith(/GET \/api\/reset-first was never answered/);
   TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
   TestBed.inject(HttpClient).get('/api/reset-first').subscribe();
 });
