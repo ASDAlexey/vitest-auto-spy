@@ -364,8 +364,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # the declared floor, and every major published since
-        angular: ['20', '21', '22']
+        # the exact floor the peer range declares, then the latest of every major since: `@20` alone
+        # resolves to the newest 20.x, and 20.0-20.1.2 keep reactive nodes in a different shape
+        angular: ['20.0.0', '20', '21', '22']
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -445,6 +446,18 @@ jobs:
             expect(Object.keys(double.route).sort()).toEqual(Object.keys(new ActivatedRoute()).sort());
             expect(double.route.snapshot.paramMap.get('id')).toBe('8');
             expect(double.route.root).toBe(double.route);
+          });
+
+          // The internals canaries only run when a helper is called, so linking alone never trips them.
+          test('the helpers that read Angular internals accept this version', async () => {
+            const { linkedSignal, signal } = await import('@angular/core');
+            const { mockSignalProp } = await import('vitest-auto-spy/angular');
+            const { provideHttpTesting } = await import('vitest-auto-spy/angular-http');
+            const store = { count: signal(1).asReadonly(), linked: linkedSignal(() => 1).asReadonly() };
+
+            expect(mockSignalProp(store, 'count', 2)()).toBe(2);
+            expect(mockSignalProp(store, 'linked', 3)()).toBe(3);
+            expect(provideHttpTesting().length).toBeGreaterThan(0);
           });
           TS
           npx vitest run link.test.ts
