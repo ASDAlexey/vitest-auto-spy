@@ -1,4 +1,4 @@
-import { Injectable, type Signal, type WritableSignal, computed, signal } from '@angular/core';
+import { Injectable, type ResourceRef, type Signal, type WritableSignal, computed, resource, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
@@ -7,6 +7,7 @@ import { injectSpy, provideAutoSpy } from './angular';
 import { restoreMockedProps } from './prop-mock';
 import { type ResourceDoubleSnapshot, mockResourceProp } from './resource-prop';
 import { PRODUCTS_AB } from './resource-prop.mock';
+import { settleResource } from './settle-resource';
 import { registerSignalMatchers } from './signal-matchers';
 
 beforeAll(() => registerSignalMatchers());
@@ -131,10 +132,74 @@ describe('mockResourceProp', () => {
 
     products.set(PRODUCTS_AB);
     products.fail('offline');
+    products.reloading();
+
+    // `fail()` and `reloading()` leave the value alone; `loading()` and `idle()` go back to the initial one.
+    expect(service.products.value).toHaveSignalValue(PRODUCTS_AB);
+  });
+
+  it("loading() reads the initial value, the way new params read a real resource's defaultValue", () => {
+    const service = new ProductService();
+    const products = mockResourceProp<ProductService, 'products'>(service, 'products', undefined as unknown as string[]);
+
+    products.set(PRODUCTS_AB);
     products.loading();
 
-    // `fail()` and `loading()` leave the value alone; only `idle()` goes back to the initial one.
+    expect(service.products.value).toHaveSignalValue(undefined);
+    expect(service.products.hasValue()).toBe(false);
+    expect(service.products.snapshot).toHaveSignalValue({ status: 'loading', value: undefined });
+  });
+
+  it('reloading() keeps the value in flight and answers reload() with true', () => {
+    const service = new ProductService();
+    const products = mockResourceProp(service, 'products', []);
+
+    products.set(PRODUCTS_AB);
+    products.reloading();
+
+    expect(service.products.status).toHaveSignalValue('reloading');
+    expect(service.products.isLoading).toHaveSignalValue(true);
+    expect(service.products.hasValue()).toBe(true);
     expect(service.products.value).toHaveSignalValue(PRODUCTS_AB);
+    expect(service.products.reload()).toBe(true);
+  });
+
+  it('matches a real resource() through new params and a reload', async () => {
+    const id = signal(1);
+    const real = TestBed.runInInjectionContext(() => resource({ params: () => id(), loader: async ({ params }) => [String(params)] }));
+    const observe = (): unknown[] => [real.status(), real.value(), real.hasValue()];
+
+    await settleResource(real);
+
+    const resolved = observe();
+
+    id.set(2);
+    TestBed.tick();
+
+    const loading = observe();
+
+    await settleResource(real);
+    real.reload();
+    TestBed.tick();
+
+    const reloading = observe();
+
+    const holder = { items: undefined as unknown as ResourceRef<string[] | undefined> };
+    const double = mockResourceProp(holder, 'items', undefined);
+    const observeDouble = (): unknown[] => [holder.items.status(), holder.items.value(), holder.items.hasValue()];
+
+    double.set(['1']);
+
+    expect(observeDouble()).toEqual(resolved);
+
+    double.loading();
+
+    expect(observeDouble()).toEqual(loading);
+
+    double.set(['2']);
+    double.reloading();
+
+    expect(observeDouble()).toEqual(reloading);
   });
 
   it('answers reload() the way Angular does: false while there is nothing to re-issue', () => {
@@ -211,10 +276,11 @@ describe('mockResourceProp', () => {
   });
 
   describe('hasValue', () => {
-    it('is true while loading, because the value is still defined', () => {
+    it('is true while loading over a defined initial value', () => {
       const service = new ProductService();
       const products = mockResourceProp(service, 'products', []);
 
+      products.set(['a']);
       products.loading();
 
       expect(service.products.status).toHaveSignalValue('loading');
@@ -344,9 +410,9 @@ describe('mockResourceProp', () => {
 
       expect(service.products.snapshot).toHaveSignalValue({ status: 'resolved', value: ['a'] });
 
-      products.loading();
+      products.reloading();
 
-      expect(service.products.snapshot).toHaveSignalValue({ status: 'loading', value: ['a'] });
+      expect(service.products.snapshot).toHaveSignalValue({ status: 'reloading', value: ['a'] });
 
       products.fail('offline');
 

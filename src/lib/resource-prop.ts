@@ -97,8 +97,13 @@ export interface MockedResource<TValue> {
   set(value: TValue): void;
   /** Fail the resource — status `'error'`, `error()` set, `hasValue()` false, `value()` throwing. */
   fail(error: Error | string): void;
-  /** Put the resource back in flight — status `'loading'`, the value left where it was. */
+  /**
+   * Put the resource in flight for new params — status `'loading'`, error cleared, and the value
+   * back at the initial one: a real resource reads its `defaultValue` until the new request answers.
+   */
   loading(): void;
+  /** Re-issue the current request — status `'reloading'`, error cleared, the value left where it was. */
+  reloading(): void;
   /** Park it before it ever ran — status `'idle'`, back at the initial value, error cleared. */
   idle(): void;
   /** The spied `reload()`; `expect(products.reload).toHaveBeenCalled()`. */
@@ -367,7 +372,10 @@ function installResourceDouble<TValue>(
       arrange('error', stored(), typeof reason === 'string' ? new Error(reason) : reason);
     },
     loading: (): void => {
-      arrange('loading', stored());
+      arrange('loading', initialValue);
+    },
+    reloading: (): void => {
+      arrange('reloading', stored());
     },
     idle: (): void => {
       arrange('idle', initialValue);
