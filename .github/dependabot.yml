@@ -1,23 +1,22 @@
 version: 2
 
 updates:
-  # The competitors the published benchmark table measures. A bump here opens a PR, and the
-  # `pull_request` trigger in `bench.yml` re-runs the head-to-head against the new version — so a
-  # competitor's release cannot pass unnoticed and the table cannot quietly go stale. This is the
-  # whole anti-rot mechanism; keep the two files in step.
+  # Dependency updates are prepared manually by the maintainer before a release.
+  # Keep the ecosystem configuration available, but do not open version-update PRs.
   - package-ecosystem: npm
     directory: /bench
     schedule:
       interval: monthly
+    open-pull-requests-limit: 0
     commit-message:
       prefix: chore
 
   # Every `uses:` is pinned to a commit sha, which is the only pin a mutable tag cannot be moved
-  # under — and a sha nobody updates is a sha that ages. Dependabot understands the
-  # `sha # vX.Y.Z` form and rewrites both halves, so the pinning and the updating arrive together.
+  # under. Update both the sha and its version comment when preparing a release.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    open-pull-requests-limit: 0
     commit-message:
       prefix: ci
