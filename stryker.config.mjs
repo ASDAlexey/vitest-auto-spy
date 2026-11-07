@@ -16,6 +16,7 @@ export default {
     'src/lib/create-spy-from-class.ts',
     'src/lib/create-spy-from-instance.ts',
     'src/lib/args-map.ts',
+    'src/lib/serialize-args.ts',
     'src/lib/auto-mock.ts',
     'src/lib/create-mock.ts',
     'src/lib/mock-deep.ts',
@@ -24,6 +25,11 @@ export default {
     'src/lib/constructor-spy.ts',
     'src/lib/observable-spy.ts',
     'src/lib/spy-defaults.ts',
+    // Where bugs were found that the suite missed: these get the same floor as the spy core.
+    'src/lib/lazy-spy-proxy.ts',
+    'src/lib/reset-auto-spy.ts',
+    'src/lib/jasmine-global.ts',
+    'src/lib/stray-listeners.ts',
   ],
   ignorePatterns: [
     '/.claude',
@@ -44,6 +50,8 @@ export default {
   disableTypeChecks: 'src/**/*.ts',
   coverageAnalysis: 'perTest',
   // 91.04 % on 2026-09-29, on an idle machine. Raise the floor as survivors are killed.
+  // Stryker scores the run as a whole: there is no per-file `break`, so a weak module can hide behind
+  // strong ones. `npm run test:mutation:survivors` lists the survivors file by file.
   thresholds: { high: 95, low: 90, break: 90 },
   reporters: ['clear-text', 'progress', 'html', 'json'],
   htmlReporter: { fileName: 'reports/mutation/index.html' },
