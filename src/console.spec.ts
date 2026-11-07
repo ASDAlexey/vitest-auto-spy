@@ -30,6 +30,8 @@ vi.hoisted(() => vi.resetModules());
 // The tests below hand this copy's adapter to a fresh registry; the next file of the worker starts from one graph again.
 afterAll(() => vi.resetModules());
 
+const consoleOnImport = { ...console };
+
 describe('vitest-auto-spy/console', () => {
   it('replaces every console method with a silent typed spy on import', () => {
     const cases: [keyof Console, unknown][] = [
@@ -45,8 +47,10 @@ describe('vitest-auto-spy/console', () => {
 
     for (const [method, spy] of cases) {
       expect(vi.isMockFunction(spy)).toBe(true);
-      expect(console[method]).toBe(spy);
+      expect(consoleOnImport[method]).toBe(spy);
     }
+
+    installConsoleSpies();
 
     expect(console.info('done')).toBeUndefined(); // silent — no real output
     expect(consoleInfoSpy).toHaveBeenCalledWith('done');
@@ -168,6 +172,7 @@ describe('vitest-auto-spy/console', () => {
   });
 
   it('builds the spies on the first install when the import found no adapter, and the exports follow', async () => {
+    restoreConsole();
     vi.resetModules();
 
     const realWarn = console.warn;
