@@ -222,6 +222,12 @@ jobs:
           NEW_VERSION="v$(node -p "require('./package.json').version")"
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
 
+      # The `version` script rewrites `src/lib/eslint/plugin-version.ts`, which the build above
+      # already inlined; without this 5.68.0 shipped `meta.version: '5.67.0'`.
+      - name: Rebuild with the bumped version
+        if: steps.bump.outputs.bump != 'none'
+        run: npm run build
+
       # The tarball is what goes to npm, so it is built here and never rebuilt: the job that
       # publishes it runs no install and no lifecycle script.
       - name: Pack the tarball and the release commits
