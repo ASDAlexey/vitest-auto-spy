@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
-import { isAutoSpyLike, isMarkedMock, markAsMock, runClearHook, runConfigReset } from './spy-mark';
+import { hooksOf, isAutoSpyLike, isMarkedMock, markAsMock, markAsStream, rememberSpyRecord, spyRecordOf, streamHooksOf } from './spy-mark';
 
 describe('spy-mark', () => {
   it('isMarkedMock recognises branded functions only', () => {
@@ -23,40 +23,39 @@ describe('spy-mark', () => {
     expect(isMarkedMock('x')).toBe(false);
   });
 
-  it('runConfigReset runs the reset hook a mark carries and is a no-op without one', () => {
+  it('hooksOf hands back the reset hook a mark carries, and nothing without one', () => {
     const withHooks = {};
     const reset = vi.fn();
     markAsMock(withHooks, { reset, clear: () => undefined });
 
-    runConfigReset(withHooks);
+    hooksOf(withHooks)?.reset();
     expect(reset).toHaveBeenCalledTimes(1);
 
-    expect(() => runConfigReset({})).not.toThrow();
+    expect(hooksOf({})).toBeUndefined();
   });
 
-  it('runClearHook runs the clear hook a mark carries and is a no-op without one', () => {
+  it('hooksOf hands back the clear hook a mark carries, and nothing without one', () => {
     const withHooks = {};
     const clear = vi.fn();
     markAsMock(withHooks, { reset: () => undefined, clear });
 
-    runClearHook(withHooks);
+    hooksOf(withHooks)?.clear();
     expect(clear).toHaveBeenCalledTimes(1);
 
-    expect(() => runClearHook({})).not.toThrow();
+    expect(hooksOf({})).toBeUndefined();
   });
 
   it('treats a plain `true` mark, or an object that is not a pair of hooks, as carrying no hooks', () => {
     const plain = {};
     markAsMock(plain);
-    expect(() => runConfigReset(plain)).not.toThrow();
-    expect(() => runClearHook(plain)).not.toThrow();
+    expect(hooksOf(plain)).toBeUndefined();
 
     // Half a pair is not a pair: both hooks are required, so a stray object under the mark runs nothing.
     const halfway = { [Symbol.for('vitest-auto-spy.mock')]: { reset: vi.fn() } };
-    expect(() => runConfigReset(halfway)).not.toThrow();
+    expect(hooksOf(halfway)).toBeUndefined();
 
     const empty = { [Symbol.for('vitest-auto-spy.mock')]: {} };
-    expect(() => runClearHook(empty)).not.toThrow();
+    expect(hooksOf(empty)).toBeUndefined();
   });
 
   it('calls the hooks with the mark as receiver, which is how a function spy reaches its state', () => {
@@ -75,10 +74,34 @@ describe('spy-mark', () => {
     const spy = {};
     markAsMock(spy, hooks);
 
-    runConfigReset(spy);
-    runClearHook(spy);
+    hooksOf(spy)?.reset();
+    hooksOf(spy)?.clear();
 
     expect(state.count).toBe(11);
+  });
+});
+
+describe('stream marks', () => {
+  it('carries the hooks of a prop spy without branding it as a double', () => {
+    const stream = {};
+    const hooks = { reset: (): void => undefined, clear: (): void => undefined };
+    markAsStream(stream, hooks);
+
+    expect(streamHooksOf(stream)).toBe(hooks);
+    expect(streamHooksOf({})).toBeUndefined();
+    expect(isAutoSpyLike(stream)).toBe(false);
+    expect(Object.keys(stream)).toEqual([]);
+  });
+});
+
+describe('spy records', () => {
+  it('answers the record a double was registered with, and the value itself otherwise', () => {
+    const record = {};
+    const double = new Proxy(record, {});
+    rememberSpyRecord(double, record);
+
+    expect(spyRecordOf(double)).toBe(record);
+    expect(spyRecordOf(record)).toBe(record);
   });
 });
 

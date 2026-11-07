@@ -38,6 +38,8 @@ export interface MarkHooks {
   replacedBy?: string | undefined;
   /** The rxjs layer's per-spy state, when that layer is loaded — reached through the mark so it costs no property of its own. */
   readonly observable?: ObservableStream | undefined;
+  /** The callable the hooks were built for: a value carrying them that is not it is a Proxy over it, such as a `mockDeep` node. */
+  readonly host?: unknown;
 }
 
 /**
@@ -50,6 +52,36 @@ export interface MarkHooks {
  * lets them recurse without making the children visible to a spec.
  */
 export const DEEP_CHILDREN = Symbol.for('vitest-auto-spy.deepChildren');
+
+/**
+ * Key under which an observable prop spy carries its reset hooks. Not {@link AUTO_SPY_MARK}: that
+ * brand makes a value read as a whole double to the Angular helpers, and a prop spy is a member.
+ */
+const STREAM_MARK = Symbol.for('vitest-auto-spy.stream');
+
+export function markAsStream(stream: object, hooks: MarkHooks): void {
+  Object.defineProperty(stream, STREAM_MARK, { value: hooks, enumerable: false, configurable: true });
+}
+
+/** The reset hooks of an observable prop spy, or nothing for any other value. */
+export function streamHooksOf(value: object): MarkHooks | undefined {
+  const mark: unknown = Reflect.get(value, STREAM_MARK);
+
+  return isMarkHooks(mark) ? mark : undefined;
+}
+
+// Weak, so a double that went out of scope takes its record with it.
+const records = new WeakMap<object, object>();
+
+/** Tell the reset walk which record a Proxy double forwards to, so it reads plain own keys instead of paying a trap per key. */
+export function rememberSpyRecord(double: object, record: object): void {
+  records.set(double, record);
+}
+
+/** The record behind a Proxy double registered with {@link rememberSpyRecord}, or the value itself. */
+export function spyRecordOf(spy: object): object {
+  return records.get(spy) ?? spy;
+}
 
 /** Brand a mock so {@link isMarkedMock} recognises it as one this library created. */
 export function markAsMock(mock: object, mark: MarkHooks | true = true): void {
@@ -101,13 +133,4 @@ export function readDeepChildren(value: object): MockFn[] {
   }
 
   return [...children.values()].filter(isMarkedMock);
-}
-
-/** Attach a hook that clears a function spy's `calledWith`/return-value configuration. */
-export function runConfigReset(mock: object): void {
-  hooksOf(mock)?.reset();
-}
-
-export function runClearHook(mock: object): void {
-  hooksOf(mock)?.clear();
 }
