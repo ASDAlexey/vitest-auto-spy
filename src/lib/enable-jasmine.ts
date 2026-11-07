@@ -3,8 +3,8 @@
  *
  * Kept apart from the `vitest-auto-spy/jasmine` entry because that entry registers the Vitest mock
  * adapter, and registering it means importing `vitest` — which a `bun test` or `node --test` process
- * cannot do. This module imports neither, so `/bun` and `/node` can re-export it and a suite on
- * either runtime gets `.and` / `.calls` / `.withArgs` without pulling Vitest into the process.
+ * cannot do. This module imports neither, so `vitest-auto-spy/jasmine-compat` can publish it and a
+ * suite on either runtime gets `.and` / `.calls` / `.withArgs` without pulling Vitest into the process.
  *
  * ```ts
  * // bun test
