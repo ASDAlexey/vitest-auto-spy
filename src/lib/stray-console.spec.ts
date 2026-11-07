@@ -7,6 +7,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import '../index';
+import { expectFailures } from './expected-failure.mock';
 import { mockValueProp } from './prop-mock';
 import { setupAutoSpy } from './setup-auto-spy';
 import {
@@ -25,6 +26,8 @@ import {
   stopGuardingConsole,
   watchStrayConsole,
 } from './stray-console';
+
+const failsWith = expectFailures();
 
 /** A console with a recorder per method, standing in for the one the runner intercepts. */
 function standInConsole(): { host: Record<string, unknown>; written: string[] } {
@@ -696,131 +699,139 @@ describe('watchStrayConsole', () => {
   });
 });
 
-describe('a nested beforeAll that runs after a test of the file', () => {
-  const console$ = standInConsole();
-  let armed: typeof globalThis.__vitestAutoSpyStrayConsole__;
-  let guard: ReturnType<typeof armConsoleGuard>;
+// These blocks arm the guard on the real console during collection; each relies on the one before it.
+describe('the guard on the real console, in file order', { shuffle: false }, () => {
+  describe('a nested beforeAll that runs after a test of the file', () => {
+    const console$ = standInConsole();
+    let armed: typeof globalThis.__vitestAutoSpyStrayConsole__;
+    let guard: ReturnType<typeof armConsoleGuard>;
 
-  it('ends a test first', () => {
-    armed = globalThis.__vitestAutoSpyStrayConsole__;
-    guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
-    openConsoleWindow(guard);
-    reportTestConsole(guard);
+    it('ends a test first', () => {
+      armed = globalThis.__vitestAutoSpyStrayConsole__;
+      guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
+      openConsoleWindow(guard);
+      reportTestConsole(guard);
 
-    expect(guard.outsidePhase).toBe('afterTest');
-  });
-
-  describe('inner', () => {
-    let message = '';
-
-    beforeAll(() => {
-      call(console$.host, 'log', 'seeding');
-      message = thrownBy(() => finishConsoleFile(guard));
-      stopGuardingConsole();
-      globalThis.__vitestAutoSpyStrayConsole__ = armed;
+      expect(guard.outsidePhase).toBe('afterTest');
     });
 
-    it('is reported as a beforeAll, not as a callback after the test', () => {
-      expect(message).toContain('1 time in a beforeAll, before the tests it prepares');
+    describe('inner', () => {
+      let message = '';
+
+      beforeAll(() => {
+        call(console$.host, 'log', 'seeding');
+        message = thrownBy(() => finishConsoleFile(guard));
+        stopGuardingConsole();
+        globalThis.__vitestAutoSpyStrayConsole__ = armed;
+      });
+
+      it('is reported as a beforeAll, not as a callback after the test', () => {
+        expect(message).toContain('1 time in a beforeAll, before the tests it prepares');
+      });
     });
   });
-});
 
-describe('guardStrayConsole, registered on its own', () => {
-  guardStrayConsole('throw');
+  describe('guardStrayConsole, registered on its own', () => {
+    guardStrayConsole('throw');
 
-  it('absorbs what a silent spy takes', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    it('absorbs what a silent spy takes', () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    console.warn('absorbed');
+      console.warn('absorbed');
+    });
+
+    it.fails('fails a test that prints', () => {
+      failsWith(/fails a test that prints" wrote to console\.info 1 time and nothing absorbed it/);
+      console.info('printed');
+    });
   });
 
-  it.fails('fails a test that prints', () => {
-    console.info('printed');
-  });
-});
-
-describe('guardStrayConsole, off', () => {
-  it('registers nothing, which is why it can be called from inside a test', () => {
-    expect(() => guardStrayConsole('off')).not.toThrow();
-  });
-});
-
-describe('setupAutoSpy({ strayConsole: "throw" })', () => {
-  setupAutoSpy({ duplicateCopies: 'off', strayConsole: 'throw' });
-
-  it.fails('fails the test that printed', () => {
-    console.error('nobody asserted on this');
+  describe('guardStrayConsole, off', () => {
+    it('registers nothing, which is why it can be called from inside a test', () => {
+      expect(() => guardStrayConsole('off')).not.toThrow();
+    });
   });
 
-  it.fails('counts a vi.spyOn with no implementation, which calls through and prints', () => {
-    // eslint-disable-next-line vitest-auto-spy/no-passthrough-console-spy -- the passthrough spy is the case under test
-    const spy = vi.spyOn(console, 'error');
+  describe('setupAutoSpy({ strayConsole: "throw" })', () => {
+    setupAutoSpy({ duplicateCopies: 'off', strayConsole: 'throw' });
 
-    // eslint-disable-next-line vitest-auto-spy/no-self-called-spy -- the spec's own print is what the guard must count
-    console.error('still printed');
+    it.fails('fails the test that printed', () => {
+      failsWith(/fails the test that printed" wrote to console\.error 1 time/);
+      console.error('nobody asserted on this');
+    });
 
-    expect(spy).toHaveBeenCalledWith('still printed');
+    it.fails('counts a vi.spyOn with no implementation, which calls through and prints', () => {
+      failsWith(/calls through and prints" wrote to console\.error 1 time/);
+      // eslint-disable-next-line vitest-auto-spy/no-passthrough-console-spy -- the passthrough spy is the case under test
+      const spy = vi.spyOn(console, 'error');
+
+      // eslint-disable-next-line vitest-auto-spy/no-self-called-spy -- the spec's own print is what the guard must count
+      console.error('still printed');
+
+      expect(spy).toHaveBeenCalledWith('still printed');
+    });
+
+    it('absorbs a vi.spyOn that replaces the implementation', () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      console.error('absorbed');
+
+      expect(spy).toHaveBeenCalledWith('absorbed');
+    });
+
+    it('absorbs the console-entry spies a test installs, and takes them off after it', async () => {
+      const { consoleErrorSpy, installConsoleSpies } = await import('../console');
+
+      expect(console.error).not.toBe(consoleErrorSpy);
+
+      installConsoleSpies();
+      console.error('absorbed by the entry');
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('absorbed by the entry');
+    });
+
+    it('found the console-entry spies gone once that test was over', async () => {
+      const { consoleErrorSpy } = await import('../console');
+
+      expect(console.error).not.toBe(consoleErrorSpy);
+    });
+
+    it.fails('fails on a library warning, which is console output like any other', () => {
+      failsWith(/console output like any other" wrote to console\.warn 1 time/);
+      console.warn('[vitest-auto-spy] a misconfiguration report');
+    });
+
+    it.fails("fails on what the DOM environment wrote through the console it captured at start-up, not the runner's", () => {
+      failsWith(/not the runner's" wrote to console\.error 1 time/);
+      appendRefusedFrameOrNavigate();
+    });
+
+    it("absorbs that output in the test's console spies, which can assert on it", async () => {
+      const { consoleErrorSpy, installConsoleSpies } = await import('../console');
+
+      installConsoleSpies();
+      appendRefusedFrameOrNavigate();
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it('absorbs a vi.spyOn that replaces the implementation', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  /** The line each DOM environment writes for itself: happy-dom refusing an iframe, jsdom refusing to navigate. */
+  function appendRefusedFrameOrNavigate(): void {
+    const happyDOM: { settings: object } | undefined = Reflect.get(window, 'happyDOM');
 
-    console.error('absorbed');
+    if (happyDOM === undefined) {
+      window.location.assign('https://example.com/elsewhere');
 
-    expect(spy).toHaveBeenCalledWith('absorbed');
-  });
+      return;
+    }
 
-  it('absorbs the console-entry spies a test installs, and takes them off after it', async () => {
-    const { consoleErrorSpy, installConsoleSpies } = await import('../console');
+    mockValueProp(happyDOM.settings, 'disableIframePageLoading', true);
 
-    expect(console.error).not.toBe(consoleErrorSpy);
+    const frame = document.createElement('iframe');
 
-    installConsoleSpies();
-    console.error('absorbed by the entry');
-
-    expect(consoleErrorSpy).toHaveBeenCalledWith('absorbed by the entry');
-  });
-
-  it('found the console-entry spies gone once that test was over', async () => {
-    const { consoleErrorSpy } = await import('../console');
-
-    expect(console.error).not.toBe(consoleErrorSpy);
-  });
-
-  it.fails('fails on a library warning, which is console output like any other', () => {
-    console.warn('[vitest-auto-spy] a misconfiguration report');
-  });
-
-  it.fails("fails on what the DOM environment wrote through the console it captured at start-up, not the runner's", () => {
-    appendRefusedFrameOrNavigate();
-  });
-
-  it("absorbs that output in the test's console spies, which can assert on it", async () => {
-    const { consoleErrorSpy, installConsoleSpies } = await import('../console');
-
-    installConsoleSpies();
-    appendRefusedFrameOrNavigate();
-
-    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-  });
-});
-
-/** The line each DOM environment writes for itself: happy-dom refusing an iframe, jsdom refusing to navigate. */
-function appendRefusedFrameOrNavigate(): void {
-  const happyDOM: { settings: object } | undefined = Reflect.get(window, 'happyDOM');
-
-  if (happyDOM === undefined) {
-    window.location.assign('https://example.com/elsewhere');
-
-    return;
+    frame.src = 'https://example.com/frame';
+    document.body.append(frame);
+    frame.remove();
   }
-
-  mockValueProp(happyDOM.settings, 'disableIframePageLoading', true);
-
-  const frame = document.createElement('iframe');
-
-  frame.src = 'https://example.com/frame';
-  document.body.append(frame);
-  frame.remove();
-}
+});

@@ -12,6 +12,7 @@ import type { OpenStep } from './guard-registry';
 import { currentSpecFile } from './spec-file';
 import { ownFrames, stackFrames } from './stack-frames';
 import { describeStrayConsole } from './stray-console-report';
+import { includesAnyPattern } from './text-pattern';
 import { writeWarning } from './write-warning';
 
 export { describeStrayConsole } from './stray-console-report';
@@ -186,11 +187,6 @@ function quoteOutput(output: string): string {
   return url === undefined ? quoted : `${quoted} ${url.replace(/\.$/, '')}`;
 }
 
-function isAllowed(text: string, allow: readonly (RegExp | string)[]): boolean {
-  // `search` ignores `lastIndex`, so a global or sticky pattern answers the same on every call.
-  return allow.some((pattern) => (typeof pattern === 'string' ? text.includes(pattern) : text.search(pattern) !== -1));
-}
-
 /** The frame worth quoting: the first one outside dependencies, or the direct caller when all are. */
 export function callerFrame(boundary: unknown, host: FrameHost = Error): string {
   // A plain holder where the host can fill it, so the stack is taken once rather than twice.
@@ -248,7 +244,7 @@ function record(guard: ConsoleGuard, method: string, args: readonly unknown[], b
   const output = fullOutput(method, args);
   const text = quoteOutput(output);
 
-  if (isAllowed(text, guard.allow)) {
+  if (includesAnyPattern(text, guard.allow)) {
     return;
   }
 
