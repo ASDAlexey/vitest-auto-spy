@@ -17,6 +17,7 @@ const { consoleErrorSpy } = useConsoleSpies();
 
 const GLOBAL_NAMES = ['PointerEvent', 'ResizeObserver', 'scroll', 'scrollTo', 'scrollBy', 'getComputedStyle'] as const;
 const ELEMENT_NAMES = ['scrollTo', 'scrollBy', 'scrollIntoView'] as const;
+const CANVAS_NAMES = ['getContext', 'toDataURL'] as const;
 
 let saved: { owner: object; name: string; descriptor: PropertyDescriptor | undefined }[] = [];
 let savedDoctype: DocumentType | null = null;
@@ -39,6 +40,11 @@ beforeEach(() => {
       owner: Element.prototype,
       name,
       descriptor: Object.getOwnPropertyDescriptor(Element.prototype, name),
+    })),
+    ...CANVAS_NAMES.map((name) => ({
+      owner: HTMLCanvasElement.prototype,
+      name,
+      descriptor: Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, name),
     })),
   ];
 });
@@ -270,5 +276,80 @@ describe('fillMissingDomApis', () => {
     vi.stubGlobal('Element', undefined);
 
     expect(fillMissingDomApis().some((name) => name.startsWith('Element.'))).toBe(false);
+  });
+});
+
+describe('fillMissingDomApis({ canvas: true })', () => {
+  it('leaves the canvas alone unless asked', () => {
+    const getContext = HTMLCanvasElement.prototype.getContext;
+
+    expect(fillMissingDomApis()).not.toContain('HTMLCanvasElement.prototype.getContext');
+    expect(HTMLCanvasElement.prototype.getContext).toBe(getContext);
+  });
+
+  it('fills getContext and toDataURL once, and nothing on a second call', () => {
+    expect(fillMissingDomApis({ canvas: true })).toEqual(
+      expect.arrayContaining(['HTMLCanvasElement.prototype.getContext', 'HTMLCanvasElement.prototype.toDataURL']),
+    );
+    expect(fillMissingDomApis({ canvas: true })).toEqual([]);
+  });
+
+  it('answers one inert 2D context per canvas, and null for any other context id', () => {
+    fillMissingDomApis({ canvas: true });
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    expect(context).not.toBeNull();
+    expect(canvas.getContext('2d')).toBe(context);
+    expect(document.createElement('canvas').getContext('2d')).not.toBe(context);
+    expect(canvas.getContext('webgl')).toBeNull();
+    expect(canvas.toDataURL()).toBe('data:,');
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
+
+  it('accepts every call and setting, and answers what a caller reads back', () => {
+    fillMissingDomApis({ canvas: true });
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d') as CanvasRenderingContext2D;
+
+    expect(context.canvas).toBe(canvas);
+    expect(context.lineWidth).toBe(1);
+    expect(context.font).toBe('10px sans-serif');
+
+    context.fillStyle = 'red';
+    context.beginPath();
+    context.arc(0, 0, 4, 0, Math.PI);
+    context.fill();
+
+    expect(context.fillStyle).toBe('red');
+    expect(context.measureText('abc')).toMatchObject({ width: 0, text: 'abc' });
+    expect(context.getImageData(0, 0, 2, 3)).toMatchObject({ width: 2, height: 3 });
+    expect(context.getImageData(0, 0, 2, 3).data).toHaveLength(24);
+    expect(context.createImageData(-1, Number.NaN).data).toHaveLength(0);
+    expect(context.getLineDash()).toEqual([]);
+    expect(context.isPointInPath(0, 0)).toBe(false);
+    expect(context.isPointInStroke(0, 0)).toBe(false);
+    expect(context.getTransform()).toMatchObject({ a: 1, d: 1, isIdentity: true });
+    expect(context.getContextAttributes()).toMatchObject({ alpha: true });
+    expect(context.isContextLost()).toBe(false);
+    expect(Reflect.get(context, Symbol.iterator)).toBeUndefined();
+
+    for (const gradient of [
+      context.createLinearGradient(0, 0, 1, 1),
+      context.createRadialGradient(0, 0, 1, 1, 1, 2),
+      context.createConicGradient(0, 0, 0),
+    ]) {
+      expect(() => gradient.addColorStop(0, 'red')).not.toThrow();
+    }
+
+    expect(() => context.createPattern(canvas, 'repeat')?.setTransform()).not.toThrow();
+  });
+
+  it('does nothing to a canvas where the realm has no HTMLCanvasElement', () => {
+    vi.stubGlobal('HTMLCanvasElement', undefined);
+
+    expect(fillMissingDomApis({ canvas: true }).filter((name) => name.startsWith('HTMLCanvasElement'))).toEqual([]);
   });
 });

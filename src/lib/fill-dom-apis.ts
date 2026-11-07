@@ -21,6 +21,13 @@ export interface FillMissingDomApisOptions {
    * the cheap one does neither. Off by default, because it changes what a stylesheet rule reports.
    */
   readonly cheapComputedStyle?: boolean;
+  /**
+   * Give every `<canvas>` an inert 2D context and a `toDataURL()` of `'data:,'`. jsdom without the
+   * `canvas` package logs "Not implemented" for both, which fails a suite with console spies, and a
+   * chart library drawing on mount throws on the missing context. Off by default, because it replaces
+   * a real context where one exists; `'webgl'` and other context ids still answer `null`.
+   */
+  readonly canvas?: boolean;
 }
 
 const FILLED = Symbol.for('vitest-auto-spy.fillMissingDomApis');
@@ -137,6 +144,118 @@ function cheapGetComputedStyle(doc: Document): typeof getComputedStyle {
   });
 }
 
+/** What an untouched 2D context reports, so a library reading a setting before writing it gets a value. */
+const CONTEXT_DEFAULTS: Readonly<Record<string, unknown>> = {
+  fillStyle: '#000000',
+  strokeStyle: '#000000',
+  lineWidth: 1,
+  lineCap: 'butt',
+  lineJoin: 'miter',
+  miterLimit: 10,
+  lineDashOffset: 0,
+  font: '10px sans-serif',
+  textAlign: 'start',
+  textBaseline: 'alphabetic',
+  direction: 'ltr',
+  globalAlpha: 1,
+  globalCompositeOperation: 'source-over',
+  imageSmoothingEnabled: true,
+  shadowBlur: 0,
+  shadowColor: 'rgba(0, 0, 0, 0)',
+  shadowOffsetX: 0,
+  shadowOffsetY: 0,
+};
+
+const pixels = (size: unknown): number => Math.max(0, Math.floor(Number(size) || 0));
+
+function imageData(width: unknown, height: unknown): { width: number; height: number; data: Uint8ClampedArray } {
+  const w = pixels(width);
+  const h = pixels(height);
+
+  return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
+}
+
+/** Methods whose return value a caller reads; every other method draws nothing and returns `undefined`. */
+const CONTEXT_RESULTS: Readonly<Record<string, (...args: unknown[]) => unknown>> = {
+  measureText: (text) => ({ width: 0, actualBoundingBoxAscent: 0, actualBoundingBoxDescent: 0, text: String(text) }),
+  createLinearGradient: () => ({ addColorStop: noop }),
+  createRadialGradient: () => ({ addColorStop: noop }),
+  createConicGradient: () => ({ addColorStop: noop }),
+  createPattern: () => ({ setTransform: noop }),
+  getImageData: (_x, _y, width, height) => imageData(width, height),
+  createImageData: (width, height) => imageData(width, height),
+  getLineDash: () => [],
+  isPointInPath: () => false,
+  isPointInStroke: () => false,
+  getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0, is2D: true, isIdentity: true }),
+  getContextAttributes: () => ({ alpha: true, desynchronized: false, colorSpace: 'srgb', willReadFrequently: false }),
+  isContextLost: () => false,
+};
+
+/** A 2D context that accepts every call and setting and draws nothing. */
+function inertContext(canvas: object): object {
+  const settings = new Map<PropertyKey, unknown>([['canvas', canvas]]);
+
+  return new Proxy(
+    {},
+    {
+      get: (_, key): unknown => {
+        if (settings.has(key)) {
+          return settings.get(key);
+        }
+
+        if (typeof key === 'string' && key in CONTEXT_DEFAULTS) {
+          return CONTEXT_DEFAULTS[key];
+        }
+
+        return typeof key === 'string' ? (CONTEXT_RESULTS[key] ?? noop) : undefined;
+      },
+      set: (_, key, value): boolean => {
+        settings.set(key, value);
+
+        return true;
+      },
+    },
+  );
+}
+
+function fillCanvas(options: FillMissingDomApisOptions, filled: string[]): void {
+  const prototype: unknown = Reflect.get(Object(Reflect.get(globalThis, 'HTMLCanvasElement')), 'prototype');
+  const contexts = new WeakMap<object, object>();
+
+  if (options.canvas !== true || typeof prototype !== 'object' || prototype === null) {
+    return;
+  }
+
+  if (!isOurs(Reflect.get(prototype, 'getContext'))) {
+    fill(
+      prototype,
+      'getContext',
+      mark(function getContext(this: object, id: unknown): object | null {
+        if (id !== '2d') {
+          return null;
+        }
+
+        const context = contexts.get(this) ?? inertContext(this);
+
+        contexts.set(this, context);
+
+        return context;
+      }),
+    );
+    filled.push('HTMLCanvasElement.prototype.getContext');
+  }
+
+  if (!isOurs(Reflect.get(prototype, 'toDataURL'))) {
+    fill(
+      prototype,
+      'toDataURL',
+      mark(() => 'data:,'),
+    );
+    filled.push('HTMLCanvasElement.prototype.toDataURL');
+  }
+}
+
 /**
  * Fill what the DOM environment is missing, and report what was filled.
  *
@@ -152,7 +271,8 @@ function cheapGetComputedStyle(doc: Document): typeof getComputedStyle {
  * Filled when absent: `PointerEvent` (over the realm's `MouseEvent`), a `ResizeObserver` whose
  * methods do nothing, `scrollTo` / `scrollBy` / `scrollIntoView` on `Element.prototype`, `scroll` /
  * `scrollTo` / `scrollBy` on `window` (jsdom's only log "Not implemented"), `getComputedStyle`, and a
- * `<!DOCTYPE html>` node on `document`. Without a `document` it does nothing and returns `[]`.
+ * `<!DOCTYPE html>` node on `document`. With `{ canvas: true }`, also an inert 2D canvas context and
+ * `toDataURL()`. Without a `document` it does nothing and returns `[]`.
  *
  * @returns The names filled by this call — empty on a second call.
  */
@@ -206,6 +326,8 @@ export function fillMissingDomApis(options: FillMissingDomApisOptions = {}): rea
     fill(globalThis, 'getComputedStyle', cheapGetComputedStyle(document));
     filled.push('getComputedStyle');
   }
+
+  fillCanvas(options, filled);
 
   if (document.doctype === null) {
     document.insertBefore(document.implementation.createDocumentType('html', '', ''), document.firstChild);
