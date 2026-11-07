@@ -9,18 +9,23 @@ import { afterAll, describe, expect, it, onTestFinished } from 'vitest';
 
 import { disableAngularDiagnostics, enableAngularDiagnostics } from './angular-diagnostics';
 import { provideHttpTesting } from './angular-http';
+import { expectFailures } from './expected-failure.mock';
+
+const failsWith = expectFailures();
 
 function errorsOf(task: { result?: { errors?: readonly { message?: string }[] } }): string {
   return (task.result?.errors ?? []).map((error) => String(error.message)).join('\n');
 }
 
-describe('the diagnostics group at the end of a test', () => {
+// The second test reads the failure the first one ended with.
+describe('the diagnostics group at the end of a test', { shuffle: false }, () => {
   let reported = '';
 
   enableAngularDiagnostics();
   afterAll(disableAngularDiagnostics);
 
   it.fails('leaves a cancelled request open', () => {
+    failsWith(/GET \/api\/left-open was never answered/);
     onTestFinished(({ task }) => {
       reported = errorsOf(task);
     });
@@ -36,10 +41,12 @@ describe('the diagnostics group at the end of a test', () => {
   });
 });
 
-describe('provideHttpTesting at the end of a test', () => {
+// The second test reads the failure the first one ended with.
+describe('provideHttpTesting at the end of a test', { shuffle: false }, () => {
   let reported = '';
 
   it.fails('leaves a cancelled request open', () => {
+    failsWith(/GET \/api\/left-open was never answered/);
     onTestFinished(({ task }) => {
       reported = errorsOf(task);
     });
