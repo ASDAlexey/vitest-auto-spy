@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Keep the Claude Code plugin manifests on the same version as `package.json`.
+ * Keep the Claude Code plugin manifests, and the ESLint plugin's `meta.version`, on the same version as `package.json`.
  *
  * The skill in `skills/` describes the API of a specific release, so a plugin installed from this
  * repository advertising a stale version is actively misleading. `npm version` runs the `version`
@@ -61,6 +61,20 @@ for (const [path, mutate] of TARGETS) {
 
   writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
   process.stdout.write(`${relative(ROOT, path)} → ${version}\n`);
+}
+
+// The ESLint plugin's `meta.version`, which ESLint's `--cache` key is built from.
+const ESLINT_VERSION_FILE = join(ROOT, 'src', 'lib', 'eslint', 'plugin-version.ts');
+const eslintSource = readFileSync(ESLINT_VERSION_FILE, 'utf8');
+const eslintSynced = eslintSource.replace(/PLUGIN_VERSION = '[^']*'/, `PLUGIN_VERSION = '${version}'`);
+
+if (eslintSynced !== eslintSource) {
+  if (check) {
+    stale.push(relative(ROOT, ESLINT_VERSION_FILE));
+  } else {
+    writeFileSync(ESLINT_VERSION_FILE, eslintSynced);
+    process.stdout.write(`${relative(ROOT, ESLINT_VERSION_FILE)} → ${version}\n`);
+  }
 }
 
 if (stale.length > 0) {
