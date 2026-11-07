@@ -10,6 +10,11 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Fixed
+
+- The ESLint plugin reports the release it ships in as `meta.version`. 5.68.0 carried `5.67.0`, so
+  ESLint's cache kept results computed by the previous release's rules after an upgrade.
+
 ## [5.68.0] - 2026-11-07
 
 ### Added
