@@ -20,7 +20,9 @@ export interface AccessorNames {
  * `service.nickname = 'x'` overwrote the spy with a string, and the failure named neither. (The
  * same one-sided filter is why `jasmine-auto-spies` has the identical defect.)
  *
- * A name is a method when the prototype descriptor carries a value, which is what this now asks.
+ * A name is a method when the prototype descriptor carries a **function** value. A data constant on
+ * the prototype — `WebSocket.prototype.OPEN`, `Node.prototype.ELEMENT_NODE` — is not one: as a spy,
+ * `ws.readyState === ws.OPEN` compared a number with a function.
  *
  * **Symbol-keyed methods count**, with the language's own symbols left out — see
  * {@link isProtocolSymbol}. A class that declares `[SERIALIZE]()` or `[Symbol.for('app.render')]()`
@@ -33,9 +35,7 @@ function extractMethodsFromObject(obj: object): PropertyKey[] {
       return false;
     }
 
-    const descriptor = Object.getOwnPropertyDescriptor(obj, key);
-
-    return !descriptor?.get && !descriptor?.set;
+    return typeof Object.getOwnPropertyDescriptor(obj, key)?.value === 'function';
   });
 }
 
@@ -90,7 +90,8 @@ function isNativePrototype(level: object): boolean {
 
   return (
     typeof constructor === 'function' &&
-    (NATIVE_SOURCE.test(Function.prototype.toString.call(constructor)) || globalBinding(constructor.name) === constructor)
+    // The tail only: unanchored at the start, the pattern retried from every `{` of a large class's source.
+    (NATIVE_SOURCE.test(Function.prototype.toString.call(constructor).slice(-64)) || globalBinding(constructor.name) === constructor)
   );
 }
 
@@ -193,6 +194,47 @@ export function getDeclaredMethodNames(prototype: object): PropertyKey[] {
   const methods = getAllMethodNames(prototype);
 
   return declaresThen(prototype) ? [...methods, 'then'] : methods;
+}
+
+const constantsCache = new WeakMap<object, readonly (readonly [PropertyKey, unknown])[]>();
+const NO_CONSTANTS: readonly (readonly [PropertyKey, unknown])[] = [];
+
+/**
+ * The data members of the chain that are not methods — `WebSocket.prototype.OPEN`,
+ * `Node.prototype.ELEMENT_NODE` — with their values, nearest level first. Cached per prototype.
+ */
+export function getPrototypeConstants(prototype: object): readonly (readonly [PropertyKey, unknown])[] {
+  const cached = constantsCache.get(prototype);
+
+  if (cached) {
+    return cached;
+  }
+
+  const seen = new Set<PropertyKey>();
+  const constants: [PropertyKey, unknown][] = [];
+
+  walkOwnPrototypes(
+    prototype,
+    (obj) => {
+      for (const key of Reflect.ownKeys(obj)) {
+        const descriptor = Object.getOwnPropertyDescriptor(obj, key);
+
+        if (!seen.has(key) && key !== 'constructor' && !isProtocolSymbol(key) && descriptor && 'value' in descriptor) {
+          if (typeof descriptor.value !== 'function') {
+            constants.push([key, descriptor.value]);
+          }
+        }
+
+        seen.add(key);
+      }
+    },
+    true,
+  );
+
+  const result = constants.length === 0 ? NO_CONSTANTS : constants;
+  constantsCache.set(prototype, result);
+
+  return result;
 }
 
 // Same reasoning as `methodNamesCache`, and the same need: with `autoSpyAccessors` on, every

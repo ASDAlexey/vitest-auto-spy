@@ -7,7 +7,14 @@ import { createSpyFromInstance } from './create-spy-from-instance';
 import { takeStrictViolations } from './function-spy';
 import { setMisconfigurationReaction } from './misconfiguration';
 import { registerMockAdapter } from './mock-adapter';
-import { declaresThen, getAllAccessorNames, getAllMethodNames, getCallableMemberNames, getDeclaredMethodNames } from './prototype-members';
+import {
+  declaresThen,
+  getAllAccessorNames,
+  getAllMethodNames,
+  getCallableMemberNames,
+  getDeclaredMethodNames,
+  getPrototypeConstants,
+} from './prototype-members';
 import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
 import { createSpyForToken } from './track-injections';
 import type { ClassSpyConfiguration } from './types';
@@ -264,5 +271,73 @@ describe('createSpyForToken', () => {
     }
 
     expect(types.isProxy(createSpyForToken(Narrow))).toBe(false);
+  });
+});
+
+describe('prototype constants', () => {
+  class Socket {
+    send(): void {
+      /* noop */
+    }
+  }
+
+  Object.defineProperty(Socket.prototype, 'OPEN', { value: 1 });
+  Object.defineProperty(Socket.prototype, 'label', { value: 'socket' });
+
+  class Shadowing extends Socket {}
+
+  Object.defineProperty(Shadowing.prototype, 'OPEN', { value: (): number => 2 });
+
+  it('leaves a non-function data member out of the methods', () => {
+    expect(getAllMethodNames(Socket.prototype)).toEqual(['send']);
+  });
+
+  it('collects it with its value, once per prototype', () => {
+    expect(getPrototypeConstants(Socket.prototype)).toEqual([
+      ['OPEN', 1],
+      ['label', 'socket'],
+    ]);
+    expect(getPrototypeConstants(Socket.prototype)).toBe(getPrototypeConstants(Socket.prototype));
+    expect(getPrototypeConstants(class {}.prototype)).toEqual([]);
+  });
+
+  it('lets a nearer method shadow a farther constant', () => {
+    expect(getPrototypeConstants(Shadowing.prototype)).toEqual([['label', 'socket']]);
+    expect(getAllMethodNames(Shadowing.prototype)).toEqual(['OPEN', 'send']);
+  });
+
+  it('keeps the constants as values on a class double', () => {
+    const double = createSpyFromClass(Socket) as unknown as Record<string, unknown>;
+
+    expect(double['OPEN']).toBe(1);
+    expect(double['label']).toBe('socket');
+    expect(vi.isMockFunction(double['send'])).toBe(true);
+  });
+
+  it('keeps a named method spied over a constant of the same name', () => {
+    const double = createSpyFromClass(Socket, { methodsToSpyOn: ['OPEN' as never] }) as unknown as Record<string, unknown>;
+
+    expect(vi.isMockFunction(double['OPEN'])).toBe(true);
+  });
+
+  it('keeps Node.ELEMENT_NODE a number on a double of the built-in', () => {
+    // Every environment carries the node-type constants on the prototype; happy-dom's WebSocket
+    // keeps its ready states as constructor statics, which no real instance of it can read either.
+    const node = createSpyFromClass(Node) as unknown as Record<string, unknown>;
+
+    expect(node['ELEMENT_NODE']).toBe(1);
+    expect(node['DOCUMENT_FRAGMENT_NODE']).toBe(11);
+  });
+});
+
+describe('native prototypes behind a large class', () => {
+  it('still stops at the built-in when the class source is long and mentions native code', () => {
+    class Large extends Error {
+      describe(): string {
+        return `{ [native code] } ${'x'.repeat(100_000)}`;
+      }
+    }
+
+    expect(getAllMethodNames(Large.prototype)).toEqual(['describe']);
   });
 });
