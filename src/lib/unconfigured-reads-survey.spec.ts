@@ -17,22 +17,25 @@ class Session {
   }
 }
 
-describe('setupAutoSpy({ onUnstubbedRead })', () => {
-  const seen: UnstubbedRead[] = [];
+// The survey is read by the test after the one that made the read.
+describe('the unconfigured-read survey, in file order', { shuffle: false }, () => {
+  describe('setupAutoSpy({ onUnstubbedRead })', () => {
+    const seen: UnstubbedRead[] = [];
 
-  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, onUnstubbedRead: (read) => seen.push(read) });
+    setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, onUnstubbedRead: (read) => seen.push(read) });
 
-  it('lets a test read a getter nothing configured, on a double that is not even strict', () => {
-    expect(createSpyFromClass(Session, { gettersToSpyOn: ['user'] }).user).toBeUndefined();
+    it('lets a test read a getter nothing configured, on a double that is not even strict', () => {
+      expect(createSpyFromClass(Session, { gettersToSpyOn: ['user'] }).user).toBeUndefined();
+    });
+
+    it('handed that read to the survey once the test ended', () => {
+      expect(seen).toEqual([{ className: 'Session', member: 'user', kind: 'getter', count: 1 }]);
+    });
   });
 
-  it('handed that read to the survey once the test ended', () => {
-    expect(seen).toEqual([{ className: 'Session', member: 'user', kind: 'getter', count: 1 }]);
-  });
-});
-
-describe('after the survey block', () => {
-  it('finds the handler released', () => {
-    expect(resolveReadGuard('Session', {})).toBeUndefined();
+  describe('after the survey block', () => {
+    it('finds the handler released', () => {
+      expect(resolveReadGuard('Session', {})).toBeUndefined();
+    });
   });
 });
