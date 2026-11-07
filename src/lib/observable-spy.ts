@@ -32,7 +32,7 @@ import { withDocs } from './message-link';
 import { misconfigurationThrows, reportMisconfiguration } from './misconfiguration';
 import { type ObservableStream, type UnfedSubscriptionListener } from './observable-support';
 import { attachHelpers, decorate, detachedHelperError } from './spy-decoration';
-import { hooksOf } from './spy-mark';
+import { hooksOf, markAsStream } from './spy-mark';
 import type { AddObservableSpyMethods, ObservablePropSpyMethods, ValueConfig, ValueConfigPerCall } from './types';
 import { isCompleteConfig, isErrorConfig, isNextValueConfig } from './value-config-guards';
 
@@ -46,6 +46,11 @@ function createReplaySubject<T>(): ReplaySubject<T> {
  * `subject` until an explicit `{ complete: true }` entry is reached.
  */
 function mergeSubjectWithDefaultValues<T>(subject: ReplaySubject<T>, valuesConfigs: ValueConfig<T>[]): Observable<T> {
+  // Per subscription: a shared notifier closed the subject branch of every subscriber at the first one's completion.
+  return defer(() => mergeOnce(subject, valuesConfigs));
+}
+
+function mergeOnce<T>(subject: ReplaySubject<T>, valuesConfigs: ValueConfig<T>[]): Observable<T> {
   const onCompleteSubject = new ReplaySubject<void>(REPLAY_BUFFER_SIZE);
 
   const results$ = from(valuesConfigs).pipe(
@@ -116,6 +121,8 @@ abstract class ObservableTarget<T> {
   /** The subject buffers a `nextWith` value, which every later subscriber is replayed first. */
   holdsValue = false;
   #warnedAboutStaleValue = false;
+  /** The `nextWithValues` stream still built on the current subject, which `returnSubject()` must keep. */
+  #configured: { over: ReplaySubject<T>; stream: Observable<T> } | undefined = undefined;
 
   get(): ReplaySubject<T> {
     if (!this.subject || this.terminated) {
@@ -152,6 +159,30 @@ abstract class ObservableTarget<T> {
     this.subject = undefined;
     this.terminated = false;
     this.holdsValue = false;
+    this.#configured = undefined;
+  }
+
+  publishValues(valuesConfigs: ValueConfig<T>[]): void {
+    // A buffered `nextWith` value nobody is on yet would be replayed after these values and win.
+    if (this.holdsValue && this.subject?.observed !== true) {
+      this.reset();
+    }
+
+    const over = this.get();
+    const stream = mergeSubjectWithDefaultValues(over, valuesConfigs);
+
+    this.#configured = { over, stream };
+    this.publish(stream);
+  }
+
+  publishSubject(subject: ReplaySubject<T>): void {
+    this.#configured = undefined;
+    this.publish(subject);
+  }
+
+  /** What `returnSubject()` publishes: the configured values over `subject` when they are built on it. */
+  streamOver(subject: ReplaySubject<T>): Observable<T> {
+    return this.#configured?.over === subject ? this.#configured.stream : subject;
   }
 
   /** What a report calls this stream: `Class.member` where it is known. */
@@ -217,7 +248,7 @@ function closeAndPublish<T>(target: ObservableTarget<T>, close: (subject: Replay
   const subject = target.get();
   close(subject);
   target.terminate();
-  target.publish(subject);
+  target.publishSubject(subject);
 }
 
 /**
@@ -245,7 +276,7 @@ function observableHelpers<Self, T>(
       const subject = target.get();
       subject.next(value);
       target.holdsValue = true;
-      target.publish(subject);
+      target.publishSubject(subject);
     },
     nextOneTimeWith(this: Self, value: T): void {
       closeAndPublish(resolve(this, 'nextOneTimeWith'), (subject) => {
@@ -261,7 +292,7 @@ function observableHelpers<Self, T>(
       const target = resolve(this, 'nextWithValues');
 
       target.replacingStream();
-      target.publish(mergeSubjectWithDefaultValues(target.get(), valuesConfigs));
+      target.publishValues(valuesConfigs);
     },
     throwWith(this: Self, value: unknown): void {
       const target = resolve(this, 'throwWith');
@@ -275,7 +306,7 @@ function observableHelpers<Self, T>(
     returnSubject(this: Self): ReplaySubject<T> {
       const target = resolve(this, 'returnSubject');
       const subject = target.get();
-      target.publish(subject);
+      target.publish(target.streamOver(subject));
 
       return subject;
     },
@@ -285,7 +316,7 @@ function observableHelpers<Self, T>(
 function clearPreviousConfig(container: ReturnValueContainer): void {
   container._isRejectedPromise = false;
   container._isThrown = false;
-  delete container.valuesPerCalls;
+  container.valuesPerCalls = undefined;
 }
 
 function buildPerCallObservable<T>(replaySubject: ReplaySubject<T>, config: ValueConfigPerCall<T>): Observable<T> {
@@ -466,6 +497,17 @@ class PropObservableTarget<T> extends ObservableTarget<T> {
     this.fed = true;
   }
 
+  /** `resetAutoSpy` drops the buffered value and the published stream, as it does for a function spy. */
+  override reset(): void {
+    super.reset();
+    this.published$ = defer(() => this.get());
+    this.fed = false;
+  }
+
+  clear(): void {
+    // Nothing recorded: what a prop spy holds is configuration, which only a reset drops.
+  }
+
   label(): string {
     return this.#name ?? 'this observable property';
   }
@@ -522,6 +564,8 @@ export function createObservablePropSpy<T>(
     }),
     { ...observableHelpers<Observable<T>, T>(() => target), subscriberCount: (): number => active },
   );
+
+  markAsStream(observableSpy, target);
 
   // `observableHelpers` attaches the `AddObservableSpyMethods<T>` helpers onto the deferred
   // observable at runtime, as methods that read `this`; the assertion restates them as the

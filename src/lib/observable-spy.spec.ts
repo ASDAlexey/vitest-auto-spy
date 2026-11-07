@@ -8,7 +8,9 @@
 import { type Observable, firstValueFrom, of } from 'rxjs';
 import { beforeAll, describe, expect, it } from 'vitest';
 
+import { createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
+import { createSpyFromInstance } from './create-spy-from-instance';
 import { advanceTimers, withFakeTimers } from './fake-timers';
 import { createFunctionSpy } from './function-spy';
 import { setMisconfigurationReaction } from './misconfiguration';
@@ -21,7 +23,7 @@ import {
 } from './observable-spy';
 import { registerObservableSupport } from './observable-support';
 import { mockValueProp } from './prop-mock';
-import { resetAutoSpy } from './reset-auto-spy';
+import { clearAutoSpy, resetAutoSpy } from './reset-auto-spy';
 import { vitestMockAdapter } from './vitest-adapter';
 
 beforeAll(() => {
@@ -671,5 +673,164 @@ describe('subscriberCount on an observable property spy', () => {
 
     await expect(firstValueFrom(feed.items$)).resolves.toBe(1);
     expect(feed.items$.subscriberCount()).toBe(0);
+  });
+});
+
+describe('configuration order across stream helpers', () => {
+  class Catalog {
+    items$!: Observable<number>;
+
+    load(): Observable<number> {
+      throw new Error('not implemented in the double');
+    }
+  }
+
+  function valuesOf(source$: Observable<number>): number[] {
+    const values: number[] = [];
+
+    source$.subscribe((value) => values.push(value));
+
+    return values;
+  }
+
+  it('lets nextWithValues replace a nextWith value nobody received yet', () => {
+    const catalog = createSpyFromClass(Catalog, { observablePropsToSpyOn: ['items$'] });
+
+    catalog.load.nextWith(1);
+    catalog.load.nextWithValues([{ value: 2 }]);
+    catalog.items$.nextWith(1);
+    catalog.items$.nextWithValues([{ value: 2 }, { value: 3 }]);
+
+    expect(valuesOf(catalog.load())).toEqual([2]);
+    expect(valuesOf(catalog.items$)).toEqual([2, 3]);
+  });
+
+  it('keeps the subject a subscriber is already on, so a later nextWith still reaches it', () => {
+    const catalog = createSpyFromClass(Catalog);
+
+    catalog.load.nextWith(1);
+    const early = valuesOf(catalog.load());
+    catalog.load.nextWithValues([{ value: 2 }]);
+    catalog.load.nextWith(3);
+
+    expect(early).toEqual([1, 3]);
+  });
+
+  it('keeps the values nextWithValues configured when returnSubject() is called after it', () => {
+    const catalog = createSpyFromClass(Catalog, { observablePropsToSpyOn: ['items$'] });
+
+    catalog.load.nextWithValues([{ value: 1 }]);
+    const subject = catalog.load.returnSubject();
+    const seen = valuesOf(catalog.load());
+    subject.next(9);
+
+    catalog.items$.nextWithValues([{ value: 1 }]);
+    const propSubject = catalog.items$.returnSubject();
+    const propSeen = valuesOf(catalog.items$);
+    propSubject.next(9);
+
+    expect(seen).toEqual([1, 9]);
+    expect(propSeen).toEqual([1, 9]);
+  });
+
+  it('hands back the bare subject once a later helper replaced the configured values', () => {
+    const catalog = createSpyFromClass(Catalog);
+
+    catalog.load.nextWithValues([{ value: 1 }]);
+    catalog.load.nextWith(5);
+    catalog.load.returnSubject();
+
+    expect(valuesOf(catalog.load())).toEqual([5]);
+
+    catalog.load.nextWithValues([{ value: 1 }]);
+    catalog.load.complete();
+    const fresh = catalog.load.returnSubject();
+    const seen = valuesOf(catalog.load());
+    fresh.next(7);
+
+    expect(seen).toEqual([7]);
+  });
+
+  it('completes the subject branch on each subscriber own timeline', async () => {
+    await withFakeTimers(async () => {
+      const catalog = createSpyFromClass(Catalog);
+
+      catalog.load.nextWithValues([{ value: 1 }, { complete: true, delay: 100 }]);
+      const subject = catalog.load.returnSubject();
+      const first = valuesOf(catalog.load());
+      await advanceTimers(60);
+      const second = valuesOf(catalog.load());
+      await advanceTimers(50);
+      subject.next(7);
+
+      expect(first).toEqual([1]);
+      expect(second).toEqual([1, 7]);
+    });
+  });
+});
+
+describe('resetAutoSpy on observable props', () => {
+  class Store {
+    data$!: Observable<number>;
+
+    refresh(): void {
+      // Spied.
+    }
+  }
+
+  function valuesOf(source$: Observable<number>): number[] {
+    const values: number[] = [];
+
+    source$.subscribe((value) => values.push(value));
+
+    return values;
+  }
+
+  it('drops the buffered value of a class double prop', () => {
+    const store = createSpyFromClass(Store, { observablePropsToSpyOn: ['data$'] });
+
+    store.data$.nextWith(5);
+    resetAutoSpy(store);
+
+    expect(valuesOf(store.data$)).toEqual([]);
+
+    store.data$.nextWith(6);
+    expect(valuesOf(store.data$)).toEqual([6]);
+  });
+
+  it('drops a configured stream as well, and resets a prop handed over on its own', () => {
+    const store = createSpyFromClass(Store, { observablePropsToSpyOn: ['data$'] });
+
+    store.data$.nextWithValues([{ value: 1 }]);
+    resetAutoSpy(store.data$);
+
+    expect(valuesOf(store.data$)).toEqual([]);
+  });
+
+  it('drops the buffered value of a createAutoMock prop', () => {
+    const store = createAutoMock<Store>(undefined, { observablePropsToSpyOn: ['data$'] });
+
+    store.data$.nextWith(5);
+    resetAutoSpy(store);
+
+    expect(valuesOf(store.data$)).toEqual([]);
+  });
+
+  it('drops the buffered value of a prop installed on an instance', () => {
+    const store = createSpyFromInstance(new Store(), { observablePropsToSpyOn: ['data$'] });
+
+    store.data$.nextWith(5);
+    resetAutoSpy(store);
+
+    expect(valuesOf(store.data$)).toEqual([]);
+  });
+
+  it('keeps the buffer on clearAutoSpy, which keeps configuration', () => {
+    const store = createSpyFromClass(Store, { observablePropsToSpyOn: ['data$'] });
+
+    store.data$.nextWith(5);
+    clearAutoSpy(store);
+
+    expect(valuesOf(store.data$)).toEqual([5]);
   });
 });
