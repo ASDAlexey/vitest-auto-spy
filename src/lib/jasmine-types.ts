@@ -16,6 +16,7 @@ import type {
   AddObservableSpyMethods,
   AddPromiseSpyMethods,
   AddSpyMethodsByReturnTypes,
+  AnyReturnHelpers,
   Func,
   ObservableLike,
   ObservablePropSpyMethods,
@@ -71,7 +72,9 @@ export interface JasmineStrategies<Method extends Func> {
 
 /**
  * The helper bundle a method's return type earns: the promise helpers for a `Promise`, the
- * observable ones for a stream, and `Fallback` for everything else.
+ * observable ones for a stream, and `Fallback` for everything else. `any` is answered first, as
+ * in the core `AddSpyMethodsByReturnTypes`: `[any] extends [Promise<…>]` holds, so a method typed
+ * `any` would otherwise lose `withArgs(…).and.returnValue`.
  *
  * One conditional for both `.and` namespaces — `spy.and` falls back to nothing, and
  * `spy.withArgs(…).and` falls back to its own terminal.
@@ -79,11 +82,13 @@ export interface JasmineStrategies<Method extends Func> {
 type HelpersForReturn<Method extends Func, Fallback> =
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the conditional only extracts the return type; the parameter shape is irrelevant, and a narrower signature would fail to match arbitrary methods.
   Method extends (...args: any[]) => infer Returned
-    ? [Returned] extends [Promise<infer P>]
-      ? AddPromiseSpyMethods<P>
-      : [Returned] extends [ObservableLike<infer O>]
-        ? AddObservableSpyMethods<O>
-        : Fallback
+    ? 0 extends Returned & 1
+      ? AnyReturnHelpers & Fallback
+      : [Returned] extends [Promise<infer P>]
+        ? AddPromiseSpyMethods<P>
+        : [Returned] extends [ObservableLike<infer O>]
+          ? AddObservableSpyMethods<O>
+          : Fallback
     : Fallback;
 
 /** `.and` on a method spy: jasmine's strategies plus whichever helper bundle the return type earns. */
@@ -168,14 +173,20 @@ export interface JasmineNamespaces<Method extends Func> {
 /** A method spy with the jasmine namespaces on it. */
 export type JasmineMethodSpy<Method extends Func> = AddSpyMethodsByReturnTypes<Method> & JasmineNamespaces<Method>;
 
-/** An accessor spy with the jasmine namespaces on it — no `withArgs`, since there is no dispatch behind it. */
-export type JasmineAccessorSpy = Mock & { and: JasmineStrategies<Func>; calls: JasmineCalls };
+/**
+ * An accessor spy with the jasmine namespaces on it — no `withArgs`, since there is no dispatch
+ * behind it. Typed against the accessor, so a getter of `number` rejects `returnValue('x')`.
+ */
+export type JasmineAccessorSpy<Accessor extends Func = Func> = Mock<Accessor> & {
+  and: JasmineStrategies<Accessor>;
+  calls: JasmineCalls;
+};
 
 /** The `accessorSpies` bag, typed for jasmine. */
 export interface JasmineAccessorSpies<T> {
   accessorSpies: {
-    getters: { [K in keyof T]: JasmineAccessorSpy };
-    setters: { [K in keyof T]: JasmineAccessorSpy };
+    getters: { [K in keyof T]: JasmineAccessorSpy<() => T[K]> };
+    setters: { [K in keyof T]: JasmineAccessorSpy<(value: T[K]) => void> };
   };
 }
 
@@ -191,8 +202,8 @@ export interface JasmineAccessorSpies<T> {
  */
 export type JasmineSpy<T> = JasmineAccessorSpies<T> &
   SpyDisposable & {
-    [K in keyof T]: T[K] extends Func
-      ? JasmineMethodSpy<T[K]>
+    [K in keyof T]: Required<T>[K] extends Func
+      ? JasmineMethodSpy<Required<T>[K]>
       : T[K] extends ObservableLike<infer O>
         ? AddObservableSpyMethods<O> & ObservablePropSpyMethods & T[K]
         : T[K];
