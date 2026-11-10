@@ -10,6 +10,10 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- ESLint: `no-reset-all-mocks` reports `vi.resetAllMocks()`, which resets every live mock of the worker, including those of other spec files under `isolate: false`. It is in `recommended` and `strict` at `error` but silent until `['error', { isolate: false }]` says the suite shares workers; use `resetAutoSpy(double)` instead.
+
 ## [5.69.0] - 2026-11-07
 
 ### Fixed

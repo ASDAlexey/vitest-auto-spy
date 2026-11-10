@@ -14,4 +14,4 @@ _Last released: **v5.67.0** — the git tag, `package.json` and `CHANGELOG.md` a
 The staged items of the earlier releases shipped; the pending set lives in `## [Unreleased]` of the
 root `CHANGELOG.md` — jasmine custom matchers on `/jasmine`, runner-parity `calledWith` matching,
 printer and serializer probe keys on deep doubles, prototype constants on class doubles, `{ signal }`
-in stray listeners, the ESLint plugin version identity, and the codemod's jasmine type arguments.
+in stray listeners, the ESLint plugin version identity, the codemod's jasmine type arguments, and the `no-reset-all-mocks` ESLint rule.
