@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.70.0] - 2026-11-10
+
 ### Added
 
 - ESLint: `no-reset-all-mocks` reports `vi.resetAllMocks()`, which resets every live mock of the worker, including those of other spec files under `isolate: false`. It is in `recommended` and `strict` at `error` but silent until `['error', { isolate: false }]` says the suite shares workers; use `resetAutoSpy(double)` instead.
@@ -10525,7 +10527,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.69.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.0...HEAD
+[5.70.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.69.0...v5.70.0
 [5.69.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.68.1...v5.69.0
 [5.68.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.68.0...v5.68.1
 [5.68.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.67.0...v5.68.0
