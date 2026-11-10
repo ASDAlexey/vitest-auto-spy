@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.70.1] - 2026-11-10
+
 ### Fixed
 
 - ESLint: `no-redundant-mock-reset` resolves a relative `configFile` from the directory ESLint runs in and, failing that, from each parent of the linted file. An IDE that starts ESLint in a package folder of a monorepo no longer throws `the configFile option names … which does not exist`.
@@ -10531,7 +10533,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.1...HEAD
+[5.70.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.0...v5.70.1
 [5.70.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.69.0...v5.70.0
 [5.69.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.68.1...v5.69.0
 [5.68.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.68.0...v5.68.1
