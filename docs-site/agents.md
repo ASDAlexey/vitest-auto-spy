@@ -506,6 +506,10 @@ These cause most broken specs. `AGENTS.md` covers every one:
       [`no-redundant-mock-reset`](/utilities/eslint-rules#no-redundant-mock-reset) reports it once
       it is told which flags are on, and leaves a reset inside a test body alone, because that one
       separates two arrangements inside one test.
+    - **`vi.resetAllMocks()`.** It resets every live mock of the worker, including mocks of other
+      spec files when `isolate: false` shares the module registry, so neighbouring specs fail
+      intermittently. Use `resetAutoSpy(double)` for one double;
+      [`no-reset-all-mocks`](/utilities/eslint-rules#no-reset-all-mocks) reports the call.
     - **`expect(spy).toHaveBeenCalled()` where the arguments are what the test is about.** The bare
       matcher passes on any arguments at all, so a test titled "…with the host element" that
       asserts nothing else is green when the wrong node is passed. Name them —

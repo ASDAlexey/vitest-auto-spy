@@ -3613,7 +3613,7 @@ Full page: [Observer stubs](https://asdalexey.github.io/vitest-auto-spy/utilitie
 
 ## ESLint plugin
 
-`vitest-auto-spy/eslint-plugin` has 58 lint rules that catch test code which passes but checks
+`vitest-auto-spy/eslint-plugin` has 59 lint rules that catch test code which passes but checks
 nothing, or drifts from the real class. Each message links to the fix.
 
 ```js
@@ -3701,6 +3701,7 @@ Rolling it out on a large suite, and the options each rule takes:
 | [`prefer-create-mock`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-create-mock)                             |   `warn`    | suggest           | Build a partial fixture with createMock<T>(), not an object literal cast to T                                                         |
 | [`no-mock-cast`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-mock-cast)                                         |   `error`   | suggest           | Read a spy member off the double, not through a cast to Vitest’s Mock                                                                 |
 | [`no-redundant-mock-reset`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-redundant-mock-reset)                   |   `error`   | `--fix` / suggest | Do not repeat in a hook the mock reset the runner is configured to perform between tests                                              |
+| [`no-reset-all-mocks`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-reset-all-mocks)                             |   `error`   | —                 | Reset one double with resetAutoSpy(), not every mock of the worker with vi.resetAllMocks()                                            |
 | [`no-unasserted-argument`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-unasserted-argument)                     |   `warn`    | —                 | Assert the arguments where the file shows they are the point, not only that the call happened                                         |
 | [`no-compile-components`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-compile-components)                       |   `error`   | suggest           | Drop compileComponents() under a builder that inlines component resources                                                             |
 | [`no-sync-testbed-await`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-sync-testbed-await)                       |   `error`   | suggest           | Drop the await on a TestBed call that answers the TestBed or a fixture rather than a promise                                          |

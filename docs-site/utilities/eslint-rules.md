@@ -71,6 +71,7 @@ rule is `error` except thirteen.
 | [`no-hand-assigned-global`](#no-hand-assigned-global)                   | `error` | `global.fetch = vi.fn()`, `environment.x = …` — a value no teardown puts back                                                                              |
 | [`prefer-stub-response`](#prefer-stub-response)                         | `error` | an object literal cast to `Response`, or `createMock<Response>(…)` — half a response                                                                       |
 | [`no-redundant-mock-reset`](#no-redundant-mock-reset)                   | `error` | a mock reset in a hook the runner already performs between tests                                                                                           |
+| [`no-reset-all-mocks`](#no-reset-all-mocks)                             | `error` | `vi.resetAllMocks()` — resets mocks other spec files own when `isolate: false` shares the worker                                                           |
 | [`prefer-provide-activated-route`](#prefer-provide-activated-route)     | `error` | an `ActivatedRoute` provided as a hand-built object, class or factory — half a route                                                                       |
 | [`no-passthrough-console-spy`](#no-passthrough-console-spy)             | `error` | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints                                                                       |
 | [`no-unasserted-console-spy`](#no-unasserted-console-spy)               | `warn`  | a console spy the file only resets or configures, never asserts — `useConsoleSpies()` already silences                                                     |
@@ -2469,6 +2470,43 @@ so the rule cannot be wrong about a project it knows nothing about. Where it fir
 flag the project set and a call that repeats it, and the fix is a deletion the rule makes or offers.
 The finding is pure cost (the line does nothing), which is the easiest kind of report to act on.
 :::
+
+## no-reset-all-mocks
+
+**`error`** · no fix · syntax only
+
+Use this rule only if your Vitest config sets `test.isolate: false`. With the default `isolate: true` you do not need it.
+
+Reports `vi.resetAllMocks()`. With `isolate: false`, spec files share one worker (the process that runs them), and the call resets every mock in it, including mocks created by other spec files. Neighbouring specs then fail at random.
+
+The rule cannot read your Vitest config, so it stays silent until you pass the setting as a rule option. Plugin setup is on the [ESLint plugin](/utilities/eslint-plugin) page.
+
+```js
+// eslint.config.js, inside the `rules` object of your spec files block
+'vitest-auto-spy/no-reset-all-mocks': ['error', { isolate: false }],
+```
+
+Reset your own spy instead of every mock:
+
+```ts
+import { createSpyFromClass, resetAutoSpy } from 'vitest-auto-spy';
+
+// before
+afterEach(() => {
+  vi.resetAllMocks();
+});
+
+// after
+const api = createSpyFromClass(Api);
+
+afterEach(() => {
+  resetAutoSpy(api);
+});
+```
+
+Or create the spy inside the test with `using api = createSpyFromClass(Api);`. It resets when the test ends, so you need no `afterEach`. This needs TypeScript 5.2 or newer.
+
+See also [`no-redundant-mock-reset`](#no-redundant-mock-reset) for `vi.clearAllMocks()` and `vi.restoreAllMocks()`.
 
 ## no-unasserted-argument
 

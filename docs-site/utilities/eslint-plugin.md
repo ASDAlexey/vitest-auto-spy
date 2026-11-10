@@ -48,8 +48,8 @@ brings both keys with it.
 
 | Config                | What it turns on                                   | Use it when                                                                                                     |
 | --------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `configs.recommended` | all 58 rules: 45 at `error`, 13 at `warn`          | you start with the plugin; this is the default                                                                  |
-| `configs.strict`      | all 58 rules at `error`                            | your specs are clean, and every finding should stop the build                                                   |
+| `configs.recommended` | all 59 rules: 46 at `error`, 13 at `warn`          | you start with the plugin; this is the default                                                                  |
+| `configs.strict`      | all 59 rules at `error`                            | your specs are clean, and every finding should stop the build                                                   |
 | `configs.typeErrors`  | `prefer-as-spy` and `no-mocked-for-spy` at `error` | together with `recommended`, in the [large-project recipe](#land-it-on-a-large-existing-suite-without-a-red-ci) |
 
 Both `typeErrors` rules are already `error` in `recommended`. You need `typeErrors` only in the
@@ -158,7 +158,7 @@ leave them on.
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the 52 core rules work; the four Jasmine rules never fire                                          |
 | moving off `jest-auto-spies` / Jest        | the core rules do the work; `no-done-callback` and `prefer-as-spy` catch the most                  |
-| moving off `jasmine-auto-spies`            | all 58 rules; set `prefer-native-spy-api` to `'off'` until the Jasmine compatibility layer is gone |
+| moving off `jasmine-auto-spies`            | all 59 rules; set `prefer-native-spy-api` to `'off'` until the Jasmine compatibility layer is gone |
 
 ### If you never used Jasmine
 
@@ -218,7 +218,7 @@ For the bulk edit, run the codemod instead of a lint pass: `npx vitest-auto-spy 
 
 ### If you are coming from Jasmine
 
-All 58 rules apply, and the four Jasmine rules are written for you:
+All 59 rules apply, and the four Jasmine rules are written for you:
 
 - `no-jasmine-globals` and `no-save-arguments-by-value` report behaviour that silently changes after
   a rename.
@@ -535,6 +535,7 @@ These rules are about what one file leaves behind for the next one.
 | [`no-hand-assigned-global`](/utilities/eslint-rules#no-hand-assigned-global)                   | `global.fetch = vi.fn(…)` with no restore → `mockValueProp` / `vi.stubGlobal` / `blockNetwork()`                                | `error` | `--fix` (imported object) |          green          |
 | [`prefer-stub-response`](/utilities/eslint-rules#prefer-stub-response)                         | an object cast to `Response`, or `createMock<Response>(…)` → `stubResponse({ body })`                                           | `error` | —                         |          green          |
 | [`no-redundant-mock-reset`](/utilities/eslint-rules#no-redundant-mock-reset)                   | a reset in a hook that the runner already does between tests → delete it; silent until it knows the runner's flags              | `error` | `--fix` / suggestion      |            —            |
+| [`no-reset-all-mocks`](/utilities/eslint-rules#no-reset-all-mocks)                             | `vi.resetAllMocks()` reaches every mock of the worker, other files' included → `resetAutoSpy(double)`                           | `error` | —                         |          green          |
 
 ### Angular DI and the TestBed
 
@@ -612,7 +613,7 @@ still contains Jasmine code. **They never fire in a suite that never used Jasmin
 
 ## Which rules fix, and why so few
 
-Eight of the 58 rules rewrite code under `--fix`. Twenty-one offer the rewrite as an editor suggestion
+Eight of the 59 rules rewrite code under `--fix`. Twenty-one offer the rewrite as an editor suggestion
 that you accept by hand: four of them also have `--fix` for some shapes (in the table below), and
 seventeen offer only a suggestion. The split depends on what a wrong guess costs, not on how hard the rewrite
 is.

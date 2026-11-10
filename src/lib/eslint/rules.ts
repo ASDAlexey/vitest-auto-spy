@@ -73,6 +73,7 @@ import { noImportTimeSpread } from './no-import-time-spread';
 import { noInjectBeforeOverride } from './no-inject-before-override';
 import { noMockedForSpy } from './no-mocked-for-spy';
 import { noObjectDefineProperty } from './no-object-define-property';
+import { noResetAllMocks } from './no-reset-all-mocks';
 import { noSharedModuleLevelMock } from './no-shared-module-level-mock';
 import { noUnregisteredInjectSpy } from './no-unregistered-inject-spy';
 import { preferObserverStub } from './observer-stub';
@@ -149,6 +150,7 @@ export const rules: Record<string, RuleModule> = {
   'no-constant-expect': noConstantExpect,
   'no-compile-components': noCompileComponents,
   'no-redundant-mock-reset': noRedundantMockReset,
+  'no-reset-all-mocks': noResetAllMocks,
   'no-unasserted-argument': noUnassertedArgument,
   'no-sync-testbed-await': noSyncTestbedAwait,
   'no-redundant-smoke-test': noRedundantSmokeTest,

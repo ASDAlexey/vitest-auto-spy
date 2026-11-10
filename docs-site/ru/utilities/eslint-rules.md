@@ -71,6 +71,7 @@ description: По разделу на каждое правило ESLint-пла�
 | [`no-hand-assigned-global`](#no-hand-assigned-global)                   | `error`      | `global.fetch = vi.fn()`, `environment.x = …` — значение, которое никакой teardown не возвращает                                                                           |
 | [`prefer-stub-response`](#prefer-stub-response)                         | `error`      | объектный литерал, приведённый к `Response`, или `createMock<Response>(…)` — половина ответа                                                                               |
 | [`no-redundant-mock-reset`](#no-redundant-mock-reset)                   | `error`      | сброс моков в хуке, который раннер и так делает между тестами                                                                                                              |
+| [`no-reset-all-mocks`](#no-reset-all-mocks)                             | `error`      | `vi.resetAllMocks()` — сбрасывает и чужие моки воркера при `isolate: false`                                                                                                |
 | [`prefer-provide-activated-route`](#prefer-provide-activated-route)     | `error`      | `ActivatedRoute`, предоставленный как собранный руками объект, класс или фабрика, — полмаршрута                                                                            |
 | [`no-passthrough-console-spy`](#no-passthrough-console-spy)             | `error`      | `vi.spyOn(console, m)`, которому ничто не дало реализации, — вызывает оригинал и печатает                                                                                  |
 | [`no-unasserted-console-spy`](#no-unasserted-console-spy)               | `warn`       | консольный спай, которого файл только сбрасывает или настраивает и никогда не проверяет, — `useConsoleSpies()` и так глушит вывод                                          |
@@ -2479,6 +2480,43 @@ beforeEach(() => {
 удаление, которое правило делает или предлагает. Находка — чистая цена (строка ничего не делает), а
 на такой отчёт реагировать проще всего.
 :::
+
+## no-reset-all-mocks {#no-reset-all-mocks}
+
+**`error`** · без исправления · только синтаксис
+
+Правило нужно, только если в конфиге Vitest задано `test.isolate: false`. При значении по умолчанию `isolate: true` оно вам не нужно.
+
+Сообщает о `vi.resetAllMocks()`. При `isolate: false` спеки делят один воркер (процесс, который их запускает), и вызов сбрасывает все его моки, в том числе созданные другими спеками. Соседние спеки после этого падают случайным образом.
+
+Правило не читает конфиг Vitest и молчит, пока вы не передали ему эту настройку опцией. Как подключить плагин, написано на странице [ESLint-плагин](/ru/utilities/eslint-plugin).
+
+```js
+// eslint.config.js, в объекте `rules` блока для ваших спеков
+'vitest-auto-spy/no-reset-all-mocks': ['error', { isolate: false }],
+```
+
+Сбрасывайте свой спай, а не все моки:
+
+```ts
+import { createSpyFromClass, resetAutoSpy } from 'vitest-auto-spy';
+
+// before
+afterEach(() => {
+  vi.resetAllMocks();
+});
+
+// after
+const api = createSpyFromClass(Api);
+
+afterEach(() => {
+  resetAutoSpy(api);
+});
+```
+
+Или создайте спай внутри теста: `using api = createSpyFromClass(Api);`. Он сбросится, когда тест закончится, и `afterEach` не нужен. Для этого нужен TypeScript 5.2 или новее.
+
+Про `vi.clearAllMocks()` и `vi.restoreAllMocks()` см. [`no-redundant-mock-reset`](#no-redundant-mock-reset).
 
 ## no-unasserted-argument {#no-unasserted-argument}
 
