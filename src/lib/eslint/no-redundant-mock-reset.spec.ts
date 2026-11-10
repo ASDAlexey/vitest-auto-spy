@@ -227,6 +227,19 @@ describe('no-redundant-mock-reset, finding the runner config itself', () => {
     expect(inDirectory(bare, code, { configFile: 'tools/vitest-runner.config.ts', clearMocks: false })).toBe(0);
   });
 
+  it('finds a relative configFile above the linted file when ESLint runs from a package folder', () => {
+    mkdirSync(join(bare, 'tools'), { recursive: true });
+    writeFileSync(join(bare, 'tools', 'vitest-runner.config.ts'), `export default { test: { clearMocks: true } };\n`);
+    const fromPackage = (): number =>
+      runRule(RULE, code, {
+        filename: join(bare, 'nested', 'thing.spec.ts'),
+        linter: createFlatLinter(join(bare, 'nested')),
+        options: { configFile: 'tools/vitest-runner.config.ts' },
+      }).length;
+
+    expect(fromPackage()).toBe(1);
+  });
+
   it('reads no flag out of a comment or a string', () => {
     const commented = join(root, 'commented');
 

@@ -257,15 +257,40 @@ function isResetOptions(value: unknown): value is ResetOptions {
   return typeof value === 'object' && value !== null;
 }
 
+/**
+ * Where a relative `configFile` lives: from the directory ESLint runs in, and failing that from each
+ * parent of the linted file — an IDE runs ESLint from the package folder of a monorepo, where a path
+ * written against the workspace root points at nothing.
+ */
+function locate(context: RuleContext, configFile: string): string {
+  const fromCwd = resolve(context.cwd, configFile);
+
+  if (flagsAt(fromCwd) !== null) {
+    return fromCwd;
+  }
+
+  for (let dir = dirname(context.filename); ; dir = dirname(dir)) {
+    const candidate = resolve(dir, configFile);
+
+    if (flagsAt(candidate) !== null) {
+      return candidate;
+    }
+
+    if (dirname(dir) === dir) {
+      return fromCwd;
+    }
+  }
+}
+
 /** The runner config `configFile` names, read with `configFlags` over its text; loud when it is not there. */
 function namedConfig(context: RuleContext, configFile: string, extra: ResetFlags = {}): NamedConfig {
-  const path = resolve(context.cwd, configFile);
+  const path = locate(context, configFile);
   const text = flagsAt(path);
 
   if (text === null) {
     throw new Error(
       `[vitest-auto-spy] no-redundant-mock-reset: the configFile option names ${path}, which does not exist. ` +
-        'Point it at the runner config that sets clearMocks / restoreMocks / mockReset, relative to the directory ESLint runs in.',
+        'Point it at the runner config that sets clearMocks / restoreMocks / mockReset, relative to the directory ESLint runs in or to a parent of the linted file.',
     );
   }
 
