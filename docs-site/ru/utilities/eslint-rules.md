@@ -2485,18 +2485,18 @@ beforeEach(() => {
 
 **`error`** · без исправления · только синтаксис
 
-Правило нужно, только если в конфиге Vitest задано `test.isolate: false`. При значении по умолчанию `isolate: true` оно вам не нужно.
+Правило нужно, только если в конфиге Vitest задано `test.isolate: false`. По умолчанию там `true`.
 
-Сообщает о `vi.resetAllMocks()`. При `isolate: false` спеки делят один воркер (процесс, который их запускает), и вызов сбрасывает все его моки, в том числе созданные другими спеками. Соседние спеки после этого падают случайным образом.
+При `isolate: false` все ваши спеки работают в одном общем воркере. Воркер — это процесс или поток, в котором Vitest запускает спеки. Тогда `vi.resetAllMocks()` сбрасывает все моки этого воркера, в том числе созданные другими спеками. Соседние спеки падают случайным образом.
 
-Правило не читает конфиг Vitest и молчит, пока вы не передали ему эту настройку опцией. Как подключить плагин, написано на странице [ESLint-плагин](/ru/utilities/eslint-plugin).
+Правило ничего не сообщает, пока вы не передали ему ту же настройку опцией: конфиг Vitest оно не читает. Как подключить плагин, написано на странице [ESLint-плагин](/ru/utilities/eslint-plugin).
 
 ```js
-// eslint.config.js, в объекте `rules` блока для ваших спеков
+// eslint.config.js, в объекте `rules` блока, который подходит вашим спекам
 'vitest-auto-spy/no-reset-all-mocks': ['error', { isolate: false }],
 ```
 
-Сбрасывайте свой спай, а не все моки:
+Сбрасывайте свой спай, а не все моки. `resetAutoSpy` очищает записанные вызовы и настроенные ответы только этого спая:
 
 ```ts
 import { createSpyFromClass, resetAutoSpy } from 'vitest-auto-spy';
@@ -2514,9 +2514,18 @@ afterEach(() => {
 });
 ```
 
-Или создайте спай внутри теста: `using api = createSpyFromClass(Api);`. Он сбросится, когда тест закончится, и `afterEach` не нужен. Для этого нужен TypeScript 5.2 или новее.
+Или создайте спай внутри теста. Ключевое слово `using` (TypeScript 5.2 или новее) вызывает `resetAutoSpy` для этого спая, когда тест закончился, и `afterEach` не нужен. Создавайте спай в каждом тесте, где он нужен: спай, объявленный в `describe` или `beforeEach`, так не сбрасывается, для него оставьте `resetAutoSpy(api)` в `afterEach`:
 
-Про `vi.clearAllMocks()` и `vi.restoreAllMocks()` см. [`no-redundant-mock-reset`](#no-redundant-mock-reset).
+```ts
+it('loads the user', () => {
+  using api = createSpyFromClass(Api);
+  // ...
+});
+```
+
+`resetAutoSpy` и `using` затрагивают только спаи этой библиотеки. Обычные моки `vi.fn()` они не сбрасывают; вызовите `mockReset()` у каждого из них сами.
+
+Это правило не сообщает о `vi.clearAllMocks()` и `vi.restoreAllMocks()`, хотя они тоже действуют на все моки воркера. О них сообщает [`no-redundant-mock-reset`](#no-redundant-mock-reset), когда то же самое уже делают опции Vitest `clearMocks` или `restoreMocks`.
 
 ## no-unasserted-argument {#no-unasserted-argument}
 
