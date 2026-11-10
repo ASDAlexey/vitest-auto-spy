@@ -10,6 +10,10 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Fixed
+
+- ESLint: `no-redundant-mock-reset` resolves a relative `configFile` from the directory ESLint runs in and, failing that, from each parent of the linted file. An IDE that starts ESLint in a package folder of a monorepo no longer throws `the configFile option names … which does not exist`.
+
 ## [5.70.0] - 2026-11-10
 
 ### Added
