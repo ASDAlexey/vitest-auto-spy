@@ -241,6 +241,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-redundant-smoke-test`]: 'error',
   [`${PLUGIN_NAME}/no-self-called-spy`]: 'error',
   [`${PLUGIN_NAME}/no-redundant-mock-reset`]: 'error',
+  [`${PLUGIN_NAME}/no-reset-all-mocks`]: 'error',
   [`${PLUGIN_NAME}/no-unasserted-argument`]: 'warn',
   [`${PLUGIN_NAME}/prefer-set-inputs`]: 'warn',
   [`${PLUGIN_NAME}/prefer-spy-on-own-method`]: 'warn',
