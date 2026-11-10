@@ -18328,18 +18328,18 @@ The finding is pure cost (the line does nothing), which is the easiest kind of r
 
 **`error`** · no fix · syntax only
 
-Use this rule only if your Vitest config sets `test.isolate: false`. With the default `isolate: true` you do not need it.
+Use this rule only if your Vitest config sets `test.isolate: false`. The default is `true`.
 
-Reports `vi.resetAllMocks()`. With `isolate: false`, spec files share one worker (the process that runs them), and the call resets every mock in it, including mocks created by other spec files. Neighbouring specs then fail at random.
+With `isolate: false`, all your spec files run in one shared worker. A worker is the process or thread Vitest uses to run spec files. `vi.resetAllMocks()` then resets every mock in that worker, including mocks created by other spec files. Neighbouring specs fail at random.
 
-The rule cannot read your Vitest config, so it stays silent until you pass the setting as a rule option. Plugin setup is on the [ESLint plugin](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) page.
+The rule reports nothing until you pass the same setting as a rule option, because it cannot read your Vitest config. Plugin setup is on the [ESLint plugin](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) page.
 
 ```js
-// eslint.config.js, inside the `rules` object of your spec files block
+// eslint.config.js, inside the `rules` object of the block that matches your spec files
 'vitest-auto-spy/no-reset-all-mocks': ['error', { isolate: false }],
 ```
 
-Reset your own spy instead of every mock:
+Reset your own spy instead of every mock. `resetAutoSpy` clears the recorded calls and the configured answers of that one spy:
 
 ```ts
 import { createSpyFromClass, resetAutoSpy } from 'vitest-auto-spy';
@@ -18357,9 +18357,18 @@ afterEach(() => {
 });
 ```
 
-Or create the spy inside the test with `using api = createSpyFromClass(Api);`. It resets when the test ends, so you need no `afterEach`. This needs TypeScript 5.2 or newer.
+Or create the spy inside the test. The `using` keyword (TypeScript 5.2 or newer) calls `resetAutoSpy` on that spy when the test ends, so you need no `afterEach`. Create the spy inside each test that uses it; a spy declared in `describe` or `beforeEach` is not reset this way, so keep `resetAutoSpy(api)` in `afterEach` for it:
 
-See also [`no-redundant-mock-reset`](#no-redundant-mock-reset) for `vi.clearAllMocks()` and `vi.restoreAllMocks()`.
+```ts
+it('loads the user', () => {
+  using api = createSpyFromClass(Api);
+  // ...
+});
+```
+
+`resetAutoSpy` and `using` only touch spies made by this library. Plain `vi.fn()` mocks are not reset by them; call `mockReset()` on each one yourself.
+
+This rule does not report `vi.clearAllMocks()` and `vi.restoreAllMocks()`, although they also act on every mock of the worker. [`no-redundant-mock-reset`](#no-redundant-mock-reset) reports them when the Vitest options `clearMocks` or `restoreMocks` already do the same.
 
 ## no-unasserted-argument
 
