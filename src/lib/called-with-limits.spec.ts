@@ -97,6 +97,7 @@ describe('the lenient calledWith miss hint', () => {
     expect(warnings()).toHaveLength(1);
     expect(warnings()[0]).toContain("[vitest-auto-spy] load('1') matched none of its calledWith() configs ([1]) and answered undefined.");
     expect(warnings()[0]).toContain('use mustBeCalledWith() to fail on one');
+    expect(warnings()[0]).toContain("fallback in its own container (resolveWith, failWith, the 'returns' option)");
     expect(warnings()[0]).toContain(
       'Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#cause-and-effect-why-calledwith-and-not-mockreturnvalue',
     );
