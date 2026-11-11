@@ -86,7 +86,7 @@ Four places where that surface now matches jasmine's rather than approximating i
 | `jasmine.SpyObj<T>` / `jasmine.Spy` | `Spy<T>` from this package / `Mock` from `vitest` |
 | a helper typed on `withArgs(…).and` | `JasmineWithArgsStrategies<Method>` from `/jasmine` or `/jasmine-compat` |
 | `expect(x).toBeTrue()` / `toHaveSize(n)` | `.toBe(true)` / `.toHaveLength(n)` |
-| `expect(spy).toHaveBeenCalledOnceWith(a)` | `.toHaveBeenCalledExactlyOnceWith(a)` |
+| `expect(spy).toHaveBeenCalledOnceWith(a)` | `.toHaveBeenCalledTimes(1)` + `.toHaveBeenCalledWith(a)` |
 | `fail(msg)` | `expect.fail(msg)` — there is no `vi.fail` |
 
 ### Four traps, all of them silent

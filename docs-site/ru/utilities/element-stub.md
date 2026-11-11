@@ -75,7 +75,8 @@ const trigger = mockElementRefProp(component, 'dateTrigger', {
   tagName: 'button',
 });
 component.focusTrigger();
-expect(trigger.focus).toHaveBeenCalledExactlyOnceWith();
+expect(trigger.focus).toHaveBeenCalledTimes(1);
+expect(trigger.focus).toHaveBeenCalledWith();
 ```
 
 Такой вызов заменяет локальную фабрику элемента и последующий `mockSignalProp(component, 'dateTrigger', new ElementRef(element))`.

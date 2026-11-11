@@ -141,9 +141,10 @@ count throws like any miss; `times` takes a positive whole number (`RangeError` 
 **A lenient miss is hinted once.** When a `calledWith` misses a call with the same number of
 arguments as one of its configs, on a spy with no default, the library prints (never throws) one
 warning per test file naming the call and the configs:
-`load('1') matched none of its calledWith() configs ([1]) and answered undefined`. A default
-(`mockReturnValue`, `resolveWith`, `failWith`, `returns`) silences it; `mustBeCalledWith` is the
-form for a miss that is the bug.
+`load('1') matched none of its calledWith() configs ([1]) and answered undefined`. A default in
+the spy's own container (`resolveWith`, `failWith`, `returns`) silences it. `mockReturnValue` instead
+replaces the dispatch, so `calledWith` no longer decides any answer; mixing them is reported as a
+misconfiguration (§5). Use `mustBeCalledWith` when a miss is the bug.
 
 `new` on a method spy works: `new sdk.Client()` — the shape `createAutoMock<{ Client: typeof Client }>()`
 and `mockDeep` produce — hands back the instance, or the object a `calledWith(...).mockReturnValue(...)`

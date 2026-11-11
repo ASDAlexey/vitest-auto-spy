@@ -1311,7 +1311,8 @@ import { mockElementRefProp } from 'vitest-auto-spy/angular/doubles';
 
 const trigger = mockElementRefProp(component, 'dateTrigger');
 component.focusTrigger();
-expect(trigger.focus).toHaveBeenCalledExactlyOnceWith();
+expect(trigger.focus).toHaveBeenCalledTimes(1);
+expect(trigger.focus).toHaveBeenCalledWith();
 ```
 
 Здесь `dateTrigger` — сигнальный запрос `ElementRef`, а `focusTrigger()` вызывает фокус на его элементе.

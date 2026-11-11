@@ -64,7 +64,7 @@ grep -n -F '<text of the error>' "$D/agent-docs/errors.md"   # a failure: its ro
 
 | Read | Sections |
 | --- | --- |
-| Always, before writing a spec | §1 entry point, §2 factory (`agent-docs/factories.md`), §3 the 90% recipe, §18 do not write this (`agent-docs/anti-patterns.md`), §19 before you report success (`agent-docs/checklist.md`) |
+| Always, before writing a spec | §1 entry point, §2 factory (`agent-docs/factories.md`), §3 the 90% recipe, §18 do not write this (`agent-docs/anti-patterns.md`), §19 before you report success (`agent-docs/checklist.md`), §21 design tests (`agent-docs/test-design.md`) |
 | When the task touches it | §4 return-type helpers (`agent-docs/return-helpers.md`), §5 `createSpyFromClass` configuration (`agent-docs/configuration.md`), §6 `Spy<T>` vs `T`, §7 resetting, §8 observables (`agent-docs/observables.md`), §9 patching properties (`agent-docs/properties.md`), §10 setup file (`agent-docs/setup.md`), §11 waiting (`agent-docs/waiting.md`), §12 doubles for what the code builds (`agent-docs/doubles.md`), §15 other adapters (`agent-docs/adapters.md`) |
 | Only for that stack | §13 Angular (`agent-docs/angular.md`), §14 `fakeAsync`, §16 ESLint plugin (`agent-docs/eslint.md`), §20 migrating off `jasmine-auto-spies` (`agent-docs/migration-jasmine.md`) |
 | Never front to back | §17 Error → fix (`agent-docs/errors.md`), §10 setup file and §13 Angular: grep the message or list the `###` headings first |
@@ -218,10 +218,9 @@ beforeEach(() => {
 });
 
 it('loads', async () => {
-  users.load.calledWith(1).resolveWith({ id: 1 });
+  users.load.calledWith(7).resolveWith({ id: 42 });
 
-  await expect(subject.open(1)).resolves.toEqual({ id: 1 });
-  expect(users.load).toHaveBeenCalledWith(1);
+  await expect(subject.open(7)).resolves.toEqual({ id: 42 });
 });
 ```
 
@@ -236,14 +235,15 @@ it('loads', async () => {
 
 Rules that carry most of the value:
 
-1. **One `configureTestingModule` per `describe`.** Reconfiguring per `it()` compiles the module for
-   every test, the largest avoidable cost in an Angular suite.
+1. **Keep one `configureTestingModule` setup path per `describe`.** Reconfiguring inside individual
+   tests adds unnecessary work; a `beforeEach` still runs for every test.
 2. **Declare each spy as `Spy<T>`, never as `T`** (§6).
 3. **Seed defaults in `beforeEach`, override in the test.** An unconfigured method returns
    `undefined`, and the failure surfaces far from its cause. Seed before `TestBed.inject(ClassUnderTest)`
    when its constructor or field initialisers read the dependency. Seed a one-shot `Observable` with
    `nextOneTimeWith`: a `nextWith` never completes (`forkJoin` / `lastValueFrom` hang) and its buffered
-   value reaches a later `throwWith`'s subscriber first.
+   value reaches a later `throwWith`'s subscriber first. A method-level `mockReturnValue` replaces
+   the `calledWith` dispatch; use the `returns` option or return-type helpers for a fallback.
 4. **`provideAutoSpy` is lazy by default**, so listing a wide service costs nothing for the methods a
    test never touches.
 5. **Two import lines.** `provideAutoSpy`, `injectSpy` and the `Spy<T>` type come from
@@ -602,5 +602,17 @@ In [`agent-docs/migration-jasmine.md`](./agent-docs/migration-jasmine.md). Read 
 - The renames, once the suite is green
 - Four traps, all of them silent
 - `@hirez_io/observer-spy` comes with it
+
+<!-- /agents-outline -->
+
+---
+
+## 21. Design tests around observable behavior
+
+In [`agent-docs/test-design.md`](./agent-docs/test-design.md). Read it before choosing cases and assertions, including for Angular tests involving bindings, delays or replaced work.
+
+<!-- agents-outline: agent-docs/test-design.md -->
+
+- Angular: what the boundary has to prove
 
 <!-- /agents-outline -->

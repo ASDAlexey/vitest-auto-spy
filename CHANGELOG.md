@@ -10,6 +10,15 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- Bundled test-design guidance for choosing observable outcomes, discriminating inputs, and Angular cancellation, delay, and binding checks. The agent reference links to it before writing a spec.
+
+### Fixed
+
+- The `calledWith` miss hint no longer recommends `mockReturnValue` as a fallback: that method replaces the argument dispatch. The bundled reference and examples explain the distinction.
+- Agent examples use call matchers available at the supported Vitest peer floor.
+
 ## [5.70.1] - 2026-11-10
 
 ### Fixed

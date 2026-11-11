@@ -2543,7 +2543,7 @@ expect(component.rowFocused.emit).toHaveBeenCalledWith(host.nativeElement); // �
 
 - `expect.objectContaining({ … })` and `expect.any(Type)` cover the part of an argument the test does
   not decide.
-- `toHaveBeenCalledExactlyOnceWith(…)` when "once" is part of the claim.
+- `toHaveBeenCalledWith(…)` plus `toHaveBeenCalledTimes(1)` when "once" is part of the claim.
 - A double this package built takes [`mustBeCalledWith(…)`](/core/control-helpers) where it is
   configured, which fails at the call rather than after it.
 - A method that takes no arguments has nothing to name. Pin the count instead:
@@ -2564,8 +2564,8 @@ Nothing outside the file, and nothing a type checker knows. There are two readin
    already wrote down that the arguments of that call are part of the contract; this is the place
    where they did not. A test that asserts both on the same subject is left alone: the arguments are
    checked there, and the bare line is merely redundant. `toBeCalledWith`,
-   `toHaveBeenLastCalledWith`, `toHaveBeenNthCalledWith` and `toHaveBeenCalledExactlyOnceWith` pin the
-   arguments too, and `toBeCalled()` is the same bare matcher.
+   `toHaveBeenLastCalledWith` and `toHaveBeenNthCalledWith` pin the
+   arguments too; Vitest 3+ also has `toHaveBeenCalledExactlyOnceWith`. `toBeCalled()` is the same bare matcher.
 2. **The test title says `with`, and the body asserts nothing else.** Then the whole claim of the
    test is an argument list, and all it checks is that something ran. Any other assertion silences
    this reading, because it may be where the arguments are checked: an equality on a result, a count,

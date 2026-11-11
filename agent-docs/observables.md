@@ -79,11 +79,11 @@ A failure that counts emissions also shows the first five values, then `… N mo
 
 **A `void` stream calls its listener with one argument, `undefined`.** `output<void>().emit()` and
 `Subject<void>.next()` both do, so a `vi.fn()` subscribed to one records `[undefined]`, and
-`expect(listener).toHaveBeenCalledExactlyOnceWith()` fails on `[] vs [undefined]`. The assertion is the emission itself:
+`expect(listener).toHaveBeenCalledWith()` fails on `[] vs [undefined]`, even when `toHaveBeenCalledTimes(1)` passes. The assertion is the emission itself:
 `await expect(expectEmission(component.closed)).resolves.toBeUndefined()`, or
 `subscribeSpyTo(subject$).getValuesLength()` to count. A listener kept anyway is typed
 `vi.fn<() => void>()` (`(value: void) => void` trips `no-invalid-void-type`) and asserted
-`toHaveBeenCalledExactlyOnceWith(undefined)`.
+`toHaveBeenCalledTimes(1)` and `toHaveBeenCalledWith(undefined)`.
 
 `expectCompletion` is the one to reach for on a stream whose value is not the point — a save, a
 purge, an `Observable<void>`, a `Subject` a teardown closes. `firstValueFrom` rejects such a stream

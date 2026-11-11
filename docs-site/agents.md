@@ -117,6 +117,8 @@ The reference covers every export, option and error, so it is split in two level
 - `node_modules/vitest-auto-spy/agent-docs/` holds the rest, one file per section with the same
   numbers: factories, configuration, return-type helpers, the setup file, Angular, the ESLint plugin,
   Error → fix (a table to search by message), the checklist before reporting success, and others.
+  `test-design.md` gives five rules for choosing observable outcomes, distinguishing inputs and
+  meaningful assertions, with an Angular addendum for bindings, delays and cancelled work.
 
 The shipped skill and the `init` stub send the agent to the map first.
 

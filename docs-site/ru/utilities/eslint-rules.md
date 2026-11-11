@@ -2553,7 +2553,7 @@ expect(component.rowFocused.emit).toHaveBeenCalledWith(host.nativeElement); // �
 
 - `expect.objectContaining({ … })` и `expect.any(Type)` закрывают ту часть аргумента, которую тест
   не решает.
-- `toHaveBeenCalledExactlyOnceWith(…)` — когда «ровно один раз» тоже часть утверждения.
+- `toHaveBeenCalledWith(…)` плюс `toHaveBeenCalledTimes(1)` — когда «ровно один раз» тоже часть утверждения.
 - Подмена, собранная этим пакетом, принимает [`mustBeCalledWith(…)`](/ru/core/control-helpers) там,
   где её настраивают. Он падает на самом вызове, а не после него.
 - У метода без аргументов называть нечего. Закрепите счётчик: `toHaveBeenCalledOnce()` или
@@ -2574,7 +2574,7 @@ expect(component.rowFocused.emit).toHaveBeenCalledWith(host.nativeElement); // �
    записал, что аргументы этого вызова — часть контракта; здесь он этого не сделал. Тест, который
    проверяет оба варианта на одном субъекте, не трогается: аргументы там проверены, а голая строка
    просто лишняя. `toBeCalledWith`, `toHaveBeenLastCalledWith`, `toHaveBeenNthCalledWith` и
-   `toHaveBeenCalledExactlyOnceWith` тоже закрепляют аргументы, а `toBeCalled()` — тот же голый матчер.
+   `toHaveBeenCalledExactlyOnceWith` (Vitest 3+) тоже закрепляют аргументы, а `toBeCalled()` — тот же голый матчер.
 2. **В заголовке теста есть `with`, а тело не проверяет ничего другого.** Тогда всё утверждение теста
    — список аргументов, а проверяет он только то, что что-то выполнилось. Любая другая проверка
    снимает это прочтение, потому что аргументы могут проверяться как раз в ней: равенство на
