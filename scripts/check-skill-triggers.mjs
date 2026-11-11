@@ -25,7 +25,7 @@ const FOREIGN = new Map([
   ["Expected to be running in 'ProxyZone'", 'zone.js'],
   ['jasmine is not defined', 'the JavaScript runtime'],
   ['localStorage.setItem is not a function', 'Node 25 and later'],
-  ['Spy<T> is not assignable', 'the TypeScript compiler'],
+  ['not assignable', 'the TypeScript compiler'],
 ]);
 
 function description(source) {
