@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.70.2] - 2026-11-11
+
 ### Added
 
 - Bundled test-design guidance for choosing observable outcomes, discriminating inputs, and Angular cancellation, delay, and binding checks. The agent reference links to it before writing a spec.
@@ -10542,7 +10544,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.1...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.2...HEAD
+[5.70.2]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.1...v5.70.2
 [5.70.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.0...v5.70.1
 [5.70.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.69.0...v5.70.0
 [5.69.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.68.1...v5.69.0
