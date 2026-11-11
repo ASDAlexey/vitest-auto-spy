@@ -365,7 +365,7 @@ function hintLenientMiss(state: SpyState, chain: CalledWithObject, actualArgs: u
     withDocs(
       `[vitest-auto-spy] ${name}(${actualArgs.map(renderArgument).join(', ')}) matched none of its calledWith() configs (${listed}) ` +
         'and answered undefined. calledWith() lets a miss through silently: use mustBeCalledWith() to fail on one, or give the ' +
-        "spy a default (mockReturnValue, resolveWith, the 'returns' option) to make it deliberate. Shown once.",
+        "spy a fallback in its own container (resolveWith, failWith, the 'returns' option) to make it deliberate. Shown once.",
       DOCS_LINKS.lenientCalledWithMiss,
     ),
   );
