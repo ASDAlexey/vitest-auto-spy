@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.70.3] - 2026-11-16
+
 ### Fixed
 
 - ESLint: the `prefer-provide-auto-spy` hint for an injection token now points at `injectSpy(token)` for configuring and asserting the double, and at `{ returns }` for method results, including `void` ones, instead of only the second argument and `{ selfReturning }`.
@@ -10553,7 +10555,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.2...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.3...HEAD
+[5.70.3]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.2...v5.70.3
 [5.70.2]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.1...v5.70.2
 [5.70.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.0...v5.70.1
 [5.70.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.69.0...v5.70.0
