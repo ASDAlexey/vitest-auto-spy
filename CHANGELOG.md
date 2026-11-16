@@ -10,6 +10,15 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Fixed
+
+- ESLint: the `prefer-provide-auto-spy` hint for an injection token now points at `injectSpy(token)` for configuring and asserting the double, and at `{ returns }` for method results, including `void` ones, instead of only the second argument and `{ selfReturning }`.
+
+### Docs
+
+- The bundled Angular reference shows a token with a callback and an optional `void` method provided through `provideAutoSpyForToken` and driven through `injectSpy`, with no `useValue` object of `vi.fn()` fields.
+- The bundled test-design guidance adds a table-driven example that covers each way a rule can pass and one case where it does not.
+
 ## [5.70.2] - 2026-11-11
 
 ### Added
