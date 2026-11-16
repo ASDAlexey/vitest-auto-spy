@@ -110,19 +110,25 @@ describe('vitest-auto-spy/console', () => {
 
     restoreConsole();
 
-    const realLog = console.log;
+    const previousLog = console.log;
+    const expectedRealLog = globalThis.__vitestAutoSpyConsoleOriginals__?.get('log') ?? previousLog;
     const orphan = Object.assign((): void => undefined, { [Symbol.for('vitest-auto-spy.console-spy')]: true });
 
     console.log = orphan;
 
-    installConsoleSpies();
+    try {
+      installConsoleSpies();
 
-    expect(console.log).not.toBe(orphan);
+      expect(console.log).not.toBe(orphan);
 
-    restoreConsole();
+      restoreConsole();
 
-    expect(console.log).toBe(realLog);
-    expect(vi.isMockFunction(real)).toBe(true);
+      expect(console.log).toBe(expectedRealLog);
+      expect(vi.isMockFunction(real)).toBe(true);
+    } finally {
+      restoreConsole();
+      console.log = previousLog;
+    }
   });
 
   it('keeps the orphan as the original where the shared registry has nothing to offer', () => {
