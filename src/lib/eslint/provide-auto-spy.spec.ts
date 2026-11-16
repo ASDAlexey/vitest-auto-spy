@@ -390,8 +390,13 @@ describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
     // And the token half says what a nested shape needs, which is the same second argument: the
     // bare double makes every key a function spy, so `req.headers.get(…)` reads a property off one.
     expect(firstMessage('const p = { provide: REQUEST, useValue: { headers: { get: vi.fn() } } };')).toContain(
-      'nested values go in its second argument',
+      'Seed data in the second argument',
     );
+
+    expect(firstMessage('const p = { provide: POLL, useValue: { wait: vi.fn(), track: vi.fn() } };')).toContain(
+      'method results (including void) in `{ returns }`',
+    );
+    expect(firstMessage('const p = { provide: POLL, useValue: { wait: vi.fn(), track: vi.fn() } };')).toContain('injectSpy(POLL)');
 
     // A chained call is the third argument's, and stays a spy — a `mockReturnThis()` seed did not.
     expect(firstMessage('const p = { provide: LOGGER, useValue: { channel: vi.fn() } };')).toContain('{ selfReturning }');

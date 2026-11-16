@@ -1336,6 +1336,54 @@ spec — after which `Spy<Mock>` and `Spy<Interface>` disagree and somebody cast
 `TestBed.inject<any>(TOKEN)`; both of these accept a token. And it is `provideAutoSpyForToken`, not
 `provideAutoSpy`: the latter reads a class prototype, which a token does not have.
 
+For a token that accepts a callback and has an optional `void` method, keep the methods as spies
+instead of writing a `useValue` object with `vi.fn()` fields:
+
+```ts
+import { Injectable, InjectionToken, inject } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { beforeEach, expect, it } from 'vitest';
+import { injectSpy, provideAutoSpyForToken } from 'vitest-auto-spy/angular';
+
+interface PollService {
+  wait(callback: (url: string) => void): void;
+  track?(shown: boolean): void;
+}
+
+const POLL = new InjectionToken<PollService>('POLL');
+
+@Injectable()
+class PollLauncher {
+  private readonly poll = inject(POLL);
+
+  open(): void {
+    this.poll.wait((url) => {
+      if (url) this.poll.track?.(true);
+    });
+  }
+}
+
+beforeEach(() => {
+  TestBed.configureTestingModule({
+    providers: [PollLauncher, provideAutoSpyForToken(POLL, undefined, { returns: { wait: undefined, track: undefined } })],
+  });
+});
+
+it('opens the poll', () => {
+  const poll = injectSpy(POLL);
+  TestBed.inject(PollLauncher).open();
+  expect(poll.wait).toHaveBeenCalledOnce();
+
+  poll.wait.mock.calls[0]![0]('https://poll.example'); // invoke the callback production registered
+  expect(poll.track).toHaveBeenCalledWith(true);
+});
+```
+
+Under strict mode, `returns: { method: undefined }` also marks an expected `void` call as
+configured. `injectSpy(POLL)` gives the callback's argument and `track` spy their declared types;
+there is no separate mock variable or `vi.mocked()` cast to maintain. `track` remains optional in
+TypeScript, so call it with `?.` when the spec drives it directly.
+
 **The second argument is not optional as often as it looks.** A spy answers `undefined` until it is
 told otherwise, and that is fatal the moment the code under test _chains_ off it — a constructor
 doing `inject(LOGGER).channel('auth').debug('…')` dies on the `.debug` of `undefined` before the

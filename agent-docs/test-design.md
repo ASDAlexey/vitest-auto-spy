@@ -2,6 +2,25 @@
 
 Use these rules while choosing cases and assertions. For the testing API itself, follow the topic files linked from `AGENTS.md`.
 
+In this example, orders of 50 or more ship free, as do all member orders. Other orders pay 5. Test each way to waive the fee and one order that still pays. The function below stands in for application code; use your application's import in a real spec.
+
+```ts
+import { expect, it } from 'vitest';
+
+function shippingFee(total: number, isMember: boolean): number {
+  return total >= 50 || isMember ? 0 : 5;
+}
+
+it.each([
+  { total: 49, isMember: false, fee: 5 },
+  { total: 50, isMember: false, fee: 0 },
+  { total: 51, isMember: false, fee: 0 },
+  { total: 1, isMember: true, fee: 0 },
+])('charges $fee for $total with member=$isMember', ({ total, isMember, fee }) => {
+  expect(shippingFee(total, isMember)).toBe(fee);
+});
+```
+
 1. Name the behavior and where it shows: a return value, state, an emitted event, a request or the DOM. Write expected values as literals worked out from the requirement. When the code is the only description of the behavior, say so in your report rather than presenting its current output as required.
 2. Cover outcomes that differ, not branches. Where the behavior has them: a refused or failed operation, a limit and the value next to it, each condition that changes the outcome on its own, a missing value versus a valid `0`, `''` or `false`. Skip inputs the types rule out.
 3. Choose inputs that expose mistakes: different values for different roles (`rename(7, 'Bob')`, not `rename(1, '1')`), mixed and unordered collections, data the operation actually changes. When the subject must pass a specific argument to get its answer, stub with `calledWith(args)` and assert the result. A method-level `mockReturnValue` replaces the `calledWith` dispatch and answers calls with wrong arguments too.
