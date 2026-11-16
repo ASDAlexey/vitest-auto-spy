@@ -177,3 +177,22 @@ describe('selfReturning on every factory', () => {
     createAutoMock<AppLogger>(undefined, { selfReturning: ['level'] });
   });
 });
+
+describe('callback methods behind a token', () => {
+  interface PollService {
+    wait(callback: (url: string) => void): void;
+    track?(launched: boolean): void;
+  }
+
+  const POLL = new InjectionToken<PollService>('POLL');
+
+  it('keeps callback arguments and optional methods typed without a hand-written vi.fn', () => {
+    const poll = provideAutoSpyForToken(POLL, undefined, { returns: { wait: undefined, track: undefined } }).useValue;
+
+    expectTypeOf(poll.wait.mock.calls[0]?.[0]).toEqualTypeOf<((url: string) => void) | undefined>();
+    poll.track?.mockReturnValue(undefined);
+
+    // @ts-expect-error a void method cannot return a boolean
+    provideAutoSpyForToken(POLL, undefined, { returns: { track: true } });
+  });
+});
