@@ -400,6 +400,31 @@ describe('provideAutoSpy / injectSpy', () => {
     expect(products.getProducts).toHaveBeenCalled();
   });
 
+  it('captures a callback and spies on an optional void method behind a token', () => {
+    interface PollService {
+      wait(callback: (url: string) => void): void;
+      track?(launched: boolean): void;
+    }
+
+    const POLL = new InjectionToken<PollService>('POLL');
+
+    TestBed.configureTestingModule({
+      providers: [provideAutoSpyForToken(POLL, undefined, { strict: true, returns: { wait: undefined, track: undefined } })],
+    });
+
+    const poll = injectSpy(POLL);
+    const onPoll = vi.fn<(url: string) => void>();
+
+    poll.wait(onPoll);
+    expect(poll.wait).toHaveBeenCalledExactlyOnceWith(onPoll);
+
+    poll.wait.mock.calls[0]?.[0]('https://poll.example');
+    expect(onPoll).toHaveBeenCalledExactlyOnceWith('https://poll.example');
+
+    poll.track?.(true);
+    expect(poll.track).toHaveBeenCalledExactlyOnceWith(true);
+  });
+
   it('builds observable property spies behind a token, not function spies', async () => {
     interface FavoritesFacade {
       favorites$: Observable<number[]>;
