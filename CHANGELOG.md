@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.71.0] - 2026-11-26
+
 ### Added
 
 - `mockConstructor(Class, factory)` infers the class instance and constructor arguments and can be returned from a typed Vitest module factory.
@@ -10576,7 +10578,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.3...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.71.0...HEAD
+[5.71.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.3...v5.71.0
 [5.70.3]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.2...v5.70.3
 [5.70.2]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.1...v5.70.2
 [5.70.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.70.0...v5.70.1
