@@ -275,7 +275,7 @@ TestBed.configureTestingModule({ providers: [provideAutoSpyForToken(PASSCODE_SER
 const passcode = injectSpy(PASSCODE_SERVICE_TOKEN); // Spy<PasscodeService>
 ```
 
-Сигнатура: `provideAutoSpyForToken(token, overrides?, config?)`. Второй аргумент значит то же, что
+Позиционная форма: `provideAutoSpyForToken(token, overrides?, config?)`. Второй аргумент значит то же, что
 ключ `overrides`: обычные значения для членов. Если нужен только `config`, передайте `undefined`.
 
 Спай отвечает `undefined`, пока вы его не настроите. Это ломает код, который строит **цепочку** от
@@ -283,8 +283,10 @@ const passcode = injectSpy(PASSCODE_SERVICE_TOKEN); // Spy<PasscodeService>
 начала теста. Назовите метод, который возвращает сам объект:
 
 ```ts
-provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] });
+provideAutoSpyForToken({ token: LOGGER, options: { selfReturning: ['channel'] } });
 ```
+
+Форма `{ token, options }` принимает настройки без `undefined` на месте подмен. Второй аргумент в позиционной форме по-прежнему задаёт подмены.
 
 [`selfReturning`](/ru/core/create-spy-from-class#self-returning) оставляет `channel` спаем, который
 можно проверять, и заставляет его возвращать объект со спаями. Чтобы задать это один раз для всех

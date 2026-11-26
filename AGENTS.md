@@ -32,7 +32,8 @@ it('posts the order', async () => {
 To point a team's agents at this file, run `npx vitest-auto-spy init`: it adds a pointer to
 `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and the rule files of tools already set up, all or nothing.
 `--check` is the CI form and fails on a `stale` hand-made skill copy (delete it, re-run `init`) or an
-`edited` managed block. `--only CLAUDE.md,.claude` limits it to untracked files. Full table:
+`edited` managed block. After a partial install, `init --check --managed` checks only existing
+managed blocks. Use `init --check --only AGENTS.md` to require that target even if it is missing. Full table:
 <https://asdalexey.github.io/vitest-auto-spy/utilities/cli>.
 
 | Resource | Where |
@@ -402,7 +403,7 @@ In [`agent-docs/observables.md`](./agent-docs/observables.md). Read it when asse
 
 ## 9. Patching properties (and putting them back)
 
-In [`agent-docs/properties.md`](./agent-docs/properties.md). Read it when a test overrides a getter, a readonly property, a signal property or a DOM object property and has to put it back.
+In [`agent-docs/properties.md`](./agent-docs/properties.md). Read it when a test overrides a getter, a readonly property, a signal property or a DOM object property and has to put it back. For a typed global function replacement, use `spyOnGlobal('fetch')`; `restoreMockedProps()` puts the original back.
 
 <!-- agents-outline: agent-docs/properties.md -->
 
@@ -447,7 +448,7 @@ In [`agent-docs/waiting.md`](./agent-docs/waiting.md). Read it when a test waits
 
 ## 12. Doubles for what the code builds itself
 
-In [`agent-docs/doubles.md`](./agent-docs/doubles.md). Read it when production code does `new Foo()`, touches `<video>`, `localStorage`, animation frames or element boxes, or a module mock did nothing.
+In [`agent-docs/doubles.md`](./agent-docs/doubles.md). Read it when production code does `new Foo()`, touches `<video>`, `localStorage`, animation frames or element boxes, or a module mock did nothing. Use `mockConstructor(Class, factory)` in a typed `vi.mock` factory to infer the constructor arguments and instance type.
 
 <!-- agents-outline: agent-docs/doubles.md -->
 
@@ -468,6 +469,7 @@ In [`agent-docs/doubles.md`](./agent-docs/doubles.md). Read it when production c
 ## 13. Angular
 
 In [`agent-docs/angular.md`](./agent-docs/angular.md). Read it for any spec that uses `TestBed`, signals, Angular HTTP, the router or an Angular double.
+For options without positional overrides, use `provideAutoSpyForToken({ token, options })`.
 For selected void window methods, use `createWindowSpies` from `/angular/doubles`; the window recipe is in that file.
 
 <!-- agents-outline: agent-docs/angular.md -->

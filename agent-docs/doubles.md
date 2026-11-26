@@ -28,6 +28,8 @@ expect(Image).toHaveBeenCalledTimes(1);
 expect(Image.instances[0].src).toBe('https://tns.example/hit');
 ```
 
+When the actual class is available, `mockConstructor(Client, factory)` infers the constructor tuple and instance type. Return the resulting mock as `Client` from a typed `vi.mock` factory.
+
 `mockConstructor` stays a runner mock, so `toHaveBeenCalledWith` / `mockClear` work as usual, and it
 throws a named error if it is ever called **without** `new`. `stubConstructor` installs through
 `mockValueProp`, so `restoreMockedProps()` puts the platform's constructor back.

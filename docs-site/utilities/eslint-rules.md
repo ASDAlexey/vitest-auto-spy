@@ -1664,11 +1664,7 @@ beforeEach(() => {
 
 ```ts
 beforeEach(() => {
-  mockValueProp(
-    globalThis,
-    'fetch',
-    vi.fn(async () => stubResponse({ body: user })),
-  );
+  spyOnGlobal('fetch').mockImplementation(async () => stubResponse({ body: user }));
   // ✅ undo registered with restoreMockedProps(), which setupAutoSpy() runs after every test
 });
 ```
@@ -1678,13 +1674,13 @@ beforeEach(() => {
 **How to fix.** Use a helper that carries its own undo. The message names the one that fits the
 global:
 
-| Global                                                           | Helper                                                                                                                                                                                         |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fetch`                                                          | `mockValueProp(globalThis, 'fetch', vi.fn(async () => stubResponse({ body })))`, with [`stubResponse`](/utilities/setup#answering-a-stubbed-fetch-—-stubresponse) from `vitest-auto-spy/setup` |
-| another lowercase name, such as `matchMedia`                     | `mockValueProp(globalThis, name, vi.fn(…))`                                                                                                                                                    |
-| a capitalized name: `XMLHttpRequest`, `WebSocket`, `EventSource` | `stubConstructor(globalThis, name, …)`: the code calls it with `new`                                                                                                                           |
-| `localStorage`, `sessionStorage`                                 | [`stubWebStorage()`](/utilities/setup#stub-web-storage)                                                                                                                                        |
-| `Worker`                                                         | [`stubWorker({ respond })`](/utilities/worker-stub), which keeps the listener behaviour a hand-written stub loses                                                                              |
+| Global                                                           | Helper                                                                                                                                                                                       |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fetch`                                                          | `spyOnGlobal('fetch').mockImplementation(async () => stubResponse({ body }))`, with [`stubResponse`](/utilities/setup#answering-a-stubbed-fetch-—-stubresponse) from `vitest-auto-spy/setup` |
+| another lowercase name, such as `matchMedia`                     | `mockValueProp(globalThis, name, vi.fn(…))`                                                                                                                                                  |
+| a capitalized name: `XMLHttpRequest`, `WebSocket`, `EventSource` | `stubConstructor(globalThis, name, …)`: the code calls it with `new`                                                                                                                         |
+| `localStorage`, `sessionStorage`                                 | [`stubWebStorage()`](/utilities/setup#stub-web-storage)                                                                                                                                      |
+| `Worker`                                                         | [`stubWorker({ respond })`](/utilities/worker-stub), which keeps the listener behaviour a hand-written stub loses                                                                            |
 
 - A spec that only needs to stay off the network wants
   [`blockNetwork()`](/utilities/setup#_5-keeping-the-run-off-the-network) (or
@@ -1971,6 +1967,7 @@ take file by file, like [`prefer-set-inputs`](#prefer-set-inputs).
 Reports test data written inline in a spec: one literal longer than 20 lines, or the same literal
 written three times or more. Move it to a `*.mock.ts` file next to the spec and import it. The test
 then shows what it checks, and one edit updates every test that uses the value.
+Quote style and formatting do not affect repeat detection. String contents, array order and object property order still matter. Literals containing spreads, computed keys or duplicate properties do not count toward repeats.
 
 ```ts
 // order.service.spec.ts
@@ -3047,6 +3044,8 @@ Otherwise the name decides: a token is nearly always imported, so `^[\dA-Z_]+$` 
 read. The advice differs because `provideAutoSpy` reads a class prototype, a token has none, and the
 advice would not compile. In three migration batches this mattered; in one of them 6 of 8 reports
 were on tokens.
+
+For a token, seed method results with `provideAutoSpyForToken({ token: TOKEN, options: { returns } })`. Use `injectSpy(TOKEN)` to configure spies and assert on calls.
 
 **`ActivatedRoute`** gets its own message. The class keeps `snapshot`, `params`, `queryParams`,
 `data`, `fragment` and `url` in **instance** fields, so a spy built from its prototype has none of

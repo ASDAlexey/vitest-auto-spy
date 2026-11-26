@@ -69,6 +69,18 @@ expect(LicenseClient.instances[0].prepareRequest).toHaveBeenCalled();
 **Частая ошибка:** `vi.fn(() => instance)` в роли конструктора. Вызов записывается, но `new`
 возвращает пустой объект. Используйте `mockConstructor(() => instance)`.
 
+Если класс доступен во время выполнения, передайте его первым аргументом. TypeScript выведет типы аргументов фабрики и истории вызовов. Результат можно вернуть из типизированной фабрики `vi.mock`:
+
+```ts
+import { vi } from 'vitest';
+import { mockConstructor } from 'vitest-auto-spy';
+
+vi.mock(import('./client'), async (importOriginal) => {
+  const { Client } = await importOriginal();
+  return { Client: mockConstructor(Client, (host) => ({ host, close: vi.fn() })) };
+});
+```
+
 ## `stubConstructor(target, property, factory)` {#stubconstructor-target-property-factory}
 
 Та же подмена, поставленная на глобал (или на любой объект) и снятая после теста.

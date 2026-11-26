@@ -15,7 +15,7 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-31.9%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-32.0%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -45,6 +45,7 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
   `createDeferred<T>()` keeps an awaited collaborator pending until the test releases it.
 - **Answers per argument list**: `calledWith(1).mockReturnValue(...)`.
 - **A spy from a type alone**: `createAutoMock<T>()` and `mockDeep<T>()`.
+- **Typed global replacements with cleanup**: `spyOnGlobal('fetch')` replaces the function without calling the network.
 - **Angular `TestBed` in one line**: `provideAutoSpy(ApiService)`, then `injectSpy(ApiService)`.
 - **Short handler tests**: typed input/paste/drop events, element query stubs, and exact synchronous output assertions.
 - **Nest HTTP tests without starting the app**: `createHttpExecutionContext` supplies the context;
@@ -627,6 +628,7 @@ WorkerSpy.instances[0].postMessage.mockReturnValue(undefined);
 - `calls` holds the constructor arguments, `instances` the spy each call produced.
 - `createSpyClass(BackgroundWorker, undefined, { statics: true })` also copies static members:
   functions become spies, data is copied, getters are skipped.
+- To replace a real class export and infer its constructor arguments, use `mockConstructor(Client, factory)` in a typed module factory.
 - With no class at run time (a browser global, a vendor SDK), use `mockConstructor`, or
   `stubConstructor(globalThis, 'Image', () => ({ src: '' }))`, which `restoreMockedProps()` removes.
 
@@ -698,19 +700,16 @@ expect(workers.last.messages).toEqual([request]);
 ### How to mock: `fetch` and other globals
 
 ```ts
-import { mockValueProp } from 'vitest-auto-spy';
+import { spyOnGlobal } from 'vitest-auto-spy';
 import { stubResponse } from 'vitest-auto-spy/setup';
 
 beforeEach(() => {
-  mockValueProp(
-    globalThis,
-    'fetch',
-    vi.fn(async () => stubResponse({ body: user })),
-  );
+  spyOnGlobal('fetch').mockImplementation(async () => stubResponse({ body: user }));
 });
 ```
 
-- `mockValueProp` puts the original back after each test (through `setupAutoSpy()`).
+- `spyOnGlobal` infers the signature from the global function and replaces it without calling through.
+- `setupAutoSpy()` restores the original after each test. Without it, call `restoreMockedProps()` in `afterEach`.
 - `stubResponse` builds a real `Response`: data goes out as JSON (`null` included); `undefined` or
   no `body` sends no body. A body can be read once, so build a new one per call.
 - To only keep tests off the network, use
@@ -1445,6 +1444,7 @@ framework and setup file.
 ```bash
 npx vitest-auto-spy init            # write or refresh the pointer
 npx vitest-auto-spy init --check    # CI: exit 1 if the managed block is out of date
+npx vitest-auto-spy init --check --managed # CI after a partial install; checks existing blocks
 npx vitest-auto-spy init --uninstall
 ```
 
@@ -2117,6 +2117,7 @@ registerAutoSpyDefaults(LOGGER, { returns: { info: undefined, err: undefined }, 
 
 provideAutoSpyForToken(LOGGER); // starts from the registration
 provideAutoSpyForToken(LOGGER, { level: 'debug' }, { returns: { warn: undefined } }); // merged over it
+provideAutoSpyForToken({ token: LOGGER, options: { returns: { warn: undefined } } });
 ```
 
 `selfReturning` names methods that return the double itself, so a chain like

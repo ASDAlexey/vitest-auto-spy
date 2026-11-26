@@ -69,6 +69,18 @@ expect(LicenseClient.instances[0].prepareRequest).toHaveBeenCalled();
 **Common mistake:** `vi.fn(() => instance)` as a constructor. It records the call but `new` returns
 an empty object. Use `mockConstructor(() => instance)`.
 
+If you have the class at runtime, pass it first. TypeScript infers the factory parameters and call history. Return the mock directly from a typed `vi.mock` factory:
+
+```ts
+import { vi } from 'vitest';
+import { mockConstructor } from 'vitest-auto-spy';
+
+vi.mock(import('./client'), async (importOriginal) => {
+  const { Client } = await importOriginal();
+  return { Client: mockConstructor(Client, (host) => ({ host, close: vi.fn() })) };
+});
+```
+
 ## `stubConstructor(target, property, factory)`
 
 The same double, put on a global (or on any object) and removed again after the test.

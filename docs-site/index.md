@@ -50,6 +50,9 @@ features:
   - title: Leaks fail the test that left them
     details: 'setupAutoSpy catches what one test leaves behind for the next - unrestored globals, stray timers, console output, real network requests. Each report names the test, the file and the fix.'
     link: /utilities/setup
+  - title: Typed spies for global functions
+    details: Replace fetch with spyOnGlobal('fetch') without calling the original; with setupAutoSpy enabled, the original returns after the test.
+    link: /utilities/setup#answering-a-stubbed-fetch-—-stubresponse
   - title: Which test is slow, and why
     details: 'npx vitest-auto-spy perf finds the slow spec files, re-measures each one alone, and shows where the time went. Add --gate to fail CI on them.'
     link: /utilities/cli#the-gate

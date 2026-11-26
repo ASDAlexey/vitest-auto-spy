@@ -4,6 +4,8 @@ Part of the agent reference [`AGENTS.md`](../AGENTS.md), which maps every sectio
 
 ## 9. Patching properties (and putting them back)
 
+Use `spyOnGlobal('fetch')` for a typed replacement of a global function. Configure its response before calling it; the spy does not call through. `restoreMockedProps()` (called by `setupAutoSpy()`) restores the original.
+
 ```ts
 import { mockAccessorsProp, mockReadonlyProp, mockReadonlyPropGetter, mockValueProp, restoreMockedProps } from 'vitest-auto-spy';
 

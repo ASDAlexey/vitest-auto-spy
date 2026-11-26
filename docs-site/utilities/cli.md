@@ -851,7 +851,10 @@ never scan your dependencies, so without this pointer they do not know the libra
 npx vitest-auto-spy init             # write or refresh the blocks
 npx vitest-auto-spy init --dry-run   # print what would change
 npx vitest-auto-spy init --check     # CI: exit 1 when a block is missing or out of date
+npx vitest-auto-spy init --check --managed
 ```
+
+After a partial install, run `init --check --managed` to check existing managed blocks. This mode cannot detect a deleted file or a block removed entirely. To require specific files, list them with `init --check --only AGENTS.md`. `init` does not read or modify targets through symlinks inside the project; its report identifies the link.
 
 The block is written for your repository, not copied from a template. `init` reads your
 `package.json` and test config and writes only what is true there: the entry point for your runner and
@@ -876,8 +879,7 @@ nothing on other tasks: `.cursor/rules/`, `.github/instructions/`, `.windsurf/ru
 the first file it finds from a list that ends in `AGENTS.md`, so creating one of them would hide the
 project's whole `AGENTS.md`. If one already exists, `init` appends to it.
 
-A `CLAUDE.md` that is a symlink to `AGENTS.md`, or that already has an `@AGENTS.md` import line, is
-left alone: writing through it would duplicate the block.
+If `CLAUDE.md` already imports `@AGENTS.md`, `init` leaves it alone to avoid duplicating the block.
 
 What the block names comes from a scan. The setup file is the first `setupFiles` entry of an
 `@angular/build:unit-test` or `@nx/angular:unit-test` target (including `nx.json` `targetDefaults`),
@@ -932,15 +934,16 @@ appended to crosses that line.
 
 ### Flags
 
-| Flag              | Command       | What it does                                                                                                                      |
-| ----------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `--check`         | `init`        | Write nothing; exit 1 if a block is missing or out of date. The CI form                                                           |
-| `--dry-run`       | `init`        | Print what would change and write nothing                                                                                         |
-| `--uninstall`     | `init`        | Remove the managed blocks and delete the files `init` created                                                                     |
-| `--only <paths>`  | `init`        | Touch only these targets, comma-separated; a directory selects what `init` writes under it. `--check` and `--uninstall` honour it |
-| `--cwd <dir>`     | every command | Run against another directory                                                                                                     |
-| `-h`, `--help`    | every command | The usage screen                                                                                                                  |
-| `-v`, `--version` | every command | The installed version                                                                                                             |
+| Flag              | Command        | What it does                                                                                                                      |
+| ----------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `--check`         | `init`         | Write nothing; exit 1 if a block is missing or out of date. The CI form                                                           |
+| `--dry-run`       | `init`         | Print what would change and write nothing                                                                                         |
+| `--uninstall`     | `init`         | Remove the managed blocks and delete the files `init` created                                                                     |
+| `--only <paths>`  | `init`         | Touch only these targets, comma-separated; a directory selects what `init` writes under it. `--check` and `--uninstall` honour it |
+| `--managed`       | `init --check` | Check existing managed blocks after a partial install. Does not require deleted files or blocks                                   |
+| `--cwd <dir>`     | every command  | Run against another directory                                                                                                     |
+| `-h`, `--help`    | every command  | The usage screen                                                                                                                  |
+| `-v`, `--version` | every command  | The installed version                                                                                                             |
 
 `--only CLAUDE.md,.claude` keeps the block out of a tracked `AGENTS.md` and `GEMINI.md` in a
 repository that ignores only its Claude files.

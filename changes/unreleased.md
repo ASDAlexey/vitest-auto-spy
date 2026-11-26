@@ -5,13 +5,13 @@
 > Conventional Commits only when a version has no section there yet), so nothing here is pasted
 > anywhere. See `CONTRIBUTING.md` → "Releasing".
 
-_Last released: **v5.67.0** — the git tag, `package.json` and `CHANGELOG.md` agree._
+_Last released: **v5.70.3** — the git tag, `package.json` and `CHANGELOG.md` agree._
 
 ## Staged for the next release
 
 <!-- Add user-facing items here as work lands, mirroring `## [Unreleased]` in the root CHANGELOG. -->
 
-The staged items of the earlier releases shipped; the pending set lives in `## [Unreleased]` of the
-root `CHANGELOG.md` — jasmine custom matchers on `/jasmine`, runner-parity `calledWith` matching,
-printer and serializer probe keys on deep doubles, prototype constants on class doubles, `{ signal }`
-in stray listeners, the ESLint plugin version identity, the codemod's jasmine type arguments, and the `no-reset-all-mocks` ESLint rule.
+- Typed `spyOnGlobal` replacements and class-signature inference for `mockConstructor`.
+- Options-only `provideAutoSpyForToken` calls and Angular recipes for `rxMethod` and `SafeValue`.
+- Managed-only `init --check` and symlink-safe target handling.
+- ESLint literal comparison and updated migration hints for global `fetch` and token doubles.

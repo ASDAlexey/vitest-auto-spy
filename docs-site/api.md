@@ -104,25 +104,39 @@ The core. Importing it connects spies to Vitest's mock function ([runner adapter
 
 ### Build a spy or a double
 
-| Export                                              | What it does                                                                                   | Docs                                                                                                   |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `createSpyFromClass(Class, methodsOrConfig?)`       | Builds a typed `Spy<T>`: every method of the class becomes a spy                               | [Spies from a class](/core/create-spy-from-class)                                                      |
-| `createSpyFromInstance(instance, methodsOrConfig?)` | Turns the methods of an object you already have into spies, in place                           | [`passthrough`](/core/create-spy-from-class#passthrough)                                               |
-| `restoreSpiedInstance(instance)`                    | Puts the real methods back on that object                                                      | same                                                                                                   |
-| `spyOnOwnMethod(instance, method)`                  | Records one method of the object under test and still runs the real one; use it for `vi.spyOn` | [One method](/core/create-spy-from-class#spy-on-own-method)                                            |
-| `spyOnVoidMethod(target, method)`                   | Records one native void method (`preventDefault`, `focus`) without a strict-mode throw         | [Spies from a class](/core/create-spy-from-class)                                                      |
-| `createAutoMock<T>(overrides?, config?)`            | Builds a `Spy<T>` from a type or interface, with no class                                      | [From a type](/core/auto-mock-by-type#from-a-type-—-createautomock)                                    |
-| `autoMocked<T>(overrides?, config?)`                | The same, typed as both `T` and `Spy<T>`, for a `let` set in `beforeEach`                      | [`autoMocked`](/core/auto-mock-by-type#automocked-—-one-object-typed-as-both-t-and-spy-t)              |
-| `createMock<T>(partial?)`                           | Builds a plain `T` with no spies, for data rather than collaborators                           | [`createMock`](/core/auto-mock-by-type#from-a-type-without-spies-—-createmock)                         |
-| `mockDeep<T>(overrides?, options?)`                 | A double where `a.b.c` is a spy at any depth, without setup                                    | [`mockDeep`](/core/auto-mock-by-type#recursive-deep-mocks-—-mockdeep)                                  |
-| `createFunctionSpy(name, unstubbed?)`               | One standalone function spy with every helper; type it as `FunctionSpy<Fn>`                    | [One function](/core/create-spy-from-class#a-single-function-—-createfunctionspy)                      |
-| `createSpyClass(Class, config?, options?)`          | A spy you can call with `new`; records `calls` and `instances`                                 | [Call with `new`](/core/spy-typing#a-spy-you-can-call-with-new)                                        |
-| `mockConstructor(factory, name?)`                   | A constructor double for a class the code under test builds with `new`                         | [Constructor doubles](/utilities/constructor-doubles)                                                  |
-| `stubConstructor(target, property, factory)`        | Replaces a global or module class with such a double, restored after the test                  | same                                                                                                   |
-| `registerAutoSpyDefaults(Class, config)`            | Registers a class's usual configuration once; every spy of that class starts from it           | [Defaults](/core/create-spy-from-class#registerautospydefaults-—-the-composition-lives-with-the-class) |
-| `clearAutoSpyDefaults(Class?)`                      | Drops one registration, or all of them                                                         | same                                                                                                   |
-| `clearAutoSpy(spy)`                                 | Clears recorded calls on every spy inside the object; keeps what you configured                | [Resetting](/core/control-helpers#resetting-spies-—-clearautospy-resetautospy)                         |
-| `resetAutoSpy(spy)`                                 | Clears calls and configuration, as `vi.resetAllMocks()` does                                   | same                                                                                                   |
+| Export                                              | What it does                                                                                    | Docs                                                                                                   |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `createSpyFromClass(Class, methodsOrConfig?)`       | Builds a typed `Spy<T>`: every method of the class becomes a spy                                | [Spies from a class](/core/create-spy-from-class)                                                      |
+| `createSpyFromInstance(instance, methodsOrConfig?)` | Turns the methods of an object you already have into spies, in place                            | [`passthrough`](/core/create-spy-from-class#passthrough)                                               |
+| `restoreSpiedInstance(instance)`                    | Puts the real methods back on that object                                                       | same                                                                                                   |
+| `spyOnOwnMethod(instance, method)`                  | Records one method of the object under test and still runs the real one; use it for `vi.spyOn`  | [One method](/core/create-spy-from-class#spy-on-own-method)                                            |
+| `spyOnVoidMethod(target, method)`                   | Records one native void method (`preventDefault`, `focus`) without a strict-mode throw          | [Spies from a class](/core/create-spy-from-class)                                                      |
+| `createAutoMock<T>(overrides?, config?)`            | Builds a `Spy<T>` from a type or interface, with no class                                       | [From a type](/core/auto-mock-by-type#from-a-type-—-createautomock)                                    |
+| `autoMocked<T>(overrides?, config?)`                | The same, typed as both `T` and `Spy<T>`, for a `let` set in `beforeEach`                       | [`autoMocked`](/core/auto-mock-by-type#automocked-—-one-object-typed-as-both-t-and-spy-t)              |
+| `createMock<T>(partial?)`                           | Builds a plain `T` with no spies, for data rather than collaborators                            | [`createMock`](/core/auto-mock-by-type#from-a-type-without-spies-—-createmock)                         |
+| `mockDeep<T>(overrides?, options?)`                 | A double where `a.b.c` is a spy at any depth, without setup                                     | [`mockDeep`](/core/auto-mock-by-type#recursive-deep-mocks-—-mockdeep)                                  |
+| `createFunctionSpy(name, unstubbed?)`               | One standalone function spy with every helper; type it as `FunctionSpy<Fn>`                     | [One function](/core/create-spy-from-class#a-single-function-—-createfunctionspy)                      |
+| `spyOnGlobal(key)`                                  | Replaces a `globalThis` function with a spy of the same signature; the original does not run    | [Stub `fetch`](/utilities/setup#answering-a-stubbed-fetch-—-stubresponse)                              |
+| `createSpyClass(Class, config?, options?)`          | A spy you can call with `new`; records `calls` and `instances`                                  | [Call with `new`](/core/spy-typing#a-spy-you-can-call-with-new)                                        |
+| `mockConstructor(factory, name?)`                   | A constructor double for a class the code under test builds with `new`                          | [Constructor doubles](/utilities/constructor-doubles)                                                  |
+| `mockConstructor(Class, factory, name?)`            | Infers the `new` arguments and instance type from the class; works in a typed `vi.mock` factory | [Constructor doubles](/utilities/constructor-doubles)                                                  |
+| `stubConstructor(target, property, factory)`        | Replaces a global or module class with such a double, restored after the test                   | same                                                                                                   |
+| `registerAutoSpyDefaults(Class, config)`            | Registers a class's usual configuration once; every spy of that class starts from it            | [Defaults](/core/create-spy-from-class#registerautospydefaults-—-the-composition-lives-with-the-class) |
+| `clearAutoSpyDefaults(Class?)`                      | Drops one registration, or all of them                                                          | same                                                                                                   |
+| `clearAutoSpy(spy)`                                 | Clears recorded calls on every spy inside the object; keeps what you configured                 | [Resetting](/core/control-helpers#resetting-spies-—-clearautospy-resetautospy)                         |
+| `resetAutoSpy(spy)`                                 | Clears calls and configuration, as `vi.resetAllMocks()` does                                    | same                                                                                                   |
+
+```ts
+import { afterEach, beforeEach } from 'vitest';
+import { restoreMockedProps, spyOnGlobal } from 'vitest-auto-spy';
+
+beforeEach(() => {
+  spyOnGlobal('fetch').mockImplementation(async () => new Response('[]'));
+});
+afterEach(restoreMockedProps);
+```
+
+`setupAutoSpy()` restores functions replaced by `spyOnGlobal` after each test. Without setup, register `afterEach(restoreMockedProps)` as shown.
 
 ### Control helpers by return type
 
@@ -242,6 +256,7 @@ spec imports
 | `provideAutoSpy(Class, methodsOrConfig?)`                                                                                                    | A `TestBed` provider that hands out a spy instead of the service                                          | [Replace a service](/adapters/angular#replace-a-service-provideautospy-and-injectspy)                  |
 | `injectSpy(token)`                                                                                                                           | Gets that spy from `TestBed`, typed `Spy<T>`                                                              | same                                                                                                   |
 | `provideAutoSpyForToken(token, overrides?, config?)`                                                                                         | The same for an `InjectionToken`, the spy built from the token's type                                     | [Tokens](/adapters/angular#a-dependency-behind-an-injectiontoken)                                      |
+| `provideAutoSpyForToken({ token, options })`                                                                                                 | Configures an `InjectionToken` spy without a positional `overrides` argument                              | [Tokens](/adapters/angular#a-dependency-behind-an-injectiontoken)                                      |
 | `registerAutoSpyDefaults` / `clearAutoSpyDefaults`                                                                                           | The core's registration, also for an `InjectionToken`                                                     | [Defaults](/core/create-spy-from-class#registerautospydefaults-—-the-composition-lives-with-the-class) |
 | `extendWithAutoSpies(test, spec, options?)`                                                                                                  | Typed `test` fixtures for a map of dependencies (Vitest 4.1+)                                             | [`extendWithAutoSpies`](/adapters/angular#fixtures-instead-of-let-beforeeach-—-extendwithautospies)    |
 | `createWithAutoSpies(Class, options?)`                                                                                                       | Builds a class through DI with every unprovided dependency spied                                          | [Auto-spied dependencies](/adapters/angular#building-a-class-with-auto-spied-dependencies)             |
@@ -457,6 +472,8 @@ Silent typed spies over the global `console`. See [Console spies](/utilities/con
 | `vitest-auto-spy/perf-reporter`  | The Vitest reporter `npx vitest-auto-spy perf` uses (default export)                                                                                                                            | [CLI](/utilities/cli)                                                        |
 | `vitest-auto-spy/package.json`   | The manifest, for tools that read it (Storybook, Nx)                                                                                                                                            | —                                                                            |
 
+After a partial install, run `npx vitest-auto-spy init --check --managed` to check existing managed blocks only. To require a specific file, use `init --check --only AGENTS.md`. [CLI reference](/utilities/cli).
+
 ## Configuration objects
 
 The second argument of `createSpyFromClass`, `createSpyFromInstance` and `provideAutoSpy` is a
@@ -487,6 +504,8 @@ options can go first: `createAutoMock<EventSource>({ returnsUndefined: ['close']
 the object names at least one of `returnsUndefined`, `selfReturning`, `returnsClass`,
 `observablePropsToSpyOn`, `onUnstubbedCall`, `onUnstubbedRead`; `strict`, `name` or `returns` alone
 still go second — [options without values](/core/auto-mock-by-type#options-without-values).
+
+For an `InjectionToken`, pass configuration on its own with `provideAutoSpyForToken({ token: LOGGER, options: { selfReturning: ['channel'] } })`.
 
 **`StrictSpyConfiguration`**: accepted by every factory, and by `setupAutoSpy(options?)` as a
 suite-wide default. See [precedence](/core/strict-mode#precedence).

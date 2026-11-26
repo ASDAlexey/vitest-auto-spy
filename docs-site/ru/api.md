@@ -116,13 +116,27 @@ Vitest порядок не важен.
 | `createMock<T>(partial?)`                           | Собирает обычный `T` без спаев — для данных, а не для зависимостей                                       | [По типу, без спаев](/ru/core/auto-mock-by-type#from-a-type-without-spies-—-createmock)                                 |
 | `mockDeep<T>(overrides?, options?)`                 | Подмена, где `a.b.c` — спай на любой глубине, без настройки                                              | [Глубокие подмены](/ru/core/auto-mock-by-type#recursive-deep-mocks-—-mockdeep)                                          |
 | `createFunctionSpy(name, unstubbed?)`               | Один отдельный спай-функция со всеми хелперами; тип — `FunctionSpy<Fn>`                                  | [Одна функция](/ru/core/create-spy-from-class#a-single-function-—-createfunctionspy)                                    |
+| `spyOnGlobal(key)`                                  | Подменяет функцию на `globalThis` спаем с той же сигнатурой; исходная функция не вызывается              | [Подмена `fetch`](/ru/utilities/setup#answering-a-stubbed-fetch-—-stubresponse)                                         |
 | `createSpyClass(Class, config?, options?)`          | Спай, который можно вызвать через `new`; записывает `calls` и `instances`                                | [Вызов через `new`](/ru/core/spy-typing#a-spy-you-can-call-with-new)                                                    |
 | `mockConstructor(factory, name?)`                   | Подмена конструктора для класса, который тестируемый код создаёт через `new`                             | [Подмены конструкторов](/ru/utilities/constructor-doubles)                                                              |
+| `mockConstructor(Class, factory, name?)`            | Выводит тип аргументов `new` и тип экземпляра из класса; подходит для типизированного `vi.mock`          | [Подмены конструкторов](/ru/utilities/constructor-doubles)                                                              |
 | `stubConstructor(target, property, factory)`        | Ставит такую подмену вместо глобального или модульного класса и снимает её после теста                   | там же                                                                                                                  |
 | `registerAutoSpyDefaults(Class, config)`            | Один раз регистрирует обычную настройку класса; с неё начинается каждый спай этого класса                | [Настройка по умолчанию](/ru/core/create-spy-from-class#registerautospydefaults-—-the-composition-lives-with-the-class) |
 | `clearAutoSpyDefaults(Class?)`                      | Снимает одну регистрацию или все сразу                                                                   | там же                                                                                                                  |
 | `clearAutoSpy(spy)`                                 | Очищает записанные вызовы у всех спаев объекта; заданные ответы остаются                                 | [Сброс](/ru/core/control-helpers#resetting-spies-—-clearautospy-resetautospy)                                           |
 | `resetAutoSpy(spy)`                                 | Очищает и вызовы, и настройку, как `vi.resetAllMocks()`                                                  | там же                                                                                                                  |
+
+```ts
+import { afterEach, beforeEach } from 'vitest';
+import { restoreMockedProps, spyOnGlobal } from 'vitest-auto-spy';
+
+beforeEach(() => {
+  spyOnGlobal('fetch').mockImplementation(async () => new Response('[]'));
+});
+afterEach(restoreMockedProps);
+```
+
+`setupAutoSpy()` восстанавливает функцию, подменённую через `spyOnGlobal`, после каждого теста. Если `setupAutoSpy()` не подключён, добавьте `afterEach(restoreMockedProps)`, как в примере.
 
 ### Хелперы управления по типу возврата {#control-helpers-by-return-type}
 
@@ -242,6 +256,7 @@ Vitest порядок не важен.
 | `provideAutoSpy(Class, methodsOrConfig?)`                                                                                               | Провайдер `TestBed`, который выдаёт спай вместо сервиса                                                           | [Подменить сервис](/ru/adapters/angular#replace-a-service-provideautospy-and-injectspy)                                 |
 | `injectSpy(token)`                                                                                                                      | Получает этот спай из `TestBed` с типом `Spy<T>`                                                                  | там же                                                                                                                  |
 | `provideAutoSpyForToken(token, overrides?, config?)`                                                                                    | То же для `InjectionToken`; спай собирается по типу токена                                                        | [Токены](/ru/adapters/angular#a-dependency-behind-an-injectiontoken)                                                    |
+| `provideAutoSpyForToken({ token, options })`                                                                                            | Настраивает спай для `InjectionToken` без позиционного аргумента `overrides`                                      | [Токены](/ru/adapters/angular#a-dependency-behind-an-injectiontoken)                                                    |
 | `registerAutoSpyDefaults` / `clearAutoSpyDefaults`                                                                                      | Регистрация из ядра, которая принимает и `InjectionToken`                                                         | [Настройка по умолчанию](/ru/core/create-spy-from-class#registerautospydefaults-—-the-composition-lives-with-the-class) |
 | `extendWithAutoSpies(test, spec, options?)`                                                                                             | Типизированные фикстуры `test` для набора зависимостей (Vitest 4.1+)                                              | [Фикстуры теста](/ru/adapters/angular#fixtures-instead-of-let-beforeeach-—-extendwithautospies)                         |
 | `createWithAutoSpies(Class, options?)`                                                                                                  | Создаёт класс через DI, подменяя спаями все зависимости без провайдера                                            | [Зависимости-спаи](/ru/adapters/angular#building-a-class-with-auto-spied-dependencies)                                  |
@@ -457,6 +472,8 @@ Angular `TestBed` под `bun test`. Реэкспортирует `/bun` (всё
 | `vitest-auto-spy/perf-reporter`  | Репортер Vitest, который использует `npx vitest-auto-spy perf` (экспорт по умолчанию)                                                                                                                 | [Командная строка](/ru/utilities/cli)                                           |
 | `vitest-auto-spy/package.json`   | Сам манифест, для инструментов, которые его читают (Storybook, Nx)                                                                                                                                    | —                                                                               |
 
+После частичной установки запускайте `npx vitest-auto-spy init --check --managed`, чтобы проверить только существующие управляемые блоки. Чтобы проверка требовала конкретный файл, укажите `init --check --only AGENTS.md`. [Командная строка](/ru/utilities/cli).
+
 ## Объекты настройки {#configuration-objects}
 
 Второй аргумент `createSpyFromClass`, `createSpyFromInstance` и `provideAutoSpy` —
@@ -488,6 +505,8 @@ Angular `TestBed` под `bun test`. Реэкспортирует `/bun` (всё
 бы одна из опций `returnsUndefined`, `selfReturning`, `returnsClass`, `observablePropsToSpyOn`,
 `onUnstubbedCall`, `onUnstubbedRead`; `strict`, `name` или `returns` сами по себе по-прежнему идут
 вторым аргументом — [опции без значений](/ru/core/auto-mock-by-type#options-without-values).
+
+Для `InjectionToken` передайте настройки без значений через `provideAutoSpyForToken({ token: LOGGER, options: { selfReturning: ['channel'] } })`.
 
 **`StrictSpyConfiguration`**: принимает каждая фабрика, а `setupAutoSpy(options?)` — как общее
 значение для всех тестов. См. [приоритет](/ru/core/strict-mode#precedence).

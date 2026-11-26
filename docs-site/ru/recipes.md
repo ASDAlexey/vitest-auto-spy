@@ -214,11 +214,66 @@ const store = createAutoMock<TaskStore>();
 `createAutoMock<T>()` берите, когда класса нет. С классом, благодаря умолчанию выше, перечислять
 ничего не нужно, и никакой список не отстанет от стора.
 
-`rxMethod` — функция со свойством `destroy`, которого у голого мока нет. Соберите его сами, иначе
-очистка компонента бросит ошибку:
+Если код вызывает `load.destroy()` и `load(query).destroy()`, добавьте в мок оба метода. Первый
+останавливает `rxMethod`, второй — подписку, созданную этим вызовом. В примере используется ваш `TaskStore`
+с методом `load`, который принимает строку:
 
 ```ts
-const load = Object.assign(vi.fn(), { destroy: vi.fn() });
+import { TestBed } from '@angular/core/testing';
+import { expect, vi } from 'vitest';
+import { provideAutoSpy } from 'vitest-auto-spy/angular';
+
+import { TaskStore } from './task.store';
+
+const connection = { destroy: vi.fn() };
+const load = Object.assign(vi.fn<TaskStore['load']>().mockReturnValue(connection), {
+  destroy: vi.fn(),
+});
+TestBed.configureTestingModule({ providers: [provideAutoSpy(TaskStore, { overrides: { load } })] });
+
+const store = TestBed.inject(TaskStore);
+store.load('open').destroy();
+store.load.destroy();
+
+expect(load).toHaveBeenCalledWith('open');
+expect(connection.destroy).toHaveBeenCalledOnce();
+expect(load.destroy).toHaveBeenCalledOnce();
+```
+
+`overrides` сохраняет переданный мок вместе с его методом `destroy`. В тесте компонента дайте
+компоненту самому сделать вызовы и проверьте именно тот `destroy()`, который он использует.
+Мок записывает вызовы, но не подписывается на входные данные и не запускает цепочку NgRx.
+Чтобы проверить саму цепочку, используйте настоящий стор.
+
+## Проверить вызовы санитайзера Angular {#spy-on-angular-s-sanitizer}
+
+Оставьте настоящий `DomSanitizer`, если результат зависит от того, что Angular удалит или
+отклонит. Поставьте спай на метод: он запишет вызовы, не меняя результат.
+
+```ts
+import { SecurityContext } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { DomSanitizer } from '@angular/platform-browser';
+import { expect, vi } from 'vitest';
+
+const sanitizer = TestBed.inject(DomSanitizer);
+const sanitize = vi.spyOn(sanitizer, 'sanitize');
+const html = '<b>Tasks</b><script>ignored</script>';
+
+expect(sanitizer.sanitize(SecurityContext.HTML, html)).toBe('<b>Tasks</b>');
+expect(sanitize).toHaveBeenCalledWith(SecurityContext.HTML, html);
+```
+
+Поставьте спай до создания компонента или сервиса, который использует санитайзер. Если вы
+хотите подменить санитайзер, но сохранить обёртки `SafeValue`, используйте
+[`provideDomSanitizerDouble()`](/ru/adapters/angular#platform-sanitizer-change-detector-and-cdk-overlay-doubles).
+У подмены `sanitize()` возвращает переданную обычную строку без изменений. Для проверки того, что Angular очистит или отклонит, нужен настоящий санитайзер.
+
+Если раньше тест сравнивал результат `bypassSecurityTrustHtml()` со строкой, сначала извлеките строку через `sanitize()` с контекстом `HTML`:
+
+```ts
+const trusted = sanitizer.bypassSecurityTrustHtml('<b>Tasks</b>');
+expect(sanitizer.sanitize(SecurityContext.HTML, trusted)).toBe('<b>Tasks</b>');
 ```
 
 ## Проверить, что сделал эффект {#test-what-an-effect-produces}

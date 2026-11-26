@@ -993,7 +993,9 @@ provideOverlayDouble(Overlay); // injectOverlayDouble(Overlay).lastRef().emitBac
 - `DomSanitizer` (`createDomSanitizerDouble()` / `provideDomSanitizerDouble()`): the
   `bypassSecurityTrust*` spies return Angular's own safe values, so a template binding them renders;
   `sanitize` unwraps them and throws Angular's `Required a safe HTML, got a Style` on a wrong
-  context. A plain string comes back unchanged — the double strips no markup.
+  context. Use the real `DomSanitizer` by default when sanitization matters. Record calls without
+  replacing its behavior with `vi.spyOn(TestBed.inject(DomSanitizer), 'sanitize')`. The double
+  returns raw strings unchanged; it neither strips markup nor rejects raw strings in unsafe contexts.
 - `ChangeDetectorRef` (`createChangeDetectorRefDouble()` / `provideChangeDetectorRefDouble()`):
   `markForCheck`, `detach`, `detectChanges`, `reattach`. A class the template instantiates gets its
   detector from its view, so the provider reaches only what an environment injector builds —
@@ -1101,23 +1103,26 @@ refused by name. `trackEffectRuns` counts every run whoever asked for it: a flus
 
 ### ngrx `rxMethod`
 
-An `rxMethod` is a function with a `destroy` property. A bare mock has no `destroy`, so the
-component's cleanup throws:
+An `rxMethod` has two distinct cleanup hooks: `store.load.destroy()` stops the method;
+`store.load(query).destroy()` stops the connection for that call. A bare auto-spy supplies neither
+hook. If the consumer uses either one, seed a callable spy with the matching contract:
 
 ```ts
-const load = Object.assign(vi.fn(), { destroy: vi.fn() });
+const connection = { destroy: vi.fn() };
+const load = Object.assign(vi.fn<TaskStore['load']>().mockReturnValue(connection), {
+  destroy: vi.fn(),
+});
+TestBed.configureTestingModule({ providers: [provideAutoSpy(TaskStore, { overrides: { load } })] });
 ```
 
-Under `strict`, a call whose ref nobody reads is configured with `returns: { load: undefined }`. When
-the code does read the ref (it calls `destroy`), seed one from the method's own type — ngrx does not
-export `RxMethodRef`: `returns: { load: createAutoMock<ReturnType<Store['load']>>() }`.
+`overrides` keeps the mock and its `destroy` property. Assert on `load`, `load.destroy`, or
+`connection.destroy`, depending on what your consumer does. This mock records calls but does not
+run the NgRx pipeline; use the real store to test the pipeline.
 
-A `signalStore()` class keeps its methods and `rxMethod`s on the instance, not the prototype, so
-discovery finds none of them. A class whose chain reaches the `SignalStore` base ngrx generates gets
-`fillMissing: true` by default, so `provideAutoSpy(Store, { returns: { … } })` answers every such
-member with a spy — `returns` and `strict` apply to them as to any method — whether or not the class
-body still declares methods of its own; no `instanceMethodsToSpyOn` list, no `fillMissing` to write.
-`fillMissing: false` turns it off for one store.
+`signalStore()` puts methods on the instance. Recognized SignalStore classes get `fillMissing: true`
+by default, so ordinary instance methods need no `instanceMethodsToSpyOn` list. If the consumer
+only calls `load` and ignores its result, `returns: { load: undefined }` also works in `strict`
+mode. Set `fillMissing: false` to opt out for one store.
 
 ```ts
 // shallow rendering — configureTestingModule + NO_ERRORS_SCHEMA + overrideComponent, in one call

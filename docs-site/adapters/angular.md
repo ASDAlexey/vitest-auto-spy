@@ -271,7 +271,7 @@ TestBed.configureTestingModule({ providers: [provideAutoSpyForToken(PASSCODE_SER
 const passcode = injectSpy(PASSCODE_SERVICE_TOKEN); // Spy<PasscodeService>
 ```
 
-The signature is `provideAutoSpyForToken(token, overrides?, config?)`. The second argument means the
+The positional form is `provideAutoSpyForToken(token, overrides?, config?)`. The second argument means the
 same as the `overrides` key: plain values for members. Pass `undefined` when you only need `config`.
 
 A spy answers `undefined` until you configure it. That breaks code that **chains** off the result:
@@ -279,8 +279,10 @@ a constructor doing `inject(LOGGER).channel('auth').debug('…')` fails on `.deb
 starts. Name the method that returns the object itself:
 
 ```ts
-provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] });
+provideAutoSpyForToken({ token: LOGGER, options: { selfReturning: ['channel'] } });
 ```
+
+Use `{ token, options }` to pass configuration without an `undefined` placeholder. The second argument in the positional form still supplies overrides.
 
 [`selfReturning`](/core/create-spy-from-class#self-returning) keeps `channel` a spy you can assert
 on, and makes it return the spy object. To set this once for every file, call

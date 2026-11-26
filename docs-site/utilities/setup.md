@@ -528,8 +528,13 @@ a body can be read only once. The second `response.json()` rejects with "Body is
 one response per call:
 
 ```ts
-vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body: user }));
+import { spyOnGlobal } from 'vitest-auto-spy';
+import { stubResponse } from 'vitest-auto-spy/setup';
+
+spyOnGlobal('fetch').mockImplementation(async () => stubResponse({ body: { id: 1, name: 'Ada' } }));
 ```
+
+The helper infers the signature from `globalThis` and does not call the original function. `setupAutoSpy()` restores it after the test. Without setup, call `restoreMockedProps()` in `afterEach`.
 
 It works wherever there is a global `Response`: Node, jsdom (which uses Node's), happy-dom, Bun and
 `node:test`. Elsewhere it throws a `TypeError` that names the missing constructor. Each of its errors

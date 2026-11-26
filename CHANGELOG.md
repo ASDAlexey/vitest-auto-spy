@@ -10,6 +10,26 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- `mockConstructor(Class, factory)` infers the class instance and constructor arguments and can be returned from a typed Vitest module factory.
+- `spyOnGlobal('fetch')` infers the global function's signature and restores the original through `restoreMockedProps()`. The root entry and its runner variants ship the helper.
+- `provideAutoSpyForToken({ token, options })` configures a token double without a placeholder argument; positional overrides keep their meaning.
+- `init --check --managed` checks existing managed blocks after a partial install. To require specific targets even if their files are missing, use `init --check --only` without `--managed`.
+
+### Changed
+
+- ESLint migration hints recommend `spyOnGlobal('fetch')` for an unrestored fetch assignment and show the options-only token provider form for method results. Existing supported calls are not flagged.
+
+### Fixed
+
+- `init` reports and skips targets reached through a symlink inside the project.
+- `no-inline-test-data` compares literal values instead of stripping whitespace from source text. The `/eslint-plugin` entry preserves string content and array and object property order when grouping repeats.
+
+### Docs
+
+- Add Angular recipes for a typed NgRx `rxMethod` reference double and for sanitizer assertions that keep the real `SafeValue` contract.
+
 ## [5.70.3] - 2026-11-16
 
 ### Fixed
