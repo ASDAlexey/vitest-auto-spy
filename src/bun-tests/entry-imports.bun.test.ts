@@ -7,8 +7,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import pkg from '../../package.json';
-
-const fromDist = process.env['npm_lifecycle_event'] === 'test:bun:preload';
+import { entryPath, fromDist } from './entry-path';
 
 /** Entries that cannot share a Bun process with the others, and why. */
 const notImportedHere: Readonly<Record<string, string>> = {
@@ -19,23 +18,6 @@ const notImportedHere: Readonly<Record<string, string>> = {
   './zone': 'needs zone.js loaded first; asserted separately below',
   './package.json': 'not a module',
 };
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null;
-}
-
-function entryPath(subpath: string): string {
-  const exportMap: Readonly<Record<string, unknown>> = pkg.exports;
-  const target = exportMap[subpath];
-  const conditions = isRecord(target) ? target['import'] : undefined;
-  const file = isRecord(conditions) ? conditions['default'] : conditions;
-
-  if (typeof file !== 'string') {
-    throw new TypeError(`No import target for ${subpath}`);
-  }
-
-  return fromDist ? `../../${file.slice(2)}` : `../${file.slice('./dist/'.length).replace(/\.js$/, '.ts')}`;
-}
 
 await import(entryPath('./bun'));
 

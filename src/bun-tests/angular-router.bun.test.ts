@@ -12,15 +12,17 @@ import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { describe, expect, it } from 'bun:test';
 import { filter, map } from 'rxjs';
 
-import {
-  type RouterDouble,
+import type { RouterDouble } from '../angular-router';
+import { entryPath } from './entry-path';
+
+const {
   collectRouterEvents,
   createRouterDouble,
   injectActivatedRoute,
   injectRouterDouble,
   provideActivatedRoute,
   provideRouterDouble,
-} from '../angular-router';
+}: typeof import('../angular-router') = await import(entryPath('./angular-router'));
 
 @Component({ selector: 'app-product', template: '<b>product {{ id() }}</b>' })
 class ProductComponent {
