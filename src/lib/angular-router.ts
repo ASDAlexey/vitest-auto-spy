@@ -415,6 +415,12 @@ function constructRoute(streams: Streams, fixed: FixedParts, snapshot: Activated
   return route;
 }
 
+// Since Angular 22.3, activation links live routes to their state instead of the RouterState constructor.
+function linkRouteTree(node: RouteNode<ActivatedRoute>, state: RouterState): void {
+  Reflect.set(node.value, '_routerState', state);
+  node.children.forEach((child) => linkRouteTree(child, state));
+}
+
 function buildActivatedRoute(init: ActivatedRouteInit): { double: ActivatedRouteDouble; subtree: Subtree } {
   const fixed: FixedParts = {
     outlet: init.outlet ?? PRIMARY_OUTLET,
@@ -439,6 +445,7 @@ function buildActivatedRoute(init: ActivatedRouteInit): { double: ActivatedRoute
 
   const routerState: RouterState = Reflect.construct(RouterState, [subtree.node, snapshotTree()]);
 
+  linkRouteTree(subtree.node, routerState);
   assertRouteWiring(route, streams, state, fixed);
   children.forEach((child) => {
     child.retree = (): void => subtree.retree();
