@@ -5911,19 +5911,19 @@ nothing.
 
 ## Bundle size
 
-The badge says 31.9 kB min+gzip, and that is the whole core entry bundled together. Each subpath is
+The badge says 32.0 kB min+gzip, and that is the whole core entry bundled together. Each subpath is
 a separate entry, and a project pays only for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **31.9 kB** |
+| `.` — the core entry, what the badge measures | **32.0 kB** |
 | `vitest-auto-spy/angular` on its own          |     41.1 kB |
 | `vitest-auto-spy/angular/doubles`             |     26.4 kB |
 | `vitest-auto-spy/angular/diagnostics`         |      8.2 kB |
 | `vitest-auto-spy/angular/matchers`            |      3.2 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     31.9 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     32.0 kB |
 | `vitest-auto-spy/setup`                       |     32.0 kB |
-| `vitest-auto-spy/node`                        |     31.2 kB |
+| `vitest-auto-spy/node`                        |     31.3 kB |
 | `vitest-auto-spy/dom-stubs`                   |     13.4 kB |
 | `vitest-auto-spy/rxjs`                        |      2.8 kB |
 | `vitest-auto-spy/angular-router`              |     12.0 kB |
@@ -6547,11 +6547,64 @@ const store = createAutoMock<TaskStore>();
 Use `createAutoMock<T>()` when you have no class. With a class, the default above means you list
 nothing, so no list can fall behind the store.
 
-An `rxMethod` is a function with a `destroy` property, which a bare mock does not have. Build it
-yourself, or the component's cleanup throws:
+Mock both cleanup hooks if your code calls `load.destroy()` and `load(query).destroy()`. The first
+stops the method; the second stops the connection returned by that call. This example uses your own
+`TaskStore`, whose `load` method takes a string:
 
 ```ts
-const load = Object.assign(vi.fn(), { destroy: vi.fn() });
+import { TestBed } from '@angular/core/testing';
+import { expect, vi } from 'vitest';
+import { provideAutoSpy } from 'vitest-auto-spy/angular';
+
+import { TaskStore } from './task.store';
+
+const connection = { destroy: vi.fn() };
+const load = Object.assign(vi.fn<TaskStore['load']>().mockReturnValue(connection), {
+  destroy: vi.fn(),
+});
+TestBed.configureTestingModule({ providers: [provideAutoSpy(TaskStore, { overrides: { load } })] });
+
+const store = TestBed.inject(TaskStore);
+store.load('open').destroy();
+store.load.destroy();
+
+expect(load).toHaveBeenCalledWith('open');
+expect(connection.destroy).toHaveBeenCalledOnce();
+expect(load.destroy).toHaveBeenCalledOnce();
+```
+
+`overrides` keeps the supplied mock and its `destroy` property. In a component test, let the
+component make the calls and assert on the hook it actually uses. The mock records calls; it
+neither subscribes to inputs nor runs the NgRx pipeline. Use the real store to test the pipeline.
+
+## Spy on Angular's sanitizer
+
+Keep Angular's real `DomSanitizer` when the result depends on what Angular strips or rejects.
+Spy on the method in place to record calls without changing its result:
+
+```ts
+import { SecurityContext } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { DomSanitizer } from '@angular/platform-browser';
+import { expect, vi } from 'vitest';
+
+const sanitizer = TestBed.inject(DomSanitizer);
+const sanitize = vi.spyOn(sanitizer, 'sanitize');
+const html = '<b>Tasks</b><script>ignored</script>';
+
+expect(sanitizer.sanitize(SecurityContext.HTML, html)).toBe('<b>Tasks</b>');
+expect(sanitize).toHaveBeenCalledWith(SecurityContext.HTML, html);
+```
+
+Install the spy before creating the consumer. If you deliberately want to replace the sanitizer
+but still need Angular's `SafeValue` wrappers, use [`provideDomSanitizerDouble()`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#platform-sanitizer-change-detector-and-cdk-overlay-doubles).
+On the double, `sanitize()` passes plain strings through unchanged. Use the real sanitizer to test what Angular strips or rejects.
+
+If an old test compared the result of `bypassSecurityTrustHtml()` to a string, unwrap it through `sanitize()` with the matching `HTML` context:
+
+```ts
+const trusted = sanitizer.bypassSecurityTrustHtml('<b>Tasks</b>');
+expect(sanitizer.sanitize(SecurityContext.HTML, trusted)).toBe('<b>Tasks</b>');
 ```
 
 ## Test what an effect produces
@@ -11244,8 +11297,13 @@ a body can be read only once. The second `response.json()` rejects with "Body is
 one response per call:
 
 ```ts
-vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body: user }));
+import { spyOnGlobal } from 'vitest-auto-spy';
+import { stubResponse } from 'vitest-auto-spy/setup';
+
+spyOnGlobal('fetch').mockImplementation(async () => stubResponse({ body: { id: 1, name: 'Ada' } }));
 ```
+
+The helper infers the signature from `globalThis` and does not call the original function. `setupAutoSpy()` restores it after the test. Without setup, call `restoreMockedProps()` in `afterEach`.
 
 It works wherever there is a global `Response`: Node, jsdom (which uses Node's), happy-dom, Bun and
 `node:test`. Elsewhere it throws a `TypeError` that names the missing constructor. Each of its errors
@@ -13188,6 +13246,18 @@ expect(LicenseClient.instances[0].prepareRequest).toHaveBeenCalled();
 
 **Common mistake:** `vi.fn(() => instance)` as a constructor. It records the call but `new` returns
 an empty object. Use `mockConstructor(() => instance)`.
+
+If you have the class at runtime, pass it first. TypeScript infers the factory parameters and call history. Return the mock directly from a typed `vi.mock` factory:
+
+```ts
+import { vi } from 'vitest';
+import { mockConstructor } from 'vitest-auto-spy';
+
+vi.mock(import('./client'), async (importOriginal) => {
+  const { Client } = await importOriginal();
+  return { Client: mockConstructor(Client, (host) => ({ host, close: vi.fn() })) };
+});
+```
 
 ## `stubConstructor(target, property, factory)`
 
@@ -17526,11 +17596,7 @@ beforeEach(() => {
 
 ```ts
 beforeEach(() => {
-  mockValueProp(
-    globalThis,
-    'fetch',
-    vi.fn(async () => stubResponse({ body: user })),
-  );
+  spyOnGlobal('fetch').mockImplementation(async () => stubResponse({ body: user }));
   // ✅ undo registered with restoreMockedProps(), which setupAutoSpy() runs after every test
 });
 ```
@@ -17540,13 +17606,13 @@ beforeEach(() => {
 **How to fix.** Use a helper that carries its own undo. The message names the one that fits the
 global:
 
-| Global                                                           | Helper                                                                                                                                                                                         |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fetch`                                                          | `mockValueProp(globalThis, 'fetch', vi.fn(async () => stubResponse({ body })))`, with [`stubResponse`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#answering-a-stubbed-fetch-—-stubresponse) from `vitest-auto-spy/setup` |
-| another lowercase name, such as `matchMedia`                     | `mockValueProp(globalThis, name, vi.fn(…))`                                                                                                                                                    |
-| a capitalized name: `XMLHttpRequest`, `WebSocket`, `EventSource` | `stubConstructor(globalThis, name, …)`: the code calls it with `new`                                                                                                                           |
-| `localStorage`, `sessionStorage`                                 | [`stubWebStorage()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#stub-web-storage)                                                                                                                                        |
-| `Worker`                                                         | [`stubWorker({ respond })`](https://asdalexey.github.io/vitest-auto-spy/utilities/worker-stub), which keeps the listener behaviour a hand-written stub loses                                                                              |
+| Global                                                           | Helper                                                                                                                                                                                       |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fetch`                                                          | `spyOnGlobal('fetch').mockImplementation(async () => stubResponse({ body }))`, with [`stubResponse`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#answering-a-stubbed-fetch-—-stubresponse) from `vitest-auto-spy/setup` |
+| another lowercase name, such as `matchMedia`                     | `mockValueProp(globalThis, name, vi.fn(…))`                                                                                                                                                  |
+| a capitalized name: `XMLHttpRequest`, `WebSocket`, `EventSource` | `stubConstructor(globalThis, name, …)`: the code calls it with `new`                                                                                                                         |
+| `localStorage`, `sessionStorage`                                 | [`stubWebStorage()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#stub-web-storage)                                                                                                                                      |
+| `Worker`                                                         | [`stubWorker({ respond })`](https://asdalexey.github.io/vitest-auto-spy/utilities/worker-stub), which keeps the listener behaviour a hand-written stub loses                                                                            |
 
 - A spec that only needs to stay off the network wants
   [`blockNetwork()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_5-keeping-the-run-off-the-network) (or
@@ -17829,6 +17895,7 @@ take file by file, like [`prefer-set-inputs`](#prefer-set-inputs).
 Reports test data written inline in a spec: one literal longer than 20 lines, or the same literal
 written three times or more. Move it to a `*.mock.ts` file next to the spec and import it. The test
 then shows what it checks, and one edit updates every test that uses the value.
+Quote style and formatting do not affect repeat detection. String contents, array order and object property order still matter. Literals containing spreads, computed keys or duplicate properties do not count toward repeats.
 
 ```ts
 // order.service.spec.ts
@@ -18895,6 +18962,8 @@ Otherwise the name decides: a token is nearly always imported, so `^[\dA-Z_]+$` 
 read. The advice differs because `provideAutoSpy` reads a class prototype, a token has none, and the
 advice would not compile. In three migration batches this mattered; in one of them 6 of 8 reports
 were on tokens.
+
+For a token, seed method results with `provideAutoSpyForToken({ token: TOKEN, options: { returns } })`. Use `injectSpy(TOKEN)` to configure spies and assert on calls.
 
 **`ActivatedRoute`** gets its own message. The class keeps `snapshot`, `params`, `queryParams`,
 `data`, `fragment` and `url` in **instance** fields, so a spy built from its prototype has none of
@@ -21735,7 +21804,10 @@ never scan your dependencies, so without this pointer they do not know the libra
 npx vitest-auto-spy init             # write or refresh the blocks
 npx vitest-auto-spy init --dry-run   # print what would change
 npx vitest-auto-spy init --check     # CI: exit 1 when a block is missing or out of date
+npx vitest-auto-spy init --check --managed
 ```
+
+After a partial install, run `init --check --managed` to check existing managed blocks. This mode cannot detect a deleted file or a block removed entirely. To require specific files, list them with `init --check --only AGENTS.md`. `init` does not read or modify targets through symlinks inside the project; its report identifies the link.
 
 The block is written for your repository, not copied from a template. `init` reads your
 `package.json` and test config and writes only what is true there: the entry point for your runner and
@@ -21760,8 +21832,7 @@ nothing on other tasks: `.cursor/rules/`, `.github/instructions/`, `.windsurf/ru
 the first file it finds from a list that ends in `AGENTS.md`, so creating one of them would hide the
 project's whole `AGENTS.md`. If one already exists, `init` appends to it.
 
-A `CLAUDE.md` that is a symlink to `AGENTS.md`, or that already has an `@AGENTS.md` import line, is
-left alone: writing through it would duplicate the block.
+If `CLAUDE.md` already imports `@AGENTS.md`, `init` leaves it alone to avoid duplicating the block.
 
 What the block names comes from a scan. The setup file is the first `setupFiles` entry of an
 `@angular/build:unit-test` or `@nx/angular:unit-test` target (including `nx.json` `targetDefaults`),
@@ -21816,15 +21887,16 @@ appended to crosses that line.
 
 ### Flags
 
-| Flag              | Command       | What it does                                                                                                                      |
-| ----------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `--check`         | `init`        | Write nothing; exit 1 if a block is missing or out of date. The CI form                                                           |
-| `--dry-run`       | `init`        | Print what would change and write nothing                                                                                         |
-| `--uninstall`     | `init`        | Remove the managed blocks and delete the files `init` created                                                                     |
-| `--only <paths>`  | `init`        | Touch only these targets, comma-separated; a directory selects what `init` writes under it. `--check` and `--uninstall` honour it |
-| `--cwd <dir>`     | every command | Run against another directory                                                                                                     |
-| `-h`, `--help`    | every command | The usage screen                                                                                                                  |
-| `-v`, `--version` | every command | The installed version                                                                                                             |
+| Flag              | Command        | What it does                                                                                                                      |
+| ----------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `--check`         | `init`         | Write nothing; exit 1 if a block is missing or out of date. The CI form                                                           |
+| `--dry-run`       | `init`         | Print what would change and write nothing                                                                                         |
+| `--uninstall`     | `init`         | Remove the managed blocks and delete the files `init` created                                                                     |
+| `--only <paths>`  | `init`         | Touch only these targets, comma-separated; a directory selects what `init` writes under it. `--check` and `--uninstall` honour it |
+| `--managed`       | `init --check` | Check existing managed blocks after a partial install. Does not require deleted files or blocks                                   |
+| `--cwd <dir>`     | every command  | Run against another directory                                                                                                     |
+| `-h`, `--help`    | every command  | The usage screen                                                                                                                  |
+| `-v`, `--version` | every command  | The installed version                                                                                                             |
 
 `--only CLAUDE.md,.claude` keeps the block out of a tracked `AGENTS.md` and `GEMINI.md` in a
 repository that ignores only its Claude files.
@@ -24282,7 +24354,7 @@ TestBed.configureTestingModule({ providers: [provideAutoSpyForToken(PASSCODE_SER
 const passcode = injectSpy(PASSCODE_SERVICE_TOKEN); // Spy<PasscodeService>
 ```
 
-The signature is `provideAutoSpyForToken(token, overrides?, config?)`. The second argument means the
+The positional form is `provideAutoSpyForToken(token, overrides?, config?)`. The second argument means the
 same as the `overrides` key: plain values for members. Pass `undefined` when you only need `config`.
 
 A spy answers `undefined` until you configure it. That breaks code that **chains** off the result:
@@ -24290,8 +24362,10 @@ a constructor doing `inject(LOGGER).channel('auth').debug('…')` fails on `.deb
 starts. Name the method that returns the object itself:
 
 ```ts
-provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] });
+provideAutoSpyForToken({ token: LOGGER, options: { selfReturning: ['channel'] } });
 ```
+
+Use `{ token, options }` to pass configuration without an `undefined` placeholder. The second argument in the positional form still supplies overrides.
 
 [`selfReturning`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#self-returning) keeps `channel` a spy you can assert
 on, and makes it return the spy object. To set this once for every file, call
@@ -33325,25 +33399,39 @@ The core. Importing it connects spies to Vitest's mock function ([runner adapter
 
 ### Build a spy or a double
 
-| Export                                              | What it does                                                                                   | Docs                                                                                                   |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `createSpyFromClass(Class, methodsOrConfig?)`       | Builds a typed `Spy<T>`: every method of the class becomes a spy                               | [Spies from a class](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class)                                                      |
-| `createSpyFromInstance(instance, methodsOrConfig?)` | Turns the methods of an object you already have into spies, in place                           | [`passthrough`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#passthrough)                                               |
-| `restoreSpiedInstance(instance)`                    | Puts the real methods back on that object                                                      | same                                                                                                   |
-| `spyOnOwnMethod(instance, method)`                  | Records one method of the object under test and still runs the real one; use it for `vi.spyOn` | [One method](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#spy-on-own-method)                                            |
-| `spyOnVoidMethod(target, method)`                   | Records one native void method (`preventDefault`, `focus`) without a strict-mode throw         | [Spies from a class](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class)                                                      |
-| `createAutoMock<T>(overrides?, config?)`            | Builds a `Spy<T>` from a type or interface, with no class                                      | [From a type](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type#from-a-type-—-createautomock)                                    |
-| `autoMocked<T>(overrides?, config?)`                | The same, typed as both `T` and `Spy<T>`, for a `let` set in `beforeEach`                      | [`autoMocked`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type#automocked-—-one-object-typed-as-both-t-and-spy-t)              |
-| `createMock<T>(partial?)`                           | Builds a plain `T` with no spies, for data rather than collaborators                           | [`createMock`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type#from-a-type-without-spies-—-createmock)                         |
-| `mockDeep<T>(overrides?, options?)`                 | A double where `a.b.c` is a spy at any depth, without setup                                    | [`mockDeep`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type#recursive-deep-mocks-—-mockdeep)                                  |
-| `createFunctionSpy(name, unstubbed?)`               | One standalone function spy with every helper; type it as `FunctionSpy<Fn>`                    | [One function](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#a-single-function-—-createfunctionspy)                      |
-| `createSpyClass(Class, config?, options?)`          | A spy you can call with `new`; records `calls` and `instances`                                 | [Call with `new`](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing#a-spy-you-can-call-with-new)                                        |
-| `mockConstructor(factory, name?)`                   | A constructor double for a class the code under test builds with `new`                         | [Constructor doubles](https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles)                                                  |
-| `stubConstructor(target, property, factory)`        | Replaces a global or module class with such a double, restored after the test                  | same                                                                                                   |
-| `registerAutoSpyDefaults(Class, config)`            | Registers a class's usual configuration once; every spy of that class starts from it           | [Defaults](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#registerautospydefaults-—-the-composition-lives-with-the-class) |
-| `clearAutoSpyDefaults(Class?)`                      | Drops one registration, or all of them                                                         | same                                                                                                   |
-| `clearAutoSpy(spy)`                                 | Clears recorded calls on every spy inside the object; keeps what you configured                | [Resetting](https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#resetting-spies-—-clearautospy-resetautospy)                         |
-| `resetAutoSpy(spy)`                                 | Clears calls and configuration, as `vi.resetAllMocks()` does                                   | same                                                                                                   |
+| Export                                              | What it does                                                                                    | Docs                                                                                                   |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `createSpyFromClass(Class, methodsOrConfig?)`       | Builds a typed `Spy<T>`: every method of the class becomes a spy                                | [Spies from a class](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class)                                                      |
+| `createSpyFromInstance(instance, methodsOrConfig?)` | Turns the methods of an object you already have into spies, in place                            | [`passthrough`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#passthrough)                                               |
+| `restoreSpiedInstance(instance)`                    | Puts the real methods back on that object                                                       | same                                                                                                   |
+| `spyOnOwnMethod(instance, method)`                  | Records one method of the object under test and still runs the real one; use it for `vi.spyOn`  | [One method](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#spy-on-own-method)                                            |
+| `spyOnVoidMethod(target, method)`                   | Records one native void method (`preventDefault`, `focus`) without a strict-mode throw          | [Spies from a class](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class)                                                      |
+| `createAutoMock<T>(overrides?, config?)`            | Builds a `Spy<T>` from a type or interface, with no class                                       | [From a type](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type#from-a-type-—-createautomock)                                    |
+| `autoMocked<T>(overrides?, config?)`                | The same, typed as both `T` and `Spy<T>`, for a `let` set in `beforeEach`                       | [`autoMocked`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type#automocked-—-one-object-typed-as-both-t-and-spy-t)              |
+| `createMock<T>(partial?)`                           | Builds a plain `T` with no spies, for data rather than collaborators                            | [`createMock`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type#from-a-type-without-spies-—-createmock)                         |
+| `mockDeep<T>(overrides?, options?)`                 | A double where `a.b.c` is a spy at any depth, without setup                                     | [`mockDeep`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type#recursive-deep-mocks-—-mockdeep)                                  |
+| `createFunctionSpy(name, unstubbed?)`               | One standalone function spy with every helper; type it as `FunctionSpy<Fn>`                     | [One function](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#a-single-function-—-createfunctionspy)                      |
+| `spyOnGlobal(key)`                                  | Replaces a `globalThis` function with a spy of the same signature; the original does not run    | [Stub `fetch`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#answering-a-stubbed-fetch-—-stubresponse)                              |
+| `createSpyClass(Class, config?, options?)`          | A spy you can call with `new`; records `calls` and `instances`                                  | [Call with `new`](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing#a-spy-you-can-call-with-new)                                        |
+| `mockConstructor(factory, name?)`                   | A constructor double for a class the code under test builds with `new`                          | [Constructor doubles](https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles)                                                  |
+| `mockConstructor(Class, factory, name?)`            | Infers the `new` arguments and instance type from the class; works in a typed `vi.mock` factory | [Constructor doubles](https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles)                                                  |
+| `stubConstructor(target, property, factory)`        | Replaces a global or module class with such a double, restored after the test                   | same                                                                                                   |
+| `registerAutoSpyDefaults(Class, config)`            | Registers a class's usual configuration once; every spy of that class starts from it            | [Defaults](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#registerautospydefaults-—-the-composition-lives-with-the-class) |
+| `clearAutoSpyDefaults(Class?)`                      | Drops one registration, or all of them                                                          | same                                                                                                   |
+| `clearAutoSpy(spy)`                                 | Clears recorded calls on every spy inside the object; keeps what you configured                 | [Resetting](https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#resetting-spies-—-clearautospy-resetautospy)                         |
+| `resetAutoSpy(spy)`                                 | Clears calls and configuration, as `vi.resetAllMocks()` does                                    | same                                                                                                   |
+
+```ts
+import { afterEach, beforeEach } from 'vitest';
+import { restoreMockedProps, spyOnGlobal } from 'vitest-auto-spy';
+
+beforeEach(() => {
+  spyOnGlobal('fetch').mockImplementation(async () => new Response('[]'));
+});
+afterEach(restoreMockedProps);
+```
+
+`setupAutoSpy()` restores functions replaced by `spyOnGlobal` after each test. Without setup, register `afterEach(restoreMockedProps)` as shown.
 
 ### Control helpers by return type
 
@@ -33463,6 +33551,7 @@ spec imports
 | `provideAutoSpy(Class, methodsOrConfig?)`                                                                                                    | A `TestBed` provider that hands out a spy instead of the service                                          | [Replace a service](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#replace-a-service-provideautospy-and-injectspy)                  |
 | `injectSpy(token)`                                                                                                                           | Gets that spy from `TestBed`, typed `Spy<T>`                                                              | same                                                                                                   |
 | `provideAutoSpyForToken(token, overrides?, config?)`                                                                                         | The same for an `InjectionToken`, the spy built from the token's type                                     | [Tokens](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#a-dependency-behind-an-injectiontoken)                                      |
+| `provideAutoSpyForToken({ token, options })`                                                                                                 | Configures an `InjectionToken` spy without a positional `overrides` argument                              | [Tokens](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#a-dependency-behind-an-injectiontoken)                                      |
 | `registerAutoSpyDefaults` / `clearAutoSpyDefaults`                                                                                           | The core's registration, also for an `InjectionToken`                                                     | [Defaults](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#registerautospydefaults-—-the-composition-lives-with-the-class) |
 | `extendWithAutoSpies(test, spec, options?)`                                                                                                  | Typed `test` fixtures for a map of dependencies (Vitest 4.1+)                                             | [`extendWithAutoSpies`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#fixtures-instead-of-let-beforeeach-—-extendwithautospies)    |
 | `createWithAutoSpies(Class, options?)`                                                                                                       | Builds a class through DI with every unprovided dependency spied                                          | [Auto-spied dependencies](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#building-a-class-with-auto-spied-dependencies)             |
@@ -33678,6 +33767,8 @@ Silent typed spies over the global `console`. See [Console spies](https://asdale
 | `vitest-auto-spy/perf-reporter`  | The Vitest reporter `npx vitest-auto-spy perf` uses (default export)                                                                                                                            | [CLI](https://asdalexey.github.io/vitest-auto-spy/utilities/cli)                                                        |
 | `vitest-auto-spy/package.json`   | The manifest, for tools that read it (Storybook, Nx)                                                                                                                                            | —                                                                            |
 
+After a partial install, run `npx vitest-auto-spy init --check --managed` to check existing managed blocks only. To require a specific file, use `init --check --only AGENTS.md`. [CLI reference](https://asdalexey.github.io/vitest-auto-spy/utilities/cli).
+
 ## Configuration objects
 
 The second argument of `createSpyFromClass`, `createSpyFromInstance` and `provideAutoSpy` is a
@@ -33708,6 +33799,8 @@ options can go first: `createAutoMock<EventSource>({ returnsUndefined: ['close']
 the object names at least one of `returnsUndefined`, `selfReturning`, `returnsClass`,
 `observablePropsToSpyOn`, `onUnstubbedCall`, `onUnstubbedRead`; `strict`, `name` or `returns` alone
 still go second — [options without values](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type#options-without-values).
+
+For an `InjectionToken`, pass configuration on its own with `provideAutoSpyForToken({ token: LOGGER, options: { selfReturning: ['channel'] } })`.
 
 **`StrictSpyConfiguration`**: accepted by every factory, and by `setupAutoSpy(options?)` as a
 suite-wide default. See [precedence](https://asdalexey.github.io/vitest-auto-spy/core/strict-mode#precedence).
