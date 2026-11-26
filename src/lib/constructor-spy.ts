@@ -105,8 +105,48 @@ function factoryReturnedNonObject(name: string, produced: unknown): Error {
  */
 export function mockConstructor<T, TArgs extends unknown[] = unknown[]>(
   factory: (...args: TArgs) => T,
-  name = 'mockConstructor',
+  name?: string,
+): ConstructorMock<T, TArgs>;
+export function mockConstructor<Class extends abstract new (...args: never[]) => object>(
+  source: Class,
+  factory: (...args: ConstructorParameters<Class>) => InstanceType<Class>,
+  name?: string,
+): ConstructorMock<InstanceType<Class>, ConstructorParameters<Class>> &
+  Omit<Class, Exclude<keyof CallableFunction, 'prototype'> | keyof ConstructorMock<InstanceType<Class>, ConstructorParameters<Class>>>;
+export function mockConstructor<T, TArgs extends unknown[]>(
+  sourceOrFactory: ((...args: TArgs) => T) | (abstract new (...args: never[]) => object),
+  factoryOrName?: string | ((...args: TArgs) => T),
+  name?: string,
 ): ConstructorMock<T, TArgs> {
+  if (typeof factoryOrName === 'function') {
+    const mock = buildConstructorMock(factoryOrName, name ?? sourceOrFactory.name);
+    copyClassSurface(mock, sourceOrFactory);
+
+    return mock;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only the class overload supplies a second function.
+  const factory = sourceOrFactory as (...args: TArgs) => T;
+
+  return buildConstructorMock(factory, factoryOrName ?? 'mockConstructor');
+}
+
+function copyClassSurface(mock: object, source: object): void {
+  const prototype: unknown = Reflect.get(source, 'prototype');
+  Object.defineProperty(mock, 'prototype', { value: prototype });
+
+  for (let level: object | null = source; level !== Function.prototype && level !== null; level = Reflect.getPrototypeOf(level)) {
+    for (const key of Reflect.ownKeys(level)) {
+      const descriptor = Object.getOwnPropertyDescriptor(level, key);
+
+      if (descriptor && !(key in mock)) {
+        Object.defineProperty(mock, key, descriptor);
+      }
+    }
+  }
+}
+
+function buildConstructorMock<T, TArgs extends unknown[]>(factory: (...args: TArgs) => T, name: string): ConstructorMock<T, TArgs> {
   const instances: T[] = [];
 
   // A `function` expression, deliberately not an arrow: this one keyword is what makes the runner

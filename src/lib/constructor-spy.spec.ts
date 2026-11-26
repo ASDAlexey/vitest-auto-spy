@@ -40,6 +40,50 @@ describe('mockConstructor', () => {
     expect(Syslog).not.toHaveBeenCalled();
   });
 
+  it('uses the class signature and name without running its constructor', () => {
+    class Client {
+      constructor(
+        readonly host: string,
+        readonly port?: number,
+      ) {
+        throw new Error('The original constructor must not run');
+      }
+    }
+
+    const ClientMock = mockConstructor(Client, (host, port) => ({ host, port }));
+    const instance = new ClientMock('logs.test', 443);
+
+    expect(ClientMock.getMockName()).toBe('Client');
+    expect(ClientMock.mock.calls).toStrictEqual([['logs.test', 443]]);
+    expect(ClientMock.instances).toStrictEqual([instance]);
+    expect(instance).toStrictEqual({ host: 'logs.test', port: 443 });
+  });
+
+  it('retains the original prototype and statics without replacing mock methods', () => {
+    class Base {
+      static readonly protocol = 'https';
+    }
+
+    class Client extends Base {
+      static get endpoint(): string {
+        return `${this.protocol}://logs.test`;
+      }
+
+      static mockClear(): never {
+        throw new Error('A class static must not replace a mock method');
+      }
+    }
+
+    const ClientMock = mockConstructor(Client, () => ({}), 'ClientExport');
+    new ClientMock();
+    ClientMock.mockClear();
+
+    expect(ClientMock.getMockName()).toBe('ClientExport');
+    expect(ClientMock.prototype).toBe(Client.prototype);
+    expect(ClientMock.endpoint).toBe('https://logs.test');
+    expect(ClientMock.mock.calls).toStrictEqual([]);
+  });
+
   it('passes the `new` arguments to the factory', () => {
     const Client = mockConstructor<{ args: unknown[] }, [string, number]>((...args) => ({ args }));
 
