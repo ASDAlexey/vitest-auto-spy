@@ -438,7 +438,7 @@ jobs:
           test('the ActivatedRoute double is wired the way this major builds a route', async () => {
             const { ActivatedRoute } = await import('@angular/router');
             const { createActivatedRoute } = await import('vitest-auto-spy/angular-router');
-            const double = createActivatedRoute({ params: { id: '7' }, url: 'products/7' });
+            const double = createActivatedRoute({ params: { id: '7' }, url: 'products/7', children: [{}] });
 
             double.setParams({ id: '8' });
 
@@ -446,6 +446,7 @@ jobs:
             expect(Object.keys(double.route).sort()).toEqual(Object.keys(new ActivatedRoute()).sort());
             expect(double.route.snapshot.paramMap.get('id')).toBe('8');
             expect(double.route.root).toBe(double.route);
+            expect(double.route.firstChild?.parent).toBe(double.route);
           });
 
           // The internals canaries only run when a helper is called, so linking alone never trips them.
