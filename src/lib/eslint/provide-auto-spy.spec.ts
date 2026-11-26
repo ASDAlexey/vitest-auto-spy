@@ -392,14 +392,20 @@ describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
     expect(firstMessage('const p = { provide: REQUEST, useValue: { headers: { get: vi.fn() } } };')).toContain(
       'Seed data in the second argument',
     );
+  });
 
-    expect(firstMessage('const p = { provide: POLL, useValue: { wait: vi.fn(), track: vi.fn() } };')).toContain(
-      'method results (including void) in `{ returns }`',
-    );
-    expect(firstMessage('const p = { provide: POLL, useValue: { wait: vi.fn(), track: vi.fn() } };')).toContain('injectSpy(POLL)');
+  it('shows token method configuration without a positional overrides argument', () => {
+    const message = firstMessage('const p = { provide: POLL, useValue: { wait: vi.fn(), track: vi.fn() } };');
 
-    // A chained call is the third argument's, and stays a spy — a `mockReturnThis()` seed did not.
-    expect(firstMessage('const p = { provide: LOGGER, useValue: { channel: vi.fn() } };')).toContain('{ selfReturning }');
+    expect(message).toContain('injectSpy(POLL)');
+    expect(message).toContain('provideAutoSpyForToken(POLL, overrides)');
+    expect(message).toContain('For method results (including void), write `provideAutoSpyForToken({ token: POLL, options: { returns } })`');
+    expect(message).toContain('for fluent methods, use `options.selfReturning`');
+  });
+
+  it('leaves both token provider call forms alone', () => {
+    expect(lint('const providers = [provideAutoSpyForToken(POLL, undefined, { returns: { wait: undefined } })];')).toEqual([]);
+    expect(lint('const providers = [provideAutoSpyForToken({ token: POLL, options: { returns: { wait: undefined } } })];')).toEqual([]);
   });
 
   it('reads a class out of every initialiser that is not a token', () => {

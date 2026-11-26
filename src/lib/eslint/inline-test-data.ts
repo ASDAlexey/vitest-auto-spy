@@ -13,6 +13,7 @@ import {
   type EsNode,
   type EsObjectExpression,
   type EsSpreadElement,
+  type EsVariable,
   type RuleContext,
   anyInSubtree,
   hasAncestor,
@@ -380,7 +381,131 @@ function span(node: EsNode): number {
   return node.range[1] - node.range[0];
 }
 
-const sourceKey = (context: RuleContext, node: EsNode): string => context.sourceCode.getText(node).replace(/\s+/g, '');
+type DataKey = DataKey[] | boolean | string | null;
+
+type ReferenceKey = (node: EsIdentifier) => DataKey;
+
+function literalKey(value: unknown): DataKey | undefined {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return ['literal', value];
+  }
+
+  if (typeof value === 'number' || typeof value === 'bigint') {
+    return [typeof value, String(value)];
+  }
+
+  return undefined;
+}
+
+function templateKey(node: EsNode): DataKey | undefined {
+  if (node.parent.type === 'TaggedTemplateExpression' && Reflect.get(node.parent, 'quasi') === node) {
+    return undefined;
+  }
+
+  const quasis: EsNode[] = Reflect.get(node, 'quasis');
+  const [quasi] = quasis;
+  const cooked: unknown = quasi && quasis.length === 1 && Reflect.get(Reflect.get(quasi, 'value'), 'cooked');
+
+  return typeof cooked === 'string' ? ['template', cooked] : undefined;
+}
+
+function objectKey(node: EsObjectExpression, reference: ReferenceKey, context: RuleContext): DataKey | undefined {
+  const keys = new Set<string>();
+  const entries: DataKey[] = ['object'];
+
+  for (const property of node.properties) {
+    const name = propertyName(property);
+
+    if (name === undefined || name === '__proto__' || keys.has(name)) {
+      return undefined;
+    }
+
+    const value = dataKey(propertyValue(property), reference, context);
+
+    if (value === undefined) {
+      return undefined;
+    }
+
+    keys.add(name);
+    entries.push([name, value]);
+  }
+
+  return entries;
+}
+
+function dataKey(node: EsNode, reference: ReferenceKey, context: RuleContext): DataKey | undefined {
+  if (isObjectExpression(node)) {
+    return objectKey(node, reference, context);
+  }
+
+  if (isArrayExpression(node)) {
+    const items = node.elements.map((item) => (item === null ? null : dataKey(item, reference, context)));
+
+    return items.every((item) => item !== undefined) ? ['array', ...items] : undefined;
+  }
+
+  if (isIdentifier(node)) {
+    return reference(node);
+  }
+
+  if (isMemberExpression(node) && !node.computed && !Reflect.get(node, 'optional') && isIdentifier(node.property)) {
+    const object = dataKey(node.object, reference, context);
+
+    return object === undefined ? undefined : ['member', object, node.property.name];
+  }
+
+  if (isWrapper(node)) {
+    const value = dataKey(node.expression, reference, context);
+    const annotation: EsNode | undefined = Reflect.get(node, 'typeAnnotation');
+
+    return value === undefined ? undefined : [node.type, value, annotation ? context.sourceCode.getText(annotation) : null];
+  }
+
+  if (node.type === 'Literal') {
+    return literalKey(Reflect.get(node, 'value'));
+  }
+
+  if (node.type === 'UnaryExpression') {
+    const operator: unknown = Reflect.get(node, 'operator');
+    const argument: EsNode = Reflect.get(node, 'argument');
+    const value: unknown = Reflect.get(argument, 'value');
+
+    if (argument.type === 'Literal' && (typeof value === 'number' || typeof value === 'bigint') && (operator === '+' || operator === '-')) {
+      return [operator, typeof value, String(value)];
+    }
+  }
+
+  return node.type === 'TemplateLiteral' ? templateKey(node) : undefined;
+}
+
+function keyFor(context: RuleContext): (node: EsNode) => string | undefined {
+  const bindings = new Map<EsVariable, string>();
+
+  const reference: ReferenceKey = (node) => {
+    const binding = findBinding(context.sourceCode.getScope(node), node.name);
+
+    if (!binding) {
+      return ['identifier', node.name, null];
+    }
+
+    const id = bindings.get(binding) ?? String(bindings.size);
+    bindings.set(binding, id);
+
+    return ['identifier', node.name, id];
+  };
+
+  return (node) => {
+    let wrapped = node;
+
+    while (isWrapper(wrapped.parent)) {
+      wrapped = wrapped.parent;
+    }
+
+    const key = dataKey(wrapped, reference, context);
+
+    return key === undefined ? undefined : JSON.stringify(key);
+  };
+}
 
 /**
  * A long literal outside an expectation is data to move; inside one it is what the test checks, and a
@@ -418,12 +543,12 @@ interface Copies {
   readonly rest: EsNode[];
 }
 
-function reportRepeats(context: RuleContext, seen: Iterable<Copies>, repeats: number): void {
+function reportRepeats(context: RuleContext, seen: ReadonlyMap<string, Copies>, repeats: number): void {
   const reported: EsNode[] = [];
-  // Outermost first, so a repeated literal is reported once rather than once per repeated piece of it.
-  const groups = [...seen].filter((group) => group.rest.length + 1 >= repeats).sort((a, b) => span(b.first) - span(a.first));
+  // A containing key is longer even if a nested copy uses more source text.
+  const groups = [...seen].filter(([, group]) => group.rest.length + 1 >= repeats).sort(([a], [b]) => b.length - a.length);
 
-  for (const group of groups) {
+  for (const [, group] of groups) {
     // Every copy is checked, not just the first: a copy inside an outer literal already reported moves with it.
     const [first, ...rest] = [group.first, ...group.rest].filter((node) => !reported.some((outer) => within(node, outer)));
 
@@ -489,14 +614,17 @@ export const noInlineTestData = defineRule({
     }
 
     const { maxLines, repeats, minValues } = limits(context);
-    const seen = new Map<string, { first: EsNode; rest: EsNode[] }>();
+    const normalizedKey = keyFor(context);
+    const seen = new Map<string, Copies>();
     const written = new Map<string, number>();
     const long: (EsArrayExpression | EsObjectExpression)[] = [];
 
-    const tally = (node: EsNode): string => {
-      const key = sourceKey(context, node);
+    const tally = (node: EsNode): string | undefined => {
+      const key = normalizedKey(node);
 
-      written.set(key, (written.get(key) ?? 0) + 1);
+      if (key !== undefined) {
+        written.set(key, (written.get(key) ?? 0) + 1);
+      }
 
       return key;
     };
@@ -504,7 +632,7 @@ export const noInlineTestData = defineRule({
     const collect = (node: EsArrayExpression | EsObjectExpression): void => {
       const key = tally(node);
 
-      if (!isData(context, node) || !isRecord(node, minValues)) {
+      if (key === undefined || !isData(context, node) || !isRecord(node, minValues)) {
         return;
       }
 
@@ -528,10 +656,14 @@ export const noInlineTestData = defineRule({
       TemplateLiteral: tally,
       'Program:exit': (): void => {
         for (const node of long) {
-          reportLong(context, node, maxLines, (part) => Number(written.get(sourceKey(context, part))));
+          reportLong(context, node, maxLines, (part) => {
+            const key = normalizedKey(part);
+
+            return written.get(key ?? '') ?? 0;
+          });
         }
 
-        reportRepeats(context, seen.values(), repeats);
+        reportRepeats(context, seen, repeats);
       },
     };
   },

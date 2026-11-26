@@ -28,12 +28,24 @@ describe('no-hand-assigned-global', () => {
 
     expect(count(code)).toBe(1);
     expect(text).toMatch(/^`fetch` is replaced by assignment/);
-    expect(text).toContain("mockValueProp(globalThis, 'fetch', vi.fn(async () => stubResponse({ body })))");
+    expect(text).toContain("spyOnGlobal('fetch').mockImplementation(async () => stubResponse({ body }))");
+    expect(text).toContain('Restore the original with `setupAutoSpy()` or call `restoreMockedProps()` in teardown.');
     expect(text).toContain('`stubResponse` from `vitest-auto-spy/setup`');
     expect(message('globalThis.XMLHttpRequest = vi.fn();')).toContain("stubConstructor(globalThis, 'XMLHttpRequest', …)");
     expect(text).toContain('/utilities/eslint-rules#no-hand-assigned-global');
     expect(message('self.WebSocket = function () {};')).toContain("stubConstructor(globalThis, 'WebSocket', …)");
     expect(message('window.ResizeObserverEntry = function () {};')).toContain("stubConstructor(globalThis, 'ResizeObserverEntry', …)");
+  });
+
+  it('leaves restored replacements and passthrough spies alone', () => {
+    const code = `
+      import { createFunctionSpy, mockValueProp, spyOnGlobal } from 'vitest-auto-spy';
+      mockValueProp(globalThis, 'fetch', createFunctionSpy('fetch'));
+      spyOnGlobal('fetch');
+      vi.spyOn(globalThis, 'fetch');
+    `;
+
+    expect(verify(code)).toStrictEqual([]);
   });
 
   it('reads every receiver and spelling of the global, cast or configured', () => {

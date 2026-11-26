@@ -27,7 +27,7 @@ describe(RULE, () => {
     expect(verify(`const order = ${literalOf(20)};`)).toEqual([]);
   });
 
-  it('reports the third spelling of the same literal, whatever its size and its whitespace', () => {
+  it('reports the third spelling of the same literal regardless of formatting', () => {
     const messages = verify(`
       service.save({ id: 1, name: 'Ann' });
       service.save({id:1,name:'Ann'});
@@ -36,8 +36,90 @@ describe(RULE, () => {
 
     expect(messages.map((message) => message.line)).toEqual([3, 4]);
     expect(messages[0]?.message).toMatch(/^`\{id:1,name:'Ann'\}` is written 3 times in this file \(first at line 2\)/);
-    expect(verify('save({ [key]: 1, x: -1 });\nsave({ [key]: 1, x: -1 });\nsave({ [key]: 1, x: -1 });')).toHaveLength(2);
   });
+
+  it('matches static keys and nested values independently of their source spelling', () => {
+    const messages = verify(
+      [
+        "save({ name: 'Ann', counts: [10, -2, 16] });",
+        'save(({ "name": "\\x41nn", counts: [0b1010, -(0b10), 0x10,], }));',
+        "save({ name: ('Ann'), /* counts */ 'counts': [(0o12), -2, 1_6] });",
+      ].join('\n'),
+    );
+
+    expect(messages.map((message) => message.line)).toEqual([2, 3]);
+  });
+
+  it('normalizes signed and unsigned bigint literals', () => {
+    const decimal = 'save({ balance: -16n, total: 32n });\n';
+    const hex = 'save({ balance: -0x10n, total: 0x20n });';
+
+    expect(verify(decimal.repeat(2) + hex).map((message) => message.line)).toEqual([2, 3]);
+  });
+
+  it('matches the cooked text of untagged templates without matching strings', () => {
+    const plain = 'save({ name: `Ann`, id: 1 });\n';
+    const escaped = 'save({ name: `\\x41nn`, id: 1 });';
+    const string = "save({ name: 'Ann', id: 1 });";
+
+    expect(verify(plain.repeat(2) + escaped).map((message) => message.line)).toEqual([2, 3]);
+    expect(verify(plain.repeat(2) + string)).toEqual([]);
+  });
+
+  it.each([
+    ['object property order', '{ id: 1, name: "Ann" }', '{ name: "Ann", id: 1 }'],
+    ['array element order', '[1, 2, 3, 4]', '[2, 1, 3, 4]'],
+    ['an array hole and explicit undefined', '[, 1, 2, 3, 4]', '[undefined, 1, 2, 3, 4]'],
+    ['member paths', '{ id: user.profile.id, n: 1 }', '{ id: user.account.id, n: 1 }'],
+    ['assertion and satisfies wrappers', '{ id: 1, n: 2 } as Order', '{ id: 1, n: 2 } satisfies Order'],
+    ['assertion and non-null wrappers on member paths', '{ id: user.id as number, n: 1 }', '{ id: user.id!, n: 1 }'],
+    ['exact type text', '{ id: 1, n: 2 } as Order<number>', '{ id: 1, n: 2 } as Order< number >'],
+  ])('distinguishes %s', (_difference, first, second) => {
+    const repeated = `save(${first});\n`.repeat(2);
+
+    expect(verify(`${repeated}save(${second});`)).toEqual([]);
+    expect(verify(`${repeated}save((${first}));`).map((message) => message.line)).toEqual([2, 3]);
+  });
+
+  it('normalizes values inside matching TypeScript wrappers', () => {
+    const messages = verify(
+      [
+        'save({ id: (user as User).id!, n: 16 } satisfies Order);',
+        'save(({ "id": (user as User).id!, n: 0x10, } satisfies Order));',
+        'save({ id: (user as User).id!, n: (0b10000) } satisfies Order);',
+      ].join('\n'),
+    );
+
+    expect(messages.map((message) => message.line)).toEqual([2, 3]);
+  });
+
+  it.each([
+    ['computed keys', '{ ["id"]: 1, name: "Ann" }'],
+    ['object spreads', '{ ...base, id: 1, name: "Ann" }'],
+    ['array spreads', '[...base, 1, 2, 3, 4]'],
+    ['duplicate static keys', '{ id: 1, "id": 2, name: "Ann" }'],
+    ['prototype keys', '{ "__proto__": null, id: 1, name: "Ann" }'],
+    ['member reads from calls', '{ id: loadOrder().id, name: "Ann" }'],
+    ['nested calls', '{ nested: { id: loadId() }, name: "Ann", qty: 2 }'],
+    ['regular expressions', '{ pattern: /a/i, id: 1, name: "Ann" }'],
+    ['interpolated templates', '{ label: `order ${id}`, id: 1, name: "Ann" }'],
+    ['tagged templates', '{ label: tag`order`, id: 1, name: "Ann" }'],
+    ['accessors', '{ get id() { return 1; }, name: "Ann", qty: 2 }'],
+    ['binary expressions', '{ id: 1 + 2, name: "Ann", qty: 2 }'],
+  ])('does not count candidates containing %s', (_unsupported, literal) => {
+    expect(verify(`save(${literal});\n`.repeat(3))).toEqual([]);
+  });
+
+  it.each(['{ id: target, n: 1 }', '{ nested: [{ id: target.id, n: 1 }] }'])(
+    'does not combine references to shadowed bindings in %s',
+    (literal) => {
+      const call = `save(${literal});`;
+      const repeated = `const target = { id: 1 };\n${call}\n{ ${call} }\n{ const target = { id: 2 }; ${call} }`;
+
+      expect(verify(repeated)).toEqual([]);
+      expect(verify(`${repeated}\n${call}`).map((message) => message.line)).toEqual([3, 5]);
+    },
+  );
 
   it('reports a repeated literal once, not once more for each repeated piece of it', () => {
     const order = "{ id: 1, lines: [{ sku: 'a', qty: 2 }] }";
@@ -237,14 +319,30 @@ describe(RULE, () => {
   });
 
   it('asks for a spec-local const when the part to move is written only once, and a mock file when it repeats', () => {
-    const expected = `{\n  id: 1,\n  items: ${literalOf(22)},\n}`;
+    const items = literalOf(22).replace('field0: 0,', "field0: 'a b',");
+    const expected = `expect(order).toMatchObject({\n  id: 1,\n  items: ${items},\n});`;
+    const equivalent = items.replace("field0: 'a b',", '"field0": "a\\x20b",').replace('field1: 1,', '/* count */ field1: (0x1),');
+    const different = items.replace("'a b'", "'ab'");
 
-    expect(verify(`expect(order).toMatchObject(${expected});`)[0]?.message).toMatch(
-      /move `[^`]*` at line 3 to a `const` in this spec; it is written only here, so it needs no `\*\.mock\.ts` file\./,
-    );
-    expect(verify(`expect(order).toMatchObject(${expected});\nsend(${literalOf(22)});`)[0]?.message).toMatch(
+    for (const code of [expected, `${expected}\nsend(${different});`]) {
+      expect(verify(code)[0]?.message).toMatch(
+        /move `[^`]*` at line 3 to a `const` in this spec; it is written only here, so it needs no `\*\.mock\.ts` file\./,
+      );
+    }
+
+    expect(verify(`${expected}\nsend((${equivalent}));`)[0]?.message).toMatch(
       /move `[^`]*` at line 3 to a `\*\.mock\.ts` file next to the spec\./,
     );
+  });
+
+  it.each([
+    ['a shadowed binding', 'id: target.id', '{ const target = { id: 2 }; send(PART); }'],
+    ['an unsupported spread', '...target', 'send(PART);'],
+  ])('does not suggest a mock file for an expected part with %s', (_description, entry, otherUse) => {
+    const part = `{ ${entry},\n${literalOf(22).slice(2)}`;
+    const code = `const target = { id: 1 };\nexpect(order).toEqual({\n  items: ${part},\n});\n${otherUse.replace('PART', part)}`;
+
+    expect(verify(code)[0]?.message).toMatch(/at line 3 to a `const` in this spec/);
   });
 
   it('asks to check fewer entries of a long expected value that has no large part to move', () => {
@@ -307,12 +405,8 @@ describe(RULE, () => {
       /^`\['-a', 'Google Chrome', TARGET\]` is written 3 times in this file \(first at line 2\) and reads `TARGET`, which this spec declares\. Name it once in a `const` beside `TARGET`/,
     );
 
-    const spread = verify(`const EMPTY = { keys: [] };\n${"check({ ...EMPTY, invalidKeys: ['a', 'b'] });\n".repeat(3)}`);
-
-    expect(spread[0]?.message).toContain('reads `EMPTY`');
-
-    for (const literal of ['{ id: user.id!, name: "Ann" }', '{ [KEY]: 1, name: "Ann" }', '{ id: (user as User).id, n: 1 }']) {
-      const code = `const user = { id: 1 };\nconst KEY = 'k';\n${`save(${literal});\n`.repeat(3)}`;
+    for (const literal of ['{ id: user.id!, name: "Ann" }', '{ id: (user as User).id, n: 1 }']) {
+      const code = `const user = { id: 1 };\n${`save(${literal});\n`.repeat(3)}`;
 
       expect(verify(code)[0]?.message).toMatch(/which this spec declares/);
     }

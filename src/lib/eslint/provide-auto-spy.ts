@@ -222,7 +222,7 @@ export const preferProvideAutoSpy: RuleModule = defineRule({
     preferProvideAutoSpy:
       'The `{{slot}}` for `{{token}}` {{what}}, and the class is free to grow a method this double does not have. Write `provideAutoSpy({{token}})`, which spies every method of the real class; values the double must hold go in `{ overrides }`.',
     preferProvideAutoSpyForToken:
-      'The `{{slot}}` for the token `{{token}}` {{what}}, and nothing ties it to the type the token carries. Write `provideAutoSpyForToken({{token}})`, then `injectSpy({{token}})` to configure and assert its methods. Seed data in the second argument, method results (including void) in `{ returns }`, and fluent methods in `{ selfReturning }`.',
+      'The `{{slot}}` for the token `{{token}}` {{what}}, but is not tied to the token type. Write `provideAutoSpyForToken({{token}})`, then `injectSpy({{token}})` to configure and assert its methods. Seed data in the second argument of `provideAutoSpyForToken({{token}}, overrides)`. For method results (including void), write `provideAutoSpyForToken({ token: {{token}}, options: { returns } })`; for fluent methods, use `options.selfReturning`.',
     preferProvideAutoSpyOverStubClass:
       '`{{token}}` is provided with the stub class `{{stub}}`, whose `vi.fn()` fields cover only the methods someone remembered. Write `provideAutoSpy({{token}})`, which spies every method of the real class, and delete the stub; the returns it was tuned with go in the second argument.',
     preferProvideActivatedRoute:
