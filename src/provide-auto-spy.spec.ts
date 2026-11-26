@@ -9,8 +9,8 @@ import { TestBed } from '@angular/core/testing';
 import { Observable, ReplaySubject, of } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { injectSpy, provideAutoSpy, provideAutoSpyForToken } from './angular';
-import { clearAutoSpyDefaults, createAutoMock, createSpyFromClass, mockValueProp, registerAutoSpyDefaults } from './index';
+import { clearAutoSpyDefaults, injectSpy, provideAutoSpy, provideAutoSpyForToken, registerAutoSpyDefaults } from './angular';
+import { createAutoMock, createSpyFromClass, mockValueProp } from './index';
 import { useConsoleSpies } from './lib/console-spy';
 import { takeStrictViolations } from './lib/function-spy';
 // Public entries: core (`./index`) and the Angular helpers (`./angular`). The bare `./rxjs` import
@@ -398,6 +398,53 @@ describe('provideAutoSpy / injectSpy', () => {
     // Still a spy — which is what seeding it through `overrides` would have thrown away.
     await expect(collect(products.getProducts())).resolves.toMatchObject({ values: [['a']] });
     expect(products.getProducts).toHaveBeenCalled();
+  });
+
+  it('merges explicit token options over registered defaults', () => {
+    const TOKEN = new InjectionToken<{ load(): string; fallback(): string; refresh(): void }>('TOKEN_OPTIONS');
+    registerAutoSpyDefaults(TOKEN, { returns: { load: 'default', fallback: 'fallback' }, strict: false });
+
+    try {
+      TestBed.configureTestingModule({
+        providers: [provideAutoSpyForToken({ token: TOKEN, options: { returns: { load: 'explicit' }, strict: true } })],
+      });
+
+      const spy = injectSpy(TOKEN);
+
+      expect(spy.load()).toBe('explicit');
+      expect(spy.load).toHaveBeenCalledOnce();
+      expect(spy.fallback()).toBe('fallback');
+      expect(() => spy.refresh()).toThrow('InjectionToken TOKEN_OPTIONS.refresh(');
+    } finally {
+      clearAutoSpyDefaults(TOKEN);
+    }
+  });
+
+  it('keeps option-shaped members in the legacy second argument as seeds', () => {
+    const TOKEN = new InjectionToken<{ returns: { load: string }; strict: boolean; load(): string }>('TOKEN_SEEDS');
+    const seeds = { returns: { load: 'seed' }, strict: true };
+
+    TestBed.configureTestingModule({ providers: [provideAutoSpyForToken(TOKEN, seeds)] });
+
+    const spy = TestBed.inject(TOKEN);
+
+    expect(spy.returns).toBe(seeds.returns);
+    expect(spy.strict).toBe(true);
+    expect(spy.load()).toBeUndefined();
+  });
+
+  it('applies legacy third-argument config alongside option-shaped seeds', () => {
+    const TOKEN = new InjectionToken<{ strict: boolean; load(): string; refresh(): void }>('TOKEN_CONFIG');
+
+    TestBed.configureTestingModule({
+      providers: [provideAutoSpyForToken(TOKEN, { strict: false }, { returns: { load: 'configured' }, strict: true })],
+    });
+
+    const spy = injectSpy(TOKEN);
+
+    expect(spy.strict).toBe(false);
+    expect(spy.load()).toBe('configured');
+    expect(() => spy.refresh()).toThrow('InjectionToken TOKEN_CONFIG.refresh(');
   });
 
   it('captures a callback and spies on an optional void method behind a token', () => {
