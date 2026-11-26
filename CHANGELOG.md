@@ -23,6 +23,7 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
+- `createActivatedRoute()` and `provideActivatedRoute()` in `/angular-router` work on Angular 22.3 again, including parent and child routes.
 - `init` reports and skips targets reached through a symlink inside the project.
 - `no-inline-test-data` compares literal values instead of stripping whitespace from source text. The `/eslint-plugin` entry preserves string content and array and object property order when grouping repeats.
 
