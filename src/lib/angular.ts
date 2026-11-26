@@ -136,6 +136,11 @@ export function isLazyDoubleFactory(value: unknown): boolean {
 /** `{ provide, useValue }` for a token, where the spy is built from the token's own type. */
 export type AngularTokenProvider<T> = { provide: InjectionToken<T>; useValue: Spy<T> };
 
+/** Configure a token double without supplying positional overrides. */
+export function provideAutoSpyForToken<T>(request: {
+  token: InjectionToken<T>;
+  options: AutoMockConfiguration<NoInfer<T>>;
+}): AngularTokenProvider<T>;
 /**
  * The provider for a dependency that lives behind an `InjectionToken`.
  *
@@ -165,8 +170,14 @@ export function provideAutoSpyForToken<T>(
   token: InjectionToken<T>,
   overrides?: DeepPartial<T>,
   config?: AutoMockConfiguration<T>,
+): AngularTokenProvider<T>;
+export function provideAutoSpyForToken<T>(
+  tokenOrRequest: InjectionToken<T> | { token: InjectionToken<T>; options: AutoMockConfiguration<T> },
+  overrides?: DeepPartial<T>,
+  config?: AutoMockConfiguration<T>,
 ): AngularTokenProvider<T> {
-  const { overrides: seeds, ...merged } = mergeTokenDefaults(token, overrides, config);
+  const [token, options] = 'ɵprov' in tokenOrRequest ? [tokenOrRequest, config] : [tokenOrRequest.token, tokenOrRequest.options];
+  const { overrides: seeds, ...merged } = mergeTokenDefaults(token, overrides, options);
 
   return { provide: token, useValue: createAutoMock<T>(seeds, { ...merged, name: merged.name ?? String(token) }) };
 }

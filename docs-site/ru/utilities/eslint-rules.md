@@ -1675,11 +1675,7 @@ beforeEach(() => {
 
 ```ts
 beforeEach(() => {
-  mockValueProp(
-    globalThis,
-    'fetch',
-    vi.fn(async () => stubResponse({ body: user })),
-  );
+  spyOnGlobal('fetch').mockImplementation(async () => stubResponse({ body: user }));
   // ✅ откат зарегистрирован в restoreMockedProps(), который setupAutoSpy() запускает после каждого теста
 });
 ```
@@ -1689,13 +1685,13 @@ beforeEach(() => {
 **Как исправить.** Возьмите хелпер, который сам умеет откатываться. Сообщение называет тот, что
 подходит к глобалу:
 
-| Глобал                                                        | Хелпер                                                                                                                                                                                         |
-| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fetch`                                                       | `mockValueProp(globalThis, 'fetch', vi.fn(async () => stubResponse({ body })))`, где [`stubResponse`](/ru/utilities/setup#answering-a-stubbed-fetch-—-stubresponse) из `vitest-auto-spy/setup` |
-| другое имя со строчной буквы, например `matchMedia`           | `mockValueProp(globalThis, name, vi.fn(…))`                                                                                                                                                    |
-| имя с заглавной: `XMLHttpRequest`, `WebSocket`, `EventSource` | `stubConstructor(globalThis, name, …)`: код вызывает его через `new`                                                                                                                           |
-| `localStorage`, `sessionStorage`                              | [`stubWebStorage()`](/ru/utilities/setup#stub-web-storage)                                                                                                                                     |
-| `Worker`                                                      | [`stubWorker({ respond })`](/ru/utilities/worker-stub), который сохраняет поведение слушателей, теряемое самописной заглушкой                                                                  |
+| Глобал                                                        | Хелпер                                                                                                                                                                                       |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fetch`                                                       | `spyOnGlobal('fetch').mockImplementation(async () => stubResponse({ body }))`, где [`stubResponse`](/ru/utilities/setup#answering-a-stubbed-fetch-—-stubresponse) из `vitest-auto-spy/setup` |
+| другое имя со строчной буквы, например `matchMedia`           | `mockValueProp(globalThis, name, vi.fn(…))`                                                                                                                                                  |
+| имя с заглавной: `XMLHttpRequest`, `WebSocket`, `EventSource` | `stubConstructor(globalThis, name, …)`: код вызывает его через `new`                                                                                                                         |
+| `localStorage`, `sessionStorage`                              | [`stubWebStorage()`](/ru/utilities/setup#stub-web-storage)                                                                                                                                   |
+| `Worker`                                                      | [`stubWorker({ respond })`](/ru/utilities/worker-stub), который сохраняет поведение слушателей, теряемое самописной заглушкой                                                                |
 
 - Если спеке нужно лишь не ходить в сеть, ей нужна не подмена, а
   [`blockNetwork()`](/ru/utilities/setup#_5-keeping-the-run-off-the-network) (или
@@ -1980,6 +1976,7 @@ await flushEventLoop(); // ✅ один оборот: все разрешённ�
 Сообщает о тестовых данных, записанных прямо в спеке: о литерале длиннее 20 строк или об одном и том
 же литерале, повторённом три раза и больше. Вынесите его в файл `*.mock.ts` рядом со спекой и
 импортируйте. Тогда тест показывает, что он проверяет, а одна правка меняет значение во всех тестах.
+При поиске повторов вид кавычек и форматирование не важны. Содержимое строк и порядок элементов массива или свойств объекта учитываются. Литералы со spread, вычисляемыми ключами или повторяющимися свойствами не участвуют в поиске повторов.
 
 ```ts
 // order.service.spec.ts
@@ -3060,6 +3057,8 @@ createSpyFromClass(X, config) }`, так что этот литерал — дл
 Советы разные, потому что `provideAutoSpy` читает прототип класса, а у токена его нет, и такой совет не
 скомпилируется. В трёх партиях переезда это было важно; в одной из них 6 из 8 отчётов пришлись на
 токены.
+
+Для токена задайте результаты методов через `provideAutoSpyForToken({ token: TOKEN, options: { returns } })`. Настраивайте спаи и проверяйте вызовы через `injectSpy(TOKEN)`.
 
 **`ActivatedRoute`** получает своё сообщение. Класс держит `snapshot`, `params`, `queryParams`,
 `data`, `fragment` и `url` в полях **экземпляра**, так что у спая, построенного по его прототипу, их
