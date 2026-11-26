@@ -1,6 +1,7 @@
 /**
  * A rollback that fails too: the one outcome a temporary directory cannot stage on demand.
  */
+import { symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,7 +15,7 @@ import { createTempRepo, removeTempRepos } from './temp-repo';
 vi.hoisted(() => vi.resetModules());
 afterAll(() => vi.resetModules());
 
-const writes = vi.hoisted(() => ({ armed: false, count: 0 }));
+const writes = vi.hoisted(() => ({ armed: false, count: 0, afterWrite: undefined as (() => void) | undefined }));
 
 vi.mock('./fs-scan', async (importOriginal) => {
   const original = await importOriginal<typeof fsScan>();
@@ -33,15 +34,38 @@ vi.mock('./fs-scan', async (importOriginal) => {
       }
 
       original.writeTextFile(path, content);
+      writes.afterWrite?.();
     },
   };
 });
 
 afterEach(() => {
+  writes.armed = false;
+  writes.count = 0;
+  writes.afterWrite = undefined;
   removeTempRepos();
 });
 
 describe('runInit when the rollback fails too', () => {
+  it('rechecks for a symlink introduced after planning before writing a target', () => {
+    const root = createTempRepo({ 'package.json': '{}' });
+    const external = createTempRepo({});
+    writes.afterWrite = () => {
+      symlinkSync(external, join(root, '.claude'));
+      writes.afterWrite = undefined;
+    };
+
+    const result = runInit(readProfile(root), '1.2.3', { check: false, dryRun: false, uninstall: false, only: ['AGENTS.md', '.claude'] });
+
+    expect(result.ok).toBe(false);
+    expect(result.actions).toEqual([
+      { path: 'AGENTS.md', status: 'skipped', note: 'rolled back — .claude/skills/vitest-auto-spy/SKILL.md could not be written' },
+      { path: '.claude/skills/vitest-auto-spy/SKILL.md', status: 'failed', note: 'symbolic link at .claude' },
+    ]);
+    expect(fsScan.pathExists(join(root, 'AGENTS.md'))).toBe(false);
+    expect(fsScan.pathExists(join(external, 'skills'))).toBe(false);
+  });
+
   it('names the file left written and the reason for both failures', () => {
     const root = createTempRepo({ 'package.json': '{}', 'AGENTS.md': 'mine\n' });
 

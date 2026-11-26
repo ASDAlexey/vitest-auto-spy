@@ -71,12 +71,22 @@ function reportInit(result: InitResult, check: boolean, io: CliIo): number {
 async function initCommand(cwd: string, argv: readonly string[], io: CliIo): Promise<number> {
   const args = parseArgs(argv);
   const check = flagEnabled(args, 'check');
+  const managed = flagEnabled(args, 'managed');
+  const uninstall = flagEnabled(args, 'uninstall');
+
+  if (managed && (!check || uninstall)) {
+    io.err('--managed requires --check and cannot be used with --uninstall. Nothing ran.');
+
+    return 2;
+  }
+
   const [{ runInit }, { readProfile }] = await Promise.all([import('./init'), import('./profile')]);
   const profile = readProfile(cwd);
   const result = runInit(profile, ownVersion(), {
     check,
     dryRun: flagEnabled(args, 'dry-run'),
-    uninstall: flagEnabled(args, 'uninstall'),
+    uninstall,
+    managed,
     ...(flagValue(args, 'only') === undefined ? {} : { only: flagList(args, 'only') }),
   });
 
@@ -151,7 +161,7 @@ const COMMON_FLAGS: readonly string[] = ['cwd', 'help', 'version'];
 const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
   codemod: ['format', 'from', 'list', 'only', 'skip', 'verify', 'write'],
   doctor: ['code-quality', 'fail-on', 'format', 'ignore', 'min-severity'],
-  init: ['check', 'dry-run', 'only', 'uninstall'],
+  init: ['check', 'dry-run', 'managed', 'only', 'uninstall'],
   'ng-test': ['changed', 'dry-run', 'related', 'shard', 'target'],
   perf: [
     'ab-isolate',

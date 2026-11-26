@@ -5,6 +5,7 @@
  * one-hunk diff. `--check` is the CI form: it writes nothing and exits non-zero when the block on
  * disk is not the block this version would write.
  */
+import { lstatSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { isDirectory, isSymlink, readPresentTextFile, removeEmptyDirectories, removeFile, writeTextFile } from './fs-scan';
@@ -29,6 +30,7 @@ export interface InitOptions {
   readonly check: boolean;
   readonly dryRun: boolean;
   readonly uninstall: boolean;
+  readonly managed?: boolean | undefined;
   /** `--only`: the target paths, or directories holding them, init may touch. Every target when absent. */
   readonly only?: readonly string[] | undefined;
 }
@@ -50,6 +52,7 @@ export interface Plan {
   readonly desired: string | undefined;
   readonly existing: string | undefined;
   readonly note: string;
+  readonly blocked?: true;
   /** A copy of the shipped skill init never wrote: it cannot be refreshed, and `--check` fails on it. */
   readonly staleCopy?: true;
   /** A managed block whose body no longer matches its `sha=`: somebody edited it, so init leaves it. */
@@ -141,17 +144,42 @@ function isSelected(path: string, only: readonly string[] | undefined): boolean 
 }
 
 function collectTargets(profile: Profile, only: readonly string[] | undefined): Target[] {
-  const tierTwo = TIER_TWO.filter((target) => isDirectory(join(profile.cwd, target.requiresDirectory)));
+  const tierTwo = TIER_TWO.filter((target) => {
+    const directory = join(profile.cwd, target.requiresDirectory);
+
+    return isSymlink(directory) || isDirectory(directory);
+  });
   const skill: Target = { path: SKILL_PATH, kind: 'owned', note: 'Claude Code skill stub — frontmatter copied from the shipped skill' };
 
   return [...TIER_ONE_MARKDOWN, skill, ...tierTwo, ...LEGACY_FILES].filter((target) => isSelected(target.path, only));
 }
 
-type Read = { readonly error: string } | { readonly existing: string | undefined };
+type Read = { readonly error: string } | { readonly existing: string | undefined } | { readonly symlink: string };
+
+function symlinkComponent(cwd: string, path: string): string | undefined {
+  let prefix = '';
+
+  for (const part of path.split('/')) {
+    prefix = join(prefix, part);
+    const entry = lstatSync(join(cwd, prefix), { throwIfNoEntry: false });
+
+    if (entry === undefined) {
+      break;
+    }
+
+    if (entry.isSymbolicLink()) {
+      return prefix;
+    }
+  }
+
+  return undefined;
+}
 
 function readTarget(cwd: string, target: Target): Read {
   try {
-    return { existing: readPresentTextFile(join(cwd, target.path)) };
+    const symlink = symlinkComponent(cwd, target.path);
+
+    return symlink === undefined ? { existing: readPresentTextFile(join(cwd, target.path)) } : { symlink };
   } catch (error) {
     return { error: reasonOf(error) };
   }
@@ -185,25 +213,27 @@ export function skillPlan(plan: Plan, version: string, frontmatter: string | und
   return { ...plan, desired: skillStub(frontmatter, version) };
 }
 
-function symlinkPlan(plan: Plan): Plan {
-  return { ...plan, desired: undefined, note: 'a symlink — its target already carries the block' };
-}
-
 function buildPlans(profile: Profile, version: string, only: readonly string[] | undefined): Plan[] {
   const facts = blockFacts(profile);
 
   return collectTargets(profile, only).map((target) => {
     const read = readTarget(profile.cwd, target);
-    const existing = 'existing' in read ? read.existing : undefined;
-    const plan = planFor(target, existing, profile, version, facts);
 
-    if (isSymlink(join(profile.cwd, target.path))) {
-      return symlinkPlan(plan);
+    if ('symlink' in read) {
+      return { target, existing: undefined, desired: undefined, blocked: true, note: `symbolic link at ${read.symlink} — left alone` };
     }
 
     if ('error' in read) {
-      return { target, existing, desired: undefined, unreadable: true, note: `exists and could not be read (${read.error}) — left alone` };
+      return {
+        target,
+        existing: undefined,
+        desired: undefined,
+        unreadable: true,
+        note: `exists and could not be read (${read.error}) — left alone`,
+      };
     }
+
+    const plan = planFor(target, read.existing, profile, version, facts);
 
     return target.path === SKILL_PATH ? skillPlan(plan, version, skillFrontmatter()) : plan;
   });
@@ -223,7 +253,7 @@ function guardHandEdited(plan: Plan): Plan {
 function uninstallPlan(plan: Plan): Plan {
   const { existing, target } = plan;
 
-  if (plan.unreadable === true) {
+  if (plan.unreadable === true || plan.blocked === true) {
     return plan;
   }
 
@@ -256,6 +286,11 @@ function writes(action: InitAction, plan: Plan, options: InitOptions): boolean {
 /** `undefined` means the file should not exist; the directories init made for it go with it once empty. */
 function put(cwd: string, target: Target, content: string | undefined): void {
   const path = target.path;
+  const symlink = symlinkComponent(cwd, path);
+
+  if (symlink !== undefined) {
+    throw new Error(`symbolic link at ${symlink}`);
+  }
 
   if (content === undefined) {
     removeFile(join(cwd, path));
@@ -408,8 +443,14 @@ function markUntracked(cwd: string, actions: readonly InitAction[]): InitAction[
 
 const PENDING: ReadonlySet<ActionStatus> = new Set(['created', 'edited', 'stale', 'updated']);
 
+function isManagedPlan(plan: Plan): boolean {
+  return plan.unreadable === true || plan.blocked === true || plan.staleCopy === true || hasManaged(plan.existing ?? '');
+}
+
 export function runInit(profile: Profile, version: string, options: InitOptions): InitResult {
-  const plans = buildPlans(profile, version, options.only).map((plan) => (options.uninstall ? uninstallPlan(plan) : guardHandEdited(plan)));
+  const candidates = buildPlans(profile, version, options.only);
+  const scoped = options.check && options.managed === true ? candidates.filter(isManagedPlan) : candidates;
+  const plans = scoped.map((plan) => (options.uninstall ? uninstallPlan(plan) : guardHandEdited(plan)));
   const applied = applyPlans(profile.cwd, plans, options);
   const actions = markUntracked(profile.cwd, applied.actions);
   const { failures } = applied;

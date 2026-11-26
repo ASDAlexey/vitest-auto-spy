@@ -355,6 +355,29 @@ describe('init', () => {
     expect(one.stderr.at(-1)).toBe('\nAGENTS.md is out of date. Run `npx vitest-auto-spy init` to update it.');
   });
 
+  it.each(['--managed', '--managed --check --uninstall'])('rejects init %s before changing files', async (flags) => {
+    const io = recorder();
+    const root = createTempRepo(HEALTHY);
+
+    expect(await runCli(['init', '--cwd', root, ...flags.split(' ')], io)).toBe(2);
+    expect(io.stderr).toEqual(['--managed requires --check and cannot be used with --uninstall. Nothing ran.']);
+    expect(io.stdout).toEqual([]);
+    expect(pathExists(join(root, 'CLAUDE.md'))).toBe(false);
+  });
+
+  it('checks only installed blocks with --managed and narrows them with --only', async () => {
+    const root = createTempRepo(HEALTHY);
+    const args = ['init', '--cwd', root];
+    const all = recorder();
+    const only = recorder();
+
+    expect(await runCli([...args, '--only', 'AGENTS.md'], recorder())).toBe(0);
+    expect(await runCli([...args, '--check', '--managed'], all)).toBe(0);
+    expect(all.stdout.join('\n')).toContain('AGENTS.md');
+    expect(await runCli([...args, '--check', '--managed', '--only', 'CLAUDE.md'], only)).toBe(0);
+    expect(only.stdout.join('\n')).not.toContain('AGENTS.md');
+  });
+
   it('tells how to replace a stale copy of the shipped skill, and fails --check on it', async () => {
     const skill = '.claude/skills/vitest-auto-spy/SKILL.md';
     const root = createTempRepo({ ...HEALTHY, [skill]: '---\nname: vitest-auto-spy\n---\n\nAn old copy.\n' });

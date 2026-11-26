@@ -222,6 +222,8 @@ Options
                  when the workspace has more than one.
   --dry-run      ng-test only. Print the ng command instead of running it.
   --check        init only. Write nothing; exit 1 if the block is out of date.
+  --managed      init --check only, without --uninstall. Skip missing managed
+                 blocks. Use --only to narrow the targets.
   --dry-run      init only. Print what would change and write nothing.
   --uninstall    init only. Remove the managed blocks and the files it created.
   --only <paths> init only. Touch only these targets, comma-separated; a

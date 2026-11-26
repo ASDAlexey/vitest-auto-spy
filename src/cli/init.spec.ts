@@ -4,7 +4,7 @@
  * puts back. The happy path is one assertion; the rest of this file is the restraint.
  */
 import { execFileSync } from 'node:child_process';
-import { chmodSync } from 'node:fs';
+import { chmodSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -165,6 +165,32 @@ describe('runInit', () => {
 
     expect(statusOf(result, 'CLAUDE.md')).toBe('skipped');
     expect(readTextFile(join(root, 'AGENTS.md'))?.match(/vitest-auto-spy:begin/g)).toHaveLength(1);
+  });
+
+  it.each(['.cursor', '.cursor/rules'])('does not read, create, or uninstall through the symlink %s', (prefix) => {
+    const external = createTempRepo({ 'package.json': MANIFEST, '.cursor/rules/': '' });
+    const rule = '.cursor/rules/vitest-auto-spy.mdc';
+    install(external, { only: [rule] });
+    const original = readTextFile(join(external, rule));
+    const root = createTempRepo({ 'package.json': MANIFEST, ...(prefix === '.cursor/rules' ? { '.cursor/': '' } : {}) });
+    symlinkSync(join(external, prefix), join(root, prefix));
+
+    const only = ['.cursor'];
+    const expected = [{ path: rule, status: 'skipped', note: `symbolic link at ${prefix} — left alone` }];
+    expect(install(root, { only }).actions).toEqual(expected);
+    expect(install(root, { only, check: true }).actions).toEqual(expected);
+    expect(install(root, { only, uninstall: true }).actions).toEqual(expected);
+    expect(readTextFile(join(external, rule))).toBe(original);
+  });
+
+  it('does not create the skill through a dangling directory symlink', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST });
+    linkInRepo(root, '.claude', 'missing');
+
+    expect(install(root, { only: ['.claude'] }).actions).toEqual([
+      { path: '.claude/skills/vitest-auto-spy/SKILL.md', status: 'skipped', note: 'symbolic link at .claude — left alone' },
+    ]);
+    expect(pathExists(join(root, 'missing'))).toBe(false);
   });
 
   it('warns about nothing when AGENTS.md itself is the symlink', () => {
@@ -445,6 +471,35 @@ describe('runInit --uninstall', () => {
 
     expect(removal.actions.every((action) => action.status === 'skipped')).toBe(true);
     expect(readTextFile(join(root, 'AGENTS.md'))).toBe('mine\n');
+  });
+});
+
+describe('runInit --check --managed', () => {
+  it('checks only installed blocks without requiring new or unmarked targets', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST, 'GEMINI.md': 'Team instructions\n', '.cursor/': '' });
+    install(root, { only: ['AGENTS.md'] });
+    const scope = { check: true, managed: true };
+
+    expect(install(root, scope).actions.map((action) => [action.path, action.status])).toEqual([['AGENTS.md', 'unchanged']]);
+    expect(install(root, scope).ok).toBe(true);
+    expect(install(root, { check: true }).ok).toBe(false);
+    expect(install(root, { ...scope, only: ['GEMINI.md'] }).actions).toEqual([]);
+    expect(readTextFile(join(root, 'GEMINI.md'))).toBe('Team instructions\n');
+  });
+
+  it('fails on a changed installed block without rewriting it', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST });
+    install(root, { only: ['AGENTS.md'] });
+    const file = join(root, 'AGENTS.md');
+    const original = readTextFile(file) ?? '';
+    const obsolete = original.replace(/(sha=[\da-f]+ -->\n)/, '$1obsolete\n');
+    writeTextFile(file, obsolete);
+
+    const result = install(root, { check: true, managed: true });
+
+    expect(statusOf(result, 'AGENTS.md')).toBe('edited');
+    expect(result.ok).toBe(false);
+    expect(readTextFile(file)).toBe(obsolete);
   });
 });
 
