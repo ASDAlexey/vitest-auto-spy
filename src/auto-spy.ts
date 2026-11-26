@@ -152,6 +152,7 @@ export { createMock } from './lib/create-mock';
 export { createFixture, createFixtureFactory, type FixtureFactory } from './lib/fixture';
 export { mockDeep, type MockDeepOptions } from './lib/mock-deep';
 export { createFunctionSpy } from './lib/function-spy';
+export { spyOnGlobal } from './lib/spy-on-global';
 
 // Taking hold of an argument the code under test built, rather than describing its shape
 export { captureArg, type ArgCaptor, type CaptureArgOptions } from './lib/capture-arg';
