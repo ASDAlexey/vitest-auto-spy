@@ -337,6 +337,9 @@ export default defineConfig({
           'mock factory method returning a mock, nested mock of another class, ' +
           'isolate false leak between test files, happy-dom mockRestore localStorage spy not restored, ' +
           'window listener leaks into next test file, global assignment leaks between tests, ' +
+          'spyOnGlobal, mock global fetch Vitest, typed global function spy, restore global mocks, ' +
+          'mockConstructor, typed constructor mock Vitest, preserve constructor argument types, ' +
+          'init --check --managed, check existing managed blocks in CI, ' +
           'mock web worker vitest, jsdom Worker is not defined, expect observable emits exactly these values, ' +
           'test fixture outside its type without cast, ' +
           'vitest console spy beforeEach afterEach restore, expect unhandled rxjs error in test, ' +
