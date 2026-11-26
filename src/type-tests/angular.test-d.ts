@@ -17,6 +17,7 @@ import {
   injectSpy,
   overrideAutoSpy,
   provideAutoSpy,
+  provideAutoSpyForToken,
 } from '../angular';
 import type { Spy, SubjectOf } from '../auto-spy';
 
@@ -138,6 +139,54 @@ declare class InjectedFlags<T extends object = FlagDefaults> {
 }
 
 const PLAIN = new InjectionToken<Plain>('plain');
+
+interface TokenService {
+  strict: string;
+  returns: { load: string };
+  load(id: string): number;
+}
+
+const TOKEN = new InjectionToken<TokenService>('token service');
+
+describe('provideAutoSpyForToken', () => {
+  it('contextually types named options and returns a spy for the token', () => {
+    const provider = provideAutoSpyForToken({
+      token: TOKEN,
+      options: {
+        returns: { load: 42 },
+        strict: true,
+        onUnstubbedCall: ({ method }) => {
+          expectTypeOf(method).toEqualTypeOf<string>();
+        },
+      },
+    });
+
+    expectTypeOf(provider.useValue).toEqualTypeOf<Spy<TokenService>>();
+  });
+
+  it('requires named options and checks their values and keys against the token', () => {
+    // @ts-expect-error -- options are required
+    provideAutoSpyForToken({ token: TOKEN });
+    // @ts-expect-error -- strict is a boolean option, not the token's string property
+    provideAutoSpyForToken({ token: TOKEN, options: { strict: 'enabled' } });
+    // @ts-expect-error -- load returns a number
+    provideAutoSpyForToken({ token: TOKEN, options: { returns: { load: 'invalid' } } });
+    // @ts-expect-error -- save is not a method on the token
+    provideAutoSpyForToken({ token: TOKEN, options: { returns: { load: 42, save: 1 } } });
+    // @ts-expect-error -- unknownOption is not an option
+    provideAutoSpyForToken({ token: TOKEN, options: { strict: true, unknownOption: true } });
+  });
+
+  it('still accepts option-shaped seeds and positional configuration', () => {
+    const seeds = { strict: 'enabled', returns: { load: 'cached' } };
+    const options = { returns: { load: 42 }, strict: true };
+
+    provideAutoSpyForToken(TOKEN);
+    provideAutoSpyForToken(TOKEN, seeds);
+    provideAutoSpyForToken(TOKEN, undefined, options);
+    provideAutoSpyForToken(TOKEN, seeds, options);
+  });
+});
 
 describe('injectSpy on a generic class', () => {
   it('reads a class whose constructor takes its type parameter at the default, not at never', () => {
