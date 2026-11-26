@@ -50,6 +50,9 @@ features:
   - title: Утечку ловит тот тест, который её оставил
     details: 'setupAutoSpy ловит то, что один тест оставил следующему - глобальные значения, которые не вернули, забытые таймеры, вывод в консоль, настоящие сетевые запросы. Каждый отчёт называет тест, файл и способ исправить.'
     link: /ru/utilities/setup
+  - title: Типизированные спаи для глобальных функций
+    details: Подмените fetch через spyOnGlobal('fetch'), не вызывая оригинал; если подключён setupAutoSpy, он восстановит fetch после теста.
+    link: /ru/utilities/setup#answering-a-stubbed-fetch-—-stubresponse
   - title: Какой тест медленный и почему
     details: 'npx vitest-auto-spy perf находит медленные файлы тестов, перемеряет каждый отдельно и показывает, куда ушло время. С флагом --gate он валит CI на таких файлах.'
     link: /ru/utilities/cli#the-gate

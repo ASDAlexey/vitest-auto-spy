@@ -534,8 +534,13 @@ await stubResponse({}).text(); // → то же: опущенное тело —
 Создавайте ответ на каждый вызов:
 
 ```ts
-vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body: user }));
+import { spyOnGlobal } from 'vitest-auto-spy';
+import { stubResponse } from 'vitest-auto-spy/setup';
+
+spyOnGlobal('fetch').mockImplementation(async () => stubResponse({ body: { id: 1, name: 'Ada' } }));
 ```
+
+Хелпер выводит тип из `globalThis` и не вызывает исходную функцию. `setupAutoSpy()` восстановит её после теста. Без него вызовите `restoreMockedProps()` в `afterEach`.
 
 Работает везде, где есть глобальный `Response`: Node, jsdom (использует `Response` из Node),
 happy-dom, Bun и `node:test`. В других местах бросает `TypeError` с именем отсутствующего
