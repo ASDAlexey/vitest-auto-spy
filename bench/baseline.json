@@ -1,9 +1,45 @@
 {
   "cases": {
-    "calledWith dispatch": {
-      "reference": "configured calledWith lookup (serialized args)",
+    "calledWith dispatch — 1 variants, 256 calls per batch": {
+      "reference": "control, last",
       "ratios": {
-        "configured calledWith lookup (serialized args)": 1
+        "control, first": 1.4174,
+        "control, last": 1,
+        "control, miss": 0.9271,
+        "exact, first": 0.5723,
+        "exact, last": 0.5,
+        "exact, miss": 0.8245,
+        "structural, first": 3.2068,
+        "structural, last": 2.5081,
+        "structural, miss": 2.6204
+      }
+    },
+    "calledWith dispatch — 64 variants, 256 calls per batch": {
+      "reference": "control, last",
+      "ratios": {
+        "control, first": 0.9586,
+        "control, last": 1,
+        "control, miss": 1,
+        "exact, first": 0.6381,
+        "exact, last": 0.5182,
+        "exact, miss": 0.6332,
+        "structural, first": 1.3856,
+        "structural, last": 64.7713,
+        "structural, miss": 61.9611
+      }
+    },
+    "calledWith dispatch — 8 variants, 256 calls per batch": {
+      "reference": "control, last",
+      "ratios": {
+        "control, first": 1.0364,
+        "control, last": 1,
+        "control, miss": 1.0191,
+        "exact, first": 0.5524,
+        "exact, last": 0.5352,
+        "exact, miss": 0.6511,
+        "structural, first": 1.4507,
+        "structural, last": 8.1536,
+        "structural, miss": 7.9902
       }
     },
     "createAutoMock (type-only, lazy Proxy)": {
@@ -76,6 +112,6 @@
     "date": "2026-09-27",
     "node": "v24.19.0",
     "command": "npm run bench -- --json bench-results.self.json --no-memory && npm run bench:check -- bench-results.self.json --update",
-    "note": "Re-measured on Vitest 5.0.0 on 2026-09-27, when the lazy-vs-eager cases gained the 'proxy' arm and an unset lazySpies started depending on the width of the class. That run needs benchmark.suppressExportGetterWarnings - see bench/README.md."
+    "note": "Re-measured on Vitest 5.0.0 on 2026-09-27, when the lazy-vs-eager cases gained the 'proxy' arm and an unset lazySpies started depending on the width of the class. That run needs benchmark.suppressExportGetterWarnings - see bench/README.md. The dispatch groups alone were remeasured on 2026-11-27 with Node 26.13.0 and Vitest 5.0.2, using a 256-call batch and a vi.fn control."
   }
 }
