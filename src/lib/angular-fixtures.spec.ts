@@ -4,7 +4,7 @@
  * `configureTestingModule`, and the flag that guarantees "single" must not survive the test that
  * set it — a fixture object is built once per file and reused for every test in it.
  */
-import { Injectable, InjectionToken } from '@angular/core';
+import { Injectable, InjectionToken, makeEnvironmentProviders } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, test as base, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -99,7 +99,14 @@ describe('extendWithAutoSpies — composition', () => {
   // A deliberate override is not a misconfiguration: the throwing grade (and `preset: 'strict'`) must
   // not turn the documented way to keep a real service into a failure.
   describe('under misconfiguration: throw', () => {
-    const withClassProvider = extendWithAutoSpies(base, { cart: CartService }, { providers: [[CartService]] });
+    const passcodeValue = { verify: (code: string): boolean => code === '1234' };
+    const withEnvironment = extendWithAutoSpies(
+      base,
+      { cart: CartService, passcode: PASSCODE },
+      {
+        providers: [makeEnvironmentProviders([[CartService], makeEnvironmentProviders([{ provide: PASSCODE, useValue: passcodeValue }])])],
+      },
+    );
 
     beforeEach(() => {
       setMisconfigurationReaction('throw');
@@ -113,9 +120,12 @@ describe('extendWithAutoSpies — composition', () => {
       expect(cart).toBe(real);
     });
 
-    withClassProvider('takes a class in a nested provider array as an override too', ({ cart }) => {
+    withEnvironment('resolves both class and token overrides across nested provider groups', ({ cart, passcode }) => {
       expect(cart).toBeInstanceOf(CartService);
       expect(vi.isMockFunction(cart.checkout)).toBe(false);
+      expect(cart).toBe(TestBed.inject(CartService));
+      expect(passcode).toBe(passcodeValue);
+      expect(TestBed.inject(PASSCODE)).toBe(passcodeValue);
     });
   });
 

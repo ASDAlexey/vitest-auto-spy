@@ -33,7 +33,7 @@
  * over, since by then Angular has already made the decision.
  */
 import { InjectionToken } from '@angular/core';
-import type { Provider } from '@angular/core';
+import type { EnvironmentProviders, Provider } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { TestAPI } from 'vitest';
 
@@ -73,7 +73,7 @@ export interface ExtendWithAutoSpiesOptions {
    * They go in *after* the generated ones, so a provider named here wins over the auto-spy that
    * would otherwise be made for the same token — Angular resolves duplicate providers last-one-wins.
    */
-  providers?: Provider[];
+  providers?: (EnvironmentProviders | Provider)[];
 }
 
 /**
@@ -160,8 +160,10 @@ function overriddenTokens(providers: readonly unknown[]): Set<unknown> {
   const tokens = new Set<unknown>();
 
   const visit = (provider: unknown): void => {
-    if (Array.isArray(provider)) {
-      provider.forEach(visit);
+    const nested: unknown = Array.isArray(provider) ? provider : Reflect.get(Object(provider), 'ɵproviders');
+
+    if (Array.isArray(nested)) {
+      nested.forEach(visit);
 
       return;
     }
