@@ -220,6 +220,16 @@ describe('createSpyFromInstance — misconfiguration reports', () => {
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('instanceMethodsToSpyOn'));
   });
 
+  it('identifies a null-prototype dictionary in both whitelist and return warnings', () => {
+    const dictionary: Record<string, () => string> = Object.assign(Object.create(null) as object, { read: () => 'real' });
+
+    spyOn(dictionary, { onlyMethodsToSpyOn: ['write'], returns: { read: 'stub' } });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("createSpyFromInstance(object): onlyMethodsToSpyOn names 'write'"));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("createSpyFromInstance(object): returns / selfReturning names 'read'"));
+    expect(dictionary['read']?.()).toBe('real');
+  });
+
   it('suggests the member a misspelled returns key most likely meant', () => {
     spyOn(new PaymentsClient(), { returns: { refnd: 'x' } as never });
 
@@ -365,6 +375,10 @@ describe('createSpyFromInstance — live DOM/BOM objects', () => {
             "method the engine put on its prototype chain gets spied too, not just the class's own.",
         ),
       );
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('A node still attached to the document can then fail to be removed'));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("onlyMethodsToSpyOn: ['addEventListener']"));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("spyOnVoidMethod(el, 'focus') leaves the rest of the node real"));
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('The methods listed'));
     } finally {
       restoreSpiedInstance(el);
     }
@@ -395,6 +409,27 @@ describe('createSpyFromInstance — live DOM/BOM objects', () => {
 
     expect(() => createSpyFromInstance(el)).toThrow('no onlyMethodsToSpyOn was given for a live DOM/BOM object');
     expect(el.addEventListener).toBe(realAddEventListener);
+  });
+
+  it('distinguishes event-capable nodes from inert nodes in a minimal DOM', () => {
+    class ServerNode {
+      render(): string {
+        return 'rendered';
+      }
+    }
+
+    vi.stubGlobal('Node', ServerNode);
+    setMisconfigurationReaction('throw');
+
+    try {
+      const inert = spyOn(new ServerNode());
+      const active = Object.assign(new ServerNode(), { addEventListener: () => undefined });
+
+      expect(inert.render()).toBeUndefined();
+      expect(() => spyOn(active)).toThrow('no onlyMethodsToSpyOn was given for a live DOM/BOM object');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('says that a bare array adds to discovery rather than restricting it', () => {
@@ -515,6 +550,18 @@ describe('createSpyFromInstance — registered defaults', () => {
     }
   });
 
+  it('keeps registered returns when the call site supplies an empty method list', () => {
+    registerAutoSpyDefaults(PaymentsClient, { returns: { refund: 'registered' } });
+
+    try {
+      const client = spyOn(new PaymentsClient(), { onlyMethodsToSpyOn: [] });
+
+      expect(client.refund('7')).toBe('registered');
+    } finally {
+      clearAutoSpyDefaults(PaymentsClient);
+    }
+  });
+
   it('keeps every other member real when the call site lists its only methods', () => {
     registerAutoSpyDefaults(PaymentsClient, {
       gettersToSpyOn: ['fees'],
@@ -615,6 +662,17 @@ describe('createSpyFromInstance — giving the object back', () => {
     expect(client.ping()).toBe('real-ping');
     expect(client.fees).toBe(5);
     expect(Object.hasOwn(client, 'accessorSpies')).toBe(false);
+  });
+
+  it('exposes inherited spies to enumeration only while the instance is patched', () => {
+    const client = new PaymentsClient();
+    spyOn(client, { onlyMethodsToSpyOn: ['refund'] });
+
+    expect(Object.keys(client)).toContain('refund');
+
+    restoreSpiedInstance(client);
+
+    expect(Object.keys(client)).not.toContain('refund');
   });
 
   it('unwinds two rounds of spying in one call', () => {
@@ -788,6 +846,21 @@ describe('createSpyFromInstance — a function in overrides', () => {
     spy.load.calledWith(2).mockReturnValue(99);
 
     expect(client.load(2)).toBe(99);
+  });
+
+  it('keeps the identity of a method supplied by an override getter', () => {
+    const load = (id: number): number => id + 1;
+    const client = new Client();
+
+    spyOn(client, {
+      overrides: {
+        get load() {
+          return load;
+        },
+      },
+    });
+
+    expect(client.load).toBe(load);
   });
 
   it('stores a vi.fn() as written, keeping its identity', () => {

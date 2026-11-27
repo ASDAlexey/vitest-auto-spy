@@ -290,7 +290,7 @@ function splitPassthrough<T>(
   config: InstanceSpyConfiguration<T> | OnlyMethodKeysOf<T>[] | undefined,
   instance: object,
 ): {
-  passthrough: boolean;
+  passthrough: boolean | 'unmatched';
   rest: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[] | undefined;
 } {
   if (config === undefined || Array.isArray(config)) {
@@ -299,10 +299,10 @@ function splitPassthrough<T>(
 
   const { passthrough, ...rest } = config;
 
-  if (passthrough === true && (rest.strict === true || rest.onUnstubbedCall !== undefined)) {
+  if (passthrough && (rest.strict === true || rest.onUnstubbedCall !== undefined)) {
     throw new Error(
       withDocs(
-        `[vitest-auto-spy] createSpyFromInstance(${constructorName(instance) ?? 'object'}) was given 'passthrough: true' together with ` +
+        `[vitest-auto-spy] createSpyFromInstance(${constructorName(instance) ?? 'object'}) was given 'passthrough: ${passthrough}' together with ` +
           `${rest.strict === true ? "'strict: true'" : "'onUnstubbedCall'"}; both decide what an unconfigured call does, so one would be ignored. ` +
           'Keep passthrough to run the real methods, or drop it to refuse unconfigured calls.',
         DOCS_LINKS.strictModePassthrough,
@@ -310,7 +310,7 @@ function splitPassthrough<T>(
     );
   }
 
-  return { passthrough: passthrough === true, rest };
+  return { passthrough: passthrough ?? false, rest };
 }
 
 /**
@@ -325,6 +325,7 @@ function passthroughFor(
   name: PropertyKey,
   className: string | undefined,
   named: ReadonlySet<PropertyKey>,
+  unmatched: boolean,
 ): UnstubbedGuard | 'real' | undefined {
   const original: unknown = Reflect.get(instance, name);
 
@@ -339,7 +340,7 @@ function passthroughFor(
     return 'real';
   }
 
-  return constructor ? undefined : { className, handle: (call) => Reflect.apply(original, instance, call.args) };
+  return constructor ? undefined : { className, unmatched, handle: (call) => Reflect.apply(original, instance, call.args) };
 }
 
 /** Put the instance back the way it was, dropping every spy this factory installed on it. */
@@ -442,7 +443,7 @@ export function createSpyFromInstance<T extends object, Options extends SpyOptio
   const named = new Set([...config.onlyMethodsToSpyOn, ...config.methodsToSpyOn, ...config.instanceMethodsToSpyOn]);
 
   methodNames.forEach((name) => {
-    const real = passthrough ? passthroughFor(instance, name, className, named) : undefined;
+    const real = passthrough ? passthroughFor(instance, name, className, named, passthrough === 'unmatched') : undefined;
 
     if (real !== 'real') {
       installMember(instance, name, createFunctionSpy(String(name), real ?? unstubbed), restores);
