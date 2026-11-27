@@ -169,7 +169,7 @@ export interface ModuleNamespaceOptions {
    * Default `false`. Pass the actual module — `moduleNamespace(await importOriginal(), { passthrough: true })`
    * — for Vitest's `{ spy: true }` with `calledWith` and `resolveWith` on top. Classes and values stay as they are.
    */
-  passthrough?: boolean;
+  passthrough?: boolean | 'unmatched';
 }
 
 // A class is left real: calling it through a spy would drop `new`, and `mockConstructor` is the double for it.
@@ -177,7 +177,7 @@ function isPlainFunction(value: unknown): value is Func {
   return typeof value === 'function' && !Function.prototype.toString.call(value).startsWith('class');
 }
 
-function spyThrough<T extends object>(exports: T): T {
+function spyThrough<T extends object>(exports: T, unmatched: boolean): T {
   const spied: T = { ...exports };
 
   Object.entries(spied).forEach(([name, value]: [string, unknown]) => {
@@ -185,6 +185,7 @@ function spyThrough<T extends object>(exports: T): T {
       const spy: Func = createFunctionSpy(name, {
         className: undefined,
         receiver: true,
+        unmatched,
         handle: (call, receiver) => Reflect.apply(value, receiver, call.args),
       });
 
@@ -221,7 +222,7 @@ export type ModuleNamespace<T extends object> = T & { default: T extends { defau
  * @param options See {@link ModuleNamespaceOptions.lenient} and {@link ModuleNamespaceOptions.passthrough}.
  */
 export function moduleNamespace<T extends object>(given: T, options: ModuleNamespaceOptions = {}): ModuleNamespace<T> {
-  const exports = options.passthrough ? spyThrough(given) : given;
+  const exports = options.passthrough ? spyThrough(given, options.passthrough === 'unmatched') : given;
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the conditional in `ModuleNamespace` says exactly this, and no literal can carry a type that depends on a runtime `in` check.
   const namespace = { ...exports, default: 'default' in exports ? exports.default : exports, __esModule: true } as ModuleNamespace<T>;
 

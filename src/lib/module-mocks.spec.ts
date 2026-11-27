@@ -151,6 +151,23 @@ describe('moduleNamespace', () => {
 });
 
 describe('moduleNamespace with passthrough', () => {
+  it('delegates a lenient miss with the caller as receiver after a limited answer expires', () => {
+    const namespace = moduleNamespace(
+      {
+        format(this: { prefix: string }, id: number): string {
+          return `${this.prefix}${id}`;
+        },
+      },
+      { passthrough: 'unmatched' },
+    );
+    adoptMock(namespace.format).calledWith(1).once().mockReturnValue('once');
+    const receiver = { prefix: '#', format: namespace.format };
+
+    expect(receiver.format(1)).toBe('once');
+    expect(receiver.format(1)).toBe('#1');
+    expect(receiver.format(2)).toBe('#2');
+  });
+
   class Engine {
     readonly kind = 'real';
   }
