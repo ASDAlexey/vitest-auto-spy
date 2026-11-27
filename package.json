@@ -294,7 +294,7 @@
     "typecheck": "node node_modules/typescript-7/bin/tsc --noEmit",
     "typecheck:bench": "node node_modules/typescript-7/bin/tsc --noEmit -p tsconfig.bench.json",
     "typecheck:bench-angular": "node node_modules/typescript-7/bin/tsc --noEmit -p tsconfig.bench-angular.json",
-    "typecheck:configs": "node node_modules/typescript-7/bin/tsc --noEmit -p tsconfig.zone.json && node node_modules/typescript-7/bin/tsc --noEmit -p tsconfig.spec.json && npm run -s typecheck:bench && npm run -s typecheck:bench-angular",
+    "typecheck:configs": "node node_modules/typescript-7/bin/tsc --noEmit -p tsconfig.zone.json && node node_modules/typescript-7/bin/tsc --noEmit -p tsconfig.spec.json && node node_modules/typescript-7/bin/tsc --noEmit -p tsconfig.bench-core.json && npm run -s typecheck:bench-angular",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "node scripts/run-coverage.mjs run --coverage",
@@ -313,6 +313,9 @@
     "test:bun:preload": "bun test --preload ./dist/bun-angular.js ./src/bun-tests",
     "test:rstest": "rstest run",
     "bench": "node scripts/bench-self.mjs",
+    "prebench:vs": "node scripts/bench-suite.mjs --prepare-vs",
+    "prebench:vs:fast": "npm run -s prebench:vs",
+    "prebench:vs:precise": "npm run -s prebench:vs",
     "bench:vs": "node scripts/bench-run.mjs",
     "bench:vs:fast": "node scripts/bench-run.mjs --fast",
     "bench:vs:precise": "node scripts/bench-run.mjs --precise",
@@ -425,6 +428,7 @@
     "typescript-7": "npm:typescript@^7.0.2",
     "undici": "^8.10.2",
     "vitest": "^5.0.2",
+    "vue": "^3.5.40",
     "zone.js": "^0.16.2"
   }
 }
