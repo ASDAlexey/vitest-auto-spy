@@ -2632,6 +2632,46 @@ is the opposite of configuring one argument list.
 
 ---
 
+Source: https://asdalexey.github.io/vitest-auto-spy/core/passthrough
+
+# Call the original when arguments do not match
+
+Use `passthrough: 'unmatched'` to stub one argument value without replacing the whole method.
+
+```ts
+import { createSpyFromInstance } from 'vitest-auto-spy';
+
+const prices = createSpyFromInstance({ price: (sku: string) => sku.length }, { passthrough: 'unmatched' });
+prices.price.calledWith('sale').mockReturnValue(0);
+
+prices.price('sale'); // 0 on every matching call
+prices.price('apple'); // 5 from the original
+```
+
+With `passthrough: true`, configuring `calledWith` still turns off the original for that method. Use `'unmatched'` if you want both answers.
+
+For a runner mock, pass the option when you first adopt it. For a module, pass it when you build the namespace:
+
+```ts
+import { vi } from 'vitest';
+import { adoptMock, moduleNamespace } from 'vitest-auto-spy';
+
+const mock = adoptMock(
+  vi.fn((sku: string) => sku.length),
+  { passthrough: 'unmatched' },
+);
+mock.calledWith('sale').mockReturnValue(0);
+
+const namespace = moduleNamespace({ price: (sku: string) => sku.length }, { passthrough: 'unmatched' });
+adoptMock(namespace.price).calledWith('sale').mockReturnValue(0);
+```
+
+A matched answer wins, even `undefined`. A `mustBeCalledWith` miss throws instead of running the original. On a `calledWith` miss, an explicit default such as `returns: { price: 10 }` wins. Otherwise the original runs once. A limited rule such as `calledWith('sale').once()` stops matching after its last use.
+
+Instance methods run on the original instance. Module functions and adopted mocks receive the caller’s `this`. If the adopted mock had no implementation, a miss returns `undefined`.
+
+---
+
 Source: https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type
 
 # Auto-mock by type
@@ -4601,12 +4641,12 @@ double is "untouched" when the test calls none of its methods.
 
 **What is fast.** Building a double takes a few microseconds, so spies are not what slows a suite.
 
-| Question                       | Short answer                                                                                       | Details                                                               |
-| ------------------------------ | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| How long does a double take?   | About 2 µs for a 10-method class, 6 µs for 40 methods, when a test calls two or three methods.     | [Measured](#measured)                                                 |
-| Which factory should I use?    | `provideAutoSpy` on Angular, `createSpyFromClass` elsewhere, called in `beforeEach`.               | [What to reach for](#what-to-reach-for)                               |
-| Is it faster than other libs?  | Per double, 2–11× faster; across a whole suite, about 1.5× faster than the jest-auto-spies family. | [Against other libraries](#against-other-libraries)                   |
-| Where does a slow suite spend? | In `TestBed`: one environment per file, rendering child components, the worker count.              | [What actually makes a suite slow](#what-actually-makes-a-suite-slow) |
+| Question                       | Short answer                                                                                                        | Details                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| How long does a double take?   | About 2 µs for a 10-method class, 6 µs for 40 methods, when a test calls two or three methods.                      | [Measured](#measured)                                                 |
+| Which factory should I use?    | `provideAutoSpy` on Angular, `createSpyFromClass` elsewhere, called in `beforeEach`.                                | [What to reach for](#what-to-reach-for)                               |
+| Is it faster than other libs?  | Suite time depends on how many methods your test replaces and whether coverage is on. Compare both manual controls. | [Against other libraries](#against-other-libraries)                   |
+| Where does a slow suite spend? | In `TestBed`: one environment per file, rendering child components, the worker count.                               | [What actually makes a suite slow](#what-actually-makes-a-suite-slow) |
 
 **What costs memory.** Under `isolate: false`, every double a file builds stays alive until the run
 ends. This is how `isolate: false` works, not a leak. With it, memory, not time, is what runs out
@@ -5568,7 +5608,9 @@ out of V8's fast map. Over 200 000 mocks on Node v24.19.0:
 
 ## Against other libraries
 
-This section compares the library with:
+To reproduce a small comparison with the current packed library, run `npm run bench:suite -- --sizes 100 --methods 100 --repeats 3 --coverage both`. Compare `manual` (all 100 methods) with `manual-used` (just the three the test calls). Each coverage mode has its own paired rounds; missing measurements do not count as wins.
+
+The historical tables below compare the library with:
 
 - the three jest-auto-spies-family libraries: `jest-auto-spies@3.0.1`, `jasmine-auto-spies@8.0.1`,
   `@bugsplat/vitest-auto-spies@1.0.0`;
@@ -5911,23 +5953,23 @@ nothing.
 
 ## Bundle size
 
-The badge says 32.0 kB min+gzip, and that is the whole core entry bundled together. Each subpath is
+The badge says 32.6 kB min+gzip, and that is the whole core entry bundled together. Each subpath is
 a separate entry, and a project pays only for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **32.0 kB** |
-| `vitest-auto-spy/angular` on its own          |     41.1 kB |
-| `vitest-auto-spy/angular/doubles`             |     26.4 kB |
+| `.` — the core entry, what the badge measures | **32.6 kB** |
+| `vitest-auto-spy/angular` on its own          |     42.0 kB |
+| `vitest-auto-spy/angular/doubles`             |     26.9 kB |
 | `vitest-auto-spy/angular/diagnostics`         |      8.2 kB |
 | `vitest-auto-spy/angular/matchers`            |      3.2 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     32.0 kB |
-| `vitest-auto-spy/setup`                       |     32.0 kB |
-| `vitest-auto-spy/node`                        |     31.3 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     32.6 kB |
+| `vitest-auto-spy/setup`                       |     32.1 kB |
+| `vitest-auto-spy/node`                        |     31.9 kB |
 | `vitest-auto-spy/dom-stubs`                   |     13.4 kB |
-| `vitest-auto-spy/rxjs`                        |      2.8 kB |
-| `vitest-auto-spy/angular-router`              |     12.0 kB |
-| `vitest-auto-spy/angular-http`                |      4.3 kB |
+| `vitest-auto-spy/rxjs`                        |      2.9 kB |
+| `vitest-auto-spy/angular-router`              |     12.6 kB |
+| `vitest-auto-spy/angular-http`                |      4.4 kB |
 | `vitest-auto-spy/signal-forms`                |      1.3 kB |
 | `vitest-auto-spy/zone`                        |      1.2 kB |
 
@@ -10105,6 +10147,28 @@ for `0` after destroying a component to catch a leak:
 fixture.destroy();
 expect(store.items$.subscriberCount()).toBe(0);
 ```
+
+**Did the second request cancel the first?** Wrap each method result with `log.track(key, source$)`.
+Check `log.events` before destroying the consumer. Replacing `switchMap` with `mergeMap` below leaves A open, so the assertion fails.
+
+```ts
+import { NEVER, Subject, switchMap } from 'rxjs';
+import { expect, vi } from 'vitest';
+import { createSubscriptionLog } from 'vitest-auto-spy/rxjs';
+
+const log = createSubscriptionLog<string>();
+const load = vi.fn((id: string) => log.track(id, NEVER));
+const ids = new Subject<string>();
+const view = ids.pipe(switchMap(load)).subscribe();
+ids.next('A');
+ids.next('B');
+
+expect(log.events.map(({ type, key }) => `${type}:${key}`)).toEqual(['subscribe:A', 'unsubscribe:A', 'subscribe:B']);
+view.unsubscribe();
+```
+
+Calling the method does not log an event. Each subscription gets its own numeric `subscription` ID, starting at 1.
+The matching `unsubscribe` event records teardown after cancellation, completion, or error. Tracking adds no timers or independent subscriptions.
 
 ## Reset streams between tests
 
@@ -21342,6 +21406,7 @@ Vitest reports as interrupted (Ctrl-C, a signal or `--bail`) counts as unfinishe
 
 ### The gate
 
+If two Vitest projects run the same spec, the gate judges each project separately. If an older report repeats a path without project names, `--gate` exits with code `2` instead of choosing a reading. Record a fresh report with named projects; omit `--gate` to inspect the old timings.
 Without flags, `perf` only advises; `--gate` is what makes it fail CI. (`--fail-on`, `--fail-on-red`
 and `--fail-on-flaky` can add exit 1 for other reasons.) The gate fails over a test body or a file that is
 slow compared with the rest of the same run, and only after re-measuring it on its own.
@@ -24576,10 +24641,9 @@ A few details:
   and a kept `standalone: false` child is declared there.
 - `testBed.schemas` are added to the `NO_ERRORS_SCHEMA` a `standalone: false` component gets. A
   standalone component gets exactly the schemas you pass, none by default.
-- `inputs` resolves names the way [`setInputs`](#changing-an-input-mid-test) does. An aliased input
-  takes either spelling. A name the component does not declare throws at the call.
-- `keepHostDirectives: false` is the supported form of
-  `TestBed.overrideComponent(X, { set: { hostDirectives: [] } })`.
+- For a `standalone: false` component with `keepTemplate: true`, list the modules that export its pipes and directives in `keepModules`.
+- `inputs` sets inputs on the component being rendered. Use either a field name (`heading`) or its public alias (`title`). TypeScript checks the value when you use the field name. It cannot infer aliases from the class, so alias values are unchecked and misspelled names throw at runtime.
+- `keepHostDirectives: false` drops both the component’s own host directives and those it inherits.
 
 **Read the injector in `beforeCreate`, not before the render.** A `TestBed.inject` or `injectSpy` in
 a `beforeEach` creates the testing module, and a created module cannot be configured again.
@@ -24765,7 +24829,7 @@ const CodeInputStub = createComponentStub(CodeInputComponent);
 renderShallow(ConnectComponent, { keepTemplate: true, keepChildren: [CodeInputStub] });
 ```
 
-The full signature is `createComponentStub(CodeInputComponent, members, { template })`; both extra
+The full signature is `createComponentStub(CodeInputComponent, members, { template, signalTransforms })`; both extra
 arguments are optional. `members` seeds members, such as a method the parent calls. `template` is
 markup the stub renders instead of nothing. See
 [A stand-in for a child](#a-stand-in-for-a-child-createcomponentstub).
@@ -24875,7 +24939,7 @@ chart.pointSelected.emit(2); // an output the parent listens to
 | Copied from the real class                                                         | Not copied                                                 |
 | ---------------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | the selector                                                                       | the template: the stub renders one `<ng-content>` per slot |
-| every input under its public name, with alias and transform                        | host bindings and host directives                          |
+| every input under its public name, including decorator input transforms            | host bindings and host directives                          |
 | `input()` as a signal input, `model()` as a model, a decorator input as a property | providers                                                  |
 | every output, as an `EventEmitter`                                                 | lifecycle hooks and queries                                |
 | `exportAs`; for a pipe, its name and purity                                        | anything the second argument does not seed                 |
@@ -24884,6 +24948,15 @@ The second argument seeds members on every instance: a method the parent calls t
 `viewChild`, or a pipe's `transform` (the identity by default):
 `createComponentStub(TranslatePipe, { transform: (key) => key })`. The third argument takes
 `{ template }` to render something other than the projected content.
+
+If the child declares `isCompact = input(false, { alias: 'compact', transform: booleanAttribute })`, pass the same function in `signalTransforms` under the field name, not its alias. Angular stores the transform on the child instance, which the stub never creates. Without it, `compact=""` gives the stub an empty string instead of `true`.
+
+```ts
+import { booleanAttribute } from '@angular/core';
+import { createComponentStub } from 'vitest-auto-spy/angular';
+
+const ChartStub = createComponentStub(ChartComponent, {}, { signalTransforms: { isCompact: booleanAttribute } });
+```
 
 To keep the template and stub one child, combine it with `renderShallow`:
 
@@ -25578,7 +25651,7 @@ recompile, and in an AOT test bundle the recompiled component loses its directiv
 
 ```ts
 import { TestBed } from '@angular/core/testing';
-import { createDirectiveHost } from 'vitest-auto-spy/angular';
+import { createDirectiveHost, findDirective } from 'vitest-auto-spy/angular';
 
 const Host = createDirectiveHost({
   template: `<div [appTruncate]="enabled" [truncateText]="text"></div>`,
@@ -25590,7 +25663,13 @@ TestBed.configureTestingModule({ imports: [Host] });
 
 const fixture = TestBed.createComponent(Host);
 fixture.componentInstance.enabled = true; // typed from `props`
+fixture.detectChanges();
+const truncate = findDirective(fixture, TruncateDirective);
 ```
+
+`findDirective(fixture, TruncateDirective)` returns the `TruncateDirective` instance itself.
+It searches the fixture root and its descendants, including template anchors for structural directives.
+It throws if there are no matches or more than one. For Bun, import it from `vitest-auto-spy/bun-angular`.
 
 | Option     | What it is                                                   |
 | ---------- | ------------------------------------------------------------ |
@@ -28876,9 +28955,10 @@ const { unit, spies } = createNestUnit(CartService, {
 expect(spies.get('CONFIG')).toEqual({ currency: 'EUR' }); // a provided value comes back as is
 ```
 
+- When both `providers` and `expose` list a token, `spies.get(token)` returns the provided value.
 - `useClass` is built like an exposed class: real class, spied dependencies.
 - `useFactory` takes no arguments. It runs once, when the token is first needed. An `inject` list is
-  not supported.
+  not supported. For an async factory, await its result first and pass that as `useValue`.
 
 **Common mistake:** you leave a config token such as `@Inject('CONFIG')` unprovided. It gets a spy
 built from the type, so `config.currency` is a spy function, not a string. Provide config values in
@@ -29307,14 +29387,14 @@ exports the core API of the library: `createSpyFromClass`, `createAutoMock`, the
 ```ts
 import { mount } from '@vue/test-utils';
 import { expect, it } from 'vitest';
-import { provideAutoSpy } from 'vitest-auto-spy/vue';
+import { createSpyFromClass } from 'vitest-auto-spy/vue';
 
 import Greeting from './Greeting.vue';
 import { UserService, UserServiceKey } from './user.service';
 
 it('renders the name the service returns', () => {
-  const provide = provideAutoSpy(UserServiceKey, UserService);
-  const users = provide[UserServiceKey]; // the spy, typed as Spy<UserService>
+  const users = createSpyFromClass(UserService);
+  const provide = { [UserServiceKey]: users };
 
   users.getName.calledWith(1).mockReturnValue('Ada');
 
@@ -29328,7 +29408,7 @@ it('renders the name the service returns', () => {
 });
 ```
 
-You read the spy back from the map by its token. `users.getName.mockReturnValue('Ada')` answers
+`users.getName.mockReturnValue('Ada')` answers
 `'Ada'` to every call; `calledWith(1)` before it limits the answer to calls with `1`.
 
 ## `provideAutoSpy(token, Class, config?)`
@@ -29342,7 +29422,7 @@ Returns a `global.provide` map with one entry, `{ [token]: Spy<Class> }`. Pass i
 | `Class`   | class                    | the class whose methods become spies                                         |
 | `config`  | options or a method list | same as the second argument of `createSpyFromClass` (see below)              |
 
-The map is keyed by exactly the token you passed, so `provide[UserServiceKey]` is typed as the spy.
+For a string literal, `provideAutoSpy('users', UserService).users` gives you the spy directly. For a key typed as `'users' | 'backup'`, check `'users' in provide` before reading `provide.users`.
 
 The options you will use most in `config`:
 
@@ -29352,13 +29432,12 @@ The options you will use most in `config`:
 
 The full list is on [createSpyFromClass](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class).
 
-To provide several services, spread the maps into one object:
+For Vue `InjectionKey<T>` tokens, keep the spies before merging maps. TypeScript cannot distinguish those symbols when you read the merged map.
 
 ```ts
-const provide = {
-  ...provideAutoSpy(UserServiceKey, UserService),
-  ...provideAutoSpy(CartKey, CartStore, { onlyMethodsToSpyOn: ['total', 'checkout'] }),
-};
+const users = createSpyFromClass(UserService);
+const cart = createSpyFromClass(CartStore, { onlyMethodsToSpyOn: ['total', 'checkout'] });
+const provide = { [UserServiceKey]: users, [CartKey]: cart };
 ```
 
 ## A class-based Pinia store
@@ -29428,7 +29507,7 @@ the same way it gets the real object: through props, context, or the module it i
 ```ts
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { expect, it } from 'vitest';
-import { createSpyFromClass } from 'vitest-auto-spy/svelte';
+import { asInstance, createSpyFromClass } from 'vitest-auto-spy/svelte';
 
 import Cart from './Cart.svelte';
 import { CartStore } from './cart-store';
@@ -29438,7 +29517,7 @@ it('renders the total the store reports', () => {
 
   cartStore.total.mockReturnValue(42);
 
-  render(Cart, { props: { store: cartStore } });
+  render(Cart, { props: { store: asInstance(cartStore) } });
 
   expect(screen.getByText('$42')).toBeInTheDocument();
   expect(cartStore.total).toHaveBeenCalled();
@@ -29449,12 +29528,14 @@ it('checks out when the button is clicked', async () => {
 
   cartStore.checkout.resolveWith({ orderId: 'ord_42' }); // checkout() returns a Promise
 
-  render(Cart, { props: { store: cartStore } });
+  render(Cart, { props: { store: asInstance(cartStore) } });
   await fireEvent.click(screen.getByRole('button', { name: 'Check out' }));
 
   expect(cartStore.checkout).toHaveBeenCalledTimes(1);
 });
 ```
+
+If the prop expects a `CartStore` with private fields, pass `asInstance(cartStore)`. If it expects only the public store interface, pass `cartStore` directly.
 
 You set answers with `mockReturnValue` (a plain value) or `resolveWith` (a resolved promise), and
 check calls with the usual `toHaveBeenCalled…` matchers. `toBeInTheDocument` needs
@@ -29494,31 +29575,32 @@ If the component imports a ready instance (a singleton) from a module, replace t
 the spy:
 
 ```ts
-import { render } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { expect, it, vi } from 'vitest';
-import { createSpyFromClass } from 'vitest-auto-spy/svelte';
+import { asSpy } from 'vitest-auto-spy/svelte';
 
-import { CartStore } from './cart-store';
+import Cart from './Cart.svelte';
+import { cartStore } from './cart-store';
 
-const cartStore = vi.hoisted(() => createSpyFromClass(CartStore));
+vi.mock(import('./cart-store'), async (importOriginal) => {
+  const original = await importOriginal();
+  const { asInstance, createSpyFromClass } = await import('vitest-auto-spy/svelte');
 
-vi.mock('./cart-store', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./cart-store')>()),
-  cartStore,
-}));
+  return { ...original, cartStore: asInstance(createSpyFromClass(original.CartStore)) };
+});
 
 it('checks out through the module singleton', async () => {
-  cartStore.checkout.resolveWith({ orderId: 'ord_42' });
+  const store = asSpy(cartStore);
 
-  render(await import('./Cart.svelte').then((m) => m.default));
+  store.checkout.resolveWith({ orderId: 'ord_42' });
+  render(Cart);
+  await fireEvent.click(screen.getByRole('button', { name: 'Check out' }));
 
-  expect(cartStore.checkout).toHaveBeenCalled();
+  expect(store.checkout).toHaveBeenCalledTimes(1);
 });
 ```
 
-**Common mistake:** creating the spy in a plain `const` at the top of the file. Vitest moves
-`vi.mock` above all other code, so the factory cannot see that variable. Wrap it in `vi.hoisted`, as
-above.
+Do not read an imported class inside `vi.hoisted`: Vitest has not initialized the imports yet. Build the spy inside the mock factory after `await importOriginal()`.
 
 ## Which runner
 
@@ -33510,6 +33592,8 @@ Each one subscribes for you and fails with a clear message when the stream stays
 | `flushEventLoopUntil(isDone, options?)` | Runs turns until a condition holds, with a budget instead of a hang     | same                                    |
 | `settleDynamicImport(load, turns?)`     | Waits for an `import()` the code under test started                     | same                                    |
 
+To stub one argument list, pass `{ passthrough: 'unmatched' }` to `adoptMock` or `moduleNamespace`. If no `calledWith` rule matches and there is no default answer, the previous implementation handles the call. `mustBeCalledWith` still rejects misses.
+
 ### Diagnostics in the core
 
 | Export                                             | What it does                                                                 | Docs                                                                            |
@@ -33535,9 +33619,10 @@ These re-export the whole core and register their runner's adapter instead of Vi
 Import it in each spec file that uses it, or once in the setup file. It turns on the Observable helpers and
 `observablePropsToSpyOn`, and makes `returnSubject()` an rxjs `Subject<T>` in the types.
 
-| Export                                          | What it does                                       | Docs                                                 |
-| ----------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
-| `createObservableWithValues(configs, options?)` | Builds an Observable from a list of `ValueConfig`s | [rxjs](https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#standalone-observable-builder) |
+| Export                                          | What it does                                                                                                                       | Docs                                                                   |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `createObservableWithValues(configs, options?)` | Builds an Observable from a list of `ValueConfig`s                                                                                 | [rxjs](https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#standalone-observable-builder)                   |
+| `createSubscriptionLog<Key>()`                  | Wrap a stream with `log.track(key, source$)`. `log.events` records `subscribe` and `unsubscribe` with the key and subscription ID. | [RxJS](https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#check-for-a-missing-unsubscribe-subscribercount) |
 
 ## `vitest-auto-spy/angular`
 
@@ -33556,6 +33641,7 @@ spec imports
 | `extendWithAutoSpies(test, spec, options?)`                                                                                                  | Typed `test` fixtures for a map of dependencies (Vitest 4.1+)                                             | [`extendWithAutoSpies`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#fixtures-instead-of-let-beforeeach-—-extendwithautospies)    |
 | `createWithAutoSpies(Class, options?)`                                                                                                       | Builds a class through DI with every unprovided dependency spied                                          | [Auto-spied dependencies](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#building-a-class-with-auto-spied-dependencies)             |
 | `renderShallow(Component, options?)`                                                                                                         | Renders a component without its child components ([shallow render](https://asdalexey.github.io/vitest-auto-spy/glossary))                            | [Shallow rendering](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#shallow-component-rendering)                                     |
+| `findDirective(fixture, Directive)`                                                                                                          | Returns the directive instance; throws on zero or multiple matches.                                       | [Angular](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#a-host-for-a-directive-under-test)                                         |
 | `prepareShallow(Component, options?)`                                                                                                        | `renderShallow` with options shared by every test; `.create(overrides?)` per test                         | [`prepareShallow`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#the-same-options-in-every-test-—-prepareshallow)                  |
 | `createComponentStub(Class, overrides?, options?)`                                                                                           | A standalone stand-in for a child component, directive or pipe                                            | [`createComponentStub`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#a-stand-in-for-a-child-createcomponentstub)                  |
 | `createDirectiveHost(options)`                                                                                                               | A standalone host component for a directive under test                                                    | [Directive host](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#a-host-for-a-directive-under-test)                                  |
@@ -33774,23 +33860,23 @@ After a partial install, run `npx vitest-auto-spy init --check --managed` to che
 The second argument of `createSpyFromClass`, `createSpyFromInstance` and `provideAutoSpy` is a
 `ClassSpyConfiguration`. All options with examples: [Spies from a class](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#configuration).
 
-| Option                                         | Type                 | What it does                                                                                                                                                                                                                       |
-| ---------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `methodsToSpyOn`                               | `string[]`           | Adds callables to the methods found on the prototype                                                                                                                                                                               |
-| `onlyMethodsToSpyOn`                           | `string[]`           | Spies only these; nothing is discovered                                                                                                                                                                                            |
-| `instanceMethodsToSpyOn`                       | `string[]`           | Like `methodsToSpyOn`, for callables on the instance (`signal()` fields, arrow props)                                                                                                                                              |
-| `observablePropsToSpyOn`                       | `string[]`           | Observable properties that get `nextWith` and friends                                                                                                                                                                              |
-| `gettersToSpyOn` / `settersToSpyOn`            | `string[]`           | Accessors to spy on, read back through `accessorSpies`                                                                                                                                                                             |
-| `autoSpyAccessors`                             | `boolean`            | Finds getters and setters by itself                                                                                                                                                                                                |
-| `returns`                                      | `{ method: value }`  | What a method returns from the start (for an Observable method, pass `of(value)`); the method stays a spy                                                                                                                          |
-| `returnsUndefined`                             | `string[]`           | Methods that answer `undefined`; counts as configured under `strict`                                                                                                                                                               |
-| `returnsClass`                                 | `{ method: Class }`  | The method answers one spy of that class per double, reached as `innerDouble(double, 'method')`; `[Class, options]` configures it, `{ build }` answers what a preset builds — [details](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#returns-class) |
-| `overrides`                                    | `{ member: value }`  | Replaces a member with a plain value (see [returns or overrides](https://asdalexey.github.io/vitest-auto-spy/core/returns-vs-overrides))                                                                                                                                      |
-| `selfReturning`                                | `string[]`           | Methods that return the double itself, for chained calls                                                                                                                                                                           |
-| `fillMissing`                                  | `boolean`            | Adds a spy for a name the prototype does not have (`abstract` members)                                                                                                                                                             |
-| `lazySpies`                                    | `boolean \| 'proxy'` | When method spies are built (`'proxy'`: one proxy object builds them on first use); unset, the number of methods decides                                                                                                           |
-| `strict`, `onUnstubbedCall`, `onUnstubbedRead` | see below            | [Strict mode](https://asdalexey.github.io/vitest-auto-spy/core/strict-mode)                                                                                                                                                                                                   |
-| `passthrough`                                  | `boolean`            | `createSpyFromInstance` only: unconfigured methods run the real one                                                                                                                                                                |
+| Option                                         | Type                     | What it does                                                                                                                                                                                                                       |
+| ---------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `methodsToSpyOn`                               | `string[]`               | Adds callables to the methods found on the prototype                                                                                                                                                                               |
+| `onlyMethodsToSpyOn`                           | `string[]`               | Spies only these; nothing is discovered                                                                                                                                                                                            |
+| `instanceMethodsToSpyOn`                       | `string[]`               | Like `methodsToSpyOn`, for callables on the instance (`signal()` fields, arrow props)                                                                                                                                              |
+| `observablePropsToSpyOn`                       | `string[]`               | Observable properties that get `nextWith` and friends                                                                                                                                                                              |
+| `gettersToSpyOn` / `settersToSpyOn`            | `string[]`               | Accessors to spy on, read back through `accessorSpies`                                                                                                                                                                             |
+| `autoSpyAccessors`                             | `boolean`                | Finds getters and setters by itself                                                                                                                                                                                                |
+| `returns`                                      | `{ method: value }`      | What a method returns from the start (for an Observable method, pass `of(value)`); the method stays a spy                                                                                                                          |
+| `returnsUndefined`                             | `string[]`               | Methods that answer `undefined`; counts as configured under `strict`                                                                                                                                                               |
+| `returnsClass`                                 | `{ method: Class }`      | The method answers one spy of that class per double, reached as `innerDouble(double, 'method')`; `[Class, options]` configures it, `{ build }` answers what a preset builds — [details](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#returns-class) |
+| `overrides`                                    | `{ member: value }`      | Replaces a member with a plain value (see [returns or overrides](https://asdalexey.github.io/vitest-auto-spy/core/returns-vs-overrides))                                                                                                                                      |
+| `selfReturning`                                | `string[]`               | Methods that return the double itself, for chained calls                                                                                                                                                                           |
+| `fillMissing`                                  | `boolean`                | Adds a spy for a name the prototype does not have (`abstract` members)                                                                                                                                                             |
+| `lazySpies`                                    | `boolean \| 'proxy'`     | When method spies are built (`'proxy'`: one proxy object builds them on first use); unset, the number of methods decides                                                                                                           |
+| `strict`, `onUnstubbedCall`, `onUnstubbedRead` | see below                | [Strict mode](https://asdalexey.github.io/vitest-auto-spy/core/strict-mode)                                                                                                                                                                                                   |
+| `passthrough`                                  | `boolean \| 'unmatched'` | For `createSpyFromInstance`, `true` runs the original until configured; `'unmatched'` also runs it on `calledWith` misses without a default.                                                                                       |
 
 `createAutoMock`, `autoMocked` and `provideAutoSpyForToken` take an `AutoMockConfiguration` as the
 last argument: `observablePropsToSpyOn`, `returns`, `returnsUndefined`, `returnsClass`, `selfReturning`,
