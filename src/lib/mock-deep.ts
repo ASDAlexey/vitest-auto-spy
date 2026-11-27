@@ -225,7 +225,8 @@ function createElementsView(owner: DeepNodeState): unknown[] {
       if (typeof key === 'string' && isArrayIndex(key) && !Object.hasOwn(target, key)) {
         const element = createDeepNode(`${owner.name}[${key}]`, {}, owner.tree, target, key);
 
-        owner.children.set(key, element);
+        // Array methods can move an element and reuse its old index before the next reset.
+        owner.children.set(owner.children.size, element);
         target[Number(key)] = element;
       }
 
@@ -350,7 +351,14 @@ const DEEP_NODE_HANDLER: ProxyHandler<Func> = {
   // The traps that make `mockValueProp` / `mockReadonlyProp` / `mockAccessorsProp` reach a node at
   // all — see `proxy-props.ts` for why their absence was silent rather than loud.
   set(target, property, value, receiver): boolean {
-    const { store } = stateOf(target);
+    const state = stateOf(target);
+    const { store } = state;
+
+    if (typeof property === 'string' && isArrayIndex(property) && !hasStoredProp(store, property)) {
+      store.deleted.delete(property);
+
+      return Reflect.set(elementsOf(state), property, value);
+    }
 
     if (!writeStoredAccessor(store, property, value, receiver)) {
       writeStoredValue(store, property, value);
