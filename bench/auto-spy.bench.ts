@@ -47,7 +47,7 @@
  * run options — the `iterations`/`time` pairs below — now belong to the group rather than to one arm,
  * which is what this file always wanted: every arm of a case runs the same number of iterations.
  */
-import { test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 // Import the public entry (not `src/lib/*` directly) so the default Vitest mock
 // adapter registers as a side effect — the same wiring real consumers get.
@@ -150,9 +150,6 @@ function spyAndCall(WideClass: ClassWithMethods, lazySpies: boolean | 'proxy', c
 
 const WIDE = makeWideClass(10);
 const HUGE = makeWideClass(40);
-
-/** `WIDE` seen as a class whose `m2` is declared and takes the argument the dispatch case configures. */
-const DISPATCH = WIDE as unknown as new () => { m2: (arg: number) => number };
 
 interface LazyCase {
   label: string;
@@ -264,20 +261,52 @@ test('spy invocation', async ({ bench }) => {
   }).run(fixedIterations(400_000));
 });
 
-// The one case whose spy outlives its iterations: it is created at module scope and the body only
-// calls it. Nothing inside the body allocates a mock, so there is nothing to prune.
-const dispatchSpy = createSpyFromClass(DISPATCH);
+const DISPATCH_BATCH = 256;
 
-dispatchSpy.m2.calledWith(1).mockReturnValue(11);
-dispatchSpy.m2.calledWith(2).mockReturnValue(22);
+class DispatchTarget {
+  lookup(_key: number | { id: number }): number {
+    return -1;
+  }
+}
 
-test('calledWith dispatch', async ({ bench }) => {
-  await bench('configured calledWith lookup (serialized args)', () => {
-    dispatchSpy.m2(1);
-    dispatchSpy.m2(2);
-    dispatchSpy.m2(3);
-  }).run(fixedIterations(800_000));
-});
+for (const count of [1, 8, 64]) {
+  test(`calledWith dispatch — ${count} variants, ${DISPATCH_BATCH} calls per batch`, async ({ bench }) => {
+    const cases = (['first', 'last', 'miss'] as const).flatMap((hit) => {
+      const key = hit === 'first' ? 0 : hit === 'last' ? count - 1 : count;
+      const expected = hit === 'miss' ? -1 : key;
+
+      return (['exact', 'structural', 'control'] as const).map((kind) => {
+        const lookup = createSpyFromClass(DispatchTarget).lookup;
+        const control = vi.fn(() => expected);
+        for (let id = 0; id < count; id += 1) {
+          lookup.calledWith(kind === 'structural' ? expect.objectContaining({ id }) : id).mockReturnValue(id);
+        }
+        const method = kind === 'control' ? control : lookup;
+        const arg = kind === 'structural' ? { id: key } : key;
+        let total = 0;
+
+        return bench(
+          `${kind}, ${hit}`,
+          {
+            beforeEach: () => {
+              method.mockClear();
+            },
+            afterEach: () => {
+              expect(total).toBe(expected * DISPATCH_BATCH);
+              expect(method.mock.calls).toHaveLength(DISPATCH_BATCH);
+              method.mockClear();
+            },
+          },
+          () => {
+            total = 0;
+            for (let i = 0; i < DISPATCH_BATCH; i += 1) total += method(arg) ?? -1;
+          },
+        );
+      });
+    });
+    await bench.compare(...cases, { iterations: 64, time: 0, warmupIterations: 16, warmupTime: 0 });
+  });
+}
 
 // Both arms carry the identical `BATCH`, so the ratio between them is exact where the per-call cases
 // above cannot have one: a plain call is far under the clock's resolution and only a batch clears it.
