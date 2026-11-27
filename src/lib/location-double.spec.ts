@@ -5,7 +5,7 @@
  * reader meets, not by a matcher on a substring.
  */
 import { Location, LocationStrategy } from '@angular/common';
-import { MockLocationStrategy, SpyLocation } from '@angular/common/testing';
+import { MockLocationStrategy, SpyLocation, provideLocationMocks } from '@angular/common/testing';
 import { Component, Injector, inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
@@ -33,6 +33,20 @@ describe('provideLocationDouble', () => {
 
     expect(TestBed.inject(Location)).toBeInstanceOf(SpyLocation);
     expect(TestBed.inject(LocationStrategy)).toBeInstanceOf(MockLocationStrategy);
+  });
+
+  it('keeps the query when the double follows Angular location mocks', () => {
+    TestBed.configureTestingModule({ providers: [provideLocationMocks(), provideLocationDouble()] });
+
+    TestBed.inject(Location).go('/reports', 'tab=7');
+
+    expect(injectLocationDouble().path()).toBe('/reports?tab=7');
+  });
+
+  it('rejects the plain SpyLocation when Angular location mocks follow the double', () => {
+    TestBed.configureTestingModule({ providers: [provideLocationDouble(), provideLocationMocks()] });
+
+    expect(() => injectLocationDouble()).toThrow(/an instance of SpyLocation.*list provideLocationDouble\(\) last/);
   });
 
   it('hands every injector a double of its own', () => {

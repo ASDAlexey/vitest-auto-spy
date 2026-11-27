@@ -112,7 +112,7 @@ export function injectLocationDouble(injector?: Injector): LocationDouble {
     );
   }
 
-  if (!(location instanceof SpyLocation)) {
+  if (!(location instanceof QueryAwareSpyLocation)) {
     throw new Error(
       withDocs(
         `${caller}: the Location here is ${describeInstance(location)}, not the SpyLocation ` +
