@@ -46,6 +46,7 @@ registerObservableSupport({
 });
 
 export { createObservableWithValues } from './lib/observable-spy';
+export { createSubscriptionLog, type SubscriptionEvent, type SubscriptionLog } from './lib/subscription-log';
 
 export type {
   AddObservableSpyMethods,
