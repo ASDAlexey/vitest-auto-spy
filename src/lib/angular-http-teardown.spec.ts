@@ -47,6 +47,7 @@ describe('a later block', () => {
     failsWith(/GET \/api\/abandoned was never answered/);
     TestBed.configureTestingModule({ providers: [...http.provideHttpTesting()] });
     openRequest('/api/abandoned');
+    http.expectRequest('/api/abandoned', { tick: false });
     TestBed.resetTestingModule();
   });
 

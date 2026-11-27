@@ -105,6 +105,16 @@ describe('provideHttpTesting', () => {
     await expectRequest(/page=\d+/).flush([]);
   });
 
+  it.each([/orders/, /orders/g, /\/orders/y])('reports both matching requests for %s without changing its cursor', (pattern) => {
+    pattern.lastIndex = 3;
+    const client = TestBed.inject(HttpClient);
+    client.get('/orders').subscribe();
+    client.get('/orders').subscribe();
+
+    expect(() => expectRequest(pattern)).toThrow(/2 requests matched .*: GET \/orders, GET \/orders\./);
+    expect(pattern.lastIndex).toBe(3);
+  });
+
   it('matches on anything the request carries, when a URL cannot tell two apart', async () => {
     TestBed.inject(HttpClient).post('/api/products', { id: 11 }).subscribe();
 
@@ -228,6 +238,29 @@ describe('provideHttpTesting', () => {
       /^\[vitest-auto-spy\] GET \/api\/products was never answered \(when verifyNoPendingRequests\(\) ran\)\.\nThe code under test is still waiting on it[^\n]*\nAnswer it in the spec: await expectRequest\('\/api\/products'\)\.flush\(body\)\.\nDocs: /,
     );
     expect(verifyNoPendingRequests).not.toThrow();
+  });
+
+  it('reports an unanswered handle alongside requests still in the controller', () => {
+    const client = TestBed.inject(HttpClient);
+    client.get('/api/orders', { params: { page: 2 } }).subscribe();
+    client.post('/api/items', {}).subscribe();
+    expectRequest('/api/orders', { tick: false });
+
+    expect(verifyNoPendingRequests).toThrow(/2 requests were never answered[^:]*: GET \/api\/orders\?page=2, POST \/api\/items/);
+    expect(verifyNoPendingRequests).not.toThrow();
+  });
+
+  it.each([false, true])('checks cancellation of claimed requests with ignoreCancelled=%s', (ignoreCancelled) => {
+    const subscription = TestBed.inject(HttpClient).get('/api/cancelled').subscribe();
+    expectRequest('/api/cancelled', { tick: false });
+    subscription.unsubscribe();
+
+    const verify = () => verifyNoPendingRequests({ ignoreCancelled });
+    if (ignoreCancelled) {
+      expect(verify).not.toThrow();
+    } else {
+      expect(verify).toThrow(/GET \/api\/cancelled was cancelled/);
+    }
   });
 
   it('names the verb in the answer when two open requests share a URL', () => {

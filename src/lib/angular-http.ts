@@ -142,7 +142,8 @@ const SETTLE_ROUNDS = 2;
 let armedTest: unknown;
 
 /** Requests a reset took off a module the armed test had built — read by the check that runs after it. */
-const openAtReset: TestRequest[] = [];
+const openAtReset: Set<TestRequest>[] = [];
+const claimed = new WeakMap<HttpTestingController, Set<TestRequest>>();
 
 const resetOwner = {};
 
@@ -151,8 +152,31 @@ function liveController(): HttpTestingController | null {
   return Reflect.get(getTestBed(), '_testModuleRef') ? TestBed.inject(HttpTestingController, null) : null;
 }
 
-function takeLiveRequests(): TestRequest[] {
-  return liveController()?.match(() => true) ?? [];
+function claimedRequests(controller: HttpTestingController): Set<TestRequest> {
+  let requests = claimed.get(controller);
+
+  if (!requests) {
+    requests = new Set<TestRequest>();
+    claimed.set(controller, requests);
+  }
+
+  return requests;
+}
+
+function takeLiveRequests(): Set<TestRequest> {
+  const controller = liveController();
+
+  if (!controller) {
+    return new Set();
+  }
+
+  const requests = claimedRequests(controller);
+  claimed.delete(controller);
+  for (const request of controller.match(() => true)) {
+    requests.add(request);
+  }
+
+  return requests;
 }
 
 // On the instance, which the static method, `getTestBed()` and Angular's cleanup hook all reset through,
@@ -160,7 +184,7 @@ function takeLiveRequests(): TestRequest[] {
 function snapshotOnReset(): void {
   beforeTestBedReset(resetOwner, () => {
     if (armedTest !== undefined) {
-      openAtReset.push(...takeLiveRequests());
+      openAtReset.push(takeLiveRequests());
     }
   });
 }
@@ -290,7 +314,7 @@ function matchesUrl(request: HttpRequest<unknown>, matcher: RequestMatcher): boo
     return matcher(request);
   }
 
-  return matcher.test(request.urlWithParams);
+  return new RegExp(matcher).test(request.urlWithParams);
 }
 
 function toPredicate(matcher: RequestMatcher, options: ExpectRequestOptions): (request: HttpRequest<unknown>) => boolean {
@@ -494,7 +518,13 @@ export function expectRequest(matcher: RequestMatcher, options: ExpectRequestOpt
     throw tooMany([first, ...rest], matcher, options);
   }
 
-  const answered = (): Promise<void> | undefined => (tick ? settle() : undefined);
+  const requests = claimedRequests(controller);
+  requests.add(first);
+  const answered = (): Promise<void> | undefined => {
+    requests.delete(first);
+
+    return tick ? settle() : undefined;
+  };
 
   return {
     request: first.request,
@@ -581,7 +611,7 @@ function pendingOf(request: TestRequest): PendingRequest {
 
 /** `test` is the one that just ended, when the teardown check is the caller; absent for a call from the spec. */
 function verifyPending(ignoreCancelled: boolean, test?: object): void {
-  const taken = [...openAtReset.splice(0), ...takeLiveRequests()];
+  const taken = [...openAtReset.splice(0), takeLiveRequests()].flatMap((requests) => [...requests]);
   const open = ignoreCancelled ? taken.filter((request) => !request.cancelled) : taken;
   const report = pendingRequestsReport(open.map(pendingOf), {
     when: test === undefined ? 'when verifyNoPendingRequests() ran' : `end of "${taskName(test)}"`,
