@@ -22,7 +22,7 @@ import { useVitestAdapter } from './lib/use-vitest-adapter';
  *
  * @example Spying a class-based store used by a component
  * ```ts
- * import { createSpyFromClass } from 'vitest-auto-spy/svelte';
+ * import { asInstance, createSpyFromClass } from 'vitest-auto-spy/svelte';
  * import { render } from '@testing-library/svelte';
  * import Cart from './Cart.svelte';
  * import { CartStore } from './cart-store';
@@ -30,7 +30,7 @@ import { useVitestAdapter } from './lib/use-vitest-adapter';
  * const cartStore = createSpyFromClass(CartStore);
  * cartStore.total.mockReturnValue(42);
  *
- * render(Cart, { props: { store: cartStore } });
+ * render(Cart, { props: { store: asInstance(cartStore) } });
  * ```
  */
 export type {} from './lib/vitest-mock-types';
