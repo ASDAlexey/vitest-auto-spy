@@ -20,7 +20,7 @@ import { By } from '@angular/platform-browser';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createComponentStub } from './component-stub';
-import { SERIES } from './component-stub.mock';
+import { PanelComponent, PanelHostComponent, QuotedSlotComponent, SERIES, SlotHostComponent } from './component-stub.mock';
 import { useConsoleSpies } from './console-spy';
 import { registerMockAdapter } from './mock-adapter';
 import { mockValueProp } from './prop-mock';
@@ -146,6 +146,37 @@ describe('createComponentStub', () => {
     expect(chart.zoom()).toBe(2);
     expect(chart.label).toBe('Sales');
     expect(chart.compact).toBe(true);
+  });
+
+  it.each([
+    ['real component', PanelComponent],
+    ['stub', createComponentStub(PanelComponent, {}, { signalTransforms: { isExpanded: booleanAttribute } })],
+  ] as const)('transforms an empty attribute bound through the signal alias on the %s', (_, Child) => {
+    TestBed.configureTestingModule({ imports: [PanelHostComponent] }).overrideComponent(PanelHostComponent, {
+      remove: { imports: [PanelComponent] },
+      add: { imports: [Child] },
+    });
+    const fixture = TestBed.createComponent(PanelHostComponent);
+    fixture.detectChanges();
+
+    expect(fixture.debugElement.query(By.directive(Child)).injector.get(Child).isExpanded?.()).toBe(true);
+  });
+
+  it('preserves a quoted projection selector and projects only the matching attribute value', () => {
+    const Stub = createComponentStub(QuotedSlotComponent);
+    const selectors = reflectComponentType(QuotedSlotComponent)?.ngContentSelectors;
+
+    expect(selectors).toEqual(['[slot="sales&amp;tax"]']);
+    expect(reflectComponentType(Stub)?.ngContentSelectors).toEqual(selectors);
+
+    TestBed.configureTestingModule({ imports: [SlotHostComponent] }).overrideComponent(SlotHostComponent, {
+      remove: { imports: [QuotedSlotComponent] },
+      add: { imports: [Stub] },
+    });
+    const fixture = TestBed.createComponent(SlotHostComponent);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toBe('match');
   });
 
   it('emits every output to the parent, and a model back through its two-way binding', () => {

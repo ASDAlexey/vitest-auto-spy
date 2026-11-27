@@ -13,7 +13,19 @@
  * right when nothing reads the template, and keeps none of their bindings. A stub is for the spec
  * that does read the template and wants the child's slot there without the child.
  */
-import { Component, Directive, EventEmitter, Input, Output, Pipe, type Type, input, model } from '@angular/core';
+import {
+  Component,
+  Directive,
+  EventEmitter,
+  Input,
+  type InputSignalWithTransform,
+  type ModelSignal,
+  Output,
+  Pipe,
+  type Type,
+  input,
+  model,
+} from '@angular/core';
 
 import { angularInternalsError } from './angular-internals-error';
 import * as DOCS_LINKS from './docs-links';
@@ -48,8 +60,17 @@ interface CompiledPipe {
   pure: boolean;
 }
 
+type SignalTransform<Member> =
+  Member extends InputSignalWithTransform<infer Read, infer Write>
+    ? Member extends ModelSignal<Read>
+      ? never
+      : (value: Write) => Read
+    : never;
+
 /** Options for {@link createComponentStub}. */
-export interface ComponentStubOptions {
+export interface ComponentStubOptions<T = Record<string, InputSignalWithTransform<unknown, never>>> {
+  /** Signal input transforms keyed by class property, not alias. Without one the stub receives the raw bound value. */
+  signalTransforms?: { [K in keyof T as SignalTransform<T[K]> extends never ? never : K]?: SignalTransform<T[K]> };
   /**
    * The stub component's template. Defaults to one `<ng-content>` per slot the real component
    * projects, so content the parent projects into the child still renders — and still answers a
@@ -80,6 +101,7 @@ export interface ComponentStubOptions {
  * `EventEmitter` (a model's change event is the model itself), `exportAs`, and for a pipe its name
  * and purity. Nothing else is: no template, no host bindings, no providers, no lifecycle hooks, no
  * queries — a stub renders only the content projected into it and answers nothing it was not given.
+ * Signal input transforms live on the real instance, not its definition; pass them in `options.signalTransforms`.
  * `hostDirectives` are not copied either, so an input the real child exposes through one is *not* on
  * the stub and a parent binding to it answers `NG0303` — that child is one to keep rather than stub.
  *
@@ -95,9 +117,9 @@ export interface ComponentStubOptions {
 export function createComponentStub<T, Overrides extends Partial<T> = Partial<T>>(
   real: Type<T>,
   overrides: Overrides & Record<Exclude<keyof Overrides, keyof T>, never>,
-  options?: ComponentStubOptions,
+  options?: ComponentStubOptions<NoInfer<T>>,
 ): Type<Overrides & Partial<T>>;
-export function createComponentStub<T>(real: Type<T>, overrides?: Partial<T>, options?: ComponentStubOptions): Type<Partial<T>>;
+export function createComponentStub<T>(real: Type<T>, overrides?: Partial<T>, options?: ComponentStubOptions<NoInfer<T>>): Type<Partial<T>>;
 export function createComponentStub<T>(real: Type<T>, overrides: Partial<T> = {}, options: ComponentStubOptions = {}): Type<Partial<T>> {
   const realName = typeof real === 'function' ? sourceClassName(real.name) : String(real);
   const name = `${realName}Stub`;
@@ -134,7 +156,7 @@ export function createComponentStub<T>(real: Type<T>, overrides: Partial<T> = {}
     );
   }
 
-  const members = membersOf(directive);
+  const members = membersOf(directive, new Map(Object.entries(options.signalTransforms ?? {})));
   const Stub = stubClass<T>(name, members, overrides);
   const metadata = { selector, standalone: true, ...(directive.exportAs ? { exportAs: directive.exportAs.join(',') } : {}) };
 
@@ -152,6 +174,7 @@ interface StubMember {
   kind: MemberKind;
   inputAlias?: string;
   outputAlias?: string;
+  signalTransform?: ((value: never) => unknown) | undefined;
   transform?: (value: unknown) => unknown;
 }
 
@@ -161,7 +184,7 @@ interface StubMember {
  * A `model()` shows up twice in a definition — a signal input and an output on the same property —
  * and is created once, as a model, so the stub keeps the two-way binding working.
  */
-function membersOf(directive: CompiledDirective): StubMember[] {
+function membersOf(directive: CompiledDirective, signalTransforms: ReadonlyMap<string, StubMember['signalTransform']>): StubMember[] {
   const members = new Map<string, StubMember>();
 
   Object.entries(directive.inputs).forEach(([alias, entry]) => {
@@ -178,7 +201,13 @@ function membersOf(directive: CompiledDirective): StubMember[] {
     const [property, flags, transform] = entry;
     const kind = (flags & SIGNAL_BASED) === 0 ? 'property' : 'signal';
 
-    members.set(property, { property, kind, inputAlias: alias, ...(transform ? { transform } : {}) });
+    members.set(property, {
+      property,
+      kind,
+      inputAlias: alias,
+      signalTransform: signalTransforms.get(property),
+      ...(transform ? { transform } : {}),
+    });
   });
 
   Object.entries(directive.outputs).forEach(([alias, property]) => {
@@ -201,7 +230,7 @@ function stubClass<T>(name: string, members: StubMember[], seeds: object): Type<
   const created = members.filter((member) => member.kind !== 'property');
   const Stub = class {
     constructor() {
-      created.forEach((member) => Reflect.set(this, member.property, createMember(member.kind)));
+      created.forEach((member) => Reflect.set(this, member.property, createMember(member)));
       Object.assign(this, { ...seeds });
     }
   };
@@ -217,12 +246,16 @@ function stubClass<T>(name: string, members: StubMember[], seeds: object): Type<
   return Stub as Type<Partial<T>>;
 }
 
-function createMember(kind: MemberKind): unknown {
+function createMember({ kind, signalTransform }: StubMember): unknown {
   if (kind === 'model') {
     return model();
   }
 
-  return kind === 'signal' ? input() : new EventEmitter();
+  if (kind === 'signal') {
+    return signalTransform ? input(undefined, { transform: signalTransform }) : input();
+  }
+
+  return new EventEmitter();
 }
 
 /**
@@ -249,7 +282,13 @@ function declareMember(prototype: object, member: StubMember): void {
 
 /** One `<ng-content>` per projection slot, in the real component's order. */
 function projectionTemplate(slots: readonly string[] = []): string {
-  return slots.map((slot) => (slot === '*' ? '<ng-content></ng-content>' : `<ng-content select="${slot}"></ng-content>`)).join('');
+  return slots
+    .map((slot) =>
+      slot === '*'
+        ? '<ng-content></ng-content>'
+        : `<ng-content select="${slot.replaceAll('&', '&amp;').replaceAll('"', '&quot;')}"></ng-content>`,
+    )
+    .join('');
 }
 
 /**
