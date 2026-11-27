@@ -1240,10 +1240,11 @@ export interface InstanceSpyConfiguration<T> extends ClassSpyConfiguration<T> {
    * users.load.resolveWith([]); // only load is a double now
    * ```
    *
-   * Any configuration takes over the **whole** method — `calledWith`, `resolveWith`, `returns`,
+   * With `true`, any configuration takes over the **whole** method — `calledWith`, `resolveWith`, `returns`,
    * `mockReturnValue` — and `resetAutoSpy` hands it back to the real one. The real method runs
    * with the instance as `this`. Contradicts an explicit `strict: true` or `onUnstubbedCall` on the
    * same call, which throws; a suite-wide `strict` or a registered one yields to it.
+   * Use `'unmatched'` to keep calling the original on lenient `calledWith` misses without a configured default.
    */
-  passthrough?: boolean | undefined;
+  passthrough?: boolean | 'unmatched' | undefined;
 }
