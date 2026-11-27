@@ -121,6 +121,12 @@ interface Pair {
   right: unknown;
 }
 
+interface Comparison {
+  path: Pair[];
+  completed?: Map<object, Set<object>>;
+  cycles: number;
+}
+
 /**
  * Whether two values are the same expectation — matchers compared as configuration, not applied.
  *
@@ -129,7 +135,7 @@ interface Pair {
  * own state; a hand-rolled one is compared by reference, because its verdict is a closure that no
  * comparison can read.
  */
-function sameMatcher(left: AsymmetricMatcher, right: unknown, path: Pair[]): boolean {
+function sameMatcher(left: AsymmetricMatcher, right: unknown, context: Comparison): boolean {
   if (!isAsymmetricMatcher(right) || !isBrandedMatcher(left) || !isBrandedMatcher(right)) {
     return false;
   }
@@ -138,11 +144,11 @@ function sameMatcher(left: AsymmetricMatcher, right: unknown, path: Pair[]): boo
     return false;
   }
 
-  return sameEntries(left, right, path, false);
+  return sameEntries(left, right, context, false);
 }
 
 /** Every own enumerable entry of `left` equals the one `right` holds under the same key, and there are as many. */
-function sameEntries(left: object, right: object, path: Pair[], matchers: boolean): boolean {
+function sameEntries(left: object, right: object, context: Comparison, matchers: boolean): boolean {
   const leftKeys = definedKeys(left);
 
   if (leftKeys.length !== definedKeys(right).length) {
@@ -151,33 +157,43 @@ function sameEntries(left: object, right: object, path: Pair[], matchers: boolea
 
   return leftKeys.every(
     (key) =>
-      Object.prototype.propertyIsEnumerable.call(right, key) && compare(Reflect.get(left, key), Reflect.get(right, key), path, matchers),
+      Object.prototype.propertyIsEnumerable.call(right, key) && compare(Reflect.get(left, key), Reflect.get(right, key), context, matchers),
   );
 }
 
 /** Both collections hold the same values, in any order — one expected item to one actual item. */
-function sameUnordered(expected: unknown[], actual: unknown[], path: Pair[], matchers: boolean): boolean {
+function sameUnordered(expected: unknown[], actual: unknown[], context: Comparison, matchers: boolean): boolean {
   if (expected.length !== actual.length) {
     return false;
   }
 
-  const taken = new Set<number>();
+  const owners = new Map<number, number>();
 
-  return expected.every((item) =>
-    actual.some((candidate, index) => {
-      if (taken.has(index) || !compare(item, candidate, path, matchers)) {
+  function assign(item: number, visited: Set<number>): boolean {
+    return actual.some((candidate, index) => {
+      if (visited.has(index) || !compare(expected[item], candidate, context, matchers)) {
         return false;
       }
 
-      taken.add(index);
+      visited.add(index);
+      const owner = owners.get(index);
+
+      // A broader matcher can move to another candidate to make room for this item.
+      if (owner !== undefined && !assign(owner, visited)) {
+        return false;
+      }
+
+      owners.set(index, item);
 
       return true;
-    }),
-  );
+    });
+  }
+
+  return expected.every((_, item) => assign(item, new Set<number>()));
 }
 
 /** `Date`, `RegExp`, `URL` and `Error` carry their whole value outside their enumerable entries. */
-function sameSpecialObject(expected: object, actual: object, path: Pair[], matchers: boolean): boolean | undefined {
+function sameSpecialObject(expected: object, actual: object, context: Comparison, matchers: boolean): boolean | undefined {
   if (expected instanceof Date || actual instanceof Date) {
     return expected instanceof Date && actual instanceof Date && expected.getTime() === actual.getTime();
   }
@@ -196,7 +212,7 @@ function sameSpecialObject(expected: object, actual: object, path: Pair[], match
       actual instanceof Error &&
       expected.name === actual.name &&
       expected.message === actual.message &&
-      sameEntries(expected, actual, path, matchers)
+      sameEntries(expected, actual, context, matchers)
     );
   }
 
@@ -204,21 +220,21 @@ function sameSpecialObject(expected: object, actual: object, path: Pair[], match
 }
 
 /** `Map` and `Set` compare by content, not by insertion order — the way the runner's `equals` does. */
-function sameCollection(expected: object, actual: object, path: Pair[], matchers: boolean): boolean | undefined {
+function sameCollection(expected: object, actual: object, context: Comparison, matchers: boolean): boolean | undefined {
   if (expected instanceof Map || actual instanceof Map) {
     return (
-      expected instanceof Map && actual instanceof Map && sameUnordered([...expected.entries()], [...actual.entries()], path, matchers)
+      expected instanceof Map && actual instanceof Map && sameUnordered([...expected.entries()], [...actual.entries()], context, matchers)
     );
   }
 
   if (expected instanceof Set || actual instanceof Set) {
-    return expected instanceof Set && actual instanceof Set && sameUnordered([...expected], [...actual], path, matchers);
+    return expected instanceof Set && actual instanceof Set && sameUnordered([...expected], [...actual], context, matchers);
   }
 
   return undefined;
 }
 
-function compareContents(expected: object, actual: object, path: Pair[], matchers: boolean): boolean {
+function compareContents(expected: object, actual: object, context: Comparison, matchers: boolean): boolean {
   // The runner's first question: a typed array, a box or an `arguments` object is never a plain record.
   if (Object.prototype.toString.call(expected) !== Object.prototype.toString.call(actual)) {
     return false;
@@ -230,7 +246,7 @@ function compareContents(expected: object, actual: object, path: Pair[], matcher
     return Object.is(box.value, unboxed(actual)?.value);
   }
 
-  const special = sameSpecialObject(expected, actual, path, matchers) ?? sameCollection(expected, actual, path, matchers);
+  const special = sameSpecialObject(expected, actual, context, matchers) ?? sameCollection(expected, actual, context, matchers);
 
   if (special !== undefined) {
     return special;
@@ -238,30 +254,49 @@ function compareContents(expected: object, actual: object, path: Pair[], matcher
 
   if (Array.isArray(expected) || Array.isArray(actual)) {
     return (
-      Array.isArray(expected) && Array.isArray(actual) && expected.length === actual.length && sameEntries(expected, actual, path, matchers)
+      Array.isArray(expected) &&
+      Array.isArray(actual) &&
+      expected.length === actual.length &&
+      sameEntries(expected, actual, context, matchers)
     );
   }
 
-  return sameEntries(expected, actual, path, matchers);
+  return sameEntries(expected, actual, context, matchers);
 }
 
-function compareObjects(expected: object, actual: object, path: Pair[], matchers: boolean): boolean {
-  if (path.some((pair) => pair.left === expected && pair.right === actual)) {
-    // The same pair is already being compared further up: whatever the answer is, it is decided
-    // there, so this branch may not contradict it.
+function compareObjects(expected: object, actual: object, context: Comparison, matchers: boolean): boolean {
+  const previous = context.completed?.get(expected);
+
+  if (previous?.has(actual)) {
     return true;
   }
 
-  path.push({ left: expected, right: actual });
+  if (context.path.some((pair) => pair.left === expected && pair.right === actual)) {
+    // The same pair is already being compared further up: whatever the answer is, it is decided
+    // there, so this branch may not contradict it.
+    context.cycles += 1;
 
-  const equal = compareContents(expected, actual, path, matchers);
+    return true;
+  }
 
-  path.pop();
+  const cycles = context.cycles;
+  context.path.push({ left: expected, right: actual });
+
+  const equal = compareContents(expected, actual, context, matchers);
+
+  context.path.pop();
+
+  // A back-edge can make this verdict depend on an ancestor still being compared.
+  if (equal && context.completed && cycles === context.cycles) {
+    const matches = previous ?? new Set<object>();
+    matches.add(actual);
+    context.completed.set(expected, matches);
+  }
 
   return equal;
 }
 
-function compare(expected: unknown, actual: unknown, path: Pair[], matchers: boolean): boolean {
+function compare(expected: unknown, actual: unknown, context: Comparison, matchers: boolean): boolean {
   if (matchers && isAsymmetricMatcher(expected)) {
     return expected.asymmetricMatch(actual);
   }
@@ -271,14 +306,14 @@ function compare(expected: unknown, actual: unknown, path: Pair[], matchers: boo
   }
 
   if (isAsymmetricMatcher(expected)) {
-    return sameMatcher(expected, actual, path);
+    return sameMatcher(expected, actual, context);
   }
 
   if (typeof expected !== 'object' || expected === null || typeof actual !== 'object' || actual === null) {
     return false;
   }
 
-  return compareObjects(expected, actual, path, matchers);
+  return compareObjects(expected, actual, context, matchers);
 }
 
 /**
@@ -289,12 +324,12 @@ function compare(expected: unknown, actual: unknown, path: Pair[], matchers: boo
  * accepted, and which used to be serialized as data and match nothing at all.
  */
 export function matchesStructurally(configArg: unknown, actualArg: unknown): boolean {
-  return compare(configArg, actualArg, [], true);
+  return compare(configArg, actualArg, { path: [], cycles: 0 }, true);
 }
 
 /** Whether two config arguments denote the same expectation — see {@link sameMatcher}. */
 export function sameExpectation(left: unknown, right: unknown): boolean {
-  return compare(left, right, [], false);
+  return compare(left, right, { path: [], cycles: 0, completed: new Map() }, false);
 }
 
 function isPlainContainer(value: object): boolean {

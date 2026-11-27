@@ -140,8 +140,44 @@ describe('matchesStructurally', () => {
     expect(matchesStructurally({ set: new Set([expect.any(Number), 'a']) }, { set: new Set(['a', 3]) })).toBe(true);
     expect(matchesStructurally({ set: new Set([1]) }, { set: new Set([2]) })).toBe(false);
     expect(matchesStructurally({ set: new Set([1]) }, { set: [1] })).toBe(false);
-    // One expected item claims one actual item: two matchers cannot both take the same element.
     expect(matchesStructurally({ set: new Set([expect.any(Number), expect.any(Number)]) }, { set: new Set([1]) })).toBe(false);
+  });
+
+  it('leaves the literal its only match in either Set insertion order', () => {
+    const config = new Set([expect.any(Number), 1]);
+
+    expect(matchesStructurally(config, new Set([2, 1]))).toBe(true);
+    expect(matchesStructurally(config, new Set([1, 2]))).toBe(true);
+  });
+
+  it('requires distinct Set elements for overlapping matchers', () => {
+    const config = new Set([expect.any(Number), handRolled((value) => value === 1)]);
+
+    expect(matchesStructurally(config, new Set([1, 2]))).toBe(true);
+    expect(matchesStructurally(config, new Set([1, 'two']))).toBe(false);
+    expect(matchesStructurally(config, new Set([1, 2, 3]))).toBe(false);
+  });
+
+  it('matches a Set containing itself without overlooking its other elements', () => {
+    const config = new Set<unknown>();
+    config.add(config).add(expect.any(Number));
+    const actual = new Set<unknown>([1]);
+    actual.add(actual);
+
+    expect(matchesStructurally(config, actual)).toBe(true);
+
+    actual.delete(1);
+    actual.add('one');
+
+    expect(matchesStructurally(config, actual)).toBe(false);
+  });
+
+  it('does not treat a previously rejected nested pair as a match for the next Set element', () => {
+    const part = { id: 1 };
+    const config = new Set([{ part }, { part }]);
+    const actual = new Set([{ part: { id: 2 } }, { part }]);
+
+    expect(matchesStructurally(config, actual)).toBe(false);
   });
 
   it('compares arrays by length and position', () => {
