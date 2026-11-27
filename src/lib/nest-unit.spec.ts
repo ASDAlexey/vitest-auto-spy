@@ -243,6 +243,7 @@ describe('createNestUnit: sociable', () => {
     const { unit, spies } = createNestUnit(CheckoutFacade, { expose: [CartService], providers: [cart] });
 
     expect(unit.cart).toBe(cart.useValue);
+    expect(spies.get(CartService)).toBe(unit.cart);
     expect(spies.exposedTokens()).toEqual([]);
   });
 
@@ -270,6 +271,16 @@ describe('createNestUnit: providers', () => {
     expect(unit.config).toBe(config);
     expect(spies.get(CONFIG)).toBe(config);
     expect(spies.autoSpiedTokens()).toEqual([PricingService, TaxService]);
+  });
+
+  it('rejects an asynchronous factory before injecting its result', () => {
+    const useFactory = vi.fn(() => Promise.reject(new Error('offline')));
+
+    // eslint-disable-next-line vitest-auto-spy/prefer-provide-auto-spy -- the asynchronous factory itself is under test.
+    expect(() => createNestUnit(CartService, { providers: [{ provide: CONFIG, useFactory }] })).toThrow(
+      /useFactory for .*CONFIG.* returned a Promise/,
+    );
+    expect(useFactory).toHaveBeenCalledTimes(1);
   });
 
   it('calls a `useFactory` once and shares the result across the graph', () => {

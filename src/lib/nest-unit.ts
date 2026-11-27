@@ -19,6 +19,7 @@
  */
 import * as DOCS_LINKS from './docs-links';
 import { withDocs } from './message-link';
+import { isThenable } from './spy-probe';
 import { createSpyForToken } from './track-injections';
 import type { ClassType, Spy } from './types';
 
@@ -136,7 +137,7 @@ class NestGraph {
   readonly #exposed: Set<unknown>;
   readonly #instances = new Map<unknown, unknown>();
   readonly #autoSpied: unknown[] = [];
-  readonly #built: unknown[] = [];
+  readonly #built = new Set<unknown>();
   readonly #building: NestUnitClass[] = [];
 
   readonly target: NestUnitClass;
@@ -168,7 +169,7 @@ class NestGraph {
   }
 
   exposed(token: unknown): boolean {
-    return this.#exposed.has(token);
+    return this.#built.has(token);
   }
 
   resolve(token: unknown): unknown {
@@ -215,7 +216,7 @@ class NestGraph {
     }
 
     if (this.#exposed.has(token)) {
-      this.#built.push(token);
+      this.#built.add(token);
 
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the set holds exactly what `expose` was given, and its type admits only constructible classes.
       return this.instantiate(token as NestUnitClass);
@@ -237,7 +238,20 @@ class NestGraph {
       return provider.useValue;
     }
 
-    return 'useFactory' in provider ? provider.useFactory() : this.instantiate(provider.useClass);
+    if (!('useFactory' in provider)) {
+      return this.instantiate(provider.useClass);
+    }
+
+    const value = provider.useFactory();
+
+    if (isThenable(value)) {
+      void Promise.resolve(value).catch(() => undefined);
+      throw this.fail(
+        `useFactory for ${describeToken(provider.provide)} returned a Promise. Supply a synchronous factory or an awaited useValue.`,
+      );
+    }
+
+    return value;
   }
 
   #dependency(Class: NestUnitClass, slot: string, rawToken: unknown, optional: boolean): unknown {
