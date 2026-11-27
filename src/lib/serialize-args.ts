@@ -48,6 +48,7 @@ interface SerializeContext {
   seen: Set<object>;
   cache: Map<object, string>;
   budget: number;
+  truncated: boolean;
   /**
    * Whether this walk builds a match key rather than text for a human. A key follows the runner's
    * non-strict `equals`, which skips string keys holding `undefined` and reads an array hole as
@@ -62,14 +63,14 @@ interface SerializeContext {
  * A DAG of shared nodes is linear to walk once memoised and still exponential to write: a diamond
  * of depth 18 renders 10.7 MB of text, allocated on every call of the spy, of which all but 10 kB
  * is the same subtrees written again. Past this point a repeat renders as a shape summary — the
- * class and the number of members, which is enough to keep two different arguments apart — so the
+ * class and the number of members, for diagnostics rather than equality — so the
  * key stays bounded at ~84 kB for that graph. An argument nothing shares spends nothing here and
  * renders in full however large it is.
  */
 const KEY_BUDGET = 50_000;
 
 function createContext(matching: boolean): SerializeContext {
-  return { seen: new Set<object>(), cache: new Map<object, string>(), budget: KEY_BUDGET, matching };
+  return { seen: new Set<object>(), cache: new Map<object, string>(), budget: KEY_BUDGET, truncated: false, matching };
 }
 
 function quoteString(value: string): string {
@@ -283,7 +284,7 @@ function constructorNameOf(value: object): string {
   return typeof constructor === 'function' && constructor.name !== '' ? constructor.name : 'Object';
 }
 
-/** What stands in for a subtree the budget stops: enough of its shape to keep two of them apart. */
+/** What stands in for a subtree the budget stops. */
 function summarize(value: object): string {
   if (Array.isArray(value)) {
     return `[…${value.length}]`;
@@ -298,6 +299,8 @@ function serializeObject(value: object, context: SerializeContext): string {
   }
 
   if (context.budget <= 0) {
+    context.truncated = true;
+
     return summarize(value);
   }
 
@@ -380,9 +383,20 @@ export function serializeValue(value: unknown): string {
  * The key `calledWith` matches by: {@link serializeValue}, except that a string key holding
  * `undefined` is left out and an array hole renders as `undefined` — see {@link SerializeContext}.
  */
-export function serializeMatchKey(value: unknown): string {
+export interface LargeMatchKey {
+  description: string;
+  truncated: boolean;
+}
+
+export type MatchKey = LargeMatchKey | string;
+
+export function serializeMatchKey(value: unknown): MatchKey {
   if (typeof value === 'object' && value !== null) {
-    return serializeObject(value, createContext(true));
+    const context = createContext(true);
+    const description = serializeObject(value, context);
+
+    // An equal, unshared copy can render in full even when the shared version exhausts its budget.
+    return context.truncated || description.length > KEY_BUDGET ? { description, truncated: context.truncated } : description;
   }
 
   return serializePrimitive(value);

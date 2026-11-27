@@ -283,6 +283,16 @@ describe('boxed primitives and typed arrays', () => {
 });
 
 describe('serializeMatchKey', () => {
+  it('marks a key as truncated only when a subtree was summarized', () => {
+    const part = { body: 'x'.repeat(51_000) };
+    const full = [part, part];
+    const truncated = [...full, { id: 1 }];
+
+    expect(serializeMatchKey(full)).toEqual({ description: serializeValue(full), truncated: false });
+    expect(serializeMatchKey(truncated)).toEqual({ description: serializeValue(truncated), truncated: true });
+    expect(serializeMatchKey({ text: 'Object{…1}' })).toBe("{text:'Object{…1}'}");
+  });
+
   it('leaves out a string key holding undefined, as the runner equals does', () => {
     expect(serializeMatchKey({ id: 1, query: undefined })).toBe(serializeMatchKey({ id: 1 }));
     expect(serializeMatchKey({ a: undefined })).toBe('{}');
