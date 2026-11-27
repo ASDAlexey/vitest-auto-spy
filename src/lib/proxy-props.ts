@@ -105,15 +105,13 @@ export function hasStoredProp(store: ProxyPropStore, key: string | symbol): bool
   return store.values.has(key) || store.accessors.has(key);
 }
 
-/**
- * The `defineProperty` trap body.
- *
- * Always reports success. The Proxy invariant that could bite — defining a property the target does
- * not have — only throws when the target is non-extensible or the descriptor asks for
- * `configurable: false`, and neither is true of a helper patching a double: the targets here are a
- * fresh `{}` and a fresh spy, and every `mock*Prop` descriptor carries `configurable: true`.
- */
+/** The `defineProperty` trap body. */
 export function storeDefinedProp(store: ProxyPropStore, key: string | symbol, descriptor: PropertyDescriptor): boolean {
+  // Virtual properties must remain configurable; reject the definition before changing the store.
+  if (descriptor.configurable === false) {
+    return false;
+  }
+
   // Defining a property is a write: it revives a key a previous `delete` tombstoned.
   store.deleted.delete(key);
 

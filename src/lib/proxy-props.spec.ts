@@ -109,6 +109,25 @@ describe.each(factories)('mock*Prop over %s', (_name, build) => {
   });
 });
 
+describe.each(factories)('non-configurable descriptors on %s', (_name, build) => {
+  it('rejects a new non-configurable property without creating it', () => {
+    const location = build();
+
+    expect(Reflect.defineProperty(location, 'href', { value: '/locked', configurable: false })).toBe(false);
+    expect(Object.hasOwn(location, 'href')).toBe(false);
+    expect(Reflect.ownKeys(location)).not.toContain('href');
+  });
+
+  it('leaves the previous descriptor intact when redefinition is rejected', () => {
+    const location = build({ pathname: '/' });
+    const before = Object.getOwnPropertyDescriptor(location, 'pathname');
+
+    expect(Reflect.defineProperty(location, 'pathname', { get: () => '/locked', configurable: false })).toBe(false);
+    expect(Object.getOwnPropertyDescriptor(location, 'pathname')).toStrictEqual(before);
+    expect(location.pathname).toBe('/');
+  });
+});
+
 describe('what the traps must not break', () => {
   it('leaves methods spied after a property patch and a restore', () => {
     const location = createAutoMock<PlatformLocation>({ pathname: '/' });
