@@ -6,10 +6,10 @@
  */
 import { Directive, Input, NgModule } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { By } from '@angular/platform-browser';
 import { describe, expect, it } from 'vitest';
 
 import { createDirectiveHost } from './directive-host';
+import { findDirective } from './find-directive';
 
 @Directive({ selector: '[appTruncate]', standalone: false })
 class TruncateDirective {
@@ -37,10 +37,7 @@ describe('createDirectiveHost', () => {
     const fixture = TestBed.createComponent(Host);
     fixture.detectChanges();
 
-    const directive = fixture.debugElement.query(By.directive(TruncateDirective));
-
-    expect(directive).not.toBeNull();
-    expect(directive.injector.get(TruncateDirective).label).toBe('hello world');
+    expect(findDirective(fixture, TruncateDirective).label).toBe('hello world');
   });
 
   it('types componentInstance from the props, and copies them per instance', () => {
@@ -59,8 +56,8 @@ describe('createDirectiveHost', () => {
     first.detectChanges();
     second.detectChanges();
 
-    expect(first.debugElement.query(By.directive(TruncateDirective)).injector.get(TruncateDirective).label).toBe('hel');
-    expect(second.debugElement.query(By.directive(TruncateDirective)).injector.get(TruncateDirective).label).toBe('hello world');
+    expect(findDirective(first, TruncateDirective).label).toBe('hel');
+    expect(findDirective(second, TruncateDirective).label).toBe('hello world');
   });
 
   it('needs neither props nor scope', () => {
