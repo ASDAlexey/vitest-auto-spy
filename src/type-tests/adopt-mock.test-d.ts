@@ -45,13 +45,13 @@ describe('adoptMock', () => {
   });
 
   it('takes an optional name', () => {
-    expectTypeOf(adoptMock).parameter(1).toEqualTypeOf<{ name?: string } | undefined>();
+    expectTypeOf(adoptMock).parameter(1).toEqualTypeOf<{ name?: string; passthrough?: 'unmatched' } | undefined>();
   });
 });
 
 describe('moduleNamespace with passthrough', () => {
   it('keeps the module type, and adoptMock types an export from it', () => {
-    const namespace = moduleNamespace({ loadUser }, { passthrough: true });
+    const namespace = moduleNamespace({ loadUser }, { passthrough: 'unmatched' });
 
     expectTypeOf(namespace).toEqualTypeOf<ModuleNamespace<{ loadUser: typeof loadUser }>>();
     adoptMock(namespace.loadUser).calledWith(1).resolveWith({ id: 1, name: 'Ada' });

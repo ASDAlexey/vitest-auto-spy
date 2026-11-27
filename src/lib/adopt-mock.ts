@@ -15,6 +15,8 @@ import type { AddSpyMethodsByReturnTypes, Func } from './types';
 export interface AdoptMockOptions {
   /** The name this spy's messages use — a `mustBeCalledWith` miss names it. Default: the mock's own name. */
   name?: string;
+  /** Run the previous implementation on lenient argument misses without a configured default. */
+  passthrough?: 'unmatched';
 }
 
 /** What {@link adoptMock} hands back: the same mock, typed as a function spy of the signature it mocks. */
@@ -44,9 +46,14 @@ function nameOf(mock: Func): string {
 
 // An unconfigured call keeps getting what it got before adoption — the same rule as
 // `createSpyFromInstance(…, { passthrough: true })`, where the real method answers until configured.
-function answerWithPrevious(previous: Func | undefined): UnstubbedGuard | undefined {
+function answerWithPrevious(previous: Func | undefined, unmatched: boolean): UnstubbedGuard | undefined {
   return (
-    previous && { className: undefined, receiver: true, handle: (call, receiver): unknown => Reflect.apply(previous, receiver, call.args) }
+    previous && {
+      className: undefined,
+      receiver: true,
+      unmatched,
+      handle: (call, receiver): unknown => Reflect.apply(previous, receiver, call.args),
+    }
   );
 }
 
@@ -130,7 +137,11 @@ export const adoptMock = defineHelper(<F extends Func>(mock: F, options: AdoptMo
   }
 
   const previous = callOwn(mock, 'getMockImplementation');
-  const spy = adoptFunctionSpy<F>(mock, options.name ?? nameOf(mock), answerWithPrevious(isFunction(previous) ? previous : undefined));
+  const spy = adoptFunctionSpy<F>(
+    mock,
+    options.name ?? nameOf(mock),
+    answerWithPrevious(isFunction(previous) ? previous : undefined, options.passthrough === 'unmatched'),
+  );
 
   keepDispatchThroughReset(mock);
 

@@ -6,10 +6,11 @@
  * a strict suite while every runtime spec stayed green.
  */
 import { type DebugElement } from '@angular/core';
-import { type ComponentFixture } from '@angular/core/testing';
+import { type ComponentFixture, type DirectiveFixture } from '@angular/core/testing';
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { hostElement, queryElement } from '../angular';
+import { findDirective, hostElement, queryElement } from '../angular';
+import type { findDirective as bunFindDirective } from '../bun-angular';
 
 declare const fixture: ComponentFixture<unknown>;
 declare const debugElement: DebugElement;
@@ -44,5 +45,19 @@ describe('queryElement', () => {
   it('rejects a source with no nativeElement', () => {
     // @ts-expect-error — a component instance is not a fixture
     queryElement({ title: 'x' }, 'a');
+  });
+});
+
+declare class HighlightDirective {
+  color: string;
+}
+
+declare const directiveFixture: DirectiveFixture<HighlightDirective>;
+
+describe('findDirective', () => {
+  it('returns the directive type on both Angular entries', () => {
+    expectTypeOf(findDirective(fixture, HighlightDirective)).toEqualTypeOf<HighlightDirective>();
+    expectTypeOf(findDirective(directiveFixture, HighlightDirective)).toEqualTypeOf<HighlightDirective>();
+    expectTypeOf<typeof bunFindDirective>().toEqualTypeOf<typeof findDirective>();
   });
 });

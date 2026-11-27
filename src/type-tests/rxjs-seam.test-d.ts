@@ -17,11 +17,25 @@
  * *meaning* — detection still has to fire on an rxjs `Observable` and still has to miss the things
  * that are not one.
  */
-import { EMPTY, type Observable, type Subject } from 'rxjs';
+import { EMPTY, type Observable, type Subject, of } from 'rxjs';
 import { describe, expectTypeOf, it } from 'vitest';
 
 import { createAutoMock } from '../auto-spy';
 import type { ObservableLike, Spy, SubjectLike, SubjectOf } from '../auto-spy';
+import { createSubscriptionLog } from '../lib/subscription-log';
+
+it('preserves the emission type and restricts subscription labels', () => {
+  const log = createSubscriptionLog<'load' | 'save'>();
+  const stream = log.track('load', of({ id: 1 }));
+
+  expectTypeOf(stream).toEqualTypeOf<Observable<{ id: number }>>();
+  expectTypeOf(log.track).parameter(0).toEqualTypeOf<'load' | 'save'>();
+  expectTypeOf(log.events).items.toEqualTypeOf<{
+    readonly type: 'subscribe' | 'unsubscribe';
+    readonly key: 'load' | 'save';
+    readonly subscription: number;
+  }>();
+});
 
 interface Catalogue {
   items$: Observable<string[]>;

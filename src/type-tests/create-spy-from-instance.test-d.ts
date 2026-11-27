@@ -83,10 +83,10 @@ describe('createSpyFromInstance', () => {
   });
 
   it('takes passthrough, keeps the result a Spy<T>, and is the only factory that does', () => {
-    const spy = createSpyFromInstance(new PaymentsClient(), { passthrough: true, returns: { refund: 'done' } });
+    const spy = createSpyFromInstance(new PaymentsClient(), { passthrough: 'unmatched', returns: { refund: 'done' } });
 
     expectTypeOf(spy).toEqualTypeOf<Spy<PaymentsClient>>();
-    expectTypeOf<InstanceSpyConfiguration<PaymentsClient>['passthrough']>().toEqualTypeOf<boolean | undefined>();
+    expectTypeOf<InstanceSpyConfiguration<PaymentsClient>['passthrough']>().toEqualTypeOf<boolean | 'unmatched' | undefined>();
 
     // @ts-expect-error -- a class factory builds the double, so there is no real method to pass through to
     createSpyFromClass(PaymentsClient, { passthrough: true });

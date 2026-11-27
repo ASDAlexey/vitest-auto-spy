@@ -2,14 +2,45 @@
  * Type-level tests for the `renderShallow` / `prepareShallow` options that reach `TestBed`: the
  * additive lists on `create()`, the `testBed` passthrough, and the `cleanTestBed` grade of `setupAutoSpy`.
  */
-import { Component, type EnvironmentProviders, type Provider } from '@angular/core';
+import { Component, type EnvironmentProviders, type Provider, input, model } from '@angular/core';
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { type ShallowOverrides, prepareShallow, renderShallow } from '../angular';
+import { type ShallowOverrides, createComponentStub, prepareShallow, renderShallow } from '../angular';
 import type { SetupAutoSpyOptions } from '../setup';
 
 @Component({ selector: 'app-typed', template: '' })
-class TypedComponent {}
+class TypedComponent {
+  readonly heading = input('', { alias: 'title' });
+  readonly level = input(0, { alias: 'priority', transform: (value: string) => Number(value) });
+  readonly position = model(0);
+}
+
+interface HeadingInputs {
+  heading: string;
+}
+
+describe('createComponentStub signal transforms', () => {
+  it('takes the write type and returns the read type of a signal input', () => {
+    createComponentStub(TypedComponent, {}, { signalTransforms: { level: (value) => value.length } });
+    // @ts-expect-error -- the transform must produce the number read by the child
+    createComponentStub(TypedComponent, {}, { signalTransforms: { level: (value) => value } });
+    // @ts-expect-error -- transforms use field names, not public aliases
+    createComponentStub(TypedComponent, {}, { signalTransforms: { priority: Number } });
+    // @ts-expect-error -- model inputs do not take transforms
+    createComponentStub(TypedComponent, {}, { signalTransforms: { position: Number } });
+  });
+});
+
+describe('renderShallow inputs', () => {
+  it('accepts public aliases and checks known field values', () => {
+    renderShallow(TypedComponent, { inputs: { title: 'published' } });
+    const fields: HeadingInputs = { heading: 'published' };
+    renderShallow(TypedComponent, { inputs: fields });
+
+    // @ts-expect-error -- the field takes a string
+    renderShallow(TypedComponent, { inputs: { heading: 42 } });
+  });
+});
 
 describe('prepareShallow create()', () => {
   it('takes extraProviders and extraImports next to every renderShallow option', () => {

@@ -6,14 +6,16 @@
  * factory reads `T` back from the list there and rejects the call (`spy.test-d.ts`). The cases
  * below fail the moment the signature starts inferring from the configuration again.
  */
+import { provideHttpClient } from '@angular/common/http';
 import { InjectionToken, type InputSignal, type Type } from '@angular/core';
-import { describe, expectTypeOf, it } from 'vitest';
+import { describe, expectTypeOf, it, test } from 'vitest';
 import type { Mock } from 'vitest';
 
 import {
   type Spy as AngularSpy,
   type SubjectOf as AngularSubjectOf,
   createComponentStub,
+  extendWithAutoSpies,
   injectSpy,
   overrideAutoSpy,
   provideAutoSpy,
@@ -227,4 +229,10 @@ describe('SubjectOf from the /angular entry', () => {
   it('is the core SubjectOf, for a variable holding what returnSubject() gave back', () => {
     expectTypeOf<AngularSubjectOf<boolean>>().toEqualTypeOf<SubjectOf<boolean>>();
   });
+});
+
+const withHttp = extendWithAutoSpies(test, { service: Plain }, { providers: [provideHttpClient()] });
+
+withHttp('accepts environment providers alongside a typed fixture', ({ service }) => {
+  expectTypeOf(service).toEqualTypeOf<Spy<Plain>>();
 });

@@ -13,6 +13,22 @@ beforeAll(() => {
 });
 
 describe('adoptMock', () => {
+  it('keeps a matched undefined and delegates a miss once with the call receiver', () => {
+    const calls: number[] = [];
+    function original(this: { prefix: string }, id: number): string | undefined {
+      calls.push(id);
+
+      return `${this.prefix}${id}`;
+    }
+    const mock = adoptMock(vi.fn(original), { passthrough: 'unmatched' });
+    mock.calledWith(1).mockReturnValue(undefined);
+    const receiver = { prefix: 'id:', mock };
+
+    expect(receiver.mock(1)).toBeUndefined();
+    expect(receiver.mock(2)).toBe('id:2');
+    expect(calls).toEqual([2]);
+  });
+
   it('hands back the same mock, with what it recorded before adoption', () => {
     const load = vi.fn<(id: number) => string>();
 
