@@ -22,7 +22,7 @@
  * {@link assertNgModuleScopes}).
  *
  * Queuing the component removes the *usual* cause of a silent no-op; it does not prove the override
- * landed. So {@link overrideComponentProvider} also checks, on the next `TestBed.createComponent`,
+ * landed. So {@link overrideComponentProvider} also checks, on the next fixture that renders the component,
  * that the component's own injector really answers with the spy — see {@link verifyOnNextCreate}
  * for why that check is always on rather than an opt-in diagnostic.
  *
@@ -148,7 +148,7 @@ interface PendingVerification {
   spy: unknown;
 }
 
-const pendingVerifications: PendingVerification[] = [];
+const pendingVerifications = new Set<PendingVerification>();
 let removeCreateInspector: (() => void) | undefined;
 const resetOwner = {};
 
@@ -162,7 +162,7 @@ const resetOwner = {};
  * failing with a false "the override did not apply".
  */
 function dropStaleQueueState(): void {
-  pendingVerifications.length = 0;
+  pendingVerifications.clear();
   removeCreateInspector?.();
   removeCreateInspector = undefined;
 }
@@ -216,15 +216,7 @@ export function describeResolved(resolved: unknown): string {
     : String(resolved);
 }
 
-function verify(fixture: unknown, { component, token, spy }: PendingVerification): void {
-  const injector = componentInjector(fixture, component);
-
-  // The component this fixture never rendered — behind an `@if`, on a lazy route, or simply a
-  // different host. There is nothing to check yet, and guessing would fail a correct spec.
-  if (!injector) {
-    return;
-  }
-
+function verify(injector: DebugElementLike['injector'], { component, token, spy }: PendingVerification): void {
   const resolved = injector.get(token, null);
 
   if (resolved === spy) {
@@ -252,7 +244,7 @@ function explainMissedOverride(token: ClassType<unknown>, resolved: unknown): st
 }
 
 /**
- * Check the queued overrides against the next fixture, then get out of the way.
+ * Check each queued override on the first fixture that renders its component.
  *
  * Always on, not a member of `enableAngularDiagnostics`: this helper's entire reason to exist is
  * that the documented alternative fails silently, so an override it did not actually apply is a bug
@@ -271,16 +263,18 @@ function verifyOnNextCreate(entry: PendingVerification): void {
   // method leave the order of the two checks to whichever installed last, and `getTestBed()
   // .createComponent(X)` reached neither of them.
   instrumentTestBed();
-  pendingVerifications.push(entry);
+  pendingVerifications.add(entry);
   wrapResetTestingModule();
 
   removeCreateInspector ??= onComponentCreated((_component, fixture) => {
-    const queued = [...pendingVerifications];
+    for (const pending of pendingVerifications) {
+      const injector = componentInjector(fixture, pending.component);
 
-    // Fire once and get out of the way: the check belongs to the fixture this call built, and an
-    // inspector left registered would run against a later spec's unrelated component.
-    dropStaleQueueState();
-    queued.forEach((pending) => verify(fixture, pending));
+      if (injector) {
+        pendingVerifications.delete(pending);
+        verify(injector, pending);
+      }
+    }
   });
 }
 

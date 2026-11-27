@@ -140,12 +140,15 @@ describe('overrideComponentProvider', () => {
   });
 
   it('names what the injector answered with when the override did not apply', () => {
+    const unrelated = overrideComponentProvider(UnrelatedComponent, UnrelatedService);
     const menu = overrideComponentProvider(MenuHostComponent, NavigationBuilderService);
 
     menu.build.mockReturnValue([]);
     // The case the helper cannot prevent: a later override for the same token wins, and the spy the
     // spec is about to assert on is not what the component resolves any more.
     TestBed.overrideProvider(NavigationBuilderService, { useValue: new NavigationBuilderService() });
+
+    expect(TestBed.createComponent(UnrelatedComponent).debugElement.injector.get(UnrelatedService)).toBe(unrelated);
 
     expect(() => TestBed.createComponent(MenuHostComponent)).toThrow(
       /the override did not apply[\s\S]*resolved .* to a NavigationBuilderService.* instance[\s\S]*It got the real service because/,
@@ -159,6 +162,7 @@ describe('overrideComponentProvider', () => {
     TestBed.overrideProvider(NavigationBuilderService, { useValue: 'not-a-service' });
 
     expect(() => TestBed.createComponent(DeclaredHostComponent)).toThrow(/resolved .* to not-a-service/);
+    expect(TestBed.createComponent(DeclaredHostComponent).componentInstance.menu).toBe('not-a-service');
   });
 
   it('says something configured the token again when the component got a different double', () => {
