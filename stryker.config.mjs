@@ -1,3 +1,10 @@
+import { createHash } from 'node:crypto';
+
+// Stryker merges out-of-scope cached mutants into its score, so a targeted run needs its own cache.
+const scopeIndex = process.argv.findLastIndex((arg) => arg === '--mutate' || arg.startsWith('--mutate=') || arg.startsWith('-m'));
+const scope = process.argv[scopeIndex]?.replace(/^(?:--mutate=?|-m)/, '') || process.argv[scopeIndex + 1];
+const scopeKey = scopeIndex < 0 ? '' : `-${createHash('sha256').update(scope).digest('hex').slice(0, 16)}`;
+
 /**
  * Mutation testing over the spy core — the modules every spy a consumer creates runs through:
  * `npm run test:mutation`. Not part of `npm run check`: a full run takes about 20 minutes, so CI runs
@@ -56,7 +63,7 @@ export default {
   reporters: ['clear-text', 'progress', 'html', 'json'],
   htmlReporter: { fileName: 'reports/mutation/index.html' },
   jsonReporter: { fileName: 'reports/mutation/mutation.json' },
-  incrementalFile: 'reports/mutation/stryker-incremental.json',
+  incrementalFile: `reports/mutation/stryker-incremental${scopeKey}.json`,
   tempDirName: '.stryker-tmp',
   cleanTempDir: 'always',
 };
