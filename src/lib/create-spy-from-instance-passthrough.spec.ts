@@ -83,6 +83,28 @@ afterEach(() => {
 });
 
 describe('createSpyFromInstance — passthrough', () => {
+  it('delegates only unmatched calls to the original instance', () => {
+    const cart = spyOn(new CartStore(), { passthrough: 'unmatched' });
+    cart.add.calledWith('pear').mockReturnValue(99);
+    const add = cart.add;
+
+    expect(add('pear')).toBe(99);
+    expect(add('apple')).toBe(1);
+    expect(cart.count()).toBe(1);
+    cart.add.mustBeCalledWith('peach').mockReturnValue(2);
+    expect(() => add('plum')).toThrow();
+    expect(cart.count()).toBe(1);
+  });
+
+  it('prefers an explicit undefined default to the original on a miss', () => {
+    const store = { read: (_id: number): string | undefined => 'original' };
+    const spy = spyOn(store, { passthrough: 'unmatched', returnsUndefined: ['read'] });
+    spy.read.calledWith(1).mockReturnValue('one');
+
+    expect(spy.read(1)).toBe('one');
+    expect(spy.read(2)).toBeUndefined();
+  });
+
   it('runs the real method for every unconfigured member and records the call', async () => {
     const cart = spyOn(new CartStore(), { passthrough: true });
 
@@ -242,7 +264,7 @@ describe('createSpyFromInstance — passthrough against strict mode', () => {
 
   it('refuses an explicit onUnstubbedCall on the same call', () => {
     expect(() => spyOn(new CartStore(), { passthrough: true, onUnstubbedCall: () => 'handled' })).toThrow(
-      /createSpyFromInstance\(CartStore\) was given 'passthrough: true' together with 'onUnstubbedCall'/,
+      /createSpyFromInstance\(CartStore\) was given 'passthrough: true' together with 'onUnstubbedCall'.*Keep passthrough to run the real methods, or drop it to refuse unconfigured calls/,
     );
   });
 
