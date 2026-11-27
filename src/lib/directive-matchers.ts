@@ -17,6 +17,7 @@ import { expect } from 'vitest';
 
 import { DIRECTIVE_HOST } from './directive-host';
 import * as DOCS_LINKS from './docs-links';
+import { directiveNodes } from './find-directive';
 import { withDocs } from './message-link';
 import { count, sourceClassName } from './message-text';
 
@@ -58,11 +59,6 @@ function rootOf(received: unknown): DebugElement | undefined {
  */
 function matching(root: DebugElement, predicate: Predicate<DebugElement>): DebugElement[] {
   return predicate(root) ? [root, ...root.queryAll(predicate)] : root.queryAll(predicate);
-}
-
-/** `queryAllNodes`, not `queryAll`: a structural directive sits on its template's comment anchor, which is no element. */
-function matchingNodes(root: DebugElement, predicate: Predicate<DebugNode>): DebugNode[] {
-  return predicate(root) ? [root, ...root.queryAllNodes(predicate)] : root.queryAllNodes(predicate);
 }
 
 function isAnchor(node: DebugNode): boolean {
@@ -261,7 +257,7 @@ function directiveResult(received: unknown, directive: Type<unknown>, selector?:
     );
   }
 
-  const withDirective = matchingNodes(root, By.directive(directive));
+  const withDirective = directiveNodes(root, directive);
   const applied =
     selector === undefined
       ? withDirective.length > 0

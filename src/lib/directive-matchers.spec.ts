@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createDirectiveHost } from './directive-host';
 import { registerDirectiveMatchers } from './directive-matchers';
 import { highlightHostConfig } from './directive-matchers.mock';
+import { findDirective } from './find-directive';
 
 @Directive({ selector: '[appHighlight]', standalone: false })
 class HighlightDirective {}
@@ -316,5 +317,38 @@ describe('toHaveDirectiveApplied class names', () => {
     expect(() => expect(fixture).toHaveDirectiveApplied(_StrayDirective)).toThrow(
       /^\[vitest-auto-spy\] expected StrayDirective to be applied, but it is not on RenamedComponent's host element or in its template\.\nTo apply it, list StrayDirective in RenamedComponent's hostDirectives/,
     );
+  });
+});
+
+describe('findDirective', () => {
+  it('returns the exact directive instance on the fixture root', () => {
+    const fixture = TestBed.createDirective(LonerDirective, { tagName: 'section' });
+
+    expect(findDirective(fixture, LonerDirective)).toBe(fixture.directiveInstance);
+  });
+
+  it('returns a structural directive even when its template is not rendered', () => {
+    const Host = createDirectiveHost({ template: '<span *appSkip></span>', scope: [SkipDirective] });
+    const fixture = TestBed.createComponent(Host);
+    fixture.detectChanges();
+
+    expect(findDirective(fixture, SkipDirective).template).toBeInstanceOf(TemplateRef);
+  });
+
+  it('reports zero matches rather than returning a missing instance', () => {
+    const Host = createDirectiveHost({ template: '' });
+    const fixture = TestBed.createComponent(Host);
+
+    expect(() => findDirective(fixture, LonerDirective)).toThrow('expected exactly one LonerDirective instance in this fixture, found 0.');
+  });
+
+  it('counts both the host directive and a directive in the template', () => {
+    @Component({ imports: [LonerDirective], hostDirectives: [LonerDirective], template: '<i appLoner></i>' })
+    class HostComponent {}
+
+    const fixture = TestBed.createComponent(HostComponent);
+    fixture.detectChanges();
+
+    expect(() => findDirective(fixture, LonerDirective)).toThrow('expected exactly one LonerDirective instance in this fixture, found 2.');
   });
 });
