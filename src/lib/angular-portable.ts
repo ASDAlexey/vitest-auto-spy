@@ -11,6 +11,7 @@
  * exactly the property that makes it portable. Anything that needs `vi` belongs in `angular.ts`.
  */
 export { createWithAutoSpies, type AutoSpiedInstance, type CreateWithAutoSpiesOptions, type SpyRegistry } from './create-with-auto-spies';
+export { findDirective } from './find-directive';
 export { hostElement, queryElement, type ElementConstructor, type NativeElementHolder } from './host-element';
 export {
   prepareShallow,
