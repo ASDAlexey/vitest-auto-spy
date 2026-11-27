@@ -624,12 +624,25 @@ function applyOverrides(autoSpy: object, overrides: object, className: string, i
     // `accessorSpies` there put a function spy nobody wanted into `ownKeys`, into every spread and
     // into `explainSpy`. A proxy has no descriptor for it, which is the right answer.
     const bag: unknown = Object.getOwnPropertyDescriptor(autoSpy, 'accessorSpies')?.value;
-    const getterSpy: unknown = Reflect.get(Object(Reflect.get(Object(bag), 'getters')), key);
+    const registered = (side: 'getters' | 'setters'): unknown =>
+      Object.getOwnPropertyDescriptor(Object(Reflect.get(Object(bag), side)), key)?.value;
+    const getterSpy = registered('getters');
 
     // A spied getter (`gettersToSpyOn`, or a class default that names one) swallows an assignment
     // into its setter and keeps answering `undefined`, so the seed becomes what the getter returns.
     if (isCallable(getterSpy)) {
       getMockAdapter().restoreImplementation(getterSpy, () => value);
+      continue;
+    }
+
+    const setterSpy = registered('setters');
+
+    if (isCallable(setterSpy)) {
+      let current = value;
+      getMockAdapter().restoreImplementation(setterSpy, (next: unknown) => {
+        current = next;
+      });
+      Object.defineProperty(autoSpy, key, { get: () => current });
     } else if (!Reflect.set(autoSpy, key, value) || !Object.is(Reflect.get(autoSpy, key), value)) {
       Object.defineProperty(autoSpy, key, { value, writable: true, configurable: true, enumerable: true });
     }

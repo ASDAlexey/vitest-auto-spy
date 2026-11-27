@@ -80,6 +80,33 @@ describe('createSpyFromClass — Symbol.dispose', () => {
   });
 });
 
+describe('createSpyFromClass — calledWith Set matching', () => {
+  class Catalog {
+    find(_keys: Set<string | number>): string {
+      return 'original';
+    }
+  }
+
+  it.each([
+    [1, 2],
+    [2, 1],
+  ])('matches a number matcher and a literal against Set([%i, %i])', (first, second) => {
+    const catalog = createSpyFromClass(Catalog);
+    catalog.find.calledWith(new Set([expect.any(Number), 1])).mockReturnValue('found');
+
+    expect(catalog.find(new Set([first, second]))).toBe('found');
+  });
+
+  it('assigns distinct Set elements to overlapping matchers', () => {
+    const catalog = createSpyFromClass(Catalog);
+    catalog.find.calledWith(new Set([expect.stringMatching(/^a/), expect.stringMatching(/z$/)])).mockReturnValue('found');
+
+    expect(catalog.find(new Set(['az', 'bb']))).toBeUndefined();
+    expect(catalog.find(new Set(['ab', 'az']))).toBe('found');
+    expect(catalog.find(new Set(['az', 'ab']))).toBe('found');
+  });
+});
+
 describe('createSpyFromClass — strict mode', () => {
   it('throws naming the class, the method and the arguments', () => {
     const cart = createSpyFromClass(Cart, { strict: true });
@@ -575,6 +602,26 @@ class Envelope {
 }
 
 describe('createSpyFromClass — symbol-keyed methods', () => {
+  it('keeps independent spies for symbols with the same description', () => {
+    const read = Symbol('operation');
+    const write = Symbol('operation');
+    class Operations {
+      [read](): string {
+        return 'read';
+      }
+
+      [write](): string {
+        return 'write';
+      }
+    }
+    const operations = createSpyFromClass(Operations);
+    operations[read].mockReturnValue('first');
+    operations[write].mockReturnValue('second');
+
+    expect(operations[read]()).toBe('first');
+    expect(operations[write]()).toBe('second');
+    expect(operations[write]).toHaveBeenCalledOnce();
+  });
   it('spies a method the class declares under a symbol', () => {
     const envelope = createSpyFromClass(Envelope);
 
@@ -608,6 +655,44 @@ describe('createSpyFromClass — symbol-keyed methods', () => {
     expect(vi.isMockFunction(eager[SERIALIZE])).toBe(true);
     expect(vi.isMockFunction(proxied[SERIALIZE])).toBe(true);
     expect(vi.isMockFunction(proxied.size)).toBe(true);
+  });
+});
+
+describe('createSpyFromClass — seeded members', () => {
+  it('records only consumer writes to a seeded setter', () => {
+    class Sink {
+      set level(_value: number) {}
+    }
+    const spy = createSpyFromClass(Sink, { settersToSpyOn: ['level'], overrides: { level: 4 } });
+    const setter = spy.accessorSpies.setters.level;
+
+    expect(spy.level).toBe(4);
+    expect(setter).not.toHaveBeenCalled();
+    spy.level = 8;
+    expect(setter.mock.calls).toEqual([[8]]);
+    expect(spy.level).toBe(8);
+  });
+
+  it('keeps a field seed when an inherited setter ignores it', () => {
+    class Label {
+      declare ['__proto__']: string;
+      read(): void {}
+    }
+    const spy = createSpyFromClass(Label, { overrides: { ['__proto__']: 'label' } });
+
+    expect(Object.getOwnPropertyDescriptor(spy, '__proto__')?.value).toBe('label');
+  });
+
+  it('seeds a declared toString method without treating it as a registered getter', () => {
+    class Label {
+      toString(): string {
+        return 'original';
+      }
+    }
+    const spy = createSpyFromClass(Label, { overrides: { toString: () => 'seed' } });
+
+    expect(spy.toString()).toBe('seed');
+    expect(spy.toString).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -954,9 +1039,23 @@ describe('createSpyFromClass — returnsClass', () => {
     expect(innerDouble(first, 'create')).toBe(first.create('d'));
   });
 
-  it('throws when a builder returns no object', () => {
-    expect(() => createSpyFromClass(ReportFactory, { returnsClass: { create: { build: () => outOfType<Report>(undefined) } } })).toThrow(
-      "[vitest-auto-spy] returnsClass: the build() of 'create' returned undefined; it has to return the double the method answers.",
+  it('accepts a callable double from a builder', () => {
+    class RendererFactory {
+      create(): () => string {
+        return () => 'original';
+      }
+    }
+    const render = () => 'preview';
+    const factory = createSpyFromClass(RendererFactory, { returnsClass: { create: { build: () => render } } });
+
+    expect(factory.create()).toBe(render);
+    expect(factory.create()()).toBe('preview');
+  });
+
+  it.each([undefined, null])('explains how to seed a plain value when the builder returns %s', (value) => {
+    expect(() => createSpyFromClass(ReportFactory, { returnsClass: { create: { build: () => outOfType<Report>(value) } } })).toThrow(
+      `returnsClass: the build() of 'create' returned ${String(value)}; it has to return the double the method answers. ` +
+        'For a plain value use returns: { create: value }.',
     );
   });
 });
