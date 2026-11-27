@@ -1,0 +1,5 @@
+{
+  "exclude": ["bench/memory.bench.ts", "bench/vs-libraries.bench.ts"],
+  "extends": "./tsconfig.bench.json",
+  "include": ["bench/*.ts"]
+}
