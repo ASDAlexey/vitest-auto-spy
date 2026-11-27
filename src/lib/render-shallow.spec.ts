@@ -227,11 +227,14 @@ describe('renderShallow', () => {
     expect(component.heading).toHaveSignalValue('shipped');
   });
 
+  it('sets an input by its public alias', () => {
+    const { component } = renderShallow(AliasedComponent, { inputs: { title: 'published' } });
+
+    expect(component.heading).toHaveSignalValue('published');
+  });
+
   it('refuses an input the component does not declare, instead of setting nothing', () => {
-    expect(() =>
-      // @ts-expect-error — the type rejects it too; this is the runtime half, for a key built dynamically
-      renderShallow(AliasedComponent, { inputs: { headingg: 'typo' } }),
-    ).toThrow(/renderShallow: AliasedComponent declares no input named 'headingg'/);
+    expect(() => renderShallow(AliasedComponent, { inputs: { headingg: 'typo' } })).toThrow(/declares no input named 'headingg'/);
   });
 
   it('skips the first change detection on request, leaving ngOnInit unrun', () => {
@@ -262,6 +265,30 @@ describe('renderShallow', () => {
     const { fixture } = renderShallow(PlayerComponent, { keepHostDirectives: false });
 
     expect(fixture.debugElement.injector.get(DraggableHost, null)).toBeNull();
+  });
+
+  it('drops inherited host directives without changing subsequent renders', () => {
+    let instances = 0;
+
+    @Directive()
+    class HostBehavior {
+      constructor() {
+        instances++;
+      }
+    }
+
+    @Directive({ hostDirectives: [HostBehavior] })
+    class BaseDirective {}
+
+    @Component({ template: '' })
+    class DerivedComponent extends BaseDirective {}
+
+    renderShallow(DerivedComponent, { keepHostDirectives: false });
+    expect(instances).toBe(0);
+
+    TestBed.resetTestingModule();
+    renderShallow(DerivedComponent);
+    expect(instances).toBe(1);
   });
 
   it('renders a stand-in template when one is given', () => {
@@ -341,6 +368,15 @@ describe('renderShallow', () => {
 
     expect(order).toEqual(['beforeCreate']);
     expect(component.label).toHaveSignalValue('early');
+  });
+
+  it('imports kept modules into the scope of a module-declared component', () => {
+    @Component({ standalone: false, template: '{{ "HELLO" | whisper }}' })
+    class LegacyPipeComponent {}
+
+    const { fixture } = renderShallow(LegacyPipeComponent, { keepTemplate: true, keepModules: [WhisperModule] });
+
+    expect(fixture.nativeElement.textContent).toBe('hello');
   });
 
   it('declares a non-standalone component instead of importing it', () => {

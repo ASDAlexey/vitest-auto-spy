@@ -14,6 +14,7 @@
  */
 import {
   type Component,
+  EnvironmentInjector,
   type EnvironmentProviders,
   type InputSignal,
   type InputSignalWithTransform,
@@ -69,9 +70,9 @@ export interface RenderShallowOptions<T> {
   /**
    * Inputs to set through `componentRef.setInput` before the first change detection. Keyed by the
    * class field or by the public name, both resolve; a name the component does not declare is
-   * refused here rather than answered with an `NG0303` nobody sees.
+   * refused at runtime. Field names retain their write types; aliases are not part of the class type.
    */
-  inputs?: ComponentInputs<T>;
+  inputs?: ComponentInputs<T> | (ComponentInputs<T> & Record<string, unknown>);
   /**
    * Keep the real template instead of blanking it — for `viewChild`, content projection, host
    * bindings. The template's own pipes and directives stay resolvable; child components are still
@@ -97,9 +98,8 @@ export interface RenderShallowOptions<T> {
    */
   keepChildren?: Type<unknown>[];
   /**
-   * `false` drops the component's `hostDirectives`, and with them every service they inject — the
-   * graph a shallow render exists to avoid. Default `true`: a host directive is part of the component,
-   * not a child of it.
+   * `false` drops the component's own and inherited `hostDirectives` and their injected services.
+   * Default `true`: a host directive is part of the component, not a child of it.
    */
   keepHostDirectives?: boolean;
   /** Stand-in template to render instead of a blank one (ignored when `keepTemplate` is set). */
@@ -384,7 +384,7 @@ function moduleFor<T>(component: Type<T>, standalone: boolean, options: RenderSh
 
   return {
     ...metadata,
-    imports: [...imports, ...kept.imported],
+    imports: [...imports, ...kept.imported, ...(options.keepTemplate ? (options.keepModules ?? NOTHING) : NOTHING)],
     declarations: [component, ...kept.declared],
     providers,
     schemas: schemas.length > 0 ? [...PERMISSIVE_SCHEMAS, ...schemas] : PERMISSIVE_SCHEMAS,
@@ -480,7 +480,15 @@ function renderWithTestBed<T>(component: Type<T>, options: RenderShallowOptions<
 
   const fixture = withTestBedSplitExplained(
     () => `renderShallow(${name})`,
-    () => TestBed.createComponent(component),
+    () => {
+      if (options.keepHostDirectives === false) {
+        // Finalizing TestBed recompiles the override and reapplies inherited host directives.
+        TestBed.inject(EnvironmentInjector);
+        Reflect.set(Reflect.get(component, 'ɵcmp'), 'hostDirectives', NOTHING);
+      }
+
+      return TestBed.createComponent(component);
+    },
   );
   applyInputs(fixture, options.inputs);
 
