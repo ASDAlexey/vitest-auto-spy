@@ -281,6 +281,7 @@ describe('setUrl', () => {
     double.setUrl('/products/7');
 
     expect(double.router.routerState.snapshot).not.toBe(before);
+    expect(double.router.routerState.snapshot).toBe(double.router.routerState.snapshot);
     expect(before.url).toBe('/');
   });
 
@@ -460,6 +461,39 @@ describe('navigate and navigateByUrl', () => {
 });
 
 describe('the URL work, done for real', () => {
+  it.each(['real', 'double'])('matches URL creation and route emissions on the %s router', async (kind) => {
+    const initial = '/products?tab=old&sort=asc&page=1';
+    const next = '/products?tab=new';
+    TestBed.configureTestingModule({
+      providers: [kind === 'real' ? provideRouter([{ path: 'products', component: NavComponent }]) : provideRouterDouble({ url: initial })],
+    });
+    const router = TestBed.inject(Router);
+
+    if (kind === 'real') {
+      await router.navigateByUrl(initial);
+    }
+
+    expect(router.serializeUrl(router.createUrlTree([], { queryParams: { tab: 'new' } }))).toBe(next);
+    expect(
+      router.serializeUrl(router.createUrlTree([], { queryParamsHandling: 'merge', queryParams: { tab: null, page: undefined } })),
+    ).toBe('/products?sort=asc');
+
+    const seen: unknown[][] = [];
+    const subscription = router.routerState.root.queryParams.pipe(skip(1)).subscribe((params) => {
+      const snapshot = router.routerState.snapshot;
+      seen.push([params, router.url, snapshot.url, snapshot.root.queryParams]);
+    });
+
+    if (kind === 'real') {
+      await router.navigateByUrl(next);
+    } else {
+      injectRouterDouble().setUrl(next);
+    }
+
+    subscription.unsubscribe();
+    expect(seen).toEqual([[{ tab: 'new' }, next, next, { tab: 'new' }]]);
+  });
+
   it("parses and serializes with the router's own serializer", () => {
     const { router } = createRouterDouble();
 
@@ -477,7 +511,10 @@ describe('the URL work, done for real', () => {
     TestBed.configureTestingModule({ providers: [provideActivatedRoute({ url: 'products/12' })] });
 
     const { router } = createRouterDouble();
-    const tree = router.createUrlTree(['reviews'], { relativeTo: TestBed.inject(ActivatedRoute) });
+    const relativeTo = TestBed.inject(ActivatedRoute);
+    const tree = router.createUrlTree(['reviews'], { relativeTo });
+
+    expect(router.serializeUrl(router.createUrlTree([], { relativeTo }))).toBe('/products/12');
 
     expect(router.serializeUrl(tree)).toBe('/products/12/reviews');
   });

@@ -165,16 +165,14 @@ function stateSnapshot(url: string, root: ActivatedRouteDouble): RouterStateSnap
   return Reflect.construct(RouterStateSnapshot, [url, snapshotTree(root)]);
 }
 
-function queryParamsOf(current: UrlTree, extras: UrlCreationOptions): Params | null {
+function queryParamsOf(current: UrlTree, extras: UrlCreationOptions): Params {
   if (extras.queryParamsHandling === 'preserve') {
     return current.queryParams;
   }
 
-  if (extras.queryParamsHandling === 'merge') {
-    return { ...current.queryParams, ...extras.queryParams };
-  }
+  const params = extras.queryParamsHandling === 'merge' ? { ...current.queryParams, ...extras.queryParams } : extras.queryParams;
 
-  return extras.queryParams ?? null;
+  return Object.fromEntries(Object.entries(params ?? {}).filter(([, value]) => value !== null && value !== undefined));
 }
 
 function fragmentOf(current: UrlTree, extras: UrlCreationOptions): string | null {
@@ -217,7 +215,18 @@ function createUrlState(initial: string, children: readonly ActivatedRouteInit[]
   let tree = serializer.parse(initial);
   let url = serializer.serialize(tree);
   const root = createActivatedRoute({ queryParams: tree.queryParams, fragment: tree.fragment, children });
-  const routerState: RouterState = Reflect.construct(RouterState, [routeTree(root), stateSnapshot(url, root)]);
+  let snapshot = stateSnapshot(url, root);
+  const routerState: RouterState = Reflect.construct(RouterState, [routeTree(root), snapshot]);
+
+  Object.defineProperty(routerState, 'snapshot', {
+    get(): RouterStateSnapshot {
+      if (snapshot.root !== root.route.snapshot) {
+        snapshot = stateSnapshot(url, root);
+      }
+
+      return snapshot;
+    },
+  });
 
   return {
     routerState,
@@ -227,7 +236,6 @@ function createUrlState(initial: string, children: readonly ActivatedRouteInit[]
       tree = serializer.parse(next);
       url = serializer.serialize(tree);
       root.set({ queryParams: tree.queryParams, fragment: tree.fragment });
-      routerState.snapshot = stateSnapshot(url, root);
     },
   };
 }
@@ -352,13 +360,21 @@ function buildRouter(state: UrlState, stream: Observable<RouterNavigationEvent>,
     },
     navigate: parts.navigate,
     navigateByUrl: parts.navigateByUrl,
-    createUrlTree: (commands: readonly unknown[], extras: UrlCreationOptions = {}): UrlTree =>
-      createUrlTreeFromSnapshot(
-        (extras.relativeTo ?? state.routerState.root).snapshot,
+    createUrlTree: (commands: readonly unknown[], extras: UrlCreationOptions = {}): UrlTree => {
+      const relativeTo = extras.relativeTo ?? state.routerState.root;
+      const result = createUrlTreeFromSnapshot(
+        relativeTo.snapshot,
         commands,
         queryParamsOf(state.tree(), extras),
         fragmentOf(state.tree(), extras),
-      ),
+      );
+
+      if (commands.length === 0 && relativeTo === state.routerState.root) {
+        result.root = state.tree().root;
+      }
+
+      return result;
+    },
     serializeUrl: (target: UrlTree): string => serializer.serialize(target),
     parseUrl: (target: string): UrlTree => serializer.parse(target),
     // Angular's own pure URL comparison preserves exact/subset, matrix, query and fragment rules.
