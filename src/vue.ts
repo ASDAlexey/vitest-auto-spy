@@ -26,8 +26,8 @@ import { useVitestAdapter } from './lib/use-vitest-adapter';
  * store.checkout.resolveWith({ ok: true });
  *
  * // Provide a spied service to a mounted component
- * const provide = provideAutoSpy(UserServiceKey, UserService);
- * provide[UserServiceKey].getName.mockReturnValue('Fake Name');
+ * const provide = provideAutoSpy('users', UserService);
+ * provide.users.getName.mockReturnValue('Fake Name');
  * ```
  *
  * Vue suites run on Vitest, so this entry registers the default adapter even when
