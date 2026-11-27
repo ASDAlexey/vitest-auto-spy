@@ -109,6 +109,18 @@ describe('mockDeep — arrays', () => {
     expect(Object.hasOwn(page.items, 0)).toBe(true);
   });
 
+  it('reads a reassigned index through both the original handle and the array', () => {
+    const page = mockDeep<{ labels: string[] }>();
+    const handle = page.labels;
+    handle[0] = 'first';
+    delete handle[0];
+    expect(handle[0]).toBeUndefined();
+
+    handle[0] = 'second';
+    expect(handle[0]).toBe('second');
+    expect(page.labels[0]).toBe('second');
+  });
+
   it('takes writes as an array does', () => {
     const page = mockDeep<Page>();
     const plain: Item = { title: 'plain', load: () => 'x' };
@@ -118,6 +130,41 @@ describe('mockDeep — arrays', () => {
     Reflect.set(page.items, 0, plain);
 
     expect(page.items).toEqual([plain, plain]);
+  });
+
+  it.each(['x', 0, false, undefined])('keeps an explicit %s when a neighboring index materializes', (value) => {
+    const page = mockDeep<{ items: (string | number | boolean | undefined)[] }>();
+    const handle = page.items;
+
+    handle[0] = value;
+    void page.items[1];
+
+    expect(Object.hasOwn(page.items, 0)).toBe(true);
+    expect(page.items[0]).toBe(value);
+    expect(handle[0]).toBe(value);
+  });
+
+  it.each(['shift', 'splice'] as const)('resets moved and aliased elements after %s reuses their index', (operation) => {
+    const page = mockDeep<Page>();
+    const moved = at(page.items, 1);
+
+    moved.load.mockReturnValue('moved');
+    if (operation === 'shift') {
+      page.items.shift();
+    } else {
+      page.items.splice(0, 1);
+    }
+    const replacement = at(page.items, 1);
+    replacement.load.mockReturnValue('replacement');
+    page.items.push(moved);
+
+    expect(at(page.items, 0).load(1)).toBe('moved');
+    expect(at(page.items, 2)).toBe(moved);
+    resetAutoSpy(page);
+
+    expect(moved.load).not.toHaveBeenCalled();
+    expect(at(page.items, 2).load(1)).toBeUndefined();
+    expect(replacement.load(1)).toBeUndefined();
   });
 
   it('names each element after its index, so a failure says which one', () => {
