@@ -44,11 +44,12 @@ import { createRequire } from 'node:module';
 import { test, vi } from 'vitest';
 import { mock as vmxMock, mockDeep as vmxMockDeep } from 'vitest-mock-extended';
 
-// The public entry, not `src/lib/*` — so the default Vitest mock adapter registers as a side
-// effect, exactly as it does for a consumer.
-import { createAutoMock, createSpyFromClass, mockDeep } from '../src/index';
-import { captureMockRegistry, pruneMockRegistry } from '../src/setup';
 import { installRunnerGlobals } from './runner-globals';
+
+// The prebench hook installs the packed artifact alongside the competitors.
+const packageName: string = 'vitest-auto-spy';
+const { createAutoMock, createSpyFromClass, mockDeep }: typeof import('../src/index') = await import(packageName);
+const { captureMockRegistry, pruneMockRegistry }: typeof import('../src/setup') = await import(`${packageName}/setup`);
 
 // Captured once at module scope: the capture patches `Set.prototype.forEach` for the length of one
 // `vi.clearAllMocks()`, far too expensive to repeat per iteration.
