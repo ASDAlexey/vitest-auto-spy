@@ -15,7 +15,7 @@ description: Спаи для сервисов и сторов Svelte, напис
 ```ts
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { expect, it } from 'vitest';
-import { createSpyFromClass } from 'vitest-auto-spy/svelte';
+import { asInstance, createSpyFromClass } from 'vitest-auto-spy/svelte';
 
 import Cart from './Cart.svelte';
 import { CartStore } from './cart-store';
@@ -25,7 +25,7 @@ it('renders the total the store reports', () => {
 
   cartStore.total.mockReturnValue(42);
 
-  render(Cart, { props: { store: cartStore } });
+  render(Cart, { props: { store: asInstance(cartStore) } });
 
   expect(screen.getByText('$42')).toBeInTheDocument();
   expect(cartStore.total).toHaveBeenCalled();
@@ -36,12 +36,14 @@ it('checks out when the button is clicked', async () => {
 
   cartStore.checkout.resolveWith({ orderId: 'ord_42' }); // checkout() возвращает Promise
 
-  render(Cart, { props: { store: cartStore } });
+  render(Cart, { props: { store: asInstance(cartStore) } });
   await fireEvent.click(screen.getByRole('button', { name: 'Check out' }));
 
   expect(cartStore.checkout).toHaveBeenCalledTimes(1);
 });
 ```
+
+Если prop имеет тип `CartStore` с приватными полями, передайте `asInstance(cartStore)`. Если тип prop — публичный интерфейс стора, передайте `cartStore` напрямую.
 
 Ответы задаются через `mockReturnValue` (обычное значение) или `resolveWith` (успешный промис),
 вызовы проверяются обычными матчерами `toHaveBeenCalled…`. Для `toBeInTheDocument` добавьте
@@ -79,30 +81,32 @@ it('renders the total the store reports', () => {
 Если компонент импортирует готовый экземпляр (синглтон) из модуля, замените этот экспорт спаем:
 
 ```ts
-import { render } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { expect, it, vi } from 'vitest';
-import { createSpyFromClass } from 'vitest-auto-spy/svelte';
+import { asSpy } from 'vitest-auto-spy/svelte';
 
-import { CartStore } from './cart-store';
+import Cart from './Cart.svelte';
+import { cartStore } from './cart-store';
 
-const cartStore = vi.hoisted(() => createSpyFromClass(CartStore));
+vi.mock(import('./cart-store'), async (importOriginal) => {
+  const original = await importOriginal();
+  const { asInstance, createSpyFromClass } = await import('vitest-auto-spy/svelte');
 
-vi.mock('./cart-store', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./cart-store')>()),
-  cartStore,
-}));
+  return { ...original, cartStore: asInstance(createSpyFromClass(original.CartStore)) };
+});
 
 it('checks out through the module singleton', async () => {
-  cartStore.checkout.resolveWith({ orderId: 'ord_42' });
+  const store = asSpy(cartStore);
 
-  render(await import('./Cart.svelte').then((m) => m.default));
+  store.checkout.resolveWith({ orderId: 'ord_42' });
+  render(Cart);
+  await fireEvent.click(screen.getByRole('button', { name: 'Check out' }));
 
-  expect(cartStore.checkout).toHaveBeenCalled();
+  expect(store.checkout).toHaveBeenCalledTimes(1);
 });
 ```
 
-**Частая ошибка:** спай создан в обычной `const` в начале файла. Vitest поднимает `vi.mock` выше
-всего остального кода, и фабрика эту переменную не видит. Оберните создание в `vi.hoisted`, как выше.
+Не используйте импортированный класс внутри `vi.hoisted`: Vitest ещё не загрузил импорты. Создавайте спай внутри фабрики `vi.mock`, после `await importOriginal()`.
 
 ## Какой раннер {#which-runner}
 

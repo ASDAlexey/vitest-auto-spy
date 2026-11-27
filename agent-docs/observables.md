@@ -119,6 +119,12 @@ fixture.destroy();
 expect(store.items$.subscriberCount()).toBe(0);
 ```
 
+**Did a method result unsubscribe in time?** Import `createSubscriptionLog` from `vitest-auto-spy/rxjs`.
+Use one log across the selected returns: `const log = createSubscriptionLog<string>(); api.load.mockImplementation(id => log.track(id, NEVER));`.
+Before teardown, `switchMap` should have recorded `subscribe(A), unsubscribe(A), subscribe(B)`; `mergeMap` leaves A open.
+Each `log.events` entry has `type`, `key` and a numeric `subscription` ID shared by the opening and closing events.
+`unsubscribe` covers cancellation, completion and error. Wrapping a result does not subscribe to it.
+
 `Spy<T>` types an Observable property as `AddObservableSpyMethods<O> & T[K]`, so `next` is there on
 the type either way — which is exactly why this is worth saying: the code compiles against the spy
 surface and asserts nothing.

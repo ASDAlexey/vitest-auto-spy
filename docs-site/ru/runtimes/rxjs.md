@@ -409,6 +409,28 @@ fixture.destroy();
 expect(store.items$.subscriberCount()).toBe(0);
 ```
 
+**Отменил ли второй запрос первый?** Оберните каждый результат метода в `log.track(key, source$)`.
+Проверьте `log.events` до уничтожения компонента. Если заменить `switchMap` на `mergeMap`, запрос A останется открыт и проверка упадёт.
+
+```ts
+import { NEVER, Subject, switchMap } from 'rxjs';
+import { expect, vi } from 'vitest';
+import { createSubscriptionLog } from 'vitest-auto-spy/rxjs';
+
+const log = createSubscriptionLog<string>();
+const load = vi.fn((id: string) => log.track(id, NEVER));
+const ids = new Subject<string>();
+const view = ids.pipe(switchMap(load)).subscribe();
+ids.next('A');
+ids.next('B');
+
+expect(log.events.map(({ type, key }) => `${type}:${key}`)).toEqual(['subscribe:A', 'unsubscribe:A', 'subscribe:B']);
+view.unsubscribe();
+```
+
+Сам вызов метода ничего не пишет в журнал. Каждая подписка получает свой числовой `subscription`, начиная с 1.
+Событие `unsubscribe` с тем же номером означает, что подписка закрылась: по отмене, завершению потока или ошибке. Журнал не создаёт таймеров и не подписывается на поток отдельно.
+
 ## Сбрасывать потоки между тестами {#reset-streams-between-tests}
 
 У каждого члена-спая один `ReplaySubject(1)` — поток, который повторяет последнее значение каждому

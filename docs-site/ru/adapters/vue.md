@@ -17,14 +17,14 @@ description: provideAutoSpy собирает карту global.provide для @v
 ```ts
 import { mount } from '@vue/test-utils';
 import { expect, it } from 'vitest';
-import { provideAutoSpy } from 'vitest-auto-spy/vue';
+import { createSpyFromClass } from 'vitest-auto-spy/vue';
 
 import Greeting from './Greeting.vue';
 import { UserService, UserServiceKey } from './user.service';
 
 it('renders the name the service returns', () => {
-  const provide = provideAutoSpy(UserServiceKey, UserService);
-  const users = provide[UserServiceKey]; // спай с типом Spy<UserService>
+  const users = createSpyFromClass(UserService);
+  const provide = { [UserServiceKey]: users };
 
   users.getName.calledWith(1).mockReturnValue('Ada');
 
@@ -38,7 +38,7 @@ it('renders the name the service returns', () => {
 });
 ```
 
-Спай достаётся из карты по его токену. `users.getName.mockReturnValue('Ada')` отвечает `'Ada'` на
+`users.getName.mockReturnValue('Ada')` отвечает `'Ada'` на
 любой вызов; `calledWith(1)` перед ним ограничивает ответ вызовами с `1`.
 
 ## `provideAutoSpy(token, Class, config?)` {#provideautospy-token-class-config}
@@ -52,7 +52,7 @@ it('renders the name the service returns', () => {
 | `Class`  | класс                    | класс, чьи методы становятся спаями                                                   |
 | `config` | опции или список методов | то же, что второй аргумент `createSpyFromClass` (см. ниже)                            |
 
-Ключ карты — ровно тот токен, который вы передали, поэтому `provide[UserServiceKey]` имеет тип спая.
+Если ключ — строковый литерал, `provideAutoSpy('users', UserService).users` сразу даёт спай. Для ключа типа `'users' | 'backup'` сначала проверьте `'users' in provide`.
 
 Самые частые опции в `config`:
 
@@ -62,13 +62,12 @@ it('renders the name the service returns', () => {
 
 Полный список — на странице [createSpyFromClass](/ru/core/create-spy-from-class).
 
-Чтобы передать несколько сервисов, объедините карты в один объект:
+Для `InjectionKey<T>` сохраните спаи в переменных до объединения карт. TypeScript не различает такие символы при чтении по ключу.
 
 ```ts
-const provide = {
-  ...provideAutoSpy(UserServiceKey, UserService),
-  ...provideAutoSpy(CartKey, CartStore, { onlyMethodsToSpyOn: ['total', 'checkout'] }),
-};
+const users = createSpyFromClass(UserService);
+const cart = createSpyFromClass(CartStore, { onlyMethodsToSpyOn: ['total', 'checkout'] });
+const provide = { [UserServiceKey]: users, [CartKey]: cart };
 ```
 
 ## Pinia-стор, написанный классом {#a-class-based-pinia-store}

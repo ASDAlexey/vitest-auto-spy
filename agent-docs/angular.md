@@ -1423,6 +1423,11 @@ is not emitted into a test bundle, so the same line contributes nothing. A host 
 `standalone: false` inside a spec is compiled outside any scope at all — no `NgClass`, no
 `AsyncPipe`, nothing.
 
+To read the directive instance, import `findDirective` from `vitest-auto-spy/angular` or, for Bun,
+`vitest-auto-spy/bun-angular`. `findDirective(fixture, TruncateDirective)` returns a `TruncateDirective`,
+not a debug node. It checks the fixture root and all descendants, including structural directive
+anchors, and throws on zero or multiple matches.
+
 `registerDirectiveMatchers()` adds `expect(fixture).toHaveDirectiveApplied(Directive, 'div')`, which
 asserts the fact Angular reports three wrong ways (`NG0303` points at the module where the directive
 _is_ declared; `NG0304` calls a missing directive a missing component; a bare attribute reports

@@ -12,6 +12,9 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- `passthrough: 'unmatched'` on `createSpyFromInstance`, `adoptMock` and `moduleNamespace` delegates unmatched `calledWith` calls to the original implementation. Explicit `undefined` answers and `mustBeCalledWith` keep their meaning.
+- `createSubscriptionLog()` in `/rxjs` records subscriptions and teardowns for selected method returns without subscribing to them. The `/rxjs` bundle grows to include this opt-in operator wrapper.
+- `findDirective(fixture, Directive)` in `/angular` returns the only matching directive instance, including on the fixture root and structural anchors. It reports the number found when the lookup is ambiguous or empty.
 - `mockConstructor(Class, factory)` infers the class instance and constructor arguments and can be returned from a typed Vitest module factory.
 - `spyOnGlobal('fetch')` infers the global function's signature and restores the original through `restoreMockedProps()`. The root entry and its runner variants ship the helper.
 - `provideAutoSpyForToken({ token, options })` configures a token double without a placeholder argument; positional overrides keep their meaning.
@@ -19,10 +22,21 @@ The latest released version here must always match the one published on
 
 ### Changed
 
+- `/console` adds about 0.53 kB min+gzip and `/angular-router` adds about 0.60 kB relative to 5.70.3. Their spies distinguish large argument graphs and match overlapping Set expectations. The router double also preserves the real router's query and notification behavior.
+- `/bun-angular` and `/angular/matchers` each load one additional module. The shared directive traversal finds matches on fixture roots and structural anchors without importing Vitest into the Bun entry.
+- `perf --gate` keeps project-specific readings of the same spec separate when merging and confirming results; a fast test in another Vitest project cannot clear its slow counterpart.
 - ESLint migration hints recommend `spyOnGlobal('fetch')` for an unrestored fetch assignment and show the options-only token provider form for method results. Existing supported calls are not flagged.
 
 ### Fixed
 
+- Class spies preserve the nearest inherited descriptor, `toString` overrides, setter call histories and the prototype of replacement constructors.
+- Shallow Angular fixtures support public input aliases and non-standalone `keepModules`, suppress inherited host directives on request, and escape quoted projection selectors. Supply `signalTransforms` when a stub must coerce a signal input without constructing the child.
+- `/nestjs` resolves spy lookups against the winning provider and rejects an async factory in a synchronous unit. `/vue` no longer promises every key of a token union. The `/svelte` recipes keep private class props type-safe and set up singleton mocks after imports resolve.
+- `calledWith` and `mustBeCalledWith` distinguish arguments that differ after a large shared subtree and match overlapping Set expectations independently of insertion order.
+- `mockDeep` keeps earlier indexed writes, and reset follows array elements moved by `shift` or `splice`. Rejected non-configurable proxy descriptors leave no property behind.
+- `/angular-http` reports inspected but unanswered requests and detects duplicate matches with global regular expressions. `/angular-router` keeps the current path on query-only navigation, removes nullish query parameters, and updates the URL snapshot before notifying subscribers.
+- In `/angular`, creating an unrelated fixture no longer consumes another component’s provider check. Auto-spy fixtures accept environment providers and respect nested overrides.
+- `doctor` no longer prunes a directory when a bracket expression in a Git ignore rule would need to match a path separator. `perf` can read timing reports from Windows drives and network shares on POSIX hosts.
 - `createActivatedRoute()` and `provideActivatedRoute()` in `/angular-router` work on Angular 22.3 again, including parent and child routes.
 - `init` reports and skips targets reached through a symlink inside the project.
 - `no-inline-test-data` compares literal values instead of stripping whitespace from source text. The `/eslint-plugin` entry preserves string content and array and object property order when grouping repeats.

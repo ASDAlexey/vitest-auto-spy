@@ -44,6 +44,15 @@ features:
   - title: Strict mode instead of undefined
     details: 'With strict true, a method you forgot to configure throws instead of returning undefined, naming the class, the method and the arguments.'
     link: /core/strict-mode
+  - title: Check when a subscription ends
+    details: Wrap a stream with createSubscriptionLog to see when each subscription starts and when it tears down.
+    link: /runtimes/rxjs#check-for-a-missing-unsubscribe-subscribercount
+  - title: Find a directive in an Angular test
+    details: findDirective returns the directive instance from your fixture and reports missing or duplicate matches.
+    link: /adapters/angular#a-host-for-a-directive-under-test
+  - title: Stub one call without replacing the whole method
+    details: Use unmatched passthrough to keep the original implementation for arguments outside your calledWith rules when there is no default answer.
+    link: /core/create-spy-from-class#passthrough
   - title: Lint rules and a codemod
     details: 'The ESLint plugin flags fragile test patterns as you type. The codemod moves a jest-auto-spies test set to this library and shows the diff first.'
     link: /utilities/eslint-plugin

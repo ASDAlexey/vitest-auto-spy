@@ -44,6 +44,15 @@ features:
   - title: Строгий режим вместо undefined
     details: 'С strict true метод, который вы забыли настроить, бросает ошибку вместо undefined и называет класс, метод и аргументы.'
     link: /ru/core/strict-mode
+  - title: Проверьте отмену подписки
+    details: Оберните поток через createSubscriptionLog и проверьте, когда подписка началась и когда завершилась.
+    link: /ru/runtimes/rxjs#check-for-a-missing-unsubscribe-subscribercount
+  - title: Найдите директиву в тесте Angular
+    details: findDirective возвращает экземпляр директивы из фикстуры и сообщает, если совпадений нет или их несколько.
+    link: /ru/adapters/angular#a-host-for-a-directive-under-test
+  - title: Подмените один вызов, а не весь метод
+    details: Режим passthrough unmatched оставляет прежнюю реализацию для аргументов, не перечисленных в calledWith, если нет ответа по умолчанию.
+    link: /ru/core/create-spy-from-class#passthrough
   - title: Правила линтера и кодмод
     details: 'Плагин ESLint подсвечивает хрупкие приёмы в тестах прямо при наборе. Кодмод переводит тесты с jest-auto-spies на эту библиотеку и сначала показывает diff.'
     link: /ru/utilities/eslint-plugin

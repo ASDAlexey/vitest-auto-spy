@@ -501,11 +501,9 @@ renderShallow(CardComponent, { testBed: { deferBlockBehavior: DeferBlockBehavior
 - `testBed.schemas` добавляются к `NO_ERRORS_SCHEMA`, который получает компонент со
   `standalone: false`. Standalone-компонент получает ровно те схемы, что вы передали; по умолчанию
   никаких.
-- `inputs` разбирает имена так же, как [`setInputs`](#changing-an-input-mid-test). Вход с
-  псевдонимом принимает любое из двух имён. Имя, которого компонент не объявляет, бросает ошибку
-  сразу при вызове.
-- `keepHostDirectives: false` — поддерживаемая форма
-  `TestBed.overrideComponent(X, { set: { hostDirectives: [] } })`.
+- Для компонента с `standalone: false` и `keepTemplate: true` перечислите в `keepModules` модули, которые экспортируют нужные шаблону пайпы и директивы.
+- `inputs` задаёт входы рендеримого компонента. Можно передать и имя поля (`heading`), и его публичный псевдоним (`title`). По имени поля TypeScript проверяет тип значения. Псевдонимы в типе класса не видны: тип значения не проверяется, а об опечатке вы узнаете при вызове.
+- `keepHostDirectives: false` отключает и собственные, и унаследованные host-директивы.
 
 **Читайте инжектор в `beforeCreate`, а не до рендера.** `TestBed.inject` или `injectSpy` в
 `beforeEach` создают тестовый модуль, а созданный модуль заново настроить нельзя. Тогда
@@ -695,7 +693,7 @@ const CodeInputStub = createComponentStub(CodeInputComponent);
 renderShallow(ConnectComponent, { keepTemplate: true, keepChildren: [CodeInputStub] });
 ```
 
-Полная сигнатура — `createComponentStub(CodeInputComponent, members, { template })`; оба
+Полная сигнатура — `createComponentStub(CodeInputComponent, members, { template, signalTransforms })`; оба
 дополнительных аргумента необязательны. `members` задаёт поля и методы заглушки, например метод,
 который вызывает родитель. `template` — разметка, которую заглушка рендерит вместо пустой. Подробнее:
 [Заглушка вместо дочернего компонента](#a-stand-in-for-a-child-createcomponentstub).
@@ -803,18 +801,27 @@ expect(chart.series()).toEqual([1, 2, 3]); // сигнальный вход ос
 chart.pointSelected.emit(2); // выход, который слушает родитель
 ```
 
-| Копируется из настоящего класса                                                 | Не копируется                                              |
-| ------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| селектор                                                                        | шаблон: заглушка рендерит по одному `<ng-content>` на слот |
-| каждый вход под публичным именем, с псевдонимом и transform                     | host-привязки и host-директивы                             |
-| `input()` как сигнальный вход, `model()` как model, вход-декоратор как свойство | провайдеры                                                 |
-| каждый выход, как `EventEmitter`                                                | хуки жизненного цикла и запросы                            |
-| `exportAs`; у пайпа — имя и чистота                                             | всё, что не задано вторым аргументом                       |
+| Копируется из настоящего класса                                                   | Не копируется                                              |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| селектор                                                                          | шаблон: заглушка рендерит по одному `<ng-content>` на слот |
+| каждый вход под публичным именем, с псевдонимом; transform из `@Input` копируется | host-привязки и host-директивы                             |
+| `input()` как сигнальный вход, `model()` как model, вход-декоратор как свойство   | провайдеры                                                 |
+| каждый выход, как `EventEmitter`                                                  | хуки жизненного цикла и запросы                            |
+| `exportAs`; у пайпа — имя и чистота                                               | всё, что не задано вторым аргументом                       |
 
 Второй аргумент задаёт члены каждого экземпляра: метод, который родитель вызывает через
 `viewChild`, или `transform` пайпа (по умолчанию возвращает вход как есть):
 `createComponentStub(TranslatePipe, { transform: (key) => key })`. Третий аргумент принимает
 `{ template }`, чтобы рендерить что-то кроме проецируемого контента.
+
+Если у ребёнка есть `isCompact = input(false, { alias: 'compact', transform: booleanAttribute })`, передайте ту же функцию в `signalTransforms` по имени поля, а не псевдониму. Angular хранит её в экземпляре ребёнка, а заглушка его не создаёт. Без функции сигнал получит исходное значение: для `compact=""` это пустая строка вместо `true`.
+
+```ts
+import { booleanAttribute } from '@angular/core';
+import { createComponentStub } from 'vitest-auto-spy/angular';
+
+const ChartStub = createComponentStub(ChartComponent, {}, { signalTransforms: { isCompact: booleanAttribute } });
+```
 
 Чтобы оставить шаблон и заменить одного потомка, совместите с `renderShallow`:
 
@@ -1516,7 +1523,7 @@ TestBed.configureTestingModule({ imports: [CheckoutComponent] }).overrideProvide
 
 ```ts
 import { TestBed } from '@angular/core/testing';
-import { createDirectiveHost } from 'vitest-auto-spy/angular';
+import { createDirectiveHost, findDirective } from 'vitest-auto-spy/angular';
 
 const Host = createDirectiveHost({
   template: `<div [appTruncate]="enabled" [truncateText]="text"></div>`,
@@ -1528,7 +1535,14 @@ TestBed.configureTestingModule({ imports: [Host] });
 
 const fixture = TestBed.createComponent(Host);
 fixture.componentInstance.enabled = true; // тип берётся из `props`
+fixture.detectChanges();
+const truncate = findDirective(fixture, TruncateDirective);
 ```
+
+`findDirective(fixture, TruncateDirective)` возвращает сам экземпляр `TruncateDirective`.
+Поиск охватывает корневой узел фикстуры и всех его потомков, включая якоря шаблонов структурных директив.
+Если совпадений нет или их несколько, `findDirective` выбрасывает исключение.
+Для Bun импортируйте его из `vitest-auto-spy/bun-angular`.
 
 | Опция      | Что это                                                        |
 | ---------- | -------------------------------------------------------------- |

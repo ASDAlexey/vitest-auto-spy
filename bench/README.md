@@ -9,7 +9,7 @@ regenerate them yourself.
 
 Run every one of these from the **repository root**. They work from this directory too — the
 `package.json` here forwards each one up — so the run gutter next to the block in an IDE does the
-right thing. All of them print the same table — boxed in a terminal, markdown through a pipe, so
+right thing. The microbenchmarks print boxed tables in a terminal and Markdown through a pipe; the suite always prints Markdown. So
 `> table.md` gives a documentation page something it can take verbatim.
 
 ```bash
@@ -46,11 +46,11 @@ npm ci
 npm ci --prefix bench
 ```
 
-`npm run bench` needs neither: it measures this package against itself and imports nothing from
+`npm run bench` needs only the root install: it measures this package against itself and imports nothing from
 `bench/node_modules`. `bench:suite` installs its own pinned copies into a temporary directory it
-deletes on every exit path.
+removes after the run unless you pass `--keep`.
 
-Identical on Windows, macOS and Linux — every dependency here is pure JavaScript, nothing compiles.
+`bench:suite` and the `bench:vs` variants also need Rust and Cargo on `PATH`; the first run compiles the suite runner.
 The package's declared floor is Node 22; the published numbers were measured on v24.19.0, which is
 also the version CI measures them on.
 
@@ -83,7 +83,7 @@ file on the first edit.
 | `npm run bench:memory`     | Retained heap per double, across the same libraries, at two class widths and two touch levels.                                                                                     | ~40 s           |
 | `npm run bench:suite`      | Whole synthetic suites — 1 000 / 3 000 / 10 000 tests — measuring wall-clock and peak RSS per library.                                                                             | tens of minutes |
 
-**Every one of them prints the same table.** A terminal gets a boxed one, a pipe gets markdown — so
+**The microbenchmarks share a table format.** A terminal gets a boxed table, a pipe gets Markdown — so
 `npm run bench:memory > table.md` produces something a documentation page takes verbatim, which is
 how the tables on those pages are kept honest. `--markdown` forces the pipe form in an interactive
 run, for copying one out by hand:
@@ -93,11 +93,10 @@ npm run bench -- --markdown
 npm run bench:vs -- --markdown
 ```
 
-One renderer draws all of them (`scripts/bench-table.mjs`) for a reason that was not obvious until
-the fourth: the suite harness used to print tab-separated columns, which are unreadable the moment a
-ratio sits next to a megabyte count, and `npm run bench` used to hand the terminal Vitest's own
-ten-column reporter — nine of those columns being figures this project's methodology refuses to
-quote.
+The suite prints a separate Markdown table for each test count and coverage mode. `--out result.json`
+writes the samples and same-round ratios. A ratio below 1 favors the listed arm over `ours`;
+an incomplete set of pairs is inconclusive. By default, `manual` allocates a mock for every method
+and `manual-used` allocates just the three the tests call.
 
 ### The suite runs under coverage, and which provider is a flag
 
@@ -126,14 +125,12 @@ real, and showing it is the suite table's job.
 
 ### Green and red
 
-In a terminal the frame carries the verdict, so a dozen tables can be read by scrolling rather than
+In a terminal the microbenchmark frame carries the verdict, so a dozen tables can be read by scrolling rather than
 by comparing numbers:
 
 - **green** — this package is the fastest arm in that table (or, in the memory harness, retains the
   least in every column).
-- **red** — some other library beat it there. The type-mock memory table is normally red, and the
-  suite-scale table is red whenever hand-written `vi.fn()` doubles come out ahead at any size. Both
-  are real results and both stay published.
+- **red** — some other library beat it there. The type-mock memory table is normally red.
 
 The comparison is always against the **other libraries**, never against this package's own settings:
 `npm run bench` compares lazy against eager against `'proxy'`, where "faster" is a trade-off rather
@@ -489,10 +486,7 @@ regression.
 The tolerance is `max(15%, 2 × rme)`, taking the margin of error the run itself reported, so an arm
 that is noisy on the day is judged more loosely rather than flagged for being noisy.
 
-Two things it does not yet do, and the reasons are worth keeping in view. **Single-arm cases cannot
-regress** — their ratio is 1.000 by construction, so `createSpyFromClass`, `createAutoMock` and
-`calledWith dispatch` sit in the baseline as placeholders, not gates; they become gates the day
-someone gives them a control arm, the way the floor case gave one to `spy invocation`. And **the
+Two limits matter. **Single-arm cases cannot detect a relative regression:** the ratio for `createSpyFromClass` or `createAutoMock` alone is always 1. The three `calledWith dispatch` groups instead compare exact and structural lookups with a `vi.fn()` control, clearing call histories between batches. **The
 floor case's ratio moves more than the tolerance allows**: the plain-call arm settles per process
 into one of two modes on the machine measured here, which alone swings the ratio between 118× and
 165× while the spy arm holds within ±2%. That is a host property, not sampling noise. Until it is

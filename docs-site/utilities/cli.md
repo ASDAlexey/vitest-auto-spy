@@ -389,6 +389,7 @@ Vitest reports as interrupted (Ctrl-C, a signal or `--bail`) counts as unfinishe
 
 ### The gate
 
+If two Vitest projects run the same spec, the gate judges each project separately. If an older report repeats a path without project names, `--gate` exits with code `2` instead of choosing a reading. Record a fresh report with named projects; omit `--gate` to inspect the old timings.
 Without flags, `perf` only advises; `--gate` is what makes it fail CI. (`--fail-on`, `--fail-on-red`
 and `--fail-on-flaky` can add exit 1 for other reasons.) The gate fails over a test body or a file that is
 slow compared with the rest of the same run, and only after re-measuring it on its own.

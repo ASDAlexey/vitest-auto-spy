@@ -155,12 +155,6 @@ scheduling` — a frame requested from inside a running frame, except the outer 
 
 ## Mocking follow-ups, 2026-09-19
 
-- [ ] **The passthrough family and an unmatched `calledWith`.** `createSpyFromInstance(obj, { passthrough: true })`,
-      `adoptMock` and `moduleNamespace(actual, { passthrough: true })` all hand a configured method
-      over whole, so an argument list no `calledWith` matches answers `undefined`, not the real or
-      previous implementation. jasmine's `withArgs` + `callThrough` falls back instead, and "one
-      special case, real otherwise" reads better that way. It is one seam in `function-spy.ts` (a
-      fallback distinct from the strict guard) and has to change for all three together, or none.
 - [ ] **Passthrough, on demand only:** a named getter passed through to the real read (needs the
       accessor spy to take the original getter as its scaffold, so a reset returns to it), and
       lifecycle hooks recorded while still running for real (let a guard opt into `FRAMEWORK_HOOKS`,

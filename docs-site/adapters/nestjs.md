@@ -242,9 +242,10 @@ const { unit, spies } = createNestUnit(CartService, {
 expect(spies.get('CONFIG')).toEqual({ currency: 'EUR' }); // a provided value comes back as is
 ```
 
+- When both `providers` and `expose` list a token, `spies.get(token)` returns the provided value.
 - `useClass` is built like an exposed class: real class, spied dependencies.
 - `useFactory` takes no arguments. It runs once, when the token is first needed. An `inject` list is
-  not supported.
+  not supported. For an async factory, await its result first and pass that as `useValue`.
 
 **Common mistake:** you leave a config token such as `@Inject('CONFIG')` unprovided. It gets a spy
 built from the type, so `config.currency` is a spy function, not a string. Provide config values in

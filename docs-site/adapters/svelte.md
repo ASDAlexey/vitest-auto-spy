@@ -14,7 +14,7 @@ the same way it gets the real object: through props, context, or the module it i
 ```ts
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { expect, it } from 'vitest';
-import { createSpyFromClass } from 'vitest-auto-spy/svelte';
+import { asInstance, createSpyFromClass } from 'vitest-auto-spy/svelte';
 
 import Cart from './Cart.svelte';
 import { CartStore } from './cart-store';
@@ -24,7 +24,7 @@ it('renders the total the store reports', () => {
 
   cartStore.total.mockReturnValue(42);
 
-  render(Cart, { props: { store: cartStore } });
+  render(Cart, { props: { store: asInstance(cartStore) } });
 
   expect(screen.getByText('$42')).toBeInTheDocument();
   expect(cartStore.total).toHaveBeenCalled();
@@ -35,12 +35,14 @@ it('checks out when the button is clicked', async () => {
 
   cartStore.checkout.resolveWith({ orderId: 'ord_42' }); // checkout() returns a Promise
 
-  render(Cart, { props: { store: cartStore } });
+  render(Cart, { props: { store: asInstance(cartStore) } });
   await fireEvent.click(screen.getByRole('button', { name: 'Check out' }));
 
   expect(cartStore.checkout).toHaveBeenCalledTimes(1);
 });
 ```
+
+If the prop expects a `CartStore` with private fields, pass `asInstance(cartStore)`. If it expects only the public store interface, pass `cartStore` directly.
 
 You set answers with `mockReturnValue` (a plain value) or `resolveWith` (a resolved promise), and
 check calls with the usual `toHaveBeenCalled…` matchers. `toBeInTheDocument` needs
@@ -80,31 +82,32 @@ If the component imports a ready instance (a singleton) from a module, replace t
 the spy:
 
 ```ts
-import { render } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { expect, it, vi } from 'vitest';
-import { createSpyFromClass } from 'vitest-auto-spy/svelte';
+import { asSpy } from 'vitest-auto-spy/svelte';
 
-import { CartStore } from './cart-store';
+import Cart from './Cart.svelte';
+import { cartStore } from './cart-store';
 
-const cartStore = vi.hoisted(() => createSpyFromClass(CartStore));
+vi.mock(import('./cart-store'), async (importOriginal) => {
+  const original = await importOriginal();
+  const { asInstance, createSpyFromClass } = await import('vitest-auto-spy/svelte');
 
-vi.mock('./cart-store', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./cart-store')>()),
-  cartStore,
-}));
+  return { ...original, cartStore: asInstance(createSpyFromClass(original.CartStore)) };
+});
 
 it('checks out through the module singleton', async () => {
-  cartStore.checkout.resolveWith({ orderId: 'ord_42' });
+  const store = asSpy(cartStore);
 
-  render(await import('./Cart.svelte').then((m) => m.default));
+  store.checkout.resolveWith({ orderId: 'ord_42' });
+  render(Cart);
+  await fireEvent.click(screen.getByRole('button', { name: 'Check out' }));
 
-  expect(cartStore.checkout).toHaveBeenCalled();
+  expect(store.checkout).toHaveBeenCalledTimes(1);
 });
 ```
 
-**Common mistake:** creating the spy in a plain `const` at the top of the file. Vitest moves
-`vi.mock` above all other code, so the factory cannot see that variable. Wrap it in `vi.hoisted`, as
-above.
+Do not read an imported class inside `vi.hoisted`: Vitest has not initialized the imports yet. Build the spy inside the mock factory after `await importOriginal()`.
 
 ## Which runner
 

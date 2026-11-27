@@ -16,12 +16,12 @@ double is "untouched" when the test calls none of its methods.
 
 **What is fast.** Building a double takes a few microseconds, so spies are not what slows a suite.
 
-| Question                       | Short answer                                                                                       | Details                                                               |
-| ------------------------------ | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| How long does a double take?   | About 2 µs for a 10-method class, 6 µs for 40 methods, when a test calls two or three methods.     | [Measured](#measured)                                                 |
-| Which factory should I use?    | `provideAutoSpy` on Angular, `createSpyFromClass` elsewhere, called in `beforeEach`.               | [What to reach for](#what-to-reach-for)                               |
-| Is it faster than other libs?  | Per double, 2–11× faster; across a whole suite, about 1.5× faster than the jest-auto-spies family. | [Against other libraries](#against-other-libraries)                   |
-| Where does a slow suite spend? | In `TestBed`: one environment per file, rendering child components, the worker count.              | [What actually makes a suite slow](#what-actually-makes-a-suite-slow) |
+| Question                       | Short answer                                                                                                        | Details                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| How long does a double take?   | About 2 µs for a 10-method class, 6 µs for 40 methods, when a test calls two or three methods.                      | [Measured](#measured)                                                 |
+| Which factory should I use?    | `provideAutoSpy` on Angular, `createSpyFromClass` elsewhere, called in `beforeEach`.                                | [What to reach for](#what-to-reach-for)                               |
+| Is it faster than other libs?  | Suite time depends on how many methods your test replaces and whether coverage is on. Compare both manual controls. | [Against other libraries](#against-other-libraries)                   |
+| Where does a slow suite spend? | In `TestBed`: one environment per file, rendering child components, the worker count.                               | [What actually makes a suite slow](#what-actually-makes-a-suite-slow) |
 
 **What costs memory.** Under `isolate: false`, every double a file builds stays alive until the run
 ends. This is how `isolate: false` works, not a leak. With it, memory, not time, is what runs out
@@ -985,7 +985,9 @@ out of V8's fast map. Over 200 000 mocks on Node v24.19.0:
 
 ## Against other libraries
 
-This section compares the library with:
+To reproduce a small comparison with the current packed library, run `npm run bench:suite -- --sizes 100 --methods 100 --repeats 3 --coverage both`. Compare `manual` (all 100 methods) with `manual-used` (just the three the test calls). Each coverage mode has its own paired rounds; missing measurements do not count as wins.
+
+The historical tables below compare the library with:
 
 - the three jest-auto-spies-family libraries: `jest-auto-spies@3.0.1`, `jasmine-auto-spies@8.0.1`,
   `@bugsplat/vitest-auto-spies@1.0.0`;
@@ -1330,23 +1332,23 @@ nothing.
 
 ## Bundle size
 
-The badge says 32.0 kB min+gzip, and that is the whole core entry bundled together. Each subpath is
+The badge says 32.6 kB min+gzip, and that is the whole core entry bundled together. Each subpath is
 a separate entry, and a project pays only for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **32.0 kB** |
-| `vitest-auto-spy/angular` on its own          |     41.1 kB |
-| `vitest-auto-spy/angular/doubles`             |     26.4 kB |
+| `.` — the core entry, what the badge measures | **32.6 kB** |
+| `vitest-auto-spy/angular` on its own          |     42.0 kB |
+| `vitest-auto-spy/angular/doubles`             |     26.9 kB |
 | `vitest-auto-spy/angular/diagnostics`         |      8.2 kB |
 | `vitest-auto-spy/angular/matchers`            |      3.2 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     32.0 kB |
-| `vitest-auto-spy/setup`                       |     32.0 kB |
-| `vitest-auto-spy/node`                        |     31.3 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     32.6 kB |
+| `vitest-auto-spy/setup`                       |     32.1 kB |
+| `vitest-auto-spy/node`                        |     31.9 kB |
 | `vitest-auto-spy/dom-stubs`                   |     13.4 kB |
-| `vitest-auto-spy/rxjs`                        |      2.8 kB |
-| `vitest-auto-spy/angular-router`              |     12.0 kB |
-| `vitest-auto-spy/angular-http`                |      4.3 kB |
+| `vitest-auto-spy/rxjs`                        |      2.9 kB |
+| `vitest-auto-spy/angular-router`              |     12.6 kB |
+| `vitest-auto-spy/angular-http`                |      4.4 kB |
 | `vitest-auto-spy/signal-forms`                |      1.3 kB |
 | `vitest-auto-spy/zone`                        |      1.2 kB |
 

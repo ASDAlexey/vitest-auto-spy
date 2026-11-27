@@ -17,14 +17,14 @@ exports the core API of the library: `createSpyFromClass`, `createAutoMock`, the
 ```ts
 import { mount } from '@vue/test-utils';
 import { expect, it } from 'vitest';
-import { provideAutoSpy } from 'vitest-auto-spy/vue';
+import { createSpyFromClass } from 'vitest-auto-spy/vue';
 
 import Greeting from './Greeting.vue';
 import { UserService, UserServiceKey } from './user.service';
 
 it('renders the name the service returns', () => {
-  const provide = provideAutoSpy(UserServiceKey, UserService);
-  const users = provide[UserServiceKey]; // the spy, typed as Spy<UserService>
+  const users = createSpyFromClass(UserService);
+  const provide = { [UserServiceKey]: users };
 
   users.getName.calledWith(1).mockReturnValue('Ada');
 
@@ -38,7 +38,7 @@ it('renders the name the service returns', () => {
 });
 ```
 
-You read the spy back from the map by its token. `users.getName.mockReturnValue('Ada')` answers
+`users.getName.mockReturnValue('Ada')` answers
 `'Ada'` to every call; `calledWith(1)` before it limits the answer to calls with `1`.
 
 ## `provideAutoSpy(token, Class, config?)`
@@ -52,7 +52,7 @@ Returns a `global.provide` map with one entry, `{ [token]: Spy<Class> }`. Pass i
 | `Class`   | class                    | the class whose methods become spies                                         |
 | `config`  | options or a method list | same as the second argument of `createSpyFromClass` (see below)              |
 
-The map is keyed by exactly the token you passed, so `provide[UserServiceKey]` is typed as the spy.
+For a string literal, `provideAutoSpy('users', UserService).users` gives you the spy directly. For a key typed as `'users' | 'backup'`, check `'users' in provide` before reading `provide.users`.
 
 The options you will use most in `config`:
 
@@ -62,13 +62,12 @@ The options you will use most in `config`:
 
 The full list is on [createSpyFromClass](/core/create-spy-from-class).
 
-To provide several services, spread the maps into one object:
+For Vue `InjectionKey<T>` tokens, keep the spies before merging maps. TypeScript cannot distinguish those symbols when you read the merged map.
 
 ```ts
-const provide = {
-  ...provideAutoSpy(UserServiceKey, UserService),
-  ...provideAutoSpy(CartKey, CartStore, { onlyMethodsToSpyOn: ['total', 'checkout'] }),
-};
+const users = createSpyFromClass(UserService);
+const cart = createSpyFromClass(CartStore, { onlyMethodsToSpyOn: ['total', 'checkout'] });
+const provide = { [UserServiceKey]: users, [CartKey]: cart };
 ```
 
 ## A class-based Pinia store

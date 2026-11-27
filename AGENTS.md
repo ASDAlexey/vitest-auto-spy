@@ -257,6 +257,8 @@ Rules that carry most of the value:
 
 In [`agent-docs/return-helpers.md`](./agent-docs/return-helpers.md). Read it when stubbing a return value: `calledWith`, `resolveWith`, `nextWith`, `returnSubject` and the rest, by return type.
 
+For one stubbed case on a real collaborator, see [passthrough](./agent-docs/passthrough.md).
+
 <!-- agents-outline: agent-docs/return-helpers.md -->
 
 - Keeping an awaited collaborator pending
@@ -617,4 +619,11 @@ In [`agent-docs/test-design.md`](./agent-docs/test-design.md). Read it before ch
 
 - Angular: what the boundary has to prove
 
+<!-- /agents-outline -->
+
+## 22. Call the original on a `calledWith` miss
+
+In [`agent-docs/passthrough.md`](./agent-docs/passthrough.md). Use it to stub one argument list and run the original for others.
+
+<!-- agents-outline: agent-docs/passthrough.md -->
 <!-- /agents-outline -->

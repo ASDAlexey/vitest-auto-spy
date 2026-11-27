@@ -121,6 +121,10 @@ The competitor packages live in `bench/package.json`, installed separately with
 `npm ci --prefix bench` so the root `package.json` carries nothing it does not ship or test with —
 the same pattern `docs-site/` already uses for its own dependencies.
 
+The suite benchmark and package preparation for `bench:vs` require Cargo. Check the suite harness with `cargo test --locked --manifest-path tools/bench-suite/Cargo.toml`. For a quick paired comparison, run `npm run bench:suite -- --sizes 100 --repeats 3 --coverage both`. `manual` builds all the methods; `manual-used` builds only the three the test calls. Results without a full set of successful paired rounds are inconclusive.
+
+The root gate type-checks the standalone benchmarks without installing competitors. After `npm ci --prefix bench`, `npm run typecheck:bench` also checks the head-to-head cases.
+
 **`bench/.npmrc` sets `legacy-peer-deps=true` deliberately — do not remove it.** The competitors
 declare `vitest` as a peer. Without that setting, `npm ci --prefix bench` installs a second copy of
 `vitest`/`@vitest/spy` next to the root one, which means two mock registries; the bench's prune then

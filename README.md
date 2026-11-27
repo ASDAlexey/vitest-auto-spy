@@ -15,7 +15,7 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-32.0%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-32.6%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -43,10 +43,11 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 - **A spy of every method from a class**, typed, with helpers that match each return type:
   `resolveWith` for a `Promise`, `nextWith` for an `Observable`, `mockReturnValue` for the rest.
   `createDeferred<T>()` keeps an awaited collaborator pending until the test releases it.
-- **Answers per argument list**: `calledWith(1).mockReturnValue(...)`.
+- **Answers per argument list**: `calledWith(1).mockReturnValue(...)`. Keep the original for other arguments with `passthrough: 'unmatched'`.
 - **A spy from a type alone**: `createAutoMock<T>()` and `mockDeep<T>()`.
 - **Typed global replacements with cleanup**: `spyOnGlobal('fetch')` replaces the function without calling the network.
-- **Angular `TestBed` in one line**: `provideAutoSpy(ApiService)`, then `injectSpy(ApiService)`.
+- **Angular `TestBed` in one line**: `provideAutoSpy(ApiService)`, then `injectSpy(ApiService)`. Use `findDirective(fixture, Directive)` from `/angular` to get a rendered directive.
+- **Subscription lifetimes**: wrap a stream with `log.track(key, source$)` from `createSubscriptionLog<Key>()` (`/rxjs`), then check `log.events` for teardown.
 - **Short handler tests**: typed input/paste/drop events, element query stubs, and exact synchronous output assertions.
 - **Nest HTTP tests without starting the app**: `createHttpExecutionContext` supplies the context;
   `invokeNestParamDecorator` runs a custom parameter decorator with its recorded data.
@@ -432,6 +433,7 @@ restoreSpiedInstance(client); // client.charge is the real method again
 - It takes most of the options of `createSpyFromClass`.
 - With `{ passthrough: true }`, each method keeps running its real code and records its calls, until
   you configure that method: `createSpyFromInstance(TestBed.inject(CartService), { passthrough: true })`.
+- To stub one argument list and keep the original for others, pass `{ passthrough: 'unmatched' }` to `createSpyFromInstance`, `adoptMock` or `moduleNamespace`. A configured default still wins; `mustBeCalledWith` still rejects misses.
 - To undo: `restoreSpiedInstance(instance)`, `restoreMockedProps()`, or `using spy = …`.
 
 [Details](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#passthrough)
@@ -507,6 +509,22 @@ await expect(expectEmission(component.visible$)).resolves.toBe(true); // the fir
 
 **Common mistake:** `source$.subscribe(value => expect(value).toEqual(…))`. If the stream never
 emits, nothing is asserted and the test passes. `expectEmission` fails on a silent stream.
+
+To check teardown instead of emitted values, give the consumer a tracked stream:
+
+```ts
+import { NEVER } from 'rxjs';
+import { createSubscriptionLog } from 'vitest-auto-spy/rxjs';
+
+const log = createSubscriptionLog<'users'>();
+const subscription = log.track('users', NEVER).subscribe();
+subscription.unsubscribe();
+expect(log.events).toEqual([
+  { type: 'subscribe', key: 'users', subscription: 1 },
+  { type: 'unsubscribe', key: 'users', subscription: 1 },
+]);
+```
+
 [Details](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions)
 
 ### How to mock: an overloaded method
@@ -1895,8 +1913,7 @@ Memory figures: [Performance → Retained memory per double](https://asdalexey.g
 
 ## Benchmarks
 
-Headline results (Node v24.19.0; full tables and method on the
-[Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance) page):
+The figures below are historical measurements on Node v24.19.0, not current release targets. The suite benchmark now compares complete paired rounds and separates creating every method from creating only the methods the test calls. For the method and reproduction commands, see [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance#against-other-libraries).
 
 - **Building a double:** from 2.19× to 9.11× faster than the best other option measured, on every
   micro-benchmark row (class sizes of 6, 14 and 45 methods, doubles from a type, deep doubles,

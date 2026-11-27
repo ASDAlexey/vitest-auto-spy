@@ -494,10 +494,9 @@ A few details:
   and a kept `standalone: false` child is declared there.
 - `testBed.schemas` are added to the `NO_ERRORS_SCHEMA` a `standalone: false` component gets. A
   standalone component gets exactly the schemas you pass, none by default.
-- `inputs` resolves names the way [`setInputs`](#changing-an-input-mid-test) does. An aliased input
-  takes either spelling. A name the component does not declare throws at the call.
-- `keepHostDirectives: false` is the supported form of
-  `TestBed.overrideComponent(X, { set: { hostDirectives: [] } })`.
+- For a `standalone: false` component with `keepTemplate: true`, list the modules that export its pipes and directives in `keepModules`.
+- `inputs` sets inputs on the component being rendered. Use either a field name (`heading`) or its public alias (`title`). TypeScript checks the value when you use the field name. It cannot infer aliases from the class, so alias values are unchecked and misspelled names throw at runtime.
+- `keepHostDirectives: false` drops both the component’s own host directives and those it inherits.
 
 **Read the injector in `beforeCreate`, not before the render.** A `TestBed.inject` or `injectSpy` in
 a `beforeEach` creates the testing module, and a created module cannot be configured again.
@@ -683,7 +682,7 @@ const CodeInputStub = createComponentStub(CodeInputComponent);
 renderShallow(ConnectComponent, { keepTemplate: true, keepChildren: [CodeInputStub] });
 ```
 
-The full signature is `createComponentStub(CodeInputComponent, members, { template })`; both extra
+The full signature is `createComponentStub(CodeInputComponent, members, { template, signalTransforms })`; both extra
 arguments are optional. `members` seeds members, such as a method the parent calls. `template` is
 markup the stub renders instead of nothing. See
 [A stand-in for a child](#a-stand-in-for-a-child-createcomponentstub).
@@ -793,7 +792,7 @@ chart.pointSelected.emit(2); // an output the parent listens to
 | Copied from the real class                                                         | Not copied                                                 |
 | ---------------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | the selector                                                                       | the template: the stub renders one `<ng-content>` per slot |
-| every input under its public name, with alias and transform                        | host bindings and host directives                          |
+| every input under its public name, including decorator input transforms            | host bindings and host directives                          |
 | `input()` as a signal input, `model()` as a model, a decorator input as a property | providers                                                  |
 | every output, as an `EventEmitter`                                                 | lifecycle hooks and queries                                |
 | `exportAs`; for a pipe, its name and purity                                        | anything the second argument does not seed                 |
@@ -802,6 +801,15 @@ The second argument seeds members on every instance: a method the parent calls t
 `viewChild`, or a pipe's `transform` (the identity by default):
 `createComponentStub(TranslatePipe, { transform: (key) => key })`. The third argument takes
 `{ template }` to render something other than the projected content.
+
+If the child declares `isCompact = input(false, { alias: 'compact', transform: booleanAttribute })`, pass the same function in `signalTransforms` under the field name, not its alias. Angular stores the transform on the child instance, which the stub never creates. Without it, `compact=""` gives the stub an empty string instead of `true`.
+
+```ts
+import { booleanAttribute } from '@angular/core';
+import { createComponentStub } from 'vitest-auto-spy/angular';
+
+const ChartStub = createComponentStub(ChartComponent, {}, { signalTransforms: { isCompact: booleanAttribute } });
+```
 
 To keep the template and stub one child, combine it with `renderShallow`:
 
@@ -1497,7 +1505,7 @@ recompile, and in an AOT test bundle the recompiled component loses its directiv
 
 ```ts
 import { TestBed } from '@angular/core/testing';
-import { createDirectiveHost } from 'vitest-auto-spy/angular';
+import { createDirectiveHost, findDirective } from 'vitest-auto-spy/angular';
 
 const Host = createDirectiveHost({
   template: `<div [appTruncate]="enabled" [truncateText]="text"></div>`,
@@ -1509,7 +1517,13 @@ TestBed.configureTestingModule({ imports: [Host] });
 
 const fixture = TestBed.createComponent(Host);
 fixture.componentInstance.enabled = true; // typed from `props`
+fixture.detectChanges();
+const truncate = findDirective(fixture, TruncateDirective);
 ```
+
+`findDirective(fixture, TruncateDirective)` returns the `TruncateDirective` instance itself.
+It searches the fixture root and its descendants, including template anchors for structural directives.
+It throws if there are no matches or more than one. For Bun, import it from `vitest-auto-spy/bun-angular`.
 
 | Option     | What it is                                                   |
 | ---------- | ------------------------------------------------------------ |

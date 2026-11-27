@@ -404,6 +404,28 @@ fixture.destroy();
 expect(store.items$.subscriberCount()).toBe(0);
 ```
 
+**Did the second request cancel the first?** Wrap each method result with `log.track(key, source$)`.
+Check `log.events` before destroying the consumer. Replacing `switchMap` with `mergeMap` below leaves A open, so the assertion fails.
+
+```ts
+import { NEVER, Subject, switchMap } from 'rxjs';
+import { expect, vi } from 'vitest';
+import { createSubscriptionLog } from 'vitest-auto-spy/rxjs';
+
+const log = createSubscriptionLog<string>();
+const load = vi.fn((id: string) => log.track(id, NEVER));
+const ids = new Subject<string>();
+const view = ids.pipe(switchMap(load)).subscribe();
+ids.next('A');
+ids.next('B');
+
+expect(log.events.map(({ type, key }) => `${type}:${key}`)).toEqual(['subscribe:A', 'unsubscribe:A', 'subscribe:B']);
+view.unsubscribe();
+```
+
+Calling the method does not log an event. Each subscription gets its own numeric `subscription` ID, starting at 1.
+The matching `unsubscribe` event records teardown after cancellation, completion, or error. Tracking adds no timers or independent subscriptions.
+
 ## Reset streams between tests
 
 Each spied member keeps one `ReplaySubject(1)`: a stream that replays its last value to every new
