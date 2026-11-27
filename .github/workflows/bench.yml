@@ -19,6 +19,7 @@ on:
   pull_request:
     paths:
       - 'bench/**'
+      - 'tools/bench-suite/**'
       - 'bench-angular/**'
       - 'vitest.bench.*.mts'
       - 'src/lib/**'
@@ -62,6 +63,9 @@ jobs:
 
       # A minute here rather than ten below: if the harness itself is broken, every measurement step
       # after this one is broken too, and this says so with a message about the harness.
+      - name: Test suite benchmark runner
+        run: cargo test --locked --manifest-path tools/bench-suite/Cargo.toml
+
       - name: Smoke-test the benchmark harness
         id: smoke
         run: npm run bench:smoke
