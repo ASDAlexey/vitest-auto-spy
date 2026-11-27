@@ -11,10 +11,14 @@
  *    neither of which a string key can stand for — is stored as a predicate and evaluated against
  *    the actual args on lookup, after the exact map misses. See `structural-equals`.
  */
-import { isDeepValue, serializeMatchKey, serializePrimitive, serializeValue } from './serialize-args';
+import { type LargeMatchKey, type MatchKey, isDeepValue, serializeMatchKey, serializePrimitive, serializeValue } from './serialize-args';
 import { describeWithMatchers, isAsymmetricMatcher, matchesStructurally, needsStructuralMatch, sameExpectation } from './structural-equals';
 
-type SerializedArgs = string;
+interface LargeConfig {
+  key: unknown;
+  rendered: LargeMatchKey;
+  value: unknown;
+}
 
 /**
  * A `calledWith` config that cannot be a string key — see the note at the top of this file.
@@ -31,7 +35,7 @@ type SerializedArgs = string;
  */
 interface MatcherConfig {
   args: unknown[];
-  serialized: (string | undefined)[];
+  serialized: Rendered;
   described: string[];
   /** Whether the config has any position of that kind, so a match can skip the pass that has none. */
   hasStructural: boolean;
@@ -40,7 +44,7 @@ interface MatcherConfig {
 }
 
 /** The actual arguments' serializations, filled in as a lookup needs them and shared across configs. */
-type Rendered = (string | undefined)[];
+type Rendered = (MatchKey | undefined)[];
 
 /**
  * Whether these are the args of a call that {@link ArgsMap} can look up by value: exactly one
@@ -132,7 +136,9 @@ export class ArgsMap {
 
   // Prototype-less so a `'__proto__'` (or `'constructor'`) serialized key is a
   // plain own property, never walking or polluting the object prototype chain.
-  readonly #map: Record<SerializedArgs, unknown> = Object.create(null);
+  readonly #map: Record<string, unknown> = Object.create(null);
+  #largeConfigs?: Map<LargeMatchKey | string, LargeConfig>;
+  #truncatedConfigs?: LargeConfig[];
   readonly #matcherConfigs: MatcherConfig[] = [];
   /**
    * The shape of the exact configs, by argument count: for each position, whether any config of
@@ -184,7 +190,24 @@ export class ArgsMap {
       }
     }
 
-    this.#map[this.#serialize(key)] = value;
+    const rendered = this.#serialize(key);
+
+    if (typeof rendered === 'string') {
+      this.#map[rendered] = value;
+    } else {
+      const existing = this.#largeConfig(key, rendered);
+
+      if (existing) {
+        existing.value = value;
+      } else {
+        const config = { key, rendered, value };
+        (this.#largeConfigs ??= new Map()).set(rendered.truncated ? rendered : rendered.description, config);
+
+        if (rendered.truncated) {
+          (this.#truncatedConfigs ??= []).push(config);
+        }
+      }
+    }
   }
 
   get(key: unknown): unknown {
@@ -222,16 +245,34 @@ export class ArgsMap {
 
       const serializedArgs = deep ? serializeMatchKey(key) : serializePrimitiveArgs(key);
 
-      return serializedArgs in this.#map ? this.#map[serializedArgs] : this.#findByMatcher(key);
+      return this.#lookup(key, serializedArgs);
     }
 
-    const serialized = this.#serialize(key);
+    return this.#lookup(key, this.#serialize(key));
+  }
 
-    if (serialized in this.#map) {
-      return this.#map[serialized];
+  #largeConfig(key: unknown, rendered: LargeMatchKey): LargeConfig | undefined {
+    if (rendered.truncated) {
+      for (const config of this.#largeConfigs?.values() ?? []) {
+        if (sameExpectation(config.key, key)) {
+          return config;
+        }
+      }
+
+      return undefined;
     }
 
-    return this.#findByMatcher(key);
+    return this.#largeConfigs?.get(rendered.description) ?? this.#truncatedConfigs?.find((config) => sameExpectation(config.key, key));
+  }
+
+  #lookup(key: unknown, rendered: MatchKey): unknown {
+    if (typeof rendered === 'string') {
+      return rendered in this.#map ? this.#map[rendered] : this.#findByMatcher(key);
+    }
+
+    const hit = this.#largeConfig(key, rendered);
+
+    return hit ? hit.value : this.#findByMatcher(key);
   }
 
   /** The value registered for exactly this argument list — not what a call with these arguments would match. */
@@ -244,7 +285,7 @@ export class ArgsMap {
 
     const serialized = this.#serialize(key);
 
-    return serialized in this.#map ? this.#map[serialized] : undefined;
+    return typeof serialized === 'string' ? this.#map[serialized] : this.#largeConfig(key, serialized)?.value;
   }
 
   /** Whether any config takes this many arguments. */
@@ -263,7 +304,11 @@ export class ArgsMap {
   configured(): string[] {
     const asymmetric = this.#matcherConfigs.map((config) => `[${config.described.join(',')}]`);
 
-    return [...Object.keys(this.#map), ...asymmetric];
+    return [
+      ...Object.keys(this.#map),
+      ...Array.from(this.#largeConfigs?.values() ?? [], (config) => config.rendered.description),
+      ...asymmetric,
+    ];
   }
 
   /**
@@ -282,6 +327,14 @@ export class ArgsMap {
       matches: (actualArgs: unknown[]): boolean => this.#serialize(actualArgs) === key,
     }));
 
+    for (const config of this.#largeConfigs?.values() ?? []) {
+      exact.push({
+        index: exact.length + 1,
+        args: config.rendered.description,
+        matches: (args) => this.#matchesLarge(config.rendered, config.key, args, this.#serialize(args)),
+      });
+    }
+
     const asymmetric: ConfiguredEntry[] = this.#matcherConfigs.map((config, position) => ({
       index: exact.length + position + 1,
       args: `[${config.described.join(',')}]`,
@@ -293,7 +346,7 @@ export class ArgsMap {
 
   /** Render one structural config once, at registration time. See {@link MatcherConfig}. */
   #buildMatcherConfig(key: unknown[], value: unknown): MatcherConfig {
-    const serialized: (string | undefined)[] = [];
+    const serialized: Rendered = [];
     const described: string[] = [];
 
     for (const arg of key) {
@@ -306,7 +359,7 @@ export class ArgsMap {
         serialized.push(rendered);
         // `#serialize` brackets the single-element array it is given; the bare rendering is what
         // goes between the commas of the failure message.
-        described.push(rendered.slice(1, -1));
+        described.push((typeof rendered === 'string' ? rendered : rendered.description).slice(1, -1));
       }
     }
 
@@ -355,26 +408,36 @@ export class ArgsMap {
     this.#matcherConfigs[index] = config;
   }
 
+  #matchesLarge(expected: LargeMatchKey, configArg: unknown, actualArg: unknown, actual: MatchKey): boolean {
+    return (
+      typeof actual !== 'string' &&
+      (expected.truncated || actual.truncated ? sameExpectation(configArg, actualArg) : expected.description === actual.description)
+    );
+  }
+
   /** Whether two configs were registered for the same argument list, structural positions included. */
   #sameConfigArgs(existing: MatcherConfig, candidate: MatcherConfig): boolean {
     if (existing.args.length !== candidate.args.length) {
       return false;
     }
 
-    // A structural position and a literal one never compare equal: a literal's serialization is a
-    // string where a structural position's is `undefined`, and the two branches are taken on that.
-    return existing.args.every((arg, index) =>
-      existing.serialized[index] === undefined
-        ? candidate.serialized[index] === undefined && sameExpectation(arg, candidate.args[index])
-        : existing.serialized[index] === candidate.serialized[index],
-    );
+    return existing.args.every((arg, index) => {
+      const left = existing.serialized[index];
+      const right = candidate.serialized[index];
+
+      if (left === undefined || right === undefined) {
+        return left === right && sameExpectation(arg, candidate.args[index]);
+      }
+
+      return typeof left === 'string' ? left === right : this.#matchesLarge(left, arg, candidate.args[index], right);
+    });
   }
 
   // Keys are always argument arrays; `serializeMatchKey` renders them to a stable,
   // total string (single-quoted strings, bracketed arrays, distinct `undefined`
   // / function / symbol / BigInt / Date renderings, circular-ref safe). Arrays of
   // only primitive args take a fast path that skips the circular-ref bookkeeping.
-  #serialize(key: unknown): SerializedArgs {
+  #serialize(key: unknown): MatchKey {
     if (Array.isArray(key) && !key.some(isDeepValue)) {
       return serializePrimitiveArgs(key);
     }
@@ -428,7 +491,16 @@ export class ArgsMap {
     return (
       !config.hasLiterals ||
       config.serialized.every(
-        (serialized, index) => serialized === undefined || serialized === (rendered[index] ??= this.#serialize([actualArgs[index]])),
+        (serialized, index) =>
+          serialized === undefined ||
+          (typeof serialized === 'string'
+            ? serialized === (rendered[index] ??= this.#serialize([actualArgs[index]]))
+            : this.#matchesLarge(
+                serialized,
+                config.args[index],
+                actualArgs[index],
+                (rendered[index] ??= this.#serialize([actualArgs[index]])),
+              )),
       )
     );
   }

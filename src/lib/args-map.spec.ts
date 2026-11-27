@@ -10,10 +10,97 @@ import { ARGS_MAP_BRAND, ArgsMap, isArgsMap } from './args-map';
 import { NUMBER_AND_STRING_ARGS } from './args-map.mock';
 
 describe('ArgsMap', () => {
+  it('keeps distinct large configs ahead of matchers and replaces an equal config in place', () => {
+    const map = new ArgsMap();
+    const part = { body: 'x'.repeat(51_000) };
+    const key = (id: number, b = part) => ({ a: part, b, query: { id } });
+    map.set([expect.anything()], 'fallback');
+    map.set([key(1)], 'one');
+    map.set([key(2)], 'two');
+    map.set([key(1, { ...part })], 'updated');
+
+    expect(map.configured()).toHaveLength(3);
+    expect(map.configuredFor([key(1)])).toBe('updated');
+    expect(map.configuredFor([key(3)])).toBeUndefined();
+    expect(map.get([key(2, { ...part })])).toBe('two');
+    expect(map.get([key(3)])).toBe('fallback');
+    const entries = map.configuredEntries();
+    expect(entries.map((entry) => entry.args)).toEqual(map.configured());
+    expect(entries.map((entry) => [entry.index, entry.matches([key(2)])])).toEqual([
+      [1, false],
+      [2, true],
+      [3, true],
+    ]);
+  });
+
+  it('matches a large unshared config with both full and shortened call keys', () => {
+    const map = new ArgsMap();
+    const part = { body: 'x'.repeat(51_000) };
+    const full = [part, { ...part }, { id: 1 }];
+    map.set(full, 'hit');
+
+    expect(map.get(full)).toBe('hit');
+    expect(map.get([part, part, { id: 1 }])).toBe('hit');
+    const [entry] = map.configuredEntries();
+    expect(entry?.matches(full)).toBe(true);
+    expect(entry?.matches([part, part, { id: 1 }])).toBe(true);
+    expect(entry?.matches([part, part, { id: 2 }])).toBe(false);
+    expect(entry?.matches([part, { ...part }, { id: 2 }])).toBe(false);
+    expect(entry?.matches([])).toBe(false);
+  });
+
+  it('compares a large literal beside a matcher without conflating its configs', () => {
+    const map = new ArgsMap();
+    const part = { value: 'x'.repeat(51_000) };
+    const args = (id: number) => [expect.any(Number), [part, part, { id }]];
+    map.set(args(1), 'one');
+    map.set(args(2), 'two');
+
+    expect(map.configuredFor(args(2))).toBe('two');
+    expect(map.get([3, [part, part, { id: 1 }]])).toBe('one');
+    expect(map.get([3, [part, part, { id: 3 }]])).toBeUndefined();
+  });
+
+  it('keeps configs distinct when a large literal and a matcher exchange positions', () => {
+    const map = new ArgsMap();
+    const literal = { body: 'x'.repeat(51_000) };
+    const matcher = expect.anything();
+    map.set([matcher, literal], 'right');
+    map.set([literal, matcher], 'left');
+
+    expect(map.configuredFor([matcher, literal])).toBe('right');
+    expect(map.configuredFor([literal, matcher])).toBe('left');
+    expect(map.configuredFor([expect.any(Number), literal])).toBeUndefined();
+    expect(map.get([literal, 'value'])).toBe('left');
+  });
+
+  it('compares shared subgraphs without revisiting a leaf for every path', () => {
+    const map = new ArgsMap();
+    let reads = 0;
+    const diamond = () => {
+      let node: object = {
+        get id() {
+          reads += 1;
+          return 1;
+        },
+      };
+
+      for (let level = 0; level < 20; level += 1) {
+        node = { left: node, right: node };
+      }
+
+      return node;
+    };
+    map.set([diamond()], 'hit');
+    expect(map.get([diamond()])).toBe('hit');
+    expect(reads).toBeLessThan(20);
+  });
+
   it('stores and retrieves by exact primitive args (fast path)', () => {
     const map = new ArgsMap();
     map.set(NUMBER_AND_STRING_ARGS, 'v');
 
+    expect(map.configuredFor(NUMBER_AND_STRING_ARGS)).toBe('v');
     expect(map.get(NUMBER_AND_STRING_ARGS)).toBe('v');
     expect(map.get([1, 'b'])).toBeUndefined();
   });
