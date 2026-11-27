@@ -1,0 +1,8 @@
+  it('test ID', () => {
+    double.m0.mockReturnValue(ID);
+    const result = double.m0();
+    double.m1();
+    double.m2();
+    expect(result).toBe(ID);
+    expect(double.m0).toHaveBeenCalledTimes(1);
+  });
