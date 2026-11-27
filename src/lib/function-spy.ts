@@ -97,6 +97,7 @@ export interface UnstubbedGuard {
   implementation?: boolean;
   /** Hand the handler the call's `this`; a user's `onUnstubbedCall` is only ever told the call. */
   receiver?: boolean;
+  unmatched?: boolean;
 }
 
 /** `UserService.load` — or just `load` on a type-driven double, which has no class to name. */
@@ -277,19 +278,6 @@ export function resolveUnstubbedGuard(className: string | undefined, config: Str
   return undefined;
 }
 
-/**
- * Whether nothing has configured this spy at all.
- *
- * Only three things can have: a `calledWith` chain, a `mustBeCalledWith` chain, or a value written
- * into the container by `resolveWith` / `nextWith` / their per-call forms. The fourth way a spec
- * configures a method — the host runner's own `mockReturnValue` / `mockImplementation`, and the
- * `returns` option, which goes through the adapter — needs no check here at all: those *replace*
- * the dispatch, so a spy configured that way never reaches this code.
- */
-function isUnconfigured(state: SpyState): boolean {
-  return state.calledWith === undefined && state.mustBeCalledWith === undefined && isUnconfiguredDefault(state.valueContainer);
-}
-
 /** Whether the spy's own container answers nothing but `undefined`. */
 function isUnconfiguredDefault(container: ReturnValueContainer): boolean {
   return (
@@ -371,16 +359,6 @@ function hintLenientMiss(state: SpyState, chain: CalledWithObject, actualArgs: u
   );
 }
 
-/**
- * Decide what the spy returns for a given call: the strict-mode guard first, when the spy is strict
- * and nothing configured it at all, then a `calledWith` match, then a `mustBeCalledWith` match
- * (throwing if none matches), else the default.
- *
- * The guard goes first because it asks a question about the *spy*, not about the call — "did
- * anybody configure this method" — and by definition it can only fire on a spy where neither chain
- * exists, so no configured lookup is skipped by putting it here. A non-strict spy pays one
- * `undefined` check, which is what it paid before.
- */
 function returnTheCorrectFakeValue(
   state: SpyState,
   actualArgs: unknown[],
@@ -388,13 +366,6 @@ function returnTheCorrectFakeValue(
   unstubbed: UnstubbedGuard | undefined,
   receiver: unknown,
 ): unknown {
-  // Throwing from a hook Angular called itself broke the teardown and every test after it.
-  if (unstubbed && isUnconfigured(state) && (unstubbed.implementation === true || !ANGULAR_LIFECYCLE_HOOKS.has(functionName))) {
-    const call: UnstubbedCall = { className: unstubbed.className, method: functionName, args: actualArgs };
-
-    return unstubbed.receiver === true ? unstubbed.handle(call, receiver) : unstubbed.handle(call);
-  }
-
   let lenientMiss: CalledWithObject | undefined;
 
   if (state.calledWith) {
@@ -416,6 +387,18 @@ function returnTheCorrectFakeValue(
 
     // The map goes along so the failure can print what was wanted next to what arrived.
     errorHandler.throwArgumentsError(actualArgs, functionName, state.mustBeCalledWith.argsToValuesMap, unstubbed?.className);
+  }
+
+  // Throwing from a hook Angular called itself broke the teardown and every test after it.
+  if (
+    unstubbed &&
+    (unstubbed.unmatched || !state.calledWith) &&
+    isUnconfiguredDefault(state.valueContainer) &&
+    (unstubbed.unmatched || unstubbed.implementation === true || !ANGULAR_LIFECYCLE_HOOKS.has(functionName))
+  ) {
+    const call: UnstubbedCall = { className: unstubbed.className, method: functionName, args: actualArgs };
+
+    return unstubbed.receiver === true ? unstubbed.handle(call, receiver) : unstubbed.handle(call);
   }
 
   if (lenientMiss) {
