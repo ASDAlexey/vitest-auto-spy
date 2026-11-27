@@ -1,0 +1,10 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { createDouble } from '../fixtures/double-factory';
+
+describe('suite START', () => {
+  let double: ReturnType<typeof createDouble>;
+  beforeEach(() => {
+    double = createDouble();
+  });
+TESTS
+});
