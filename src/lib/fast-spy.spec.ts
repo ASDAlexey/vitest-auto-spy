@@ -13,6 +13,7 @@ import { type Mock, type MockInstance, describe, expect, it, vi } from 'vitest';
 
 import { type FastSpy, clearAllFastSpies, createFastSpy, resetAllFastSpies } from './fast-spy';
 import { INCOMPLETE_RESULT } from './fast-spy.mock';
+import { markAsMock } from './spy-mark';
 import { isFastSpy } from './spy-probe';
 
 /**
@@ -50,6 +51,50 @@ describe('createFastSpy', () => {
     expect(ours.mock.instances).toEqual(theirs.mock.instances);
     expect(ours.mock.lastCall).toEqual(theirs.mock.lastCall);
     expect(ours.mock.invocationCallOrder).toHaveLength(1);
+  });
+
+  it('updates the live result in place as a call returns or throws', () => {
+    const spy = createFastSpy();
+    const { results, invocationCallOrder } = spy.mock;
+    const fail = new Error('failed');
+    spy.mockImplementation(() => {
+      expect(results.at(-1)).toStrictEqual(INCOMPLETE_RESULT);
+      return 'done';
+    });
+    spy();
+    spy.mockThrowOnce(fail);
+    expect(() => spy()).toThrow(fail);
+
+    expect(results).toStrictEqual([
+      { type: 'return', value: 'done' },
+      { type: 'throw', value: fail },
+    ]);
+    expect(invocationCallOrder[1]).toBe((invocationCallOrder[0] ?? 0) + 1);
+  });
+
+  it('keeps queued answers ahead of a later one-time throw', () => {
+    const spy = createFastSpy().mockReturnValue('default').mockReturnValueOnce('first').mockThrowOnce(new Error('second'));
+
+    expect(spy()).toBe('first');
+    expect(() => spy()).toThrow('second');
+    expect(spy()).toBe('default');
+  });
+
+  it('names the operation that replaces or restores a marked implementation', () => {
+    const spy = createFastSpy();
+    const replaced = vi.fn();
+    markAsMock(spy, { clear: () => undefined, reset: () => undefined, implementationReplaced: replaced });
+    spy.mockReturnThis().mockRejectedValue('error').mockReset();
+
+    expect(replaced.mock.calls.map(([, via]) => via)).toEqual(['mockReturnThis', 'mockRejectedValue', 'mockReset']);
+  });
+
+  it('supports a marked spy that has no implementation hook', () => {
+    const spy = createFastSpy(() => 'base');
+    markAsMock(spy, { clear: () => undefined, reset: () => undefined });
+
+    expect(spy.mockReturnValue('other')()).toBe('other');
+    expect(spy.mockReset()()).toBe('base');
   });
 
   it('satisfies the call matchers', () => {
@@ -316,6 +361,45 @@ describe('the configured-value helpers', () => {
     );
   });
 
+  it('preserves the replacement class prototype as vi.fn does', () => {
+    class Client {
+      ping(): string {
+        return 'pong';
+      }
+    }
+
+    const theirs = vi.fn<typeof Client>().mockImplementation(Client);
+    const ours = createFastSpy().mockImplementation(Client as unknown as () => Client);
+    const expected = new theirs();
+    const actual = new (ours as unknown as typeof Client)();
+
+    expect([actual instanceof Client, actual.ping?.()]).toEqual([expected instanceof Client, expected.ping()]);
+  });
+
+  it('does not rewrite a prototype that already inherits from the implementation', () => {
+    function Client(): void {}
+    const spy = createFastSpy(Client);
+    spy.prototype = new Proxy(Object.create(Client.prototype) as object, { setPrototypeOf: () => false });
+
+    expect(Reflect.construct(spy, [])).toBeInstanceOf(Client);
+  });
+
+  it('can construct with a shared or missing spy prototype', () => {
+    function Client(): void {}
+    const spy = createFastSpy(Client);
+    spy.prototype = Client.prototype;
+    expect(Reflect.construct(spy, [])).toBeInstanceOf(Client);
+    spy.prototype = null;
+    expect(Object.getPrototypeOf(Reflect.construct(spy, []))).toBe(Object.prototype);
+  });
+
+  it('uses the spy prototype without a constructor override as vi.fn does', () => {
+    const theirs = vi.fn();
+    const ours = createFastSpy();
+
+    expect(Reflect.construct(ours, []) instanceof ours).toBe(Reflect.construct(theirs, []) instanceof theirs);
+  });
+
   it('constructs an instance of the spy when called with `new`, configured or not', () => {
     const bare = createFastSpy();
     const instance = new (bare as unknown as new () => object)();
@@ -345,12 +429,12 @@ describe('the configured-value helpers', () => {
 
     expect(spy()).toBe('base');
 
-    await spy.withImplementation(
+    const pending = spy.withImplementation(
       () => 'async',
-      async () => {
-        expect(spy()).toBe('async');
-      },
+      () => Promise.resolve(),
     );
+    expect(spy()).toBe('async');
+    await pending;
 
     expect(spy()).toBe('base');
   });

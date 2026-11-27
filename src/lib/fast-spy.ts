@@ -688,25 +688,28 @@ function settleInto(settled: RecordedResult, returned: unknown): void {
 }
 
 /** Run whatever the next call is configured to run. */
-function callThrough(config: FastSpyConfig, thisArg: unknown, args: unknown[], newTarget: Func | undefined): unknown {
+function callThrough(spy: FastSpy, thisArg: unknown, args: unknown[], newTarget: Func | undefined): unknown {
+  const config = spy[CONFIG];
   const implementation = config.onceImplementations?.shift() ?? config.implementation;
 
-  // `Object` as the stand-in when nothing is configured: constructed against the spy as its
-  // `new.target`, it yields a plain instance of the spy, which is what the runner's mock yields.
-  return newTarget ? Reflect.construct(implementation ?? Object, args, newTarget) : implementation?.apply(thisArg, args);
+  if (!newTarget) {
+    return implementation?.apply(thisArg, args);
+  }
+
+  const parent: object = implementation?.prototype ?? Object.prototype;
+
+  if (spy.prototype && spy.prototype !== parent && Object.getPrototypeOf(spy.prototype) !== parent) {
+    Object.setPrototypeOf(spy.prototype, parent);
+  }
+
+  return Reflect.construct(implementation ?? Object, args, newTarget);
 }
 
 /**
  * One call of a spy on a state something has read: record both entries as objects and complete
  * them in place, as the runner does.
  */
-function invokeLive(
-  config: FastSpyConfig,
-  state: FastMockStateImpl,
-  thisArg: unknown,
-  args: unknown[],
-  newTarget: Func | undefined,
-): unknown {
+function invokeLive(spy: FastSpy, state: FastMockStateImpl, thisArg: unknown, args: unknown[], newTarget: Func | undefined): unknown {
   const result: RecordedResult = { type: 'incomplete', value: undefined };
   const settled: RecordedResult = { type: 'incomplete', value: undefined };
 
@@ -715,7 +718,7 @@ function invokeLive(
   let returned: unknown;
 
   try {
-    returned = callThrough(config, thisArg, args, newTarget);
+    returned = callThrough(spy, thisArg, args, newTarget);
   } catch (error) {
     result.type = 'throw';
     result.value = error;
@@ -755,7 +758,7 @@ function invoke(spy: FastSpy, thisArg: unknown, args: unknown[], newTarget: Func
 
   // Two paths rather than one with branches: sharing one let a spy that is never read slow down every read one.
   if (state.live) {
-    return invokeLive(config, state, thisArg, args, newTarget);
+    return invokeLive(spy, state, thisArg, args, newTarget);
   }
 
   const index = state.recordedCalls.length;
@@ -766,7 +769,7 @@ function invoke(spy: FastSpy, thisArg: unknown, args: unknown[], newTarget: Func
   let returned: unknown;
 
   try {
-    returned = callThrough(config, thisArg, args, newTarget);
+    returned = callThrough(spy, thisArg, args, newTarget);
   } catch (error) {
     // A read inside the call may have made the state live and derived this entry as incomplete.
     const settled = state.complete(index, true, error);
