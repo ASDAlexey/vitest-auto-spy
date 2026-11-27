@@ -62,6 +62,20 @@ describe('calledWith(…).once() / .times(n)', () => {
     expect([load(5), load(6)]).toEqual(['first', 'any']);
   });
 
+  it('does not consume a strict answer when the ID after a large shared object differs', () => {
+    const key = (id: number) => {
+      const part = { body: 'x'.repeat(51_000) };
+
+      return { a: part, b: part, query: { id } };
+    };
+    const load = createFunctionSpy<(arg: ReturnType<typeof key>) => string>('load');
+
+    load.mustBeCalledWith(key(1)).once().returnValue('one');
+
+    expect(() => load(key(2))).toThrow(/matches none of its configs/);
+    expect(load(key(1))).toBe('one');
+  });
+
   it('fails a mustBeCalledWith call past its count', () => {
     const load = createFunctionSpy<(id: number) => string>('load');
 
