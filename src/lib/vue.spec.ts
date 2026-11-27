@@ -1,13 +1,5 @@
-/**
- * The Vue / Pinia recipe, proven runnable on Vitest. The headline use case is
- * spying a class-based Pinia store's actions; the same pattern covers a
- * class-based service injected via `provide`/`inject`.
- *
- * No `vue` / `pinia` / `@vue/test-utils` imports: the recipe is dependency-free,
- * and the Vue glue (`mount`, `global.provide`, `defineStore`) is illustrative,
- * not under test. The `provideAutoSpy` helper *is* under test here.
- */
 import { describe, expect, it, vi } from 'vitest';
+import { type InjectionKey, createApp, inject } from 'vue';
 
 import { createSpyFromClass } from './create-spy-from-class';
 import { registerMockAdapter } from './mock-adapter';
@@ -82,6 +74,24 @@ describe('Vue / Pinia recipe — spy the store/service, not the component', () =
 
     expect(store.addItem).toHaveBeenCalledTimes(1);
     expect(store.addItem).toHaveBeenCalledWith('SKU-1', 2);
+  });
+
+  it('injects the same spies under two Vue injection keys', () => {
+    const usersKey: InjectionKey<UserService> = Symbol('users');
+    const cartKey: InjectionKey<CartStore> = Symbol('cart');
+    const users = createSpyFromClass(UserService);
+    const cart = createSpyFromClass(CartStore);
+    const provide = { [usersKey]: users, [cartKey]: cart };
+    const app = createApp({});
+
+    for (const key of Object.getOwnPropertySymbols(provide)) {
+      app.provide(key, provide[key]);
+    }
+
+    app.runWithContext(() => {
+      expect(inject(usersKey)).toBe(users);
+      expect(inject(cartKey)).toBe(cart);
+    });
   });
 
   it('provideAutoSpy builds a global.provide entry keyed by the injection token', () => {

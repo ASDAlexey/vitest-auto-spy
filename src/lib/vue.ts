@@ -16,15 +16,15 @@ import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './
 export type VueInjectionToken = string | symbol;
 
 /** A `global.provide` map: `{ [token]: Spy<T> }`, spreadable into `@vue/test-utils`'s `global.provide`. */
-export type VueProvideSpy<Token extends VueInjectionToken, T> = Record<Token, Spy<T>>;
+export type VueProvideSpy<Token extends VueInjectionToken, T> = Token extends VueInjectionToken ? Record<Token, Spy<T>> : never;
 
 /**
  * Build a `@vue/test-utils` `global.provide` entry whose value is a fully-typed
  * auto-spy of `ObjectClass`.
  *
  * ```ts
- * const provide = provideAutoSpy(UserServiceKey, UserService);
- * provide[UserServiceKey].getName.mockReturnValue('Fake');
+ * const provide = provideAutoSpy('users', UserService);
+ * provide.users.getName.mockReturnValue('Fake');
  * mount(Cmp, { global: { provide } });
  * ```
  */
@@ -34,6 +34,6 @@ export function provideAutoSpy<Token extends VueInjectionToken, T = any>(
   ObjectClass: ClassType<T>,
   methodsToSpyOnOrConfig?: FromClassOnly<T, ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[]>,
 ): VueProvideSpy<Token, T> {
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a single-key computed-property object is `Record<Token, Spy<T>>` by construction, but TS widens the literal to `{ [x: string]: Spy<T> }` and cannot prove the exact `Token` key without the assertion.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- TypeScript widens the computed key instead of preserving the one selected token.
   return { [token]: createSpyFromClass(ObjectClass, methodsToSpyOnOrConfig) } as VueProvideSpy<Token, T>;
 }
