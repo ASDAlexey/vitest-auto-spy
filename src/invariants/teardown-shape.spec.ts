@@ -1,32 +1,10 @@
-/**
- * Architecture invariant: the teardown path's cost grows with the number of doubles at worst
- * linearly. Run with `npm run test:invariants`.
- *
- * Teardown is the one part of a spy library that every test pays for and no test measures, and it is
- * where an accidental quadratic hides best: a per-spy reset that also walks a registry of every spy
- * in the run looks correct, passes every behavioural test, and turns a suite of 5 000 doubles into a
- * suite that takes minutes to tear down. The two paths measured here are the two a consumer can
- * reach: the run-wide sweep (`vi.clearAllMocks()`, which `clearMocks: true` also goes through) and
- * this library's own per-spy `resetAutoSpy`.
- *
- * The assertion is **shape, not magnitude** — the ratio between the cost at N and at 4N, from the
- * same process, in the same interleaved sampling loop. Linear lands near 4, quadratic near 16, and
- * anything below {@link MAX_GROWTH} is a curve a suite can live with. No millisecond figure appears
- * in an assertion, because on a shared CI runner a millisecond figure is a measurement of the
- * runner.
- *
- * The ratio is taken **per rep and then reduced**, not by dividing the two medians. The two sizes of
- * one rep are adjacent in time and so share whatever the scheduler was doing; dividing medians
- * compares two samples that need not, and a busy runner then lands on the larger size as growth it
- * did not cause. Measured across one idle and three deliberately loaded runs, dividing the medians
- * spread 4.18–5.26 and reached 6.37 on a 16-slot audit box, while the median of the per-rep ratios
- * stayed within 4.05–4.55. A quadratic path is ~16× in every rep, so no power is lost.
- */
+import { setImmediate } from 'node:timers/promises';
 import { describe, expect, it, vi } from 'vitest';
 
 // The public entry, not `src/lib/*` — importing it is what registers the default Vitest mock
 // adapter, so the doubles here are built exactly as a consumer's are.
 import { createSpyFromClass, resetAutoSpy } from '../index';
+import { captureMockRegistry, pruneMockRegistry } from '../setup';
 
 type AnyMethods = Record<string, (...args: unknown[]) => unknown>;
 type ClassWithMethods = new () => AnyMethods;
@@ -44,16 +22,6 @@ const REPS = 9;
 
 /** Samples discarded first — JIT tiering, inline caches and the first pass over cold memory. */
 const WARMUP_REPS = 3;
-
-/**
- * How many run-wide sweeps one `clearAllMocks` sample performs.
- *
- * The sweep is meant to be O(1) in the number of doubles — an integer epoch bump plus a walk of the
- * runner's own registry — so a single call lands near the resolution of `performance.now()`, where a
- * ratio is a measurement of the clock. Repeating it lifts the sample into milliseconds without
- * changing what is being compared.
- */
-const CLEAR_SWEEPS = 50_000;
 
 /**
  * Ceiling on time(4N) / time(N).
@@ -104,11 +72,7 @@ interface Arm {
 const ARMS: readonly Arm[] = [
   {
     label: 'vi.clearAllMocks() (run-wide sweep)',
-    tearDown: () => {
-      for (let sweep = 0; sweep < CLEAR_SWEEPS; sweep += 1) {
-        vi.clearAllMocks();
-      }
-    },
+    tearDown: () => vi.clearAllMocks(),
   },
   {
     label: 'resetAutoSpy() per double',
@@ -126,21 +90,30 @@ function median(values: readonly number[]): number {
   return sorted[Math.floor(sorted.length / 2)] ?? 0;
 }
 
-function timeOnce(arm: Arm, doubles: readonly AnyMethods[]): number {
+async function timeOnce(arm: Arm, WideClass: ClassWithMethods, count: number): Promise<number> {
+  await setImmediate();
+  pruneMockRegistry();
+  vi.clearAllMocks();
+  globalThis.gc?.();
+  const doubles = buildPopulation(WideClass, count);
+  const probe = doubles.at(-1)?.['m0'];
+  expect(probe).toHaveBeenCalledExactlyOnceWith(count - 1);
   const started = performance.now();
 
   arm.tearDown(doubles);
 
-  return performance.now() - started;
+  const elapsed = performance.now() - started;
+  expect(probe).not.toHaveBeenCalled();
+
+  return elapsed;
 }
 
 describe('architecture invariant: teardown shape', () => {
   const WideClass = makeWideClass(METHOD_COUNT);
-  const small = buildPopulation(WideClass, SMALL_COUNT);
-  const large = buildPopulation(WideClass, LARGE_COUNT);
+  captureMockRegistry();
 
   for (const arm of ARMS) {
-    it(`grows no worse than linearly from ${SMALL_COUNT} to ${LARGE_COUNT} doubles — ${arm.label}`, () => {
+    it(`grows no worse than linearly from ${SMALL_COUNT} to ${LARGE_COUNT} doubles — ${arm.label}`, async () => {
       const smallSamples: number[] = [];
       const largeSamples: number[] = [];
       const ratios: number[] = [];
@@ -148,8 +121,10 @@ describe('architecture invariant: teardown shape', () => {
       // Interleaved rather than one size after the other: a runner that slows down midway through
       // would otherwise land entirely on whichever size was measured last, and show up as growth.
       for (let rep = 0; rep < WARMUP_REPS + REPS; rep += 1) {
-        const smallMs = timeOnce(arm, small);
-        const largeMs = timeOnce(arm, large);
+        const smallFirst = rep % 2 === 0;
+        const first = await timeOnce(arm, WideClass, smallFirst ? SMALL_COUNT : LARGE_COUNT);
+        const second = await timeOnce(arm, WideClass, smallFirst ? LARGE_COUNT : SMALL_COUNT);
+        const [smallMs, largeMs] = smallFirst ? [first, second] : [second, first];
 
         if (rep >= WARMUP_REPS) {
           smallSamples.push(smallMs);
