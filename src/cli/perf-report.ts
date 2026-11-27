@@ -7,7 +7,7 @@ import type { BaselineRequest, GateRequest, PerfAnalysis, PerfOptions } from './
 import type { PerfBaseline } from './perf-baseline';
 import { baselineDrift, baselineRegressions, buildBaseline, readBaseline, writeBaseline } from './perf-baseline';
 import type { PerfConfig, PerfFile, PerfRun, PerfRunEnd, Phase } from './perf-data';
-import { formatMs, testsRunOf } from './perf-data';
+import { formatMs, measurementOf, testsRunOf } from './perf-data';
 import type { GateCandidate, GateOptions, GateRow } from './perf-gate';
 import { GATE_DEFAULTS, measuredFiles, medianFileMs, medianTestMs } from './perf-gate';
 import { HISTORY_LIMIT, appendHistory, historyCandidates, historyEntry, isHistoryPath } from './perf-history';
@@ -47,7 +47,7 @@ export function baselineCandidates(run: PerfRun, cwd: string, request: BaselineR
     return [];
   }
 
-  const median = medianFileMs(measuredFiles(run, cwd).values());
+  const median = medianFileMs(measuredFiles(run, cwd, true).values());
   const drift = baselineDrift(run, cwd, baseline);
 
   if (drift.added.length > 0 || drift.missing.length > 0) {
@@ -59,6 +59,7 @@ export function baselineCandidates(run: PerfRun, cwd: string, request: BaselineR
   return baselineRegressions(run, cwd, baseline, request.options).map((regression) => ({
     check: 'perf-gate-regression' as const,
     file: regression.file,
+    ...(regression.project ? { project: regression.project } : {}),
     ms: regression.ms,
     budget: Math.max(request.options.floorMs, regression.wasRatio * request.options.factor * median),
     grewBy: regression.grewBy,
@@ -169,13 +170,13 @@ function withoutFetch(row: PerfFile, fetch: number): { import: number; setup: nu
 }
 
 function slowestFiles(run: PerfRun, cwd: string, top: number | undefined): SlowFile[] {
-  return [...measuredFiles(run, cwd)]
+  return [...measuredFiles(run, cwd, true)]
     .map(([file, row]) => {
       const phases = { environment: row.environment, prepare: row.prepare, setup: row.setup, import: row.imports, tests: row.tests };
       const totalMs = Object.values(phases).reduce((sum, ms) => sum + ms, 0);
 
       return {
-        file,
+        ...measurementOf(file),
         totalMs,
         tests: row.testCount,
         phases: row.fetch === undefined ? phases : { ...phases, ...withoutFetch(row, row.fetch) },
@@ -209,7 +210,7 @@ function runExtras(run: PerfRun, analysis: PerfAnalysis, source: PerfSource): Pa
  */
 export function perfJson(source: PerfSource, profile: Profile, options: PerfOptions, collected: Collected, exitCode: number): PerfDocument {
   const gate = budgetsOf(options);
-  const measured = collected.run === undefined ? [] : [...measuredFiles(collected.run, profile.cwd).values()];
+  const measured = collected.run === undefined ? [] : [...measuredFiles(collected.run, profile.cwd, true).values()];
 
   return {
     schema: REPORT_SCHEMA,

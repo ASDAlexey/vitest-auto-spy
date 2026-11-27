@@ -24,6 +24,7 @@ import {
   PERF_ISOLATE_ENV,
   PERF_OUTPUT_ENV,
   PERF_PROFILE_ENV,
+  measurementKey,
 } from './perf-data';
 
 /** Vitest keeps the slowest modules of the whole worker; this many leaves room for the spec's own imports among them. */
@@ -95,6 +96,7 @@ export interface PerfTestCollection {
 
 export interface PerfTestModule {
   readonly moduleId: string;
+  readonly project?: { readonly name: string };
   diagnostic(): PerfDiagnostic;
   readonly children?: PerfTestCollection;
   /** Vitest's own "did everything in this file pass". Absent on a runner that does not expose it. */
@@ -393,6 +395,7 @@ function toPerfFile(module: PerfTestModule, setupFiles: ReadonlySet<string>): Pe
 
   return {
     file: module.moduleId,
+    ...(module.project?.name ? { project: module.project.name } : {}),
     environment: diagnostic.environmentSetupDuration,
     prepare: diagnostic.prepareDuration,
     setup: diagnostic.setupDuration,
@@ -546,7 +549,7 @@ export default class PerfReporter {
       return;
     }
 
-    this.#finished.set(module.moduleId, module);
+    this.#finished.set(measurementKey(module.moduleId, module.project?.name), module);
     this.#lastModuleEnd = Date.now();
 
     const wait = this.#lastWrite + PARTIAL_WRITE_MS - Date.now();

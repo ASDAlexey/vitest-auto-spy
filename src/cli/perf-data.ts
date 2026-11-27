@@ -76,7 +76,18 @@ export interface PerfHeapStep {
 /** How Vitest said the run ended. `interrupted` is a cancelled run: Ctrl-C, `--bail`, a signal. */
 export type PerfRunEnd = 'failed' | 'interrupted' | 'passed';
 
+export function measurementKey(file: string, project?: string): string {
+  return project ? `${file}\0${project}` : file;
+}
+
+export function measurementOf(key: string): { file: string; project?: string } {
+  const separator = key.indexOf('\0');
+
+  return separator < 0 ? { file: key } : { file: key.slice(0, separator), project: key.slice(separator + 1) };
+}
+
 export interface PerfFile {
+  readonly project?: string;
   /** Absolute module id, exactly as Vitest reported it. */
   readonly file: string;
   readonly environment: number;
@@ -259,6 +270,8 @@ function parseFile(value: unknown): PerfFile | undefined {
 
   return {
     file: value['file'],
+    ...(typeof value['project'] === 'string' && value['project'] !== '' ? { project: value['project'] } : {}),
+    ...(typeof value['configFile'] === 'string' ? { configFile: value['configFile'] } : {}),
     environment: numberAt(value, 'environment') ?? 0,
     prepare: numberAt(value, 'prepare') ?? 0,
     setup: numberAt(value, 'setup') ?? 0,

@@ -20,6 +20,14 @@ const rows: GateRow[] = [
 ];
 
 describe('formatVerdict', () => {
+  it('labels the project separately from the spec path', () => {
+    expect(
+      formatVerdict(
+        [{ check: 'perf-gate-slow-file', file: 'same.ts', project: 'dom', budget: 1, ms: 2, outcome: 'confirmed' }],
+        MONOCHROME,
+      ).join(' '),
+    ).toContain('[dom] same.ts');
+  });
   it('prints one row per candidate: both readings, the budget, what the gate made of it, and where', () => {
     expect(formatVerdict(rows, MONOCHROME)).toEqual([
       'perf gate verdict — 4 judged, 2 fail the run',

@@ -26,7 +26,7 @@ import type { GateScope } from './perf-attribution';
 import { describeScope, verdictPolicy } from './perf-attribution';
 import type { BaselineOptions } from './perf-baseline';
 import type { PerfContext } from './perf-builder';
-import { builderImport, perfContext } from './perf-builder';
+import { perfContext } from './perf-builder';
 import {
   DOMINATES,
   domEngineFindings,
@@ -36,16 +36,25 @@ import {
   vitestDoctorFindings,
   workerFindings,
 } from './perf-config';
-import type { PerfFile, PerfImport, PerfRun, Phase } from './perf-data';
-import { CASES_PER_FILE, formatMs, formatShare, measuredNothing, phasesOf, shareOf, testsRunOf, totalOf } from './perf-data';
+import type { PerfRun, Phase } from './perf-data';
+import { formatMs, formatShare, measuredNothing, measurementKey, phasesOf, shareOf, testsRunOf, totalOf } from './perf-data';
 import { LIST_LIMIT, environmentFindings, remainder } from './perf-environment';
-import { formatEvidence } from './perf-evidence';
+import { evidenceImports, formatEvidence } from './perf-evidence';
 import type { GateCandidate, GateOptions, GateRow } from './perf-gate';
-import { fastestPass, gateCandidates, gateVerdict, isJudged, measuredFiles, medianFileMs, medianTestMs, suspectFiles } from './perf-gate';
+import {
+  fastestPass,
+  gateCandidates,
+  gateVerdict,
+  isJudged,
+  measuredFiles,
+  medianFileMs,
+  medianTestMs,
+  scopeConfirmation,
+  suspectFiles,
+} from './perf-gate';
 import type { LaneSummary } from './perf-lanes';
 import { formatLanes, lanesOf, longPoleFindings } from './perf-lanes';
 import type { ProfileSummary } from './perf-profile';
-import { packageOf } from './perf-profile';
 import type { Collected } from './perf-report';
 import { baselineCandidates, budgetsOf, perfJson, recordBaseline, tableBaseline } from './perf-report';
 import type { PerfMeasured, PerfSource, Remeasure } from './perf-run';
@@ -334,19 +343,13 @@ function confirmOnce(gate: GateRequest, suspects: readonly string[], cwd: string
     return undefined;
   }
 
-  const measured = [...measuredFiles(second.run, cwd).keys()];
-  const asked = new Set(suspects);
-  const extra = measured.filter((path) => !asked.has(path));
+  const checked = scopeConfirmation(second, suspects, cwd);
 
-  if (extra.length > 0) {
-    io.err(
-      `\nwarning  The confirmation pass measured ${measured.length} files when it was asked for ${suspects.length} — the command ignored the paths it was given, so this was the same crowded run again and confirms nothing. Put {paths} (or {paths:<prefix>}) where the command takes its file filter.`,
-    );
-
+  if (typeof checked === 'string') {
+    io.err(checked);
     return undefined;
   }
-
-  return second;
+  return checked;
 }
 
 /**
@@ -383,9 +386,10 @@ function withEvidence(
   context: PerfContext,
 ): Finding {
   const spec = finding.file;
-  const firstFiles = measuredFiles(first, cwd);
-  const before = spec === undefined ? undefined : firstFiles.get(spec);
-  const after = spec === undefined || second === undefined ? undefined : measuredFiles(second.run, cwd).get(spec);
+  const firstFiles = measuredFiles(first, cwd, true);
+  const before = spec === undefined ? undefined : firstFiles.get(measurementKey(spec, row.project));
+  const after =
+    spec === undefined || second === undefined ? undefined : measuredFiles(second.run, cwd, true).get(measurementKey(spec, row.project));
 
   if (spec === undefined || finding.severity !== 'error' || before === undefined || after === undefined || row.again === undefined) {
     return finding;
@@ -396,7 +400,9 @@ function withEvidence(
     .sort((a, b) => b.ms - a.ms || a.name.localeCompare(b.name))
     .slice(0, 5)
     .map((entry) => ({ name: shortName(entry.name), ms: entry.ms }));
-  const profile = [...(second?.profiles ?? new Map<string, ProfileSummary>())].find(([path]) => toPosix(relative(cwd, path)) === spec);
+  const profile = [...(second?.profiles ?? new Map<string, ProfileSummary>())].find(
+    ([path]) => toPosix(relative(cwd, path)) === measurementKey(spec, row.project),
+  );
   const imports = evidenceImports(after, spec, cwd, context);
   const details = formatEvidence(
     {
@@ -417,31 +423,6 @@ function withEvidence(
 }
 
 /** What a reader needs beside an import's total: that a setup file made it, and how much of it is its own evaluation. */
-function importNote(entry: PerfImport, setup: boolean): string {
-  const notes = [
-    ...(setup ? ['setup file'] : []),
-    ...(entry.self === undefined || entry.self >= entry.ms ? [] : [`self ${formatMs(entry.self)}`]),
-  ];
-
-  return notes.length === 0 ? '' : ` · ${notes.join(', ')}`;
-}
-
-/** The spec's own imports and its setup files' chain together, heaviest first: both are paid inside this file. */
-function evidenceImports(after: PerfFile, spec: string, cwd: string, context: PerfContext): { name: string; ms: number }[] {
-  return [
-    ...(after.slowImports ?? []).map((entry) => ({ entry, setup: false })),
-    ...(after.setupImports ?? []).map((entry) => ({ entry, setup: true })),
-  ]
-    .sort((a, b) => b.entry.ms - a.entry.ms || a.entry.module.localeCompare(b.entry.module))
-    .slice(0, CASES_PER_FILE)
-    .flatMap(({ entry, setup }) => {
-      const named = packageOf(entry.module) ?? toPosix(relative(cwd, entry.module));
-      const name = context.builder === undefined ? named : builderImport(toPosix(entry.module), spec, named);
-
-      return name === undefined ? [] : [{ name: `${name}${importNote(entry, setup)}`, ms: entry.ms }];
-    });
-}
-
 /** The `--gate-only` entries that matched no measured file. A list that matches nothing judges nothing. */
 function unmatchedScope(run: PerfRun, cwd: string, only: readonly string[]): string[] {
   const paths = [...measuredFiles(run, cwd).keys()];
@@ -515,7 +496,7 @@ function reportHotspots(source: PerfMeasured, cwd: string, options: PerfOptions,
     ...(baseline === undefined ? {} : { baseline }),
   });
 
-  io.out(`\n${budgetLine(gate, medianTestMs(measuredFiles(source.run, cwd).values()), outputWidth()).join('\n')}`);
+  io.out(`\n${budgetLine(gate, medianTestMs(measuredFiles(source.run, cwd, true).values()), outputWidth()).join('\n')}`);
 
   if (hotspots !== '') {
     io.out(`\n${hotspots}`);
@@ -556,6 +537,18 @@ function renderInto(source: PerfSource, profile: Profile, io: CliIo, options: Pe
     return PERF_NO_MEASUREMENT;
   }
 
+  if (source.ambiguousFiles !== undefined) {
+    io.err(
+      `warning  Repeated rows without project names in the same report: ${source.ambiguousFiles.join(', ')}. Only one measurement per path was kept. Record a new report with named projects before gating it.`,
+    );
+
+    if (options.gate !== undefined) {
+      collected.gate = 'refused';
+
+      return PERF_NO_MEASUREMENT;
+    }
+  }
+
   if (measuredNothing(source.run)) {
     io.err(describeEmptyRun(source.run));
 
@@ -590,7 +583,7 @@ function renderInto(source: PerfSource, profile: Profile, io: CliIo, options: Pe
 function reportMeasured(source: PerfMeasured, profile: Profile, io: CliIo, options: PerfOptions, collected: Collected): number {
   const context = perfContext(profile, source.command);
   const analysis = withAbIsolate(analysePerf(source.run, profile, options.failOnFlaky === true, context), source, options, io);
-  const measured = [...measuredFiles(source.run, profile.cwd).values()];
+  const measured = [...measuredFiles(source.run, profile.cwd, true).values()];
 
   collected.analysis = analysis;
   collected.run = source.run;

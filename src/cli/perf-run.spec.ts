@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { writeTextFile } from './fs-scan';
 import type { PerfRun } from './perf-data';
-import { PERF_OUTPUT_ENV } from './perf-data';
+import { PERF_OUTPUT_ENV, measurementKey, parsePerfRun } from './perf-data';
 import { file, run } from './perf-fixtures';
 import { mergeRuns } from './perf-merge';
 import type { PerfRunOptions, Spawn, SpawnRequest } from './perf-run';
@@ -198,6 +198,23 @@ describe('perfRemeasure, a report handed over without --command', () => {
     expect(second?.ok === false ? second.error : '').toContain(
       `The report was measured with the Vitest config vitest.config.ts, and there is no such file in ${root}.`,
     );
+  });
+
+  it('runs each named project under its recorded config with the physical spec path', () => {
+    const root = repo();
+    const path = 'same.spec.ts';
+    const projects = ['node', 'dom'];
+    const recorded = run({ root, files: projects.map((project) => file(join(root, path), { project, configFile: 'vitest.config.ts' })) });
+    expect(parsePerfRun(JSON.stringify(recorded))?.files).toEqual(recorded.files);
+    const seen: string[][] = [];
+    const keys = projects.map((project) => measurementKey(path, project));
+
+    expect(perfRemeasure(options(root), vitest(root, seen), root, recorded)?.(keys)?.ok).toBe(true);
+    expect(seen).toHaveLength(2);
+    for (const [index, args] of seen.entries()) {
+      expect(args).toContain(`--project=${projects[index]}`);
+      expect(args.at(-1)).toBe(path);
+    }
   });
 
   it('refuses a suspect whose report recorded no config, and stops at the first run that could not', () => {

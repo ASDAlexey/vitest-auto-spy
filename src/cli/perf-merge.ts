@@ -44,7 +44,8 @@ import { isAbsolute, join } from 'node:path';
 
 import { isDirectory, listRepositoryFiles, readTextFile, toPosix } from './fs-scan';
 import type { PerfFile, PerfRun, PerfRunEnd } from './perf-data';
-import { PERF_FORMAT_VERSION, formatMs, parsePerfRun } from './perf-data';
+import { PERF_FORMAT_VERSION, formatMs, measurementKey, parsePerfRun } from './perf-data';
+import { pathInsideRoot, pathsOf } from './report-relative-path';
 
 export interface MergeInput {
   readonly path: string;
@@ -55,6 +56,7 @@ export interface MergeResult {
   readonly run: PerfRun;
   /** Files that appeared in more than one report, with the reports that carried them. */
   readonly duplicates: readonly string[];
+  readonly ambiguousFiles: readonly string[];
   /** Reports that contributed no file at all. */
   readonly empty: readonly string[];
 }
@@ -66,17 +68,15 @@ function fileTotal(file: PerfFile): number {
 
 /** Trailing separators off, so a report rooted at `/repo/` and one at `/repo` share a root. */
 function trimRoot(root: string): string {
-  return root.replace(/[/\\]+$/, '');
+  const base = pathsOf(root).parse(root).root;
+
+  return root.slice(0, base.length) + root.slice(base.length).replace(/[/\\]+$/, '');
 }
 
 function reroot(path: string, from: string, to: string): string {
-  if (from === '' || from === to || !path.startsWith(from)) {
-    return path;
-  }
+  const local = pathInsideRoot(from, path);
 
-  const rest = path.slice(from.length);
-
-  return rest.startsWith('/') || rest.startsWith('\\') ? `${to}${rest}` : path;
+  return local === undefined ? path : pathsOf(to).join(to, local);
 }
 
 /** The worst ending wins: one interrupted shard makes the merged run one that did not finish. */
@@ -129,6 +129,7 @@ function mergedRun(inputs: readonly MergeInput[]): Omit<PerfRun, 'files' | 'root
 export function mergeRuns(inputs: readonly MergeInput[]): MergeResult {
   const root = trimRoot(inputs.find((input) => input.run.root !== '')?.run.root ?? '');
   const kept = new Map<string, PerfFile>();
+  const ambiguousFiles = new Set<string>();
   const carriedBy = new Map<string, string[]>();
   const empty: string[] = [];
   const offset: Ids = { workerId: 0, lane: 0 };
@@ -147,18 +148,26 @@ export function mergeRuns(inputs: readonly MergeInput[]): MergeResult {
       const path = reroot(file.file, from, root);
       const placed = { ...file, file: path, ...(configFile === undefined ? {} : { configFile }) };
       const moved = shifted(placed, shift, offset);
-      const previous = kept.get(path);
+      const key = measurementKey(path, file.project);
+      const previous = kept.get(key);
 
-      carriedBy.set(path, [...(carriedBy.get(path) ?? []), input.path]);
+      const reports = carriedBy.get(key) ?? [];
+
+      if (reports.at(-1) !== input.path) {
+        carriedBy.set(key, [...reports, input.path]);
+      } else if (file.project === undefined) {
+        ambiguousFiles.add(path);
+      }
 
       if (previous === undefined || fileTotal(moved) > fileTotal(previous)) {
-        kept.set(path, moved);
+        kept.set(key, moved);
       }
     }
   }
 
   return {
     run: { ...mergedRun(inputs), root, files: [...kept.values()].sort((a, b) => a.file.localeCompare(b.file)) },
+    ambiguousFiles: [...ambiguousFiles].sort(),
     duplicates: duplicatesOf(carriedBy),
     empty: empty.sort(),
   };
@@ -185,7 +194,7 @@ function shifted(file: PerfFile, by: Readonly<Ids>, next: Ids): PerfFile {
 function duplicatesOf(carriedBy: ReadonlyMap<string, readonly string[]>): string[] {
   return [...carriedBy]
     .filter(([, paths]) => paths.length > 1)
-    .map(([path, paths]) => `${path} (${paths.join(', ')})`)
+    .map(([path, paths]) => `${path.replace('\0', ' · ')} (${paths.join(', ')})`)
     .sort();
 }
 

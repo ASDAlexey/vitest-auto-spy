@@ -27,7 +27,9 @@ function where(row: GateRow): string {
     return '(the whole run)';
   }
 
-  return row.name === undefined ? row.file : `${row.file} › ${shortName(row.name)}`;
+  const label = row.project ? `[${row.project}] ${row.file}` : row.file;
+
+  return row.name === undefined ? label : `${label} › ${shortName(row.name)}`;
 }
 
 export function formatVerdict(rows: readonly GateRow[], paint: Painter): string[] {

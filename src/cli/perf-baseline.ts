@@ -30,6 +30,7 @@
  *   ratchet quiet about a fast suite's own fastest outlier.
  */
 import { parseJsonc, readTextFile, writeTextFile } from './fs-scan';
+import { measurementOf } from './perf-data';
 import type { PerfFile, PerfRun } from './perf-data';
 import { measuredFiles, medianFileMs } from './perf-gate';
 import { isRecord } from './profile';
@@ -59,6 +60,7 @@ export interface PerfBaseline {
 
 /** One file that got slower relative to its own run, which is the only kind of slower that travels. */
 export interface BaselineRegression {
+  readonly project?: string;
   /** Repository-relative path, the same key the baseline is written with. */
   readonly file: string;
   /** What this run measured for the file's test bodies, in ms. */
@@ -119,7 +121,7 @@ function numberAt(record: Record<string, unknown>, key: string): number | undefi
  * comparison report the whole suite.
  */
 export function buildBaseline(run: PerfRun, cwd: string): PerfBaseline {
-  const measured = measuredFiles(run, cwd);
+  const measured = measuredFiles(run, cwd, true);
   const median = medianFileMs(measured.values());
   const files: Record<string, number> = {};
   const tests: Record<string, Record<string, number>> = {};
@@ -232,7 +234,7 @@ export function writeBaseline(path: string, baseline: PerfBaseline): void {
  * there is no denominator to speak of.
  */
 export function baselineRegressions(run: PerfRun, cwd: string, baseline: PerfBaseline, options: BaselineOptions): BaselineRegression[] {
-  const measured = measuredFiles(run, cwd);
+  const measured = measuredFiles(run, cwd, true);
   const median = medianFileMs(measured.values());
 
   if (median <= 0) {
@@ -251,7 +253,7 @@ export function baselineRegressions(run: PerfRun, cwd: string, baseline: PerfBas
     const ratio = file.tests / median;
 
     if (ratio >= wasRatio * options.factor && file.tests >= options.floorMs) {
-      found.push({ file: path, ms: file.tests, ratio, wasRatio, grewBy: ratio / wasRatio });
+      found.push({ ...measurementOf(path), ms: file.tests, ratio, wasRatio, grewBy: ratio / wasRatio });
     }
   }
 
@@ -265,7 +267,7 @@ export function baselineRegressions(run: PerfRun, cwd: string, baseline: PerfBas
  * the reader wondering which of the two happened.
  */
 export function baselineDrift(run: PerfRun, cwd: string, baseline: PerfBaseline): { readonly missing: string[]; readonly added: string[] } {
-  const ran = new Set([...measuredFiles(run, cwd)].filter(([, file]) => hasRun(file)).map(([path]) => path));
+  const ran = new Set([...measuredFiles(run, cwd, true)].filter(([, file]) => hasRun(file)).map(([path]) => path));
   const known = new Set(Object.keys(baseline.files));
 
   return {

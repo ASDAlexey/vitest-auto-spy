@@ -20,7 +20,16 @@ import { bareRunWouldMeasureSomethingElse } from './checks/perf-harness';
 import { BARE_RUN_DOCS, NOTHING_TO_READ_DOCS } from './docs';
 import { isDirectory, parseJsonc, pathExists, readTextFile, removeFile, toPosix } from './fs-scan';
 import type { PerfRun } from './perf-data';
-import { PERF_ISOLATE_ENV, PERF_OUTPUT_ENV, PERF_PROFILE_ENV, PERF_REPORTER_ENV, parsePerfRun, whyNotAPerfRun } from './perf-data';
+import {
+  PERF_ISOLATE_ENV,
+  PERF_OUTPUT_ENV,
+  PERF_PROFILE_ENV,
+  PERF_REPORTER_ENV,
+  measurementKey,
+  measurementOf,
+  parsePerfRun,
+  whyNotAPerfRun,
+} from './perf-data';
 import { measuredFiles } from './perf-gate';
 import { describeMerge, mergeRuns, readRuns, resolveReportPaths } from './perf-merge';
 import type { ProfileSummary } from './perf-profile';
@@ -83,6 +92,7 @@ export interface PerfRunOptions {
   readonly isolate?: boolean;
   /** A bare run under this Vitest config, relative to `cwd`: the one a handed-over report recorded. */
   readonly config?: string;
+  readonly project?: string;
 }
 
 export interface PerfMeasured {
@@ -90,6 +100,7 @@ export interface PerfMeasured {
   readonly run: PerfRun;
   /** What was read, when that is worth a line: several reports merged, or one of them unreadable. */
   readonly note?: string;
+  readonly ambiguousFiles?: readonly string[];
   /** The suite itself exited non-zero. The timings are still real, so the report is still printed. */
   readonly runFailed: boolean;
   /** What each CPU profile says, by the absolute path of its spec file, when the run was asked for them. */
@@ -196,7 +207,13 @@ function fromFile(value: string, cwd: string): PerfSource {
 
   // A handed-over report is the one shape with no exit code to read, which is why the reporter
   // records the count: a red suite is measured until its timeouts, and the gate must refuse it.
-  return { ok: true, run: merged.run, runFailed: merged.run.failed > 0, ...(note === undefined ? {} : { note }) };
+  return {
+    ok: true,
+    run: merged.run,
+    runFailed: merged.run.failed > 0,
+    ...(merged.ambiguousFiles.length === 0 ? {} : { ambiguousFiles: merged.ambiguousFiles }),
+    ...(note === undefined ? {} : { note }),
+  };
 }
 
 function unreadableReport(value: string, unreadable: readonly string[], cwd: string): string {
@@ -240,7 +257,9 @@ function collect(
     run,
     runFailed: spawned.outcome.status !== 0,
     endToEnd: spawned.ms,
-    ...(profiles === undefined ? {} : { profiles }),
+    ...(profiles === undefined
+      ? {}
+      : { profiles: new Map([...profiles].map(([path, profile]) => [measurementKey(path, options.project), profile])) }),
   };
 }
 
@@ -342,6 +361,7 @@ function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | un
       join(vitest, 'vitest.mjs'),
       'run',
       ...configArgs(options.config),
+      ...(options.project ? [`--project=${options.project}`] : []),
       '--reporter=default',
       `--reporter=${reporter}`,
       '--logHeapUsage',
@@ -441,7 +461,7 @@ function recordedConfigs(recorded: PerfRun, cwd: string): Map<string, string> {
   const root = localRoot(recorded.root, cwd);
   const configs = new Map<string, string>();
 
-  for (const [path, file] of measuredFiles(recorded, cwd)) {
+  for (const [path, file] of measuredFiles(recorded, cwd, true)) {
     const configFile = file.configFile ?? recorded.configFile;
 
     if (configFile !== undefined) {
@@ -466,15 +486,20 @@ function mergeMeasured(measured: readonly PerfMeasured[]): PerfMeasured {
  * One bare run per config the suspects were measured under, each over its own files only. Reports
  * of two suites that run under two configs cannot be confirmed by one run of either.
  */
-function underRecordedConfigs(configs: ReadonlyMap<string, string>, remeasure: (paths: string[], config: string) => PerfSource): Remeasure {
+function underRecordedConfigs(
+  configs: ReadonlyMap<string, string> | undefined,
+  remeasure: (paths: string[], config?: string, project?: string) => PerfSource,
+): Remeasure {
   return (paths) => {
     const groups = new Map<string, string[]>();
 
     for (const path of paths) {
-      const config = configs.get(path);
+      const config = configs?.get(path);
+      const target = measurementOf(path);
 
-      if (config !== undefined) {
-        groups.set(config, [...(groups.get(config) ?? []), path]);
+      if (configs === undefined || config !== undefined) {
+        const key = measurementKey(config ?? '', target.project);
+        groups.set(key, [...(groups.get(key) ?? []), target.file]);
       }
     }
 
@@ -487,7 +512,8 @@ function underRecordedConfigs(configs: ReadonlyMap<string, string>, remeasure: (
     const measured: PerfMeasured[] = [];
 
     for (const [config, group] of groups) {
-      const source = remeasure(group, config);
+      const target = measurementOf(config);
+      const source = remeasure(group, target.file || undefined, target.project);
 
       if (!source.ok) {
         return source;
@@ -523,15 +549,24 @@ export function perfRemeasure(
   const profileDir = join(options.cwd, 'node_modules', '.cache', 'vitest-auto-spy', `profiles-${process.pid}`);
   const scoped = { ...options, json: undefined, out: undefined, profileDir };
 
-  if (options.command === undefined && options.json !== undefined) {
-    const configs = recorded === undefined ? new Map<string, string>() : recordedConfigs(recorded, options.cwd);
-
-    return configs.size === 0
-      ? undefined
-      : underRecordedConfigs(configs, (paths, config) => readPerfRun({ ...scoped, paths, config }, spawn, packageRoot));
+  if (options.command !== undefined) {
+    return (keys) => readPerfRun({ ...scoped, paths: [...new Set(keys.map((key) => measurementOf(key).file))] }, spawn, packageRoot);
   }
 
-  return (paths) => readPerfRun({ ...scoped, paths }, spawn, packageRoot);
+  const remeasure = (paths: string[], config?: string, project?: string): PerfSource =>
+    readPerfRun(
+      { ...scoped, paths, ...(config === undefined ? {} : { config }), ...(project === undefined ? {} : { project }) },
+      spawn,
+      packageRoot,
+    );
+
+  if (options.json !== undefined) {
+    const configs = recorded === undefined ? new Map<string, string>() : recordedConfigs(recorded, options.cwd);
+
+    return configs.size === 0 ? undefined : underRecordedConfigs(configs, remeasure);
+  }
+
+  return underRecordedConfigs(undefined, remeasure);
 }
 
 /**

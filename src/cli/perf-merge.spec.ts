@@ -10,9 +10,10 @@
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { runCli } from './main';
 import type { PerfRun } from './perf-data';
 import { PERF_FORMAT_VERSION } from './perf-data';
-import { file, run } from './perf-fixtures';
+import { file, recorder, run } from './perf-fixtures';
 import type { MergeInput } from './perf-merge';
 import { describeMerge, mergeRuns, readRuns, resolveReportPaths } from './perf-merge';
 import { createTempRepo, removeTempRepos } from './temp-repo';
@@ -131,6 +132,13 @@ describe('mergeRuns', () => {
     expect(paths(merged)).toEqual(['/builds/job-1/repo/src/a.spec.ts', '/builds/job-1/repo/src/b.spec.ts']);
   });
 
+  it('merges shards from Windows and POSIX onto the destination path syntax', () => {
+    const linux = input('linux', { root: '/repo', files: [file('/repo/src/a.spec.ts')] });
+    const windows = input('windows', { root: 'D:\\ci', files: [file('d:/ci/src/a.spec.ts'), file('D:\\ci\\src\\b.spec.ts')] });
+    expect(mergeRuns([linux, windows]).run.files.map((entry) => entry.file)).toEqual(['/repo/src/a.spec.ts', '/repo/src/b.spec.ts']);
+    expect(mergeRuns([windows, linux]).run.files.map((entry) => entry.file)).toEqual(['D:\\ci\\src\\a.spec.ts', 'D:\\ci\\src\\b.spec.ts']);
+  });
+
   it('reads a root with a trailing separator as the same root', () => {
     const merged = mergeRuns([
       input('one.json', { root: '/repo/', files: [file('/repo/src/a.spec.ts')] }),
@@ -202,9 +210,55 @@ describe('mergeRuns', () => {
 
     expect(merged).toEqual({
       run: { version: PERF_FORMAT_VERSION, root: '', transform: 0, wall: 0, failed: 0, files: [] },
+      ambiguousFiles: [],
       duplicates: [],
       empty: [],
     });
+  });
+});
+
+describe('perf --json with repeated measurements', () => {
+  const path = '/ci/repo/src/same.spec.ts';
+  const slow = file(path, { tests: 1_500, cases: [{ name: 'works', ms: 1_500 }] });
+  const fast = file(path, { tests: 10, setup: 3_000, cases: [{ name: 'works', ms: 10 }] });
+  const report = (files: PerfRun['files']): string => JSON.stringify(run({ root: '/ci/repo', files }));
+
+  it.each([false, true])('refuses ambiguous legacy rows (reversed: %s)', async (reverse) => {
+    const cwd = createTempRepo({ 'perf.json': report(reverse ? [fast, slow] : [slow, fast]) });
+    const args = ['perf', '--cwd', cwd, '--json', 'perf.json'];
+    const io = recorder();
+
+    expect(await runCli([...args, '--gate', '--no-confirm', '--format', 'json'], io)).toBe(2);
+    expect(JSON.parse(io.stdout.join('\n'))).toMatchObject({ gate: { status: 'refused' } });
+    expect(io.stderr.join('\n')).toContain(path);
+
+    const advisory = recorder();
+    expect(await runCli(args, advisory)).toBe(0);
+    expect(advisory.stderr.join('\n')).toContain('Repeated rows without project names');
+  });
+
+  it('judges named projects separately and still deduplicates overlapping reports', async () => {
+    const cwd = createTempRepo({
+      'named.json': report([
+        { ...slow, project: 'node' },
+        { ...fast, project: 'dom' },
+      ]),
+      'shards/one.json': report([slow]),
+      'shards/two.json': report([fast]),
+    });
+    const args = ['perf', '--cwd', cwd, '--gate', '--no-confirm', '--json'];
+    expect(await runCli([...args, 'named.json'], recorder())).toBe(1);
+    expect(await runCli([...args, 'shards'], recorder())).toBe(0);
+    expect(
+      mergeRuns([
+        input('named', {
+          files: [
+            { ...slow, project: 'node' },
+            { ...fast, project: 'node' },
+          ],
+        }),
+      ]).ambiguousFiles,
+    ).toEqual([]);
   });
 });
 

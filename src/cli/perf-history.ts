@@ -6,6 +6,7 @@ import { parseJsonc, readTextFile, writeTextFile } from './fs-scan';
 import type { CliIo } from './main';
 import type { BaselineOptions, BaselineRegression } from './perf-baseline';
 import { buildBaseline, hasRun, parseTestRatios } from './perf-baseline';
+import { measurementOf } from './perf-data';
 import type { PerfRun } from './perf-data';
 import type { GateCandidate } from './perf-gate';
 import { measuredFiles, medianFileMs } from './perf-gate';
@@ -115,7 +116,7 @@ export function historyRegressions(
   entries: readonly HistoryEntry[],
   options: BaselineOptions,
 ): HistoryRegression[] {
-  const measured = measuredFiles(run, cwd);
+  const measured = measuredFiles(run, cwd, true);
   const median = medianFileMs(measured.values());
 
   if (median <= 0) {
@@ -135,7 +136,7 @@ export function historyRegressions(
     }
 
     if (ratio >= mean * options.factor && ratio > max) {
-      found.push({ file: path, ms: file.tests, ratio, wasRatio: mean, grewBy: ratio / mean, runs: shares.length, mean, max });
+      found.push({ ...measurementOf(path), ms: file.tests, ratio, wasRatio: mean, grewBy: ratio / mean, runs: shares.length, mean, max });
     }
   }
 
@@ -148,7 +149,7 @@ export function historyDrift(
   cwd: string,
   entries: readonly HistoryEntry[],
 ): { readonly missing: string[]; readonly added: string[] } {
-  const ran = [...measuredFiles(run, cwd)].filter(([, file]) => hasRun(file)).map(([path]) => path);
+  const ran = [...measuredFiles(run, cwd, true)].filter(([, file]) => hasRun(file)).map(([path]) => path);
   const known = new Set(entries.flatMap((entry) => Object.keys(entry.files)));
   const latest = Object.keys(entries.at(-1)?.files ?? {});
   const measured = new Set(ran);
@@ -169,7 +170,7 @@ export function historyCandidates(run: PerfRun, cwd: string, path: string, optio
     return [];
   }
 
-  const median = medianFileMs(measuredFiles(run, cwd).values());
+  const median = medianFileMs(measuredFiles(run, cwd, true).values());
   const drift = historyDrift(run, cwd, entries);
 
   io.out(
@@ -180,6 +181,7 @@ export function historyCandidates(run: PerfRun, cwd: string, path: string, optio
     check: 'perf-gate-regression' as const,
     against: 'history' as const,
     file: regression.file,
+    ...(regression.project ? { project: regression.project } : {}),
     ms: regression.ms,
     budget: Math.max(options.floorMs, Math.max(regression.mean * options.factor, regression.max) * median),
     grewBy: regression.grewBy,

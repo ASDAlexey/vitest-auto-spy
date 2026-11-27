@@ -146,7 +146,7 @@ function segmentSource(segment: string): string | undefined {
         return undefined;
       }
 
-      source += `[${negated ? '^' : ''}${members.replace(/[\]^]/g, '\\$&')}]`;
+      source += `(?!/)[${negated ? '^' : ''}${members.replace(/[\]^]/g, '\\$&')}]`;
       index = end + 1;
 
       continue;

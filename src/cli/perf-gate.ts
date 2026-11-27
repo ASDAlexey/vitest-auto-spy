@@ -34,9 +34,10 @@ import { relative } from 'node:path';
 
 import { toPosix } from './fs-scan';
 import type { PerfCase, PerfFile, PerfRun } from './perf-data';
-import { CASE_FLOOR_MS, formatMs, medianOf } from './perf-data';
+import { CASE_FLOOR_MS, formatMs, measurementKey, measurementOf, medianOf } from './perf-data';
 import type { PerfMeasured } from './perf-run';
 import type { Finding } from './report';
+import { reportRelativePath } from './report-relative-path';
 
 export interface GateOptions {
   /** A single test body over this, confirmed, fails the run. */
@@ -65,6 +66,7 @@ export const GATE_DEFAULTS: GateOptions = {
 export type GateCheck = 'perf-gate-regression' | 'perf-gate-slow-file' | 'perf-gate-slow-test' | 'perf-gate-wall';
 
 interface CandidateBase {
+  readonly project?: string;
   readonly ms: number;
   readonly budget: number;
   /** How the budget was arrived at, in words, so the number in the message can be checked. */
@@ -128,26 +130,18 @@ export type GateCandidate = FileCandidate | WallCandidate;
  * directory instead of thrown away.
  */
 function repositoryPath(file: string, root: string, cwd: string): string | undefined {
-  const here = toPosix(relative(cwd, file));
-
-  if (here !== '' && !here.startsWith('..')) {
-    return here;
-  }
-
-  const there = root === '' ? '' : toPosix(relative(root, file));
-
-  return there !== '' && !there.startsWith('..') ? there : undefined;
+  return reportRelativePath(file, root, cwd);
 }
 
 /** Measured files keyed by repository-relative path; anything outside the repository is dropped. */
-export function measuredFiles(run: PerfRun, cwd: string): Map<string, PerfFile> {
+export function measuredFiles(run: PerfRun, cwd: string, byProject = false): Map<string, PerfFile> {
   const found = new Map<string, PerfFile>();
 
   for (const file of run.files) {
     const path = repositoryPath(file.file, run.root, cwd);
 
     if (path !== undefined) {
-      found.set(path, file);
+      found.set(byProject ? measurementKey(path, file.project) : path, file);
     }
   }
 
@@ -193,7 +187,7 @@ function slowTests(path: string, file: PerfFile, options: GateOptions): TestCand
     .filter((entry) => entry.ms >= options.maxTestMs)
     .map((entry) => ({
       check: 'perf-gate-slow-test' as const,
-      file: path,
+      ...measurementOf(path),
       name: entry.name,
       ms: entry.ms,
       budget: options.maxTestMs,
@@ -212,7 +206,7 @@ function slowFile(path: string, file: PerfFile, medianTest: number, options: Gat
   return [
     {
       check: 'perf-gate-slow-file',
-      file: path,
+      ...measurementOf(path),
       ms: file.tests,
       budget,
       budgetNote: `the largest of --max-file-ms ${Math.round(options.maxFileMs)}, --max-file-tests ${options.maxFileTests} × the median test of this run (${formatMs(medianTest)}), and ${options.factor}× that median for each of its ${file.testCount} tests`,
@@ -228,12 +222,12 @@ function slowFile(path: string, file: PerfFile, medianTest: number, options: Gat
  * twice, and the test is the more actionable half.
  */
 export function gateCandidates(run: PerfRun, cwd: string, options: GateOptions): GateCandidate[] {
-  const measured = measuredFiles(run, cwd);
+  const measured = measuredFiles(run, cwd, true);
   const medianTest = medianTestMs(measured.values());
   const candidates: GateCandidate[] = [];
 
   for (const [path, file] of [...measured].sort(([a], [b]) => a.localeCompare(b))) {
-    if (!isJudged(path, options.only)) {
+    if (!isJudged(measurementOf(path).file, options.only)) {
       continue;
     }
 
@@ -259,13 +253,43 @@ export function gateCandidates(run: PerfRun, cwd: string, options: GateOptions):
   return candidates;
 }
 
+export function scopeConfirmation(source: PerfMeasured, suspects: readonly string[], cwd: string): PerfMeasured | string {
+  const measured = measuredFiles(source.run, cwd, true);
+  const asked = new Set(suspects);
+  const legacy = new Set<string>();
+  const rename = new Set<PerfFile>();
+  for (const [key, row] of measured) {
+    if (!asked.has(key)) {
+      const { file } = measurementOf(key);
+
+      if (!asked.has(file) || legacy.has(file) || measured.has(file)) {
+        return `\nwarning  The confirmation pass measured ${measured.size} files when it was asked for ${suspects.length} — the command ignored the paths it was given, so this was the same crowded run again and confirms nothing. Put {paths} (or {paths:<prefix>}) where the command takes its file filter.`;
+      }
+      legacy.add(file);
+      rename.add(row);
+    }
+  }
+
+  if (rename.size === 0) {
+    return source;
+  }
+  const files = source.run.files.map((row) => {
+    if (!rename.has(row)) {
+      return row;
+    }
+    const { project: _project, ...legacyRow } = row;
+    return legacyRow;
+  });
+  return { ...source, run: { ...source.run, files } };
+}
+
 /** The files a confirmation pass has to re-measure, in the order they were found; an excused one is never re-measured. */
 export function suspectFiles(candidates: readonly GateCandidate[], policy: VerdictPolicy = {}): string[] {
   return [
     ...new Set(
       candidates
         .filter((candidate): candidate is FileCandidate => candidate.check !== 'perf-gate-wall' && policy.excuse?.(candidate) === undefined)
-        .map((c) => c.file),
+        .map((c) => measurementKey(c.file, c.project)),
     ),
   ];
 }
@@ -289,7 +313,7 @@ export function fastestRun(runs: readonly PerfRun[]): PerfRun | undefined {
   return {
     ...first,
     files: [...fastest.values()].map((file) => {
-      const readings = runs.flatMap((each) => each.files.filter((entry) => entry.file === file.file));
+      const readings = runs.flatMap((each) => each.files.filter((entry) => entry.file === file.file && entry.project === file.project));
 
       if (readings.length === 1) {
         return file;
@@ -318,10 +342,11 @@ function fastestFiles(runs: readonly PerfRun[]): Map<string, PerfFile> {
   const fastest = new Map<string, PerfFile>();
 
   for (const entry of runs.flatMap((each) => each.files)) {
-    const seen = fastest.get(entry.file);
+    const key = measurementKey(entry.file, entry.project);
+    const seen = fastest.get(key);
 
     if (seen === undefined || entry.tests < seen.tests) {
-      fastest.set(entry.file, entry);
+      fastest.set(key, entry);
     }
   }
 
@@ -334,7 +359,9 @@ export function fastestPass([first, ...rest]: readonly [PerfMeasured, ...PerfMea
   const kept = new Set(fastestFiles([first.run, ...rest.map((each) => each.run)]).values());
   const sameFile = (a: string, b: string): boolean => toPosix(relative(cwd, a)) === toPosix(relative(cwd, b));
   const profiles = [first, ...rest].flatMap((each) =>
-    [...(each.profiles ?? [])].filter(([path]) => each.run.files.some((entry) => kept.has(entry) && sameFile(entry.file, path))),
+    [...(each.profiles ?? [])].filter(([path]) =>
+      each.run.files.some((entry) => kept.has(entry) && sameFile(measurementKey(entry.file, entry.project), path)),
+    ),
   );
 
   return { ...first, run: fastest, ...(profiles.length === 0 ? {} : { profiles: new Map(profiles) }) };
@@ -342,7 +369,7 @@ export function fastestPass([first, ...rest]: readonly [PerfMeasured, ...PerfMea
 
 /** What the second measurement said about a candidate, or `undefined` when it did not measure it. */
 function secondReading(candidate: FileCandidate, confirm: ReadonlyMap<string, PerfFile>): number | undefined {
-  const file = confirm.get(candidate.file);
+  const file = confirm.get(measurementKey(candidate.file, candidate.project));
 
   if (file === undefined) {
     return undefined;
@@ -418,7 +445,7 @@ function finding(candidate: GateCandidate, severity: Finding['severity'], tail: 
     check: candidate.check,
     severity,
     ...(candidate.check === 'perf-gate-wall' ? {} : { file: candidate.file }),
-    message: `${describe(candidate)} ${tail}`,
+    message: `${candidate.project ? `[${candidate.project}] ` : ''}${describe(candidate)} ${tail}`,
     fix: fixFor(candidate),
   };
 }
@@ -446,6 +473,7 @@ export interface VerdictPolicy {
 }
 
 export interface GateRow {
+  readonly project?: string;
   readonly check: GateCheck;
   readonly file?: string;
   /** The test's full name, for a body. */
@@ -508,6 +536,7 @@ function rowOf(candidate: GateCandidate, outcome: GateOutcome, again?: number): 
   return {
     check: candidate.check,
     ...(candidate.check === 'perf-gate-wall' ? {} : { file: candidate.file }),
+    ...(candidate.project ? { project: candidate.project } : {}),
     ...(candidate.check === 'perf-gate-slow-test' ? { name: candidate.name } : {}),
     ms: candidate.ms,
     budget: candidate.budget,
@@ -595,7 +624,7 @@ export function gateVerdict(
   trustSingle: boolean,
   policy: VerdictPolicy = {},
 ): GateVerdict {
-  const second = confirm === undefined ? undefined : measuredFiles(confirm, cwd);
+  const second = confirm === undefined ? undefined : measuredFiles(confirm, cwd, true);
   const findings: Finding[] = [];
   const rows: GateRow[] = [];
   const entries: { finding: Finding; row: GateRow }[] = [];
@@ -612,7 +641,7 @@ export function gateVerdict(
     failed = failed || judged.failed;
 
     if (judged.confirmed && candidate.check === 'perf-gate-slow-test') {
-      confirmedBodies.add(candidate.file);
+      confirmedBodies.add(measurementKey(candidate.file, candidate.project));
     }
   };
 
@@ -621,7 +650,7 @@ export function gateVerdict(
   }
 
   for (const candidate of candidates) {
-    if (!isBodyOrWall(candidate) && !confirmedBodies.has(candidate.file)) {
+    if (!isBodyOrWall(candidate) && !confirmedBodies.has(measurementKey(candidate.file, candidate.project))) {
       take(candidate);
     }
   }

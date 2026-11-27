@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { writeTextFile } from './fs-scan';
 import { BASELINE_DEFAULTS } from './perf-baseline';
 import type { PerfFile, PerfRun } from './perf-data';
+import { measurementKey } from './perf-data';
 import { gateVerdict } from './perf-gate';
 import { baselineCandidates } from './perf-report';
 import { createTempRepo, removeTempRepos } from './temp-repo';
@@ -35,29 +36,38 @@ describe('baseline confirmation floors', () => {
     };
   }
 
-  it.each(['baseline.json', 'history.jsonl'])('keeps the absolute floor during confirmation against %s', (name) => {
+  it.each([
+    ['baseline.json', undefined],
+    ['history.jsonl', undefined],
+    ['baseline.json', 'dom'],
+    ['history.jsonl', 'dom'],
+  ] as const)('keeps the absolute floor during confirmation against %s (%s)', (name, project) => {
     const root = createTempRepo({});
     const path = join(root, name);
-    const record = { version: 1, median: 100, files: { 'grew.spec.ts': 0.25 } };
+    const record = { version: 1, median: 100, files: { [measurementKey('grew.spec.ts', project)]: 0.25 } };
     const data = name.endsWith('.jsonl')
       ? [1, 2, 3].map((at) => JSON.stringify({ ...record, at: String(at) })).join('\n')
       : JSON.stringify(record);
 
+    const sample = (ms: number): PerfRun => {
+      const result = measured(root, ms);
+      return { ...result, files: result.files.map((file) => (project ? { ...file, project } : file)) };
+    };
     writeTextFile(path, data);
-    const candidates = baselineCandidates(measured(root, 950), root, { path, update: false, options: BASELINE_DEFAULTS }, io);
+    const candidates = baselineCandidates(sample(950), root, { path, update: false, options: BASELINE_DEFAULTS }, io);
 
     expect(candidates).toEqual([expect.objectContaining({ check: 'perf-gate-regression', file: 'grew.spec.ts', budget: 500 })]);
     expect(candidates[0]?.budgetNote).toContain('--baseline-floor-ms 500');
 
     for (const tests of [119, 212, 499]) {
-      const verdict = gateVerdict(candidates, measured(root, tests), root, false);
+      const verdict = gateVerdict(candidates, sample(tests), root, false);
 
       expect(verdict.failed).toBe(false);
       expect(verdict.rows).toEqual([expect.objectContaining({ again: tests, outcome: 'not reproduced' })]);
     }
 
     for (const tests of [500, 700]) {
-      const verdict = gateVerdict(candidates, measured(root, tests), root, false);
+      const verdict = gateVerdict(candidates, sample(tests), root, false);
 
       expect(verdict.failed).toBe(true);
       expect(verdict.rows).toEqual([expect.objectContaining({ again: tests, outcome: 'confirmed' })]);

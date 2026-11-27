@@ -24,7 +24,7 @@ import { affectedSpecs } from './ng-test-select';
 import type { GateRequest } from './perf';
 import type { PerfBaseline } from './perf-baseline';
 import { readBaseline } from './perf-baseline';
-import { formatMs, medianOf } from './perf-data';
+import { formatMs, measurementKey, medianOf } from './perf-data';
 import type { PerfRun } from './perf-data';
 import type { GateCandidate, VerdictPolicy } from './perf-gate';
 import { measuredFiles, medianFileMs } from './perf-gate';
@@ -168,13 +168,13 @@ export function debtReference(path: string): DebtReference | undefined {
 /** What the reference recorded for this candidate, in this run's milliseconds. */
 function referenceMs(candidate: GateCandidate, reference: DebtReference, medianFile: number): number | undefined {
   if (candidate.check === 'perf-gate-slow-file') {
-    const share = reference.files[candidate.file];
+    const share = reference.files[measurementKey(candidate.file, candidate.project)];
 
     return share === undefined ? undefined : share * medianFile;
   }
 
   if (candidate.check === 'perf-gate-slow-test') {
-    const share = reference.tests[candidate.file]?.[candidate.name];
+    const share = reference.tests[measurementKey(candidate.file, candidate.project)]?.[candidate.name];
 
     return share === undefined ? undefined : share * medianFile;
   }
@@ -238,7 +238,7 @@ export function verdictPolicy(
   const attribution: Attribution = {
     ...(gate.scope === undefined ? {} : { scope: gate.scope }),
     ...(debt === undefined ? {} : { debt }),
-    medianFile: medianFileMs(measuredFiles(run, cwd).values()),
+    medianFile: medianFileMs(measuredFiles(run, cwd, true).values()),
   };
 
   return {

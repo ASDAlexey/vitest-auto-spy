@@ -30,8 +30,10 @@ import {
   measuredFiles,
   medianFileMs,
   medianTestMs,
+  scopeConfirmation,
   suspectFiles,
 } from './perf-gate';
+import { mergeRuns } from './perf-merge';
 import type { PerfSource } from './perf-run';
 import { readProfile } from './profile';
 
@@ -58,6 +60,39 @@ describe('measuredFiles', () => {
     const measured = measuredFiles(run({ files: [file(join(ROOT, 'src/a.spec.ts')), file('/elsewhere/b.spec.ts'), file(ROOT)] }), ROOT);
 
     expect([...measured.keys()]).toEqual(['src/a.spec.ts']);
+  });
+});
+
+describe('project-specific measurements', () => {
+  it('accepts a legacy path only when a single named project measured it', () => {
+    const row = slowSubject();
+    const named = { ...row, project: 'dom' };
+    const other = file(join(ROOT, 'other.spec.ts'));
+    const source = (files: PerfFile[]) => ({ ok: true as const, runFailed: false, run: run({ files }) });
+    const paths = ['src/slow.spec.ts', 'other.spec.ts'];
+    expect(scopeConfirmation(source([named, other]), paths, ROOT)).toEqual(source([row, other]));
+    expect(typeof scopeConfirmation(source([named, { ...row, project: 'node' }]), paths, ROOT)).toBe('string');
+    expect(typeof scopeConfirmation(source([named, row]), paths, ROOT)).toBe('string');
+  });
+
+  it('compares only readings of the same project and retains both through merging and repeated passes', () => {
+    const row = (project: string, ms: number): PerfFile => ({ ...slowSubject(), project, cases: slowBody('same', ms) });
+    const first = run({ files: [row('dom', 5000), row('node', 4000)] });
+    const second = run({ files: [row('node', 200), row('dom', 4500)] });
+    const merged = mergeRuns([
+      { path: 'first', run: first },
+      { path: 'second', run: second },
+    ]);
+    const candidates = gateCandidates(merged.run, ROOT, GATE_DEFAULTS);
+    const verdict = gateVerdict(candidates, fastestRun([first, second]), ROOT, false);
+
+    expect(merged.run.files).toHaveLength(2);
+    expect(verdict.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ project: 'dom', file: 'src/slow.spec.ts', outcome: 'confirmed', again: 4500 }),
+        expect.objectContaining({ project: 'node', outcome: 'not reproduced', again: 200 }),
+      ]),
+    );
   });
 });
 

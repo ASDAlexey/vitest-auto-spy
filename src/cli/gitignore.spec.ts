@@ -50,6 +50,12 @@ describe('isIgnoredBy', () => {
     expect(ignores('a/**', 'a')).toBe(false);
   });
 
+  it('keeps a bracket match within its directory name', () => {
+    expect(ignores('test[!0-9]data/', 'test-data')).toBe(true);
+    expect(ignores('test[!0-9]data/', 'test/data')).toBe(false);
+    expect(ignores('test[.-0]data/', 'test/data')).toBe(false);
+  });
+
   it('reads a bracket class, negated or not', () => {
     expect(ignores('out[12]', 'out1')).toBe(true);
     expect(ignores('out[12]', 'out3')).toBe(false);

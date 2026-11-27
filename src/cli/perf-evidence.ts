@@ -12,9 +12,15 @@
  * lines under it. And there is no right-hand border: a path or a test name decides the width, and a
  * border that has to be padded to it is the one thing that misaligns in a terminal that is narrower.
  */
+import { relative } from 'node:path';
+
+import { toPosix } from './fs-scan';
 import type { Painter } from './paint';
 import { padEnd, padStart } from './paint';
-import { formatMs } from './perf-data';
+import { type PerfContext, builderImport } from './perf-builder';
+import type { PerfFile, PerfImport } from './perf-data';
+import { CASES_PER_FILE, formatMs } from './perf-data';
+import { packageOf } from './perf-profile';
 import type { AngularCost, ProfileSummary, Share } from './perf-profile';
 
 export interface Evidence {
@@ -269,4 +275,29 @@ export function formatEvidence(evidence: Evidence, paint: Painter): string[] {
   lines.push(paint.dim(`└${'─'.repeat(RULE_WIDTH - 1)}`), '');
 
   return lines;
+}
+
+function importNote(entry: PerfImport, setup: boolean): string {
+  const notes = [
+    ...(setup ? ['setup file'] : []),
+    ...(entry.self === undefined || entry.self >= entry.ms ? [] : [`self ${formatMs(entry.self)}`]),
+  ];
+
+  return notes.length === 0 ? '' : ` · ${notes.join(', ')}`;
+}
+
+/** The spec's own imports and its setup files' chain together, heaviest first: both are paid inside this file. */
+export function evidenceImports(after: PerfFile, spec: string, cwd: string, context: PerfContext): { name: string; ms: number }[] {
+  return [
+    ...(after.slowImports ?? []).map((entry) => ({ entry, setup: false })),
+    ...(after.setupImports ?? []).map((entry) => ({ entry, setup: true })),
+  ]
+    .sort((a, b) => b.entry.ms - a.entry.ms || a.entry.module.localeCompare(b.entry.module))
+    .slice(0, CASES_PER_FILE)
+    .flatMap(({ entry, setup }) => {
+      const named = packageOf(entry.module) ?? toPosix(relative(cwd, entry.module));
+      const name = context.builder === undefined ? named : builderImport(toPosix(entry.module), spec, named);
+
+      return name === undefined ? [] : [{ name: `${name}${importNote(entry, setup)}`, ms: entry.ms }];
+    });
 }

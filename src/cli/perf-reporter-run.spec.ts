@@ -173,6 +173,19 @@ describe('the reporter, how the run ended', () => {
   };
   const read = (target: string): PerfRun | undefined => parsePerfRun(readTextFile(target) ?? '');
 
+  it('retains each project running the same module in partial and final reports', () => {
+    const { reporter, target } = started();
+    const modules = ['node', 'dom'].map((name) => moduleOf([], { project: { name } }));
+
+    for (const module of modules) {
+      reporter.onTestModuleEnd(module);
+    }
+    vi.advanceTimersByTime(3000);
+    expect(read(target)?.files.map((row) => row.project)).toEqual(['node', 'dom']);
+    reporter.onTestRunEnd(modules);
+    expect(read(target)?.files.map((row) => row.project)).toEqual(['node', 'dom']);
+  });
+
   it('records how Vitest said the run ended, and an interrupted run as partial', () => {
     const { reporter, target } = started();
 
