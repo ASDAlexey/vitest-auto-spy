@@ -64,6 +64,7 @@ describe('prototype discovery — a class that declares then()', () => {
 
     expect(consoleWarnSpy).toHaveBeenCalledOnce();
     expect(String(consoleWarnSpy.mock.calls[0]?.[0])).toContain('createSpyFromClass(Once): the class declares then()');
+    expect(String(consoleWarnSpy.mock.calls[0]?.[0])).toContain('`await double` would hang');
     expect(String(consoleWarnSpy.mock.calls[0]?.[0])).toContain("methodsToSpyOn: ['then']");
   });
 
@@ -72,15 +73,18 @@ describe('prototype discovery — a class that declares then()', () => {
     ['instanceMethodsToSpyOn', { instanceMethodsToSpyOn: ['then'] }],
     ['onlyMethodsToSpyOn', { onlyMethodsToSpyOn: ['then'] }],
   ])('spies then without a warning when %s names it', (_option, config) => {
-    const query = createSpyFromClass(Query, config);
+    class ConfiguredQuery extends Query {}
+    const query = createSpyFromClass(ConfiguredQuery, config);
 
     expect(vi.isMockFunction(query.then)).toBe(true);
     expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('stays quiet when onlyMethodsToSpyOn leaves then out or overrides seeds it', () => {
-    createSpyFromClass(Query, { onlyMethodsToSpyOn: ['where'] });
-    const seeded = createSpyFromClass(Query, { overrides: { then: () => undefined } });
+    class RestrictedQuery extends Query {}
+    class SeededQuery extends Query {}
+    createSpyFromClass(RestrictedQuery, { onlyMethodsToSpyOn: ['where'] });
+    const seeded = createSpyFromClass(SeededQuery, { overrides: { then: () => undefined } });
 
     seeded.then(() => undefined);
 
@@ -107,6 +111,61 @@ describe('prototype discovery — a class that declares then()', () => {
     createSpyFromClass(Query, { onlyMethodsToSpyOn: ['then', 'where'] });
 
     expect(consoleWarnSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('prototype discovery — shadowed members', () => {
+  class Base {
+    run(): number {
+      return 1;
+    }
+
+    get stop(): number {
+      return 2;
+    }
+  }
+
+  class Derived {
+    get run(): number {
+      return 3;
+    }
+
+    stop(): number {
+      return 4;
+    }
+  }
+
+  Object.setPrototypeOf(Derived.prototype, Base.prototype);
+
+  it.each([false, true, 'proxy'] as const)('uses the nearest getter and method (lazySpies: %s)', (lazySpies) => {
+    const spy = createSpyFromClass(Derived, { autoSpyAccessors: true, lazySpies });
+    const getter = spy.accessorSpies.getters.run;
+    getter.mockReturnValue(7);
+
+    expect(Object.keys(spy)).toEqual(['stop']);
+    expect(getter).not.toHaveBeenCalled();
+    expect(spy.run).toBe(7);
+    expect(getter.mock.calls).toEqual([[]]);
+    expect(vi.isMockFunction(spy.stop)).toBe(true);
+    expect(Object.keys(spy.accessorSpies.getters)).toEqual(['run']);
+  });
+
+  it('excludes an inherited method hidden by an instance getter', () => {
+    expect(getCallableMemberNames(new Derived())).toEqual(['stop']);
+  });
+
+  it('ignores symbol accessors and looks past a proxy key with no own descriptor', () => {
+    const key = Symbol('state');
+    class Layer extends Base {
+      get [key](): number {
+        return 5;
+      }
+    }
+
+    const prototype = new Proxy(Layer.prototype, { ownKeys: (target) => [...Reflect.ownKeys(target), 'run'] });
+
+    expect(getAllMethodNames(prototype)).toEqual(['run']);
+    expect(getAllAccessorNames(prototype)).toEqual({ getters: ['stop'], setters: [] });
   });
 });
 
