@@ -1,36 +1,28 @@
-/**
- * Svelte recipe: there is no Svelte-specific helper to test, so this proves the
- * recipe itself — a plain class-based store/service (the shape a Svelte
- * component would import and call) becomes a fully-typed auto-spy. No `svelte`
- * or `@testing-library/svelte` import: the core is framework-agnostic.
- */
 import { describe, expect, it, vi } from 'vitest';
 
-import { createSpyFromClass } from '../svelte';
+import { asSpy, createSpyFromClass } from '../svelte';
+import { CartStore, cartStore as singleton } from './svelte-cart-store.mock';
 import type { Spy } from './types';
 
-/** A class-based store of the kind a Svelte component would consume via props/context. */
-class CartStore {
-  private items: string[] = [];
+vi.mock(import('./svelte-cart-store.mock'), async (importOriginal) => {
+  const original = await importOriginal();
+  const { asInstance, createSpyFromClass } = await import('../svelte');
 
-  add(item: string): void {
-    this.items.push(item);
-  }
-
-  total(): number {
-    return this.items.length;
-  }
-
-  priceOf(item: string): number {
-    return item.length;
-  }
-
-  async checkout(): Promise<string> {
-    return 'ok';
-  }
-}
+  return { ...original, cartStore: asInstance(createSpyFromClass(original.CartStore)) };
+});
 
 describe('svelte recipe', () => {
+  it('checks out through the mocked module singleton on click', () => {
+    const store = asSpy(singleton);
+    const button = document.createElement('button');
+
+    button.addEventListener('click', () => void singleton.checkout());
+    store.checkout.resolveWith('paid');
+    button.click();
+
+    expect(store.checkout).toHaveBeenCalledTimes(1);
+  });
+
   it('createSpyFromClass turns every store method into a mock fn', () => {
     const cartStore: Spy<CartStore> = createSpyFromClass(CartStore);
 
