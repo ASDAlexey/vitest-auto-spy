@@ -11,9 +11,17 @@ description: Поставьте vitest-auto-spy, проверьте, что ну
 npm i -D vitest-auto-spy
 ```
 
-На Vitest больше ничего не нужно: импортируйте `createSpyFromClass` в спеке, и всё работает. Своих
-рантайм-зависимостей у пакета нет. Первую спеку проще всего написать по странице
-[Начало работы](./introduction).
+Если у вас уже есть Vitest, импортируйте фабрику в тесте. Для обычных спаев setup-файл не нужен:
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+import { UserService } from './user.service';
+
+const users = createSpyFromClass(UserService);
+```
+
+У пакета нет зависимостей времени выполнения. Полный пример теста — на странице [Начало работы](./introduction).
 
 ## Что нужно проекту {#what-you-need}
 

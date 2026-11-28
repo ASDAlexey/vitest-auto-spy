@@ -5,11 +5,8 @@ description: Запуск Angular-стори как тестов Vitest чере
 
 # Стори Storybook с авто-спаями (Angular)
 
-С [аддоном Storybook Vitest](https://storybook.js.org/docs/writing-tests/integrations/vitest-addon)
-функция `play` у стори выполняется как тест Vitest в настоящем браузере. Стори создаёт компонент
-через настоящий Angular DI, поэтому сервисы подменяются так же, как в спеке на `TestBed`: через
-`provideAutoSpy`. Провайдер передайте в `applicationConfig`, спай сохраните в константу файла со
-стори, а настраивайте и проверяйте его в самих стори.
+Используйте `provideAutoSpy`, чтобы подменить сервис в стори Angular. Передайте провайдер в
+`applicationConfig`, задайте ответы спая в `beforeEach` и проверьте результат в `play`.
 
 ```ts
 // cart.test.stories.ts
@@ -57,6 +54,10 @@ export const ChecksOut: Story = {
   },
 };
 ```
+
+С [аддоном Storybook Vitest](https://storybook.js.org/docs/writing-tests/integrations/vitest-addon)
+`play` выполняется как тест Vitest в браузере. Angular создаёт компонент через внедрение
+зависимостей, как в тесте на `TestBed`.
 
 Проверено на Storybook 10.6 (`@storybook/angular-vite`, `@storybook/addon-vitest`), Angular 22 и
 Vitest 4.1 в browser mode с Chromium от Playwright.

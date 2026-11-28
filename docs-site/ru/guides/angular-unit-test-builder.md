@@ -5,10 +5,8 @@ description: Как запускать спеки с vitest-auto-spy через 
 
 # Билдер unit-test в Angular
 
-Эта страница для проектов, которые запускают тесты командой `ng test` через билдер
-`@angular/build:unit-test` из Angular CLI. Билдер собирает спеки в бандл до того, как их запустит
-Vitest, поэтому `vi.mock`, покрытие, шарды и `--changed` работают не так, как в обычном проекте на
-Vitest. Начните с того, что добавьте setup-файл библиотеки в тестовую цель:
+Если вы запускаете `ng test` через `@angular/build:unit-test`, добавьте файл настройки в
+`options.setupFiles` тестовой цели в `angular.json`. Сохраните остальные настройки цели.
 
 ```jsonc
 // angular.json
@@ -30,9 +28,10 @@ registerSignalMatchers();
 registerResourceMatchers();
 ```
 
-Дальше пишите спеки, как показано на странице [Angular](/ru/adapters/angular). Разделы ниже — о том,
-что делать, когда билдер мешает. Большую часть из этого за вас проверяет
-`npx vitest-auto-spy doctor`; см. [CLI](/ru/utilities/cli).
+Дальше пишите спеки по [руководству для Angular](/ru/adapters/angular). Билдер собирает спеки в
+бандл до запуска Vitest. Из-за этого моки `vi.mock`, покрытие, шарды и `--changed` работают иначе,
+чем в обычном Vitest. Большинство ошибок настройки находит `npx vitest-auto-spy doctor`; см.
+[справочник CLI](/ru/utilities/cli).
 
 ## Что компилирует билдер {#what-the-builder-compiles}
 

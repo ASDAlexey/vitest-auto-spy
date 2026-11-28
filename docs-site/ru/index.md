@@ -2,12 +2,12 @@
 # https://vitepress.dev/reference/default-theme-home-page
 layout: home
 title: vitest-auto-spy
-description: Типизированные спаи для тестов, собранные из настоящего класса. Каждый метод становится спаем с хелперами под свой тип возврата, на Vitest, Bun, node:test и Rstest. Прямая замена jest-auto-spies и jasmine-auto-spies.
+description: 'Создавайте спаи с типами из класса, задавайте ответы и проверяйте вызовы в Vitest, Bun, node:test и Rstest.'
 
 hero:
   name: 'vitest-auto-spy'
-  text: 'Типизированный спай для каждого метода класса'
-  tagline: 'Передайте класс и получите объект, где каждый метод - спай с типами из класса и хелперами под свой тип возврата. Один API на Vitest, Bun, node:test и Rstest.'
+  text: 'Подмените зависимость в тесте одной строкой'
+  tagline: 'Библиотека создаёт спаи с типами из класса. Задайте ответ, запустите свой код и проверьте вызовы. Для Vitest, Bun, node:test и Rstest.'
   actions:
     - theme: brand
       text: Начать
@@ -20,8 +20,8 @@ hero:
       link: https://github.com/ASDAlexey/vitest-auto-spy
 
 features:
-  - title: Каждый метод - из настоящего класса
-    details: 'createSpyFromClass читает класс, поэтому у объекта со спаями те же методы и сигнатуры. Переименуете метод - спека, которая его вызывает, перестанет компилироваться. Фабричный метод отвечает спаем другого класса через returnsClass, а innerDouble достаёт этот спай, не засчитывая вызов.'
+  - title: Типы из настоящего класса
+    details: 'У спая те же имена и типы методов, что и у класса. Переименуете метод — TypeScript покажет тесты со старым именем.'
     link: /ru/core/create-spy-from-class
   - title: Хелперы под тип возврата
     details: 'Методу, который возвращает Promise, достаются resolveWith и rejectWith. Методу с Observable - nextWith и throwWith. С calledWith метод может отвечать по-разному на разные аргументы. createDeferred оставляет асинхронную зависимость незавершённой до команды теста.'
@@ -44,15 +44,15 @@ features:
   - title: Строгий режим вместо undefined
     details: 'С strict true метод, который вы забыли настроить, бросает ошибку вместо undefined и называет класс, метод и аргументы.'
     link: /ru/core/strict-mode
-  - title: Проверьте отмену подписки
+  - title: Узнайте, когда закончилась подписка
     details: Оберните поток через createSubscriptionLog и проверьте, когда подписка началась и когда завершилась.
     link: /ru/runtimes/rxjs#check-for-a-missing-unsubscribe-subscribercount
   - title: Найдите директиву в тесте Angular
-    details: findDirective возвращает экземпляр директивы из фикстуры и сообщает, если совпадений нет или их несколько.
+    details: 'findDirective возвращает экземпляр директивы из фикстуры Vitest или Bun и бросает ошибку, если совпадений нет или их несколько.'
     link: /ru/adapters/angular#a-host-for-a-directive-under-test
   - title: Подмените один вызов, а не весь метод
-    details: Режим passthrough unmatched оставляет прежнюю реализацию для аргументов, не перечисленных в calledWith, если нет ответа по умолчанию.
-    link: /ru/core/create-spy-from-class#passthrough
+    details: 'Режим passthrough: "unmatched" вызывает исходный метод, если нет подходящего правила calledWith и ответа по умолчанию.'
+    link: /ru/core/passthrough
   - title: Правила линтера и кодмод
     details: 'Плагин ESLint подсвечивает хрупкие приёмы в тестах прямо при наборе. Кодмод переводит тесты с jest-auto-spies на эту библиотеку и сначала показывает diff.'
     link: /ru/utilities/eslint-plugin
@@ -109,11 +109,9 @@ users.save.rejectWith(new HttpError(409));
 
 </div>
 
-Каст больше не нужен. Из-за каста после переименования метода в `UserService` рукописный объект
-всё ещё компилируется и тест всё ещё зелёный, но уже ничего не проверяет. `Spy<UserService>`
-типизирован по классу, поэтому то же переименование делает спеку красной. Настоящий конструктор не
-выполняется, так что зависимости самого сервиса мокать не нужно. Класса нет? `createAutoMock<T>()` строит те же спаи по типу или
-интерфейсу.
+У спая те же имена и типы методов, что и у класса. Переименуете метод — TypeScript подсветит старое имя в тесте. Конструктор класса не запускается. Если есть только интерфейс, используйте `createAutoMock<T>()`.
+
+![От класса до зелёного теста: создаём спай, задаём ответ и проверяем результат и адрес запроса.](/demos/first-test.ru.svg)
 
 [Начало работы](/ru/core/introduction) · [createSpyFromClass](/ru/core/create-spy-from-class) ·
 [Управляющие хелперы](/ru/core/control-helpers)

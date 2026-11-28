@@ -5,26 +5,33 @@ description: createAutoMock, mockDeep и createMock - спай или тесто
 
 # Автомок по типу
 
-Стройте спай по **типу или интерфейсу** TypeScript, когда класса нет: интерфейс, сгенерированный
-API-клиент, токен внедрения. Каждый метод, к которому вы обратились, становится спаем с обычными
-хелперами (`calledWith`, `resolveWith`, `nextWith`, …).
+Используйте `createAutoMock<T>()`, когда у зависимости есть тип TypeScript, но нет класса.
+Например, в тесте оплаты можно задать ответ платёжного шлюза:
 
 ```ts
+import { expect, it } from 'vitest';
 import { asInstance, createAutoMock } from 'vitest-auto-spy';
 
 interface PaymentGateway {
-  charge(amount: number): Promise<Receipt>;
+  charge(amount: number): Promise<{ id: string; amount: number }>;
   refund(id: string): Promise<void>;
 }
 
-const gateway = createAutoMock<PaymentGateway>();
+const checkout = (gateway: PaymentGateway, amount: number) => gateway.charge(amount);
 
-gateway.charge.resolveWith({ id: 'r-1', amount: 42 });
+it('charges the order total', async () => {
+  const gateway = createAutoMock<PaymentGateway>();
+  gateway.charge.resolveWith({ id: 'r-1', amount: 42 });
 
-await checkout(asInstance(gateway), 42); // ваш код под тестом; asInstance даёт спаю тип PaymentGateway
-expect(gateway.charge).toHaveBeenCalledWith(42);
-expect(gateway.refund).not.toHaveBeenCalled();
+  await expect(checkout(asInstance(gateway), 42)).resolves.toEqual({ id: 'r-1', amount: 42 });
+  expect(gateway.charge).toHaveBeenCalledWith(42);
+  expect(gateway.refund).not.toHaveBeenCalled();
+});
 ```
+
+Так же можно подменить сгенерированный API-клиент или зависимость, которую получают по токену внедрения.
+`asInstance(gateway)` передаёт спай в код, который ожидает `PaymentGateway`. Каждый метод, к
+которому вы обращаетесь, становится спаем с хелперами `calledWith`, `resolveWith`, `nextWith` и другими.
 
 Фабрику выбирайте по тому, что код под тестом делает с объектом:
 

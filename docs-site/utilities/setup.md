@@ -5,9 +5,8 @@ description: setupAutoSpy() in your Vitest setup file puts back what a test leav
 
 # Test-run hygiene
 
-`setupAutoSpy()` is one call in your Vitest setup file. It cleans up what a test leaves behind and
-names the test that left it. You need it most when spec files share one environment
-(`isolate: false`): there, a leftover from one file breaks a different file.
+Add `setupAutoSpy()` to your Vitest setup file to undo property patches after each test. Enable extra
+checks to find which test or file left timers, listeners, or globals behind.
 
 ```ts
 // vitest.setup.ts
@@ -23,7 +22,6 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     setupFiles: ['./vitest.setup.ts'],
-    // isolate: false, // if your spec files share one environment
   },
 });
 ```
@@ -34,21 +32,20 @@ and Rstest have no setup entry to host it.
 
 ## Common setups
 
-Start with the defaults. They only repair or report, and never change what your code sees.
+Start with `setupAutoSpy()` as shown above. The defaults restore patched properties and check for
+setup mistakes; they do not change how your code runs.
 
-```ts
-setupAutoSpy();
-```
-
-If your spec files share one environment (`isolate: false`), also clean up between files. This
-cleans up quietly; add `onStrayTimers: 'throw'` and similar options to fail the file instead.
-`restoreMocks` also removes `vi.spyOn` stubs made in `beforeAll`, so make those in `beforeEach`.
+With `isolate: false`, spec files share an environment. Add these options so one file cannot leave
+mocks, timers, listeners, or global stubs active in the next:
 
 ```ts
 setupAutoSpy({ restoreMocks: true, strayTimers: true, strayListeners: true, restoreGlobals: true });
 ```
 
-To turn every guard to its strictest grade at once, use the preset:
+Cleanup is quiet. Add `onStrayTimers: 'throw'` or a similar option to fail a file that leaves
+something behind. With `restoreMocks`, create your `vi.spyOn` stubs in `beforeEach`, not `beforeAll`.
+
+To run all checks at their strictest setting, use the preset:
 
 ```ts
 setupAutoSpy({ preset: 'strict' });

@@ -5,8 +5,9 @@ description: Подмена localStorage или sessionStorage на один т�
 
 # Мок `localStorage` в Vitest
 
-`stubWebStorage` подменяет `localStorage` или `sessionStorage` новым хранилищем в памяти на один
-тест. Начальные данные задаются в том же вызове, а всё сохранённое проверяется одним `toEqual`.
+Используйте `stubWebStorage`, чтобы проверить, что код читает из хранилища и что в него пишет.
+Функция подменяет `localStorage` или `sessionStorage` новым хранилищем в памяти. Задайте начальные
+данные и проверьте, что сохранилось.
 
 ```ts
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -42,9 +43,8 @@ describe('preferences', () => {
 });
 ```
 
-**Восстановление после каждого теста.** Вызовите [`setupAutoSpy()`](/ru/utilities/setup) один раз в
-сетап-файле (файл из `setupFiles` конфига Vitest). После каждого теста он восстанавливает исходное
-хранилище, и `afterEach` писать не нужно:
+Чтобы исходное хранилище возвращалось после каждого теста, вызовите
+[`setupAutoSpy()`](/ru/utilities/setup) в файле из `setupFiles` конфига Vitest:
 
 ```ts
 // vitest.setup.ts

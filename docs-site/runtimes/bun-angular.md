@@ -1,16 +1,16 @@
 ---
 title: Angular on Bun
-description: Run Angular TestBed specs under bun test with one preload line - a DOM, inlined templates and a zoneless TestBed.
+description: Set up Angular TestBed for bun test, including components with external templates.
 ---
 
 # Angular on Bun (`bun:test`)
 
-`vitest-auto-spy/bun-angular` lets you run Angular `TestBed` specs with `bun test`. Use it when Bun is
-your test runner and your components have a `templateUrl`. You add one preload line, and a component
-spec works the same way it does on Vitest.
+Use `vitest-auto-spy/bun-angular` to run Angular `TestBed` specs with `bun test`, even when a component
+loads its template from a file with `templateUrl`. After [Setup](#setup), you can test the component
+much as you would on Vitest. In `profile.component.test.ts`, check that the component renders the
+name from `UserService`:
 
 ```ts
-// profile.component.test.ts (ProfileComponent has a templateUrl; its template shows "Hello, {{ name }}!")
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'bun:test';
 import { injectSpy, provideAutoSpy, stable } from 'vitest-auto-spy/bun-angular';
@@ -27,28 +27,30 @@ describe('ProfileComponent', () => {
     injectSpy(UserService).currentName.mockReturnValue('Ada');
 
     const fixture = TestBed.createComponent(ProfileComponent);
-    await stable(fixture); // waits until the component has rendered
+    await stable(fixture);
 
     expect(fixture.nativeElement.textContent).toContain('Hello, Ada!');
   });
 });
 ```
 
-You need Angular 20 or newer with `@angular/platform-browser` (every Angular CLI app has it) and a
-DOM package ([why Angular 20](/core/compatibility#angular-20)). The setup takes two steps.
+You need [Angular 20 or newer](/core/compatibility#angular-20), `@angular/platform-browser` (included
+in Angular CLI apps), and a DOM package.
 
 ## Setup
 
-1. Install the library and a DOM. Bun has no DOM, and Angular's test platform needs `document`.
+1. Install the library and a DOM package. Bun has no DOM of its own, and Angular's test platform
+   needs `document`.
 
    ```bash
-   bun add -d vitest-auto-spy @happy-dom/global-registrator   # or jsdom instead of happy-dom
+   bun add -d vitest-auto-spy @happy-dom/global-registrator
    ```
 
-   For editor types of `bun:test`, add `@types/bun` if the project does not have it yet. Bun reads the decorator settings from your `tsconfig.json`, so an Angular CLI project needs no config change.
+   You can install `jsdom` instead of `@happy-dom/global-registrator`. For editor types for `bun:test`,
+   install `@types/bun` if you don't already have it. Bun reads decorator settings from `tsconfig.json`,
+   so you don't need to change them in an Angular CLI project.
 
-2. Add the entry as a **preload** in `bunfig.toml` at the project root. A preload is a file Bun runs
-   before any spec file.
+2. Add one **preload** to `bunfig.toml` at the project root. Bun runs it before loading your specs.
 
    ```toml
    # bunfig.toml
@@ -56,102 +58,114 @@ DOM package ([why Angular 20](/core/compatibility#angular-20)). The setup takes 
    preload = ["vitest-auto-spy/bun-angular"]
    ```
 
-That is the whole configuration. When the preload runs, it:
-
-1. sets up a DOM (`window`, `document` and the other browser globals) with
-   `@happy-dom/global-registrator`, or with `jsdom` if happy-dom is missing. If a DOM is already there,
-   it skips this step;
-2. inlines each component's `templateUrl`, `styleUrl` and `styleUrls` into the component source, so
-   Angular can compile the component at run time;
-3. sets up a **zoneless** `TestBed` (Angular without zone.js; change detection runs on signals);
-4. calls `TestBed.resetTestingModule()` after each test. You need no `afterEach` of your own for
-   `TestBed` or for spies from `provideAutoSpy`;
-5. makes every spy a Bun `mock()` function, so you configure it with Bun's methods such as
-   `mockReturnValue`.
-
 ::: warning It has to be a preload
-Do not replace the `bunfig.toml` line with an import in a spec. Template inlining must start before
-Bun loads any spec file, and only a preload runs that early.
+Keep the line in `bunfig.toml` even if your spec imports `vitest-auto-spy/bun-angular`. A spec import
+is too late to start inlining templates.
 :::
 
-**Common mistake:** no DOM package installed. The run stops with
+**Common mistake:** The run stops with
 `registerDomGlobals: no DOM could be installed, so Angular's TestBed cannot run.` Install one of the
-two packages from step 1.
+DOM packages from step 1.
+
+The preload:
+
+- sets up `window`, `document`, and other browser globals unless a DOM already exists. It tries
+  `@happy-dom/global-registrator` first, then `jsdom`;
+- reads files from `templateUrl`, `styleUrl`, and `styleUrls` and inlines them in the component source
+  so Angular can compile it at run time;
+- sets up a **zoneless** `TestBed`: Angular detects changes from signals without Zone.js;
+- calls `TestBed.resetTestingModule()` after each test. You don't need your own `afterEach` for
+  `TestBed` or for spies from `provideAutoSpy`;
+- creates spies with Bun's `mock()`. Use familiar methods such as `mockReturnValue` and
+  `mockResolvedValue`, as with `vi.fn()` in Vitest.
 
 ## Writing a spec
 
-A spec looks exactly like its Vitest version, with `describe`, `it` and `expect` from `bun:test`. The
-example at the top of the page is a complete spec:
+When moving a Vitest spec to Bun, import `describe`, `it`, and `expect` from `bun:test`. Import the
+Angular helpers from `vitest-auto-spy/bun-angular`, as in the complete spec above.
 
-- a standalone component goes in `imports`; a component declared in an NgModule goes in
-  `declarations`;
-- `injectSpy(UserService)` returns the spy that `TestBed` injects. Set its answers before
-  `createComponent`;
-- `bun test` finds `*.test.ts` and `*.spec.ts` files.
+- Put a standalone component in `imports`. Put a component declared in an NgModule in `declarations`.
+- `injectSpy(UserService)` returns the spy `TestBed` injects. Set its return values before
+  `createComponent`.
+- In the example, `ProfileComponent` has a `templateUrl`. Its template displays `Hello, {{ name }}!`.
 
-Run it with `bun test`. If specs pass one by one but fail together, add `--isolate`: each spec file
-then gets fresh globals.
+Run the specs. Bun finds both `*.test.ts` and `*.spec.ts` files:
 
 ```bash
 bun test
 ```
 
-**Common mistake:** if your component declares its inputs with signal `input()`, a spec cannot set
-them under Bun. See [Limits worth knowing](#limits-worth-knowing).
+If specs pass alone but fail together, add `--isolate` to give each spec file fresh globals.
+
+**Common mistake:** Bun specs can't set inputs declared with signal `input()`. See
+[Limits worth knowing](#limits-worth-knowing).
 
 ## What you get
 
-| Helper                                                                               | Works on Bun | Notes                                                                    |
-| ------------------------------------------------------------------------------------ | :----------: | ------------------------------------------------------------------------ |
-| `provideAutoSpy` / `injectSpy`                                                       |      ✅      | same as on Vitest                                                        |
-| `renderShallow` / `prepareShallow`                                                   |      ✅      | a real `ComponentFixture` without child components                       |
-| `createWithAutoSpies`                                                                |      ✅      | builds a class through Angular DI with every dependency spied            |
-| `hostElement` / `queryElement`                                                       |      ✅      | typed elements from the fixture, checked with `instanceof`               |
-| `stable`                                                                             |      ✅      | waits until the component has rendered                                   |
-| `flushEffects`                                                                       |      ✅      | runs pending signal effects                                              |
-| `runEffect`, `setInputs`, `settleResource`, `trackEffectRuns`, `trackRecomputations` |      ✅      | same as on Vitest (`setInputs` cannot set a signal `input()`, see below) |
-| the library's main API (`createSpyFromClass`, `createAutoMock`, …)                   |      ✅      | exported from this entry too                                             |
-| `registerSignalMatchers`                                                             |      ❌      | needs Vitest's `expect.extend`                                           |
-| `registerDirectiveMatchers`                                                          |      ❌      | needs Vitest's `expect.extend`                                           |
-| `registerResourceMatchers`                                                           |      ❌      | needs Vitest's `expect.extend`                                           |
-| TestBed diagnostics (`instrumentTestBed`)                                            |      ❌      | needs Vitest's per-file hooks                                            |
-| the rest of `/angular`                                                               |      ❌      | Vitest only, listed below                                                |
+| Helper                                                                               | Works on Bun | Notes                                                                 |
+| ------------------------------------------------------------------------------------ | :----------: | --------------------------------------------------------------------- |
+| `provideAutoSpy` / `injectSpy`                                                       |      ✅      | Same as on Vitest.                                                    |
+| `renderShallow` / `prepareShallow`                                                   |      ✅      | A real `ComponentFixture` without child components.                   |
+| `createWithAutoSpies`                                                                |      ✅      | Creates an instance through Angular DI and spies on all dependencies. |
+| `hostElement` / `queryElement`                                                       |      ✅      | Typed fixture elements, checked with `instanceof`.                    |
+| `findDirective`                                                                      |      ✅      | Returns the only instance of a directive in the fixture.              |
+| `stable`                                                                             |      ✅      | Waits for the component to render.                                    |
+| `flushEffects`                                                                       |      ✅      | Runs pending signal effects.                                          |
+| `runEffect`, `setInputs`, `settleResource`, `trackEffectRuns`, `trackRecomputations` |      ✅      | Same as on Vitest, except `setInputs` can't set a signal `input()`.   |
+| The main library API (`createSpyFromClass`, `createAutoMock`, …)                     |      ✅      | Import it from `vitest-auto-spy/bun-angular` too.                     |
+| `registerSignalMatchers`                                                             |      ❌      | Needs Vitest's `expect.extend`.                                       |
+| `registerDirectiveMatchers`                                                          |      ❌      | Needs Vitest's `expect.extend`.                                       |
+| `registerResourceMatchers`                                                           |      ❌      | Needs Vitest's `expect.extend`.                                       |
+| TestBed diagnostics (`instrumentTestBed`)                                            |      ❌      | Needs Vitest's per-file hooks.                                        |
+| The rest of `/angular`                                                               |      ❌      | Vitest only. See below.                                               |
 
-"The rest of `/angular`" means everything from `vitest-auto-spy/angular`,
-`vitest-auto-spy/angular/diagnostics` and `vitest-auto-spy/angular/doubles` that is not in the table.
-This entry does not export any of it:
+Use `findDirective` to read a directive's state on Bun without registering `toHaveDirectiveApplied`.
+If your component renders exactly one `HighlightDirective`, look it up after `await stable(fixture)`:
 
-- the override and diagnostics assertions;
+```ts
+import { findDirective, stable } from 'vitest-auto-spy/bun-angular';
+
+import { HighlightDirective } from './highlight.directive';
+
+await stable(fixture);
+const highlight = findDirective(fixture, HighlightDirective);
+```
+
+The lookup includes the fixture's host and its descendants. It throws if it finds no match or more
+than one. See the [directive testing guide](/adapters/angular#a-host-for-a-directive-under-test).
+
+Helpers from `vitest-auto-spy/angular`, `vitest-auto-spy/angular/diagnostics`, and
+`vitest-auto-spy/angular/doubles` that aren't in the table stay on Vitest. This includes:
+
+- override and diagnostics assertions;
 - `extendWithAutoSpies`;
 - `provideAutoSpyForToken` and its per-token defaults;
 - `trackInjections` and `setupAngularTestEnv`;
-- the stub factories;
-- the stand-ins for resources, signal props, the platform and dialogs.
+- stub factories;
+- stand-ins for resources, signal props, the platform, and dialogs.
 
 ## Stylesheets
 
-Tests do not check styles, and Bun has no CSS pre-processor. So the preload inlines `.css` files as
-they are, and turns `.scss`, `.less` and `.styl` into an **empty** stylesheet. The component still
-compiles and renders.
+The preload inlines `.css` as-is and replaces `.scss`, `.less`, and `.styl` with **empty** stylesheets.
+Bun doesn't preprocess CSS, and the component can still compile and render for tests that don't
+check styles.
 
-If you need the text of other stylesheets, build your own preload (see
-[Building your own preload](#building-your-own-preload)). In its `Bun.plugin` `onLoad` hook, call
-`inlineAngularResources` with the file's source text and path, and list the extensions in
-`inlineStyleExtensions`:
+If you need other stylesheets as text, [build your own preload](#building-your-own-preload). In the
+`onLoad` hook of your `Bun.plugin`, pass the file's source text, path, and the extensions to inline:
 
 ```ts
 inlineAngularResources(source, path, { inlineStyleExtensions: ['.css', '.scss'] });
 ```
 
-| Option                  | Type                | Default    | Meaning                                   |
-| ----------------------- | ------------------- | ---------- | ----------------------------------------- |
-| `inlineStyleExtensions` | `readonly string[]` | `['.css']` | stylesheets inlined as text; others empty |
+| Option                  | Type                | Default    | Meaning                                                         |
+| ----------------------- | ------------------- | ---------- | --------------------------------------------------------------- |
+| `inlineStyleExtensions` | `readonly string[]` | `['.css']` | Inline these extensions as text. Leave other stylesheets empty. |
 
 ### A template or stylesheet that cannot be read
 
-A `templateUrl` or `styleUrl` path is relative to the component file. If the file cannot be read, the
-preload names the URL, the component, the file system error code (`ENOENT`, `EACCES`) and the full
-path it tried:
+Resolve `templateUrl` and `styleUrl` relative to the component file, not the project root. If the
+preload can't read the file, it reports the URL, component, full path, and file system error code
+(such as `ENOENT` or `EACCES`):
 
 ```text
 [vitest-auto-spy] cannot read "./profile.component.html" referenced by src/app/profile.component.ts: ENOENT at /project/src/app/profile.component.html.
@@ -160,26 +174,24 @@ The path resolves relative to the component file, not the project root; fix the 
 
 ## What the preload resets, and what it leaves to you
 
-Spies from `provideAutoSpy` need nothing extra. Each `TestBed` builds new ones, and the reset after
-each test drops them.
+The preload resets the testing module after each test. `TestBed` drops the `provideAutoSpy` spies
+with the module and creates new ones for the next test.
 
-The preload resets the testing module after each test, and nothing else. `bun:test` does not restore
-anything either. This matters if your specs use:
+Neither the preload nor `bun:test` restores changes from Bun's `spyOn` or the library's
+`mockValueProp`. The latter replaces a property value; `restoreMockedProps()` puts it back.
 
-- Bun's `spyOn`;
-- the library's `mockValueProp`, which replaces a property value. `restoreMockedProps()` undoes it.
-
-On Vitest, the library's `setupAutoSpy()` restores these after each test. `setupAutoSpy()` does not work on Bun
-(see [Bun → Nothing is restored between tests](/runtimes/bun#nothing-is-restored-between-tests)), so
-add a second preload file with an `afterEach`. Put any `mock.module()` there too: a module mock has to
-apply before the code under test is imported. The path you pass to `mock.module()` is relative to
-`bun-test-setup.ts`, as in a normal import.
+On Vitest, `setupAutoSpy()` restores both after each test. It doesn't work on Bun. Instead, add a
+second preload with an `afterEach` hook (see
+[Bun → Nothing is restored between tests](/runtimes/bun#nothing-is-restored-between-tests)):
 
 ```toml
 # bunfig.toml
 [test]
 preload = ["vitest-auto-spy/bun-angular", "./bun-test-setup.ts"]
 ```
+
+Put any `mock.module()` calls in the second preload too, before the code under test is imported.
+Paths in `mock.module()` are relative to `bun-test-setup.ts`, just like import paths.
 
 ```ts
 // bun-test-setup.ts
@@ -196,61 +208,65 @@ afterEach(() => {
 
 ## Building your own preload
 
-If your project already has a preload, you can build the setup from the exported pieces instead of
-using the entry. This example installs only the DOM:
+If you already have a preload, you can reuse the helpers below to set up a DOM or inline resources.
+This example shows just the DOM helper call. Importing `vitest-auto-spy/bun-angular` also runs the
+standard setup, so the call returns without changing an existing DOM.
 
 ```ts
 // bun-preload.ts
-import { createJsdomRegistrar, inlineAngularResources, registerDomGlobals } from 'vitest-auto-spy/bun-angular';
+import { createJsdomRegistrar, registerDomGlobals } from 'vitest-auto-spy/bun-angular';
 
 await registerDomGlobals({
   registrars: [createJsdomRegistrar({ load: () => import('jsdom'), target: globalThis, url: 'https://app.test/' })],
 });
 ```
 
-| Export                                             | What it does                                                                              |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `registerDomGlobals({ registrars, hasDom })`       | tries each registrar in order and returns the name of the one that worked (details below) |
-| `createJsdomRegistrar({ load, target, url })`      | a registrar backed by `jsdom`; `url` defaults to `http://localhost/`                      |
-| `createGlobalRegistratorRegistrar({ name, load })` | a registrar backed by `@happy-dom/global-registrator`                                     |
-| `copyWindowGlobals(source, target)`                | copies a window's globals onto `target`                                                   |
-| `inlineAngularResources(source, path, options)`    | inlines `templateUrl` / `styleUrl` / `styleUrls`; see [Stylesheets](#stylesheets)         |
+| Export                                             | What it does                                                                         |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `registerDomGlobals({ registrars, hasDom })`       | Tries the registrars in order and returns the name of the first that works.          |
+| `createJsdomRegistrar({ load, target, url })`      | Creates a registrar for `jsdom`. `url` defaults to `http://localhost/`.              |
+| `createGlobalRegistratorRegistrar({ name, load })` | Creates a registrar for `@happy-dom/global-registrator`.                             |
+| `copyWindowGlobals(source, target)`                | Copies a window's globals to `target`.                                               |
+| `inlineAngularResources(source, path, options)`    | Inlines `templateUrl`, `styleUrl`, and `styleUrls`. See [Stylesheets](#stylesheets). |
 
-`registerDomGlobals` returns `undefined` if a DOM is already there. `hasDom` decides that; by default it
-checks for `globalThis.document`. If no registrar works, it throws and lists every attempt.
+`registerDomGlobals` returns `undefined` if `hasDom` finds a DOM. By default, `hasDom` checks for
+`globalThis.document`. If every registrar fails, the error lists all attempts.
 
 ::: details Only for a preload you build yourself: what copyWindowGlobals does
-`copyWindowGlobals` always overwrites five globals: `window`, `document`, `navigator`, `location` and
-`history`. Other globals are copied only where the target has none. If the runtime refuses to
-redefine one of the five, you get a warning that names it, with the runtime's error. Without the
-warning, the run would fail later with `document is not defined`. If you see this warning, put the preload that sets up the DOM first in the `preload` list. If the runtime refuses any other global, the copy skips it quietly and
-keeps the runtime's own version.
+`copyWindowGlobals` always tries to overwrite `window`, `document`, `navigator`, `location`, and
+`history`. It copies other globals only if they're missing from `target`.
+
+If the runtime won't overwrite one of those five, the warning names it and shows the original
+error. Without the warning, the first sign of trouble could be `document is not defined`. Move the
+preload that sets up the DOM to the front of the `preload` list. If the runtime rejects any other
+global, the helper keeps the runtime's value without warning.
 :::
 
 ## Limits worth knowing
 
-- **A signal `input()` does not bind.** Under Bun, Angular compiles components at run time (JIT), and
-  that compiler only registers `@Input()` fields. So `componentRef.setInput('step', 5)` and the
-  `inputs` of `renderShallow` log `NG0303` (Angular's "can't bind" error) and set nothing on an `input()` or `model()` field. Declare
-  such an input with `@Input()`, or keep that spec on Vitest, where the Angular build plugin compiles
-  the component ahead of time. The library's `setInputs()` helper hits the same limit, but it throws an error that names the input instead of doing nothing.
-- **The inlining is a text rewrite, not a parser.** A `templateUrl` that appears inside a comment or inside another string is left as it is. A `${…}` interpolation or a regular expression literal can confuse it. If a template does not load, look for one near the `@Component` decorator.
-- **Line numbers stay the same.** Every inlined value is a one-line literal, so a stack trace still
-  points at the right line of the component.
+- **A signal `input()` does not bind.** Under Bun, Angular compiles components at run time (JIT) and
+  registers only `@Input()` fields. For `input()` and `model()` fields, `componentRef.setInput('step', 5)`
+  and `renderShallow`'s `inputs` log `NG0303` (Angular's "can't bind" error) and set nothing. `setInputs()`
+  throws an error naming the input instead. Use `@Input()` or keep the spec on Vitest, where the Angular
+  build plugin compiles the component ahead of time.
+- **The inlining is a text rewrite, not a parser.** It leaves `templateUrl` alone inside comments or
+  strings. If a template doesn't load, look near `@Component` for `${…}` interpolation or a regular
+  expression literal. Either can confuse the rewrite.
+- **Line numbers stay the same.** Inlined values fit on one line, so stack traces still point to the
+  right line in the component.
 - **`node_modules` is skipped.** Published Angular libraries are already compiled.
-- **The entry is ESM-only.** It waits for its DOM with a top-level `await`, which CommonJS cannot do.
-  Bun runs ESM natively, so this costs nothing.
+- **The entry is ESM-only.** It uses top-level `await` to wait for the DOM, which CommonJS doesn't
+  support. Bun runs ESM natively.
 
 ## In depth
 
 ### Why Bun needs a preload for Angular
 
-Angular has no `bun test` integration. Two things are missing, and either one stops every component
-spec:
+Angular has no `bun test` integration. Two things can stop a component spec:
 
-1. **No DOM.** Bun does not include one, and everything from `platformBrowserTesting()` onwards reads
-   `document`.
-2. **No template loading.** `@Component({ templateUrl: './x.html' })` is not an import, so nothing
-   loads the HTML file. Angular's run-time compiler then refuses to build the component
-   (_"Component X is not resolved"_). On Vitest, `@analogjs/vite-plugin-angular` inlines the template
-   while it transforms the file. Bun has no such step, so the preload does it.
+1. **No DOM.** Bun doesn't provide one, and Angular needs `document` from
+   `platformBrowserTesting()` onward.
+2. **No template loading.** `@Component({ templateUrl: './x.html' })` names a file without importing it.
+   Without its contents, Angular's run-time compiler reports `Component X is not resolved`.
+   On Vitest, `@analogjs/vite-plugin-angular` inlines the template when it transforms the component
+   file. On Bun, the preload does that work.

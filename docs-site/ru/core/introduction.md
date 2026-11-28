@@ -5,9 +5,29 @@ description: Поставьте vitest-auto-spy и напишите первую
 
 # Начало работы
 
-`vitest-auto-spy` превращает класс в подмену для теста, где каждый метод — типизированный спай.
-Библиотека нужна, когда тестируемый код зависит от сервиса и вы не хотите писать руками по
-`vi.fn()` на каждый метод. Эта страница за три шага доводит от установки до зелёной спеки на Angular.
+Подменяйте сервис в тесте с помощью `vitest-auto-spy`, чтобы не писать `vi.fn()` для каждого метода.
+Каждый метод-спай возвращает заданный ответ и запоминает, с какими аргументами его вызвали:
+
+```ts
+import { expect, it } from 'vitest';
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+class ApiService {
+  async get(url: string): Promise<{ id: number; name: string }> {
+    throw new Error(`Unexpected request: ${url}`);
+  }
+}
+
+it('uses a preset response instead of the real method', async () => {
+  const api = createSpyFromClass(ApiService);
+  api.get.resolveWith({ id: 1, name: 'Ada' });
+
+  await expect(api.get('/users/1')).resolves.toEqual({ id: 1, name: 'Ada' });
+  expect(api.get).toHaveBeenCalledWith('/users/1');
+});
+```
+
+Ниже — тот же приём в Angular: зарегистрируйте спай в `TestBed` и проверьте сервис, который от него зависит.
 
 ## 1. Установка {#_1-install}
 

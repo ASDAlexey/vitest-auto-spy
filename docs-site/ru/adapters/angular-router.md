@@ -5,54 +5,44 @@ description: Подмены ActivatedRoute, Router и Location для тесто
 
 # Роутер Angular
 
-`vitest-auto-spy/angular-router` даёт готовые подмены для трёх сервисов роутера, с которыми
-работает компонент: `ActivatedRoute`, [`Router`](#the-router-double) и
-[`Location`](#the-location-double). Подмена — объект, который тест выдаёт вместо настоящего
-сервиса. Эта страница нужна, когда компонент читает параметры маршрута, вызывает
-`router.navigate()` или проверяет, куда ушло приложение.
+`vitest-auto-spy/angular-router` подменяет `ActivatedRoute`, [`Router`](#the-router-double) и
+[`Location`](#the-location-double) в тестах. Используйте подмены, когда компонент читает параметры
+маршрута, вызывает навигацию или проверяет URL, а саму маршрутизацию проверять не нужно.
 
 ```ts
 import { TestBed } from '@angular/core/testing';
+import { expect, it } from 'vitest';
 
 import 'vitest-auto-spy/angular';
 
-import { injectActivatedRoute, injectRouterDouble, provideActivatedRoute, provideRouterDouble } from 'vitest-auto-spy/angular-router';
+import { injectRouterDouble, provideActivatedRoute, provideRouterDouble } from 'vitest-auto-spy/angular-router';
 
 import { ProfileComponent } from './profile.component';
 
-it('opens the orders of the user in the route', () => {
+it('opens orders for the user in the route', () => {
   TestBed.configureTestingModule({
     imports: [ProfileComponent],
     providers: [provideActivatedRoute({ params: { id: '7' } }), provideRouterDouble()],
   });
   const fixture = TestBed.createComponent(ProfileComponent);
-  const router = injectRouterDouble();
-  fixture.detectChanges(); // компонент прочитал id '7' из paramMap
+  fixture.detectChanges();
 
   fixture.componentInstance.openOrders();
-  expect(router.navigate).toHaveBeenCalledWith(['/users', '7', 'orders']);
-
-  injectActivatedRoute().setParams({ id: '8' }); // маршрут переходит на пользователя 8
-  fixture.detectChanges(); // paramMap уже отдал '8'; это перерисовка
-
-  fixture.componentInstance.openOrders();
-  expect(router.navigate).toHaveBeenLastCalledWith(['/users', '8', 'orders']);
+  expect(injectRouterDouble().navigate).toHaveBeenCalledWith(['/users', '7', 'orders']);
 });
 ```
 
-- `provideActivatedRoute()` задаёт то, что компонент читает из маршрута. `injectActivatedRoute()`
-  меняет это позже в тесте.
-- `provideRouterDouble()` подменяет `Router`. Его `navigate()` — спай: записывает вызов и
-  возвращает промис с `true`, но маршрут не меняет.
-- `import 'vitest-auto-spy/angular'` позволяет библиотеке создавать спаи Vitest. Без него
-  `provideRouterDouble()` бросит `No mock adapter registered`. Импорт можно перенести в setup-файл;
-  импорт в обоих местах ничего не ломает.
-- Параметры маршрута — строки, как в настоящем приложении.
-- Компонент увидит `setParams()`, только если подписан на `params` или `paramMap`. Значение, которое
-  он один раз скопировал из `route.snapshot`, не изменится.
+В примере `ProfileComponent` — standalone-компонент. Он читает строковый `id` из `route.paramMap`
+и вызывает `Router.navigate()` в `openOrders()`. Спай записывает вызов и возвращает промис с
+`true`, но не меняет маршрут. Чтобы сменить `id` в том же тесте, вызовите
+[`injectActivatedRoute()`](#injectactivatedroute-injector).
 
-Каждый хелпер — отдельный провайдер. Компоненту, который только читает маршрут, хватит
-`provideActivatedRoute()`; если он ещё и переходит по ссылкам, нужны оба, как в примере.
+Импортируйте `vitest-auto-spy/angular` в тесте или setup-файле, чтобы создавать спаи Vitest.
+Без адаптера подмена `Router` выдаёт ошибку `No mock adapter registered`. Импорт в обоих местах
+не мешает.
+
+Добавляйте только те провайдеры, которые нужны компоненту. Если он только читает параметры
+маршрута, достаточно `provideActivatedRoute()`.
 
 | Код использует                | Провайдер                 | Чем управлять                                                              |
 | ----------------------------- | ------------------------- | -------------------------------------------------------------------------- |
@@ -151,16 +141,23 @@ user.set({ name: 'Ada' });
 
 ## `injectActivatedRoute(injector?)` {#injectactivatedroute-injector}
 
-Возвращает объект с маршрутом (`route`) и сеттерами, которые его меняют. По умолчанию читает из
-`TestBed`. Если маршрут
-лежит в собственных `providers` компонента, передайте `fixture.debugElement.injector`.
+Вызовите этот хелпер, чтобы изменить маршрут после создания компонента. В первом примере добавьте
+`injectActivatedRoute` к импортам, а этот код — после первой проверки:
 
 ```ts
-const route = injectActivatedRoute();
-
-route.setQueryParams({ tab: 'orders' });
-route.set({ params: { id: '9' }, fragment: null }); // два изменения, одна навигация
+injectActivatedRoute().setParams({ id: '8' });
+fixture.detectChanges();
+fixture.componentInstance.openOrders();
+expect(injectRouterDouble().navigate).toHaveBeenLastCalledWith(['/users', '8', 'orders']);
 ```
+
+Если параметры изменились, `setParams()` обновляет снимок и сразу передаёт новые значения
+подписчикам `params` и `paramMap`. Вызовите `detectChanges()`, чтобы обновить представление. Если
+компонент сохранил старый `id` из `route.snapshot`, сохранённое значение не изменится.
+
+Хелпер возвращает объект с маршрутом `route` и методами для его изменения. По умолчанию он ищет
+маршрут в `TestBed`. Если провайдер объявлен в самом компоненте, передайте
+`fixture.debugElement.injector`.
 
 | Поле                     | Что делает                                                                                  |
 | ------------------------ | ------------------------------------------------------------------------------------------- |
@@ -322,13 +319,34 @@ provideRouterDouble({
 | `events`                    | `BehaviorSubject` с `NavigationEnd` стартового URL; при `navigated: false` — `Subject`, в котором ещё нет событий                      |
 | `navigate`, `navigateByUrl` | спаи: резолвятся в `true`, записывают вызов и не меняют URL                                                                            |
 | `serializeUrl`, `parseUrl`  | собственный `DefaultUrlSerializer` Angular                                                                                             |
-| `createUrlTree`             | `createUrlTreeFromSnapshot` из Angular, поэтому `relativeTo`, `queryParamsHandling` и `preserveFragment` работают                      |
+| `createUrlTree`             | строит дерево URL с учётом `relativeTo`, `queryParamsHandling` и `preserveFragment`, не запуская навигацию                             |
 | `routerState`               | собственный `RouterState` Angular: `snapshot.url` — это URL, `root` несёт его query-параметры и фрагмент                               |
 | `currentNavigation`         | навигация в процессе (сигнал Angular 20.2+), `null`, пока роутер стоит на месте                                                        |
 | `navigated`                 | `true` после завершения навигации; обновляется до доставки `NavigationEnd` подписчикам                                                 |
 | `isActive(url, options)`    | сравнение URL средствами Angular: точные и вложенные пути, query-параметры, matrix-параметры и фрагменты                               |
 | `lastSuccessfulNavigation`  | последняя успешная навигация с `finalUrl`: сигнал в Angular 21+, значение в Angular 20; обновляется через `setUrl()` и `NavigationEnd` |
 | `getCurrentNavigation()`    | тот же ответ через устаревший метод                                                                                                    |
+
+**Изменение query-параметров без смены пути.** Вызовите `createUrlTree()` с пустым списком команд
+(`[]`) и не указывайте `relativeTo`. С `queryParamsHandling: 'merge'` сохранятся все параметры,
+которые вы не передали. Чтобы убрать параметр из нового URL, передайте для него `null` или
+`undefined`.
+
+```ts
+import { expect } from 'vitest';
+
+import 'vitest-auto-spy/angular';
+
+import { createRouterDouble } from 'vitest-auto-spy/angular-router';
+
+const { router } = createRouterDouble({ url: '/products?tab=old&page=2&sort=asc' });
+const tree = router.createUrlTree([], {
+  queryParamsHandling: 'merge',
+  queryParams: { tab: null, page: undefined },
+});
+
+expect(router.serializeUrl(tree)).toBe('/products?sort=asc');
+```
 
 **Активные ссылки.** Настоящие директивы `RouterLink` и `RouterLinkActive` работают с этой
 подменой. `RouterLink` ещё инжектит `ActivatedRoute`, поэтому добавьте рядом

@@ -5,10 +5,8 @@ description: Run specs that use vitest-auto-spy under ng test and the @angular/b
 
 # Angular unit-test builder
 
-This page is for projects that run tests with `ng test` through Angular CLI's
-`@angular/build:unit-test` builder. The builder bundles your specs before Vitest runs them, so `vi.mock`,
-coverage, shards and `--changed` behave differently from a plain Vitest project. Start by putting the library's setup file in
-the test target:
+If you run tests with `ng test` and `@angular/build:unit-test`, add the setup file to the test
+target's `options.setupFiles` in `angular.json`. Keep your existing options.
 
 ```jsonc
 // angular.json
@@ -30,9 +28,9 @@ registerSignalMatchers();
 registerResourceMatchers();
 ```
 
-Then write specs as shown on the [Angular](/adapters/angular) page. The sections below cover what to
-do when the builder gets in the way. `npx vitest-auto-spy doctor` checks most of them for you; see
-[CLI](/utilities/cli).
+Write tests as shown in the [Angular guide](/adapters/angular). The builder bundles specs before
+Vitest runs them, so `vi.mock`, coverage, shards, and `--changed` behave differently. To check for
+setup mistakes, run `npx vitest-auto-spy doctor`; see the [CLI reference](/utilities/cli).
 
 ## What the builder compiles
 

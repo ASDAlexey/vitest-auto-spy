@@ -1,16 +1,15 @@
 ---
 title: Rstest
-description: vitest-auto-spy на Rstest, тест-раннере на Rspack - готовый пример, чем его моки похожи на Vitest и чего пока нет.
+description: Создавайте типизированные спаи в Rstest и узнайте, что менять в тестах при переходе с Vitest.
 ---
 
 # Rstest
 
-Точка входа `vitest-auto-spy/rstest` нужна, когда тесты запускаются на [Rstest](https://rstest.rs) —
-тест-раннере на сборщике Rspack. API у неё то же, что у точки входа для Vitest, а спаи она связывает
-с моками Rstest, так что их видят `rstest.clearAllMocks()` и матчеры Rstest.
+Если тесты запускаются на [Rstest](https://rstest.rs), тест-раннере на базе сборщика Rspack,
+импортируйте `createSpyFromClass` из `vitest-auto-spy/rstest`. Сохраните пример в `greeter.test.ts`.
+Тест передаёт спай вместо `UserService` и проверяет, как `Greeter` использует его ответы.
 
 ```ts
-// greeter.test.ts
 import { describe, expect, it } from '@rstest/core';
 import { type Spy, createSpyFromClass } from 'vitest-auto-spy/rstest';
 
@@ -24,7 +23,6 @@ class UserService {
   }
 }
 
-// проверяемый код: получает UserService через конструктор
 class Greeter {
   constructor(private readonly users: UserService) {}
 
@@ -42,8 +40,8 @@ describe('Greeter', () => {
     const users: Spy<UserService> = createSpyFromClass(UserService);
     const greeter = new Greeter(users);
 
-    users.getName.calledWith(7).mockReturnValue('Ada'); // отвечает только на getName(7)
-    users.load.resolveWith('Ada'); // без calledWith: отвечает на любой вызов
+    users.getName.calledWith(7).mockReturnValue('Ada');
+    users.load.resolveWith('Ada');
 
     expect(greeter.greet(7)).toBe('Hello, Ada!');
     expect(await greeter.welcome(1)).toBe('Welcome, Ada');
@@ -52,15 +50,22 @@ describe('Greeter', () => {
 });
 ```
 
+Запустите тест:
+
 ```bash
 npx rstest run
 ```
 
-Setup-файл не нужен: импорт из этой точки входа регистрирует всё сам. Пример импортирует
-`describe` / `it` / `expect` из `@rstest/core`.
+Тест передаёт спай в конструктор `Greeter`. Только вызов `getName(7)` возвращает `'Ada'`.
+При любых аргументах `await users.load(...)` даёт `'Ada'`.
 
-Чтобы пользоваться ими без импорта, включите `globals: true`. Тогда глобальной станет и `rstest` —
-утилита моков Rstest (как `vi` в Vitest) с коротким псевдонимом `rs`:
+Если переносите тесты с Vitest, поменяйте импорты спаев на `vitest-auto-spy/rstest`, а `describe`,
+`it` и `expect` импортируйте из `@rstest/core`. API библиотеки тот же, что и в Vitest.
+После импорта спаи работают с матчерами и утилитами моков Rstest. Файл настройки для спаев не нужен.
+
+Чтобы использовать `describe`, `it` и `expect` без импортов, задайте `globals: true` в
+`rstest.config.ts`. Тогда `rstest` (аналог `vi` в Vitest) и его короткое имя `rs` тоже станут
+глобальными.
 
 ```ts
 // rstest.config.ts
@@ -68,67 +73,68 @@ import { defineConfig } from '@rstest/core';
 
 export default defineConfig({
   globals: true,
-  clearMocks: true, // чистить все моки перед каждым тестом, включая спаи из createSpyFromClass
+  clearMocks: true,
 });
 ```
 
 ## Собственные методы моков как в Vitest {#the-native-surface-is-vitest-shaped}
 
-Собственные методы мока Rstest на спае работают как в Vitest:
+Спаи в Rstest поддерживают знакомые по Vitest методы и свойства моков:
 
-- `spy.method.mock.calls[0]` — обычный массив аргументов;
-- `mockReturnValue` и родственные методы есть у спая;
-- `mockClear()` / `mockReset()` ведут себя как в Vitest;
-- `gettersToSpyOn` / `settersToSpyOn` работают. Эти опции
-  [`createSpyFromClass`](/ru/core/create-spy-from-class) превращают геттеры или сеттеры класса в спаи.
+- `spy.method.mock.calls[0]` — массив аргументов.
+- У спаев есть `mockReturnValue` и похожие методы.
+- `mockClear()` и `mockReset()` работают как в Vitest.
+- Опции [`createSpyFromClass`](/ru/core/create-spy-from-class) `gettersToSpyOn` и `settersToSpyOn`
+  позволяют создавать спаи для геттеров и сеттеров класса.
 
-Хелперы библиотеки (`calledWith`, `resolveWith`, `nextWith`, …) всё равно удобнее: на любом раннере
-они читаются одинаково.
+Если хотите, чтобы код тестов был одинаковым на разных раннерах, используйте хелперы библиотеки:
+`calledWith`, `resolveWith`, `nextWith` и другие.
 
 ## `rstest.clearAllMocks()` чистит и спаи библиотеки {#rstest-clearallmocks-sweeps-the-library-spies}
 
-`rstest.clearAllMocks()`, `rstest.resetAllMocks()` и ключи конфига `clearMocks: true` /
-`resetMocks: true` чистят и спаи, созданные `createSpyFromClass`. Включать в библиотеке ничего не
-нужно: ключи конфига включите в `rstest.config.ts`, если они нужны, как выше. Как это устроено — в
-разделе [Подробнее](#in-depth).
+`rstest.clearAllMocks()` и `rstest.resetAllMocks()` действуют и на спаи из `createSpyFromClass`.
+Чтобы очищать или сбрасывать все моки перед каждым тестом, задайте `clearMocks: true` или
+`resetMocks: true` в `rstest.config.ts`. Дополнительно настраивать библиотеку не нужно. Как это
+работает, описано в разделе [Подробнее](#in-depth).
 
 ## Рядом с этой точкой входа {#beside-this-entry}
 
-Эти точки входа тоже работают под Rstest без установленного Vitest:
+Эти импорты тоже работают в Rstest без установленного Vitest:
 
-- `vitest-auto-spy/console`: [`useConsoleSpies()`](/ru/utilities/console) регистрирует свои хуки на
-  `beforeEach` / `afterEach` из Rstest, как только импортирована эта точка входа. Её типы тоже не упоминают `vitest`.
-- `vitest-auto-spy/nestjs`: хелперы Nest строят моки Rstest.
-  [Тесты Nest](/ru/adapters/nestjs#any-runner) импортируют `createNestUnit` из `/nestjs` рядом с этой
-  точкой входа.
+- `vitest-auto-spy/console`: после импорта `vitest-auto-spy/rstest`
+  [`useConsoleSpies()`](/ru/utilities/console) использует хуки `beforeEach` и `afterEach` из Rstest.
+  В типах `/console` нет ссылок на `vitest`.
+- `vitest-auto-spy/nestjs`: хелперы Nest создают моки Rstest. В
+  [тестах Nest](/ru/adapters/nestjs#any-runner) импортируйте `createNestUnit` из `/nestjs` вместе с
+  `vitest-auto-spy/rstest`.
 
-Остальные точки входа (корневая `vitest-auto-spy`, `/angular`, `/setup`, `/dom-stubs`, `/react`,
-`/vue`, …) импортируют `vitest`. Без установленного Vitest прогон останавливается до первого теста с
-`Cannot find package 'vitest' imported from …/node_modules/vitest-auto-spy/dist/<entry>.js`. Берите
-фабрики из этой точки входа. `npx vitest-auto-spy doctor` сообщает о таком импорте как
-[`vitest-entry-without-vitest`](/ru/utilities/cli#vitest-entry-without-vitest) и называет нужную точку
-входа.
+Корневой импорт `vitest-auto-spy` и такие точки входа, как `/angular`, `/setup`, `/dom-stubs`,
+`/react` и `/vue`, импортируют `vitest`. Если Vitest не установлен, запуск остановится до первого
+теста с ошибкой `Cannot find package 'vitest' imported from …/node_modules/vitest-auto-spy/dist/<entry>.js`.
+Импортируйте фабрики спаев из `vitest-auto-spy/rstest`. Команда `npx vitest-auto-spy doctor` помечает
+неверный импорт как [`vitest-entry-without-vitest`](/ru/utilities/cli#vitest-entry-without-vitest) и
+подсказывает, откуда импортировать.
 
-Типы этой точки входа не ссылаются на `vitest`, поэтому проект без Vitest проходит проверку типов
-без ошибок, даже с `skipLibCheck: false`. У `Spy<T>` здесь те же члены, что на Vitest,
-кроме `mockThrow` из Vitest; `failWith()` делает то же самое на любом раннере.
+В типах `/rstest` нет ссылок на `vitest`, поэтому проверка типов работает без Vitest даже при
+`skipLibCheck: false`. В `Spy<T>` всё как в Vitest, кроме `mockThrow`. Вместо него используйте
+`failWith()`: он работает одинаково на всех раннерах.
 
 ## Чего здесь пока нет {#what-is-not-here-yet}
 
-- **[`/setup`](/ru/utilities/setup)** (`setupAutoSpy()`, хелперы фейковых таймеров, отслеживание
-  потерянных отказов промисов и таймеров) работает только с хуками Vitest. Замены для Rstest пока нет.
+**[`/setup`](/ru/utilities/setup)** работает только с хуками Vitest. В Rstest пока нет замены для
+`setupAutoSpy()`, хелперов фейковых таймеров и отслеживания необработанных отклонений промисов
+и забытых таймеров.
 
 ::: tip Какой раннер выбрать
-Rstest пока в версии 0.x. [Vitest](/ru/runtimes/vitest) остаётся выбором по умолчанию. Эта точка входа
-нужна, когда тесты уже работают на Rstest — обычно в проекте на Rspack, который переиспользует конфиг
-сборщика для тестов.
+Rstest пока в версии 0.x. [Vitest](/ru/runtimes/vitest) остаётся выбором по умолчанию. Используйте
+`/rstest`, если ваши тесты уже работают на Rstest. Обычно это проекты, в которых для тестов
+используют тот же конфиг Rspack, что и для сборки.
 :::
 
 ## Подробнее {#in-depth}
 
-- Спаи методов библиотека строит сама, а не через `rstest.fn()`. Чтобы очистка и сброс Rstest до них
-  доходили, точка входа регистрирует один скрытый мок Rstest, который передаёт вызов дальше.
-- Спаи на аксессоры (`gettersToSpyOn` / `settersToSpyOn`) переопределяют свойство; `rstest.spyOn` не
-  используется.
-- У `trackNodeMocks()` из точки входа для `node:test` нет версии для Rstest, и она не нужна: Rstest
-  очищает моки между файлами, как Vitest и Bun.
+- Библиотека создаёт спаи методов без `rstest.fn()`. Она регистрирует один скрытый мок Rstest,
+  который передаёт спаям команды очистки и сброса.
+- `gettersToSpyOn` и `settersToSpyOn` переопределяют свойство вместо вызова `rstest.spyOn`.
+- `trackNodeMocks()` есть только в точке входа для `node:test`. В Rstest он не нужен: как и Vitest с
+  Bun, Rstest очищает моки между тестовыми файлами.

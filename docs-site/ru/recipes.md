@@ -5,21 +5,36 @@ description: Короткие рецепты для обычных спек на
 
 # Паттерны спек
 
-Короткие рецепты для задач, которые встречаются почти в каждом наборе тестов на Angular. Каждый
-начинается с задачи, потом показывает код. Страницы API описывают все опции; эта страница — какие
-хелперы брать под конкретную работу.
-
-Задачи со своими страницами: [моки классов](/ru/guides/mocking-classes),
-[мок `localStorage`](/ru/guides/mocking-local-storage), [мок Prisma Client](/ru/guides/mocking-prisma),
-[стори Storybook](/ru/guides/storybook-angular),
-[тесты без DOM](/ru/guides/testing-without-the-dom) и
-[идиомы Angular Material](/ru/guides/angular-material-idioms).
+Готовые примеры для тестов на Angular: подмена сервиса, сигналы, Observable, таймеры и другие задачи.
 
 ## Проверить сервис с подменёнными зависимостями {#test-a-service-with-its-dependencies-replaced}
 
-`TaskService` зависит от трёх сервисов. Спека подменяет все три спаями и проверяет настоящий
-`TaskService`. Хелперам для Observable нужен `import 'vitest-auto-spy/rxjs'` один раз в setup-файле
-(см. [Установку](/ru/core/installation#wiring-it-up)):
+Подмените зависимость в `TestBed`, чтобы проверить сервис на заданных данных.
+Начните с одной зависимости, а затем добавьте остальные тем же способом.
+
+```ts
+import { TestBed } from '@angular/core/testing';
+import { expect, it } from 'vitest';
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+
+import { ApiService, UserService } from './user.service';
+
+it('loads a user through the API', async () => {
+  TestBed.configureTestingModule({ providers: [provideAutoSpy(ApiService)] });
+  const api = injectSpy(ApiService);
+  api.get.resolveWith({ id: 1, name: 'Ada' });
+
+  await expect(TestBed.inject(UserService).load(1)).resolves.toEqual({ id: 1, name: 'Ada' });
+  expect(api.get).toHaveBeenCalledWith('/users/1');
+});
+```
+
+В этом примере сам `UserService` уже зарегистрирован через `providedIn: 'root'`.
+Код обоих классов — на странице [Начало работы](/ru/core/introduction#_2-write-the-spec).
+
+В примере ниже у `TaskService` три зависимости. Спека подменяет их спаями и проверяет настоящий сервис.
+Для хелперов Observable добавьте `import 'vitest-auto-spy/rxjs'` в setup-файл;
+см. [Установку](/ru/core/installation#wiring-it-up).
 
 ```ts
 import { TestBed } from '@angular/core/testing';
@@ -91,8 +106,15 @@ describe('TaskService', () => {
 2. **Объявляйте каждый спай как `Spy<T>` и получайте его через `injectSpy`.** Не как `T`: в `Spy<T>`
    нет приватных членов, поэтому в `T` он не подходит ([почему](/ru/core/spy-typing)).
 3. **Ответы по умолчанию задавайте в `beforeEach`, а меняйте в тесте.** Ненастроенный метод-спай
-   возвращает `undefined`. Если код на него подписывается или ждёт его, тест упадёт далеко от причины.
+   возвращает `undefined`. Тест может упасть позже, когда код подпишется на результат или прочитает
+   его свойства.
 4. **Спаи создаются лениво**, при первом обращении. Сервис с множеством методов подменяется бесплатно: методы, которые тест не вызывает, ничего не стоят.
+
+Задачи со своими страницами: [моки классов](/ru/guides/mocking-classes),
+[мок `localStorage`](/ru/guides/mocking-local-storage), [мок Prisma Client](/ru/guides/mocking-prisma),
+[стори Storybook](/ru/guides/storybook-angular),
+[тесты без DOM](/ru/guides/testing-without-the-dom) и
+[идиомы Angular Material](/ru/guides/angular-material-idioms).
 
 ## Задать сигнал зависимости или компонента {#set-a-signal-on-a-dependency-or-on-the-component}
 
@@ -392,10 +414,18 @@ afterAll(() => cancelStrayTimers()); // или просто отменить; в
 
 ## Заблокировать настоящие сетевые запросы {#block-real-network-requests}
 
-В happy-dom есть `fetch`, в jsdom нет. Переведите тесты с jsdom на happy-dom, и компонент, который
-грузит удалённый файл, начнёт слать настоящие запросы. Их никто не проверяет, поэтому все тесты
-зелёные. Потом раннер закрывает окружение, открытые запросы обрываются, и обрывы приходят как
-необработанные ошибки _после_ итогов:
+Чтобы тесты не отправляли настоящие запросы, включите `blockNetwork` в setup-файле:
+
+```ts
+// vitest.setup.ts
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
+setupAutoSpy({ blockNetwork: true });
+```
+
+Это особенно полезно при переходе с jsdom на happy-dom: в happy-dom есть `fetch`.
+Если тест оставит открытый запрос, при закрытии окружения запрос прервётся.
+Vitest может завершиться с кодом 1, хотя все тесты прошли и ни один не указан как причина:
 
 ```text
  Test Files  260 passed (260)
@@ -403,16 +433,6 @@ afterAll(() => cancelStrayTimers()); // или просто отменить; в
 
 Vitest caught 8 unhandled errors during the test run.
 DOMException [AbortError]: The operation was aborted.
-```
-
-Прогон выходит с кодом 1 и не называет ни одного теста, потому что ни один не упал. Заблокируйте сеть
-в setup-файле:
-
-```ts
-// vitest.setup.ts
-import { setupAutoSpy } from 'vitest-auto-spy/setup';
-
-setupAutoSpy({ blockNetwork: true });
 ```
 
 Теперь `fetch` сразу отклоняется, и в сообщении есть запрошенный URL. Тестируемый код идёт тем же

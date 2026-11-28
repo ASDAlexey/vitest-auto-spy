@@ -5,32 +5,36 @@ description: Build a typed Spy<T> from a class - every method becomes a spy; opt
 
 # createSpyFromClass
 
-`createSpyFromClass(Class, config?)` takes a class and returns a `Spy<T>`: an object with the same
-methods, where every method is a spy with helpers that match its return type. Use it to replace a
-class dependency in a test. The class constructor never runs.
+`createSpyFromClass(Class, config?)` replaces a class in a test. Its methods become spies with
+helpers that match their return types. The class constructor never runs.
 
 ```ts
-import { of } from 'rxjs';
-import { asInstance, createSpyFromClass } from 'vitest-auto-spy';
+import { expect, it } from 'vitest';
+import { createSpyFromClass } from 'vitest-auto-spy';
 
-const users = createSpyFromClass(UserService, {
-  returns: { load: of({ id: 1, name: 'Ann' }) }, // load(): Observable<User>, set up front
+class UserService {
+  async load(id: number) {
+    return { id, name: 'Guest' };
+  }
+}
+
+it('uses a preset user response', async () => {
+  const users = createSpyFromClass(UserService, {
+    returns: { load: Promise.resolve({ id: 1, name: 'Ada' }) },
+  });
+
+  await expect(users.load(1)).resolves.toEqual({ id: 1, name: 'Ada' });
+  expect(users.load).toHaveBeenCalledWith(1);
 });
-users.save.resolveWith(undefined); // save(user): Promise<void>
-
-const profile = new ProfileStore(asInstance(users)); // the code under test
-await profile.rename('Bob');
-
-expect(users.save).toHaveBeenCalledWith({ id: 1, name: 'Bob' });
 ```
 
-`returns` sets a method's answer at the moment you create the spy ("set up front"), so no separate
-`mockReturnValue` line is needed. `asInstance` passes the spy where the real type is expected; see
-[Bridging `Spy<T>` and `T`](./spy-typing). In Angular, [`provideAutoSpy`](/adapters/angular) takes the
-same options and puts the spy into `TestBed`.
+`returns` sets the response when you create the spy. If TypeScript won't accept the spy as a
+`UserService`, import `asInstance` from `vitest-auto-spy` and pass `asInstance(users)`. This changes
+only the type; see [Bridging `Spy<T>` and `T`](./spy-typing).
+In Angular, [`provideAutoSpy`](/adapters/angular) takes the same options and registers the spy in `TestBed`.
 
-What you can do with each method afterwards (`calledWith`, `resolveWith`, `nextWith` …) is on
-[Control helpers](./control-helpers).
+To set responses after creating the spy, use [control helpers](./control-helpers) such as
+`resolveWith`, `nextWith` or `calledWith`.
 
 ## Configuration
 
@@ -688,12 +692,25 @@ It is Vitest's spy mode (`vi.mock(path, { spy: true })`) for one object, on ever
 calling `vi.spyOn` on each method in turn. Only `createSpyFromInstance` has it: a class factory has no
 instance, so there is no real method to run.
 
+Use `passthrough: 'unmatched'` to stub specific arguments and run the real method for other arguments:
+
+```ts
+const cart = createSpyFromInstance(new CartStore(), { passthrough: 'unmatched' });
+cart.add.calledWith('pear').mockReturnValue(99);
+
+expect(cart.add('pear')).toBe(99);
+expect(cart.add('apple')).toBe(1);
+expect(cart.items).toEqual(['apple']);
+```
+
+With `passthrough: true`, the same `cart.add('apple')` call returns `undefined` without running `add`.
+With `'unmatched'`, the spy runs `add` if neither a `calledWith` answer nor a configured default applies.
+An explicit `undefined` default (for example, via `returnsUndefined`) still counts. A
+`mustBeCalledWith` miss throws in both modes. To replace the real method for every call in either
+mode, use `mockReturnValue` or `mockImplementation` on the method itself.
+
 The rules:
 
-- **A configured method stops calling the real one.** `calledWith`, `mustBeCalledWith`, `resolveWith`,
-  `nextWith`, `failWith`, `mockReturnValue`, `mockImplementation`, `returns` and `selfReturning` all
-  replace the real method. A `calledWith(1)` chain answers `undefined` for `load(2)`, as on any spy;
-  it does not fall back to the real `load`.
 - **`resetAutoSpy` brings the real method back.** `clearAutoSpy` keeps the configuration, as always. In
   the jasmine layer, `.and.callThrough()` runs the real method again.
 - **The real method runs with the object as `this`**, so its internal calls go through the spies and
@@ -704,11 +721,11 @@ The rules:
   `methodsToSpyOn` to spy it anyway. A discovered class stays real too; a named one becomes a plain spy.
 - **Accessors and Observable properties you name are replaced.** `gettersToSpyOn`, `settersToSpyOn`
   and `observablePropsToSpyOn` ask for replacement, and get it.
-- **A named member the object does not have** has nothing real to run, and answers like any spy:
-  `undefined`, or what a suite-wide strict mode says.
-- **`strict: true` or `onUnstubbedCall` on the same call is refused**, because both decide what an
-  unconfigured call does. A suite-wide `setupAutoSpy({ strict: true })` or a strict
-  `registerAutoSpyDefaults` yields to `passthrough`; see [Strict mode](./strict-mode#passthrough).
+- **Both modes reject `strict: true` or `onUnstubbedCall` in the same options object.** You can pass
+  `strict: false`. Strict settings from `setupAutoSpy` or `registerAutoSpyDefaults` yield to
+  passthrough when the spy can call the real method. If a listed method has no original implementation,
+  it follows the usual rules: it returns `undefined` by default, or uses the inherited strict policy
+  if one applies. See [Strict mode](./strict-mode#passthrough).
 
 In Angular, use it to check an interaction without breaking the service: take the real service from
 `TestBed.inject` and spy on it in place. Its dependencies, signals and `ɵprov` stay real, and `TestBed`

@@ -5,9 +5,8 @@ description: Replace a class in a Vitest spec - createSpyFromClass compared with
 
 # Mocking classes in Vitest
 
-`createSpyFromClass` builds a typed spy object from a class. Every method becomes a spy, and the real
-class is never touched. Use it when the code under test receives the class instance as a constructor
-argument, a function parameter or through dependency injection.
+Use `createSpyFromClass` when the code under test accepts a dependency from outside. It gives you
+typed method spies without changing the original class.
 
 ```ts
 import { beforeEach, describe, expect, it } from 'vitest';

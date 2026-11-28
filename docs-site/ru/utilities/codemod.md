@@ -5,27 +5,15 @@ description: Перевод тестов с jest-auto-spies и Jest или с ja
 
 # Кодмод
 
-`codemod` переводит тесты с `jest-auto-spies` и Jest или с `jasmine-auto-spies` и jasmine на Vitest и
-эту библиотеку. Он переписывает то, что может решить безопасно, всё остальное оставляет ровно как было
-и перечисляет каждое место, которое нужно переписать руками.
+Команда `codemod` переносит тесты с Jest и `jest-auto-spies` или с Jasmine и `jasmine-auto-spies`
+на Vitest и `vitest-auto-spy`. Она показывает изменения и отмечает места, которые нужно исправить
+вручную.
 
 ```bash
-npx vitest-auto-spy codemod            # предпросмотр: печатает дифф, ничего не пишет
-npx vitest-auto-spy codemod --write    # применить
-npx vitest-auto-spy codemod --verify   # проверить, что переводить больше нечего
+npx vitest-auto-spy codemod            # preview: print the diff, write nothing
+npx vitest-auto-spy codemod --write    # apply
+npx vitest-auto-spy codemod --verify   # check that nothing is left to migrate
 ```
-
-Почему не поиск с заменой? Потому что несколько простых переименований компилируются и делают обратное
-задуманному:
-
-- `jest.Mock<void, [Order]>` → `Mock<void, [Order]>` компилируется, но значит обратное: у Jest первым
-  идёт тип возврата, у Vitest — аргументы.
-- `jest.requireMock`, переименованный в `vi.requireMock`, падает с
-  `TypeError: vi.requireMock is not a function`.
-- `spyOn(o, 'm')` из jasmine, переименованный в `vi.spyOn(o, 'm')`, начинает вызывать настоящий метод:
-  jasmine его заглушает, а Vitest вызывает.
-- Если перенести все импорты `jest-auto-spies` в корневой `vitest-auto-spy`, сломается
-  `provideAutoSpy`: корневая точка входа его не экспортирует.
 
 Пошаговое руководство по переходу — [Переход с jest-auto-spies](/ru/migrating); для jasmine —
 [Переход с jasmine-auto-spies](/ru/migrating-jasmine).
@@ -45,9 +33,9 @@ npx vitest-auto-spy codemod --verify   # проверить, что перево
 **По одной директории.** Передайте директорию каждой команде:
 
 ```bash
-npx vitest-auto-spy codemod src/app            # предпросмотр
-npx vitest-auto-spy codemod src/app --write    # применить
-npx vitest-auto-spy codemod src/app --verify   # проверить
+npx vitest-auto-spy codemod src/app            # preview
+npx vitest-auto-spy codemod src/app --write    # apply
+npx vitest-auto-spy codemod src/app --verify   # check
 ```
 
 С путём кодмод обходит все исходники под ним, а не только спеки, так что `jest.` в коде приложения
@@ -400,6 +388,17 @@ VITEST_AUTO_SPY_SCAN_CAP=200000 npx vitest-auto-spy codemod --verify
 тестах такое возвращается.
 
 ## Подробнее {#in-depth}
+
+Обычный поиск с заменой пропускает эти различия:
+
+- `jest.Mock<void, [Order]>` → `Mock<void, [Order]>` компилируется, но значит обратное: у Jest первым
+  идёт тип возврата, у Vitest — аргументы.
+- `jest.requireMock`, переименованный в `vi.requireMock`, падает с
+  `TypeError: vi.requireMock is not a function`.
+- `spyOn(o, 'm')` из jasmine, переименованный в `vi.spyOn(o, 'm')`, начинает вызывать настоящий метод:
+  jasmine его заглушает, а Vitest вызывает.
+- Если перенести все импорты `jest-auto-spies` в корневой `vitest-auto-spy`, сломается
+  `provideAutoSpy`: корневая точка входа его не экспортирует.
 
 ### Ловушка: у Jest тип возврата стоит первым {#the-trap-jest-puts-the-return-type-first}
 

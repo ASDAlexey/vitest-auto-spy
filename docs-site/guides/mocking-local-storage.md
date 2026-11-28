@@ -5,8 +5,8 @@ description: Replace localStorage or sessionStorage for one test with stubWebSto
 
 # Mocking `localStorage` in Vitest
 
-`stubWebStorage` replaces `localStorage` or `sessionStorage` with a fresh in-memory storage for one
-test. You can fill it in the same call and check what ended up stored with one `toEqual`.
+Use `stubWebStorage` to test what your code reads from or writes to storage. It replaces
+`localStorage` or `sessionStorage` with fresh in-memory storage that you can seed and inspect.
 
 ```ts
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -42,9 +42,8 @@ describe('preferences', () => {
 });
 ```
 
-**Restore after each test.** Call [`setupAutoSpy()`](/utilities/setup) once in your setup file (the
-file listed in `setupFiles` of your Vitest config). It puts back the original storage after every
-test, so you write no `afterEach`:
+To restore the original storage after each test, call [`setupAutoSpy()`](/utilities/setup) in a
+file listed under `setupFiles` in your Vitest config:
 
 ```ts
 // vitest.setup.ts

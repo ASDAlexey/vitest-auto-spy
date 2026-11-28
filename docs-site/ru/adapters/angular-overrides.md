@@ -5,39 +5,37 @@ description: overrideComponentProvider и overrideAutoSpy — подменяют
 
 # Переопределение провайдеров компонента {#component-provider-overrides}
 
-`overrideComponentProvider` нужен, когда компонент сам указывает сервис в своём
-`@Component({ providers: [...] })`. `provideAutoSpy` в `TestBed.configureTestingModule` до такого
-сервиса не дотягивается: собственный провайдер компонента важнее, и компонент молча получает
-настоящий сервис. `overrideComponentProvider` подменяет его спаем и при следующем рендере проверяет,
-что компонент получил именно этот спай.
+Используйте `overrideComponentProvider`, если компонент объявляет сервис в своём массиве
+`providers`. Хелпер подменяет сервис спаем и проверяет, что компонент его получил. В этом тесте
+`ProfileComponent` объявляет `UserService` и вызывает `load()` в `ngOnInit`.
 
 ```ts
 import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
+import { expect, it } from 'vitest';
 import { overrideComponentProvider } from 'vitest-auto-spy/angular';
 
 import { ProfileComponent } from './profile.component';
 import { UserService } from './user.service';
 
-// @Component({ providers: [UserService], … }) class ProfileComponent — ngOnInit вызывает userService.load()
 it('loads the user', () => {
-  TestBed.configureTestingModule({ imports: [ProfileComponent] }); // остальная настройка модуля, как обычно
-
+  TestBed.configureTestingModule({ imports: [ProfileComponent] });
   const users = overrideComponentProvider(ProfileComponent, UserService, {
-    returns: { load: of({ name: 'Ada' }) }, // load(): Observable<User>
+    returns: { load: of({ name: 'Ada' }) },
   });
 
-  const fixture = TestBed.createComponent(ProfileComponent); // здесь подмена проверяется
-  fixture.detectChanges(); // запускает ngOnInit
+  const fixture = TestBed.createComponent(ProfileComponent);
+  fixture.detectChanges();
 
   expect(users.load).toHaveBeenCalledTimes(1);
 });
 ```
 
-Вызывайте его после `configureTestingModule` и **до** первого чтения инжектора: `TestBed.inject`,
-`injectSpy` или `createComponent`. Сам `configureTestingModule` инжектор не читает. Почему провайдер
-модуля проигрывает и как ещё это чинится (убрать провайдер у компонента) — на
-[странице Angular](/ru/adapters/angular#overriding-a-provider-the-component-declares-for-itself).
+Собственный `@Component({ providers: [...] })` имеет приоритет над `provideAutoSpy` в тестовом
+модуле. Вызывайте `overrideComponentProvider` после `configureTestingModule`, но до `TestBed.inject`,
+`injectSpy` или `createComponent`. Angular читает инжектор при этих вызовах, а не при настройке
+модуля. Хелпер проверяет подмену в первой фикстуре, в которой появляется компонент. Если вместо
+подмены хотите убрать провайдер у компонента, см. [страницу Angular](/ru/adapters/angular#overriding-a-provider-the-component-declares-for-itself).
 
 ## `overrideComponentProvider(component, Class, config?)` {#overridecomponentprovider-component-class-config}
 
@@ -83,8 +81,9 @@ const fixture = TestBed.createComponent(AppShellComponent); // CatalogPageCompon
 
 ## Проверка {#the-verification}
 
-На следующем `TestBed.createComponent` хелпер спрашивает сервис у собственного инжектора компонента.
-Если ответ — не тот спай, что он вернул, тест падает и называет компонент, сервис и причину:
+Когда `TestBed.createComponent` впервые создаёт фикстуру с нужным компонентом, хелпер запрашивает
+сервис у инжектора этого компонента. Если инжектор вернёт не тот спай, тест завершится ошибкой. В ней
+будут указаны компонент, сервис и причина:
 
 ```text
 [vitest-auto-spy] overrideComponentProvider(CatalogPageComponent, NavigationBuilderService): the override did not apply — CatalogPageComponent resolved NavigationBuilderService to a NavigationBuilderService instance, not the spy this call returned.
@@ -100,11 +99,11 @@ It got the real service because something configured NavigationBuilderService ag
 
 Что она проверяет и чего нет:
 
-- **Только первую фикстуру.** Проверка срабатывает на первом `createComponent` после вызова и
-  выключается насовсем. Если в первой фикстуре компонента нет, тест проходит без проверки:
-  следующую фикстуру хелпер не ждёт.
-- **Нерендеренный компонент пропускается.** За `@if`, на ленивом маршруте или когда фикстура
-  рендерит другой компонент, спрашивать ещё некого, поэтому проверка ничего не делает, а не гадает.
+- **Одна проверка на подмену.** Если в фикстуре нет нужного компонента, хелпер ждёт следующую.
+  Он проверяет первую фикстуру, где нужный компонент есть — корневой или дочерний.
+- **Только при создании фикстуры.** К моменту возврата из `createComponent` дочернего компонента
+  за `@if` или на ленивом маршруте может ещё не быть. После `detectChanges()` или навигации хелпер
+  не проверяет ту же фикстуру повторно.
 - **Более позднюю подмену она замечает, но не отменяет.** `TestBed.overrideProvider(Class, …)` после
   вызова всё равно заменит спай; тогда проверка упадёт с сообщением выше.
 - **Между тестами ничего не переносится.** Тест, который вызвал хелпер, но ничего не отрендерил, не
@@ -130,6 +129,23 @@ payments.useValue.charge.resolveWith({ ok: true });
 
 Второй аргумент — тот же, что у [`createSpyFromClass`](/ru/core/create-spy-from-class). Сам спай —
 `payments.useValue`.
+
+В обоих хелперах можно задать начальное значение свойства через `overrides`. Если у свойства есть
+только сеттер, добавьте его в `settersToSpyOn`, чтобы сохранить спай. При чтении свойство возвращает
+начальное значение, пока в него не запишут новое. Установка начального значения не считается вызовом
+сеттера.
+
+```ts
+const { useValue: settings } = overrideAutoSpy(SettingsService, {
+  settersToSpyOn: ['theme'],
+  overrides: { theme: 'dark' },
+});
+
+expect(settings.theme).toBe('dark');
+settings.theme = 'light';
+expect(settings.accessorSpies.setters.theme).toHaveBeenCalledExactlyOnceWith('light');
+expect(settings.theme).toBe('light');
+```
 
 **Частая ошибка:** ждать от него проверки. `overrideAutoSpy` не проверяет, применилась ли подмена;
 это делает только `overrideComponentProvider`. `overrideProvider(X, provideAutoSpy(X))` тоже

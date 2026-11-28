@@ -5,52 +5,50 @@ description: Тесты компонентов и сервисов Angular в Te
 
 # Angular
 
-`vitest-auto-spy/angular` подменяет сервис в `TestBed` объектом со спаями, собранным из его класса.
-Каждый метод — типизированный [спай](/ru/glossary): запоминает вызовы и отвечает тем, что вы задали.
-Пригодится, когда тестируемый компонент или сервис зависит от других сервисов и вы хотите управлять
-их ответами.
+Подмените сервис в `TestBed` с помощью `provideAutoSpy` и задайте ответы его методов. Получите
+типизированный [спай](/ru/glossary) через `injectSpy`, чтобы проверить вызовы. В этом тесте
+`UserService.load()` выдаёт пользователя, а `ProfileComponent` показывает его имя.
 
 ```ts
 import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { type Spy, injectSpy, provideAutoSpy, stable } from 'vitest-auto-spy/angular';
+import { expect, it } from 'vitest';
+import { injectSpy, provideAutoSpy, stable } from 'vitest-auto-spy/angular';
 
 import { ProfileComponent } from './profile.component';
 import { UserService } from './user.service';
 
-describe('ProfileComponent', () => {
-  let users: Spy<UserService>;
-
-  beforeEach(() => {
-    TestBed.configureTestingModule({
-      imports: [ProfileComponent],
-      providers: [provideAutoSpy(UserService, { returns: { load: of({ id: 1, name: 'Ada' }) } })],
-    });
-    users = injectSpy(UserService);
+it('shows the user name', async () => {
+  TestBed.configureTestingModule({
+    imports: [ProfileComponent],
+    providers: [provideAutoSpy(UserService, { returns: { load: of({ id: 1, name: 'Ada' }) } })],
   });
+  const users = injectSpy(UserService);
+  const fixture = TestBed.createComponent(ProfileComponent);
+  await stable(fixture);
 
-  it('shows the user name', async () => {
-    const fixture = TestBed.createComponent(ProfileComponent);
-    await stable(fixture); // обнаружение изменений и эффекты, затем ожидание
-
-    expect(fixture.nativeElement.textContent).toContain('Ada');
-    expect(users.load).toHaveBeenCalledTimes(1);
-  });
+  expect(fixture.nativeElement.textContent).toContain('Ada');
+  expect(users.load).toHaveBeenCalledTimes(1);
 });
 ```
 
-Обычная настройка Angular + Vitest в проекте всё равно нужна: билдер `@angular/build:unit-test` или
-Vite-плагин Analog с setup-файлом для `TestBed`. См. [Установка](/ru/core/installation). Спаи
-одинаково работают в zoneless-проектах и с zone.js. Если тест падает раньше вашей первой проверки,
-загляните в [Angular: решение проблем](/ru/adapters/angular-troubleshooting).
+![TestBed передаёт спай в ProfileComponent. Тест задаёт ответ и проверяет имя на экране и вызов метода.](/demos/angular-di.ru.svg)
 
-Что обычно нужно дальше:
+`provideAutoSpy` собирает объект со спаями из класса сервиса. `stable` запускает обнаружение
+изменений и эффекты, затем ждёт, пока фикстура стабилизируется.
 
-- задать ответ метода или значение поля заранее: [Ответы прямо в провайдере](#seeding-the-double-in-the-provider);
-- управлять полем-`signal()` подменённого сервиса: [Управление сигналом](#driving-a-signal);
-- дождаться компонента после изменения: [Ожидание в zoneless-режиме](#zoneless-waiting);
-- отрендерить без дочерних компонентов: [Поверхностный рендер](#shallow-component-rendering).
+Используйте билдер `@angular/build:unit-test` или Vite-плагин Analog с setup-файлом для `TestBed`.
+Оба варианта описаны в разделе [Установка](/ru/core/installation). Спаи работают с zone.js и без
+него. Если настройка падает до первой проверки, см. [Angular: решение проблем](/ru/adapters/angular-troubleshooting).
+
+Выберите следующий шаг для своего теста:
+
+- Задать ответ метода или значение поля: [Ответы прямо в провайдере](#seeding-the-double-in-the-provider).
+- Изменить поле `signal()` у сервиса: [Управление сигналом](#driving-a-signal).
+- Дождаться обновления компонента: [Ожидание в zoneless-режиме](#zoneless-waiting).
+- Отрендерить компонент без дочерних: [Поверхностный рендер](#shallow-component-rendering).
+- Подменить сервис, который компонент объявляет сам: [Переопределение провайдеров компонента](/ru/adapters/angular-overrides).
+- Ответить на запрос или управлять навигацией: [Angular HTTP](/ru/adapters/angular-http) или [Роутер Angular](/ru/adapters/angular-router).
 
 ## Импорты {#imports}
 
@@ -218,7 +216,9 @@ const test = extendWithAutoSpies(base, { cart: CartService }, { providers: [prov
 - `beforeEach`, который **получает** что-то через DI. Эффект тот же. `beforeEach`, который только
   вызывает `configureTestingModule`, в порядке: он выполняется до любой фикстуры.
 - На Vitest старше 4.1 вызов бросает `extendWithAutoSpies needs Vitest 4.1 or newer`. До
-  обновления пользуйтесь формой `let` + `beforeEach` из начала страницы.
+  обновления вызывайте `provideAutoSpy` и `injectSpy` напрямую, как в первом тесте на этой
+  странице. Чтобы использовать одну настройку в нескольких тестах, вынесите её в `beforeEach`,
+  а спай сохраните в переменной `let`.
 
 ## DI-токен из `abstract class` {#an-abstract-class-di-token}
 
@@ -459,22 +459,26 @@ expect(instance.checkout()).toBe(100);
 
 ## Поверхностный рендер компонента {#shallow-component-rendering}
 
-`renderShallow` рендерит компонент без дочерних компонентов. Он сам выполняет обычные шаги:
-`configureTestingModule`, `NO_ERRORS_SCHEMA` и `overrideComponent` с пустыми `imports` и пустым
-шаблоном. Берите его, когда спека проверяет состояние компонента в TypeScript, а не его детей.
+С помощью `renderShallow` проверяйте состояние и поведение компонента без создания дочерних
+компонентов. По умолчанию он рендерит пустой шаблон и возвращает компонент вместе с фикстурой.
 
 ```ts
 import { provideHttpClient } from '@angular/common/http';
 import { provideAutoSpy, renderShallow } from 'vitest-auto-spy/angular';
 
+import { TaskListComponent } from './task-list.component';
+import { TaskService } from './task.service';
+
 const { fixture, component } = renderShallow(TaskListComponent, {
   providers: [provideAutoSpy(TaskService), provideHttpClient()],
-  inputs: { projectId: 42 }, // через componentRef.setInput, до первого обнаружения изменений
+  inputs: { projectId: 42 },
 });
 ```
 
-`fixture` — настоящий `ComponentFixture`. Хуки жизненного цикла, входы, сигналы и DI работают; пуст
-только шаблон.
+`fixture` — настоящий `ComponentFixture`. Хуки жизненного цикла, входы, сигналы и DI работают.
+`renderShallow` настраивает `TestBed` и по умолчанию очищает импорты и шаблон standalone-компонента
+через `overrideComponent`. Для компонента из `NgModule` он использует `NO_ERRORS_SCHEMA`.
+Значения входов задаются через `componentRef.setInput` до первого обнаружения изменений.
 
 | Опция                | По умолчанию | Что делает                                                                                                                                                  |
 | -------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |

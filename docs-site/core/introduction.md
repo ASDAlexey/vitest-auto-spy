@@ -5,9 +5,30 @@ description: Install vitest-auto-spy and write your first Angular spec with a ty
 
 # Getting started
 
-`vitest-auto-spy` turns a class into a test stand-in where every method is a typed spy. You use it
-when the code you test depends on a service and you do not want to write one `vi.fn()` per method by
-hand. This page takes you from install to a passing Angular spec in three steps.
+Use `vitest-auto-spy` to replace a service in a test without writing `vi.fn()` for every method.
+Each method spy returns the response you set and records how it was called:
+
+```ts
+import { expect, it } from 'vitest';
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+class ApiService {
+  async get(url: string): Promise<{ id: number; name: string }> {
+    throw new Error(`Unexpected request: ${url}`);
+  }
+}
+
+it('uses a preset response instead of the real method', async () => {
+  const api = createSpyFromClass(ApiService);
+  api.get.resolveWith({ id: 1, name: 'Ada' });
+
+  await expect(api.get('/users/1')).resolves.toEqual({ id: 1, name: 'Ada' });
+  expect(api.get).toHaveBeenCalledWith('/users/1');
+});
+```
+
+The steps below use the same idea in Angular: register a spy in `TestBed`, then test the service
+that depends on it.
 
 ## 1. Install
 

@@ -35,6 +35,8 @@ it('reveals the card once it scrolls into view', async () => {
 [`stable(fixture)`](../adapters/angular#zoneless-waiting).
 :::
 
+![Тест передаёт запись о пересечении, ждёт обновления Angular и проверяет класс is-visible у карточки. Прокрутка не нужна.](/demos/intersection.ru.svg)
+
 ## Установщики {#the-installers}
 
 | Функция                      | Какой глобал подменяет  |

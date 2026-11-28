@@ -10,13 +10,40 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- `passthrough: 'unmatched'` on `createSpyFromInstance`, `adoptMock` and `moduleNamespace` delegates unmatched `calledWith` calls to the original implementation. Explicit `undefined` answers and `mustBeCalledWith` keep their meaning.
+- `createSubscriptionLog()` in `/rxjs` records subscriptions and teardowns for selected method returns without subscribing to them.
+- `findDirective(fixture, Directive)` in `/angular` and `/bun-angular` returns the only matching directive instance, including on the fixture root and structural anchors. It reports the number found when the lookup is ambiguous or empty.
+
+### Changed
+
+- The npm release audit, using published 5.71.0 as its baseline, measured minified and gzipped increases of 0.53 kB for `/console`, 0.56 kB for `/angular-router`, and 0.10 kB for `/rxjs`. Against the separate historical CI baseline tracked in `size-entries.json`, the respective increases are 526, 590, and 95 bytes. The console and router entries include shared spy fixes for large argument graphs and overlapping Set expectations; the router also includes navigation fixes. The RxJS increase comes from the opt-in `createSubscriptionLog()` wrapper.
+- `/bun-angular` and `/angular/matchers` each load one more module than in 5.71.0. They share directive lookup code that includes fixture roots and structural anchors without bringing Vitest into the Bun entry.
+- `perf --gate` keeps readings of the same spec separate by Vitest project when merging and confirming results. Built-in confirmation reruns use the recorded config and project, so a fast test in another project cannot clear its slow counterpart. A legacy path-only candidate can use a named rerun reading only when that reading is the sole match for the path.
+- `perf --gate` refuses a legacy report that lists the same spec path more than once without project names. It exits with code `2` and reports `gate.status: "refused"` in JSON. Without `--gate`, `perf` warns and keeps one reading per path. Overlap between separate shard reports still deduplicates normally.
+
+### Fixed
+
+- Class spies preserve the nearest inherited descriptor, `toString` overrides, setter call histories and the prototype of replacement constructors.
+- Shallow Angular fixtures support public input aliases and non-standalone `keepModules`, suppress inherited host directives on request, and escape quoted projection selectors. Supply `signalTransforms` when a stub must coerce a signal input without constructing the child.
+- `/nestjs` resolves spy lookups against the winning provider and rejects an async factory in a synchronous unit.
+- `/vue`'s `provideAutoSpy()` types its single-entry result accordingly: narrow a union key before reading the spy. The recipe for multiple `InjectionKey<T>` symbols keeps each typed spy in a local variable and passes a computed-key map to `global.provide`.
+- `calledWith` and `mustBeCalledWith` distinguish arguments that differ after a large shared subtree and match overlapping Set expectations independently of insertion order.
+- `mockDeep` keeps earlier indexed writes, and reset follows array elements moved by `shift` or `splice`. Rejected non-configurable proxy descriptors leave no property behind.
+- `/angular-http` reports inspected but unanswered requests and detects duplicate matches with global regular expressions. `/angular-router` keeps the current path on query-only navigation, removes nullish query parameters, and updates the URL snapshot before notifying subscribers.
+- In `/angular`, creating an unrelated fixture no longer consumes another component’s provider check. Auto-spy fixtures accept environment providers and respect nested overrides.
+- In `/angular-router`, `injectLocationDouble()` rejects Angular's plain `SpyLocation` when `provideLocationMocks()` overrides the query-aware double. When using both, list `provideLocationDouble()` last so `path()` returns `/reports?tab=7` after `go('/reports', 'tab=7')`.
+- `doctor` no longer prunes a directory when a bracket expression in a Git ignore rule would need to match a path separator. `perf` can read timing reports from Windows drives and network shares on POSIX hosts.
+
+### Docs
+
+- The Svelte prop recipe uses `asInstance(store)` for props typed as a concrete class with private fields; props typed against a public interface can take the spy directly. The singleton recipe creates the spy inside the async `vi.mock` factory after `await importOriginal()`, then uses `asSpy()` on the imported singleton to configure it and assert calls.
+
 ## [5.71.0] - 2026-11-26
 
 ### Added
 
-- `passthrough: 'unmatched'` on `createSpyFromInstance`, `adoptMock` and `moduleNamespace` delegates unmatched `calledWith` calls to the original implementation. Explicit `undefined` answers and `mustBeCalledWith` keep their meaning.
-- `createSubscriptionLog()` in `/rxjs` records subscriptions and teardowns for selected method returns without subscribing to them. The `/rxjs` bundle grows to include this opt-in operator wrapper.
-- `findDirective(fixture, Directive)` in `/angular` returns the only matching directive instance, including on the fixture root and structural anchors. It reports the number found when the lookup is ambiguous or empty.
 - `mockConstructor(Class, factory)` infers the class instance and constructor arguments and can be returned from a typed Vitest module factory.
 - `spyOnGlobal('fetch')` infers the global function's signature and restores the original through `restoreMockedProps()`. The root entry and its runner variants ship the helper.
 - `provideAutoSpyForToken({ token, options })` configures a token double without a placeholder argument; positional overrides keep their meaning.
@@ -24,21 +51,10 @@ The latest released version here must always match the one published on
 
 ### Changed
 
-- `/console` adds about 0.53 kB min+gzip and `/angular-router` adds about 0.60 kB relative to 5.70.3. Their spies distinguish large argument graphs and match overlapping Set expectations. The router double also preserves the real router's query and notification behavior.
-- `/bun-angular` and `/angular/matchers` each load one additional module. The shared directive traversal finds matches on fixture roots and structural anchors without importing Vitest into the Bun entry.
-- `perf --gate` keeps project-specific readings of the same spec separate when merging and confirming results; a fast test in another Vitest project cannot clear its slow counterpart.
 - ESLint migration hints recommend `spyOnGlobal('fetch')` for an unrestored fetch assignment and show the options-only token provider form for method results. Existing supported calls are not flagged.
 
 ### Fixed
 
-- Class spies preserve the nearest inherited descriptor, `toString` overrides, setter call histories and the prototype of replacement constructors.
-- Shallow Angular fixtures support public input aliases and non-standalone `keepModules`, suppress inherited host directives on request, and escape quoted projection selectors. Supply `signalTransforms` when a stub must coerce a signal input without constructing the child.
-- `/nestjs` resolves spy lookups against the winning provider and rejects an async factory in a synchronous unit. `/vue` no longer promises every key of a token union. The `/svelte` recipes keep private class props type-safe and set up singleton mocks after imports resolve.
-- `calledWith` and `mustBeCalledWith` distinguish arguments that differ after a large shared subtree and match overlapping Set expectations independently of insertion order.
-- `mockDeep` keeps earlier indexed writes, and reset follows array elements moved by `shift` or `splice`. Rejected non-configurable proxy descriptors leave no property behind.
-- `/angular-http` reports inspected but unanswered requests and detects duplicate matches with global regular expressions. `/angular-router` keeps the current path on query-only navigation, removes nullish query parameters, and updates the URL snapshot before notifying subscribers.
-- In `/angular`, creating an unrelated fixture no longer consumes another component’s provider check. Auto-spy fixtures accept environment providers and respect nested overrides.
-- `doctor` no longer prunes a directory when a bracket expression in a Git ignore rule would need to match a path separator. `perf` can read timing reports from Windows drives and network shares on POSIX hosts.
 - `createActivatedRoute()` and `provideActivatedRoute()` in `/angular-router` work on Angular 22.3 again, including parent and child routes.
 - `init` reports and skips targets reached through a symlink inside the project.
 - `no-inline-test-data` compares literal values instead of stripping whitespace from source text. The `/eslint-plugin` entry preserves string content and array and object property order when grouping repeats.

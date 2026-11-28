@@ -5,26 +5,33 @@ description: createAutoMock, mockDeep and createMock - build a spy or a test obj
 
 # Auto-mock by type
 
-Build a spy from a TypeScript **type or interface** when there is no class to pass: an interface, a
-generated API client, an injection token. Every method you touch becomes a spy with the usual
-helpers (`calledWith`, `resolveWith`, `nextWith`, …).
+Use `createAutoMock<T>()` when your dependency has a TypeScript type but no class to pass.
+For example, give a checkout test a payment gateway with a preset response:
 
 ```ts
+import { expect, it } from 'vitest';
 import { asInstance, createAutoMock } from 'vitest-auto-spy';
 
 interface PaymentGateway {
-  charge(amount: number): Promise<Receipt>;
+  charge(amount: number): Promise<{ id: string; amount: number }>;
   refund(id: string): Promise<void>;
 }
 
-const gateway = createAutoMock<PaymentGateway>();
+const checkout = (gateway: PaymentGateway, amount: number) => gateway.charge(amount);
 
-gateway.charge.resolveWith({ id: 'r-1', amount: 42 });
+it('charges the order total', async () => {
+  const gateway = createAutoMock<PaymentGateway>();
+  gateway.charge.resolveWith({ id: 'r-1', amount: 42 });
 
-await checkout(asInstance(gateway), 42); // your code under test; asInstance types the spy as PaymentGateway
-expect(gateway.charge).toHaveBeenCalledWith(42);
-expect(gateway.refund).not.toHaveBeenCalled();
+  await expect(checkout(asInstance(gateway), 42)).resolves.toEqual({ id: 'r-1', amount: 42 });
+  expect(gateway.charge).toHaveBeenCalledWith(42);
+  expect(gateway.refund).not.toHaveBeenCalled();
+});
 ```
+
+Use the same pattern for a generated API client or a dependency exposed through an injection token.
+`asInstance(gateway)` passes the spy to code that expects a `PaymentGateway`. Each method you
+access becomes a spy with helpers such as `calledWith`, `resolveWith` and `nextWith`.
 
 Pick the factory by what the code under test does with the object:
 

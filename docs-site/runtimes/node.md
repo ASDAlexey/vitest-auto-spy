@@ -5,9 +5,9 @@ description: Use vitest-auto-spy with Node's built-in test runner - a runnable e
 
 # node:test
 
-Use the `vitest-auto-spy/node` entry when your tests run under Node's built-in `node --test`. The
-library helpers are the same as on Vitest; the runner's own mock methods differ (see the table
-below). Spies are built on `node:test`'s `mock.fn()`.
+Running tests with `node --test`? Install the library with `npm install -D vitest-auto-spy` and
+import from `vitest-auto-spy/node`. You do not need Vitest. Save this example as `greeter.test.mjs`
+in your project root.
 
 ```js
 // greeter.test.mjs
@@ -25,7 +25,6 @@ class UserService {
   }
 }
 
-// the code under test: receives UserService through its constructor
 class Greeter {
   constructor(users) {
     this.users = users;
@@ -56,7 +55,7 @@ describe('Greeter', () => {
 ```
 
 ```bash
-node --test
+node --test greeter.test.mjs
 ```
 
 - `node:test` has no `expect`, so the example uses `node:assert`.
@@ -70,8 +69,8 @@ node --test
 
 ## Where the native surface differs
 
-The library helpers (`calledWith`, `resolveWith`, `nextWith`, …) work the same on every runner. The
-runner's own mock methods do not: `node:test` mocks are not Jest-style.
+`calledWith`, `resolveWith`, and `nextWith` work the same on every runner. These spies use
+`mock.fn()` from `node:test`, so the native mock methods differ from Jest's.
 
 | What you want              | Vitest / Bun                        | `node:test`                                                                                              |
 | -------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -81,9 +80,8 @@ runner's own mock methods do not: `node:test` mocks are not Jest-style.
 | Read the spy's name back   | `spy.method.getMockName()`          | **absent**: read `spy.method.name` instead                                                               |
 | Return value               | `spy.method.mockReturnValue(v)`     | **absent** on the raw mock: use `spy.method.calledWith(...).mockReturnValue(v)`, see below               |
 
-**Common mistake:** `spy.method.mockReturnValue('x')` on `node:test`. It is a Vitest/Bun mock
-method, so here it is `undefined` and the call throws. Use the library's version, which works on
-every runner:
+**Common mistake:** calling `spy.method.mockReturnValue('x')` on `node:test`. The method is
+missing, so the call throws. The `calledWith` form works on every runner:
 
 ```js
 users.getName.calledWith(7).mockReturnValue('seven'); // ✅ everywhere
@@ -145,20 +143,20 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#what-a-mu
 
 ## Every mock is retained until the tracker is dropped
 
-`node:test` records every `mock.fn()` in a tracker: the `mock` object you import from `node:test`
-(a `MockTracker`). Do not confuse it with `spy.method.mock`, the call record of one spy. The tracker
-keeps each mock for the whole process. A spy you no longer use stays in memory, with everything it
-recorded. Only `mock.reset()` on the `mock` object from `node:test` empties the tracker, and it also
-puts the original implementations back and forgets every mock. For example, 20 000 spies of a
-10-method class kept about 120 MB in memory until the process ended.
+The `mock` object from `node:test` is a `MockTracker`. It holds every `mock.fn()` and its recorded
+calls for the whole process, even after you stop using the spies. This is separate from
+`spy.method.mock`, which describes one spy. Calling `mock.reset()` empties the tracker, restores the
+original implementations, and forgets every mock. For example, 20,000 spies of a 10-method class
+kept about 120 MB in memory until the process ended.
 
 ### `trackNodeMocks()`
 
-Call it once, as early as possible. The library then creates its spies on its own tracker and
-replaces that tracker with a fresh one after every test, so old spies can be freed. It returns a
-function that turns tracking off. Calling `trackNodeMocks()` again while tracking is on does nothing.
-In the example above, the same 20 000 spies kept 5.9 MB instead of 124.5 MB (the measurement is on
-[Performance](/core/performance#on-node-test)).
+If a large suite holds on to too many mocks, call `trackNodeMocks()` before creating spies. The
+library uses its own tracker and replaces it after each test so unused spies can be freed.
+
+The function returns a callback that turns tracking off. Calling `trackNodeMocks()` again while
+tracking is on does nothing. In the same test with 20,000 spies, retained memory fell from 124.5 MB
+to 5.9 MB; see [Performance](/core/performance#on-node-test).
 
 ```js
 import { before, describe, it } from 'node:test';

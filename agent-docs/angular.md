@@ -1294,8 +1294,9 @@ loading, because the zoneless provider was still called
 `provideExperimentalZonelessChangeDetection` there.
 
 It exports the core, `provideAutoSpy` / `injectSpy`, `renderShallow`, `createWithAutoSpies`,
-`setInputs`, `runEffect`, `settleResource`, `trackEffectRuns` / `trackRecomputations` and
-`stable` / `flushEffects` — nothing else from this section. The matcher registrars
+`setInputs`, `runEffect`, `settleResource`, `trackEffectRuns` / `trackRecomputations`,
+`stable` / `flushEffects` and the fixture helpers `findDirective`, `hostElement` and `queryElement`.
+The matcher registrars
 (`registerSignalMatchers`, `registerDirectiveMatchers`, `registerResourceMatchers`) need the runner's
 `expect.extend` and the TestBed diagnostics its suite-level hooks; the overrides, `extendWithAutoSpies`,
 `provideAutoSpyForToken`, `trackInjections`, `setupAngularTestEnv`, the stub factories and the
@@ -1423,10 +1424,21 @@ is not emitted into a test bundle, so the same line contributes nothing. A host 
 `standalone: false` inside a spec is compiled outside any scope at all — no `NgClass`, no
 `AsyncPipe`, nothing.
 
-To read the directive instance, import `findDirective` from `vitest-auto-spy/angular` or, for Bun,
-`vitest-auto-spy/bun-angular`. `findDirective(fixture, TruncateDirective)` returns a `TruncateDirective`,
-not a debug node. It checks the fixture root and all descendants, including structural directive
-anchors, and throws on zero or multiple matches.
+To read the typed directive instance after rendering, use `findDirective`:
+
+```ts
+import { findDirective } from 'vitest-auto-spy/angular';
+
+const fixture = TestBed.createComponent(Host);
+fixture.detectChanges();
+
+const truncate = findDirective(fixture, TruncateDirective);
+expect(truncate.appTruncate).toBe(false);
+```
+
+On Bun, import it from `vitest-auto-spy/bun-angular`. It accepts a component or directive fixture.
+It checks the root and descendants, including structural directive anchors, and throws on zero
+or multiple matches. If several instances are expected, query for the intended debug node instead.
 
 `registerDirectiveMatchers()` adds `expect(fixture).toHaveDirectiveApplied(Directive, 'div')`, which
 asserts the fact Angular reports three wrong ways (`NG0303` points at the module where the directive
@@ -1480,8 +1492,8 @@ expect(chart.series()).toEqual([1, 2, 3]); // a signal input stays a signal inpu
 chart.pointSelected.emit(2); // outputs are EventEmitters; a model() stays a model
 ```
 
-Copied from `ɵcmp` / `ɵdir` / `ɵpipe`: the selector, every input under its public name (transforms
-included), every output, `exportAs`, a pipe's name and purity. Not copied: the template (the stub
+Copied from `ɵcmp` / `ɵdir` / `ɵpipe`: the selector, every input under its public name, decorator
+input transforms, every output, `exportAs`, a pipe's name and purity. Not copied: the template (the stub
 renders one `<ng-content>` per slot the real one projects — `{ template }` in the third argument
 replaces it), host bindings, providers, lifecycle hooks, queries, and **`hostDirectives`** — so an
 input the real component exposes through one is not on the stub, even though `setInputs` accepts that
@@ -1489,6 +1501,20 @@ name on the real thing. The second argument seeds members per instance — a met
 through `viewChild`, a pipe's `transform` (identity by default). With `renderShallow`:
 `renderShallow(Parent, { keepTemplate: true, keepChildren: [ChartStub] })` — the real child is
 dropped as a component import and the stub is the one child left.
+
+Use `signalTransforms` in the third argument when a stub needs the same `input()` conversion as
+its real component or directive. For example, if `PanelComponent` declares
+`isExpanded = input(false, { alias: 'expanded', transform: booleanAttribute })`:
+
+```ts
+import { booleanAttribute } from '@angular/core';
+import { createComponentStub } from 'vitest-auto-spy/angular';
+
+const PanelStub = createComponentStub(PanelComponent, {}, { signalTransforms: { isExpanded: booleanAttribute } });
+```
+
+Key the map by the class field (`isExpanded`), not the public alias (`expanded`). Without a
+supplied transform, the stub receives the raw bound value. `model()` fields do not take transforms.
 
 ### Patching a property of a spy
 

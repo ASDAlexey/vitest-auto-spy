@@ -1,18 +1,31 @@
 ---
 title: Migrating from @ngneat/spectator
-description: Move Spectator service and component specs to vitest-auto-spy - the API side by side, full before and after specs, the DOM parts you keep, and why Spectator fails on Angular 22.
+description: Replace Spectator spies and TestBed setup in Angular service and component tests, with before-and-after examples and an Angular 22 workaround.
 ---
 
 # Migrating from `@ngneat/spectator`
 
-This page moves Angular specs from Spectator to `vitest-auto-spy`. You need it when Spectator stops
-loading after an Angular upgrade (it fails on Angular 22), or when you want its jQuery and Jasmine
-types out of the project. A service spec changes like this:
+Replace Spectator's spies and `TestBed` setup with `vitest-auto-spy`. Use this guide if Spectator won't
+load on Angular 22 or you want to remove its jQuery dependency and Jasmine types.
+This service test uses your app's `CartService` and `PricingService`:
 
 ::: code-group
 
+```ts [After — vitest-auto-spy]
+import { TestBed } from '@angular/core/testing';
+import { expect, it } from 'vitest';
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+
+it('totals the cart', () => {
+  TestBed.configureTestingModule({ providers: [CartService, provideAutoSpy(PricingService)] });
+  injectSpy(PricingService).total.mockReturnValue(120);
+  expect(TestBed.inject(CartService).checkout()).toBe(120);
+});
+```
+
 ```ts [Before — @ngneat/spectator]
 import { createServiceFactory } from '@ngneat/spectator/vitest';
+import { expect, it } from 'vitest';
 
 const createService = createServiceFactory({ service: CartService, mocks: [PricingService] });
 
@@ -23,27 +36,15 @@ it('totals the cart', () => {
 });
 ```
 
-```ts [After — vitest-auto-spy]
-import { TestBed } from '@angular/core/testing';
-import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
-
-it('totals the cart', () => {
-  TestBed.configureTestingModule({ providers: [CartService, provideAutoSpy(PricingService)] });
-  injectSpy(PricingService).total.mockReturnValue(120);
-  expect(TestBed.inject(CartService).checkout()).toBe(120);
-});
-```
-
 :::
 
-- `provideAutoSpy(X)` replaces `mocks: [X]` and `mockProvider(X)`.
-- `injectSpy(X)` replaces `spectator.inject(X)`. Within one test it always returns the same spy.
-- `TestBed.inject(CartService)` runs the `CartService` constructor. If the constructor calls
-  `total()`, put the answer in the provider: `provideAutoSpy(PricingService, { returns: { total: 120 } })`.
-  Any other answer can be set later, before the test calls the method.
+- Use `provideAutoSpy(X)` instead of `mocks: [X]` or `mockProvider(X)`.
+- Use `injectSpy(X)` instead of `spectator.inject(X)`. It returns the same spy within a test.
+- `TestBed.inject(CartService)` creates the service. If its constructor calls `total()`, set the answer
+  in the provider: `provideAutoSpy(PricingService, { returns: { total: 120 } })`. Otherwise, you can set
+  it any time before the test calls the method.
 
-This library covers spies and `TestBed` setup, not DOM queries. For `spectator.query` and the DOM
-matchers, see [Component specs](#component-specs-—-what-is-and-is-not-covered).
+For `spectator.query` and DOM matchers, see [Component specs](#component-specs-—-what-is-and-is-not-covered).
 
 ## Install and delete
 
@@ -52,22 +53,21 @@ npm i -D vitest-auto-spy
 npm un @ngneat/spectator
 ```
 
-Then remove from `devDependencies`:
+Remove these from `devDependencies` only if you no longer need them:
 
-- `@types/jasmine`, if nothing else needs it. Spectator's types were the reason it was there.
-- `@angular/platform-browser-dynamic`, if you added it only as the
+- `@types/jasmine`, if only Spectator needed its types.
+- `@angular/platform-browser-dynamic`, if you installed it only as the
   [Angular 22 workaround](#the-angular-22-failure).
 
-`vitest-auto-spy/angular` needs a working Vitest + Angular setup: either Angular's own
-`@angular/build:unit-test` builder, or `@analogjs/vite-plugin-angular` plus a `TestBed` setup file.
-See [the Angular adapter](/adapters/angular).
+Use `vitest-auto-spy/angular` with Angular's `@angular/build:unit-test` builder or with
+`@analogjs/vite-plugin-angular` and a `TestBed` setup file. See [the Angular adapter](/adapters/angular).
 
-If you use the `Observable` helpers (`nextWith`, `throwWith`), import `vitest-auto-spy/rxjs` once in
-your setup file: `import 'vitest-auto-spy/rxjs';`. See [RxJS](/runtimes/rxjs).
+For `Observable` helpers such as `nextWith` and `throwWith`, add `import 'vitest-auto-spy/rxjs';` to
+your test setup file once. See [RxJS](/runtimes/rxjs).
 
-**Common mistake:** Analog older than 2.7.5 on `@angular/build` 22.2. Vitest fails at startup with
-`TypeError: cache.has is not a function`. Update both `@analogjs/vite-plugin-angular` and
-`@analogjs/vitest-angular`. `npx vitest-auto-spy doctor` reports this as
+**Vitest fails at startup with `TypeError: cache.has is not a function`:** `@angular/build` 22.2 needs
+Analog 2.7.5 or newer. Update both `@analogjs/vite-plugin-angular` and `@analogjs/vitest-angular`.
+`npx vitest-auto-spy doctor` reports this as
 [`analog-behind-angular-build`](/utilities/cli#analog-behind-angular-build).
 
 ## The translation table
@@ -105,7 +105,7 @@ your setup file: `import 'vitest-auto-spy/rxjs';`. See [RxJS](/runtimes/rxjs).
 
 ## A service spec, before and after
 
-A service under test with two dependencies. One of them returns an `Observable`.
+The service in this test has two dependencies. One returns an `Observable`.
 
 ::: code-group
 
@@ -169,21 +169,19 @@ describe('CartService', () => {
 
 :::
 
-Besides the names, three things changed:
-
-- `nextWith(value)` replaces `andReturn(of(value))`. The helper is
-  [picked from the method's return type](/core/control-helpers): an `Observable` method gets
-  `nextWith` / `throwWith`, a `Promise` method gets `resolveWith` / `rejectWith`.
-- `injectSpy` warns when the injector returns a real instance instead of a spy. The warning names
-  the token and the missing `provideAutoSpy` call.
-- `Spy<T>` is typed from the real class, so the compiler catches more. See
+- Use `nextWith(value)` instead of `andReturn(of(value))`.
+  [Helpers match the method's return type](/core/control-helpers): `nextWith` and `throwWith` for
+  `Observable`, `resolveWith` and `rejectWith` for `Promise`.
+- If Angular gives `injectSpy` a real instance, the warning names the token and the missing
+  `provideAutoSpy` call.
+- `Spy<T>` uses the original class's types, so TypeScript can catch more mistakes. See
   [the typing trap](#the-typing-trap).
 
 ### The same spec with no `let` and no `beforeEach`
 
-On Vitest 4.1 or newer,
+With Vitest 4.1 or newer, use
 [`extendWithAutoSpies`](/adapters/angular#fixtures-instead-of-let-beforeeach-—-extendwithautospies)
-turns each dependency into a test fixture. A test builds only the spies it names:
+so each test creates only the spies it asks for:
 
 ```ts
 import { TestBed } from '@angular/core/testing';
@@ -206,8 +204,8 @@ test('totals the cart', async ({ api, pricing }) => {
 
 ## Component specs — what is and is not covered
 
-This library replaces Spectator's `TestBed` setup and its spies. It does not query the DOM or fire
-events. A typical Spectator component spec moves like this:
+Use `renderShallow` to set up the component and `provideAutoSpy` for its dependencies. Handle DOM
+queries and events separately:
 
 ::: code-group
 
@@ -252,16 +250,15 @@ describe('ProfileComponent', () => {
 
 :::
 
-The spy's answer is set in the provider, so the component reads it on its first change detection.
-You no longer need `detectChanges: false` to set it before `ngOnInit`. To set the answer later instead, pass
-`detectChanges: false` to `renderShallow`, configure `injectSpy(UserService)`, then call
-`fixture.detectChanges()`.
+Set the spy's answer in the provider so `ngOnInit` sees it on the first change detection run. To
+configure the spy after creating the component, pass `detectChanges: false` to `renderShallow`.
+Then configure `injectSpy(UserService)` and call `fixture.detectChanges()`.
 
 **Covered: the `TestBed` setup.** [`renderShallow`](/adapters/angular#shallow-component-rendering)
-does `configureTestingModule` + `NO_ERRORS_SCHEMA` + `overrideComponent` in one call. It empties the
-component's `imports` and blanks its template, so no child component renders. Lifecycle hooks,
-inputs, signals and DI still work. Pass `keepTemplate: true` to keep the real template (for
-`viewChild` and content projection); child components are still dropped.
+combines `configureTestingModule`, `NO_ERRORS_SCHEMA`, and `overrideComponent`. It clears the
+component's `imports` and template so Angular skips the children. Hooks, inputs, signals, and
+injected dependencies still work. If you need the template for `viewChild` or content projection,
+pass `keepTemplate: true`. Angular still skips the children.
 
 ```ts
 import { provideAutoSpy, renderShallow } from 'vitest-auto-spy/angular';
@@ -272,13 +269,12 @@ const { fixture, component } = renderShallow(TaskListComponent, {
 });
 ```
 
-**Covered: signals, effects, resources and HTTP.** `mockSignalProp`, `mockReadonlyProp`,
-`runEffect`, `flushEffects`, `stable(fixture)`, `settleResource`, and
-[`expectRequest`](/adapters/angular-http) in place of the `HttpTestingController` calls. Spectator's
-`SpectatorHttp` maps onto `expectRequest`.
+**Covered: signals, effects, resources and HTTP.** Use `mockSignalProp`, `mockReadonlyProp`,
+`runEffect`, `flushEffects`, `stable(fixture)`, and `settleResource`. Use
+[`expectRequest`](/adapters/angular-http) in place of `SpectatorHttp` and `HttpTestingController` calls.
 
-**Not covered: DOM queries and events.** There is no `spectator.query`, no `byTestId`, no
-`spectator.click`. Use Angular's own API, which Spectator wrapped:
+**Not covered: DOM queries and events.** Replace `spectator.query`, `byTestId`, and `spectator.click`
+with the Angular APIs that Spectator wraps:
 
 ```ts
 import { By } from '@angular/platform-browser';
@@ -287,21 +283,16 @@ const row = fixture.debugElement.query(By.css('[data-testid="task-row"]'));
 row.triggerEventHandler('click', {});
 ```
 
-**Not covered: DOM matchers.** `toHaveClass`, `toHaveText`, `toBeVisible` and Spectator's other
-DOM matchers have no counterpart here.
-[`@testing-library/jest-dom`](https://github.com/testing-library/jest-dom) has equivalents for most
-of them and works with Vitest's `expect.extend`.
+**Not covered: DOM matchers.** For `toHaveClass`, `toHaveText`, `toBeVisible`, and most other matchers,
+use [`@testing-library/jest-dom`](https://github.com/testing-library/jest-dom) with Vitest's `expect.extend`.
 
-If your specs mostly assert on the DOM, migrate to two packages: `vitest-auto-spy` for spies and
-`TestBed` setup, and
+If you mostly test the DOM, use `vitest-auto-spy` for spies and `TestBed` setup, and
 [`@testing-library/angular`](https://testing-library.com/docs/angular-testing-library/intro) for
-rendering and queries. Both are maintained.
+rendering and queries. Both packages are maintained.
 
 ## The typing trap {#the-typing-trap}
 
-This is the difference that changes which bugs your tests can catch.
-
-Spectator's `inject` returns a `SpyObject<T>` for any token, mocked or not:
+Spectator types `inject` as `SpyObject<T>` even when the token resolves to a real instance:
 
 ```ts
 // node_modules/@ngneat/spectator/lib/base/base-spectator.d.ts:7
@@ -317,114 +308,101 @@ export type SpyObject<T> = T & {
 } & { castToWritable(): Writable<T> };
 ```
 
-So if you forget a `mockProvider`, `spectator.inject(RealService).doThing.andReturn(1)` still
-compiles. At runtime it throws `andReturn is not a function`. Or it does not throw: the real method
-runs, returns something plausible, and the test passes for the wrong reason.
+If you forget `mockProvider`, `spectator.inject(RealService).doThing.andReturn(1)` still compiles.
+Calling `andReturn` throws `andReturn is not a function`. Calling the real method directly can let
+an incorrect test pass.
 
-`vitest-auto-spy` closes this from both ends:
+- **`Spy<T>` leaves out `private` and `#private` members.** When a function expects the real class
+  type `T`, use `asInstance(spy)`. Use `asSpy(x)` for the reverse. Neither needs an `as unknown as T` cast. See
+  [Bridging `Spy<T>` and `T`](/core/spy-typing).
+- **`injectSpy` checks what Angular actually provides.** If it gets a real instance, it warns once
+  per token and names the missing `provideAutoSpy` call. To fail the test instead, use
+  [`enableAngularDiagnostics({ unspiedProviders: true })`](/adapters/angular-diagnostics).
 
-- **`Spy<T>` is typed from the real class.** It has no `private` or `#private` members, so you
-  cannot pass it where a `T` is expected without a conversion. Use `asInstance(spy)` for that, and
-  `asSpy(x)` for the other direction, instead of `as unknown as T`. See [Bridging `Spy<T>` and `T`](/core/spy-typing).
-- **`injectSpy` checks what came out of the container.** When it is a real instance, it warns once
-  per token and names the missing `provideAutoSpy` call.
-  [`enableAngularDiagnostics({ unspiedProviders: true })`](/adapters/angular-diagnostics) turns the
-  warning into a test failure.
-
-A smaller trap of the same kind: a misspelt method name. `createSpyObject` has no spy for it, and
-`SpyObject<T>` does not help you find it. Here, `createSpyFromClass(UserService, { onlyMethodsToSpyOn: ['laod'] })`
-reports that `laod` is not on the class. [`strict: true`](/core/create-spy-from-class#strict) makes an unconfigured method throw,
-naming the class, the method and the arguments, instead of returning `undefined`.
+If you misspell a method name, `createSpyObject` creates no spy for it, and `SpyObject<T>` won't
+flag it. With `createSpyFromClass(UserService, { onlyMethodsToSpyOn: ['laod'] })`, you get a message
+that `laod` isn't on the class. With [`strict: true`](/core/create-spy-from-class#strict), an unconfigured
+call throws instead of returning `undefined`. The error names the class, method, and arguments.
 
 ## What you gain by moving
 
-- **Zero runtime dependencies**, against Spectator's three, one of them jQuery.
-- **No Jasmine globals.** Nothing here declares `namespace jasmine`, so `@types/jasmine` leaves with
-  Spectator.
-- **It runs on Angular 22, 21 and 20** without an extra deprecated package.
-- **Getter and setter spies**, which Spectator does not have: `gettersToSpyOn`, `settersToSpyOn`,
-  and `autoSpyAccessors` to find every accessor on the class and its parents.
-- **Helpers picked from the return type.** `resolveWith` / `rejectWith` for a `Promise`,
-  `nextWith` / `throwWith` for an `Observable`, `calledWith(...)` to answer per argument, `failWith`
-  to make any call throw. Spectator has `andReturn` and `andCallFake`.
-- **An honest type**, and an `injectSpy` that reports a token you forgot to provide.
-- **Zoneless and zone.js alike.** Nothing in the spy path touches `NgZone`. `fakeAsync` is available
-  from [`vitest-auto-spy/zone`](/runtimes/vitest) when your tests still need it.
-- **Works with AOT.** It runs under Angular's `@angular/build:unit-test` builder.
-  [`assertNgModuleScopes` and `assertComponentDefIntact`](/adapters/angular-diagnostics) catch two
-  AOT-only failures that otherwise break a spec far from the cause.
-- **Beyond Vitest.** The same API runs on `bun:test` and `node:test`, and Angular's `TestBed` runs
+- **No runtime dependencies.** Spectator has three, including jQuery.
+- **No Jasmine globals.** Remove `@types/jasmine` with Spectator if you no longer need it.
+  `vitest-auto-spy` does not declare `namespace jasmine`.
+- **Angular 22, 21, and 20 support** without the deprecated package.
+- **Getter and setter spies.** Use `gettersToSpyOn` and `settersToSpyOn`, or let `autoSpyAccessors`
+  find every accessor on the class and its parents. Spectator doesn't spy on accessors.
+- **Helpers for different returns.** Use `resolveWith` and `rejectWith` for a `Promise`, or `nextWith`
+  and `throwWith` for an `Observable`. Use `calledWith(...)` to answer by argument and `failWith` to
+  throw on any call. Spectator has `andReturn` and `andCallFake`.
+- **Type and provider checks.** `Spy<T>` follows the class type. `injectSpy` warns if you forgot the spy provider.
+- **With or without zone.js.** Spies don't use `NgZone`. To use Angular's `fakeAsync`, load
+  [`vitest-auto-spy/zone`](/runtimes/vitest).
+- **Works with AOT (ahead-of-time compilation).** Use Angular's `@angular/build:unit-test` builder.
+  [`assertNgModuleScopes` and `assertComponentDefIntact`](/adapters/angular-diagnostics) report two
+  AOT-only errors closer to their cause.
+- **Beyond Vitest.** Use the same API on `bun:test` and `node:test`, or run Angular's `TestBed`
   [under `bun test`](/runtimes/bun-angular).
-- **[Lint rules](/utilities/eslint-plugin)** that ship with the same version as the API they
-  recommend.
+- **[Lint rules](/utilities/eslint-plugin)** ship with the API they recommend.
 
 ## Did the migration lose a test?
 
-Test counts cannot tell you. One file can lose a whole `describe` while a flaky test elsewhere starts
-passing, and the totals still match. `compareTestRuns` compares the **names** of the tests in two JSON
-reports; see [the jest page](/migrating#did-the-migration-lose-a-test) for the code.
+Compare test **names**, not counts. If one `describe` disappears and a flaky test passes elsewhere,
+matching counts can hide the loss. Use `compareTestRuns` on two JSON reports. See the
+[Jest migration example](/migrating#did-the-migration-lose-a-test).
 
-Take the baseline from the last green run on Spectator. On Angular 22 that run only works with
-`@angular/platform-browser-dynamic` installed; install it for the baseline and remove it after.
+Use your last passing Spectator run as the baseline. On Angular 22, install
+`@angular/platform-browser-dynamic` for that run and remove it afterward.
 
 ## Why Spectator stops working
 
-Everything in this section was checked against the published tarballs and the npm and GitHub APIs on
-**2026-09-02**. Where a widely repeated claim turned out wrong, this section says what was found.
+The versions and figures below come from published packages and the npm and GitHub APIs, checked on
+**2026-09-02**.
 
 ::: info How these were checked
-`npm pack @ngneat/spectator` and `npm pack @openng/spectator`, then reading the extracted files.
-`npm view` for versions and publish dates. `api.github.com` for repository state. A clean
-`npm install` of Angular 22.1.4 plus Spectator in an empty directory, to reproduce the failure.
-Dates and versions sit next to each claim so you can re-run them.
+`npm pack @ngneat/spectator` and `npm pack @openng/spectator` supplied the package files. `npm view`
+supplied versions and publish dates, and `api.github.com` supplied repository status. A fresh
+`npm install` in an empty directory reproduced the failure with Angular 22.1.4 and Spectator.
 :::
 
-**The repository is gone, but the organisation is not.** `https://github.com/ngneat/spectator`
-returns **HTTP 404**, and so does `api.github.com/repos/ngneat/spectator`. The claim that the whole
-`ngneat` organisation was deleted is wrong: `api.github.com/orgs/ngneat` still returns **200**. Only
-this one repository is gone, with all its issues and pull requests.
+**The repository is gone.** Both `https://github.com/ngneat/spectator` and
+`api.github.com/repos/ngneat/spectator` return **HTTP 404**. Its issues and pull requests are gone with
+it. The `ngneat` organisation still exists: `api.github.com/orgs/ngneat` returns **200**.
 
-A third party published a restore at
-[`ngneat-archive/spectator`](https://github.com/ngneat-archive/spectator). It was created on
-**2026-06-07** and is already archived (4 stars, default branch `restore/npm-spectator-22.1.0`). Its
-description reads "Verified archive of ngneat/spectator at `@ngneat/spectator@22.1.0`". It is a
-snapshot of the published package, not a continuation, and it accepts nothing.
+A third party created [`ngneat-archive/spectator`](https://github.com/ngneat-archive/spectator) on
+**2026-06-07**. It describes itself as a "Verified archive of ngneat/spectator at
+`@ngneat/spectator@22.1.0`". It is an archived snapshot and accepts no changes (4 stars; default branch
+`restore/npm-spectator-22.1.0`).
 
-**The last release is 22.1.0, published 2025-11-02** (`npm view @ngneat/spectator time`; 22.0.0 came
-out on 2025-10-08). It is the `latest` dist-tag as of this writing. The package is **not** marked
-deprecated on npm.
+**The last release was 22.1.0 on 2025-11-02.** It still had the `latest` dist-tag at the time of the
+check. Version 22.0.0 came out on 2025-10-08 (`npm view @ngneat/spectator time`). npm does not mark the
+package as deprecated.
 
-**It is still widely installed.** For **2026-07-31 → 2026-08-29** the npm downloads API reports
-**739 852** downloads of `@ngneat/spectator`. Many test projects depend on it and have no maintained
-upgrade path.
+The npm API recorded **739 852** downloads of `@ngneat/spectator` from **2026-07-31 to 2026-08-29**.
+Many test projects rely on it and have no maintained upgrade path.
 
 ### The Angular 22 failure
 
-Spectator imports a module Angular has moved away from:
+Spectator imports a deprecated Angular testing module:
 
 ```ts
 // node_modules/@ngneat/spectator/fesm2022/ngneat-spectator.mjs:7
 import { BrowserDynamicTestingModule } from '@angular/platform-browser-dynamic/testing';
 ```
 
-The bundle uses it in four places (lines 1605, 1751, 1878 and 2469). Each one is an
-`overrideModule(BrowserDynamicTestingModule, {})` call. That is why the open fix linked below is
-titled "remove the **unused** override".
+The bundle uses the import only for `overrideModule(BrowserDynamicTestingModule, {})` at lines
+1605, 1751, 1878, and 2469. The proposed fix below removes this unused override.
 
-Two often-repeated details are wrong:
+- **The Angular package still installs.** At the time of the check, npm's `latest` tag was
+  **22.1.4**, released alongside the other Angular packages. `types/testing.d.ts:21` still declares
+  `BrowserDynamicTestingModule`. The deprecation notice says:
+  _"@angular/platform-browser-dynamic is deprecated. Use `@angular/platform-browser` instead."_
+- **Spectator imports the package without declaring it.** It lists it in neither `dependencies` nor
+  `peerDependencies`. Its only peers are `@angular/common`, `@angular/router`, and
+  `@angular/animations`. The import works if the workspace already has the package, but a fresh
+  Angular 22 workspace doesn't include it.
 
-- **`@angular/platform-browser-dynamic` is still on npm.** Its `latest` is **22.1.4**, published with
-  every other Angular package, and `types/testing.d.ts:21` still declares
-  `BrowserDynamicTestingModule`. npm does flag it as deprecated: _"@angular/platform-browser-dynamic is
-  deprecated. Use `@angular/platform-browser` instead."_ A deprecated package still installs and
-  works.
-- **The failure is a missing declaration, not a missing package.** Spectator's `package.json` lists
-  `@angular/platform-browser-dynamic` in **neither `dependencies` nor `peerDependencies`**. Its peers
-  are only `@angular/common`, `@angular/router` and `@angular/animations`. So it imports a package it
-  never asks for. It works only where the workspace still has that package, and Angular 22 workspaces
-  do not.
-
-Reproduced in a clean directory with Angular 22.1.4 and nothing else:
+This reproduces the failure with a clean Angular 22.1.4 install:
 
 ```console
 $ npm i @angular/core@22.1.4 @angular/common@22.1.4 @angular/platform-browser@22.1.4 \
@@ -435,16 +413,13 @@ FAILED: ERR_MODULE_NOT_FOUND | Cannot find package '@angular/platform-browser-dy
 imported from node_modules/@ngneat/spectator/fesm2022/ngneat-spectator.mjs
 ```
 
-**The workaround:** add `@angular/platform-browser-dynamic` to your own `devDependencies`. The import
-resolves, and your tests run on Angular 22 again. This buys time, not a maintainer. You now pin a
-deprecated Angular package for a library whose repository does not exist. The Angular release that
-actually removes the package breaks your tests, and there is no one to report it to.
+**Temporary workaround:** add `@angular/platform-browser-dynamic` to your `devDependencies` so the
+import resolves and your Angular 22 tests run. When Angular removes that package, the tests will
+break again, and the original Spectator repository is gone.
 
-**The fix exists and has not landed.** It is
-[`openng-org/spectator#13`](https://github.com/openng-org/spectator/pull/13), _"fix: remove
-BrowserDynamicTestingModule override"_. It was opened on **2026-07-26**, last touched on
-**2026-08-13**, and was still **open and unmerged** on 2026-09-02. It lives on the fork, because the
-original repository is a 404 and cannot take pull requests.
+[`openng-org/spectator#13`](https://github.com/openng-org/spectator/pull/13) proposes a fix on the fork:
+_"fix: remove BrowserDynamicTestingModule override"_. It was opened on **2026-07-26**, last updated on
+**2026-08-13**, and still open on 2026-09-02. The original repository no longer accepts pull requests.
 
 ### Three runtime dependencies, one of them jQuery
 
@@ -458,12 +433,11 @@ From the tarball's `package.json`:
 }
 ```
 
-`jquery` is a hard runtime dependency of an Angular testing library. `vitest-auto-spy` has **zero**
-runtime dependencies.
+Spectator requires `jquery` at runtime. `vitest-auto-spy` has no runtime dependencies.
 
 ### It puts Jasmine's globals into your Vitest project
 
-The often-cited file is real:
+Spectator declares its matchers in Jasmine's namespace:
 
 ```ts
 // node_modules/@ngneat/spectator/lib/matchers-types.d.ts:1
@@ -475,8 +449,7 @@ declare namespace jasmine {
 }
 ```
 
-A second one matters more, because it is in the type of the spy object itself, not in an optional
-matchers file:
+Its spy type also refers to Jasmine, so skipping the matchers isn't enough:
 
 ```ts
 // node_modules/@ngneat/spectator/lib/mock.d.ts:11
@@ -484,24 +457,22 @@ export interface CompatibleSpy<F extends UnknownFunction = UnknownFunction>
   extends jasmine.Spy<(...args: Parameters<F>) => ReturnType<F>> {
 ```
 
-`SpyObject<T>` is built on `CompatibleSpy`, so it needs the global `jasmine` namespace. The Vitest
-entry does not avoid this: `@ngneat/spectator/vitest` declares its `SpyObject` as
-`BaseSpyObject<T> & { … Mock … }`, and `BaseSpyObject` comes from the main entry. In practice you
-keep `@types/jasmine` in a project without Jasmine. It sits next to Vitest's globals, and both declare
-`expect`.
+`SpyObject<T>` uses `CompatibleSpy`, which depends on the global `jasmine` namespace. The Vitest entry
+still uses it: `@ngneat/spectator/vitest` defines its `SpyObject` as `BaseSpyObject<T> & { … Mock … }`.
+`BaseSpyObject` comes from the main entry. Even without Jasmine as your runner, you keep
+`@types/jasmine` alongside Vitest's globals. Both declare `expect`.
 
 ### The `@openng/spectator` fork — what it is and is not
 
-[`@openng/spectator`](https://www.npmjs.com/package/@openng/spectator) **1.0.1** was published on
+[`@openng/spectator`](https://www.npmjs.com/package/@openng/spectator) **1.0.1** came out on
 **2026-07-10** from [`openng-org/spectator`](https://github.com/openng-org/spectator). The repository
-was created on 2026-06-21 and is active: not archived, 39 stars, 7 open issues. Over the same
-2026-07-31 → 2026-08-29 window it had **16 251** downloads, against 739 852 for the original: about
-**2.1 %** of the pair.
+opened on 2026-06-21 and was active at the time of the check (39 stars, 7 open issues, not archived).
+From 2026-07-31 to 2026-08-29, it had **16 251** downloads to the original's 739 852, about **2.1 %**
+of their combined downloads.
 
-It is often described as byte-identical plus an Angular 22 build. **It is not byte-identical.** A
-plain `diff` of the two main bundles reports about 1450 changed lines, almost all of them line-offset
-noise. To see the real differences, replace the package name and the embedded compiler version,
-strip indentation, sort, and compare:
+The fork isn't byte-identical to the original. A plain `diff` shows about 1450 changed lines,
+mostly because lines moved. Normalize the package name and compiler version, remove indentation,
+and sort the lines to see what changed:
 
 ```bash
 norm() { sed -e 's/ngneat/openng/g' -e 's/version: "2[0-9]\.[0-9]*\.[0-9]*"/version: "X"/g' "$1" \
@@ -517,30 +488,25 @@ Both bundles are 2543 lines. After normalisation exactly **three** lines differ:
 | The internal host component gained a change-detection strategy              | `changeDetection: ChangeDetectionStrategy.Eager`            |
 | A triple-slash reference to `matchers-types.ts` was dropped from the bundle | a result of how the types are packaged, below               |
 
-The packaging differs more than the code. The fork ships 33 files against 121: four rolled-up
-declaration bundles under `types/` instead of a copy of the source tree. `peerDependencies` move to
-`>= 22.0.0`, and `"type": "module"` is added. The three runtime dependencies, jQuery included, are
-**identical**.
+The fork ships 33 files instead of 121. It bundles declarations into four files under `types/`
+instead of copying the source tree. It raises `peerDependencies` to `>= 22.0.0` and adds
+`"type": "module"`. All three runtime dependencies, including jQuery, stay the same.
 
-Two things the fork does **not** fix, checked the same way:
+Two problems remain:
 
-- **It fails on Angular 22 for the same reason.** `openng-spectator.mjs:7` still imports
-  `@angular/platform-browser-dynamic/testing` and still does not declare it. The clean-install
-  reproduction with `@openng/spectator@1.0.1` and Angular 22.1.4 gives the same
-  `ERR_MODULE_NOT_FOUND`. The "Angular 22 build" is a recompile and a peer-range bump. PR #13, which
-  would fix it, is still open.
-- **The Jasmine namespace is still there**, now inside the rolled-up bundle:
-  `types/openng-spectator.d.ts:11` is `namespace jasmine {`, and `:84` is the same
-  `CompatibleSpy … extends jasmine.Spy` declaration.
+- **Angular 22 still fails to load the fork.** `openng-spectator.mjs:7` imports the undeclared
+  `@angular/platform-browser-dynamic/testing`. A fresh install of `@openng/spectator@1.0.1` with
+  Angular 22.1.4 gives the same `ERR_MODULE_NOT_FOUND`. The Angular 22 build recompiles the library
+  and raises the peer range. The Angular 22 fix in PR #13 was still open at the time of the check.
+- **Jasmine's namespace is still present.** `types/openng-spectator.d.ts:11` declares
+  `namespace jasmine {`, and line 84 still has `CompatibleSpy … extends jasmine.Spy`.
 
-The fork is a real, active repository with a maintainer, which the original no longer has. Judge it
-on that, not on an Angular 22 fix that has not shipped.
+The fork has an active maintainer, but it hasn't shipped the Angular 22 fix.
 
 ## See also
 
-- [Comparison](/comparison): this library next to the other Angular testing libraries, with
-  last-release dates.
-- [Angular adapter](/adapters/angular): `provideAutoSpy`, `injectSpy`, `renderShallow`, zoneless
-  waiting.
-- [Migrating from jest-auto-spies](/migrating) and [from jasmine-auto-spies](/migrating-jasmine), if
-  your Spectator tests also use one of those.
+- [Comparison](/comparison): Angular testing libraries side by side, with their last release dates.
+- [Angular adapter](/adapters/angular): `provideAutoSpy`, `injectSpy`, `renderShallow`, and waiting
+  for changes without zone.js.
+- If you also use an auto-spy library, see [Migrating from jest-auto-spies](/migrating) or
+  [from jasmine-auto-spies](/migrating-jasmine).

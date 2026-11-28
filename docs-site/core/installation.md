@@ -11,8 +11,17 @@ Install the package as a dev dependency:
 npm i -D vitest-auto-spy
 ```
 
-On Vitest nothing else is required: import `createSpyFromClass` in a spec and it works. The package
-has no runtime dependencies. For your first spec, follow [Getting started](./introduction).
+If you already use Vitest, import the factory in your spec. No setup file is required for basic spies:
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+import { UserService } from './user.service';
+
+const users = createSpyFromClass(UserService);
+```
+
+The package has no runtime dependencies. For a complete test, follow [Getting started](./introduction).
 
 ## What you need
 

@@ -5,25 +5,31 @@ description: strict and onUnstubbedCall - a spy method nobody configured throws 
 
 # Strict mode
 
-With `strict: true`, a spy method that the test never configured throws when it is called, instead of
-returning `undefined`. Turn it on when a test fails far from the real cause, or passes on an empty
-answer.
+With `strict: true`, a call to a spy method you did not configure throws instead of returning
+`undefined`. Turn it on when missing responses cause a later failure or make a test pass by accident.
 
 ```ts
+import { expect, it } from 'vitest';
 import { createSpyFromClass } from 'vitest-auto-spy';
 
-const users = createSpyFromClass(UserService, { strict: true });
+class UserService {
+  currentTenant() {
+    return { id: 'local' };
+  }
+}
 
-users.load.resolveWith([]); // configured
-users.currentTenant(); // throws: UserService.currentTenant() was called; this strict double has nothing configured for it.
+it('reports the missing response', () => {
+  const users = createSpyFromClass(UserService, { strict: true });
+  expect(() => users.currentTenant()).toThrow('UserService.currentTenant() was called');
+});
 ```
 
-Without `strict`, `users.currentTenant()` returns `undefined`. The code under test then fails a few
-calls later, in another file: `TypeError: Cannot read properties of undefined (reading 'id')`. Strict
-mode moves the failure to the line that made the call and names the method you forgot.
+Without `strict`, `users.currentTenant()` returns `undefined`. Reading `.id` from that result
+would fail later with `TypeError: Cannot read properties of undefined (reading 'id')`. Strict
+mode names the method instead: `UserService.currentTenant() was called; this strict double has nothing configured for it.`
 
-"Configured" means the test told the method what to answer: `resolveWith`, `calledWith`, the `returns`
-option and so on. The full list is in [What counts as configured](#what-counts-as-configured).
+Set the response with a helper such as `mockReturnValue` or `resolveWith`, or use the `returns`
+option. See [What counts as configured](#what-counts-as-configured) for the full list.
 
 | Option                 | Where                       | Type                                             | Default                                     | Meaning                                                          |
 | ---------------------- | --------------------------- | ------------------------------------------------ | ------------------------------------------- | ---------------------------------------------------------------- |

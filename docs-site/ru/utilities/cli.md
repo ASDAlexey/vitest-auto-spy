@@ -5,9 +5,8 @@ description: npx vitest-auto-spy — консольная утилита, кот
 
 # CLI
 
-В пакет входит консольная утилита `npx vitest-auto-spy`. Она ищет в тестовой настройке ошибки, от которых тесты не падают,
-показывает, куда уходит время тестов, и объясняет агентам, как пользоваться библиотекой. Ей не нужны
-конфиг, сеть и токен.
+Запустите `doctor` из корня проекта, чтобы найти ошибки настройки, при которых тесты остаются
+зелёными. Если пакет уже установлен, CLI не требует отдельного конфига, доступа к сети или токена.
 
 ```bash
 npx vitest-auto-spy doctor
@@ -23,11 +22,12 @@ npx vitest-auto-spy doctor
 | [`codemod`](#codemod)                                                            | вы переводите тесты с `jest-auto-spies` или `jasmine-auto-spies`                     | только с `--write`         |
 | [`ng-test`](#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder) | тесты идут через Angular-билдер, и нужны шарды                                       | никогда                    |
 
-`perf` оставляет файл, только если вы передали флаг вывода: `--out`, `--update-baseline`,
-`--code-quality` или `--profile-dir`. Без `--out` отчёт его собственного прогона временный и удаляется.
-`--json` называет отчёт, который нужно прочитать, а не записать. Готовые джобы для GitLab и GitHub — в
-разделе [В CI](#in-ci). Каждая находка `doctor` и `perf` заканчивается строкой `Docs:` со ссылкой на её запись на этой
-странице.
+Чтобы сохранить результаты `perf`, используйте `--out`, `--update-baseline`, `--code-quality` или
+`--profile-dir`. Без `--out` команда удаляет временный отчёт своего прогона. Флаг `--json` читает
+уже готовый отчёт.
+
+Каждое замечание `doctor` и `perf` заканчивается ссылкой `Docs:` на пояснение. Готовые задания для
+GitLab и GitHub — в разделе [В CI](#in-ci).
 
 ## Коды выхода {#exit-codes}
 
@@ -62,17 +62,16 @@ npx vitest-auto-spy doctor
 
 ## `doctor` — дефекты, которые никогда не падают {#doctor-—-defects-that-never-fail}
 
-`doctor` находит ошибки тестовой настройки, при которых тесты остаются зелёными. Паттерн в tsconfig,
-под который не подходит ни один файл, конфиг раннера, которого уже нет, промис хелпера, который никто не
-дождался: тесты проходят, `tsc` показывает ноль ошибок, и ошибка живёт годами. Большинство таких
-ошибок разбросаны по нескольким файлам, поэтому линтер их не видит.
+Запустите `doctor`, чтобы найти ошибки настройки, которые пропускают тесты и проверка типов.
+Например, команда найдёт шаблон в `tsconfig`, который не подходит ни к одной спеке, или конфиг
+удалённого раннера. Она также проверит, дожидаются ли тесты промисов хелперов.
 
 ```bash
 npx vitest-auto-spy doctor
 ```
 
-`doctor` только читает. Он никогда не правит файлы, и `--fix` у него нет. Он выходит с кодом 1, когда
-нашёл ошибку или предупреждение; заметка по умолчанию прогон не роняет.
+`doctor` не меняет исходники и конфиги. Флага `--fix` нет. Ошибка или предупреждение дают код
+выхода 1. Заметки по умолчанию не влияют на код выхода.
 
 ### Как читать отчёт doctor {#read-the-doctor-report}
 
@@ -186,15 +185,15 @@ npx vitest-auto-spy doctor --format markdown >> "$GITHUB_STEP_SUMMARY"
 
 ## `perf` — куда на самом деле уходит время CPU {#perf-—-where-the-cpu-time-actually-goes}
 
-`perf` один раз запускает ваши тесты, читает собственные замеры Vitest по каждому файлу и говорит,
-какая фаза забирает время и какие файлы менять. Нужен, когда тесты идут медленно, а почему — непонятно.
+Запустите `perf`, если тесты идут медленно. Команда читает замеры Vitest и показывает, какие
+файлы и этапы занимают больше всего времени.
 
 ```bash
-npx vitest-auto-spy perf                        # прогнать все тесты и выдать отчёт
-npx vitest-auto-spy perf src/cli                # только эти файлы (уходит в Vitest как фильтр)
-npx vitest-auto-spy perf --gate                 # ещё и падать на медленном файле или тесте
-npx vitest-auto-spy perf --json out/perf.json   # прочитать сохранённый отчёт вместо запуска Vitest
-npx vitest-auto-spy perf --out out/perf.json    # сохранить отчёт этого прогона
+npx vitest-auto-spy perf                        # run the whole suite and report
+npx vitest-auto-spy perf src/cli                # only these files (passed to Vitest as a filter)
+npx vitest-auto-spy perf --gate                 # also fail over a slow file or test
+npx vitest-auto-spy perf --json out/perf.json   # read a saved report instead of running Vitest
+npx vitest-auto-spy perf --out out/perf.json    # keep the report this run writes
 ```
 
 Без `--gate` `perf` только советует и после успешного анализа всегда выходит с кодом 0: медленные тесты
@@ -866,14 +865,13 @@ npx vitest-auto-spy perf --json 'coverage/**/perf-*.json' --gate
 
 ## `init` — указатель, который агент действительно читает {#init-—-the-pointer-an-agent-actually-reads}
 
-`init` пишет короткий блок в файлы инструкций, которые читают агенты, и указывает им на документацию
-библиотеки внутри `node_modules`. Запустите его один раз на репозиторий и снова после обновления. Агенты
-никогда не сканируют зависимости, так что без этого указателя они не знают правил библиотеки.
+Запустите `init`, чтобы агенты в вашем репозитории могли найти документацию библиотеки в
+`node_modules`. Повторите команду после обновления пакета.
 
 ```bash
-npx vitest-auto-spy init             # записать или обновить блоки
-npx vitest-auto-spy init --dry-run   # показать, что изменится
-npx vitest-auto-spy init --check     # CI: код 1, если блока нет или он устарел
+npx vitest-auto-spy init             # write or refresh the blocks
+npx vitest-auto-spy init --dry-run   # print what would change
+npx vitest-auto-spy init --check     # CI: exit 1 when a block is missing or out of date
 npx vitest-auto-spy init --check --managed
 ```
 
@@ -992,14 +990,14 @@ npx vitest-auto-spy codemod --verify   # CI: упасть, если остали
 
 ## `ng-test` — шарды и прогон только затронутого под Angular-билдером {#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder}
 
-`ng test` не пропускает собственные флаги Vitest в билдер `@angular/build:unit-test`. `ng-test`
-добавляет два, которых не хватает чаще всего: прогон одного шарда спек и прогон только тех спек, до
-которых дотягивается изменение.
+Используйте `ng-test`, чтобы распределить спеки по заданиям CI или запустить только те, на которые
+могло повлиять изменение. Команда дополняет `ng test`, который не передаёт флаги Vitest билдеру
+`@angular/build:unit-test`.
 
 ```bash
-npx vitest-auto-spy ng-test --shard 2/4 -- --coverage  # одна джоба CI из четырёх
-npx vitest-auto-spy ng-test --changed                  # спеки, до которых дотягивается незакоммиченная и неотслеживаемая работа
-npx vitest-auto-spy ng-test --changed origin/main      # спеки, до которых дотягивается ветка
+npx vitest-auto-spy ng-test --shard 2/4 -- --coverage  # one CI job of four
+npx vitest-auto-spy ng-test --changed                  # specs affected by uncommitted and untracked changes
+npx vitest-auto-spy ng-test --changed origin/main      # specs affected by branch changes
 npx vitest-auto-spy ng-test --related src/app/cart/cart.service.ts --dry-run
 ```
 

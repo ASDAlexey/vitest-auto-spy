@@ -5,21 +5,36 @@ description: Short recipes for everyday Angular specs - replacing a service in T
 
 # Spec patterns
 
-Short recipes for the tasks that come up in almost every Angular test set. Each one starts with the
-task, then shows the code. The API pages explain every option; this page shows which helpers to
-use for a given job.
-
-Task guides with their own pages: [mocking classes](/guides/mocking-classes),
-[mocking `localStorage`](/guides/mocking-local-storage), [mocking Prisma Client](/guides/mocking-prisma),
-[Storybook stories](/guides/storybook-angular),
-[testing without the DOM](/guides/testing-without-the-dom) and
-[Angular Material idioms](/guides/angular-material-idioms).
+Copy a pattern for your Angular test: replace a service, set a signal, drive an Observable, or control timers.
 
 ## Test a service with its dependencies replaced
 
-`TaskService` depends on three services. The spec replaces all three with spies and tests the real
-`TaskService`. The Observable helpers need `import 'vitest-auto-spy/rxjs'` once in your setup file
-(see [Installation](/core/installation#wiring-it-up)):
+Replace a dependency in `TestBed` to test a service with a response you control.
+Start with one dependency, then use the same pattern for the rest.
+
+```ts
+import { TestBed } from '@angular/core/testing';
+import { expect, it } from 'vitest';
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+
+import { ApiService, UserService } from './user.service';
+
+it('loads a user through the API', async () => {
+  TestBed.configureTestingModule({ providers: [provideAutoSpy(ApiService)] });
+  const api = injectSpy(ApiService);
+  api.get.resolveWith({ id: 1, name: 'Ada' });
+
+  await expect(TestBed.inject(UserService).load(1)).resolves.toEqual({ id: 1, name: 'Ada' });
+  expect(api.get).toHaveBeenCalledWith('/users/1');
+});
+```
+
+`UserService` is already registered through `providedIn: 'root'`. For both classes, see
+[Getting started](/core/introduction#_2-write-the-spec).
+
+Below, `TaskService` has three dependencies. The spec replaces all three with spies and tests the
+real service. For Observable helpers, add `import 'vitest-auto-spy/rxjs'` to your setup file;
+see [Installation](/core/installation#wiring-it-up).
 
 ```ts
 import { TestBed } from '@angular/core/testing';
@@ -91,10 +106,16 @@ Four habits that pay off:
 2. **Declare each spy as `Spy<T>` and get it with `injectSpy`.** Not as `T`: `Spy<T>` leaves out
    private members, so it does not fit `T` ([why](/core/spy-typing)).
 3. **Set default answers in `beforeEach`, change them in the test.** A spied method you never
-   configured returns `undefined`. For a method the code subscribes to or awaits, the test then fails
-   far from the cause.
+   configured returns `undefined`. The test may fail later when the code subscribes to the result
+   or reads a property on it.
 4. **Spies are created lazily**, on first use. Replacing a service with many methods costs nothing for methods a
    test never calls.
+
+Task guides with their own pages: [mocking classes](/guides/mocking-classes),
+[mocking `localStorage`](/guides/mocking-local-storage), [mocking Prisma Client](/guides/mocking-prisma),
+[Storybook stories](/guides/storybook-angular),
+[testing without the DOM](/guides/testing-without-the-dom) and
+[Angular Material idioms](/guides/angular-material-idioms).
 
 ## Set a signal on a dependency or on the component
 
@@ -392,10 +413,18 @@ If you use `isolate: false`, turn this on before the first strange failure.
 
 ## Block real network requests
 
-happy-dom implements `fetch`; jsdom does not. Move tests from jsdom to happy-dom, and a component
-that loads a remote file starts sending real requests. Nothing checks them, so every test passes.
-Then the runner shuts the environment down, the open requests abort, and the aborts arrive as
-unhandled errors _after_ the summary:
+To stop tests from making real network requests, enable `blockNetwork` in your setup file:
+
+```ts
+// vitest.setup.ts
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
+setupAutoSpy({ blockNetwork: true });
+```
+
+This helps when you move from jsdom to happy-dom, which implements `fetch`.
+If a test leaves a request open, shutting down the environment aborts it.
+Vitest can exit with code 1 even though all tests passed and none is listed as the cause:
 
 ```text
  Test Files  260 passed (260)
@@ -403,16 +432,6 @@ unhandled errors _after_ the summary:
 
 Vitest caught 8 unhandled errors during the test run.
 DOMException [AbortError]: The operation was aborted.
-```
-
-The run exits with code 1 and names no test, because no test failed. Block the network in the
-setup file:
-
-```ts
-// vitest.setup.ts
-import { setupAutoSpy } from 'vitest-auto-spy/setup';
-
-setupAutoSpy({ blockNetwork: true });
 ```
 
 `fetch` then rejects at once with the requested URL in the message. The code under test takes the

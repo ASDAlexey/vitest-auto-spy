@@ -5,32 +5,36 @@ description: Типизированный Spy<T> из класса - кажды�
 
 # createSpyFromClass
 
-`createSpyFromClass(Class, config?)` принимает класс и возвращает `Spy<T>`: объект с теми же методами,
-где каждый метод — спай с хелперами под его тип возврата. Используйте его, чтобы подменить зависимость-
-класс в тесте. Конструктор класса не вызывается.
+`createSpyFromClass(Class, config?)` подменяет класс в тесте. Его методы становятся
+спаями с хелперами для каждого типа возврата. Конструктор не вызывается.
 
 ```ts
-import { of } from 'rxjs';
-import { asInstance, createSpyFromClass } from 'vitest-auto-spy';
+import { expect, it } from 'vitest';
+import { createSpyFromClass } from 'vitest-auto-spy';
 
-const users = createSpyFromClass(UserService, {
-  returns: { load: of({ id: 1, name: 'Ann' }) }, // load(): Observable<User>, задано заранее
+class UserService {
+  async load(id: number) {
+    return { id, name: 'Guest' };
+  }
+}
+
+it('uses a preset user response', async () => {
+  const users = createSpyFromClass(UserService, {
+    returns: { load: Promise.resolve({ id: 1, name: 'Ada' }) },
+  });
+
+  await expect(users.load(1)).resolves.toEqual({ id: 1, name: 'Ada' });
+  expect(users.load).toHaveBeenCalledWith(1);
 });
-users.save.resolveWith(undefined); // save(user): Promise<void>
-
-const profile = new ProfileStore(asInstance(users)); // код под тестом
-await profile.rename('Bob');
-
-expect(users.save).toHaveBeenCalledWith({ id: 1, name: 'Bob' });
 ```
 
-`returns` задаёт ответ метода заранее, в момент создания спая, поэтому отдельная строка с
-`mockReturnValue` не нужна. `asInstance` передаёт спай туда, где ждут настоящий тип; см.
-[Мост между `Spy<T>` и `T`](./spy-typing). В Angular [`provideAutoSpy`](/ru/adapters/angular) принимает
-те же опции и кладёт спай в `TestBed`.
+`returns` задаёт ответ при создании спая. Если TypeScript не принимает спай вместо `UserService`,
+импортируйте `asInstance` из `vitest-auto-spy` и передайте `asInstance(users)`. Объект не меняется;
+подробнее в [Мосте между `Spy<T>` и `T`](./spy-typing).
+В Angular [`provideAutoSpy`](/ru/adapters/angular) принимает те же опции и регистрирует спай в `TestBed`.
 
-Что можно делать с каждым методом потом (`calledWith`, `resolveWith`, `nextWith` …) — на странице
-[Управляющие хелперы](./control-helpers).
+Чтобы настроить ответы после создания спая, используйте [управляющие хелперы](./control-helpers),
+например `resolveWith`, `nextWith` или `calledWith`.
 
 ## Настройка {#configuration}
 
@@ -690,12 +694,27 @@ cart.checkout.resolveWith('declined'); // дальше подменён толь
 `vi.spyOn` на каждый метод по очереди. Есть только у `createSpyFromInstance`: у фабрики класса нет
 экземпляра, и настоящему методу выполняться не на чем.
 
+Выберите `passthrough: 'unmatched'`, чтобы подменить ответ для одних аргументов, а для других вызвать
+настоящий метод:
+
+```ts
+const cart = createSpyFromInstance(new CartStore(), { passthrough: 'unmatched' });
+cart.add.calledWith('pear').mockReturnValue(99);
+
+expect(cart.add('pear')).toBe(99);
+expect(cart.add('apple')).toBe(1);
+expect(cart.items).toEqual(['apple']);
+```
+
+С `passthrough: true` тот же вызов `cart.add('apple')` вернёт `undefined`, не выполнив `add`.
+С `'unmatched'` спай вызовет `add`, только если нет подходящего ответа `calledWith` и не задан
+ответ по умолчанию. Явно заданный `undefined` (например, через `returnsUndefined`) тоже считается
+ответом. Если аргументы не подходят под `mustBeCalledWith`, оба режима выбрасывают ошибку. Чтобы
+подменить настоящий метод для всех вызовов в любом из режимов, настройте сам метод через
+`mockReturnValue` или `mockImplementation`.
+
 Правила:
 
-- **Настроенный метод перестаёт вызывать настоящий.** `calledWith`, `mustBeCalledWith`, `resolveWith`,
-  `nextWith`, `failWith`, `mockReturnValue`, `mockImplementation`, `returns` и `selfReturning` заменяют
-  настоящий метод. Цепочка `calledWith(1)` отвечает `undefined` на `load(2)`, как на любом спае; к
-  настоящему `load` она не откатывается.
 - **`resetAutoSpy` возвращает настоящий метод.** `clearAutoSpy`, как всегда, оставляет настройки. В слое
   jasmine `.and.callThrough()` снова вызывает настоящий метод.
 - **Настоящий метод выполняется с объектом в качестве `this`**, поэтому его внутренние вызовы идут через
@@ -706,11 +725,11 @@ cart.checkout.resolveWith('declined'); // дальше подменён толь
   его в `methodsToSpyOn`. Найденный класс тоже остаётся настоящим; названный становится обычным спаем.
 - **Названные аксессоры и свойства-`Observable` заменяются.** `gettersToSpyOn`, `settersToSpyOn` и
   `observablePropsToSpyOn` просят замену и получают её.
-- **Названный член, которого у объекта нет**, вызвать нечем, и он отвечает как любой спай: `undefined`
-  или то, что скажет общий строгий режим.
-- **`strict: true` или `onUnstubbedCall` в том же вызове отвергаются**: оба решают, что делает
-  ненастроенный вызов. Общий `setupAutoSpy({ strict: true })` или строгий `registerAutoSpyDefaults`
-  уступают `passthrough`; см. [Строгий режим](./strict-mode#passthrough).
+- **В обоих режимах `strict: true` или `onUnstubbedCall` в том же объекте настроек вызовут ошибку.**
+  `strict: false` передавать можно. Строгие настройки из `setupAutoSpy` или `registerAutoSpyDefaults`
+  уступают `passthrough`, если спай может вызвать настоящий метод. Если у указанного метода нет
+  настоящей реализации, спай следует унаследованным настройкам строгого режима, а если их нет,
+  по умолчанию возвращает `undefined`. См. [Строгий режим](./strict-mode#passthrough).
 
 В Angular это способ проверить взаимодействие, не ломая сервис: возьмите настоящий сервис из
 `TestBed.inject` и заспайте его на месте. Его зависимости, сигналы и `ɵprov` остаются настоящими, и

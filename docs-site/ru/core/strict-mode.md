@@ -5,25 +5,31 @@ description: strict и onUnstubbedCall - метод спая, который н�
 
 # Строгий режим
 
-С `strict: true` метод спая, который тест не настроил, при вызове бросает ошибку, а не возвращает
-`undefined`. Включайте его, когда тест падает далеко от настоящей причины или проходит на пустом
-ответе.
+С `strict: true` вызов ненастроенного метода спая бросает ошибку вместо `undefined`.
+Включите его, если из-за пустого ответа тест падает позже или проходит по ошибке.
 
 ```ts
+import { expect, it } from 'vitest';
 import { createSpyFromClass } from 'vitest-auto-spy';
 
-const users = createSpyFromClass(UserService, { strict: true });
+class UserService {
+  currentTenant() {
+    return { id: 'local' };
+  }
+}
 
-users.load.resolveWith([]); // настроен
-users.currentTenant(); // throws: UserService.currentTenant() was called; this strict double has nothing configured for it.
+it('reports the missing response', () => {
+  const users = createSpyFromClass(UserService, { strict: true });
+  expect(() => users.currentTenant()).toThrow('UserService.currentTenant() was called');
+});
 ```
 
-Без `strict` вызов `users.currentTenant()` вернёт `undefined`. Код под тестом упадёт через несколько
-вызовов, в другом файле: `TypeError: Cannot read properties of undefined (reading 'id')`. Строгий режим
-переносит падение на строку с вызовом и называет метод, который вы забыли настроить.
+Без `strict` вызов `users.currentTenant()` вернёт `undefined`. Чтение `.id` упадёт уже в другом
+месте с ошибкой `TypeError: Cannot read properties of undefined (reading 'id')`. Строгий режим
+называет сам метод: `UserService.currentTenant() was called; this strict double has nothing configured for it.`
 
-«Настроен» значит, что тест сказал методу, что отвечать: `resolveWith`, `calledWith`, опция `returns` и
-так далее. Полный список — в разделе [Что считается настройкой](#what-counts-as-configured).
+Задайте ответ через `mockReturnValue`, `resolveWith` или опцию `returns`. Полный список — в разделе
+[Что считается настройкой](#what-counts-as-configured).
 
 | Опция                  | Где                           | Тип                                               | По умолчанию                                | Смысл                                                              |
 | ---------------------- | ----------------------------- | ------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------ |

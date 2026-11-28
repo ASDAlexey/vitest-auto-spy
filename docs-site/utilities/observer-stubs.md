@@ -34,6 +34,8 @@ Bun and `node:test`.
 yet. Follow it with `await fixture.whenStable()` or [`stable(fixture)`](../adapters/angular#zoneless-waiting).
 :::
 
+![The test sends an intersection entry, waits for Angular, then checks that the card has the is-visible class. No scrolling is needed.](/demos/intersection.svg)
+
 ## The installers
 
 | Function                     | Global replaced           |

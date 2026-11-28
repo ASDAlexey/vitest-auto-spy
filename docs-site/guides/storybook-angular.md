@@ -5,11 +5,8 @@ description: Run Angular stories as Vitest tests with the Storybook Vitest addon
 
 # Storybook stories with auto-spies (Angular)
 
-With the [Storybook Vitest addon](https://storybook.js.org/docs/writing-tests/integrations/vitest-addon),
-a story's `play` function runs as a Vitest test in a real browser. A story builds the component
-through real Angular DI, so you replace its services the same way as in a `TestBed` spec: with
-`provideAutoSpy`. Pass the provider to `applicationConfig`, keep the spy in a constant of the
-stories file, and configure and assert on it in the stories.
+Use `provideAutoSpy` to replace a service in an Angular story. Pass the provider to
+`applicationConfig`, set the spy's responses in `beforeEach`, and check the result in `play`.
 
 ```ts
 // cart.test.stories.ts
@@ -57,6 +54,10 @@ export const ChecksOut: Story = {
   },
 };
 ```
+
+With the [Storybook Vitest addon](https://storybook.js.org/docs/writing-tests/integrations/vitest-addon),
+`play` runs as a Vitest test in the browser. Angular builds the component through dependency
+injection, just as it does in a `TestBed` test.
 
 Checked with Storybook 10.6 (`@storybook/angular-vite`, `@storybook/addon-vitest`), Angular 22 and
 Vitest 4.1 in browser mode with Playwright's Chromium.

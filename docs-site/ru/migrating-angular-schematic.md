@@ -1,33 +1,37 @@
 ---
 title: После refactor-jasmine-vitest от Angular
-description: Схематик refactor-jasmine-vitest от Angular превращает jasmine.createSpyObj в написанные руками литералы из vi.fn() и оставляет три TODO. createSpyFromClass закрывает все три одной строкой; здесь настоящий вывод схематика рядом с исправлением.
+description: Как заменить объекты с vi.fn() и исправить три TODO для createSpyObj после запуска схематика refactor-jasmine-vitest от Angular.
 ---
 
 # После `refactor-jasmine-vitest` от Angular
 
-Вы запустили схематик Angular `refactor-jasmine-vitest`, и теперь в спеках лежат написанные руками
-объекты из `vi.fn()` и комментарии `// TODO: vitest-migration:`. Эта страница заменяет каждый
-остаток `jasmine.createSpyObj` одной строкой, которая читает класс, а не список методов:
+Схематик `refactor-jasmine-vitest` от Angular заменяет `jasmine.createSpyObj` объектами с `vi.fn()`
+или оставляет комментарии `// TODO: vitest-migration:`. Чтобы заменить такой объект или закончить
+переход, передайте исходный класс в `createSpyFromClass`. Вы получите типизированные спаи без списка методов:
 
 ```ts
 import { createSpyFromClass } from 'vitest-auto-spy';
 
-api = createSpyFromClass(Api); // все методы Api, с типами и хелперами по типу возврата
+const api = createSpyFromClass(Api);
 ```
 
-Схематик переводит **синтаксис** с Jasmine на Vitest и делает это хорошо. Там, где он не может
-решить сам, он оставляет TODO. Три TODO, которые он оставляет на `createSpyObj`, разобраны
-[ниже](#the-three-todos-and-the-line-beside-each).
+Если старый спай задавал значения свойств или подменял только часть методов, см.
+[как исправить три TODO](#the-three-todos-and-the-line-beside-each).
 
-Это **не** [кодмод](/ru/utilities/codemod). `npx vitest-auto-spy codemod --from jasmine` переводит
-проект на `jasmine-auto-spies`; эта страница начинается с вывода схематика. Если ваш проект на
-`jasmine-auto-spies`, начните с [Перехода с jasmine-auto-spies](/ru/migrating-jasmine).
+Если вы используете `jasmine-auto-spies`, начните с раздела
+[«Переход с jasmine-auto-spies»](/ru/migrating-jasmine). Для него нужен
+[кодмод](/ru/utilities/codemod) (`npx vitest-auto-spy codemod --from jasmine`), а не схематик Angular.
 
 ## Что схематик делает с `createSpyObj` {#what-the-schematic-does-to-createspyobj}
 
-Ниже — настоящий вывод `@schematics/angular` **22.1.6** на проекте из одного файла. Команда:
-`npx schematics @schematics/angular:refactor-jasmine-vitest --project=app --no-dry-run`
-(`@angular-devkit/schematics-cli` 22.x). После запуска удалены только импорты.
+Так `@schematics/angular` **22.1.6** переписал проект из одного файла. Команда запуска
+через `@angular-devkit/schematics-cli` 22.x:
+
+```sh
+npx schematics @schematics/angular:refactor-jasmine-vitest --project=app --no-dry-run
+```
+
+Из примеров убраны исходные импорты.
 
 Было:
 
@@ -107,21 +111,19 @@ describe('Orders', () => {
 });
 ```
 
-Для литеральных аргументов переписывание верное:
+Если методы перечислены прямо в вызове, схематик создаёт `vi.fn()` для каждого из них. Он даёт
+мокам имена вроде `Api.get`, чтобы их было видно в сообщениях об ошибках. Ещё он заменяет
+`jasmine.SpyObj<Api>` на `MockedObject<Api>`, а `.and.returnValue(v)` — на `.mockReturnValue(v)`.
 
-- `jasmine.SpyObj<Api>` становится `MockedObject<Api>`;
-- `.and.returnValue(v)` становится `.mockReturnValue(v)`;
-- каждый `vi.fn()` получает имя вроде `Api.get` для сообщений о падении;
-- `spyOn(o, 'm').and.callThrough()` становится голым `vi.spyOn(o, 'm')`. Это правильно: `vi.spyOn`
-  по умолчанию вызывает настоящий метод, а `spyOn` из Jasmine его заменяет
-  ([перевёрнутое умолчание](/ru/migrating-jasmine#spyon-means-the-opposite-thing-on-the-two-sides)).
+`spyOn(o, 'm').and.callThrough()` превращается в `vi.spyOn(o, 'm')`. Vitest по умолчанию вызывает
+исходный метод. [`spyOn` в Jasmine](/ru/migrating-jasmine#spyon-means-the-opposite-thing-on-the-two-sides)
+по умолчанию его заменяет.
 
-Схематик перепечатывает файл принтером TypeScript, поэтому отступы становятся по четыре пробела, а
-кавычки меняются; Prettier всё возвращает. `vi` не импортируется: `addImports` по умолчанию `false`, а
-билдер `@angular/build:unit-test` включает глобальные функции Vitest.
+При записи файла TypeScript меняет отступы на четыре пробела и заменяет кавычки. Запустите Prettier,
+чтобы вернуть привычное форматирование. Схематик не добавляет импорт `vi`: по умолчанию
+`addImports` равен `false`. Билдер `@angular/build:unit-test` включает глобальные функции Vitest.
 
-То, что он пропустил, схематик считает в сводке в консоли и в отчёте `jasmine-vitest-<date>.md` в
-корне проекта:
+Количество TODO видно в консоли и в отчёте `jasmine-vitest-<date>.md` в корне проекта:
 
 ```
 - 3 TODO(s) added for manual review:
@@ -132,42 +134,36 @@ describe('Orders', () => {
 
 ## Три TODO и строка напротив каждого {#the-three-todos-and-the-line-beside-each}
 
-Сообщения ниже процитированы из `@schematics/angular` 22.1.6. Все три отправляют к `vi.fn()`. Здесь у
-всех трёх один ответ: [`createSpyFromClass`](/ru/core/create-spy-from-class) не нужен список
-методов, он читает класс.
+Все три сообщения из `@schematics/angular` 22.1.6 предлагают использовать `vi.fn()`.
+Если у вас есть исходный класс, начните с [`createSpyFromClass`](/ru/core/create-spy-from-class),
+как в примере выше. В `TestBed` зарегистрируйте спай через
+[`provideAutoSpy` и получите его через `injectSpy`](/ru/adapters/angular):
 
 ```ts
-import { createSpyFromClass } from 'vitest-auto-spy';
+import { TestBed } from '@angular/core/testing';
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
 
-api = createSpyFromClass(Api); // каждый метод прототипа, типизированный, с хелперами по типу возврата
-```
-
-Внутри `TestBed` — то же самое в виде провайдера, через
-[`provideAutoSpy` / `injectSpy`](/ru/adapters/angular):
-
-```ts
 TestBed.configureTestingModule({ providers: [Orders, provideAutoSpy(Api)] });
-api = injectSpy(Api);
+const api = injectSpy(Api);
 ```
 
 ### `createSpyObj-single-argument` {#createspyobj-single-argument}
 
 > jasmine.createSpyObj called with a single argument is not supported for transformation.
 
-`jasmine.createSpyObj('Api')` задаёт имя и не перечисляет методов, так что разворачивать нечего.
-Схематик оставляет вызов как есть, и под Vitest он падает с
-`ReferenceError: jasmine is not defined`. `createSpyFromClass(Api)` — рабочая форма с одним
-аргументом: вы передаёте класс, и спай получает все его методы.
+Передайте класс вместо имени: `createSpyFromClass(Api)` создаёт спаи для методов прототипа.
+Схематик оставляет `jasmine.createSpyObj('Api')` как есть, потому что в вызове нет списка методов.
+Под Vitest такой вызов падает с ошибкой `ReferenceError: jasmine is not defined`.
 
 ### `createSpyObj-dynamic-variable` {#createspyobj-dynamic-variable}
 
 > Cannot transform jasmine.createSpyObj with a dynamic variable. Please migrate this manually.
 
-Здесь `methods` объявлен где-то ещё: общий `const`, параметр хелпера или список из `Object.keys`.
-Инструмент, который видит только этот вызов, развернуть его не может. `createSpyFromClass(Api)`
-список не нужен: он ставит спай на каждый метод класса. Если список был нужен, чтобы _ограничить_
-спай, используйте [`onlyMethodsToSpyOn`](/ru/core/create-spy-from-class#configuration). Он может
-остаться переменной, но с типом имён методов класса, а не `string[]`:
+Если нужны спаи для всех методов прототипа, уберите список. Схематик не может прочитать его из
+переменной: например, из общего `const`, параметра хелпера или результата `Object.keys`.
+Если нужны спаи только для перечисленных методов, оставьте переменную и передайте её в
+[`onlyMethodsToSpyOn`](/ru/core/create-spy-from-class#configuration). Вместо `string[]` используйте
+тип на основе ключей класса:
 
 ```ts
 const methods = ['get'] satisfies Array<keyof Api>;
@@ -179,109 +175,94 @@ api = createSpyFromClass(Api, { onlyMethodsToSpyOn: methods });
 
 > Cannot transform jasmine.createSpyObj with a dynamic property map. Please migrate this manually.
 
-Здесь дифф стоит прочитать внимательно. Схематик **переписывает** вызов, но теряет третий аргумент.
-`jasmine.createSpyObj('Api', ['get'], props)` превратился в `{ get: vi.fn().mockName('Api.get') }`,
-и `withProps.baseUrl` строкой ниже теперь `undefined`. Там, где объявлен `MockedObject<Api>`, это
-ошибка компиляции, в остальных местах — молчаливый `undefined`. Сообщает об этом только комментарий
-TODO.
+Проверьте изменения: схематик переписывает вызов, но выбрасывает третий аргумент, `props`.
+Он оставляет `{ get: vi.fn().mockName('Api.get') }` и сообщает о пропавших свойствах только в TODO.
+При проверке объекта на соответствие `MockedObject<Api>` TypeScript сообщит, что поля не хватает.
+При запуске теста `withProps.baseUrl` окажется `undefined`.
 
-Исправление зависит от того, чем это свойство является в классе:
+Как вернуть `baseUrl`, зависит от того, как свойство объявлено в классе:
 
-- **обычное поле** сохраняет свой тип на `Spy<Api>`. Присвойте его или передайте объект в
-  `overrides` провайдера: `provideAutoSpy(Api, { overrides: props })`;
-- **`readonly`-поле** или **сигнал**: используйте
+- **Обычное поле:** в `Spy<Api>` у поля тот же тип. Присвойте `api.baseUrl = '/api'` или передайте
+  объект с полями в `provideAutoSpy(Api, { overrides: props })`.
+- **Поле `readonly` или сигнал:** вызовите
   [`mockReadonlyProp(api, 'baseUrl', '/api')`](/ru/adapters/angular#signal-readonly-property-mocking).
-  Он запоминает, что заменил, и `restoreMockedProps()` может это вернуть;
-- **геттер**: используйте
-  [`gettersToSpyOn: ['baseUrl']`](/ru/core/create-spy-from-class#accessor-spies-—-accessorspies) и
-  задайте значение через `api.accessorSpies.getters.baseUrl.mockReturnValue('/api')`. Само свойство
-  сохраняет тип, объявленный в классе.
+  Чтобы отменить подмену, вызовите `restoreMockedProps()`.
+- **Геттер:** задайте
+  [`gettersToSpyOn: ['baseUrl']`](/ru/core/create-spy-from-class#accessor-spies-—-accessorspies).
+  Затем вызовите `api.accessorSpies.getters.baseUrl.mockReturnValue('/api')`. Тип свойства не меняется.
 
 ## Почему двух динамических случаев здесь просто не бывает {#why-the-two-dynamic-cases-cannot-exist-here}
 
-Схематик переписывает **место вызова**. Имена методов он должен видеть литеральным массивом или
-объектом прямо в аргументах, потому что в переменной может оказаться что угодно. Поэтому
-нелитеральный список переписать нельзя, а в вызове без списка переписывать нечего.
+Схематику нужны имена методов прямо в вызове, в виде массива или объекта. Он не знает, что лежит
+в переменной. Если списка нет, ему нечего преобразовывать.
 
-`createSpyFromClass` читает **класс**. В рантайме он обходит `Api.prototype` и его родителей и
-ставит спаи на всё, что нашёл. При компиляции `Spy<Api>` строится по тому же классу. Списка в месте
-вызова нет, поэтому динамическим быть нечему. Метод, добавленный в `Api` через месяц, появится у
-спая при следующем запуске тестов. Удалённый метод станет ошибкой компиляции на строке, которая его
-ещё вызывает.
+При запуске тестов `createSpyFromClass` ищет методы в `Api.prototype` и в цепочке прототипов.
+TypeScript строит тип `Spy<Api>` по тому же классу. Добавите метод — он появится у спая при
+следующем запуске. Удалите метод — TypeScript укажет на тесты, которые ещё его вызывают.
 
-У [`vitest-auto-spy/jasmine`](/ru/migrating-jasmine) тоже есть `createSpyObj` — для спек, которые
-пока не готовы назвать класс. Он сохраняет форму вызова Jasmine и читает имена в рантайме, поэтому
-список в переменной там работает. Тип результата строится по тем именам, которые видит компилятор:
-переменная `string[]` даёт ключи `string`. Форму с одним аргументом он отвергает с ошибкой, в которой
-назван способ исправить. Если класс есть, берите класс.
+Если исходного класса нет, используйте `createSpyObj` из
+[`vitest-auto-spy/jasmine`](/ru/migrating-jasmine). Он принимает те же аргументы, что и Jasmine,
+и читает имена при запуске теста, поэтому список можно передать в переменной. Тип ключей зависит
+от того, что видит TypeScript: у списка `string[]` ключи будут типа `string`. Вызов с одним
+аргументом выдаст ошибку с подсказкой. Если класс есть, лучше использовать `createSpyFromClass`.
 
 ## Во что литерал обходится потом {#what-the-literal-costs-afterwards}
 
-Литерал, который пишет схематик, — это то, что
-[руководство по тестированию на angular.dev](https://angular.dev/guide/testing/services) советует
-писать руками. Ошибки в нём нет. Просто его дороже поддерживать:
+В [руководстве Angular по тестированию](https://angular.dev/guide/testing/services) такие объекты
+пишут вручную. Вот что меняется, если создавать спай по классу:
 
-- **Его правят при каждом изменении класса.** `MockedObject<Api>` требует все члены `Api`. Добавьте
-  метод в сервис — и каждая спека с литералом перестанет компилироваться, пока вы не допишете ещё
-  одну строку `name: vi.fn().mockName('Api.name')`. `Spy<Api>` следует за классом сам.
-- **Нет хелперов по типу возврата.** `vi.fn()` знает только `api.get.mockReturnValue(of([...]))`.
-  Здесь `api.get` возвращает `Observable`, поэтому у него есть
+- **Новые методы.** `MockedObject<Api>` требует все члены `Api`. Добавили метод — допишите строку
+  `name: vi.fn().mockName('Api.name')` в каждый объект. `Spy<Api>` подхватит метод сам.
+- **Возвращаемые значения.** С `vi.fn()` используйте `api.get.mockReturnValue(of([...]))`. Если
+  метод возвращает `Observable`, спай по классу даёт
   [`nextWith` / `throwWith`](/ru/core/control-helpers#observable-methods-properties-—-nextwith) и
-  `calledWith('/orders').nextWith([...])`. У метода, который возвращает `Promise`, есть
+  `calledWith('/orders').nextWith([...])`. Для `Promise` есть
   [`resolveWith` / `rejectWith`](/ru/core/control-helpers#promise-returning-methods-—-resolvewith).
-  У каждого метода есть [`mustBeCalledWith`](/ru/core/control-helpers#synchronous-methods): при
-  неверных аргументах он валит тест, а не возвращает `undefined`.
-- **Ненастроенный метод молчит в обоих случаях.** `vi.fn()` возвращает `undefined`, ненастроенный
-  спай здесь — тоже. [`strict: true`](/ru/core/strict-mode) превращает такой вызов в падение — для
-  одного спая или для всех тестов.
-- **С именами примерно поровну.** С базовым именем схематик называет каждый мок `Api.get`, и в
-  сообщениях о падении это удобно. Без базового имени (`jasmine.createSpyObj(['get'])`) получаются
-  голые `vi.fn()`. Здесь каждый спай метода назван по своему методу на любом раннере, который
-  поддерживает имена.
+  С [`mustBeCalledWith`](/ru/core/control-helpers#synchronous-methods) вызов любого метода с
+  неверными аргументами приводит к падению теста вместо возврата `undefined`.
+- **Вызовы без настройки.** По умолчанию оба варианта возвращают `undefined`. Чтобы такие вызовы
+  приводили к падению, включите [`strict: true`](/ru/core/strict-mode) для одного спая или всех тестов.
+- **Имена в сообщениях об ошибках.** Если указать базовое имя, схематик даёт мокам имена вроде
+  `Api.get`. Без него (`jasmine.createSpyObj(['get'])`) он создаёт безымянные `vi.fn()`. Спаи по
+  классу получают имена своих методов, если раннер поддерживает именование.
 
 ## Если сначала хочется остановиться на синтаксисе jasmine {#if-you-would-rather-stop-at-jasmine-syntax-first}
 
-Это альтернатива запуску схематика на ваших спаях. Меняется раннер, спеки остаются как есть, а спаи
-вы переписываете позже, по одному.
-[`vitest-auto-spy/jasmine`](/ru/migrating-jasmine#jasmine-s-own-globals) позволяет так сделать:
+Если хотите сменить раннер сейчас, а спаи переписать позже, не запускайте схематик для этих спаев.
+Добавьте импорт [`jasmine` из `vitest-auto-spy/jasmine`](/ru/migrating-jasmine#jasmine-s-own-globals)
+в каждый тестовый файл, где он нужен:
 
 ```ts
 import { jasmine } from 'vitest-auto-spy/jasmine';
 
-const api = jasmine.createSpyObj('Api', ['get', 'post']); // без изменений, работает под Vitest
-api.get.and.returnValue(of([])); // .and, .calls, .withArgs снова на месте
+const api = jasmine.createSpyObj('Api', ['get', 'post']); // unchanged, runs under Vitest
+api.get.and.returnValue(of([])); // .and, .calls, .withArgs are back
 ```
 
-В `globalThis` ничего не добавляется: вы импортируете модуль в каждом файле, а
-[кодмод](/ru/utilities/codemod) в конце удаляет этот импорт. На `bun test` или `node --test`, где эта
-точка входа не загружается, вызовите `enableJasmineCompat()` из `vitest-auto-spy/jasmine-compat` в
-setup-файле; см. [На Bun и `node:test`](/ru/migrating-jasmine#on-bun-and-node-test).
+Импорт не меняет `globalThis`. Когда будете переписывать спаи, [кодмод](/ru/utilities/codemod)
+удалит этот импорт. В `bun test` и `node --test` этот модуль не загружается. Вместо импорта в
+тестах вызовите `enableJasmineCompat()` из `vitest-auto-spy/jasmine-compat` в файле настройки тестов.
+Подробнее: [На Bun и `node:test`](/ru/migrating-jasmine#on-bun-and-node-test).
 
 ## Как было на самом деле, с версиями {#the-record-with-versions}
 
-Про эту миграцию часто говорят не совсем точные вещи. Каждая строка ниже сверена с первоисточником
-2026-09-02.
+История версий сверена с первоисточниками 2026-09-02, если не указана другая дата:
 
-- **Angular не объявлял Karma устаревшей. Это сделали её собственные мейнтейнеры, в 2023 году.**
-  Уведомление — "Karma is deprecated and is not accepting new features or general bug fixes" — было
-  добавлено в README Karma коммитом `450fdfda` от 2023-04-27 в `karma-runner/karma`. В чейнджлоге
-  Angular CLI нет ни одной записи об устаревании Karma; **22.0.0** объявил устаревшим семейство
-  билдеров — "Webpack builders in build-angular are deprecated. Use @angular/build builders
-  instead." — а `@angular/build:karma` как раз одна из замен, а не одна из устаревших вещей.
-- **Vitest стал умолчанием `ng new` в 21.0.0** (2025-11-19). Строка чейнджлога — "configure Vitest
-  for new projects and allow runner choice" (`2ffc527b`), а сообщение коммита гласит "configure
-  Vitest as the default unit testing runner, replacing Karma and Jasmine", с опцией `testRunner`,
-  чтобы выбрать `karma`. В том же релизе появился и схематик: "introduce initial jasmine-to-vitest
-  unit test refactor schematic" (`58474ec7`).
-- **22.0.0** (2026-06-03) удалил экспериментальные билдеры — "The experimental
-  `@angular-devkit/build-angular:jest` and `@angular-devkit/build-angular:web-test-runner` builders
-  have been removed." — и привёз "stabilize refactor-jasmine-vitest schematic" (`de630c2f`).
-  Стабилизация здесь — утверждение о покрытии тестовых паттернов, а не о видимости: в 22.1.6 и всё
-  ещё в 22.2.0 запись в коллекции читается как
-  `[EXPERIMENTAL] Refactors Jasmine tests to use Vitest APIs.` и помечена `"hidden": true`, так что в
-  `ng generate --help` схематик не появляется и звать его надо полным именем.
-- **22.2.0 делает новый проект проектом на Vitest 5** (сверено с тарболом `@schematics/angular`
-  22.2.0 на 2026-09-26). `ng new` пинит `vitest` на `^5.0.0` — 22.1.x пинил `^4.0.8`, — миграция с
-  Karma на Vitest и схематик `vitest-browser` ставят `@vitest/coverage-*` и браузерные провайдеры на
-  тот же диапазон, а `ng generate config vitest` пишет `vitest-base.config.mts` там, где раньше писал
-  `vitest-base.config.ts`.
+- **2023-04-27: Karma объявляют устаревшей её мейнтейнеры.** В коммите `450fdfda` репозитория
+  `karma-runner/karma` в README добавили уведомление: «Karma is deprecated and is not accepting
+  new features or general bug fixes». В списке изменений Angular CLI такого объявления о Karma
+  нет. В **22.0.0** устарели билдеры на Webpack из `build-angular`. Вместо них Angular рекомендует
+  билдеры из `@angular/build`. `@angular/build:karma` — одна из замен.
+- **21.0.0 (2025-11-19): `ng new` по умолчанию использует Vitest вместо Karma и Jasmine.** Выбрать
+  `karma` по-прежнему можно через `testRunner` (`2ffc527b`). В той же версии появился схематик
+  перехода с Jasmine на Vitest (`58474ec7`).
+- **22.0.0 (2026-06-03): Angular стабилизировал схематик** (`de630c2f`) и удалил два экспериментальных
+  билдера: `@angular-devkit/build-angular:jest` и `@angular-devkit/build-angular:web-test-runner`.
+  Стабилизация касается того, какие конструкции в тестах умеет преобразовывать схематик. В 22.1.6
+  и 22.2.0 у него в коллекции по-прежнему описание `[EXPERIMENTAL] Refactors Jasmine tests to use Vitest APIs.`
+  и настройка `"hidden": true`. В `ng generate --help` его нет, поэтому указывайте полное имя.
+- **22.2.0: `ng new` использует Vitest 5.** Он задаёт для `vitest` диапазон `^5.0.0`, а в 22.1.x
+  был `^4.0.8`. Миграция с Karma на Vitest и схематик `vitest-browser` используют тот же диапазон
+  для `@vitest/coverage-*` и браузерных провайдеров. `ng generate config vitest` теперь создаёт
+  `vitest-base.config.mts` вместо `vitest-base.config.ts`. Проверено 2026-09-26 по архиву
+  `@schematics/angular` 22.2.0.

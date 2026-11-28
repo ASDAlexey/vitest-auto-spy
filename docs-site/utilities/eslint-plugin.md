@@ -1,50 +1,55 @@
 ---
 title: ESLint plugin
-description: Fifty-eight lint rules for spec files. They catch tests that pass without checking anything, doubles that drift from the real class, and setup that leaks between tests. Flat config, part of the package.
+description: ESLint rules for tests - catch assertions that never run, out-of-date test doubles, and setup that leaks between tests.
 ---
 
 # ESLint plugin
 
-The plugin finds test code that passes while checking nothing, and hand-written doubles that drift
-from the class they replace. It is part of `vitest-auto-spy`, so there is nothing else to install.
-Add it to `eslint.config.js` for your spec files:
+Enable the plugin to catch assertions that never run, out-of-date test doubles, and setup that leaks
+between tests. The rules ship with `vitest-auto-spy`.
 
-```js
-// eslint.config.js
-import autoSpy from 'vitest-auto-spy/eslint-plugin';
-
-export default [{ files: ['**/*.spec.ts'], ...autoSpy.configs.recommended }];
+```bash
+npm i -D vitest-auto-spy eslint @typescript-eslint/parser
 ```
 
-The plugin needs flat config (`eslint.config.js`). The legacy `.eslintrc` format cannot load it: it
-looks for a package named `eslint-plugin-*`, and this plugin is a subpath of another package.
-
-Each rule has its own section in [ESLint rules](/utilities/eslint-rules): what it reports, a
-before/after example, its options, and when to turn it off. This page covers setup and tuning.
-
-## Adding it to your project
-
-### 1. The config block
-
-Spread one of the ready configs into a block for your spec files. In flat config a later block
-overrides an earlier one, so put this block **after** your other configs:
-
 ```js
-// eslint.config.js
-import tseslint from 'typescript-eslint';
+// eslint.config.mjs
+import tsParser from '@typescript-eslint/parser';
 import autoSpy from 'vitest-auto-spy/eslint-plugin';
 
 export default [
-  ...tseslint.configs.recommended,
   {
-    files: ['**/*.spec.ts', '**/*.test.ts'],
+    files: ['**/*.{spec,test}.{ts,tsx}'],
+    languageOptions: { parser: tsParser },
     ...autoSpy.configs.recommended,
   },
 ];
 ```
 
-Each config is a plain object with two keys, `plugins` and `rules`. Spreading it into your block
-brings both keys with it.
+This example uses flat config (`eslint.config.mjs`). The legacy `.eslintrc` format looks for a
+separate `eslint-plugin-*` package and cannot load the plugin from `vitest-auto-spy`.
+
+For before-and-after examples, options, and when to disable each rule, see
+[ESLint rules](/utilities/eslint-rules).
+
+## Adding it to your project
+
+### 1. The config block
+
+If your flat config already has a TypeScript parser, add this import to `eslint.config.mjs`:
+
+```js
+import autoSpy from 'vitest-auto-spy/eslint-plugin';
+```
+
+Copy the object below to the end of your exported config array. Later blocks override earlier ones.
+
+```js
+export default [{ files: ['**/*.{spec,test}.{ts,tsx}'], ...autoSpy.configs.recommended }];
+```
+
+`autoSpy.configs.recommended` adds two keys to the block: `plugins` and `rules`. To use a different
+preset, replace it with one below:
 
 | Config                | What it turns on                                   | Use it when                                                                                                     |
 | --------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
@@ -111,8 +116,7 @@ languageOptions: {
 
 ### 4. What the first run looks like
 
-On an existing project, expect the first run to be red. Forty-five rules are `error`, and that is
-the intended default.
+On an existing project, expect the first run to be red. The recommended preset treats 46 rules as errors.
 
 Thirteen rules are `warn`. They show up in the output but do not fail the build:
 

@@ -5,23 +5,15 @@ description: Правила линтера vitest-auto-spy подчёркива�
 
 # Диагностика в редакторе
 
-Правила линтера из библиотеки могут подчёркивать ошибки в редакторе, пока вы пишете, а не в CI час
-спустя. Они ловят конструкции, которые **проходят**, но ничего не проверяют: `expect()` внутри
-`subscribe()`, колбэк `done`, который Vitest никогда не вызовет, спай с типом класса.
-
-Отдельный плагин для редактора не нужен. Правила входят в пакет как
-[`vitest-auto-spy/eslint-plugin`](/ru/utilities/eslint-plugin), а каждый редактор ниже уже умеет
-запускать ESLint. Одни и те же правила работают в редакторе и в CI, поэтому то, что прошло
-локально, не упадёт на сборке.
-
-Настройка один раз:
+Подключите ESLint в редакторе, чтобы замечать тесты, которые проходят без нужной проверки.
+Например, редактор подсветит `expect()` внутри `subscribe()` ещё до прогона в CI.
 
 ```bash
 npm i -D vitest-auto-spy eslint typescript-eslint
 ```
 
 ```js
-// eslint.config.js — flat config, в корне репозитория
+// eslint.config.js — flat config, at the repository root
 import tseslint from 'typescript-eslint';
 import autoSpy from 'vitest-auto-spy/eslint-plugin';
 
@@ -34,13 +26,13 @@ export default [
 ];
 ```
 
-`typescript-eslint` нужен, чтобы ESLint читал файлы `.ts`. Если конфиг ESLint у вас уже есть,
-добавьте только блок для файлов спек, после остальных блоков. `autoSpy.configs.recommended` — один
-объект с `plugins` и `rules`, без `files`, поэтому где работают правила, решает список `files`
-рядом с ним. Другие варианты —
-[ESLint-плагин](/ru/utilities/eslint-plugin).
+`typescript-eslint` позволяет ESLint читать файлы TypeScript. Если ESLint уже настроен на TypeScript,
+импортируйте `autoSpy` и добавьте блок для спек после остальных блоков. Список `files` определяет,
+в каких файлах действуют рекомендованные правила.
 
-Затем включите ESLint в своём редакторе, как описано ниже.
+Включите ESLint в редакторе по инструкции ниже. Там будут работать те же правила
+[`vitest-auto-spy/eslint-plugin`](/ru/utilities/eslint-plugin), что и в CI. Они также подсветят
+неподдерживаемые колбэки `done` и спаи, которым присвоен тип исходного класса.
 
 ## WebStorm и другие IDE от JetBrains {#webstorm-and-the-other-jetbrains-ides}
 

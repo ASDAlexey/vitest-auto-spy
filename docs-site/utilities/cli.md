@@ -5,9 +5,8 @@ description: npx vitest-auto-spy is a command line tool that ships with the pack
 
 # The CLI
 
-The package ships a command line tool, `npx vitest-auto-spy`. It checks your test setup for silent
-mistakes, shows where test time goes, and tells coding agents how to use the library. It needs no
-config file, no network and no token.
+Run `doctor` from your project root to find setup mistakes that can leave tests green. Once the
+package is installed, the CLI needs no separate config, network connection, or token.
 
 ```bash
 npx vitest-auto-spy doctor
@@ -23,10 +22,12 @@ npx vitest-auto-spy doctor
 | [`codemod`](#codemod)                                                            | you migrate a suite off `jest-auto-spies` or `jasmine-auto-spies` | only with `--write`        |
 | [`ng-test`](#ng-test-—-sharding-and-changed-only-runs-under-the-angular-builder) | you run tests through the Angular builder and need shards         | never                      |
 
-`perf` leaves a file behind only when you pass an output flag: `--out`, `--update-baseline`,
-`--code-quality` or `--profile-dir`. Without `--out`, the report of its own run is temporary and
-deleted. `--json` names a report to read, never one to write. Ready-made GitLab and GitHub
-jobs are in [In CI](#in-ci). Every `doctor` and `perf` finding ends in a `Docs:` line that links to its entry on this page.
+To keep `perf` output, pass `--out`, `--update-baseline`, `--code-quality`, or `--profile-dir`.
+Without `--out`, `perf` deletes the temporary report from its own test run. Use `--json` to read a
+report you already have.
+
+Each `doctor` and `perf` finding ends with a `Docs:` link to its explanation. For ready-to-use GitLab
+and GitHub jobs, see [In CI](#in-ci).
 
 ## Exit codes
 
@@ -59,17 +60,16 @@ to a default: a typo such as `perf --gat` would otherwise pass CI with no gate a
 
 ## `doctor` — defects that never fail
 
-`doctor` finds mistakes in your test setup that leave the suite green. A tsconfig pattern that
-matches no file, a config for a runner you removed, a helper promise nobody awaited: tests pass,
-`tsc` reports zero errors, and the mistake stays for years. Most of them span several files, so a
-linter cannot see them.
+Run `doctor` to find setup mistakes that can pass both tests and type checking. For example,
+it reports a `tsconfig` pattern that matches no specs or a config for a runner you removed.
+It also checks for helper promises your tests forget to await.
 
 ```bash
 npx vitest-auto-spy doctor
 ```
 
-`doctor` only reads. It never edits a file and has no `--fix`. It exits 1 when it finds an error or
-a warning; by default a note does not fail the run.
+`doctor` leaves your source and config files unchanged. It has no `--fix` option. An error or
+warning gives exit code 1. Notes do not change the exit code by default.
 
 ### Read the doctor report
 
@@ -182,8 +182,8 @@ Field lists and how the formats behave in detail: [Report formats](#report-forma
 
 ## `perf` — where the CPU time actually goes
 
-`perf` runs your suite once, reads Vitest's own per-file timings, and tells you which phase takes
-the time and which files to change. Use it when the suite is slow and you do not know why.
+Run `perf` when your suite feels slow. It reads Vitest's timings to show which files and phases
+cost the most.
 
 ```bash
 npx vitest-auto-spy perf                        # run the whole suite and report
@@ -844,9 +844,8 @@ one, `perf` measures the whole suite.
 
 ## `init` — the pointer an agent actually reads
 
-`init` writes a short block into the instruction files coding agents read, pointing them at the
-library's docs inside `node_modules`. Use it once per repository, and again after an upgrade. Agents
-never scan your dependencies, so without this pointer they do not know the library's rules.
+Run `init` to point your repository's coding agents to the library docs in `node_modules`.
+Run it again after upgrading the package.
 
 ```bash
 npx vitest-auto-spy init             # write or refresh the blocks
@@ -968,14 +967,13 @@ and flag: [The codemod](/utilities/codemod).
 
 ## `ng-test` — sharding and changed-only runs under the Angular builder
 
-`ng test` does not pass Vitest's own flags through to the `@angular/build:unit-test` builder. `ng-test`
-adds the two you miss most: running one shard of the specs, and running only the specs a change
-reaches.
+Use `ng-test` to split specs across CI jobs or run only specs affected by a change.
+It wraps `ng test`, which does not pass Vitest's own flags to `@angular/build:unit-test`.
 
 ```bash
 npx vitest-auto-spy ng-test --shard 2/4 -- --coverage  # one CI job of four
-npx vitest-auto-spy ng-test --changed                  # specs your uncommitted and untracked work reaches
-npx vitest-auto-spy ng-test --changed origin/main      # specs the branch reaches
+npx vitest-auto-spy ng-test --changed                  # specs affected by uncommitted and untracked changes
+npx vitest-auto-spy ng-test --changed origin/main      # specs affected by branch changes
 npx vitest-auto-spy ng-test --related src/app/cart/cart.service.ts --dry-run
 ```
 
