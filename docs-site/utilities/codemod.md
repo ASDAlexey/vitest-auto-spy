@@ -5,27 +5,14 @@ description: Migrate a test suite off jest-auto-spies and Jest, or off jasmine-a
 
 # The codemod
 
-`codemod` migrates a test suite off `jest-auto-spies` and Jest, or off `jasmine-auto-spies` and
-jasmine, to Vitest and this library. It rewrites what it can decide safely, leaves everything else
-exactly as it was, and lists each place you still need to rewrite by hand.
+Use `codemod` to move tests from Jest and `jest-auto-spies`, or Jasmine and `jasmine-auto-spies`,
+to Vitest and `vitest-auto-spy`. It previews changes and flags what you still need to fix by hand.
 
 ```bash
 npx vitest-auto-spy codemod            # preview: print the diff, write nothing
 npx vitest-auto-spy codemod --write    # apply it
 npx vitest-auto-spy codemod --verify   # check that nothing is left to migrate
 ```
-
-Why not a find-and-replace? Because several plain renames compile and do the opposite of what you
-meant:
-
-- `jest.Mock<void, [Order]>` → `Mock<void, [Order]>` compiles but means the reverse: Jest puts the
-  return type first, Vitest the arguments.
-- `jest.requireMock` renamed to `vi.requireMock` fails with `TypeError: vi.requireMock is not a
-function`.
-- jasmine's `spyOn(o, 'm')` renamed to `vi.spyOn(o, 'm')` starts calling the real method: jasmine stubs
-  it, Vitest calls through.
-- Moving every `jest-auto-spies` import to the root `vitest-auto-spy` breaks `provideAutoSpy`: the
-  root entry point does not export it.
 
 The step-by-step migration guide is [Migrating from jest-auto-spies](/migrating); for jasmine, see
 [Migrating from jasmine-auto-spies](/migrating-jasmine).
@@ -393,6 +380,17 @@ One line, no network, no config, no token. On a migrated repository it passes an
 fails when a `jest.`, a legacy import or an `as Spy<…>` cast comes back, which in a large suite happens.
 
 ## In depth
+
+Find-and-replace misses differences like these:
+
+- `jest.Mock<void, [Order]>` → `Mock<void, [Order]>` compiles but means the reverse: Jest puts the
+  return type first, Vitest the arguments.
+- `jest.requireMock` renamed to `vi.requireMock` fails with `TypeError: vi.requireMock is not a
+function`.
+- jasmine's `spyOn(o, 'm')` renamed to `vi.spyOn(o, 'm')` starts calling the real method: jasmine stubs
+  it, Vitest calls through.
+- Moving every `jest-auto-spies` import to the root `vitest-auto-spy` breaks `provideAutoSpy`: the
+  root entry point does not export it.
 
 ### The trap: Jest puts the return type first
 

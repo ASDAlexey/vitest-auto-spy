@@ -5,9 +5,8 @@ description: A typed PrismaClient mock from mockDeep - answer findMany and creat
 
 # Mocking Prisma Client in Vitest
 
-[`mockDeep<PrismaClient>()`](/core/auto-mock-by-type#recursive-deep-mocks-—-mockdeep) gives you a
-typed fake Prisma client for unit tests. Every model and every query method exists as soon as you
-read it, for example `prisma.user.findMany`. Each method is a spy, so you set its answer in one call.
+Use [`mockDeep<PrismaClient>()`](/core/auto-mock-by-type#recursive-deep-mocks-—-mockdeep) to test a
+service without a database. Pass the mock to the service and set a response on each query it calls.
 
 ```ts
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -44,10 +43,11 @@ describe('UserService', () => {
 });
 ```
 
-The service under test receives the client through its constructor. This is the one thing the recipe
-needs from your code: the client must come in from outside (a constructor argument, a NestJS
-provider, a factory argument), not from a module-level import. Then the spec passes in the mock and
-needs no `vi.mock`.
+`mockDeep` creates each model and query method on first access. For example, you can set a response
+on the `prisma.user.findMany` spy.
+
+To pass the mock without `vi.mock`, give the service a client through a constructor argument, NestJS
+provider, or factory argument. A module-level client import does not give the test that choice.
 
 ```ts
 // users.ts

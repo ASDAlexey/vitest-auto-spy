@@ -5,16 +5,15 @@ description: Объекты-подмены, которые собственны�
 
 # Идиомы Angular Material в переводе на библиотеку
 
-Многие спеки компонентов списаны со спек самого Angular Material, а там сервисы Material подменяют
-объектами, написанными руками: `{ provide: X, useValue: { oneMethod: () => … } }`. `useValue`
-принимает что угодно, поэтому такой объект никто не проверяет. Когда компонент начинает вызывать
-другой метод, тест падает где-то внутри Material. Здесь для каждого частого случая показана
-типизированная замена.
+В `TestBed` подменяйте сервисы и токены Angular Material типизированными объектами. В обычном
+`useValue` легко пропустить метод: TypeScript этого не заметит. В примере `provideAutoSpy`
+подменяет `ScrollDispatcher`, чтобы тест мог отправлять события прокрутки.
 
 ```ts
 import { ScrollDispatcher } from '@angular/cdk/scrolling';
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
+import { expect, it } from 'vitest';
 import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
 
 import { StickyHeaderComponent } from './sticky-header.component';
@@ -28,7 +27,7 @@ it('subscribes to scroll events', () => {
   });
   TestBed.createComponent(StickyHeaderComponent).detectChanges();
 
-  scrolled.next(); // пользователь прокрутил страницу
+  scrolled.next();
   expect(injectSpy(ScrollDispatcher).scrolled).toHaveBeenCalled();
 });
 ```

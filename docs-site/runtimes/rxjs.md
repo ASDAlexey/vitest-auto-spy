@@ -5,10 +5,32 @@ description: Make a spied method or property return an Observable you control - 
 
 # RxJS
 
-The `vitest-auto-spy/rxjs` entry lets a spy return an `Observable` you control from the test. Use
-it when the code under test subscribes to a service method or a `$` property.
+Use `vitest-auto-spy/rxjs` to control what an `Observable` emits in a test. Here, `ProductList.load()`
+subscribes to `ProductService.getProducts()`, which returns `Observable<Product[]>`. Use `nextWith`
+on the spy to return a product list without calling the real service. This also works for properties like `items$`.
 
-Import it once in a setup file, and list that file in the Vitest config:
+```ts
+// product-list.spec.ts
+import { expect, it } from 'vitest';
+import { type Spy, createSpyFromClass } from 'vitest-auto-spy';
+
+import 'vitest-auto-spy/rxjs';
+
+import { ProductList } from './product-list';
+import { ProductService } from './product.service';
+
+it('shows the products the service returns', () => {
+  const products: Spy<ProductService> = createSpyFromClass(ProductService);
+  const list = new ProductList(products);
+
+  products.getProducts.nextWith([{ name: 'Tea' }]);
+  list.load();
+
+  expect(list.names).toEqual(['Tea']);
+});
+```
+
+If several tests use the helpers, move `import 'vitest-auto-spy/rxjs';` to a shared setup file:
 
 ```ts
 // vitest.setup.ts
@@ -24,38 +46,12 @@ export default defineConfig({
 });
 ```
 
-Then a spec creates the spy, passes it to the class under test, and sets what the stream emits:
-
-```ts
-// product-list.spec.ts
-import { expect, it } from 'vitest';
-import { type Spy, createSpyFromClass } from 'vitest-auto-spy';
-
-import { ProductList } from './product-list';
-// calls products.getProducts().subscribe(...) in load()
-import { ProductService } from './product.service';
-
-// getProducts(): Observable<Product[]>
-
-it('shows the products the service returns', () => {
-  const products: Spy<ProductService> = createSpyFromClass(ProductService);
-  const list = new ProductList(products);
-
-  products.getProducts.nextWith([{ name: 'Tea' }]);
-  list.load();
-
-  expect(list.names).toEqual(['Tea']);
-});
-```
-
-If the setup import is missing, the first observable helper throws `Observable spies require rxjs`
-and names the import to add. The rest of the library never imports rxjs, so projects without rxjs
-do not need it installed.
+Without the import, the first Observable helper throws `Observable spies require rxjs` and tells
+you what to import. Projects without RxJS can use the rest of the library without installing it.
 
 ## Observable properties
 
-A property like `items$` is not a method, so you name it in `observablePropsToSpyOn`. It then gets
-the same helpers as a method.
+List a property like `items$` in `observablePropsToSpyOn` to give it the same helpers as a method.
 
 ```ts
 const store = createSpyFromClass(CartStore, { observablePropsToSpyOn: ['items$'] });
@@ -65,8 +61,8 @@ store.items$.nextWith([{ id: 1 }]);
 
 ## Helpers
 
-Every spied method that returns an `Observable`, and every property in `observablePropsToSpyOn`, has
-these helpers.
+Use these helpers on a spied method that returns an `Observable` or a property listed in
+`observablePropsToSpyOn`.
 
 | Helper                    | What it does                                                    |
 | ------------------------- | --------------------------------------------------------------- |
@@ -96,7 +92,7 @@ const subject = products.getProducts.returnSubject();
 subject.next([{ name: 'Coffee' }]);
 ```
 
-The entries of the two list helpers:
+What each list entry accepts:
 
 | Type                                     | Shape                                                                             |
 | ---------------------------------------- | --------------------------------------------------------------------------------- |
@@ -105,17 +101,16 @@ The entries of the two list helpers:
 
 ## `nextWith` pushes; `nextWithValues` republishes
 
-The two look interchangeable. On an observable **property** they are not. On a **method** spy they
-behave the same, because each call reads the current stream.
+On a property, use `nextWith` to reach anyone already listening. Use `nextWithValues` to set up a
+sequence before they subscribe. On a method, each call returns the current stream.
 
-| Helper                                                    | What it does to the stream                   | A subscriber that is already on it |
-| --------------------------------------------------------- | -------------------------------------------- | ---------------------------------- |
-| `nextWith` / `nextOneTimeWith` / `throwWith` / `complete` | pushes into the subject everybody shares     | receives it                        |
-| `nextWithValues` (on a property spy)                      | publishes a **new** stream over the property | stays on the old one               |
+| Helper                                                    | What it does to the stream          | A subscriber that is already on it |
+| --------------------------------------------------------- | ----------------------------------- | ---------------------------------- |
+| `nextWith` / `nextOneTimeWith` / `throwWith` / `complete` | updates the shared subject          | sees the update                    |
+| `nextWithValues` (on a property spy)                      | replaces the stream on the property | stays on the old one               |
 
-A component usually subscribes to a property once, in `ngOnInit`. It keeps the stream it got then.
-If you call `nextWithValues` after that, the component never sees the values. The library warns
-once:
+If a component subscribes in `ngOnInit`, it keeps that stream. A later `nextWithValues` replaces the
+stream on the property, so the component misses the new values. The library warns once:
 
 ```text
 [vitest-auto-spy] Feed.items$.nextWithValues() ran after something subscribed to Feed.items$, and it
@@ -124,10 +119,7 @@ nextWithValues() before the code under test subscribes, or push into the stream 
 Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#nextwith-pushes-nextwithvalues-republishes
 ```
 
-Fix it one of two ways:
-
-- Call `nextWithValues` in the arrange step, before you create the component.
-- Or push into the live stream:
+Call `nextWithValues` before you create the component, or update the stream it already holds:
 
 ```ts
 service.items$.nextWith(['a']); // reaches the component that subscribed in ngOnInit
@@ -136,9 +128,8 @@ service.items$.returnSubject().error(new Error('offline')); // so does this
 
 ## A request method answers once: `nextOneTimeWith`
 
-An HTTP call, a Tauri `invoke`, a database query: each emits one value and completes. Configure such
-a method with `nextOneTimeWith`. It emits the value and then completes the stream, like the real
-request does.
+Use `nextOneTimeWith` for a request that emits once and completes, like an HTTP call, a Tauri
+`invoke`, or a database query.
 
 On Angular CLI's `@angular/build:unit-test` builder, put `import 'vitest-auto-spy/rxjs';` in the file
 that `setupFiles` lists in `angular.json` (see [Angular unit-test builder](/guides/angular-unit-test-builder)):
@@ -150,8 +141,8 @@ that `setupFiles` lists in `angular.json` (see [Angular unit-test builder](/guid
 }
 ```
 
-A complete Angular example. The component calls `OrderService.load()` once and keeps the result, or
-the error message, in signals:
+In this Angular example, the component calls `OrderService.load()` once. It stores the result or
+error message in signals:
 
 ```ts
 // order-list.component.ts
@@ -215,26 +206,24 @@ describe('OrderListComponent', () => {
 
 More on `provideAutoSpy` and `injectSpy`: [Angular](/adapters/angular#replace-a-service-provideautospy-and-injectspy).
 
-A stream that `nextOneTimeWith` completed is replaced when you call the next stream helper on that
-method. So the `throwWith` in the second test starts a new stream that holds only the error, and the
-seeded list is gone. See [Reset streams between tests](#reset-streams-between-tests).
+After `nextOneTimeWith` completes the stream, the next helper call on that method creates a new
+one. In the second test, `throwWith` starts a stream with only the error, not the list from
+`beforeEach`. See [Reset streams between tests](#reset-streams-between-tests).
 
-**Why not `nextWith`.** `nextWith` emits the value but leaves the stream open. Every spy stream
-replays its last value to later subscribers, and an open one keeps doing so until you reset it. For a request method, that breaks two things:
+**Why not `nextWith`.** It leaves the stream open. The stream replays its last value to new
+subscribers until you reset the spy. For requests, this causes two problems:
 
-- **Operators that wait for completion never answer.** `forkJoin`, `lastValueFrom`, `toArray()` and
-  `expectAllEmissions` give a result only after the source completes. Over a `nextWith` stream they
-  never give one, and they never fail either. A component built on them stays in its loading state
-  (its `loading` signal, say, is still `true`), and nothing tells you why.
-- **The value seeded in `beforeEach` arrives before the error.** If a test then calls `throwWith`,
-  the next subscriber gets the old value first and the error second. The code runs its success
-  branch on stale data.
+- **Loading never finishes.** `forkJoin`, `lastValueFrom`, `toArray()` and `expectAllEmissions`
+  wait for completion. Without it, they neither return a result nor fail. For example, a component's
+  `loading` signal can stay `true`.
+- **Old data arrives before the error.** If you call `throwWith` after `nextWith` in `beforeEach`, a
+  new subscriber gets the old value first. The code runs its success branch before handling the error.
 
-`nextWith` is for a stream that stays open in the real code too: a store's `state$`, a websocket, a
-router event feed.
+Use `nextWith` for streams that stay open in real code, like a store's `state$`, a WebSocket, or
+router events.
 
-**The library warns about `throwWith` after `nextWith`.** This never applies when you seed with
-`nextOneTimeWith`. The warning fires when `throwWith` runs and all of this is true:
+**The library warns about `throwWith` after `nextWith`.** The warning doesn't apply to
+`nextOneTimeWith`. It fires only when all three conditions hold:
 
 - the method was seeded with `nextWith`;
 - the stream has not completed or errored since;
@@ -250,20 +239,19 @@ earlier nextWith() and has no subscriber, so the next one gets that value first 
 it — the code under test runs its success branch on stale data. …
 ```
 
-Three ways out:
+To avoid the warning:
 
 - seed the method with `nextOneTimeWith` instead of `nextWith`;
 - call `resetAutoSpy(api.getBonds)` (from `vitest-auto-spy`) before `throwWith`;
-- when "emit, then fail" is what the test is about, say it in one call:
+- to test "emit, then fail", set up both events in one call:
   `nextWithValues([{ value: BONDS }, { errorValue: error }])`.
 
 If the code under test is already subscribed when `throwWith` runs, there is no warning. That
 subscriber got the value when `nextWith` ran, and it gets the error now.
 
-**Keeping a call pending.** To test a loading state, make the method return a stream that never
-emits. If the method was seeded with `nextWith`, `returnSubject()` cannot give you that stream: it
-returns the seeded stream, which hands the value to the next subscriber. Reset the spy and return
-rxjs's `NEVER` instead:
+**Keeping a call pending.** To test a loading state, return a stream that never emits. After
+`nextWith`, `returnSubject()` gives you the same stream, which still replays its last value. Reset
+the spy and return `NEVER` from RxJS instead:
 
 ```ts
 import { NEVER } from 'rxjs';
@@ -277,16 +265,14 @@ api.getBonds.mockReturnValue(NEVER); // every call stays pending
 [Where a `throwWith` error goes](#where-a-throwwith-error-goes)). To use `nextWith` or `throwWith` on
 it again, call `api.getBonds.mockReset()` first.
 
-On a spy nothing has seeded, `returnSubject()` works too: its stream stays silent until you call
+On a spy with no value set, `returnSubject()` also works. Its stream stays silent until you call
 `next` on it.
 
 ## Where a `throwWith` error goes
 
-`throwWith` errors the stream even when nothing has subscribed yet. Every later subscriber still gets
-the error. Where it goes from there depends on how the code under test subscribes. Two Angular APIs,
-`toSignal` and `rxResource`, store the error instead of passing it to `ErrorHandler`. That is a false
-pass trap: nothing fails, and the test stays green until it reads the error from the signal or the
-resource:
+`throwWith` ends the stream with an error, even if nobody has subscribed. Later subscribers still
+get the error. Angular's `toSignal` and `rxResource` store it instead of passing it straight to
+`ErrorHandler`. Check the result where your code handles the error:
 
 | The code under test                                                     | Where the error ends up                                        | Assert it with                                                                                                                                                                                                |
 | ----------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -308,10 +294,9 @@ it('shows the error', () => {
 });
 ```
 
-A `toSignal` value that a template renders belongs to the `effect`-or-template row: the error comes
-out of change detection, not out of a read in your test. An `effect` or a template does not run
-until change detection does, so a test that only injects the service or creates the component sees
-nothing. Run change detection and expect that step to fail:
+If an `effect` or a template reads the signal, the error surfaces during change detection. Just
+injecting the service or creating the component won't expose it. Run change detection and expect
+it to fail:
 
 ```ts
 expect(() => TestBed.tick()).toThrow('offline');
@@ -319,13 +304,12 @@ expect(() => TestBed.tick()).toThrow('offline');
 await expect(fixture.whenStable()).rejects.toThrow('offline');
 ```
 
-**Stream helpers stop working after `mockImplementation` or `mockReturnValue`.** Those two replace
-the spy's own implementation (the warning below calls it the spy's "dispatch"), and that
-implementation is what returns the stream the helpers set up. So a later `throwWith` changes nothing: every call keeps returning what `mockReturnValue` or
-`mockImplementation` installed. The library reports this order
-(`throwWith() was configured on 'load' after mockImplementation() had replaced its dispatch`), as a
-warning or, under `misconfiguration: 'throw'`, as an error. Call `api.load.mockReset()` first, or
-seed the default with `nextOneTimeWith` instead of `mockReturnValue`.
+**Stream helpers stop working after `mockImplementation` or `mockReturnValue`.** They replace the
+part of the spy that returns the stream (called "dispatch" in the warning). A later `throwWith`
+won't change what the spy returns. The library reports this as a warning
+(`throwWith() was configured on 'load' after mockImplementation() had replaced its dispatch`), or
+as an error with `misconfiguration: 'throw'`. Call `api.load.mockReset()` first, or set the default
+with `nextOneTimeWith` instead of `mockReturnValue`.
 
 ## Reading a sequence as a marble
 
@@ -404,8 +388,9 @@ fixture.destroy();
 expect(store.items$.subscriberCount()).toBe(0);
 ```
 
-**Did the second request cancel the first?** Wrap each method result with `log.track(key, source$)`.
-Check `log.events` before destroying the consumer. Replacing `switchMap` with `mergeMap` below leaves A open, so the assertion fails.
+**Did the second request cancel the first?** Wrap the Observable returned by `load` with `log.track(key, source$)`.
+Check `log.events` before calling `view.unsubscribe()` so cleanup cannot hide a missed cancellation.
+Replacing `switchMap` with `mergeMap` leaves A open, so the assertion fails.
 
 ```ts
 import { NEVER, Subject, switchMap } from 'rxjs';
@@ -428,9 +413,9 @@ The matching `unsubscribe` event records teardown after cancellation, completion
 
 ## Reset streams between tests
 
-Each spied member keeps one `ReplaySubject(1)`: a stream that replays its last value to every new
-subscriber. That value stays until you reset the spy, like any other answer you set on it. If a spy
-lives across tests, reset it, or the next test sees the old value first.
+If tests share a spy, reset it before each test. Each spied member keeps one `ReplaySubject(1)`,
+which replays the last value to new subscribers. Without a reset, the next test can receive that
+old value first:
 
 ```ts
 import { beforeEach } from 'vitest';
@@ -555,8 +540,8 @@ setup file. The rule is the same as above. A plain `.ts` listed only in `include
 
 ## `subscribeSpyTo`, for a suite arriving with observer-spy
 
-`vitest-auto-spy/observer-spy` provides the API of `@hirez_io/observer-spy`. Use it when you migrate
-tests that already use that package: they run before you rewrite their stream assertions.
+If your tests use `@hirez_io/observer-spy`, change the import to `vitest-auto-spy/observer-spy`.
+You can keep your existing assertions while you migrate:
 
 ```ts
 import { subscribeSpyTo } from 'vitest-auto-spy/observer-spy';
@@ -567,22 +552,22 @@ expect(spy.getValues()).toEqual(['a', 'b']);
 expect(spy.receivedComplete()).toBe(true);
 ```
 
-Treat it as a bridge. For new tests, use [`expectEmission`](/core/observable-assertions) and its
-siblings. With `subscribeSpyTo`, a stream that never emits gives `getValues() === []`, and a test can
-pass having seen nothing. `expectEmission` waits for the value, so silence becomes a timeout that
-names the stream.
+For new tests, use [`expectEmission`](/core/observable-assertions) and related assertions. With
+`subscribeSpyTo`, a stream that never emits gives you `getValues() === []`, so the test can pass
+without seeing a value. `expectEmission` waits for a value and names the stream if it times out.
 
 Differences from `@hirez_io/observer-spy`:
 
 - `getValues()` returns a copy, typed `T[]` instead of `any[]`.
 - `getFirstValue()` and `getValueAt(i)` throw when there is no such value, instead of returning
   `undefined`.
-- An unexpected stream error is thrown by the next value reader (`getValues()` and the like), with
-  the original error as `cause`. When the error is what you test, pass `{ expectErrors: true }` (or
-  call `.expectErrors()`) and read `getError()`.
-- Awaited `onComplete()` rejects when the stream errored, and awaited `onError()` rejects when it
-  completed. Otherwise the test would hang until the file timeout. It does not matter whether the stream ended before or after you called `onComplete()` / `onError()`.
-  The callback form (`onComplete(() => …)`) behaves as in the original: the callback never runs.
+- If the stream fails unexpectedly, the next value reader (such as `getValues()`) throws. The
+  original error is available as `cause`. To test an error, pass `{ expectErrors: true }` or call
+  `.expectErrors()`, then read `getError()`.
+- The promise from `onComplete()` rejects if the stream errors. The promise from `onError()`
+  rejects if it completes. This avoids a file timeout whether the stream ends before or after the
+  call. The callback form (`onComplete(() => …)`) still behaves as before: it never calls back in
+  that case.
 
 ```text
 [vitest-auto-spy] this spy's observable errored (Error: offline), so the promise from onComplete() can never resolve:

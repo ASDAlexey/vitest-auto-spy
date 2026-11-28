@@ -5,15 +5,15 @@ description: The literal doubles Angular Material's own specs hand-write — a S
 
 # Angular Material idioms, translated
 
-Many component specs copy Angular Material's own specs, and those replace Material's services with
-hand-written objects: `{ provide: X, useValue: { oneMethod: () => … } }`. `useValue` accepts
-anything, so nothing checks that object. When the component starts calling another member, the test
-fails deep inside Material. This page shows the typed replacement for each common case.
+Use typed doubles for Angular Material services and tokens in `TestBed`. A hand-written `useValue`
+object can miss a method and still compile. Here, `provideAutoSpy` replaces `ScrollDispatcher` so
+your test can send scroll events.
 
 ```ts
 import { ScrollDispatcher } from '@angular/cdk/scrolling';
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
+import { expect, it } from 'vitest';
 import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
 
 import { StickyHeaderComponent } from './sticky-header.component';
@@ -27,7 +27,7 @@ it('subscribes to scroll events', () => {
   });
   TestBed.createComponent(StickyHeaderComponent).detectChanges();
 
-  scrolled.next(); // the user scrolled
+  scrolled.next();
   expect(injectSpy(ScrollDispatcher).scrolled).toHaveBeenCalled();
 });
 ```

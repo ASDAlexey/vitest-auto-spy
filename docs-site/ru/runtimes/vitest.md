@@ -5,49 +5,48 @@ description: Как работать с vitest-auto-spy на Vitest без на�
 
 # Vitest
 
-На Vitest вы импортируете `vitest-auto-spy` и пишете тест. Настраивать ничего не нужно: импорт сам
-подключает библиотеку к мокам Vitest. Эта страница пригодится, если проект работает на Vitest и вам нужна
-первая спека, setup-файл или ответ на вопрос именно про Vitest.
+Если ваши тесты уже работают на Vitest, установите `vitest-auto-spy` командой
+`npm install -D vitest-auto-spy`. Для работы спаев достаточно импорта: setup-файл, плагин и правки
+конфига не нужны. Сохраните пример как `greeter.test.ts` и запустите `npx vitest run greeter.test.ts`.
 
 ```ts
-// user.service.ts: export class UserService { getName(id: number): string { … } }
-// greeter.ts:      export class Greeter { constructor(private users: UserService) {} greet(id: number) { … } }
-import { beforeEach, describe, expect, it } from 'vitest';
-import { type Spy, createSpyFromClass } from 'vitest-auto-spy';
+import { expect, it } from 'vitest';
+import { createSpyFromClass } from 'vitest-auto-spy';
 
-import { Greeter } from './greeter';
-import { UserService } from './user.service';
+class UserService {
+  getName(id: number): string {
+    return `user-${id}`;
+  }
+}
 
-describe('Greeter', () => {
-  let users: Spy<UserService>;
-  let greeter: Greeter;
+class Greeter {
+  constructor(private readonly users: UserService) {}
 
-  beforeEach(() => {
-    users = createSpyFromClass(UserService); // теперь каждый метод — спай
-    greeter = new Greeter(users);
-  });
+  greet(id: number): string {
+    return `Hello, ${this.users.getName(id)}!`;
+  }
+}
 
-  it('greets the name the service returns', () => {
-    users.getName.calledWith(1).mockReturnValue('Ada');
+it('greets the name the service returns', () => {
+  const users = createSpyFromClass(UserService);
+  const greeter = new Greeter(users);
+  users.getName.calledWith(1).mockReturnValue('Ada');
 
-    expect(greeter.greet(1)).toBe('Hello, Ada!');
-    expect(users.getName).toHaveBeenCalledWith(1);
-  });
+  expect(greeter.greet(1)).toBe('Hello, Ada!');
+  expect(users.getName).toHaveBeenCalledWith(1);
 });
 ```
 
-_Спай_ — подставная функция: она записывает каждый вызов и возвращает то, что вы ей задали.
-`createSpyFromClass` читает класс и отдаёт объект, в котором каждый метод — спай. Родные методы моков
-Vitest (`mockReturnValue`, `mock.calls`, `toHaveBeenCalledWith`) работают на нём как обычно.
-`calledWith(1)` задаёт ответ только для этого аргумента; вызов с любым другим аргументом вернёт
-`undefined`. Другие такие хелперы — на странице [Управляющие хелперы](/ru/core/control-helpers).
+`createSpyFromClass` создаёт объект, у которого вместо методов класса стоят спаи. Спай записывает
+вызовы и возвращает заданное значение. С ним работают привычные `mockReturnValue`, `mock.calls` и `toHaveBeenCalledWith`.
+В примере `calledWith(1)` задаёт ответ только для `getName(1)`. С другим аргументом метод вернёт
+`undefined`. Другие способы задать ответ — в разделе [Управляющие хелперы](/ru/core/control-helpers).
 
-Этот пример — вся спека целиком: без setup-файла, без плагина, без правок в `vitest.config.ts`. Для
-Angular импортируйте из `vitest-auto-spy/angular`, см. [Подпуть для Angular](#the-angular-subpath).
+Для Angular используйте `vitest-auto-spy/angular`: [Подпуть для Angular](#the-angular-subpath).
 
 ## Что относится к setup-файлу {#what-belongs-in-the-setup-file}
 
-Setup-файл необязателен. Две вещи действуют на весь прогон, поэтому их место там, а не в каждой спеке:
+Добавьте setup-файл, если хотите включить хелперы или очистку сразу для всех тестов.
 
 ```ts
 // vitest.setup.ts
@@ -87,12 +86,11 @@ export default defineConfig({
 
 ## Vitest 5 {#vitest-5}
 
-**Одна установка работает с Vitest от 2.1 до 5.x.** Диапазон peer-зависимости — `>=2.1.0`. Отдельного
-мажора, тега `@next` или вторых типов для Vitest 5 нет. В монорепозитории, где одно приложение на
-Vitest 4, а другое на Vitest 5, стоит одна и та же версия `vitest-auto-spy`, и спека переносится между
-ними без правок.
+Одна версия `vitest-auto-spy` работает с Vitest 2.1–5.x (`peerDependencies`: `>=2.1.0`).
+Для Vitest 5 не нужен отдельный релиз, тег `@next` или другой файл типов. Вы можете переносить
+спеки между приложениями на Vitest 4 и 5 без смены версии библиотеки.
 
-**Уже учтено.** Два изменения в Vitest 5 касаются библиотек спаев, и библиотека учитывает оба:
+Библиотека уже учитывает два изменения в Vitest 5:
 
 - **`vi.clearAllMocks()` и `clearMocks: true`** очищают спаи этой библиотеки так же, как `vi.fn()`.
 - **Типы матчеров.** В Vitest 5 интерфейс `Matchers<T>` стал `Matchers<R, T>`. Матчеры из пакета
@@ -103,14 +101,12 @@ Vitest 4, а другое на Vitest 5, стоит одна и та же вер
 Насколько быстрее работает Vitest 5, см.
 [Производительность → Vitest 5 под Angular unit-test builder](../core/performance#vitest-5-under-the-angular-unit-test-builder).
 
-**Может потребовать правок у вас.** Два других изменения Vitest 5 могут задеть ваши спеки. Они
-описаны в двух следующих разделах.
+При переходе на Vitest 5 проверьте два случая ниже: историю вызовов и общие моки.
 
 ### Единственное, что всё ещё может сломать ваши спеки {#the-one-thing-that-can-still-break-your-specs}
 
-В Vitest 5 `clearMocks` включён по умолчанию, и `vi.clearAllMocks()` выполняется перед каждым тестом.
-Это изменение самого Vitest, а не библиотеки. Оно ломает один приём: тест проверяет вызов, сделанный в
-_предыдущем_ тесте или в `beforeAll`. Теперь такой тест видит ноль вызовов.
+В Vitest 5 `clearMocks` включён по умолчанию. Vitest вызывает `vi.clearAllMocks()` перед каждым
+тестом, поэтому тест больше не видит вызовы из `beforeAll` или предыдущих тестов.
 
 Считайте такой вызов в обычной переменной, а не по истории спая:
 
@@ -134,12 +130,11 @@ Vitest 4.
 
 ### Единственная возможность, ради которой нужно поменять строчку {#the-one-feature-that-needs-a-line-changed}
 
-Это касается вас, только если вы используете `setupAutoSpy({ pruneMockRegistry: true })`.
-
-_Долгоживущий мок_ создаётся один раз в общем файле-фикстуре, и им пользуются многие спеки. Опция
-запоминает реализацию каждого такого мока. Если случайный `vi.resetAllMocks()` опустошит мок, опция
-вернёт реализацию. На Vitest 4 опция находит долгоживущие моки сама. На Vitest 5 не может: пометьте
-каждый такой мок через `keepMockRegistered`, иначе после сброса он останется пустым. Пометка работает на любой версии Vitest:
+Если вы включили `setupAutoSpy({ pruneMockRegistry: true })`, пометьте общие моки через
+`keepMockRegistered`. Это моки, которые создаются один раз в файле-фикстуре и используются в
+нескольких спеках. Опция запоминает их реализацию и возвращает её после `vi.resetAllMocks()`.
+Vitest 4 находит такие моки автоматически. На Vitest 5 без пометки мок останется пустым после
+сброса. `keepMockRegistered` работает на всех поддерживаемых версиях.
 
 ```ts
 // fixtures/logger.mock.ts: его импортируют многие спеки
@@ -151,13 +146,12 @@ export const logger = { channel: keepMockRegistered(vi.fn().mockReturnThis()), i
 
 ## Изоляция {#isolation}
 
-По умолчанию Vitest запускает каждый файл спеки в чистом окружении. Оставшийся патч свойства или спай
-в переменной уровня модуля исчезают вместе с файлом.
+По умолчанию у каждого файла с тестами своё окружение. Подмены свойств и спаи на уровне модуля
+исчезают после файла. С `isolate: false` прогон может стать быстрее, но один файл может повлиять
+на следующий.
 
-Изоляцию можно выключить ради скорости: `isolate: false` в `vitest.config.ts`. Тогда то, что оставил
-один файл, достаётся следующему. `setupAutoSpy()` по умолчанию откатывает подменённые свойства.
-Для остального включите `restoreMocks: true` и `strayTimers: true`. Сам пакет гоняет свои тесты в
-CI в обоих режимах.
+`setupAutoSpy()` откатывает подмены свойств. Для очистки моков и проверки оставшихся таймеров
+включите `restoreMocks: true` и `strayTimers: true`. CI проверяет библиотеку в обоих режимах.
 
 ```ts
 // vitest.config.ts: режим, в котором нужна осторожность
@@ -312,10 +306,10 @@ jobs:
 Cannot spy on export "load". Module namespace is not configurable in ESM.
 ```
 
-**Причина:** `vi.spyOn(api, 'load')` для `import * as api from './api'` патчит экспорты модуля. В Node
-Vitest загружает модули сам и это разрешает. В браузере модули загружаются нативно, и их экспорты
-запечатаны. Angular-проекты сталкиваются с этим, когда включают опцию `browsers` у
-`@angular/build:unit-test`.
+**Причина:** `vi.spyOn(api, 'load')` пытается заменить экспорт `load` у `import * as api from './api'`.
+В Node Vitest сам загружает модули и разрешает подмену. В browser mode модули загружает браузер,
+а их экспорты менять нельзя. Это касается и проектов Angular, где для `@angular/build:unit-test`
+включена опция `browsers`.
 
 **Что делать:** подменяйте класс, а не экспорт модуля. Ни один из этих способов не патчит экспорт
 модуля, поэтому в browser mode они работают без изменений:

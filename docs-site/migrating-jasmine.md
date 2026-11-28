@@ -1,28 +1,30 @@
 ---
 title: Migrating from jasmine-auto-spies
-description: Move a Jasmine or Karma test project that uses jasmine-auto-spies to Vitest. Swap one import so the specs run unchanged, then let the codemod rewrite them, with mapping tables for the auto-spies API and the jasmine globals.
+description: Move Jasmine tests to Vitest. Keep existing spies working with the compatibility import, then rewrite them with the codemod.
 ---
 
 # Migrating from jasmine-auto-spies
 
-This page moves a Jasmine test project (often Angular on Karma) that uses `jasmine-auto-spies` or the
-`jasmine.*` globals to Vitest and `vitest-auto-spy`. You do it in two steps. First you swap an
-import, and the specs run unchanged. Then the codemod rewrites them into plain Vitest:
+Use this guide to move tests that use `jasmine-auto-spies` or `jasmine.*` to Vitest. First, get the
+suite running with the compatibility import. Then run the codemod to switch to Vitest's spy API.
+This Vitest test still uses Jasmine's spy syntax:
 
-```diff
-- import { createSpyFromClass, provideAutoSpy, type Spy } from 'jasmine-auto-spies';
-+ import { createSpyFromClass, provideAutoSpy, type Spy } from 'vitest-auto-spy/jasmine';
+```ts
+import { expect, it } from 'vitest';
+import { jasmine } from 'vitest-auto-spy/jasmine';
+
+it('returns the saved name', () => {
+  const api = jasmine.createSpyObj('ApiService', ['load']);
+  api.load.and.returnValue('Ann');
+  expect(api.load()).toBe('Ann');
+});
 ```
 
-```bash
-npx vitest-auto-spy codemod --from jasmine --write
-```
+`vitest-auto-spy/jasmine` is the **bridge**. It keeps `.and`, `.calls`, and `.withArgs` working on
+spies created by this library.
 
-`vitest-auto-spy/jasmine` is called **the bridge** on this page. It brings back jasmine's `.and`,
-`.calls` and `.withArgs` on every spy, so `spy.load.and.returnValue(x)` keeps working.
-
-One rename is dangerous: jasmine's `spyOn` replaces the method, Vitest's `vi.spyOn` calls the real
-one. See [`spyOn` means the opposite thing](#spyon-means-the-opposite-thing-on-the-two-sides).
+Don't replace `spyOn` with `vi.spyOn` by hand: the Vitest spy calls the real method by default.
+See [how to keep the stub](#spyon-means-the-opposite-thing-on-the-two-sides).
 
 ## Step by step
 
@@ -33,36 +35,36 @@ one. See [`spyOn` means the opposite thing](#spyon-means-the-opposite-thing-on-t
    npm rm jasmine-auto-spies
    ```
 
-   Swapping Karma for Vitest in an Angular project is covered in
-   [If the suite is Angular's](#if-the-suite-is-angular-s).
+   If your Angular suite uses Karma, [switch the test runner](#if-the-suite-is-angular-s) before running the suite.
 
-2. **Point the imports at the bridge.** Change the import path and nothing else.
+2. **Switch to the bridge.** Change the import path and keep the imported names.
 
    ```diff
    - import { createSpyFromClass, provideAutoSpy, type Spy } from 'jasmine-auto-spies';
    + import { createSpyFromClass, provideAutoSpy, type Spy } from 'vitest-auto-spy/jasmine';
    ```
 
-   A file that uses `jasmine.createSpyObj`, `jasmine.clock()` or another `jasmine.*` global gets one
-   more line:
+   If a file uses `jasmine.createSpyObj`, `jasmine.clock()`, or another `jasmine.*` member, add this import:
 
    ```ts
    import { jasmine } from 'vitest-auto-spy/jasmine';
    ```
 
-   Jasmine specs use `describe`, `it` and `expect` without importing them, and the codemod writes
-   `vi` the same way. Turn on Vitest globals so all four resolve:
+   Enable Vitest globals so existing calls to `describe`, `it`, and `expect` still work without
+   imports. The codemod also writes `vi` without an import:
 
    ```ts
    // vitest.config.ts
    export default defineConfig({ test: { globals: true } });
    ```
 
-3. **Run the tests** (`npx vitest run`). Your spies behave as they did under jasmine. Whatever fails now is a real
-   difference between the runners, not a missed rename. Fix it before the next step, so that a red
-   run has only one possible cause.
+   The namespace import does not define bare globals such as `spyOn`. Use the equivalents in the
+   Jasmine globals table below for those calls.
 
-4. **Run the [codemod](/utilities/codemod).** Without `--write` it only prints a diff:
+3. **Run `npx vitest run`.** Fix failures before rewriting the specs. This gives you a passing
+   baseline on the new runner, separate from the codemod changes.
+
+4. **Run the [codemod](/utilities/codemod).** Preview the diff, apply it, then check for leftovers:
 
    ```bash
    npx vitest-auto-spy codemod --from jasmine            # dry run: prints a diff, writes nothing
@@ -70,24 +72,24 @@ one. See [`spyOn` means the opposite thing](#spyon-means-the-opposite-thing-on-t
    npx vitest-auto-spy codemod --from jasmine --verify   # exit 1 if jasmine code is left
    ```
 
-   It removes `.and`, turns jasmine strategies into `mock*` calls, and rewrites the `jasmine.*`
-   globals. It names every spot it cannot rewrite with `file:line`.
+   The codemod removes `.and` where it can, turns Jasmine strategies into `mock*` calls, and
+   rewrites `jasmine.*` calls. It reports anything it cannot rewrite as `file:line`.
 
-   Always pass `--from jasmine` (or its long form, `--from jasmine-auto-spies`). The default,
-   `--from auto`, skips a file whose only jasmine code is a bare `spyOn(`, and a skipped `spyOn`
-   turns into a [silent call-through](#spyon-means-the-opposite-thing-on-the-two-sides).
+   Pass `--from jasmine` or `--from jasmine-auto-spies`. The default, `--from auto`, skips files
+   where a bare `spyOn(` is the only Jasmine code. A manual rename can then
+   [call the real method without warning](#spyon-means-the-opposite-thing-on-the-two-sides).
 
-5. **Run the tests again**, then fix the rows marked **✎** in [the auto-spies table](#the-auto-spies-api):
-   no transform touches them.
+5. **Run the tests again.** Fix the rows marked **✎** in the [auto-spies table](#the-auto-spies-api)
+   by hand; the codemod leaves them alone.
 
-6. **Remove `vitest-auto-spy/jasmine` imports** that are left. Keep only
-   `import { createSpyObj } from 'vitest-auto-spy/jasmine'` in files that still call it. See [What the codemod leaves on the jasmine entry](#what-the-codemod-leaves-on-the-jasmine-entry).
+6. **Remove bridge imports you no longer need.** Keep `createSpyObj` in files that still use it.
+   See [what stays on the bridge](#what-the-codemod-leaves-on-the-jasmine-entry).
 
 7. **Optional:** turn on the [lint rules for the migration](#lint-rules-while-you-are-on-the-bridge).
 
 ## Example: one spec, before and after
 
-A `UserService` spec with `jasmine.createSpyObj`, `and.returnValue` and `jasmine.clock()`:
+This Jasmine spec checks that `UserService` polls once a minute:
 
 ```ts
 // user.service.spec.ts, under Jasmine
@@ -110,13 +112,13 @@ describe('UserService', () => {
 });
 ```
 
-**On the bridge** (step 2), the file gains one import and runs under Vitest as it is:
+**On the bridge** (step 2), add this import to keep the polling test unchanged:
 
 ```ts
 import { jasmine } from 'vitest-auto-spy/jasmine';
 ```
 
-**After the codemod** (step 4), this is the diff it prints for the original Jasmine file:
+**After the codemod** (step 4), the original Jasmine spec gets this diff:
 
 ```diff
 +import { createSpyObj } from 'vitest-auto-spy/jasmine';
@@ -141,13 +143,13 @@ import { jasmine } from 'vitest-auto-spy/jasmine';
 +    vi.advanceTimersByTime(60_000);
 ```
 
-Two things to check in the result:
+Check the clock and the spy after the rewrite:
 
-- `vi.useFakeTimers()` fakes `Date` as well, while `jasmine.clock().install()` did not. A spec that
-  called `mockDate()` and checks `Date.now()` against the fake clock keeps passing. A spec that needs the real time must be
-  changed. See [`clock().install()` leaves `Date` real](#clock-install-leaves-date-real).
-- `createSpyObj` still comes from the bridge. Where the class exists, a typed spy is better, and
-  it checks every method name:
+- `vi.useFakeTimers()` also fakes `Date`; `jasmine.clock().install()` does not. Tests that set
+  `mockDate()` and check the fake `Date.now()` keep working. Update tests that need real time.
+  See [how the fake clock handles `Date`](#clock-install-leaves-date-real).
+- `createSpyObj` still comes from the bridge. If you have the class, use a typed spy to check
+  method names at compile time:
 
   ```ts
   import { createSpyFromClass } from 'vitest-auto-spy';
@@ -158,9 +160,9 @@ Two things to check in the result:
 
 ## `spyOn` means the opposite thing on the two sides
 
-::: danger This rename is silent, green and wrong
-jasmine's `spyOn(obj, 'm')` installs a **stub**: the real method does not run. Vitest's
-`vi.spyOn(obj, 'm')` **calls through**: the real method runs.
+::: danger A passing test can still run the real method
+Jasmine's `spyOn(obj, 'm')` replaces the method with a stub. Vitest's `vi.spyOn(obj, 'm')` calls the
+real method unless you give it a different implementation.
 
 ```diff
 - spyOn(analytics, 'track');            // jasmine: track() never runs
@@ -168,26 +170,22 @@ jasmine's `spyOn(obj, 'm')` installs a **stub**: the real method does not run. V
 + vi.spyOn(analytics, 'track').mockImplementation(() => undefined); // what the jasmine line meant
 ```
 
-Nothing catches the middle line. It compiles, and every assertion about the spy still passes. But
-the real `track()` now runs in every spec that meant to stop it. The failure shows up later, in
-another file, when the real method writes to a store, sends a request or throws.
+The middle line compiles and the spy assertions can still pass. Check for side effects: `track()`
+can write to a store, send a request, or throw, and a failure may appear in another spec.
 
-`spyOnProperty(obj, 'p', 'get')` has the same inverted default. It has one more difference: in
-jasmine the third argument is optional and defaults to the getter. `vi.spyOn(obj, 'p')` with two
-arguments spies on a method and throws "can only spy on a function". So a bare
-`spyOnProperty(obj, 'p')` needs `'get'` written out.
+The same default applies to property spies. Jasmine defaults to the getter when you omit the third
+argument to `spyOnProperty`. Use an explicit `'get'` in Vitest: the two-argument `vi.spyOn(obj, 'p')`
+expects a method and can throw `can only spy on a function`.
 
-The codemod's `jasmine-spy-on` transform does both for you. It adds
-`.mockImplementation(() => undefined)`, and `'get'` where the third argument is missing. It skips
-the stub where the line already sets an implementation (`.and.…`, or a `mock…` from a half-done
-hand migration). This is why the migration needs a codemod and not a `sed` line.
+The `jasmine-spy-on` transform adds `.mockImplementation(() => undefined)` and fills in a missing
+`'get'`. It skips the stub if the line already sets behavior with `.and.…` or a `mock…` call.
 :::
 
 ### `mockReset()` brings the call-through back
 
-jasmine has no `mockReset`. `spy.calls.reset()` forgets the calls and keeps the stub, so the table
-below maps it to `mockClear()`. The Jest 29 docs say `mockReset()` leaves an implementation that
-returns `undefined`. On Vitest 3 and later it does something else:
+Use `mockClear()` to replace Jasmine's `spy.calls.reset()`: it clears call history and keeps the
+stub. Jasmine has no `mockReset()`. Vitest 3 and later reset implementations differently from
+what the Jest 29 docs describe:
 
 | Before `mockReset()`                                | After it, on Vitest                         | After it, per the Jest 29 docs |
 | --------------------------------------------------- | ------------------------------------------- | ------------------------------ |
@@ -195,32 +193,30 @@ returns `undefined`. On Vitest 3 and later it does something else:
 | `vi.fn().mockReturnValue('x')`                      | `undefined`                                 | `undefined`                    |
 | `vi.spyOn(api, 'load').mockImplementation(() => …)` | **the real `load`**, still spied            | `undefined`                    |
 
-The last row is the `spyOn` trap again. The codemod turned `spyOn(api, 'load')` into
-`vi.spyOn(api, 'load').mockImplementation(() => undefined)`. A `mockReset()` in `afterEach` removes
-that stub, and the real method runs in every later test. To forget calls, use `mockClear()`. If the
-stub must survive, set `mockImplementation(() => undefined)` again.
+If you call `mockReset()` in `afterEach`, it removes the stub the codemod added to `vi.spyOn`.
+Later tests call the real method. Use `mockClear()` to forget calls, or reapply
+`.mockImplementation(() => undefined)` after the reset.
 
-Spies from this library have two layers of configuration, and `mockReset()` clears only one. On `createSpyFromClass(Api)`, `spy.load.mockReset()`
-drops `mockReturnValue` and `mockImplementation`, and the method answers `undefined` again. A
-`calledWith(…)`, `resolveWith(…)` or `nextWith(…)` setup survives it. `resetAutoSpy(spy)` resets
-both halves. `clearAutoSpy(spy)` is `calls.reset()` for the whole object. See
-[Control helpers](/core/control-helpers#resetting-spies-—-clearautospy-resetautospy).
+On a spy from `createSpyFromClass(Api)`, `spy.load.mockReset()` removes `mockReturnValue` and
+`mockImplementation`. The method returns `undefined` unless it still has a `calledWith(…)`,
+`resolveWith(…)`, or `nextWith(…)` setup. `resetAutoSpy(spy)` clears both kinds of setup.
+`clearAutoSpy(spy)` clears just the call history for the whole object. See
+[control helpers](/core/control-helpers#resetting-spies-—-clearautospy-resetautospy).
 
 ## The auto-spies API
 
-`jasmine-auto-spies` and [`jest-auto-spies`](/migrating) are built on the same core. They share
-every configuration key (`methodsToSpyOn`, `observablePropsToSpyOn`, `gettersToSpyOn`,
-`settersToSpyOn`) and every helper (`calledWith`, `resolveWith`, `nextWith`, `nextWithValues`,
-`accessorSpies`). The difference is where the async helpers live:
+`jasmine-auto-spies` and [`jest-auto-spies`](/migrating) share a core. They use the same options
+(`methodsToSpyOn`, `observablePropsToSpyOn`, `gettersToSpyOn`, `settersToSpyOn`) and helpers
+(`calledWith`, `resolveWith`, `nextWith`, `nextWithValues`, `accessorSpies`). Drop `.and` when
+moving async helpers to the native API:
 
 ```ts
 spy.load.and.nextWith(user); // jasmine-auto-spies
 spy.load.nextWith(user); // jest-auto-spies and vitest-auto-spy
 ```
 
-How to read the table: the middle column is the bridge, and "identical" means the line behaves as
-before. The right column is the end state after the codemod. **✎** marks rows
-that no transform touches: search for them by hand.
+The middle column shows what works on the bridge. The last column shows what to use after the
+codemod. Fix rows marked **✎** by hand.
 
 | `jasmine-auto-spies`                                               | on `vitest-auto-spy/jasmine`                                         | the end state                                               |
 | ------------------------------------------------------------------ | -------------------------------------------------------------------- | ----------------------------------------------------------- |
@@ -257,22 +253,21 @@ that no transform touches: search for them by hand.
 | `spy.m.calls.saveArgumentsByValue()`                               | **does nothing**; see below                                          | ✎ take the copy in a `mockImplementation`                   |
 | `spy.accessorSpies.getters.x.and.returnValue(v)`                   | identical                                                            | `spy.accessorSpies.getters.x.mockReturnValue(v)`            |
 
-The `.calls` rows are the easiest to miss. The bridge adds `.calls` at run time, so a spec that
-still reads `spy.m.calls.count()` after the codemod compiles and passes. The lint rule
-[`prefer-native-spy-api`](/utilities/eslint-plugin) reports each one.
+Tests that use `.calls` can still compile and pass on the bridge after the codemod. Use
+[`prefer-native-spy-api`](/utilities/eslint-plugin) to find those calls.
 
-`.and` offers the helpers that fit the method's **return type**. A method
-that returns a `Promise` gets `resolveWith` / `rejectWith`. A method that returns an `Observable`
-gets `nextWith` and the rest, once the setup file has `import 'vitest-auto-spy/rxjs'`.
+The helpers on `.and` depend on the method's return type. Promise methods get `resolveWith` and
+`rejectWith`. Observable methods get `nextWith` and related helpers after you add
+`import 'vitest-auto-spy/rxjs'` to your setup file.
 
 The `@hirez_io/observer-spy` table is in [its own section](#hirez-io-observer-spy-comes-along-too).
 
 ### Three `withArgs` strategies have no argument-scoped form
 
-`.withArgs(…)` limits a setup to one list of arguments. `stub()`, `throwError(e)` and `resolveTo(v)`
-set an answer, so they can be limited that way. `callFake(fn)`, `callThrough()` and
-`returnValues(a, b)` install an _implementation_, and an implementation answers every call. So on a
-`withArgs` chain these three throw, and the error says what to write instead:
+Use `.withArgs(…)` to set a response for one argument list. `stub()`, `throwError(e)`, and
+`resolveTo(v)` work there. `callFake(fn)`, `callThrough()`, and `returnValues(a, b)` set an
+implementation for the whole spy, so they throw on a `withArgs` chain. The error suggests a
+replacement:
 
 ```text
 [vitest-auto-spy] load.withArgs(…).and.callFake() is not supported: it installs an implementation,
@@ -283,28 +278,27 @@ anyway.
 Docs: https://asdalexey.github.io/vitest-auto-spy/migrating-jasmine#three-withargs-strategies-have-no-argument-scoped-form
 ```
 
-`withArgs` exists only on this library's spies, on the bridge and after it. A `vi.spyOn(obj, 'm')`
-has no `calledWith`, so rewrite `spyOn(obj, 'm').withArgs(1)` by hand. Either branch on the
-arguments inside one `mockImplementation`, or build the spy with `createSpyFromClass` /
-`createAutoMock`, whose methods have `calledWith`.
+This library's spies support `withArgs` on the bridge and `calledWith` after migration.
+`vi.spyOn(obj, 'm')` has no `calledWith`, so rewrite `spyOn(obj, 'm').withArgs(1)` by hand.
+Branch on the arguments inside `mockImplementation`, or use `createSpyFromClass` or
+`createAutoMock` to get a spy with `calledWith`.
 
 ## jasmine's own globals
 
-Specs use `jasmine.*`, `spyOn` and friends without importing them. Under Vitest, each one fails with
-`ReferenceError: jasmine is not defined`. One import brings the whole namespace back, so the spec
-runs before you rewrite anything:
+If `jasmine.*` fails with `ReferenceError: jasmine is not defined`, import the namespace in that
+spec. For bare calls such as `spyOn`, see the table below.
 
 ```ts
 import { jasmine } from 'vitest-auto-spy/jasmine';
 ```
 
-Nothing is added to `globalThis`: you import `jasmine` explicitly in each file, and the codemod
-removes that line at the end.
+The bridge adds nothing to `globalThis`. Import `jasmine` in each file that uses it. The codemod
+removes that import when the file no longer needs it.
 
 | jasmine                                                           | under Vitest                                                                   | notes                                                                                                                     |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `spyOn(o, 'm')`                                                   | `vi.spyOn(o, 'm').mockImplementation(() => undefined)`                         | ⚠️ [the default is inverted](#spyon-means-the-opposite-thing-on-the-two-sides)                                            |
-| `spyOnProperty(o, 'p', 'get')`                                    | same, with the accessor kind                                                   | same inverted default                                                                                                     |
+| `spyOn(o, 'm')`                                                   | `vi.spyOn(o, 'm').mockImplementation(() => undefined)`                         | ⚠️ [Vitest calls the real method by default](#spyon-means-the-opposite-thing-on-the-two-sides)                            |
+| `spyOnProperty(o, 'p', 'get')`                                    | same stub, with the accessor kind as the third argument                        | Vitest calls the original accessor by default                                                                             |
 | `jasmine.createSpy('load')`                                       | `vi.fn()`                                                                      | the name goes; Vitest reports the variable                                                                                |
 | `jasmine.createSpy('load', original)`                             | `vi.fn(original)`                                                              | the original function is kept                                                                                             |
 | `jasmine.createSpyObj(…)`                                         | `createSpyObj` from `vitest-auto-spy/jasmine`                                  | all of upstream's forms; prefer a class or a type where there is one                                                      |
@@ -319,31 +313,30 @@ removes that line at the end.
 | `jasmine.clock().withMock(fn)`                                    | on the namespace; **no `vi` twin**                                             | the codemod reports it and leaves it                                                                                      |
 | `jasmine.addMatchers(m)`                                          | `expect.extend(m)`                                                             | on the bridge, jasmine's own factory shape runs directly; [see below](#addmatchers-takes-jasmine-s-factories-as-they-are) |
 | `jasmine.addCustomEqualityTester(t)`                              | `expect.addEqualityTesters([t])`                                               | one tester, wrapped in the array Vitest takes                                                                             |
-| `jasmine.DEFAULT_TIMEOUT_INTERVAL = n`                            | **a config setting, not a statement**                                          | `vi.setConfig({ testTimeout: n, hookTimeout: n })`; [both](#the-timeout-is-two-numbers-here)                              |
+| `jasmine.DEFAULT_TIMEOUT_INTERVAL = n`                            | **set `testTimeout` and `hookTimeout`**                                        | `vi.setConfig({ testTimeout: n, hookTimeout: n })`; [both](#the-timeout-is-two-numbers-here)                              |
 | `jasmine.getEnv()`                                                | **none**                                                                       | ordering and bail are `vitest.config.ts`, not a runtime environment                                                       |
 | `jasmine.addSpyStrategy` / `setDefaultSpyStrategy`                | **none**                                                                       | write the behaviour as a `mockImplementation` where the spy is built                                                      |
 | `jasmine.Spy` (the type)                                          | `Mock` from `vitest`                                                           | a single mock function                                                                                                    |
-| `jasmine.SpyObj<T>` (the type)                                    | `Spy<T>` from this package                                                     | the whole object; one word apart, two different things                                                                    |
+| `jasmine.SpyObj<T>` (the type)                                    | `Spy<T>` from this package                                                     | the whole object, not a single function                                                                                   |
 | `fdescribe` / `fit`                                               | `describe.only` / `it.only`                                                    |                                                                                                                           |
-| `xdescribe` / `xit` / `xtest`                                     | `describe.skip` / `it.skip`                                                    | the bare rename fails as `TS2304: Cannot find name 'xit'`                                                                 |
+| `xdescribe` / `xit` / `xtest`                                     | `describe.skip` / `it.skip`                                                    | a leftover `xit` fails with `TS2304: Cannot find name 'xit'`                                                              |
 | `expect(x).toBeTrue()` / `.toBeFalse()`                           | `.toBe(true)` / `.toBe(false)`                                                 | ⚠️ **not** `toBeTruthy` / `toBeFalsy`, which Vitest's own error suggests                                                  |
 | `expect(x).toHaveSize(n)`                                         | `.toHaveLength(n)`                                                             |                                                                                                                           |
 | `expect(spy).toHaveBeenCalledOnceWith(a)`                         | `expect(spy).toHaveBeenCalledTimes(1)` + `expect(spy).toHaveBeenCalledWith(a)` | compatible with the Vitest 2.1 peer floor                                                                                 |
 | `expect(el).toHaveClass(c)`                                       | **none**                                                                       | outside browser mode; `expect(el.classList.contains(c)).toBe(true)`                                                       |
-| `expect(x).withContext(msg).toBe(y)`                              | `expect(x, msg).toBe(y)`                                                       | ⚠️ [the message vanishes without failing](#withcontext-does-not-throw-it-loses-the-message)                               |
+| `expect(x).withContext(msg).toBe(y)`                              | `expect(x, msg).toBe(y)`                                                       | ⚠️ [Vitest drops the message without warning](#withcontext-does-not-throw-it-loses-the-message)                           |
 | `fail(msg)`                                                       | `expect.fail(msg)`                                                             | there is no `vi.fail`                                                                                                     |
 | `it('x', (done) => …)`                                            | `async` + `await`                                                              | **not rewritten**: Vitest passes a `TestContext`, not a `done`                                                            |
 
-The codemod leaves `done` callbacks alone on purpose. To turn one into `async`, someone has to
-decide what the test awaits. A guess there gives a test that passes without waiting for anything.
-The [`await-emission`](/utilities/eslint-plugin) family of lint rules finds those tests.
+Rewrite `done` callbacks by hand: decide what the test must await, or it could pass before the
+assertion runs. The [`await-emission`](/utilities/eslint-plugin) lint rules help find those tests.
 
 ### The eight matchers with no `expect.*` twin
 
-`jasmine.truthy`, `falsy`, `empty`, `notEmpty`, `is`, `mapContaining`, `setContaining` and
-`arrayWithExactContents` are asymmetric matchers: they go **inside** `toEqual(…)`,
-`objectContaining({ … })` or `toHaveBeenCalledWith(…)`. Vitest has none of them, so the library
-implements them:
+Vitest has no built-in replacements for `jasmine.truthy`, `falsy`, `empty`, `notEmpty`, `is`,
+`mapContaining`, `setContaining`, or `arrayWithExactContents`. These are asymmetric matchers: pass
+them as expected values inside `toEqual(…)`, `objectContaining({ … })`, or `toHaveBeenCalledWith(…)`.
+Register the replacements once in your setup file:
 
 ```ts
 import { registerJasmineMatchers } from 'vitest-auto-spy/jasmine';
@@ -353,14 +346,13 @@ registerJasmineMatchers(); // once, in the setup file
 expect({ tags: [] }).toEqual({ tags: expect.jasmineEmpty() });
 ```
 
-On `expect` they carry a `jasmine` prefix: `expect.jasmineEmpty()`, `expect.jasmineIs()` and so on.
-The `jasmine` namespace also has them under their own names, so `jasmine.empty()` keeps working in a
-spec you have not rewritten. The prefix is needed: chai already uses `.empty` and `.is` on Vitest's
-assertion object, and `expect.extend({ empty })` throws
-`Cannot set property empty of #<Assertion> which has only a getter`.
+On `expect`, use the `jasmine` prefix: `expect.jasmineEmpty()`, `expect.jasmineIs()`, and so on.
+Chai already uses `.empty` and `.is`, so `expect.extend({ empty })` throws
+`Cannot set property empty of #<Assertion> which has only a getter`. On the `jasmine` namespace,
+keep the original names, such as `jasmine.empty()`.
 
-The first use of any `jasmine.*` member registers them. A spec that only uses `jasmine.truthy()` and
-the like needs no setup call.
+The first access to any `jasmine.*` member registers the matchers. If your spec only uses the
+matchers from the namespace, skip the setup call.
 
 `jasmine.mapContaining` matches **keys** by equality, as jasmine does, not by `Map.has`. So a matcher
 in key position works, and so does an object key that is equal but not the same reference:
@@ -372,9 +364,9 @@ expect(byName).toEqual(jasmine.mapContaining(new Map([[jasmine.any(String), 'ada
 
 ### `addMatchers` takes jasmine's factories as they are
 
-A jasmine custom matcher is a factory: jasmine hands it a `matchersUtil` and it returns
-`{ compare, negativeCompare? }`. `expect.extend` wants the comparing function itself, so a
-hand migration rewrites each one. On the bridge the rewrite is optional:
+On the bridge, keep your Jasmine matcher factories. Jasmine passes `matchersUtil` to each factory,
+which returns `{ compare, negativeCompare? }`. If you switch to Vitest's `expect.extend`, pass the
+comparison function itself instead.
 
 ```ts
 import { jasmine } from 'vitest-auto-spy/jasmine';
@@ -394,19 +386,16 @@ expect(7).toBeWithin(5, 10);
 expect(3).not.toBeWithin(5, 10);
 ```
 
-Under `.not` the bridge runs `negativeCompare` when the factory wrote one, flipping its `pass`
-to Vitest's meaning; a factory without one keeps `compare`, and only the verdict is inverted. A
-matcher already written in Vitest's shape — the comparing function itself, not a factory — is
-recognized and passed through, so one file can mix both shapes in separate `addMatchers` calls. One
-call takes one shape: an object holding a factory and a Vitest matcher side by side does not
-compile, so split it into two calls.
+For `.not`, the bridge uses `negativeCompare` if the factory supplies it and flips its `pass`
+for Vitest. Otherwise it runs `compare` and inverts the verdict. You can also pass native Vitest
+matcher functions to `jasmine.addMatchers`. Use separate calls for the two formats: mixing a
+factory and a Vitest matcher in one object fails to compile.
 
-A factory that returns no `message` gets one built the jasmine way, from the matcher's name:
-`Expected 3 not to be within 5, 10.`. `matchersUtil.equals(a, b)` delegates to the runner's own
-equality together with the testers `jasmine.addCustomEqualityTester` registered, and `pp` is the
-runner's pretty-printer.
+If a factory omits `message`, the bridge builds one from the matcher name, as Jasmine does:
+`Expected 3 not to be within 5, 10.`. `matchersUtil.equals(a, b)` uses the runner's equality check,
+including testers added with `jasmine.addCustomEqualityTester`. `pp` formats values for display.
 
-The shapes are exported, for a suite that declares its matchers in a separate file:
+If you declare matchers in a separate file, import the types:
 
 ```ts
 import type { JasmineCustomMatcherFactories, JasmineMatchersUtil } from 'vitest-auto-spy/jasmine';
@@ -422,17 +411,16 @@ jasmine's own interfaces one for one.
 
 ### `withContext` does not throw, it loses the message
 
-::: danger Quieter than `spyOn`
-Jasmine specs label assertions with `expect(x).withContext('why this matters').toBe(y)`. You would
-expect Vitest to fail loudly on an unknown method. It does not. Vitest has an internal method of the
-same name. It accepts the string, ignores it, and the assertion runs. The failure reads:
+::: danger Vitest drops the assertion message
+Vitest has an internal `withContext` method. It accepts the Jasmine message string but ignores it.
+The assertion still runs and a failure looks like this:
 
 ```
 AssertionError: expected 2 to be 3
 ```
 
-The label is gone, with no error and no warning. A find-and-replace migration that misses one keeps
-passing.
+The runner gives no warning. Pass the message as the second argument to `expect` so Vitest prints
+it before the failure:
 
 Vitest takes the label as the second argument of `expect`, and prints it before the failure:
 
@@ -445,16 +433,14 @@ Vitest takes the label as the second argument of `expect`, and prints it before 
 AssertionError: the sum of one and one must be three: expected 2 to be 3
 ```
 
-The codemod's `jasmine-matchers` transform moves it. `--verify` then checks that none is left. That
-is the only check you get, because the runner never complains. Why it is silent:
-[In depth](#why-withcontext-is-silent).
+The `jasmine-matchers` transform moves the message. Run `--verify` to find any remaining calls.
+See [why Vitest gives no warning](#why-withcontext-is-silent).
 :::
 
 ### The timeout is two numbers here
 
-In jasmine, `jasmine.DEFAULT_TIMEOUT_INTERVAL` covers both a spec and its hooks. Vitest has two
-settings with different defaults: `testTimeout` is **5000 ms**, `hookTimeout` is **10 000 ms**. Set
-both, or a slow `beforeAll` runs on a different budget from its tests:
+Jasmine's `jasmine.DEFAULT_TIMEOUT_INTERVAL` covers tests and hooks. Vitest defaults to **5000 ms**
+for `testTimeout` and **10 000 ms** for `hookTimeout`. Set both to keep one limit:
 
 ```ts
 // vitest.config.ts
@@ -464,35 +450,31 @@ test: {
 }
 ```
 
-On the bridge, assigning `jasmine.DEFAULT_TIMEOUT_INTERVAL` changes nothing. It warns once and names
-both settings, so the spec does not silently keep the old timeout.
-`vi.setConfig({ testTimeout: n, hookTimeout: n })` sets them for one file.
+On the bridge, assigning `jasmine.DEFAULT_TIMEOUT_INTERVAL` has no effect. It warns once and names
+both settings. To set them for one test file, use `vi.setConfig({ testTimeout: n, hookTimeout: n })`.
 
-A timeout in a hook is easy to misread. When a `beforeEach` overruns, Vitest blames the **test**. The
-log reads `× should create 10045ms`, but the test body never ran.
+If `beforeEach` times out, Vitest reports the test as failed. A line like `× should create 10045ms`
+can mean the hook timed out before the test body ran.
 
 ### `clock().install()` leaves `Date` real
 
-In jasmine, `clock().install()` fakes timers only. `Date` is faked separately, with `mockDate()`.
-Vitest's `useFakeTimers()` fakes `Date` too. A spec that installs the clock and then measures real
-elapsed time sees `Date.now()` frozen: a cache that never expires, or `Date.now() - start` that is
-`0`.
+Jasmine's `clock().install()` fakes timers, but leaves `Date` alone. Vitest's `useFakeTimers()`
+also fakes `Date`: an elapsed-time check like `Date.now() - start` can stay at `0`, and a cache
+that relies on real time may not expire.
 
-So on the bridge, `jasmine.clock().install()` leaves `Date` real, as jasmine does. Apart from
-`Date`, `install()` fakes the same timers as a plain `vi.useFakeTimers()`. To fake `Date`, call `mockDate()`.
-From then on, `tick(ms)` moves `Date.now()` forward too:
+On the bridge, `install()` fakes the same timers as `vi.useFakeTimers()` but leaves `Date` real.
+Call `mockDate()` to fake `Date` too. After that, `tick(ms)` also advances `Date.now()`:
 
 ```ts
 jasmine.clock().install();
 jasmine.clock().mockDate(new Date('2026-01-01')); // this fakes Date
 ```
 
-After the codemod, `install()` becomes `vi.useFakeTimers()`, which fakes `Date` as well, and
-`vi.advanceTimersByTime(ms)` moves it. If a spec relies on a real `Date`, check it after the
-rewrite.
+After the codemod, `vi.useFakeTimers()` fakes `Date` too, and `vi.advanceTimersByTime(ms)`
+advances it. Check any test that relies on real time.
 
-Call `mockDate()` right after `install()`, before anything schedules a timer. `mockDate()` re-installs
-the fake clock to take `Date` over, and that drops timers already scheduled. jasmine's own `mockDate` keeps them, so the bridge tells you:
+Call `mockDate()` right after `install()`, before any timers are scheduled. The bridge reinstalls
+the fake clock to take over `Date`. Unlike Jasmine, this drops pending timers and produces a warning:
 
 ```text
 [vitest-auto-spy] jasmine.clock().mockDate() took Date over after 2 callbacks had already been
@@ -501,18 +483,17 @@ before anything schedules a timer.
 Docs: https://asdalexey.github.io/vitest-auto-spy/migrating-jasmine#clock-install-leaves-date-real
 ```
 
-`mockDate()` without `install()` fakes `Date` only and leaves timers real. jasmine throws there
-(`Mock clock is not installed`); the bridge warns once instead. Call `install()` first, or use
-[`mockSystemTime()`](/utilities/fake-timers) when only the date should be fake.
+Without `install()`, `mockDate()` fakes `Date` and leaves timers real. Jasmine throws
+`Mock clock is not installed`; the bridge warns once instead. Call `install()` first, or use
+[`mockSystemTime()`](/utilities/fake-timers) to fake just the date.
 
 ## Two helpers that behave differently on the bridge
 
 ### `.and.callThrough()` restores this library's dispatch
 
-In jasmine, `callThrough` calls the real method that `spyOn` replaced. A spy from `createSpyFromClass`
-never wraps a real method, so in `jasmine-auto-spies` it just answered `undefined`. On the bridge it
-does something useful: it removes a strategy you set and lets `calledWith` / `withArgs` decide the
-value again.
+Jasmine's `callThrough` restores the real method behind `spyOn`. A `createSpyFromClass` spy has
+no real method to call, so `jasmine-auto-spies` returned `undefined`. On the bridge,
+`.and.callThrough()` removes the current strategy and lets `calledWith` or `withArgs` answer again:
 
 ```ts
 service.load.withArgs(7).and.returnValue('seven');
@@ -525,21 +506,19 @@ service.load.and.callThrough(); // and this is the way back
 service.load(7); // 'seven'
 ```
 
-The codemod cannot rewrite `.and.callThrough()`, so it leaves the line and reports it with
-`file:line`. On a spy from this library, delete it or replace it with the `calledWith` chain you
-meant. On a `vi.spyOn` of a real object, delete it: `vi.spyOn` already calls through.
+The codemod leaves `.and.callThrough()` and reports its `file:line`. On a library spy, remove the
+call or replace it with the `calledWith` setup you intended. On a `vi.spyOn` of a real object,
+remove it: `vi.spyOn` already calls the original method by default.
 
 ### `.calls.saveArgumentsByValue()` is a no-op
 
-jasmine can copy call arguments, so a spec can check an object as it was at call time, even if the
-code changes it afterwards. Vitest, Bun and `node:test` keep a reference to the live object. On the
-bridge, `saveArgumentsByValue()` exists so the spec still runs, but it does nothing.
+Jasmine can copy arguments so you can check an object as it was at call time. Vitest, Bun, and
+`node:test` keep the reference. The bridge accepts `saveArgumentsByValue()` but does not copy anything.
 
-That is a trap. **A spec that relied on it now checks the object after the change.** It stays green,
-and the line looks the same.
+A passing test can now check the object **after** it changed, even though the test code looks the same.
 
-When you cannot write the argument out in the test, [`captureArg`](/core/control-helpers) captures
-it with its type, and you read it in the assertion:
+If you cannot spell out the expected argument, use [`captureArg`](/core/control-helpers) to read
+it with its type in the assertion:
 
 ```ts
 import { captureArg } from 'vitest-auto-spy';
@@ -550,8 +529,8 @@ expect(service.save).toHaveBeenCalledWith(payload);
 expect(payload.value.id).toBe(7);
 ```
 
-`captureArg` holds the same live reference. When the code **changes the object after the call**, take
-a copy during the call:
+`captureArg` still holds a reference. If the code changes the object after the call, copy it
+inside `mockImplementation`:
 
 ```ts
 const seen: Payload[] = [];
@@ -561,13 +540,12 @@ service.save.mockImplementation((payload: Payload) => {
 });
 ```
 
-The lint rule [`no-save-arguments-by-value`](/utilities/eslint-plugin) reports every remaining call.
-It is the only reliable way to find them.
+Use [`no-save-arguments-by-value`](/utilities/eslint-plugin) to reliably find remaining calls.
 
 ## On Bun and `node:test`
 
-`vitest-auto-spy/jasmine` imports `vitest`, which `bun test` and `node --test` cannot load. On these
-runners, turn the `.and` / `.calls` / `.withArgs` layer on with a call instead:
+`vitest-auto-spy/jasmine` imports Vitest, which `bun test` and `node --test` cannot load. Use
+`enableJasmineCompat()` to add `.and`, `.calls`, and `.withArgs` on those runners:
 
 ```ts
 // bun-test-setup.ts
@@ -588,17 +566,15 @@ not import rxjs.
 
 ## What the codemod leaves on the jasmine entry
 
-One name: **`createSpyObj`**. This library has no other export like it. So the codemod rewrites
-`jasmine.createSpyObj(…)` to `createSpyObj(…)` and imports it from `vitest-auto-spy/jasmine`.
+Only `vitest-auto-spy/jasmine` exports `createSpyObj`. The codemod rewrites `jasmine.createSpyObj(…)`
+to `createSpyObj(…)` and imports it from there.
 
-That end state is fine, but consider replacing it. `createSpyObj` cannot check a method name against
-a type, because it has no type. Where a class exists, use
-[`createSpyFromClass(C)`](/core/create-spy-from-class). Where only an interface exists, use
-[`createAutoMock<T>()`](/core/auto-mock-by-type). Both fail at compile time on a misspelled member.
+You can keep `createSpyObj`, but it cannot check method names against a type. If you have a class,
+use [`createSpyFromClass(C)`](/core/create-spy-from-class). If you only have an interface, use
+[`createAutoMock<T>()`](/core/auto-mock-by-type). Both catch misspelled names at compile time.
 
-The third argument builds **spied properties**, as in jasmine, not plain values. Reading the property
-returns the value you passed, so a migrated spec sees no change. As in jasmine, the getter and
-setter spies are reachable only through the property descriptor:
+The third argument creates getter and setter spies, just like Jasmine. The getter starts out
+returning the value you passed. To reach both spies, get the property descriptor:
 
 ```ts
 import { type JasmineMethodSpy, createSpyObj } from 'vitest-auto-spy/jasmine';
@@ -620,9 +596,8 @@ The cast is needed because a descriptor's `get` is typed as a plain function.
 
 ## `@hirez_io/observer-spy` comes along too
 
-A `jasmine-auto-spies` project usually uses `@hirez_io/observer-spy` as well. Rewriting every stream
-assertion together with everything else is what makes such migrations stall. So
-`vitest-auto-spy/observer-spy` offers the same API:
+If your suite also uses `@hirez_io/observer-spy`, swap to `vitest-auto-spy/observer-spy` and keep
+your stream assertions while you migrate the runner. The replacement uses the same API:
 
 ```ts
 import { subscribeSpyTo } from 'vitest-auto-spy/observer-spy';
@@ -638,8 +613,8 @@ there, with the same method names: `getValues`, `getValuesLength`, `getValueAt`,
 `getLastValue`, `getError`, `receivedNext`, `receivedError`, `receivedComplete`, `onComplete`,
 `onError`, `expectErrors`, `unsubscribe`.
 
-The middle column is the bridge. The right column is where to go next: a different **kind** of
-assertion, not a rename, so the codemod does not do it.
+The middle column shows what the replacement supports. The last column shows what to use when you
+rewrite the asserts by hand. The codemod does not change them.
 
 | `@hirez_io/observer-spy`                    | on `vitest-auto-spy/observer-spy`          | the end state                                                                       |
 | ------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------- |
@@ -652,10 +627,10 @@ assertion, not a rename, so the codemod does not do it.
 | `spy.receivedError()` / `getError()`        | identical                                  | `await expectError(source$)`; it resolves _with_ the error                          |
 | `spy.receivedNext()`                        | identical                                  | `await expectNoEmission(source$)` for the negative                                  |
 | `autoUnsubscribe()`                         | **not implemented**                        | `using spy = subscribeSpyTo(source$)`                                               |
-| `queueForAutoUnsubscribe(sub)`              | **not implemented**                        | the same, or nothing: the emission helpers unsubscribe themselves                   |
+| `queueForAutoUnsubscribe(sub)`              | **not implemented**                        | use `using`, or use assertion helpers that unsubscribe on their own                 |
 | `fakeTime(fn)`                              | **not implemented**                        | `setupFakeTimers()` + `await advanceTimers(ms)`, or rxjs's `TestScheduler` directly |
 
-Four differences from `@hirez_io/observer-spy`, each fixing a defect:
+Check these four differences from `@hirez_io/observer-spy`:
 
 - **`getValues()` returns a copy.** The original returns its internal array, so sorting what you read
   corrupts the spy.
@@ -672,27 +647,27 @@ not be. A `SubscriberSpy` has `[Symbol.dispose]`, so `using spy = subscribeSpyTo
 unsubscribes at the end of the block. For `fakeTime`, use `setupFakeTimers()` with
 `await advanceTimers(ms)`, or rxjs's `TestScheduler` directly.
 
-::: tip A bridge, not the destination
-With observer-spy you subscribe, let things happen, then read the spy. If the stream never emits,
-`getValues()` returns `[]`, and a spec can pass having seen nothing.
-[`expectEmission` and friends](/core/observable-assertions) await the value instead, and fail when it
-does not come. Get the tests green on `subscribeSpyTo` first, then move the assertions over.
+::: tip Migrate stream assertions after the runner
+With observer-spy, you subscribe and later read what arrived. If the stream emits nothing,
+`getValues()` returns `[]` and the test can still pass.
+[`expectEmission` and related helpers](/core/observable-assertions) wait for a value and fail if
+none arrives. Get the tests passing with `subscribeSpyTo`, then update the assertions.
 :::
 
 ## Lint rules while you are on the bridge
 
-Four rules in [`vitest-auto-spy/eslint-plugin`](/utilities/eslint-plugin) cover the time between
-step 2 and step 6:
+Use these four [`vitest-auto-spy/eslint-plugin`](/utilities/eslint-plugin) rules while you migrate
+from step 2 to step 6:
 
 | Rule                              | Level   | Reports                                                                                                      |
 | --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
 | `jasmine-namespace-without-entry` | `error` | `.and` / `.calls` / `.withArgs` on a library spy, in a file that installs the layer nowhere                  |
 | `no-jasmine-globals`              | `error` | `jasmine.*`, bare `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(` |
-| `no-save-arguments-by-value`      | `error` | the no-op above                                                                                              |
+| `no-save-arguments-by-value`      | `error` | calls to `saveArgumentsByValue()`                                                                            |
 | `prefer-native-spy-api`           | `error` | `.and` / `.calls` where the spy's own API says the same thing; **`--fix`** where it can trace the receiver   |
 
-All four ship at `error`. Set `prefer-native-spy-api` to `'off'` until the codemod has run: before
-that, it reports every bridge call, and those are correct during the migration.
+All four rules ship at `error`. Keep `prefer-native-spy-api` set to `'off'` until you run the
+codemod: the bridge calls it flags are expected before the rewrite.
 
 - **`jasmine-namespace-without-entry`** catches a spy built before `enableJasmineCompat()` ran. That
   spec otherwise fails with `Cannot read properties of undefined (reading 'returnValue')`, which
@@ -702,7 +677,7 @@ that, it reports every bridge call, and those are correct during the migration.
   factories. Elsewhere it offers a suggestion, because `.calls` on another object may be that
   object's own method. It skips chains with `?.`: `spy?.and.returnValue(1)` would lose its guard. It
   has no rewrite for `.and.callThrough`, `.and.returnValues`, `.and.stub`, `.and.throwError`,
-  `.and.resolveTo`, `.calls.all()` or `.calls.mostRecent()`; the codemod handles those.
+  `.and.resolveTo`, `.calls.all()` or `.calls.mostRecent()`. Check the codemod report and fix what remains by hand.
 - **`no-done-callback`**, on at `error` in the recommended config, also helps. Besides `(done) =>` it
   reports `done.fail(…)`. That call throws `done.fail is not a function`, usually inside an `error`
   callback or a `.catch()` nobody awaits. The test has already finished, so the run stays **green on
@@ -710,11 +685,10 @@ that, it reports every bridge call, and those are correct during the migration.
 
 ## If the suite is Angular's
 
-Most `jasmine-auto-spies` projects are Angular projects on Karma. Angular's own
-migration switches the **runner** from Karma to Vitest (the command is below); the codemod above
-changes the spies. Run both.
+If your Angular suite uses Karma, run Angular's migration to switch the runner to Vitest. Use the
+codemod above to migrate the spies. The two commands change different things, so run both.
 
-What exists in which Angular version:
+Choose the command and settings for your Angular version:
 
 - **`@angular/build:unit-test`** is marked `[EXPERIMENTAL]` up to 22.1.x and stable from **22.2.0**.
   The label does not stop it working. It means the builder options are not covered by Angular's
@@ -729,43 +703,40 @@ What exists in which Angular version:
   ng update @angular/cli --migrate-only --name migrate-karma-to-vitest
   ```
 
-Where the schematic and this page rewrite differently, the schematic is more conservative:
+The Angular schematic rewrites some calls differently:
 
 - `fail(msg)` becomes `throw new Error(msg)` in v21, and `expect.fail(msg)` in v22.
 - `toHaveBeenCalledOnceWith(args)` becomes `toHaveBeenCalledTimes(1)` plus
   `toHaveBeenCalledWith(args)`. Use the same pair here to support the Vitest 2.1 peer floor.
 
-For `jasmine.createSpyObj` the schematic writes an object of `vi.fn()` and three TODO comments. See
-[its own page](/migrating-angular-schematic) for the real output.
+For `jasmine.createSpyObj`, the schematic creates an object of `vi.fn()` calls and adds three TODO
+comments. See [the schematic's output](/migrating-angular-schematic).
 
-If the tests also run in a real browser (the `browsers` option of `@angular/build:unit-test`), one
-more difference appears. `vi.spyOn` on a module export throws there, because the browser seals ES
-module exports. Spies on classes and prototypes, including every spy from this library, are not
-affected. See [Vitest → Browser mode](/runtimes/vitest#browser-mode-module-exports-are-read-only).
+If you set the builder's `browsers` option, `vi.spyOn` throws on module exports because ES module
+exports are read-only in the browser. Spies on classes and prototypes, including those from this
+library, still work. See [Vitest browser mode](/runtimes/vitest#browser-mode-module-exports-are-read-only).
 
 ## What else you gain
 
-Everything [the jest migration page](/migrating#what-you-gain-by-moving) lists: the type-driven
-factories, [fixtures](/utilities/fixtures), [observable assertions](/core/observable-assertions),
-[console spies](/utilities/console), Bun and `node:test`, and Angular's `TestBed`
-[under `bun test`](/runtimes/bun-angular). A jasmine project has most likely been running under
-Karma, too. [`npx vitest-auto-spy doctor`](/utilities/cli) reports the `karma.conf.*` left behind and
-the setup files only Karma used.
+The [Jest migration guide](/migrating#what-you-gain-by-moving) lists benefits that also apply here:
+type-driven factories, [fixtures](/utilities/fixtures), [observable assertions](/core/observable-assertions),
+[console spies](/utilities/console), Bun, `node:test`, and Angular's `TestBed`
+[under `bun test`](/runtimes/bun-angular). If you used Karma, run
+[`npx vitest-auto-spy doctor`](/utilities/cli) to find leftover `karma.conf.*` and Karma-only setup files.
 
 ## Did the migration lose a test?
 
-Check it as on [the jest page](/migrating#did-the-migration-lose-a-test). `compareTestRuns` compares
-the **names** of the tests in two JSON reports, not only the totals: two runs with the same totals can
-differ by a lost `describe` and a fixed flaky test. Karma does not give you that JSON report. So take
-the baseline from the first green Vitest run on the bridge: step 3 produces exactly that run.
+Follow the [Jest migration check](/migrating#did-the-migration-lose-a-test). `compareTestRuns`
+compares test names in two JSON reports, not just totals. Equal totals can hide a missing
+`describe` and a flaky test that started passing. Karma does not produce that report, so use the
+first passing Vitest run on the bridge (step 3) as your baseline.
 
 ## In depth
 
 ### Why the bridge exists
 
-Doing both jobs in one commit (deleting `.and.` across thousands of specs and swapping the runner)
-means the first red run has two possible causes and no way to tell them apart. The bridge splits
-them: step 3 checks the runner, step 4 checks the rewrite.
+If you switch runners and remove `.and` from the specs at the same time, a failing test can come
+from either change. The bridge lets you check the runner in step 3 before rewriting specs in step 4.
 
 ### Why `withContext` is silent
 
@@ -776,25 +747,23 @@ Vitest's chai layer has an `@internal` method named `withContext`, meant for a f
 withContext(context) { for (const key in context) utils.flag(this, key, context[key]); return this; }
 ```
 
-Given a string, the `for…in` walks the string's character indices, sets a few meaningless chai flags,
-and returns the assertion. So the chain continues and the message is lost. Measured on Vitest 4.1.9.
+With a string, `for…in` treats character indices as Chai flag names and returns the assertion.
+The assertion still runs, but it has no message. Verified on Vitest 4.1.9.
 
 ### Why `saveArgumentsByValue()` does nothing
 
-Copying every argument of every call would slow down every spy in every project, for a helper that
-appears in a handful of specs.
+Copying every argument would slow down all spies, even in projects that never use this helper.
 
 ### A project that never imports the entry carries none of it
 
-The core looks up the jasmine layer lazily, as it does for the rxjs layer. A project that never
-imports a jasmine entry pays one `undefined` check per spy and bundles none of the compatibility code.
+The core checks for the Jasmine layer only when it needs it, as it does for RxJS. Without a
+Jasmine import, the compatibility code stays out of the bundle. Each spy makes one `undefined` check.
 
 ### How `mapContaining` finds keys
 
-A `Map.has` lookup answers on identity, so it misses a matcher key and an equal-but-different object
-key. `jasmine.mapContaining` searches for a pair whose key and value both match, as jasmine's own
-`MapContaining` does. A direct lookup is still tried first, for the common case where the sample key
-is the same reference.
+`Map.has` compares object keys by reference. That misses matcher keys and separate objects with
+equal values. Like Jasmine's `MapContaining`, `jasmine.mapContaining` looks for a pair whose key
+and value both match. It tries a direct lookup first in case the key is the same reference.
 
 ### Where observer-spy's defects came from
 
@@ -814,11 +783,10 @@ against 11k** for `jasmine-auto-spies`. It was last published in 2022.
 
 ### What upstream cannot do
 
-`jasmine-auto-spies@8.0.1` was last published in **August 2023**. It is CJS-only with no `exports`
-map, pinned to `rxjs <8` and `jasmine-core <6`, and has a dozen open issues, the oldest from February 2021. Vitest support was asked for in 2022 (issue #66). A community `vitest-auto-spies` package was
-offered as PR #90 and is still unmerged. That is what a stable package that stopped moving looks
-like. It also means the following will not come upstream, and a migrated project gets each of them
-on day one:
+`jasmine-auto-spies@8.0.1` was published in **August 2023**. It ships only CommonJS, has no `exports`
+map, and requires `rxjs <8` and `jasmine-core <6`. It has about a dozen open issues, the oldest
+from February 2021. The 2022 request for Vitest support (issue #66) and the community
+`vitest-auto-spies` proposal (PR #90) did not make it into that package. Here's what the migration adds:
 
 - **`Spy<T>` without `@types/jasmine`.** Upstream's types start with
   `/// <reference types="jasmine" />`. Importing `Spy<T>` pulls the global jasmine namespace into
@@ -843,11 +811,10 @@ on day one:
 
 #### A defect the two libraries shared
 
-Upstream finds methods by checking only `descriptor.get`. So a **write-only** setter on the prototype
-looks like a method: a function spy replaces it and overwrites the setter spy that `settersToSpyOn`
-had just built. The setter then records nothing, and a spec that asserts on it fails with an empty
-call list and no explanation. This library had the same bug, inherited the same way. It is fixed
-here.
+The original library checks only `descriptor.get` when looking for methods. It mistakes a
+write-only prototype setter for a method and overwrites the spy made by `settersToSpyOn`. The
+setter records no calls, so assertions fail with an empty call list. This library inherited the
+same bug and now keeps the setter spy.
 
 ### Angular versions at the time of writing
 

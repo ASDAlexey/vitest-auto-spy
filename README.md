@@ -2,12 +2,11 @@
 
 # vitest-auto-spy
 
-**Typed test spies generated from a class, for Vitest, Bun, node:test and Rstest.**
+**Replace a class dependency with typed spies in one line.**
 
-Pass a class and get a spy of every method, with helpers that match each method's return type.
-No hand-written `vi.fn()` per method, and the spy never drifts from the class. It is a drop-in
-replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies) and
-[`jasmine-auto-spies`](https://www.npmjs.com/package/jasmine-auto-spies).
+Use `createSpyFromClass()` instead of writing a `vi.fn()` for each method. Set a response, run your real code, and check what it called. Works with Vitest, Bun, node:test, and Rstest.
+
+[Русский README](https://github.com/ASDAlexey/vitest-auto-spy/blob/master/README.ru.md) · [Run your first test](#quick-start) · [Use it with Angular](#angular)
 
 [![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads per day](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-day%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fday)](https://www.npmjs.com/package/vitest-auto-spy)
@@ -32,7 +31,7 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 
 <br/>
 
-<img src="./assets/one-api-three-runtimes.svg" alt="One class-based API — createSpyFromClass, or provideAutoSpy for Angular DI — across three Vitest-compatible runtimes: Vitest, Bun and node:test" width="720" />
+<img src="./docs-site/public/demos/first-test.svg" alt="Test walkthrough: create a spy from ApiService, set an async response, run UserService, and check the result and the requested URL." width="960" />
 
 </div>
 
@@ -43,10 +42,10 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 - **A spy of every method from a class**, typed, with helpers that match each return type:
   `resolveWith` for a `Promise`, `nextWith` for an `Observable`, `mockReturnValue` for the rest.
   `createDeferred<T>()` keeps an awaited collaborator pending until the test releases it.
-- **Answers per argument list**: `calledWith(1).mockReturnValue(...)`. Keep the original for other arguments with `passthrough: 'unmatched'`.
+- **Answers per argument list**: `calledWith(1).mockReturnValue(...)`. When spying on a real implementation, use `passthrough: 'unmatched'` to keep it for other arguments.
 - **A spy from a type alone**: `createAutoMock<T>()` and `mockDeep<T>()`.
 - **Typed global replacements with cleanup**: `spyOnGlobal('fetch')` replaces the function without calling the network.
-- **Angular `TestBed` in one line**: `provideAutoSpy(ApiService)`, then `injectSpy(ApiService)`. Use `findDirective(fixture, Directive)` from `/angular` to get a rendered directive.
+- **Angular `TestBed` in one line**: `provideAutoSpy(ApiService)`, then `injectSpy(ApiService)`. Use `findDirective(fixture, Directive)` from `/angular` or `/bun-angular` to get a rendered directive.
 - **Subscription lifetimes**: wrap a stream with `log.track(key, source$)` from `createSubscriptionLog<Key>()` (`/rxjs`), then check `log.events` for teardown.
 - **Short handler tests**: typed input/paste/drop events, element query stubs, and exact synchronous output assertions.
 - **Nest HTTP tests without starting the app**: `createHttpExecutionContext` supplies the context;
@@ -86,8 +85,8 @@ that re-exports this package. Prefer the singular.
 
 ## Quick start
 
-`UserService` loads a user through `ApiService`. The spec replaces `ApiService` with a spy and tests
-the real `UserService`:
+In a Vitest project, copy this example into `user.spec.ts` and run `npx vitest run user.spec.ts`.
+The test runs the real `UserService` with a spy in place of `ApiService`:
 
 ```ts
 import { expect, it } from 'vitest';
@@ -510,7 +509,8 @@ await expect(expectEmission(component.visible$)).resolves.toBe(true); // the fir
 **Common mistake:** `source$.subscribe(value => expect(value).toEqual(…))`. If the stream never
 emits, nothing is asserted and the test passes. `expectEmission` fails on a silent stream.
 
-To check teardown instead of emitted values, give the consumer a tracked stream:
+To check cancellation, pass a tracked stream to the code under test, then trigger its cleanup.
+This example unsubscribes directly to show what the log records:
 
 ```ts
 import { NEVER } from 'rxjs';
@@ -525,7 +525,11 @@ expect(log.events).toEqual([
 ]);
 ```
 
-[Details](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions)
+Each subscription gets its own ID. The log records `unsubscribe` on any teardown, including
+completion or error. Use a stream that stays open, such as `NEVER`, when testing cancellation.
+
+[Observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions) ·
+[Subscription lifetimes](https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs#check-for-a-missing-unsubscribe-subscribercount)
 
 ### How to mock: an overloaded method
 
@@ -607,6 +611,10 @@ const chart = fixture.debugElement.query(By.directive(ChartStub)).componentInsta
 expect(chart.series()).toEqual([1, 2, 3]);
 chart.pointSelected.emit(2);
 ```
+
+For a child that declares `isCompact = input(false, { alias: 'compact', transform: booleanAttribute })`,
+pass `{ signalTransforms: { isCompact: booleanAttribute } }` as the third argument. Key it by the
+class field (`isCompact`), not the template alias (`compact`).
 
 Directives and pipes work the same way. With `renderShallow`: `{ keepTemplate: true, keepChildren: [ChartStub] }`.
 [Details](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#a-stand-in-for-a-child-createcomponentstub)
@@ -1730,8 +1738,8 @@ it imports an entry that needs them.
 | Import                                | Provides                                                                                                                                                                                                                                                                      | Pulls in                                                 | Status |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | :----: |
 | `vitest-auto-spy`                     | `createSpyFromClass`, `createAutoMock`, `createFunctionSpy`, sync + promise + accessor spies, `errorHandler`, types                                                                                                                                                           | `vitest`                                                 |   ✅   |
-| `vitest-auto-spy/rxjs`                | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) and `createObservableWithValues`                                                                                                                                                                 | `rxjs`                                                   |   ✅   |
-| `vitest-auto-spy/angular`             | `provideAutoSpy`, `injectSpy` and its `Spy<T>` type, `renderShallow`, `setInputs`, `hostElement` / `queryElement`, `createWithAutoSpies`, `stable` / `flushEffects`, `settleResource`, `mockResourceProp`, the `mock*Prop` helpers, `trackRecomputations` / `trackEffectRuns` | `@angular/core`                                          |   ✅   |
+| `vitest-auto-spy/rxjs`                | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …), `createObservableWithValues` and `createSubscriptionLog`                                                                                                                                        | `rxjs`                                                   |   ✅   |
+| `vitest-auto-spy/angular`             | `provideAutoSpy`, `injectSpy`, `Spy<T>`, `renderShallow`, `setInputs`, `hostElement` / `queryElement`, `findDirective`, `createWithAutoSpies`, `stable` / `flushEffects`, `settleResource`, `mockResourceProp`, `mock*Prop` family, `trackRecomputations` / `trackEffectRuns` | `@angular/core`                                          |   ✅   |
 | `vitest-auto-spy/angular/diagnostics` | `enableAngularDiagnostics` and the `TestBed` timing helpers                                                                                                                                                                                                                   | `@angular/core`                                          |   ✅   |
 | `vitest-auto-spy/angular/doubles`     | the `window` / `document` and Material dialog doubles; registers the Vitest adapter on import                                                                                                                                                                                 | `@angular/core`                                          |   ✅   |
 | `vitest-auto-spy/angular/matchers`    | `registerDirectiveMatchers`, `registerResourceMatchers`, `registerSignalMatchers`                                                                                                                                                                                             | `@angular/core`, `@angular/platform-browser`             |   ✅   |
@@ -1739,7 +1747,7 @@ it imports an entry that needs them.
 | `vitest-auto-spy/angular-router`      | `provideActivatedRoute`, `injectActivatedRoute`, `createActivatedRoute`; `provideRouterDouble` / `injectRouterDouble` with `collectRouterEvents()`; `provideLocationDouble`                                                                                                   | `@angular/router`, `@angular/common`                     |   ✅   |
 | `vitest-auto-spy/signal-forms`        | `createForm` (Angular's `form()` built where it can inject) and `registerFormMatchers()` for `toHaveFieldErrors`                                                                                                                                                              | `@angular/forms` (>=22)                                  |   ✅   |
 | `vitest-auto-spy/bun`                 | the same core, on Bun's `bun:test` mocks                                                                                                                                                                                                                                      | `bun:test`                                               |   ✅   |
-| `vitest-auto-spy/bun-angular`         | Angular's `TestBed` under `bun test`: DOM, `templateUrl` loading and a zoneless environment from one preload                                                                                                                                                                  | `bun:test`, `@angular/core`, `@angular/platform-browser` |   ✅   |
+| `vitest-auto-spy/bun-angular`         | Angular's `TestBed` under `bun test`: DOM, `templateUrl` loading and a zoneless environment from one preload; portable helpers such as `findDirective`                                                                                                                        | `bun:test`, `@angular/core`, `@angular/platform-browser` |   ✅   |
 | `vitest-auto-spy/node`                | the same core, on `node:test`'s `mock.fn()`, plus `trackNodeMocks()` so dropped spies are freed                                                                                                                                                                               | `node:test`                                              |   ✅   |
 | `vitest-auto-spy/rstest`              | the same core, on Rstest's `rstest.fn()` / `rstest.spyOn()`                                                                                                                                                                                                                   | `@rstest/core`                                           |   ✅   |
 | `vitest-auto-spy/nestjs`              | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule`                                                                                                                                                                                                                  | — (your `@nestjs/*`)                                     |   ✅   |
@@ -1842,8 +1850,8 @@ describe('GreetingComponent', () => {
 **Common mistake:** importing `vitest-auto-spy/bun-angular` only from a spec. It must be a preload:
 the template loader only sees modules loaded after it is registered.
 
-`provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable` / `flushEffects` and
-the core work as on Vitest. The matcher registrars (`/angular/matchers`), the `TestBed` diagnostics
+`provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `findDirective`,
+`stable` / `flushEffects` and the core work as on Vitest. The matcher registrars (`/angular/matchers`), the `TestBed` diagnostics
 (`/angular/diagnostics`), the overrides, `extendWithAutoSpies`, `provideAutoSpyForToken`, the stub
 factories and the prop, platform and dialog doubles are not available on Bun.
 
@@ -2521,7 +2529,7 @@ helper. None of them import the framework itself.
 
 <div align="center">
 
-<img src="./assets/angular-provide-auto-spy.svg" alt="Angular TestBed recipe: provideAutoSpy registers a typed spy provider and injectSpy returns Spy<ApiService> — no manual { provide, useValue }, no TestBed.inject<any> cast" width="720" />
+<img src="./docs-site/public/demos/angular-di.svg" alt="Angular walkthrough: register a spy provider, retrieve it with injectSpy, and test the real component through TestBed." width="960" />
 
 </div>
 
@@ -2641,6 +2649,19 @@ expect(queryElement(fixture, 'input[name=q]', HTMLInputElement).value).toBe('');
 - For an element that must be absent, use `expect(host.querySelector('.empty-state')).toBeNull()`.
 
 Details: [Angular → Typed elements](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#typed-elements-under-a-strict-lint).
+
+Use `findDirective` when you need the directive instance, not its element:
+
+```ts
+import { findDirective } from 'vitest-auto-spy/angular';
+
+const highlight = findDirective(fixture, HighlightDirective);
+expect(highlight.color()).toBe('gold');
+```
+
+It checks the fixture host and its descendants and throws if it finds zero or multiple matches.
+On Bun, import it from `vitest-auto-spy/bun-angular`.
+[Testing a directive with a host](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#a-host-for-a-directive-under-test).
 
 #### Building a class with auto-spied dependencies
 

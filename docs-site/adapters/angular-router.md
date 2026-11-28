@@ -5,54 +5,43 @@ description: Test stand-ins for ActivatedRoute, Router and Location. Set route p
 
 # Angular router
 
-`vitest-auto-spy/angular-router` gives you ready test stand-ins for the three router services a
-component talks to: `ActivatedRoute`, [`Router`](#the-router-double) and
-[`Location`](#the-location-double). A stand-in (test double) is an object your test provides in
-place of the real service. Use this page when a component reads route params, calls
-`router.navigate()`, or checks where the app went.
+`vitest-auto-spy/angular-router` replaces `ActivatedRoute`, [`Router`](#the-router-double), and
+[`Location`](#the-location-double) in tests. Use it when your component reads route params,
+requests navigation, or checks the URL, but you do not need to test routing itself.
 
 ```ts
 import { TestBed } from '@angular/core/testing';
+import { expect, it } from 'vitest';
 
 import 'vitest-auto-spy/angular';
 
-import { injectActivatedRoute, injectRouterDouble, provideActivatedRoute, provideRouterDouble } from 'vitest-auto-spy/angular-router';
+import { injectRouterDouble, provideActivatedRoute, provideRouterDouble } from 'vitest-auto-spy/angular-router';
 
 import { ProfileComponent } from './profile.component';
 
-it('opens the orders of the user in the route', () => {
+it('opens orders for the user in the route', () => {
   TestBed.configureTestingModule({
     imports: [ProfileComponent],
     providers: [provideActivatedRoute({ params: { id: '7' } }), provideRouterDouble()],
   });
   const fixture = TestBed.createComponent(ProfileComponent);
-  const router = injectRouterDouble();
-  fixture.detectChanges(); // the component reads id '7' from paramMap
+  fixture.detectChanges();
 
   fixture.componentInstance.openOrders();
-  expect(router.navigate).toHaveBeenCalledWith(['/users', '7', 'orders']);
-
-  injectActivatedRoute().setParams({ id: '8' }); // the route moves to user 8
-  fixture.detectChanges(); // paramMap already emitted '8'; this re-renders
-
-  fixture.componentInstance.openOrders();
-  expect(router.navigate).toHaveBeenLastCalledWith(['/users', '8', 'orders']);
+  expect(injectRouterDouble().navigate).toHaveBeenCalledWith(['/users', '7', 'orders']);
 });
 ```
 
-- `provideActivatedRoute()` sets what the component reads from the route. `injectActivatedRoute()`
-  changes it later in the test.
-- `provideRouterDouble()` replaces `Router`. Its `navigate()` is a spy: it records the call and
-  resolves `true`, but it does not change the route.
-- `import 'vitest-auto-spy/angular'` lets the library build Vitest spies. Without it,
-  `provideRouterDouble()` throws `No mock adapter registered`. You can import it in the setup file
-  instead; importing it in both places is harmless.
-- Route params are strings, as in a real app.
-- A component sees `setParams()` only if it subscribes to `params` or `paramMap`. A value it copied
-  from `route.snapshot` once stays as it was.
+In this example, `ProfileComponent` is standalone. It reads the string `id` from `route.paramMap`
+and calls `Router.navigate()` in `openOrders()`. The spy records the call and resolves `true`
+without moving the route. To change `id` in the same test, use [`injectActivatedRoute()`](#injectactivatedroute-injector).
 
-Each helper is a separate provider. A component that only reads the route needs only
-`provideActivatedRoute()`; one that also navigates needs both, as above.
+Import `vitest-auto-spy/angular` in the spec or your setup file to enable Vitest spies. Without a
+runner adapter, the Router double throws `No mock adapter registered`. Importing it in both places
+is harmless.
+
+Use only the providers your component needs. A component that just reads route params needs
+`provideActivatedRoute()` alone.
 
 | Your code uses                      | Provide                   | Drive it with                                                              |
 | ----------------------------------- | ------------------------- | -------------------------------------------------------------------------- |
@@ -151,16 +140,22 @@ so with the Router stand-in the order does not matter.
 
 ## `injectActivatedRoute(injector?)`
 
-Returns a handle: an object with the route and the setters that change it. By default it reads
-from `TestBed`. If the
-route is in the component's own `providers`, pass `fixture.debugElement.injector`.
+Use this handle to change the route after creating the component. To extend the first example,
+add `injectActivatedRoute` to its imports and put this code after the first assertion:
 
 ```ts
-const route = injectActivatedRoute();
-
-route.setQueryParams({ tab: 'orders' });
-route.set({ params: { id: '9' }, fragment: null }); // two changes, one navigation
+injectActivatedRoute().setParams({ id: '8' });
+fixture.detectChanges();
+fixture.componentInstance.openOrders();
+expect(injectRouterDouble().navigate).toHaveBeenLastCalledWith(['/users', '8', 'orders']);
 ```
+
+When the params change, `setParams()` updates the snapshot and notifies `params` and `paramMap`
+subscribers right away. Call `detectChanges()` to refresh the view. If the component saved the
+old `id` from `route.snapshot`, that saved value stays the same.
+
+The handle contains the `route` and its setters. By default, it reads from `TestBed`. If the
+component provides the route itself, pass `fixture.debugElement.injector`.
 
 | Member                   | What it does                                                                             |
 | ------------------------ | ---------------------------------------------------------------------------------------- |
@@ -322,13 +317,33 @@ What the stand-in's members are:
 | `events`                    | a `BehaviorSubject` replaying the starting `NavigationEnd`; with `navigated: false`, a `Subject` that starts empty                        |
 | `navigate`, `navigateByUrl` | spies that resolve `true` and record the call; they do not change the URL                                                                 |
 | `serializeUrl`, `parseUrl`  | Angular's own `DefaultUrlSerializer`                                                                                                      |
-| `createUrlTree`             | Angular's `createUrlTreeFromSnapshot`, so `relativeTo`, `queryParamsHandling` and `preserveFragment` work                                 |
+| `createUrlTree`             | builds a URL tree using `relativeTo`, `queryParamsHandling` and `preserveFragment` without navigating                                     |
 | `routerState`               | Angular's own `RouterState`: `snapshot.url` is the URL; `root` carries its query params and fragment                                      |
 | `currentNavigation`         | the navigation in flight (Angular 20.2+ signal), `null` while the router is idle                                                          |
 | `navigated`                 | `true` after a completed navigation; updated before subscribers receive `NavigationEnd`                                                   |
 | `isActive(url, options)`    | Angular URL matching, including exact/subset paths, query parameters, matrix parameters and fragments                                     |
 | `lastSuccessfulNavigation`  | the last successful navigation and its `finalUrl`: a signal on Angular 21+, a value on Angular 20; follows `setUrl()` and `NavigationEnd` |
 | `getCurrentNavigation()`    | the same answer through the deprecated method                                                                                             |
+
+**Query-only URLs.** Call `createUrlTree()` with an empty command list (`[]`) and omit `relativeTo`
+to keep the current path. Set `queryParamsHandling: 'merge'` to keep any parameters you don't
+mention. Passing `null` or `undefined` for a parameter removes it from the new URL.
+
+```ts
+import { expect } from 'vitest';
+
+import 'vitest-auto-spy/angular';
+
+import { createRouterDouble } from 'vitest-auto-spy/angular-router';
+
+const { router } = createRouterDouble({ url: '/products?tab=old&page=2&sort=asc' });
+const tree = router.createUrlTree([], {
+  queryParamsHandling: 'merge',
+  queryParams: { tab: null, page: undefined },
+});
+
+expect(router.serializeUrl(tree)).toBe('/products?sort=asc');
+```
 
 **Active links.** The real `RouterLink` and `RouterLinkActive` directives work with this double.
 `RouterLink` also injects `ActivatedRoute`, so add `provideActivatedRoute()` next to it. `routerLink="/products"` is active on `/products` and on any URL

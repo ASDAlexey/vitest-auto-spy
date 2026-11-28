@@ -291,6 +291,8 @@ await expect(navigation).resolves.toBe(true);
 expect(events).toEqual(['deeplink']);
 ```
 
+![The test checks that events is empty while the promise is pending, resolves it, then checks the navigation result and the recorded event.](/demos/deferred.svg)
+
 `resolve` accepts a value or a `PromiseLike<T>`; `reject(reason)` rejects with that reason.
 `createDeferred()` defaults to `void`, so `resolve()` needs no argument. Settle the promise before
 awaiting the operation that depends on it, or the test will wait forever. Each call creates an

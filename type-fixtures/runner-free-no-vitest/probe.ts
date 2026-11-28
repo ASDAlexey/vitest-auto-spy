@@ -2,7 +2,7 @@ import { type Observable, Subject, of } from 'rxjs';
 import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/nestjs';
 import { type Spy, createSpyFromClass } from 'vitest-auto-spy/node';
 import { subscribeSpyTo } from 'vitest-auto-spy/observer-spy';
-import { createObservableWithValues } from 'vitest-auto-spy/rxjs';
+import { type SubscriptionEvent, type SubscriptionLog, createObservableWithValues, createSubscriptionLog } from 'vitest-auto-spy/rxjs';
 
 class Service {
   load(id: string): Observable<string> {
@@ -28,3 +28,7 @@ const observer = subscribeSpyTo(createObservableWithValues([{ value: 'a' }]));
 
 export const values: string[] = observer.getValues();
 export const calls: readonly (readonly [string])[] = injected.save.mock.calls;
+
+const log: SubscriptionLog<'load'> = createSubscriptionLog<'load'>();
+export const tracked: Observable<string> = log.track('load', created.load('7'));
+export const events: readonly SubscriptionEvent<'load'>[] = log.events;

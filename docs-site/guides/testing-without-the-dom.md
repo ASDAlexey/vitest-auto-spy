@@ -5,9 +5,8 @@ description: Write Angular component specs that never read markup - assert on si
 
 # Testing without the DOM
 
-Some teams leave markup to end-to-end (e2e) tests. A unit test then calls the component's methods
-and checks its state, its outputs and the services it called. It never reads an element. This page
-shows how such a spec looks and how the lint rule keeps every spec that way.
+Use `renderShallow` to test Angular component behavior without checking markup. Call the component
+and assert on its signals, outputs, and service calls. Leave markup checks to end-to-end tests.
 
 ```ts
 // cart-page.spec.ts

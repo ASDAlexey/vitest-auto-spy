@@ -215,7 +215,23 @@ afterEach(restoreMockedProps);
 | `flushEventLoopUntil(isDone, options?)` | Крутит обороты, пока условие не выполнится, с лимитом вместо зависания      | там же                                     |
 | `settleDynamicImport(load, turns?)`     | Дожидается `import()`, который запустил тестируемый код                     | там же                                     |
 
-Чтобы подменить один набор аргументов, передайте `{ passthrough: 'unmatched' }` в `adoptMock` или `moduleNamespace`. Если ни одно правило `calledWith` не подошло и нет ответа по умолчанию, вызов получит прежняя реализация. `mustBeCalledWith` по-прежнему бросает ошибку.
+Передайте `{ passthrough: 'unmatched' }` в `adoptMock`, `moduleNamespace` или `createSpyFromInstance`, чтобы подменить вызовы с нужными аргументами, а для остальных оставить исходную реализацию.
+
+```ts
+import { expect, vi } from 'vitest';
+import { adoptMock } from 'vitest-auto-spy';
+
+const formatOrder = adoptMock(
+  vi.fn((id: number) => `Order #${id}`),
+  { passthrough: 'unmatched' },
+);
+formatOrder.calledWith(42).mockReturnValue('Test order');
+
+expect(formatOrder(42)).toBe('Test order');
+expect(formatOrder(43)).toBe('Order #43');
+```
+
+Настроенный ответ по умолчанию важнее исходной реализации, даже если он возвращает `undefined`. Если аргументы не подходят под `mustBeCalledWith`, вызов по-прежнему бросает ошибку.
 
 ### Диагностика в ядре {#diagnostics-in-the-core}
 
@@ -242,10 +258,24 @@ afterEach(restoreMockedProps);
 Импортируйте его в каждой спеке, где он нужен, или один раз в setup-файле. Импорт включает хелперы для Observable и
 `observablePropsToSpyOn`, а в типах превращает результат `returnSubject()` в `Subject<T>` из rxjs.
 
-| Экспорт                                         | Что делает                                                                                                                   | Где подробно                                                              |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `createObservableWithValues(configs, options?)` | Собирает Observable из списка `ValueConfig`                                                                                  | [rxjs](/ru/runtimes/rxjs#standalone-observable-builder)                   |
-| `createSubscriptionLog<Key>()`                  | Оберните поток в `log.track(key, source$)`. `log.events` записывает `subscribe` и `unsubscribe` с ключом и номером подписки. | [RxJS](/ru/runtimes/rxjs#check-for-a-missing-unsubscribe-subscribercount) |
+| Экспорт                                         | Что делает                                                                                               | Где подробно                                                              |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `createObservableWithValues(configs, options?)` | Собирает Observable из списка `ValueConfig`                                                              | [rxjs](/ru/runtimes/rxjs#standalone-observable-builder)                   |
+| `createSubscriptionLog<Key = string>()`         | Записывает начало и конец подписок: можно проверить, что код отписался или переключился на другой поток. | [RxJS](/ru/runtimes/rxjs#check-for-a-missing-unsubscribe-subscribercount) |
+
+```ts
+import { Subject } from 'rxjs';
+import { expect } from 'vitest';
+import { createSubscriptionLog } from 'vitest-auto-spy/rxjs';
+
+const log = createSubscriptionLog();
+const updates$ = log.track('updates', new Subject<number>());
+const subscription = updates$.subscribe();
+subscription.unsubscribe();
+expect(log.events.map(({ type }) => type)).toEqual(['subscribe', 'unsubscribe']);
+```
+
+Передайте тестируемому коду Observable, который вернул `track`, а не исходный поток. У каждой записи в `log.events` есть поля `type`, `key` и `subscription` — общий идентификатор двух событий одной подписки. Журнал записывает `unsubscribe` и при завершении потока, и при ошибке.
 
 ## `vitest-auto-spy/angular` {#vitest-auto-spy-angular}
 
@@ -264,7 +294,7 @@ afterEach(restoreMockedProps);
 | `extendWithAutoSpies(test, spec, options?)`                                                                                             | Типизированные фикстуры `test` для набора зависимостей (Vitest 4.1+)                                              | [Фикстуры теста](/ru/adapters/angular#fixtures-instead-of-let-beforeeach-—-extendwithautospies)                         |
 | `createWithAutoSpies(Class, options?)`                                                                                                  | Создаёт класс через DI, подменяя спаями все зависимости без провайдера                                            | [Зависимости-спаи](/ru/adapters/angular#building-a-class-with-auto-spied-dependencies)                                  |
 | `renderShallow(Component, options?)`                                                                                                    | Рендерит компонент без дочерних компонентов ([поверхностный рендер](/ru/glossary))                                | [Поверхностный рендер](/ru/adapters/angular#shallow-component-rendering)                                                |
-| `findDirective(fixture, Directive)`                                                                                                     | Возвращает экземпляр директивы. Если совпадений нет или их несколько, бросает ошибку.                             | [Angular](/ru/adapters/angular#a-host-for-a-directive-under-test)                                                       |
+| `findDirective(fixture, Directive)`                                                                                                     | Возвращает экземпляр директивы из фикстуры. Без единственного совпадения бросает ошибку.                          | [Хост директивы](/ru/adapters/angular#a-host-for-a-directive-under-test)                                                |
 | `prepareShallow(Component, options?)`                                                                                                   | `renderShallow` с общими для всех тестов опциями; `.create(overrides?)` в каждом тесте                            | [Общие опции рендера](/ru/adapters/angular#the-same-options-in-every-test-—-prepareshallow)                             |
 | `createComponentStub(Class, overrides?, options?)`                                                                                      | Standalone-заглушка дочернего компонента, директивы или пайпа                                                     | [Заглушка дочернего компонента](/ru/adapters/angular#a-stand-in-for-a-child-createcomponentstub)                        |
 | `createDirectiveHost(options)`                                                                                                          | Standalone-хост для тестируемой директивы                                                                         | [Хост директивы](/ru/adapters/angular#a-host-for-a-directive-under-test)                                                |
@@ -283,6 +313,9 @@ afterEach(restoreMockedProps);
 | `trackInjections(tokens, options?)`                                                                                                     | Записывает, какие зависимости тестируемый код запросил у DI                                                       | [Отслеживание инъекций](/ru/utilities/track-injections)                                                                 |
 | `setupAngularTestEnv(options)`                                                                                                          | Запускает zone- и zoneless-спеки в одном воркере                                                                  | [Zone и zoneless вместе](/ru/adapters/angular#zone-and-zoneless-in-the-same-run)                                        |
 | `Spy`, хелперы `mock*Prop`, `restoreMockedProps`, `countMockedProps`, семейство `expect*Emission*`, `expectError`, `setEmissionTimeout` | Реэкспорт из ядра                                                                                                 | [Ядро](#vitest-auto-spy)                                                                                                |
+
+Когда Angular отрисует фикстуру, `findDirective(fixture, HighlightDirective)` вернёт экземпляр типа
+`HighlightDirective`. Передайте фикстуру компонента или директивы: хелпер ищет на хосте и во всех его потомках.
 
 ## `vitest-auto-spy/angular/matchers` {#vitest-auto-spy-angular-matchers}
 
@@ -362,9 +395,9 @@ afterEach(restoreMockedProps);
 
 Angular `TestBed` под `bun test`. Реэкспортирует `/bun` (всё ядро) и большую часть `/angular`:
 `provideAutoSpy`, `injectSpy`, `renderShallow`, `prepareShallow`, `setInputs`, `hostElement`,
-`queryElement`, `createWithAutoSpies`, `stable`, `flushEffects`, `settleResource`, `runEffect`,
-`trackRecomputations`, `trackEffectRuns`. Не входят: матчеры, диагностика и хелперы `mock*Prop`.
-См. [Bun + Angular](/ru/runtimes/bun-angular).
+`queryElement`, `findDirective`, `createWithAutoSpies`, `stable`, `flushEffects`, `settleResource`,
+`runEffect`, `trackRecomputations`, `trackEffectRuns`. Пример поиска директивы — в разделе [Bun + Angular](/ru/runtimes/bun-angular#what-you-get).
+Не входят матчеры, диагностика и хелперы `mock*Prop`.
 
 | Экспорт                                                                       | Что делает                                                                     |
 | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -499,7 +532,7 @@ Angular `TestBed` под `bun test`. Реэкспортирует `/bun` (всё
 | `fillMissing`                                  | `boolean`                | Добавляет спай для имени, которого нет на прототипе (`abstract`-члены)                                                                                                                                                                           |
 | `lazySpies`                                    | `boolean \| 'proxy'`     | Когда собираются спаи методов (`'proxy'`: один прокси-объект собирает их при первом обращении); если не задано, решает число методов                                                                                                             |
 | `strict`, `onUnstubbedCall`, `onUnstubbedRead` | см. ниже                 | [Строгий режим](/ru/core/strict-mode)                                                                                                                                                                                                            |
-| `passthrough`                                  | `boolean \| 'unmatched'` | Для `createSpyFromInstance`: `true` вызывает оригинал до настройки метода; `'unmatched'` вызывает оригинал и при несовпадении `calledWith`, если нет ответа по умолчанию.                                                                        |
+| `passthrough`                                  | `boolean \| 'unmatched'` | Для `createSpyFromInstance`. По умолчанию `false`. При `true` ненастроенные методы работают как раньше. При [`'unmatched'`](#modules-and-the-event-loop) оригинал вызывается и тогда, когда `calledWith` не подошёл и нет ответа по умолчанию.   |
 
 `createAutoMock`, `autoMocked` и `provideAutoSpyForToken` последним аргументом принимают
 `AutoMockConfiguration`: `observablePropsToSpyOn`, `returns`, `returnsUndefined`, `returnsClass`,
@@ -526,6 +559,19 @@ Angular `TestBed` под `bun test`. Реэкспортирует `/bun` (всё
 
 **Опции `createSpyClass`**: `{ statics?: boolean }` копирует статические члены класса на подмену.
 См. [статика](/ru/core/spy-typing#the-class-s-statics-—-statics-true).
+
+**Опции `createComponentStub`**: передайте `signalTransforms`, чтобы заглушка применяла к `input()` то же преобразование, что и настоящий компонент или директива. В примере у `ChartComponent` есть поле `isCompact = input(false, { alias: 'compact', transform: booleanAttribute })`.
+
+```ts
+import { booleanAttribute } from '@angular/core';
+import { createComponentStub } from 'vitest-auto-spy/angular';
+
+import { ChartComponent } from './chart.component';
+
+const ChartStub = createComponentStub(ChartComponent, {}, { signalTransforms: { isCompact: booleanAttribute } });
+```
+
+Ключи — имена полей класса (`isCompact`), а не алиасы в шаблоне (`compact`). Если для поля не указать преобразование, сигнал заглушки получит исходное значение привязки. Преобразования из декоратора `@Input` заглушка копирует сама. См. [Заглушка дочернего компонента](/ru/adapters/angular#a-stand-in-for-a-child-createcomponentstub).
 
 **Опции `captureArg`**: `{ where? }` — предикат, который решает, какие значения принимает ловушка.
 
@@ -567,9 +613,9 @@ vitest-auto-spy (их же реэкспортируют /bun, /node, /rstest, /r
   SubscribableLike, UnstubbedCall, UnstubbedCallHandler, UnstubbedRead, UnstubbedReadHandler,
   ValueConfig, ValueConfigPerCall, WithMockReturnValue
 
-/rxjs (реэкспорт из ядра)
+/rxjs (в том числе реэкспорт из ядра)
   AddObservableSpyMethods, CompleteValueConfig, ErrorValueConfig, NextValueConfig,
-  ObservablePropSpyMethods, ValueConfig, ValueConfigPerCall
+  ObservablePropSpyMethods, SubscriptionEvent, SubscriptionLog, ValueConfig, ValueConfigPerCall
 
 /angular
   AccessorImplementations, AngularTestEnvMode, AngularTestEnvOptions, AngularTokenProvider,

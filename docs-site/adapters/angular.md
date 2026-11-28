@@ -5,51 +5,50 @@ description: Test Angular components and services in TestBed with spies built fr
 
 # Angular
 
-`vitest-auto-spy/angular` replaces a service in `TestBed` with a spy object built from its class.
-Every method is a typed [spy](/glossary): it records calls and answers what you set. Use it when a
-component or service under test depends on other services and you want to control what they return.
+Use `provideAutoSpy` to replace an injected service in `TestBed` and set what its methods return.
+Use `injectSpy` to get the typed [spy](/glossary) and check its calls. This test makes
+`UserService.load()` emit a user and checks that `ProfileComponent` displays that user's name.
 
 ```ts
 import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { type Spy, injectSpy, provideAutoSpy, stable } from 'vitest-auto-spy/angular';
+import { expect, it } from 'vitest';
+import { injectSpy, provideAutoSpy, stable } from 'vitest-auto-spy/angular';
 
 import { ProfileComponent } from './profile.component';
 import { UserService } from './user.service';
 
-describe('ProfileComponent', () => {
-  let users: Spy<UserService>;
-
-  beforeEach(() => {
-    TestBed.configureTestingModule({
-      imports: [ProfileComponent],
-      providers: [provideAutoSpy(UserService, { returns: { load: of({ id: 1, name: 'Ada' }) } })],
-    });
-    users = injectSpy(UserService);
+it('shows the user name', async () => {
+  TestBed.configureTestingModule({
+    imports: [ProfileComponent],
+    providers: [provideAutoSpy(UserService, { returns: { load: of({ id: 1, name: 'Ada' }) } })],
   });
+  const users = injectSpy(UserService);
+  const fixture = TestBed.createComponent(ProfileComponent);
+  await stable(fixture);
 
-  it('shows the user name', async () => {
-    const fixture = TestBed.createComponent(ProfileComponent);
-    await stable(fixture); // runs change detection and effects, then waits
-
-    expect(fixture.nativeElement.textContent).toContain('Ada');
-    expect(users.load).toHaveBeenCalledTimes(1);
-  });
+  expect(fixture.nativeElement.textContent).toContain('Ada');
+  expect(users.load).toHaveBeenCalledTimes(1);
 });
 ```
 
-The project still needs the usual Angular + Vitest setup: the `@angular/build:unit-test` builder, or
-Analog's Vite plugin with a `TestBed` setup file. See [Installation](/core/installation). The spies
-work the same in zoneless and zone.js projects. If something breaks before your first assertion,
-see [Angular troubleshooting](/adapters/angular-troubleshooting).
+![TestBed injects the spy into ProfileComponent. The test sets the response, renders the component, and checks the name and the call.](/demos/angular-di.svg)
 
-Common next steps:
+`provideAutoSpy` builds the spy object from the service class. `stable` runs change detection and
+flushes effects, then waits for the fixture to settle.
 
-- set a method's answer or a field's value up front: [Seeding the double in the provider](#seeding-the-double-in-the-provider);
-- control a `signal()` field of a spied service: [Driving a signal](#driving-a-signal);
-- wait for the component after a change: [Zoneless waiting](#zoneless-waiting);
-- render without child components: [Shallow component rendering](#shallow-component-rendering).
+Use the `@angular/build:unit-test` builder or Analog's Vite plugin with a `TestBed` setup file. See
+[Installation](/core/installation) for both. The spies work with and without zone.js. If setup
+fails before your first assertion, see [Angular troubleshooting](/adapters/angular-troubleshooting).
+
+Choose the next step for your test:
+
+- Set a method result or a field value: [Seeding the double in the provider](#seeding-the-double-in-the-provider).
+- Change a service's `signal()` field: [Driving a signal](#driving-a-signal).
+- Wait for a component update: [Zoneless waiting](#zoneless-waiting).
+- Render without child components: [Shallow component rendering](#shallow-component-rendering).
+- Replace a service that the component provides itself: [Component provider overrides](/adapters/angular-overrides).
+- Answer a request or control navigation: [Angular HTTP](/adapters/angular-http) or [Angular router](/adapters/angular-router).
 
 ## Imports
 
@@ -214,7 +213,8 @@ that depends on it. A test that uses one fixture of ten builds one spy.
 - A `beforeEach` that **injects**. It has the same effect. A `beforeEach` that only calls
   `configureTestingModule` is fine: it runs before any fixture resolves.
 - On Vitest older than 4.1 the call throws `extendWithAutoSpies needs Vitest 4.1 or newer`. Use the
-  `let` + `beforeEach` form from the top of this page until you upgrade.
+  `provideAutoSpy` and `injectSpy` directly, as in the first test on this page. To share that
+  setup across tests, put it in a `beforeEach` and store the spy in a `let`.
 
 ## An `abstract class` DI token
 
@@ -453,22 +453,26 @@ This uses `Injector.create()`, which does not accept `EnvironmentProviders` such
 
 ## Shallow component rendering
 
-`renderShallow` renders a component without its child components. It runs the usual steps for you:
-`configureTestingModule`, `NO_ERRORS_SCHEMA`, and `overrideComponent` with empty `imports` and a
-blank template. Use it when the spec checks the component's TypeScript state, not its children.
+Use `renderShallow` to test a component's state and behavior without creating its child components.
+By default it renders a blank template and returns both the component and its fixture.
 
 ```ts
 import { provideHttpClient } from '@angular/common/http';
 import { provideAutoSpy, renderShallow } from 'vitest-auto-spy/angular';
 
+import { TaskListComponent } from './task-list.component';
+import { TaskService } from './task.service';
+
 const { fixture, component } = renderShallow(TaskListComponent, {
   providers: [provideAutoSpy(TaskService), provideHttpClient()],
-  inputs: { projectId: 42 }, // set through componentRef.setInput, before the first change detection
+  inputs: { projectId: 42 },
 });
 ```
 
-`fixture` is a real `ComponentFixture`. Lifecycle hooks, inputs, signals and DI all work; only the
-template is blank.
+`fixture` is a real `ComponentFixture`. Lifecycle hooks, inputs, signals and DI still work.
+`renderShallow` configures `TestBed` and calls `overrideComponent` to clear the standalone
+component's imports and template by default. For a non-standalone component, it uses
+`NO_ERRORS_SCHEMA`. Inputs go through `componentRef.setInput` before the first change detection.
 
 | Option               | Default | What it does                                                                                                                                         |
 | -------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -1,16 +1,15 @@
 ---
 title: Rstest
-description: Use vitest-auto-spy with Rstest, the Rspack-based test runner - a runnable example, how its mocks compare to Vitest and what is not supported yet.
+description: Create typed spies in Rstest and see what to change when moving tests from Vitest.
 ---
 
 # Rstest
 
-Use the `vitest-auto-spy/rstest` entry when your tests run on [Rstest](https://rstest.rs), the test
-runner built on the Rspack bundler. It has the same API as the Vitest entry and connects the spies to
-Rstest's mocks, so `rstest.clearAllMocks()` and Rstest's matchers see them.
+If your tests run on [Rstest](https://rstest.rs), the test runner built on Rspack, import
+`createSpyFromClass` from `vitest-auto-spy/rstest`. To try it, save this as `greeter.test.ts`.
+The test uses a spy in place of `UserService` and checks what `Greeter` does with its answers.
 
 ```ts
-// greeter.test.ts
 import { describe, expect, it } from '@rstest/core';
 import { type Spy, createSpyFromClass } from 'vitest-auto-spy/rstest';
 
@@ -24,7 +23,6 @@ class UserService {
   }
 }
 
-// the code under test: receives UserService through its constructor
 class Greeter {
   constructor(private readonly users: UserService) {}
 
@@ -42,8 +40,8 @@ describe('Greeter', () => {
     const users: Spy<UserService> = createSpyFromClass(UserService);
     const greeter = new Greeter(users);
 
-    users.getName.calledWith(7).mockReturnValue('Ada'); // answers getName(7) only
-    users.load.resolveWith('Ada'); // no calledWith: answers every call
+    users.getName.calledWith(7).mockReturnValue('Ada');
+    users.load.resolveWith('Ada');
 
     expect(greeter.greet(7)).toBe('Hello, Ada!');
     expect(await greeter.welcome(1)).toBe('Welcome, Ada');
@@ -52,15 +50,21 @@ describe('Greeter', () => {
 });
 ```
 
+Run the test:
+
 ```bash
 npx rstest run
 ```
 
-No setup file is required: importing from this entry registers everything. The example imports
-`describe` / `it` / `expect` from `@rstest/core`.
+The test passes the spy to `Greeter`'s constructor. Only `getName(7)` returns `'Ada'`; `load`
+resolves to `'Ada'` for any arguments.
 
-To use them without imports, set `globals: true`. Then `rstest`, Rstest's mock utility (like `vi` in
-Vitest), is a global too, with the short alias `rs`:
+If you're moving tests from Vitest, change the spy imports to `vitest-auto-spy/rstest` and import
+`describe`, `it`, and `expect` from `@rstest/core`. The library API is the same as on Vitest.
+The import connects the spies to Rstest's matchers and mock utilities; you don't need a setup file.
+
+To use `describe`, `it`, and `expect` without imports, set `globals: true` in `rstest.config.ts`.
+This also makes `rstest` (Rstest's equivalent of Vitest's `vi`) and its short alias `rs` global.
 
 ```ts
 // rstest.config.ts
@@ -68,65 +72,65 @@ import { defineConfig } from '@rstest/core';
 
 export default defineConfig({
   globals: true,
-  clearMocks: true, // clear every mock before each test; spies from createSpyFromClass included
+  clearMocks: true,
 });
 ```
 
 ## The native surface is Vitest-shaped
 
-Rstest's own mock methods on a spy work as on Vitest:
+You can use familiar Vitest mock methods and properties on Rstest spies:
 
-- `spy.method.mock.calls[0]` is a plain array of arguments;
-- `mockReturnValue` and its relatives exist on the spy;
-- `mockClear()` / `mockReset()` behave as on Vitest;
-- `gettersToSpyOn` / `settersToSpyOn` work. These [`createSpyFromClass`](/core/create-spy-from-class)
-  options turn a class's getters or setters into spies.
+- `spy.method.mock.calls[0]` is an array of arguments.
+- Spies have `mockReturnValue` and related methods.
+- `mockClear()` and `mockReset()` behave as on Vitest.
+- The [`createSpyFromClass`](/core/create-spy-from-class) options `gettersToSpyOn` and
+  `settersToSpyOn` let you spy on a class's getters and setters.
 
-Still prefer the library helpers (`calledWith`, `resolveWith`, `nextWith`, …): they read the same on
-every runner.
+Prefer library helpers such as `calledWith`, `resolveWith`, and `nextWith` if you want the same code
+on every runner.
 
 ## `rstest.clearAllMocks()` sweeps the library spies
 
-`rstest.clearAllMocks()`, `rstest.resetAllMocks()` and the `clearMocks: true` / `resetMocks: true`
-config keys also clear spies built by `createSpyFromClass`. There is nothing extra to enable in this
-library: turn the config keys on in `rstest.config.ts` if you want them, as above. How this works is
-in [In depth](#in-depth).
+`rstest.clearAllMocks()` and `rstest.resetAllMocks()` include spies from `createSpyFromClass`.
+To clear or reset all mocks before each test, set `clearMocks: true` or `resetMocks: true` in
+`rstest.config.ts`. You don't need any extra library setup. See [In depth](#in-depth) for how it works.
 
 ## Beside this entry
 
-These entries also work under Rstest, without Vitest installed:
+These imports also work on Rstest without installing Vitest:
 
-- `vitest-auto-spy/console`: [`useConsoleSpies()`](/utilities/console) registers its hooks on
-  Rstest's `beforeEach` / `afterEach` once this entry is imported. Its types do not name `vitest` either.
-- `vitest-auto-spy/nestjs`: the Nest helpers build Rstest mocks. A
-  [Nest test](/adapters/nestjs#any-runner) imports `createNestUnit` from `/nestjs` next to this entry.
+- `vitest-auto-spy/console`: After you import `vitest-auto-spy/rstest`,
+  [`useConsoleSpies()`](/utilities/console) uses Rstest's `beforeEach` and `afterEach` hooks.
+  The `/console` types don't reference `vitest`.
+- `vitest-auto-spy/nestjs`: The Nest helpers create Rstest mocks. In a
+  [Nest test](/adapters/nestjs#any-runner), import `createNestUnit` from `/nestjs` alongside
+  `vitest-auto-spy/rstest`.
 
-Other entries (the root `vitest-auto-spy`, `/angular`, `/setup`, `/dom-stubs`, `/react`, `/vue`, …)
-import `vitest`. Without Vitest installed, the run stops before any test with
-`Cannot find package 'vitest' imported from …/node_modules/vitest-auto-spy/dist/<entry>.js`. Import
-the factories from this entry instead. `npx vitest-auto-spy doctor` reports such an import as
-[`vitest-entry-without-vitest`](/utilities/cli#vitest-entry-without-vitest) and names the entry to
-use.
+The root `vitest-auto-spy` import and entries such as `/angular`, `/setup`, `/dom-stubs`, `/react`,
+and `/vue` import `vitest`. If Vitest isn't installed, the run stops before the first test with
+`Cannot find package 'vitest' imported from …/node_modules/vitest-auto-spy/dist/<entry>.js`.
+Import the spy factories from `vitest-auto-spy/rstest` instead. `npx vitest-auto-spy doctor` flags the
+wrong import as [`vitest-entry-without-vitest`](/utilities/cli#vitest-entry-without-vitest) and tells
+you which entry to use.
 
-The types of this entry do not reference `vitest`, so a project without Vitest type-checks cleanly,
-even with `skipLibCheck: false`. `Spy<T>` here has the same members as on Vitest,
-except Vitest's `mockThrow`; `failWith()` does the same on every runner.
+The `/rstest` types don't reference `vitest`, so type checking works without Vitest, even with
+`skipLibCheck: false`. `Spy<T>` has the same members as on Vitest except for Vitest's `mockThrow`.
+Use `failWith()` for the same behavior on every runner.
 
 ## What is not here yet
 
-- **[`/setup`](/utilities/setup)** (`setupAutoSpy()`, the fake-timer helpers, stray-rejection and
-  stray-timer tracking) works only with Vitest's hooks. Rstest has no replacement for it yet.
+**[`/setup`](/utilities/setup)** works only with Vitest's hooks. Rstest has no replacement yet for
+`setupAutoSpy()`, fake-timer helpers, or tracking stray promise rejections and timers.
 
 ::: tip Which runtime
-Rstest is still 0.x. [Vitest](/runtimes/vitest) remains the default. Use this entry when your tests
-already run on Rstest, typically in an Rspack project that reuses its bundler config for tests.
+Rstest is still on version 0.x. [Vitest](/runtimes/vitest) remains the default. Use `/rstest` if your
+tests already run on Rstest, typically to reuse your project's Rspack config for tests.
 :::
 
 ## In depth
 
-- The library builds method spies itself, not with `rstest.fn()`. To make Rstest's clear and reset
-  reach them, the entry registers one hidden Rstest mock that passes the call on.
-- Accessor spies (`gettersToSpyOn` / `settersToSpyOn`) redefine the property; `rstest.spyOn` is not
-  used.
-- `trackNodeMocks()` from the `node:test` entry has no Rstest version and needs none: Rstest drops its
-  mocks between files, like Vitest and Bun.
+- The library creates method spies without `rstest.fn()`. It registers one hidden Rstest mock to
+  forward clear and reset calls to the spies.
+- `gettersToSpyOn` and `settersToSpyOn` redefine the property instead of calling `rstest.spyOn`.
+- `trackNodeMocks()` is specific to the `node:test` entry. Rstest doesn't need it because it drops
+  mocks between test files, as Vitest and Bun do.

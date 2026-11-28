@@ -94,7 +94,7 @@ Add-ons, orthogonal to the runner:
 
 | Add-on | Import | Needed for |
 | --- | --- | --- |
-| Observable spies | `import 'vitest-auto-spy/rxjs'` | `nextWith` & friends. **Side-effect import, once**, in a setup file, a spec, or a `.d.ts` the `tsconfig` includes (§4) |
+| Observable spies and subscriptions | `vitest-auto-spy/rxjs` | Import for side effects in a setup file or spec to enable `nextWith` & friends (§4). Import `createSubscriptionLog` by name to check when subscriptions open and close (§8). |
 | observer-spy shim | `vitest-auto-spy/observer-spy` | `subscribeSpyTo` — the `@hirez_io/observer-spy` surface (§20). |
 | Console spies | `vitest-auto-spy/console` | silent typed spies over the global `console` — `useConsoleSpies()` in the `describe` (or `installConsoleSpies()` per test, `restoreConsole()` after); `consoleOutput()` is everything logged, keyed by channel, `consoleLines()` the same in call order. No `vitest` import: loads on every runner |
 | DOM stubs | `vitest-auto-spy/dom-stubs` | `stubIntersectionObserver` / `stubResizeObserver` / `stubMutationObserver` / `stubObserver`, `stubMediaElement`, `stubAbortController`, `stubWebStorage` (§12), `stubAnimationFrame`, `stubElementRect`, `intersectionEntry` / `resizeEntry` / `mutationRecord`, `createElementStub` (an `HTMLElement` for `ElementRef`), `fillMissingDomApis` (setup file). |
@@ -257,7 +257,7 @@ Rules that carry most of the value:
 
 In [`agent-docs/return-helpers.md`](./agent-docs/return-helpers.md). Read it when stubbing a return value: `calledWith`, `resolveWith`, `nextWith`, `returnSubject` and the rest, by return type.
 
-For one stubbed case on a real collaborator, see [passthrough](./agent-docs/passthrough.md).
+For `{ passthrough: 'unmatched' }`, which calls the original on a lenient `calledWith` miss without a configured default, see [passthrough](./agent-docs/passthrough.md).
 
 <!-- agents-outline: agent-docs/return-helpers.md -->
 
@@ -392,7 +392,7 @@ it('loads', () => {
 
 ## 8. Observable assertions (core entry — no rxjs needed)
 
-In [`agent-docs/observables.md`](./agent-docs/observables.md). Read it when asserting what a stream emitted, and for `createLog()`, the order between spies.
+In [`agent-docs/observables.md`](./agent-docs/observables.md). Read it to assert emissions, check subscription timing with `createSubscriptionLog` from `/rxjs`, or check call order across spies with `createLog()`.
 
 <!-- agents-outline: agent-docs/observables.md -->
 
@@ -471,6 +471,7 @@ In [`agent-docs/doubles.md`](./agent-docs/doubles.md). Read it when production c
 ## 13. Angular
 
 In [`agent-docs/angular.md`](./agent-docs/angular.md). Read it for any spec that uses `TestBed`, signals, Angular HTTP, the router or an Angular double.
+Use `findDirective(fixture, Directive)` from `/angular` or `/bun-angular` to get the one rendered instance. To keep a child stub's signal input conversion, pass `signalTransforms` to `createComponentStub` from `/angular`.
 For options without positional overrides, use `provideAutoSpyForToken({ token, options })`.
 For selected void window methods, use `createWindowSpies` from `/angular/doubles`; the window recipe is in that file.
 

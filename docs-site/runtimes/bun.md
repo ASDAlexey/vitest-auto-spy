@@ -5,8 +5,9 @@ description: Use vitest-auto-spy with Bun's bun:test - a runnable example, what 
 
 # Bun (`bun:test`)
 
-Use the `vitest-auto-spy/bun` entry when your tests run under `bun test`. It has the same API as the
-Vitest entry and builds spies on `bun:test` mocks.
+Running tests with `bun test`? Install the library with `bun add -d vitest-auto-spy`. Import from
+`vitest-auto-spy/bun` to create spies with Bun's mocks. You do not need Vitest. Save this example
+as `greeter.test.ts` in your project root.
 
 ```ts
 // greeter.test.ts
@@ -23,7 +24,6 @@ class UserService {
   }
 }
 
-// the code under test: receives UserService through its constructor
 class Greeter {
   constructor(private readonly users: UserService) {}
 
@@ -52,10 +52,10 @@ describe('Greeter', () => {
 ```
 
 ```bash
-bun test
+bun test ./greeter.test.ts
 ```
 
-Importing the entry is the only setup: no config file and no preload are needed.
+This test needs no config file or preload. Add a preload later if you need shared cleanup.
 
 - **Two kinds of methods sit on a spy, and both work.** Library helpers (`calledWith(...)`,
   `resolveWith`, `nextWith`, …) behave the same on every runner. Bun's own mock methods
@@ -70,7 +70,7 @@ For Angular under `bun test`, use [`vitest-auto-spy/bun-angular`](/runtimes/bun-
 
 ## What differs from Vitest
 
-The library smooths over most differences. The table shows what is left.
+Native mock methods and runner settings differ. Here is what to expect on Bun.
 
 | Behaviour                             | Vitest                      | Bun                                     | Who handles it                                                                                 |
 | ------------------------------------- | --------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -84,10 +84,9 @@ The library smooths over most differences. The table shows what is left.
 `mock.settledResults` is described in
 [Control helpers → Inspecting promise outcomes](/core/control-helpers#settled-results).
 
-**Common mistake:** `calledWith(expect.any(Number))` on Bun. It does not throw, it just never matches:
-`read.calledWith(expect.any(Number))` answers `undefined` for `read(7)`. Bun's matchers are native
-objects the library cannot evaluate. On Bun, configure exact arguments, or use `mockImplementation`
-when the answer depends on the argument's shape. On Vitest, the same line works as described in
+**Common mistake:** `calledWith(expect.any(Number))` on Bun. The library cannot evaluate Bun's
+native matchers, so `read(7)` returns `undefined` without throwing. Use exact arguments or
+`mockImplementation` if the answer depends on the argument. On Vitest this call works; see
 [asymmetric matchers in `calledWith`](/core/control-helpers#asymmetric-matchers-in-calledwith).
 
 ## Beside this entry
@@ -141,11 +140,11 @@ preload = ["./bun-test-setup.ts"]
 On Vitest, [`setupAutoSpy()`](/utilities/setup) does this, but `vitest-auto-spy/setup` has no Bun
 version.
 
-A spy from `createSpyFromClass(X)` is a new object and does not patch `X`, so `mock.restore()` has
-nothing to undo for it. What matters is where you create it:
+`createSpyFromClass(X)` creates a new object without changing `X`. `mock.restore()` has nothing to
+restore for that spy. To avoid sharing answers and calls between tests:
 
-- in `beforeEach`: each test gets a new spy, no cleanup needed;
-- once at the top of the file: it keeps answers and calls between tests, so reset it in `beforeEach`.
+- Create a fresh spy in `beforeEach`. You do not need to reset it.
+- If you create the spy once at the top of the file, reset it in `beforeEach`.
 
 ```ts
 import { beforeEach } from 'bun:test';

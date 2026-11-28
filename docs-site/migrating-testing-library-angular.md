@@ -1,19 +1,21 @@
 ---
 title: Migrating from @testing-library/angular
-description: Replace createMock and provideMock from @testing-library/angular/vitest-utils with vitest-auto-spy and keep render, screen and the queries - the mapping, a before and after spec, and the two defects it fixes.
+description: Replace mocks from @testing-library/angular/vitest-utils with typed spies from vitest-auto-spy. Keep render, screen, and your DOM queries.
 ---
 
 # Migrating from `@testing-library/angular`
 
-This page replaces the mock helpers of `@testing-library/angular/vitest-utils` (`createMock`,
-`provideMock` and their `WithValues` versions) with `vitest-auto-spy`. You keep `render`, `screen`
-and the queries; only the `providers` change. Move when your mocks miss getters or break on
-`toString`, or when you want typed spies. A provider changes like this:
+Replace mocks from `@testing-library/angular/vitest-utils` with typed spies from `vitest-auto-spy`.
+Use this when a mock skips getters or replaces `toString`. Keep `render`, `screen`, and your DOM
+queries. In an existing test, swap the provider and check calls with `injectSpy`:
 
 ::: code-group
 
 ```ts [Before — /vitest-utils]
+import { render } from '@testing-library/angular';
 import { provideMockWithValues } from '@testing-library/angular/vitest-utils';
+import { of } from 'rxjs';
+import { vi } from 'vitest';
 
 const load = vi.fn().mockReturnValue(of({ name: 'Ann' }));
 
@@ -21,6 +23,9 @@ await render(ProfileComponent, { providers: [provideMockWithValues(UserService, 
 ```
 
 ```ts [After — vitest-auto-spy]
+import { render } from '@testing-library/angular';
+import { of } from 'rxjs';
+import { expect } from 'vitest';
 import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
 
 await render(ProfileComponent, {
@@ -31,11 +36,10 @@ expect(injectSpy(UserService).load).toHaveBeenCalledOnce();
 
 :::
 
-Set answers in the provider, so the component sees them on its first render. `injectSpy(UserService)`
-gives you the same spy, typed, to change an answer or check calls later. The same applies to a
-hand-written `{ provide: UserService, useValue: { load: vi.fn(() => of(user)) } }`: replace it with
-`provideAutoSpy(UserService, { returns: { load: of(user) } })`. `render` and `screen` stay as they
-are.
+Set the return value in `returns` so it is ready for the first render. `injectSpy(UserService)`
+gives you the same typed spy to change the return value or check calls after rendering. If you
+wrote a provider by hand, such as `{ provide: UserService, useValue: { load: vi.fn(() => of(user)) } }`,
+replace it with `provideAutoSpy(UserService, { returns: { load: of(user) } })`.
 
 ## Install and keep
 
@@ -43,8 +47,8 @@ are.
 npm i -D vitest-auto-spy
 ```
 
-Remove nothing. `@testing-library/angular` stays for `render`; only the `/vitest-utils` import goes.
-The move is about what the mock does, not about fewer packages to install.
+Keep `@testing-library/angular` for `render`. Remove only the `/vitest-utils` imports in the tests
+you migrate.
 
 ## The translation
 
@@ -63,18 +67,16 @@ The move is about what the mock does, not about fewer packages to install.
 | — no equivalent                               | [`gettersToSpyOn` / `settersToSpyOn`](/core/create-spy-from-class) |
 | — no equivalent                               | [`strict: true`](/core/strict-mode)                                |
 
-`overrides` and `returns` are different things:
+- **`overrides`** replaces a property or method with a value, like `values` in `createMockWithValues`.
+  If the member was a spy, this replaces the spy itself.
+- **`returns`** sets what a method returns and keeps it a spy. `/vitest-utils` has no such option.
 
-- **`overrides`** sets a member to a fixed value. The member is no longer a spy. This is what
-  `createMockWithValues` does with its `values`.
-- **`returns`** keeps a method a spy and sets what it answers. `/vitest-utils` has no equivalent.
-
-You can pass both in one call; each applies only to the members it names. Name each member in only
-one of them. If a test uses `createMockWithValues` to stub what a method returns, use `returns` instead.
+You can pass both options in one call. Put each member in only one of them. If you used
+`createMockWithValues` to set a method's return value, use `returns` instead.
 
 ### A provider, before and after
 
-A full spec with a value and a method answer:
+In this test, `currentUserId` is a plain field, and `load` is a method whose calls you want to check.
 
 ```ts
 // Before
@@ -119,76 +121,75 @@ it('shows the user name', async () => {
 });
 ```
 
-`render` is unchanged. What changes:
+Keep `render` and the DOM assertion as they are. `returns` keeps `load` a typed spy without a manual
+`vi.fn()`, and `injectSpy` gives you that spy without a cast.
 
-- `load` is set through `returns`, so it stays a typed spy; no `vi.fn()` by hand.
-- `injectSpy` needs no cast.
-- A method you do not configure returns `undefined`, as `vi.fn()` did. Add
-  [`strict: true`](/core/strict-mode) to make such a call fail instead.
-- If you forget to provide a token, `injectSpy` prints a console warning instead of silently returning
-  the real service typed as a mock. [Diagnostics](/adapters/angular#injectspy-says-when-it-got-the-real-thing)
-  can turn the warning into a failure.
+- An unconfigured method returns `undefined`, just like `vi.fn()`. Add
+  [`strict: true`](/core/strict-mode) to make the call throw instead.
+- If `injectSpy` gets the real service instead of a spy, it warns in the console. This can happen
+  when you forget a provider for the token.
+  [Diagnostics](/adapters/angular#injectspy-says-when-it-got-the-real-thing) can turn the warning
+  into a test failure.
 
 ## What has no twin here, and should not
 
-- **`render`, `screen`, the queries, `fireEvent`, `rerender`, `navigate`.** This package makes spies
-  from classes. It does not render components as a user sees them, so keep these.
-  [`renderShallow`](/adapters/angular#shallow-component-rendering) is not a replacement. It answers
-  "what does this component do"; `@testing-library/angular` answers "what does the user see".
-- **`@testing-library/dom` and `@testing-library/user-event`.** Unchanged.
-- **`aliasedInput`, `configure`, `getConfig`, `componentInputs` / `on` bindings.** This is rendering
-  configuration; nothing here replaces it.
-- **The `jest-utils` entry.** There is no Jest entry point here. The package supports Vitest,
-  `bun:test` and `node:test`, and offers no public way to plug in another runner. If your tests stay
-  on Jest, keep `@testing-library/angular/jest-utils`; this move is not available to you.
+- **`render`, `screen`, queries, `fireEvent`, `rerender`, and `navigate`.** Keep them to test what the
+  user sees. [`renderShallow`](/adapters/angular#shallow-component-rendering) tests a component's
+  behavior without rendering its children. It does not replace `render` from `@testing-library/angular`.
+- **`@testing-library/dom` and `@testing-library/user-event`.** Keep both as they are.
+- **`aliasedInput`, `configure`, `getConfig`, and `componentInputs` / `on` bindings.** Keep these
+  rendering options.
+- **`jest-utils`.** If your tests stay on Jest, keep `@testing-library/angular/jest-utils`.
+  `vitest-auto-spy` supports Vitest, `bun:test`, and `node:test`, with no public API for adding a
+  runner.
 
 ## Zoneless — where it is ahead of the field
 
+You can replace your mocks in tests that run without zone.js. Spies do not use `NgZone`, and the
+Angular helpers are designed first for [apps using `provideZonelessChangeDetection`](/adapters/angular#zoneless-waiting).
+For `fakeAsync`, keep zone.js and load the patch from [`vitest-auto-spy/zone`](/utilities/zone).
+
 `@testing-library/angular` is the only third-party library on the [comparison](/comparison) page
-with zoneless support. Its `./zoneless` entry point first appeared in 19.2.0, published
-**2026-03-17** (it is absent from the `exports` map of 19.1.1).
+that supports this setup. It added `./zoneless` in 19.2.0 (**2026-03-17**). Version 19.1.1 does not
+list that entry in `exports`.
 
-`render` in that entry is a reduced version of the main one:
+`render` from `./zoneless` has fewer features than the main `render`:
 
-- It returns `{ fixture, container, debug }` plus the bound queries.
-- Its options are `queries`, `configureTestBed`, `imports`, `providers`, `bindings`,
-  `importOverrides`, `wrapper`, `wrapperProperties`, `skipDetectChanges` and `waitForStableOnRender`.
-- It drops `rerender`, `detectChanges`, `navigate`, `autoDetectChanges`, `routes`,
-  `componentProperties`, and the `fireEvent` wrapper that re-runs change detection after each event.
-  A zoneless spec written against it runs change detection itself.
-
-The two packages work together either way. The spies never touch `NgZone`, and this library's Angular helpers are written for
-[`provideZonelessChangeDetection` apps](/adapters/angular#zoneless-waiting) first.
-`fakeAsync`, which still needs zone.js, is in [`vitest-auto-spy/zone`](/utilities/zone). Zoneless is
-not a reason to keep `/vitest-utils`.
+- It returns `{ fixture, container, debug }` and queries bound to the container.
+- It accepts `queries`, `configureTestBed`, `imports`, `providers`, `bindings`, `importOverrides`,
+  `wrapper`, `wrapperProperties`, `skipDetectChanges`, and `waitForStableOnRender`.
+- It leaves out `rerender`, `detectChanges`, `navigate`, `autoDetectChanges`, `routes`,
+  `componentProperties`, and the `fireEvent` wrapper that runs change detection after each event.
+  Run change detection yourself in tests using this entry.
 
 ## What you gain
 
-- **Accessors work.** `gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors`, and an
-  `accessorSpies` object to assert on. `createMock` skips accessors, and its type claims they exist.
-- **`Object.prototype` stays off the spy.** No mocked `toString`, no mocked `hasOwnProperty`: three
-  keys instead of thirteen in [the example below](#the-two-defects-and-how-to-reproduce-them).
-- **A type that matches the object.** [`Spy<T>`](/core/spy-typing) types each member by what it is,
-  rather than `T[K] & Mock` for every member.
-- **Helpers picked from the return type.** `resolveWith` / `rejectWith` on a `Promise` method,
-  `nextWith` / `throwWith` on an `Observable` one, `calledWith(…)` to answer per argument,
-  `mustBeCalledWith` to fail on unexpected arguments.
-- **[`strict: true`](/core/strict-mode)**, so a method nobody configured throws at the call instead
-  of returning `undefined` into another assertion.
-- **Mocks from a type alone.** [`createAutoMock<T>()`](/core/auto-mock-by-type) works for an
-  interface or an injection token. A factory that reads `type.prototype` cannot do this.
-- **Lazy by default.** A method's spy is built when the test first reads it; `lazySpies: false`
-  builds them all up front.
-- **[`injectSpy` that reports a missing provider](/adapters/angular#injectspy-says-when-it-got-the-real-thing)**
-  instead of typing the real service as a mock.
-- **The same API outside Angular:** [`bun:test`](/runtimes/bun), [`node:test`](/runtimes/node),
-  NestJS, React, Vue, Svelte, and Angular's `TestBed` [under `bun test`](/runtimes/bun-angular).
-- **[Lint rules](/utilities/eslint-plugin)** that ship with the same version as the API they
-  recommend.
+- **Spies for getters and setters.** Select them with `gettersToSpyOn`, `settersToSpyOn`, or
+  `autoSpyAccessors`. Check calls through `accessorSpies`. `createMock` skips getters and setters
+  even though its type says they are there.
+- **Ordinary `toString` and `hasOwnProperty`.** The spy leaves `Object.prototype` methods alone. It
+  has three own keys instead of thirteen in [the example below](#the-two-defects-and-how-to-reproduce-them).
+- **Types that match the object.** [`Spy<T>`](/core/spy-typing) distinguishes methods from properties.
+  `Mock<T>` adds `& Mock` to the type of every member.
+- **Helpers for method results.** Use `resolveWith` and `rejectWith` for a `Promise`, or `nextWith`
+  and `throwWith` for an `Observable`. Use `calledWith(…)` to set a result for specific arguments.
+  Use `mustBeCalledWith` to fail on unexpected arguments.
+- **Errors at the call site.** With [`strict: true`](/core/strict-mode), an unconfigured method
+  throws instead of returning `undefined`.
+- **Mocks without a class.** [`createAutoMock<T>()`](/core/auto-mock-by-type) builds a mock from an
+  interface or an injection token's type. `createMock` needs a class because it reads `type.prototype`.
+- **Spies on demand.** By default, the library creates a method spy when you first access it.
+  `lazySpies: false` creates them all up front.
+- **Warnings for missing providers.**
+  [`injectSpy`](/adapters/angular#injectspy-says-when-it-got-the-real-thing) warns if it gets the real
+  service instead of a spy.
+- **The same API outside Angular.** Use it with [`bun:test`](/runtimes/bun), [`node:test`](/runtimes/node),
+  NestJS, React, Vue, and Svelte. You can also use Angular's `TestBed` [under `bun test`](/runtimes/bun-angular).
+- **[Lint rules](/utilities/eslint-plugin).** They ship with the same version as the API they recommend.
 
 ## The whole of `/vitest-utils`
 
-The entry is 52 lines long. This is its core:
+The `/vitest-utils` module has 52 lines. This is the function that builds the mock:
 
 ```js
 // @testing-library/angular 19.4.2, fesm2022/testing-library-angular-vitest-utils.mjs
@@ -214,22 +215,19 @@ function createMock(type) {
 }
 ```
 
-The other three exports build on it:
+`createSpyFromClass` replaces `createMock`: both build method mocks from the class prototype.
+The other three helpers call `createMock`:
 
-- `createMockWithValues` calls `createMock` and assigns the given values on top.
-- `provideMock` wraps it in `{ provide: type, useValue: … }`.
+- `createMockWithValues` creates the mock and replaces the named members with the values you pass.
+- `provideMock` puts the mock in a `{ provide: type, useValue: … }` provider.
 - `provideMockWithValues` does both.
 
-`@testing-library/angular/jest-utils` is the same file with `jest.fn()` in place of `vi.fn()`.
-
-`createMock` walks the class prototype and puts a mock on each method. `createSpyFromClass` does the
-same job, so the two replace each other.
+`@testing-library/angular/jest-utils` uses the same code with `jest.fn()` instead of `vi.fn()`.
 
 ## The two defects, and how to reproduce them
 
-Both are in the code above. Both were reproduced on 2026-09-04 by importing the published 19.4.2
-module and printing the result. You can run it yourself; the output below is what came back, with
-the first line wrapped to fit.
+This example reproduces both defects in the published 19.4.2 module. The output is from
+2026-09-04, with the first line wrapped for readability.
 
 ```ts
 import { createMock } from '@testing-library/angular/vitest-utils';
@@ -266,15 +264,14 @@ toString is a mock: true
 String(mock): undefined
 ```
 
-The class has three methods; the mock has thirteen own keys.
+The class has three methods, including inherited ones. The mock has thirteen own keys.
 
-**Getters and setters are skipped.** The walk adds a mock only when
-`typeof descriptor?.value === 'function'`. A getter's descriptor has `get`, not `value`, so
-`isLoggedIn` and the `token` setter are silently left out. The type still says they exist (see the
-next section). The failure shows up as `undefined` wherever the code reads `session.isLoggedIn`, away
-from the mock that lost it.
+**Getters and setters are missing.** `createMock` mocks a property only if `descriptor.value` is a
+function. Getters and setters have `get` or `set` instead of `value`. The mock has neither the
+`isLoggedIn` getter nor the `token` setter, even though its type says otherwise. Code that reads
+`session.isLoggedIn` gets `undefined` far from where you created the mock.
 
-`createSpyFromClass` spies on them when you name them, or finds them all:
+With `createSpyFromClass`, name the getters and setters you need or spy on all of them:
 
 ```ts
 import { createSpyFromClass } from 'vitest-auto-spy';
@@ -285,24 +282,19 @@ const session = createSpyFromClass(AdminSession, { gettersToSpyOn: ['isLoggedIn'
 session.accessorSpies.getters.isLoggedIn.mockReturnValue(false);
 ```
 
-The property still reads and writes normally; the spies for assertions live in `accessorSpies`. See
+Read and write the properties as usual. Use `accessorSpies` for assertions. See
 [Accessor spies](/core/create-spy-from-class#accessor-spies-—-accessorspies).
 
-**`Object.prototype` is mocked too.** The walk recurses until the prototype is `null`, and
-`Object.prototype` is the last stop before that. So `hasOwnProperty`, `toString`, `valueOf`,
-`isPrototypeOf`, `propertyIsEnumerable`, `toLocaleString` and the four `__define*` / `__lookup*`
-methods all become `vi.fn()` on the mock. They are ten of the thirteen keys above.
+**The mock also replaces `Object.prototype` methods.** `createMock` walks the prototype chain
+until it reaches `null`, so it includes `Object.prototype`. Its ten methods become `vi.fn()` spies.
+Their names appear in the output above alongside `login`, `logout`, and `promote`.
 
-This breaks real code:
+- A mocked `toString` makes the object print as `undefined` in error messages, snapshots, and logs.
+- A mocked `hasOwnProperty` returns `undefined` even for a key that exists. A check like
+  `obj.hasOwnProperty(key)` fails in your code or in a library.
+- `vi.clearAllMocks()` clears ten extra mocks per object between tests.
 
-- A mocked `toString` returns `undefined`, so the mock prints as `undefined` in every error message,
-  snapshot and log line.
-- A mocked `hasOwnProperty` returns `undefined`. Any code that checks `obj.hasOwnProperty(key)`,
-  yours or a library's, takes the false branch, even when the key is there.
-- `vi.clearAllMocks()` between tests also clears ten extra mocks per object.
-
-`createSpyFromClass` never spies on members of `Object.prototype`. The spy for the class above has
-three keys.
+`createSpyFromClass` skips `Object.prototype` methods. The spy in this example has three keys.
 
 ## `Mock<T>` says every member is callable
 
@@ -313,40 +305,37 @@ type Mock<T> = T & {
 };
 ```
 
-Every member of `T` is typed as a Vitest `Mock`, including the ones `createMock` never created:
-fields, getters, anything that is not a method. So `session.isLoggedIn.mockReturnValue(false)`
-compiles, then throws at runtime on `undefined`. The two defects add up: the getter is missing, and
-the type hides that until the test runs.
+`Mock<T>` adds Vitest's `Mock` type even to fields and getters that the mock lacks.
+So `session.isLoggedIn.mockReturnValue(false)` compiles, then throws at runtime because
+`session.isLoggedIn` is `undefined`.
 
-[`Spy<T>`](/core/spy-typing) types each member by what it is. A method becomes a spy with the helpers
-its return type allows. A field stays a field. A getter or setter is reached through `accessorSpies`.
+With [`Spy<T>`](/core/spy-typing), a field stays a field. A method gets helpers for its return type.
+Use `accessorSpies` to work with getter and setter spies.
 
 ## Eager, with no way out
 
-`createMock` builds a mock for every method up front, and it has no options to change that. On a
-wide Angular service this costs time and memory. Here spies are lazy by default: a method's spy is
-built when the test first reads it. `{ lazySpies: false }` turns that off. The numbers, for build
-time and for the memory an untouched spy keeps, are on [Performance](/core/performance).
+`createMock` always builds every method mock up front. On a service with many methods, that takes
+more time and memory even if your test uses only one. By default, `vitest-auto-spy` creates a method
+spy when you first access it. To build all of them up front, pass `{ lazySpies: false }`. See
+[Performance](/core/performance) for build times and memory use before any methods are accessed.
 
 ## Versions this was written against
 
-`@testing-library/angular` **19.4.2**, published **2026-08-07**, `latest` on 2026-09-04. The
-`./zoneless` entry arrived in **19.2.0**, published **2026-03-17**.
+`@testing-library/angular` **19.4.2** came out on **2026-08-07** and carried the `latest` tag on
+2026-09-04. The `./zoneless` entry first appeared in **19.2.0** (**2026-03-17**).
 
-How this was checked:
+How we checked:
 
-- `npm pack @testing-library/angular@19.4.2`, then reading the extracted
-  `fesm2022/testing-library-angular-vitest-utils.mjs` and its `.d.ts`;
-- `npm view … time` for publish dates;
-- the `exports` maps of 19.1.1 and 19.2.0 side by side, for the `./zoneless` entry;
-- the `createMock` output above, produced by importing the published module and printing the result,
-  not by predicting it from the code.
+- Ran `npm pack @testing-library/angular@19.4.2` and read
+  `fesm2022/testing-library-angular-vitest-utils.mjs` and its `.d.ts` from the tarball.
+- Checked publication dates with `npm view … time`.
+- Compared `exports` in 19.1.1 and 19.2.0 to see when `./zoneless` appeared.
+- Imported the published module and printed the `createMock` output shown above.
 
 ## See also
 
-- [Comparison → Angular](/comparison#angular): this library next to ng-mocks and Spectator, with
-  last-release dates.
-- [Angular adapter](/adapters/angular): `provideAutoSpy`, `injectSpy`, zoneless waiting, resources.
+- [Comparison → Angular](/comparison#angular): ng-mocks, Spectator, and their latest release dates.
+- [Angular adapter](/adapters/angular): `provideAutoSpy`, `injectSpy`, waiting in zoneless tests, and resources.
 - [`createSpyFromClass`](/core/create-spy-from-class) and
-  [`createAutoMock`](/core/auto-mock-by-type): the two factories the table above points to.
-- [Migrating from @ngneat/spectator](/migrating-spectator), if your tests use that too.
+  [`createAutoMock`](/core/auto-mock-by-type): build a spy from a class or a mock from a type.
+- [Migrating from @ngneat/spectator](/migrating-spectator), if your tests use it too.

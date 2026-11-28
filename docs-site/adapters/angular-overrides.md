@@ -5,39 +5,37 @@ description: overrideComponentProvider and overrideAutoSpy — replace a depende
 
 # Component provider overrides
 
-Use `overrideComponentProvider` when a component lists a service in its own
-`@Component({ providers: [...] })`. A `provideAutoSpy` in `TestBed.configureTestingModule` does not
-reach such a service: the component's own provider wins, and the component quietly gets the real
-one. `overrideComponentProvider` replaces it with a spy and checks, on the next render, that the
-component really received that spy.
+Use `overrideComponentProvider` if a component declares a service in its own `providers` array.
+It replaces the service with a spy and verifies that the component received it. In this test,
+`ProfileComponent` provides `UserService` and calls `load()` in `ngOnInit`.
 
 ```ts
 import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
+import { expect, it } from 'vitest';
 import { overrideComponentProvider } from 'vitest-auto-spy/angular';
 
 import { ProfileComponent } from './profile.component';
 import { UserService } from './user.service';
 
-// @Component({ providers: [UserService], … }) class ProfileComponent — ngOnInit calls userService.load()
 it('loads the user', () => {
-  TestBed.configureTestingModule({ imports: [ProfileComponent] }); // the rest of the module, as usual
-
+  TestBed.configureTestingModule({ imports: [ProfileComponent] });
   const users = overrideComponentProvider(ProfileComponent, UserService, {
-    returns: { load: of({ name: 'Ada' }) }, // load(): Observable<User>
+    returns: { load: of({ name: 'Ada' }) },
   });
 
-  const fixture = TestBed.createComponent(ProfileComponent); // the override is checked here
-  fixture.detectChanges(); // runs ngOnInit
+  const fixture = TestBed.createComponent(ProfileComponent);
+  fixture.detectChanges();
 
   expect(users.load).toHaveBeenCalledTimes(1);
 });
 ```
 
-Call it after `configureTestingModule` and **before** anything reads the injector: `TestBed.inject`,
-`injectSpy` or `createComponent`. `configureTestingModule` does not read the injector. Why a
-module-level provider loses, and the other fix (removing the component's provider), is on the
-[Angular page](/adapters/angular#overriding-a-provider-the-component-declares-for-itself).
+The component's own `@Component({ providers: [...] })` wins over a `provideAutoSpy` in the testing
+module. Call `overrideComponentProvider` after `configureTestingModule`, but before `TestBed.inject`,
+`injectSpy` or `createComponent`. Angular reads the injector at those calls, not at configuration.
+The helper verifies the override on the first fixture that renders the component. To remove the
+component's provider instead, see the [Angular page](/adapters/angular#overriding-a-provider-the-component-declares-for-itself).
 
 ## `overrideComponentProvider(component, Class, config?)`
 
@@ -82,9 +80,9 @@ ahead-of-time (AOT) test bundle, such as the one `@angular/build:unit-test` buil
 
 ## The verification
 
-On the next `TestBed.createComponent`, the helper asks the component's own injector for the service.
-If the answer is not the spy it returned, the test fails and names the component, the service and
-the cause:
+When `TestBed.createComponent` first creates a fixture containing the target component, the helper
+asks that component's own injector for the service. If it gets anything other than the returned spy,
+the test fails and names the component, the service, and the cause:
 
 ```text
 [vitest-auto-spy] overrideComponentProvider(CatalogPageComponent, NavigationBuilderService): the override did not apply — CatalogPageComponent resolved NavigationBuilderService to a NavigationBuilderService instance, not the spy this call returned.
@@ -100,11 +98,10 @@ The check is always on and needs no setup. It runs only in a test that called
 
 What it does and does not check:
 
-- **Only the first fixture.** The check runs on the first `createComponent` after the call, then
-  switches itself off for good. If that first fixture does not contain the component, the test
-  passes without a check: the helper does not wait for a later fixture.
-- **A component that did not render is skipped.** Behind an `@if`, on a lazy route, or when the fixture
-  renders some other component, there is no injector to ask yet, so the check does nothing rather than guess.
+- **One check per override.** Fixtures that don't contain the target component leave the check
+  pending. The helper checks the first fixture that contains the target, as its root or a child.
+- **Only at fixture creation.** A child behind an `@if` or on a lazy route may not exist when
+  `createComponent` returns. The helper does not recheck that fixture after `detectChanges()` or navigation.
 - **It reports a later override but cannot stop it.** A `TestBed.overrideProvider(Class, …)` after
   this call still replaces the spy; the check then fails with the message above.
 - **Nothing carries over between tests.** A test that called the helper but never rendered leaves no
@@ -130,6 +127,22 @@ payments.useValue.charge.resolveWith({ ok: true });
 
 The second argument is the same as for [`createSpyFromClass`](/core/create-spy-from-class). The spy
 is `payments.useValue`.
+
+Both override helpers accept `overrides` to seed a property. If the property has only a setter,
+list it in `settersToSpyOn` to keep the setter spy. Reading the property gives you the seed until
+something writes a new value. The seed itself doesn't count as a setter call.
+
+```ts
+const { useValue: settings } = overrideAutoSpy(SettingsService, {
+  settersToSpyOn: ['theme'],
+  overrides: { theme: 'dark' },
+});
+
+expect(settings.theme).toBe('dark');
+settings.theme = 'light';
+expect(settings.accessorSpies.setters.theme).toHaveBeenCalledExactlyOnceWith('light');
+expect(settings.theme).toBe('light');
+```
 
 **Common mistake:** expecting a check. `overrideAutoSpy` does not verify that the override applied;
 only `overrideComponentProvider` does. `overrideProvider(X, provideAutoSpy(X))` also works, but

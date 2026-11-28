@@ -215,7 +215,23 @@ Each one subscribes for you and fails with a clear message when the stream stays
 | `flushEventLoopUntil(isDone, options?)` | Runs turns until a condition holds, with a budget instead of a hang     | same                                    |
 | `settleDynamicImport(load, turns?)`     | Waits for an `import()` the code under test started                     | same                                    |
 
-To stub one argument list, pass `{ passthrough: 'unmatched' }` to `adoptMock` or `moduleNamespace`. If no `calledWith` rule matches and there is no default answer, the previous implementation handles the call. `mustBeCalledWith` still rejects misses.
+Use `{ passthrough: 'unmatched' }` with `adoptMock`, `moduleNamespace` or `createSpyFromInstance` to stub specific arguments and keep the original implementation for other calls.
+
+```ts
+import { expect, vi } from 'vitest';
+import { adoptMock } from 'vitest-auto-spy';
+
+const formatOrder = adoptMock(
+  vi.fn((id: number) => `Order #${id}`),
+  { passthrough: 'unmatched' },
+);
+formatOrder.calledWith(42).mockReturnValue('Test order');
+
+expect(formatOrder(42)).toBe('Test order');
+expect(formatOrder(43)).toBe('Order #43');
+```
+
+A configured default takes priority over the original, even if it returns `undefined`. A `mustBeCalledWith` miss still throws.
 
 ### Diagnostics in the core
 
@@ -242,10 +258,24 @@ These re-export the whole core and register their runner's adapter instead of Vi
 Import it in each spec file that uses it, or once in the setup file. It turns on the Observable helpers and
 `observablePropsToSpyOn`, and makes `returnSubject()` an rxjs `Subject<T>` in the types.
 
-| Export                                          | What it does                                                                                                                       | Docs                                                                   |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `createObservableWithValues(configs, options?)` | Builds an Observable from a list of `ValueConfig`s                                                                                 | [rxjs](/runtimes/rxjs#standalone-observable-builder)                   |
-| `createSubscriptionLog<Key>()`                  | Wrap a stream with `log.track(key, source$)`. `log.events` records `subscribe` and `unsubscribe` with the key and subscription ID. | [RxJS](/runtimes/rxjs#check-for-a-missing-unsubscribe-subscribercount) |
+| Export                                          | What it does                                                                                           | Docs                                                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `createObservableWithValues(configs, options?)` | Builds an Observable from a list of `ValueConfig`s                                                     | [rxjs](/runtimes/rxjs#standalone-observable-builder)                   |
+| `createSubscriptionLog<Key = string>()`         | Records when subscriptions start and end, so you can check that code unsubscribes or switches streams. | [RxJS](/runtimes/rxjs#check-for-a-missing-unsubscribe-subscribercount) |
+
+```ts
+import { Subject } from 'rxjs';
+import { expect } from 'vitest';
+import { createSubscriptionLog } from 'vitest-auto-spy/rxjs';
+
+const log = createSubscriptionLog();
+const updates$ = log.track('updates', new Subject<number>());
+const subscription = updates$.subscribe();
+subscription.unsubscribe();
+expect(log.events.map(({ type }) => type)).toEqual(['subscribe', 'unsubscribe']);
+```
+
+Pass the Observable returned by `track` to the code under test, not the original. Each entry in `log.events` has `type`, `key`, and a `subscription` ID shared by both events for that subscription. The log records `unsubscribe` on completion and error too.
 
 ## `vitest-auto-spy/angular`
 
@@ -264,7 +294,7 @@ spec imports
 | `extendWithAutoSpies(test, spec, options?)`                                                                                                  | Typed `test` fixtures for a map of dependencies (Vitest 4.1+)                                             | [`extendWithAutoSpies`](/adapters/angular#fixtures-instead-of-let-beforeeach-—-extendwithautospies)    |
 | `createWithAutoSpies(Class, options?)`                                                                                                       | Builds a class through DI with every unprovided dependency spied                                          | [Auto-spied dependencies](/adapters/angular#building-a-class-with-auto-spied-dependencies)             |
 | `renderShallow(Component, options?)`                                                                                                         | Renders a component without its child components ([shallow render](/glossary))                            | [Shallow rendering](/adapters/angular#shallow-component-rendering)                                     |
-| `findDirective(fixture, Directive)`                                                                                                          | Returns the directive instance; throws on zero or multiple matches.                                       | [Angular](/adapters/angular#a-host-for-a-directive-under-test)                                         |
+| `findDirective(fixture, Directive)`                                                                                                          | Gets one directive instance from a fixture; throws on zero or multiple matches.                           | [Directive host](/adapters/angular#a-host-for-a-directive-under-test)                                  |
 | `prepareShallow(Component, options?)`                                                                                                        | `renderShallow` with options shared by every test; `.create(overrides?)` per test                         | [`prepareShallow`](/adapters/angular#the-same-options-in-every-test-—-prepareshallow)                  |
 | `createComponentStub(Class, overrides?, options?)`                                                                                           | A standalone stand-in for a child component, directive or pipe                                            | [`createComponentStub`](/adapters/angular#a-stand-in-for-a-child-createcomponentstub)                  |
 | `createDirectiveHost(options)`                                                                                                               | A standalone host component for a directive under test                                                    | [Directive host](/adapters/angular#a-host-for-a-directive-under-test)                                  |
@@ -283,6 +313,9 @@ spec imports
 | `trackInjections(tokens, options?)`                                                                                                          | Records which collaborators the code under test asked DI for                                              | [Track injections](/utilities/track-injections)                                                        |
 | `setupAngularTestEnv(options)`                                                                                                               | Runs zone and zoneless spec files in one worker                                                           | [Zone and zoneless](/adapters/angular#zone-and-zoneless-in-the-same-run)                               |
 | `Spy`, the `mock*Prop` helpers, `restoreMockedProps`, `countMockedProps`, the `expect*Emission*` family, `expectError`, `setEmissionTimeout` | Re-exported from the core                                                                                 | [Core](#vitest-auto-spy)                                                                               |
+
+Once Angular has rendered the fixture, `findDirective(fixture, HighlightDirective)` returns a typed
+`HighlightDirective`. It accepts a component or directive fixture and searches the host as well as its descendants.
 
 ## `vitest-auto-spy/angular/matchers`
 
@@ -362,9 +395,9 @@ Angular signal forms. Needs `@angular/forms` and Angular 22. Does not re-export 
 
 Angular's `TestBed` under `bun test`. Re-exports `/bun` (the whole core) and most of `/angular`:
 `provideAutoSpy`, `injectSpy`, `renderShallow`, `prepareShallow`, `setInputs`, `hostElement`,
-`queryElement`, `createWithAutoSpies`, `stable`, `flushEffects`, `settleResource`, `runEffect`,
-`trackRecomputations`, `trackEffectRuns`. Not included: the matchers, the diagnostics and the
-`mock*Prop` helpers. See [Bun + Angular](/runtimes/bun-angular).
+`queryElement`, `findDirective`, `createWithAutoSpies`, `stable`, `flushEffects`, `settleResource`,
+`runEffect`, `trackRecomputations`, `trackEffectRuns`. For directive lookup, see [Bun + Angular](/runtimes/bun-angular#what-you-get).
+Not included: the matchers, the diagnostics and the `mock*Prop` helpers.
 
 | Export                                                                        | What it does                                                                 |
 | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -499,7 +532,7 @@ The second argument of `createSpyFromClass`, `createSpyFromInstance` and `provid
 | `fillMissing`                                  | `boolean`                | Adds a spy for a name the prototype does not have (`abstract` members)                                                                                                                                                             |
 | `lazySpies`                                    | `boolean \| 'proxy'`     | When method spies are built (`'proxy'`: one proxy object builds them on first use); unset, the number of methods decides                                                                                                           |
 | `strict`, `onUnstubbedCall`, `onUnstubbedRead` | see below                | [Strict mode](/core/strict-mode)                                                                                                                                                                                                   |
-| `passthrough`                                  | `boolean \| 'unmatched'` | For `createSpyFromInstance`, `true` runs the original until configured; `'unmatched'` also runs it on `calledWith` misses without a default.                                                                                       |
+| `passthrough`                                  | `boolean \| 'unmatched'` | For `createSpyFromInstance`. Default: `false`. `true` runs unconfigured methods as-is; [`'unmatched'`](#modules-and-the-event-loop) also runs the original on `calledWith` misses without a default.                               |
 
 `createAutoMock`, `autoMocked` and `provideAutoSpyForToken` take an `AutoMockConfiguration` as the
 last argument: `observablePropsToSpyOn`, `returns`, `returnsUndefined`, `returnsClass`, `selfReturning`,
@@ -525,6 +558,19 @@ suite-wide default. See [precedence](/core/strict-mode#precedence).
 
 **`createSpyClass` options**: `{ statics?: boolean }` copies the class's static members onto the
 double. See [statics](/core/spy-typing#the-class-s-statics-—-statics-true).
+
+**`createComponentStub` options**: Pass `signalTransforms` when the stub should apply the same `input()` transform as the real component or directive. Here, `ChartComponent` declares `isCompact = input(false, { alias: 'compact', transform: booleanAttribute })`.
+
+```ts
+import { booleanAttribute } from '@angular/core';
+import { createComponentStub } from 'vitest-auto-spy/angular';
+
+import { ChartComponent } from './chart.component';
+
+const ChartStub = createComponentStub(ChartComponent, {}, { signalTransforms: { isCompact: booleanAttribute } });
+```
+
+The keys are class field names (`isCompact`), not template aliases (`compact`). Without a transform for that field, the stub signal receives the raw bound value. The stub copies decorator-based `@Input` transforms automatically. See [Component stubs](/adapters/angular#a-stand-in-for-a-child-createcomponentstub).
 
 **`captureArg` options**: `{ where? }`, a predicate choosing which values the captor accepts.
 
@@ -566,9 +612,9 @@ vitest-auto-spy (also re-exported by /bun, /node, /rstest, /react, /svelte, /vue
   SubscribableLike, UnstubbedCall, UnstubbedCallHandler, UnstubbedRead, UnstubbedReadHandler,
   ValueConfig, ValueConfigPerCall, WithMockReturnValue
 
-/rxjs (re-exported from the core)
+/rxjs (includes re-exports from the core)
   AddObservableSpyMethods, CompleteValueConfig, ErrorValueConfig, NextValueConfig,
-  ObservablePropSpyMethods, ValueConfig, ValueConfigPerCall
+  ObservablePropSpyMethods, SubscriptionEvent, SubscriptionLog, ValueConfig, ValueConfigPerCall
 
 /angular
   AccessorImplementations, AngularTestEnvMode, AngularTestEnvOptions, AngularTokenProvider,

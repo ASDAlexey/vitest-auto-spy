@@ -158,10 +158,10 @@ vi.mock('shaka-player', () => moduleNamespace({ Player: mockConstructor(() => pl
 
 `default` is the whole namespace, unless your factory defines its own `default`.
 
-| Option        | Type      | Default | Meaning                                                                       |
-| ------------- | --------- | ------- | ----------------------------------------------------------------------------- |
-| `lenient`     | `boolean` | `false` | An export the factory did not define reads as `undefined` instead of throwing |
-| `passthrough` | `boolean` | `false` | Every function export becomes a spy that runs the real function               |
+| Option        | Type                       | Default | Meaning                                                                       |
+| ------------- | -------------------------- | ------- | ----------------------------------------------------------------------------- |
+| `lenient`     | `boolean`                  | `false` | An export the factory did not define reads as `undefined` instead of throwing |
+| `passthrough` | `boolean` or `'unmatched'` | `false` | Wraps function exports in spies that can call the real function               |
 
 **Common mistake:** a factory that returns bare named exports. Vitest then throws
 `No "default" export is defined on the mock` from inside the library, with a stack that names the
@@ -199,20 +199,23 @@ like a promise to `await import(…)`, which would never resolve.
 
 ### `passthrough`
 
-Every function export becomes a spy that runs the real function until the test configures it. It
-records every call either way. Pass the real module in:
+Both passthrough modes wrap function exports in spies that record every call. Pass the real module
+in:
 
 ```ts
-vi.mock('./api', async (importOriginal) => moduleNamespace(await importOriginal<typeof import('./api')>(), { passthrough: true }));
+vi.mock('./api', async (importOriginal) => moduleNamespace(await importOriginal<typeof import('./api')>(), { passthrough: 'unmatched' }));
 ```
 
-It is Vitest's `vi.mock(path, { spy: true })` plus this library's helpers (`calledWith`,
-`mustBeCalledWith`, `resolveWith`). It follows the same rules as
-[`createSpyFromInstance(obj, { passthrough: true })`](/core/create-spy-from-class#passthrough):
-
-- **A configured export no longer calls the real function.** A `calledWith(7)` setup answers
-  `undefined` for `loadUser(1)`, as on any other spy.
-- **`resetAutoSpy(api)` brings the real function back.**
+- **`true`** calls the real function until you configure the spy. With only a `calledWith(7)` setup,
+  `loadUser(1)` returns `undefined`.
+- **`'unmatched'`** keeps calling the real function when no argument-specific response applies,
+  including after a `once()` or `times(n)` response runs out. A matching `calledWith` response comes
+  first, even if it returns `undefined`.
+- **`mustBeCalledWith` and default responses take precedence over the real function.** If no
+  `calledWith` response applies, `mustBeCalledWith` either answers or throws. With no
+  `mustBeCalledWith` rule, the spy uses any configured default (such as `resolveWith(fallbackUser)`)
+  before calling the real function.
+- **`resetAutoSpy(api)` clears the configuration and restores call-through.**
 - **The real function runs with the caller's `this`.** A method called as `api.load()` or through
   `.call(owner)` sees that `this`.
 - **Classes and values stay as they are.** A class needs `new`; for that, use
@@ -248,22 +251,40 @@ it('greets the user it loaded', async () => {
 });
 ```
 
-| Option | Type     | Default         | Meaning                                       |
-| ------ | -------- | --------------- | --------------------------------------------- |
-| `name` | `string` | the mock's name | What a `mustBeCalledWith` miss calls this spy |
+| Option        | Type          | Default         | Meaning                                                  |
+| ------------- | ------------- | --------------- | -------------------------------------------------------- |
+| `name`        | `string`      | the mock's name | Name in a `mustBeCalledWith` error                       |
+| `passthrough` | `'unmatched'` | —               | Keeps the previous implementation on a `calledWith` miss |
+
+Use `passthrough: 'unmatched'` if you want to stub one case and keep the mock's previous
+implementation for other arguments:
+
+```ts
+const format = adoptMock(
+  vi.fn((id: number) => `User ${id}`),
+  { passthrough: 'unmatched' },
+);
+format.calledWith(7).mockReturnValue('Ada');
+
+format(7); // 'Ada'
+format(1); // 'User 1'
+```
+
+As with [module passthrough](#passthrough), a configured default takes precedence over the previous
+implementation. A `mustBeCalledWith` miss throws before either fallback.
 
 - **It is the same object, not a copy.** Your code holds this mock through the mocked module, so a
   copy would configure nothing. Calls it already recorded stay recorded. It comes back typed as a
   spy with the export's own signature.
-- **Nothing changes until you configure it.** An unconfigured call answers what the mock answered
-  before: the implementation it was built with (`vi.fn(impl)`), or `undefined`. Once configured, the
-  configuration decides. Arguments no `calledWith` matches get `undefined`, unless the spy has a
-  default answer.
+- **Without `passthrough`, a `calledWith` setup stops calls to the previous implementation.**
+  Before setup, the mock still uses the implementation it had, if any. After setup, a `calledWith`
+  miss returns `undefined` unless the spy has a default response or a `mustBeCalledWith` rule.
 - **Runner resets keep the configuration.** Unlike a plain `vi.fn()`, `vi.resetAllMocks()`,
   `mockReset: true` and `mockRestore()` clear only the calls and keep the configuration, as on every
   spy this library builds.
   `resetAutoSpy(loadUser)`, or `resetAutoSpy(api)` on the namespace, drops the configuration.
 - **Adopting twice is harmless.** The same mock, or a spy this library built, comes back unchanged.
+  Set `passthrough` on the first adoption, or in `moduleNamespace` if it built the spy.
 
 **Common mistake:** adopting a plain function. It is refused with a pointer to `assertMocked`: a
 plain function means the module mock did not apply.

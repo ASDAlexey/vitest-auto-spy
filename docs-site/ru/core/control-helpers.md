@@ -291,6 +291,8 @@ await expect(navigation).resolves.toBe(true);
 expect(events).toEqual(['deeplink']);
 ```
 
+![Тест проверяет, что до завершения промиса массив events пуст, завершает промис и проверяет результат навигации и записанное событие.](/demos/deferred.ru.svg)
+
 `resolve` принимает значение или `PromiseLike<T>`, `reject(reason)` отклоняет Promise с указанной
 причиной. `createDeferred()` использует тип `void`, поэтому достаточно `resolve()` без аргумента.
 Завершите Promise до ожидания зависимой операции, иначе тест зависнет. Каждый вызов создаёт

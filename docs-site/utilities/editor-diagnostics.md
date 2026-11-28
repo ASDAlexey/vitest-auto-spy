@@ -5,15 +5,8 @@ description: See the vitest-auto-spy lint rules underlined while you write a spe
 
 # Editor diagnostics
 
-The library's lint rules can underline mistakes in your editor while you type, instead of in CI an
-hour later. They catch shapes that **pass** but test nothing: an `expect()` inside `subscribe()`, a
-`done` callback Vitest never calls, a spy typed as the class.
-
-You need no editor plugin from this package. The rules ship as
-[`vitest-auto-spy/eslint-plugin`](/utilities/eslint-plugin), and every editor below already runs
-ESLint. The same rules run in the editor and in CI, so nothing passes locally and fails on the build.
-
-Set it up once:
+Use ESLint in your editor to spot tests that pass without checking what you expect. For example,
+ESLint can flag an `expect()` inside `subscribe()` before you push the test to CI.
 
 ```bash
 npm i -D vitest-auto-spy eslint typescript-eslint
@@ -33,11 +26,13 @@ export default [
 ];
 ```
 
-`typescript-eslint` lets ESLint read `.ts` files. If you already have an ESLint config, add only the
-spec-file block, after your other blocks. `autoSpy.configs.recommended` is one object with
-`plugins` and `rules` and no `files`, so the `files` list next to it decides where the rules apply. More setups: [ESLint plugin](/utilities/eslint-plugin).
+`typescript-eslint` lets ESLint read TypeScript files. If you already have a TypeScript-aware ESLint
+config, import `autoSpy` and add only the spec-file block after your other blocks. Its `files` list
+sets where the recommended rules run.
 
-Then turn on ESLint in your editor, as below.
+Enable ESLint in your editor using the steps below. The same
+[`vitest-auto-spy/eslint-plugin`](/utilities/eslint-plugin) rules run there and in CI. They can also
+flag unsupported `done` callbacks and spies typed as their original class.
 
 ## WebStorm and the other JetBrains IDEs
 

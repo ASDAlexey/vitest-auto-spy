@@ -2,12 +2,12 @@
 # https://vitepress.dev/reference/default-theme-home-page
 layout: home
 title: vitest-auto-spy
-description: Typed test spies built from a real class. Every method becomes a spy with helpers that match its return type, on Vitest, Bun, node:test and Rstest. A drop-in replacement for jest-auto-spies and jasmine-auto-spies.
+description: 'Create typed spies from a class, set their answers, and check calls in Vitest, Bun, node:test, and Rstest.'
 
 hero:
   name: 'vitest-auto-spy'
-  text: 'A typed spy for every method of a class'
-  tagline: 'Pass a class and get back an object where every method is a spy, typed from the class, with helpers that match each return type. One API on Vitest, Bun, node:test and Rstest.'
+  text: 'Replace a class dependency in one line'
+  tagline: 'Create typed spies from a class. Set the answer, run your code, and check what it called. Works with Vitest, Bun, node:test, and Rstest.'
   actions:
     - theme: brand
       text: Get started
@@ -21,7 +21,7 @@ hero:
 
 features:
   - title: Every method, from the real class
-    details: 'createSpyFromClass reads the class, so the spy object has the same methods and signatures. Rename a method, and the spec that uses it stops compiling. A factory method answers a spy of another class with returnsClass, and innerDouble reads that spy without counting a call.'
+    details: 'The spy keeps the class’s method names and types. Rename a method, and TypeScript shows which tests still use the old name.'
     link: /core/create-spy-from-class
   - title: Helpers that match the return type
     details: 'A method returning a Promise gets resolveWith and rejectWith. One returning an Observable gets nextWith and throwWith. With calledWith, a method can return different values for different arguments. createDeferred keeps an awaited dependency pending until the test releases it.'
@@ -48,11 +48,11 @@ features:
     details: Wrap a stream with createSubscriptionLog to see when each subscription starts and when it tears down.
     link: /runtimes/rxjs#check-for-a-missing-unsubscribe-subscribercount
   - title: Find a directive in an Angular test
-    details: findDirective returns the directive instance from your fixture and reports missing or duplicate matches.
+    details: 'findDirective returns the directive instance from a Vitest or Bun fixture and throws if it finds zero or multiple matches.'
     link: /adapters/angular#a-host-for-a-directive-under-test
   - title: Stub one call without replacing the whole method
-    details: Use unmatched passthrough to keep the original implementation for arguments outside your calledWith rules when there is no default answer.
-    link: /core/create-spy-from-class#passthrough
+    details: 'Use passthrough: "unmatched" to call the original when no calledWith rule matches and no default answer is set.'
+    link: /core/passthrough
   - title: Lint rules and a codemod
     details: 'The ESLint plugin flags fragile test patterns as you type. The codemod moves a jest-auto-spies test set to this library and shows the diff first.'
     link: /utilities/eslint-plugin
@@ -109,11 +109,9 @@ users.save.rejectWith(new HttpError(409));
 
 </div>
 
-The cast goes away. Because of the cast, renaming a method on `UserService` leaves the hand-written
-object compiling and the test passing, while it no longer tests anything. `Spy<UserService>` is typed
-from the class, so the same rename turns the spec red. The real constructor never runs, so the
-service's own dependencies need no mocks. No class to pass? `createAutoMock<T>()` builds the same spies from a type or an
-interface.
+The spy keeps the class’s method names and types. Rename a method, and TypeScript flags the old name in your test. The real constructor never runs. If you only have an interface, use `createAutoMock<T>()`.
+
+![From a class to a passing test: create the spy, set a response, run real code, and check the result and requested URL.](/demos/first-test.svg)
 
 [Getting started](/core/introduction) · [createSpyFromClass](/core/create-spy-from-class) ·
 [Control helpers](/core/control-helpers)
