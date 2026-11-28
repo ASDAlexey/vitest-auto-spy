@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="570" viewBox="0 0 1120 570" role="img" aria-labelledby="title description" aria-label="От класса до зелёного теста. Создаём типизированный спай, задаём ответ и проверяем вызов." xml:lang="ru">
+<title id="title">От класса до зелёного теста</title>
+<desc id="description">Создаём типизированный спай, задаём ответ и проверяем вызов. UserService вернул Ada</desc>
+<defs>
+  <linearGradient id="canvas" x2="1" y2="1"><stop stop-color="#132a30"/><stop offset=".54" stop-color="#101b26"/><stop offset="1" stop-color="#161c31"/></linearGradient>
+  <linearGradient id="accent"><stop stop-color="#34d7ad"/><stop offset="1" stop-color="#8ca8ff"/></linearGradient>
+  <radialGradient id="glow"><stop stop-color="#29ba9d" stop-opacity=".22"/><stop offset="1" stop-color="#29ba9d" stop-opacity="0"/></radialGradient>
+  <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0v24" fill="none" stroke="#bccaff" stroke-opacity=".075"/></pattern>
+  <style>
+    text{font-family:system-ui,sans-serif;fill:#ecf5fc}.subtitle,.tab{fill:#a8bdcf}.subtitle,.hint{font-size:20px}.tab,.badge,.result{font-size:17px}.title{font-size:37px;font-weight:750;letter-spacing:-.7px}.eyebrow,.number,.passed{fill:#73e7c3;font-size:16px;font-weight:700}.code,.lineno{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:17px}.lineno{fill:#788ba3;font-size:14px}.kw{fill:#bbadff}.fn{fill:#8bc1ff}.str{fill:#96e6b0}.pulse{fill:#193b43;opacity:0}.milestone{fill:#142633;stroke:#365868}.stepdot{fill:#204a49}.number{font-size:13px}.cursor,.ripple,.hint:not(.s4),.running{opacity:0}.bar{transform-origin:48px 0}.ripple{transform-box:fill-box;transform-origin:center}
+    @media(prefers-reduced-motion:no-preference){
+      @keyframes s0{0%{opacity:1}15.222%{opacity:1}16.444%{opacity:0}100%{opacity:0}}
+@keyframes s1{0%{opacity:0}15.556%{opacity:0}16.667%{opacity:1}31.944%{opacity:1}33.167%{opacity:0}100%{opacity:0}}
+@keyframes s2{0%{opacity:0}32.222%{opacity:0}33.333%{opacity:1}48.611%{opacity:1}49.833%{opacity:0}100%{opacity:0}}
+@keyframes s3{0%{opacity:0}48.889%{opacity:0}50%{opacity:1}65.278%{opacity:1}66.5%{opacity:0}100%{opacity:0}}
+@keyframes s4{0%{opacity:0}65.556%{opacity:0}66.667%{opacity:1}97.444%{opacity:1}98.667%{opacity:0}100%{opacity:0}}
+@keyframes show0{0%{opacity:0}15.556%{opacity:0}16.667%{opacity:1}97.444%{opacity:1}98.667%{opacity:0}100%{opacity:0}}
+@keyframes show1{0%{opacity:0}32.222%{opacity:0}33.333%{opacity:1}97.444%{opacity:1}98.667%{opacity:0}100%{opacity:0}}
+@keyframes show2{0%{opacity:0}48.889%{opacity:0}50%{opacity:1}97.444%{opacity:1}98.667%{opacity:0}100%{opacity:0}}
+@keyframes show3{0%{opacity:0}65.556%{opacity:0}66.667%{opacity:1}97.444%{opacity:1}98.667%{opacity:0}100%{opacity:0}}
+@keyframes assertions{0%{opacity:0}45.833%{opacity:0}48.333%{opacity:0.72}65.278%{opacity:0.72}66.667%{opacity:1}97.444%{opacity:1}98.667%{opacity:0}100%{opacity:0}}
+@keyframes highlight0{0%{opacity:0}15.556%{opacity:0}16.667%{opacity:1}31.889%{opacity:1}33.111%{opacity:0}100%{opacity:0}}
+@keyframes highlight1{0%{opacity:0}32.222%{opacity:0}33.333%{opacity:1}48.556%{opacity:1}49.778%{opacity:0}100%{opacity:0}}
+@keyframes highlight2{0%{opacity:0}48.889%{opacity:0}50%{opacity:1}65.222%{opacity:1}66.444%{opacity:0}100%{opacity:0}}
+@keyframes highlight3{0%{opacity:0}65.556%{opacity:0}66.667%{opacity:1}97.444%{opacity:1}98.667%{opacity:0}100%{opacity:0}}
+@keyframes cursor{0%{transform:translate(1110px,404px);opacity:0}45.111%{transform:translate(1110px,404px);opacity:0}46.444%{transform:translate(1070px,347px);opacity:1}50%{transform:translate(953px,218px);opacity:1}51.722%{transform:translate(953px,218px);opacity:1}54.167%{transform:translate(988px,246px);opacity:0}100%{transform:translate(988px,246px);opacity:0}}
+@keyframes ripple{0%{opacity:0;transform:scale(.4)}49.889%{opacity:0;transform:scale(.4)}50.111%{opacity:.8;transform:scale(.5)}53.056%{opacity:0;transform:scale(1.9)}100%{opacity:0;transform:scale(1.9)}}
+@keyframes sweep{0%{transform:scaleX(0)}97.611%{transform:scaleX(1)}100%{transform:scaleX(0)}}
+      .s0{animation:s0 18s linear infinite}.s1{animation:s1 18s linear infinite}.s2{animation:s2 18s linear infinite}.s3{animation:s3 18s linear infinite}.s4{animation:s4 18s linear infinite}
+      .reveal0{animation:show0 18s linear infinite}.h0{animation:highlight0 18s linear infinite}.reveal1{animation:show1 18s linear infinite}.h1{animation:highlight1 18s linear infinite}.reveal2{animation:show2 18s linear infinite}.h2{animation:highlight2 18s linear infinite}.reveal3{animation:show3 18s linear infinite}.h3{animation:highlight3 18s linear infinite}
+      .assertion{animation:assertions 18s linear infinite}.running{animation:s3 18s linear infinite}.cursor{animation:cursor 18s ease-in-out infinite}.ripple{animation:ripple 18s ease-out infinite}.bar{animation:sweep 18s linear infinite}
+    }
+  </style>
+</defs>
+<rect width="1120" height="570" rx="26" fill="url(#canvas)"/>
+<rect width="1120" height="570" rx="26" fill="url(#grid)"/>
+<ellipse cx="225" cy="100" rx="500" ry="310" fill="url(#glow)"/>
+<rect x="48" y="32" width="12" height="12" rx="4" fill="#68edc4"/><text x="70" y="44" class="eyebrow">vitest-auto-spy</text>
+<text x="48" y="91" class="title">От класса до зелёного теста</text>
+<text x="48" y="121" class="subtitle">Создаём типизированный спай, задаём ответ и проверяем вызов.</text>
+<rect x="48" y="145" width="1024" height="319" rx="15" fill="#0e1724" stroke="#3c596b"/>
+<path d="M63 145h994a15 15 0 0 1 15 15v29H48v-29a15 15 0 0 1 15-15Z" fill="#1c2e40"/>
+<circle cx="72" cy="167" r="4.5" fill="#ef8490"/><circle cx="88" cy="167" r="4.5" fill="#e8bc78"/><circle cx="104" cy="167" r="4.5" fill="#69d6ad"/>
+<text x="124" y="173" class="tab">тесты / user.spec.ts</text>
+<path d="M782 190v230M48 420h1024" stroke="#334e62"/>
+<rect x="62" y="254" width="702" height="28" rx="5" class="pulse h0"/><rect x="62" y="284" width="702" height="28" rx="5" class="pulse h1"/>
+<rect x="62" y="319" width="702" height="28" rx="5" class="pulse h2"/><rect x="62" y="353" width="702" height="56" rx="5" class="pulse h3"/>
+<g class=""><text x="79" y="220" text-anchor="end" class="lineno">1</text><text x="98" y="220" class="code" xml:space="preserve"><tspan class="kw">import</tspan> { createSpyFromClass } <tspan class="kw">from</tspan> <tspan class="str">'vitest-auto-spy'</tspan>;</text></g>
+<g class=""><text x="79" y="248" text-anchor="end" class="lineno">3</text><text x="98" y="248" class="code" xml:space="preserve"><tspan class="fn">it</tspan>(<tspan class="str">'loads a user'</tspan>, <tspan class="kw">async</tspan> () =&gt; {</text></g>
+<g class="reveal0"><text x="79" y="274" text-anchor="end" class="lineno">4</text><text x="98" y="274" class="code" xml:space="preserve">  <tspan class="kw">const</tspan> api = <tspan class="fn">createSpyFromClass</tspan>(ApiService);</text></g>
+<g class="reveal1"><text x="79" y="304" text-anchor="end" class="lineno">5</text><text x="98" y="304" class="code" xml:space="preserve">  api.<tspan class="fn">get.resolveWith</tspan>({ id: 1, name: <tspan class="str">'Ada'</tspan> });</text></g>
+<g class="reveal2"><text x="79" y="339" text-anchor="end" class="lineno">7</text><text x="98" y="339" class="code" xml:space="preserve">  <tspan class="kw">const</tspan> user = <tspan class="kw">await new</tspan> UserService(api).load(1);</text></g>
+<g class="assertion"><text x="79" y="372" text-anchor="end" class="lineno">9</text><text x="98" y="372" class="code" xml:space="preserve">  expect(user.name).toBe(<tspan class="str">'Ada'</tspan>);</text></g>
+<g class="assertion"><text x="79" y="398" text-anchor="end" class="lineno">10</text><text x="98" y="398" class="code" xml:space="preserve">  expect(api.get).toHaveBeenCalledWith(<tspan class="str">'/users/1'</tspan>);</text></g>
+<g class=""><text x="79" y="414" text-anchor="end" class="lineno">11</text><text x="98" y="414" class="code" xml:space="preserve">});</text></g>
+<text x="809" y="218" class="tab">Запуск теста</text>
+<rect x="939" y="199" width="113" height="32" rx="8" fill="#21464a" stroke="#477d75"/><text x="995" y="220" text-anchor="middle" class="tab">Запустить</text>
+<g class="reveal0"><circle cx="813" cy="253" r="4" fill="#8bc1ff"/><text x="828" y="259" class="result">Спай создан</text></g><g class="reveal1"><circle cx="813" cy="281" r="4" fill="#bbadff"/><text x="828" y="287" class="result">Ответ задан</text></g><g class="running"><circle cx="813" cy="319" r="4" fill="#f5c97c"/><text x="828" y="325" class="result">Тест выполняется</text></g>
+<g class="reveal3"><rect x="805" y="304" width="247" height="102" rx="10" fill="#1c3939" stroke="#4a8578"/><text x="825" y="331" class="passed">✓  1 тест прошёл</text><circle cx="813" cy="353" r="4" fill="#73e7c3"/><text x="828" y="359" class="result">UserService вернул Ada</text><circle cx="813" cy="379" r="4" fill="#73e7c3"/><text x="828" y="385" class="result">get вызван с /users/1</text></g>
+<text x="70" y="449" class="hint s0">Начинаем с теста настоящего UserService.</text><text x="70" y="449" class="hint s1">Передаём ApiService; конструктор этого класса не запустится.</text><text x="70" y="449" class="hint s2">Задаём ответ асинхронного get через resolveWith.</text><text x="70" y="449" class="hint s3">Запускаем настоящий UserService со спаем вместо API.</text><text x="70" y="449" class="hint s4">Проверяем имя и URL. Запрос в сеть не уходит.</text>
+<circle cx="953" cy="218" r="15" fill="none" stroke="#8bfde1" stroke-width="2" class="ripple"/><g class="cursor"><path d="M0 0v18l5-4 4 7 3-2-4-7h7Z" fill="#e8fff7" stroke="#101a29" stroke-width="1.2"/></g>
+<rect x="48" y="480" width="1024" height="3" rx="1.5" fill="#37505f"/><rect class="bar" x="48" y="480" width="1024" height="3" rx="1.5" fill="url(#accent)"/>
+<g transform="translate(48 499)"><rect class="milestone m0" width="247" height="47" rx="10"/><circle cx="24" cy="23.5" r="12" class="stepdot"/><text x="24" y="29" text-anchor="middle" class="number">1</text><text x="46" y="30" class="badge">Создать</text></g><g transform="translate(307 499)"><rect class="milestone m1" width="247" height="47" rx="10"/><circle cx="24" cy="23.5" r="12" class="stepdot"/><text x="24" y="29" text-anchor="middle" class="number">2</text><text x="46" y="30" class="badge">Настроить</text></g><g transform="translate(566 499)"><rect class="milestone m2" width="247" height="47" rx="10"/><circle cx="24" cy="23.5" r="12" class="stepdot"/><text x="24" y="29" text-anchor="middle" class="number">3</text><text x="46" y="30" class="badge">Запустить</text></g><g transform="translate(825 499)"><rect class="milestone m3" width="247" height="47" rx="10"/><circle cx="24" cy="23.5" r="12" class="stepdot"/><text x="24" y="29" text-anchor="middle" class="number">4</text><text x="46" y="30" class="badge">Проверить</text></g>
+</svg>
