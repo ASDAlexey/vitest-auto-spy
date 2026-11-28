@@ -237,8 +237,7 @@ for (const entry of SIDEBAR) {
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: 'vitest-auto-spy',
-  description:
-    'Automatic, fully-typed test spies from a class — runtime-agnostic across Vitest, Bun, node:test and Rstest. A drop-in replacement for jest-auto-spies and jasmine-auto-spies.',
+  description: 'Create typed spies from a class, set their answers, and check calls in Vitest, Bun, node:test, and Rstest.',
 
   // Served from https://asdalexey.github.io/vitest-auto-spy/ — required for asset/link paths.
   // If you add a custom domain (CNAME), change this to '/'.
@@ -257,8 +256,7 @@ export default defineConfig({
       label: 'Русский',
       lang: 'ru-RU',
       link: '/ru/',
-      description:
-        'Автоматические типизированные спаи из настоящего класса — одинаково на Vitest, Bun, node:test и Rstest. Замена jest-auto-spies и jasmine-auto-spies с кодмодом, который дописывает переезд.',
+      description: 'Создавайте спаи с типами из класса, задавайте ответы и проверяйте вызовы в Vitest, Bun, node:test и Rstest.',
       themeConfig: {
         nav: [
           { text: 'Руководство', link: '/ru/core/introduction' },
@@ -544,8 +542,7 @@ export default defineConfig({
         '@context': 'https://schema.org',
         '@type': 'SoftwareSourceCode',
         name: 'vitest-auto-spy',
-        description:
-          'Auto-generate fully-typed test spies from a class across Vitest, Bun, node:test and Rstest. A drop-in replacement for jest-auto-spies and for jasmine-auto-spies, with a codemod that finishes the move.',
+        description: 'Create typed spies from a class, set their answers, and check calls in Vitest, Bun, node:test, and Rstest.',
         codeRepository: 'https://github.com/ASDAlexey/vitest-auto-spy',
         programmingLanguage: 'TypeScript',
         license: 'https://opensource.org/licenses/MIT',
@@ -590,13 +587,13 @@ export default defineConfig({
             author: { '@id': `${HOSTNAME}#author` },
             url: HOSTNAME,
             description:
-              'Generate fully-typed test spies from a class, an interface or nothing at all. One API across Vitest, Bun, node:test and Rstest, with Angular, NestJS, React, Vue and Svelte recipes, RxJS observable spies and eighteen ESLint rules. A drop-in replacement for jest-auto-spies and for jasmine-auto-spies, whose .and / .calls / .withArgs namespaces it restores so a Karma-era suite runs before it is rewritten.',
+              'Generate typed test spies from a class or a TypeScript type. One API across Vitest, Bun, node:test and Rstest, with framework helpers, RxJS assertions, and migration guides for jest-auto-spies and jasmine-auto-spies.',
             featureList: [
               'Typed spies generated from a class prototype',
               'createAutoMock<T>() — a mock from a type alone, no class required',
               'One mock adapter core across Vitest, bun:test, node:test and Rstest',
-              'Angular TestBed helpers: provideAutoSpy, injectSpy, renderShallow',
-              'Observable assertions that fail on silence',
+              'Angular TestBed helpers: provideAutoSpy, injectSpy, renderShallow, findDirective',
+              'Observable assertions and subscription teardown logs',
               'Eighteen ESLint rules and editor diagnostics for WebStorm and VS Code',
               'createFixture / createFixtureFactory — a checked model stamped into a fresh copy per test',
               'A shared-double guard that puts back what a cross-file vi.resetAllMocks() dropped',
