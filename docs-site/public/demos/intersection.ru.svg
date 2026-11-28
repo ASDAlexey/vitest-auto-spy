@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" xml:lang="ru" width="1200" height="645" viewBox="0 0 1200 645" role="img" aria-labelledby="title description" aria-label="Карточка появляется без прокрутки. Тест устанавливает stubIntersectionObserver, передаёт запись о пересечении со значением true, ждёт обновления Angular и проверяет, что у карточки есть класс is-visible. Страница не прокручивается.">
+  <title id="title">Карточка появляется без прокрутки</title>
+  <desc id="description">Тест устанавливает stubIntersectionObserver, передаёт запись о пересечении со значением true, ждёт обновления Angular и проверяет, что у карточки есть класс is-visible. Страница не прокручивается.</desc>
+  <defs>
+    <linearGradient id="accent" x2="1" y2="0">
+      <stop stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="16%" cy="0%" r="74%">
+      <stop stop-color="#2dd4bf" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#2dd4bf" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <path d="M30 0H0V30" fill="none" stroke="#273437" stroke-opacity=".55"/>
+    </pattern>
+    <style>
+      svg { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .phase1, .phase2, .phase3, .pending, .signal { opacity: 0; }
+      @media (prefers-reduced-motion: no-preference) {
+      @keyframes phase1 {
+        0% { opacity: 1; }
+        20.833% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+      @keyframes phase2 {
+        0% { opacity: 0; }
+        20.833% { opacity: 1; }
+        41.667% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+      @keyframes phase3 {
+        0% { opacity: 0; }
+        41.667% { opacity: 1; }
+        61.111% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+      @keyframes phase4 {
+        0% { opacity: 0; }
+        61.111% { opacity: 1; }
+        100% { opacity: 1; }
+      }
+      @keyframes pending {
+        0% { opacity: 1; }
+        58.611% { opacity: 1; }
+        59.722% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+      @keyframes reveal {
+        0% { opacity: 0; }
+        58.611% { opacity: 0; }
+        59.722% { opacity: 1; }
+        100% { opacity: 1; }
+      }
+      @keyframes signal {
+        0% { opacity: 0; }
+        20.833% { opacity: 0; }
+        22.111% { opacity: 1; }
+        24.722% { opacity: 1; }
+        27.5% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+        .phase1 { animation: phase1 18s steps(1, end) infinite; }
+        .phase2 { animation: phase2 18s steps(1, end) infinite; }
+        .phase3 { animation: phase3 18s steps(1, end) infinite; }
+        .phase4 { animation: phase4 18s steps(1, end) infinite; }
+        .pending { animation: pending 18s linear infinite; }
+        .revealed { animation: reveal 18s linear infinite; }
+        .signal { animation: signal 18s ease-in-out infinite; }
+      }
+    </style>
+  </defs>
+  <rect x=".5" y=".5" width="1199" height="644" rx="18" fill="#0d1012" stroke="#344145"/>
+  <rect x="1" y="1" width="1198" height="643" rx="17" fill="url(#glow)"/>
+  <rect x="38" y="31" width="25" height="25" rx="6" fill="#153b37" stroke="#3d7e75"/>
+  <circle cx="50.5" cy="43.5" r="6" fill="none" stroke="#5eead4" stroke-width="1.5"/>
+  <circle cx="50.5" cy="43.5" r="2" fill="#5eead4"/>
+  <text class="mono" x="76" y="49" font-size="16" fill="#a7d7d2">vitest-auto-spy / dom-stubs</text>
+  <text x="38" y="101" font-size="37" font-weight="700" fill="#f3f7f8">Карточка появляется без прокрутки</text>
+  <rect x="38" y="122" width="680" height="421" rx="12" fill="#14181a" stroke="#344145"/>
+  <rect x="742" y="122" width="420" height="421" rx="12" fill="#14181a" stroke="#344145"/>
+  <path d="M38 162H718M742 162H1162" stroke="#344145"/>
+  <g fill="#6c8387">
+    <circle cx="60" cy="142" r="3.5"/>
+    <circle cx="73" cy="142" r="3.5"/>
+    <circle cx="86" cy="142" r="3.5"/>
+  </g>
+  <text class="mono" x="105" y="148" font-size="15" fill="#d4e0e2">reveal.spec.ts</text>
+  <text x="763" y="148" font-size="17" font-weight="600" fill="#d4e0e2">Компонент</text>
+  <circle cx="1137" cy="142" r="4" fill="#6c8387"/>
+  <circle class="signal" cx="1137" cy="142" r="8" fill="#2dd4bf"/>
+  <rect x="763" y="186" width="378" height="333" rx="10" fill="#101517" stroke="#2d3e40"/>
+  <rect x="764" y="187" width="376" height="331" rx="9" fill="url(#grid)"/>
+  <path d="M763 228H1141" stroke="#2d3e40"/>
+  <path d="M784 201V213m-3-9 3-3 3 3m-6 6 3 3 3-3m4-9-14 14" fill="none" stroke="#9cabb1" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="802" y="213" font-size="16" fill="#b7c7ca">Без прокрутки</text>
+  <g class="mono" font-size="17">
+    <g class="phase1">
+      <rect x="48" y="255" width="660" height="82" rx="6" fill="#2dd4bf" opacity=".09"/>
+      <rect x="48" y="255" width="3" height="82" rx="1.5" fill="#2dd4bf"/>
+    </g>
+    <g class="phase2">
+      <rect x="48" y="339" width="660" height="82" rx="6" fill="#2dd4bf" opacity=".09"/>
+      <rect x="48" y="339" width="3" height="82" rx="1.5" fill="#2dd4bf"/>
+    </g>
+    <g class="phase3">
+      <rect x="48" y="423" width="660" height="36" rx="6" fill="#2dd4bf" opacity=".09"/>
+      <rect x="48" y="423" width="3" height="36" rx="1.5" fill="#2dd4bf"/>
+    </g>
+    <g class="phase4">
+      <rect x="48" y="461" width="660" height="60" rx="6" fill="#2dd4bf" opacity=".09"/>
+      <rect x="48" y="461" width="3" height="60" rx="1.5" fill="#2dd4bf"/>
+    </g>
+    <text x="59" y="192" fill="#89999f">01</text>
+    <text x="101" y="192" xml:space="preserve"><tspan fill="#beb3fa">import</tspan><tspan fill="#e1eaed"> { intersectionEntry,</tspan></text>
+    <text x="59" y="216" fill="#89999f">02</text>
+    <text x="101" y="216" xml:space="preserve"><tspan fill="#e1eaed">  stubIntersectionObserver }</tspan></text>
+    <text x="59" y="240" fill="#89999f">03</text>
+    <text x="101" y="240" xml:space="preserve"><tspan fill="#beb3fa">from</tspan><tspan fill="#f0ca8e"> 'vitest-auto-spy/dom-stubs'</tspan><tspan fill="#e1eaed">;</tspan></text>
+    <text x="59" y="276" fill="#89999f">04</text>
+    <text x="101" y="276" xml:space="preserve"><tspan fill="#beb3fa">const</tspan><tspan fill="#e1eaed"> observers = </tspan><tspan fill="#83e5d5">stubIntersectionObserver</tspan><tspan fill="#e1eaed">();</tspan></text>
+    <text x="59" y="300" fill="#89999f">05</text>
+    <text x="101" y="300" xml:space="preserve"><tspan fill="#beb3fa">const</tspan><tspan fill="#e1eaed"> fixture = TestBed.createComponent(RevealHost);</tspan></text>
+    <text x="59" y="324" fill="#89999f">06</text>
+    <text x="101" y="324" xml:space="preserve"><tspan fill="#e1eaed">fixture.detectChanges();</tspan></text>
+    <text x="59" y="360" fill="#89999f">07</text>
+    <text x="101" y="360" xml:space="preserve"><tspan fill="#e1eaed">observers.last.</tspan><tspan fill="#83e5d5">emit</tspan><tspan fill="#e1eaed">([</tspan></text>
+    <text x="59" y="384" fill="#89999f">08</text>
+    <text x="101" y="384" xml:space="preserve"><tspan fill="#e1eaed">  </tspan><tspan fill="#83e5d5">intersectionEntry</tspan><tspan fill="#e1eaed">(fixture.nativeElement, </tspan><tspan fill="#beb3fa">true</tspan><tspan fill="#e1eaed">),</tspan></text>
+    <text x="59" y="408" fill="#89999f">09</text>
+    <text x="101" y="408" xml:space="preserve"><tspan fill="#e1eaed">]);</tspan></text>
+    <text x="59" y="444" fill="#89999f">10</text>
+    <text x="101" y="444" xml:space="preserve"><tspan fill="#beb3fa">await</tspan><tspan fill="#e1eaed"> fixture.</tspan><tspan fill="#83e5d5">whenStable</tspan><tspan fill="#e1eaed">();</tspan></text>
+    <text x="59" y="480" fill="#89999f">11</text>
+    <text x="101" y="480" xml:space="preserve"><tspan fill="#83e5d5">expect</tspan><tspan fill="#e1eaed">(fixture.nativeElement.classList)</tspan></text>
+    <text x="59" y="504" fill="#89999f">12</text>
+    <text x="101" y="504" xml:space="preserve"><tspan fill="#e1eaed">  .</tspan><tspan fill="#83e5d5">toContain</tspan><tspan fill="#e1eaed">(</tspan><tspan fill="#f0ca8e">'is-visible'</tspan><tspan fill="#e1eaed">);</tspan></text>
+  </g>
+  <g class="pending">
+    <rect x="801" y="264" width="302" height="178" rx="11" fill="#141a1c" stroke="#5a6a70" stroke-dasharray="7 5"/>
+    <path d="M936 320h32m-24-10h16m-11 20h6" fill="none" stroke="#718489" stroke-width="2" stroke-linecap="round"/>
+    <text x="952" y="371" text-anchor="middle" font-size="21" font-weight="600" fill="#b7c7ca">Карточка · Скрыта</text>
+    <text class="mono" x="952" y="476" text-anchor="middle" font-size="16" fill="#b7c7ca">Нет класса is-visible</text>
+  </g>
+  <g class="revealed">
+    <rect x="801" y="264" width="302" height="178" rx="11" fill="#18302e" stroke="#2dd4bf"/>
+    <rect x="818" y="281" width="268" height="77" rx="6" fill="#102523"/>
+    <path d="M828 335H874l8-10h34l11 10h28l10-35 12 45 8-20h19l7 10h63" fill="none" stroke="url(#accent)" stroke-width="2.5" stroke-linejoin="round"/>
+    <text x="820" y="392" font-size="22" font-weight="700" fill="#edf8f7">Карточка</text>
+    <text x="820" y="418" font-size="17" fill="#a7d7d2">Видна</text>
+    <rect x="886" y="456" width="132" height="32" rx="6" fill="#12332e" stroke="#398b7e"/>
+    <text class="mono" x="952" y="477" text-anchor="middle" font-size="16" fill="#83e5d5">.is-visible</text>
+  </g>
+  <rect x="38" y="564" width="1124" height="47" rx="9" fill="#131d1f" stroke="#344145"/>
+  <g font-size="19" fill="#e1eaed">
+    <g class="phase1">
+      <text class="mono" x="60" y="594" font-size="16" fill="#83e5d5">01 / 04</text>
+      <text x="165" y="594">Отрисовываем компонент с заглушкой.</text>
+    </g>
+    <g class="phase2">
+      <text class="mono" x="60" y="594" font-size="16" fill="#83e5d5">02 / 04</text>
+      <text x="165" y="594">Передаём запись с isIntersecting: true.</text>
+    </g>
+    <g class="phase3">
+      <text class="mono" x="60" y="594" font-size="16" fill="#83e5d5">03 / 04</text>
+      <text x="165" y="594">Ждём, пока Angular обновит DOM.</text>
+    </g>
+    <g class="phase4">
+      <text class="mono" x="60" y="594" font-size="16" fill="#83e5d5">04 / 04</text>
+      <text x="165" y="594">У карточки есть класс is-visible. Тест прошёл.</text>
+    </g>
+  </g>
+  <g fill="#405055">
+    <rect x="1041" y="585" width="17" height="4" rx="2"/>
+    <rect x="1065" y="585" width="17" height="4" rx="2"/>
+    <rect x="1089" y="585" width="17" height="4" rx="2"/>
+    <rect x="1113" y="585" width="17" height="4" rx="2"/>
+  </g>
+  <g fill="#5eead4">
+    <rect class="phase1" x="1041" y="585" width="17" height="4" rx="2"/>
+    <rect class="phase2" x="1065" y="585" width="17" height="4" rx="2"/>
+    <rect class="phase3" x="1089" y="585" width="17" height="4" rx="2"/>
+    <rect class="phase4" x="1113" y="585" width="17" height="4" rx="2"/>
+  </g>
+</svg>
