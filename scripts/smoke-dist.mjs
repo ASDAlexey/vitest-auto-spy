@@ -130,6 +130,45 @@ const CROSS_ENTRY = [
     `,
   },
   {
+    name: '/rxjs createSubscriptionLog tracks an Observable returned by a /node spy',
+    entries: ['./node', './rxjs'],
+    body: `
+      const { Observable } = await import('rxjs');
+      const { createSpyFromClass } = await import(NODE);
+      const { createSubscriptionLog } = await import(RXJS);
+
+      class Feed {
+        items() { return null; }
+      }
+
+      let subscriptions = 0;
+      let teardowns = 0;
+      const source = new Observable((subscriber) => {
+        subscriptions++;
+        subscriber.next('first');
+        return () => { teardowns++; };
+      });
+      const feed = createSpyFromClass(Feed, { returns: { items: source } });
+      const log = createSubscriptionLog();
+      const tracked = log.track('items', feed.items());
+      assert(subscriptions === 0 && log.events.length === 0, 'track() subscribed before the consumer');
+
+      let seen;
+      const subscription = tracked.subscribe((value) => { seen = value; });
+      assert(subscriptions === 1 && seen === 'first', 'the tracked stream did not forward the spy result');
+      assert(JSON.stringify(log.events) === JSON.stringify([
+        { type: 'subscribe', key: 'items', subscription: 1 },
+      ]), 'the log did not record the active subscription');
+
+      subscription.unsubscribe();
+      assert(teardowns === 1, 'unsubscribe did not tear down the spy result');
+      assert(JSON.stringify(log.events) === JSON.stringify([
+        { type: 'subscribe', key: 'items', subscription: 1 },
+        { type: 'unsubscribe', key: 'items', subscription: 1 },
+      ]), 'the log did not record teardown for the same subscription');
+    `,
+  },
+  {
     // The stream state is built on the first stream helper and lives behind the spy's mark, while
     // the reset that has to drop it lives in the core entry. Two bundles, one object — and the
     // buffer is what makes a miss silent: the `ReplaySubject` sits in a closure the value container
@@ -252,7 +291,8 @@ const CROSS_ENTRY = [
     body: `
       const { createSpyFromClass } = await import(INDEX);
       const vue = await import(VUE);
-      const { provideAutoSpy } = await import(ANGULAR);
+      const { findDirective, provideAutoSpy } = await import(ANGULAR);
+      assert(typeof findDirective === 'function', 'the angular entry does not export findDirective');
 
       class Cart {
         total() { return 0; }
