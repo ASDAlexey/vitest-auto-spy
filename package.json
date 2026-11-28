@@ -222,6 +222,8 @@
   "files": [
     "dist",
     "assets",
+    "docs-site/public/demos/first-test.svg",
+    "docs-site/public/demos/angular-di.svg",
     "skills",
     "AGENTS.md",
     "agent-docs",
