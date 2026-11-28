@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" xml:lang="ru" width="1120" height="596" viewBox="0 0 1120 596" role="img" aria-labelledby="title description" aria-label="Проверка до и после завершения промиса с createDeferred.">
+  <title id="title">Как завершить промис в нужный момент</title>
+  <desc id="description">Тест навигации сначала проверяет, что массив events пуст. Затем вызывает home.resolve(true), дожидается navigation и проверяет, что результат равен true, а в events записано событие deeplink.</desc>
+  <defs>
+    <linearGradient id="accent" x2="1" y2="0">
+      <stop stop-color="#5eead4"/>
+      <stop offset=".48" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".23" cy="0" r=".82" gradientTransform="scale(1 .62)">
+      <stop stop-color="#134e4a" stop-opacity=".74"/>
+      <stop offset="1" stop-color="#0d1012" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse">
+      <path d="M0 36V0h36" fill="none" stroke="#65efd7" stroke-opacity=".07"/>
+    </pattern>
+    <style>
+      svg { font-family: system-ui, sans-serif; }
+      text { fill: #e6efee; }
+      .code { white-space: pre; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .muted { fill: #9fb0b2; }
+      .signal, .api { fill: #5eead4; }
+      .keyword { fill: #93c5fd; }
+      .literal { fill: #b6e58e; }
+      .pending, .resolve { opacity: 0; }
+      @media (prefers-reduced-motion: no-preference) {
+      @keyframes pending {
+        0% { opacity: 1; }
+        26.944% { opacity: 1; }
+        27.778% { opacity: 0; }
+        97.5% { opacity: 0; }
+        100% { opacity: 1; }
+      }
+      @keyframes resolve {
+        0% { opacity: 0; }
+        27.778% { opacity: 0; }
+        28.611% { opacity: 1; }
+        49.167% { opacity: 1; }
+        50% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+      @keyframes done {
+        0% { opacity: 0; }
+        50% { opacity: 0; }
+        50.833% { opacity: 1; }
+        96.111% { opacity: 1; }
+        97.5% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+        .pending { animation: pending 18s linear infinite; }
+        .resolve { animation: resolve 18s linear infinite; }
+        .done { animation: done 18s linear infinite; }
+      }
+    </style>
+  </defs>
+  <rect x=".5" y=".5" width="1119" height="595" rx="21" fill="#0d1012" stroke="#232a2d"/>
+  <rect x="1" y="1" width="1118" height="594" rx="20" fill="url(#glow)"/>
+  <rect x="1" y="1" width="1118" height="594" rx="20" fill="url(#grid)"/>
+  <rect x="44" y="33" width="33" height="3" rx="1.5" fill="url(#accent)"/>
+  <text x="90" y="41" class="mono signal" font-size="17">vitest-auto-spy</text>
+  <text x="44" y="99" font-size="40" font-weight="700">Как завершить промис в нужный момент</text>
+  <text x="46" y="134" class="mono muted" font-size="20">createDeferred&lt;boolean&gt;()</text>
+  <rect x="44.5" y="164.5" width="1031" height="387" rx="14" fill="#101517" stroke="#303d40"/>
+  <path d="M45 211.5h1030M650.5 212v290M45 502.5h1030" fill="none" stroke="#273438"/>
+  <circle cx="70" cy="188" r="5" fill="#64777a"/>
+  <circle cx="85" cy="188" r="5" fill="#465c60"/>
+  <circle cx="100" cy="188" r="5" fill="#2dd4bf"/>
+  <text x="123" y="194" class="mono muted" font-size="17">navigation.test.ts</text>
+  <text x="1052" y="194" text-anchor="end" class="mono muted" font-size="17" letter-spacing="1">ХОД ТЕСТА</text>
+  <g class="pending">
+    <rect x="57" y="380" width="580" height="26" rx="5" fill="#153a37"/>
+    <rect x="57" y="380" width="3" height="26" rx="1.5" fill="#2dd4bf"/>
+  </g>
+  <g class="resolve">
+    <rect x="57" y="406" width="580" height="26" rx="5" fill="#153a37"/>
+    <rect x="57" y="406" width="3" height="26" rx="1.5" fill="#2dd4bf"/>
+  </g>
+  <g class="done">
+    <rect x="57" y="432" width="580" height="52" rx="5" fill="#153a37"/>
+    <rect x="57" y="432" width="3" height="52" rx="1.5" fill="#2dd4bf"/>
+  </g>
+  <g class="mono code" font-size="18" xml:space="preserve">
+    <text x="82" y="243"><tspan class="muted" font-size="16" text-anchor="end">1</tspan><tspan x="103"><tspan class="keyword">const</tspan> home = <tspan class="api">createDeferred</tspan>&lt;boolean&gt;();</tspan></text>
+    <text x="82" y="269"><tspan class="muted" font-size="16" text-anchor="end">2</tspan><tspan x="103"><tspan class="keyword">const</tspan> events: string[] = [];</tspan></text>
+    <text x="82" y="295"><tspan class="muted" font-size="16" text-anchor="end">3</tspan><tspan x="103"><tspan class="keyword">const</tspan> navigation = home.promise.<tspan class="api">then</tspan>((ok) =&gt; {</tspan></text>
+    <text x="82" y="321"><tspan class="muted" font-size="16" text-anchor="end">4</tspan><tspan x="103">  events.push(<tspan class="literal">'deeplink'</tspan>);</tspan></text>
+    <text x="82" y="347"><tspan class="muted" font-size="16" text-anchor="end">5</tspan><tspan x="103">  <tspan class="keyword">return</tspan> ok;</tspan></text>
+    <text x="82" y="373"><tspan class="muted" font-size="16" text-anchor="end">6</tspan><tspan x="103">});</tspan></text>
+    <text x="82" y="399"><tspan class="muted" font-size="16" text-anchor="end">7</tspan><tspan x="103"><tspan class="api">expect</tspan>(events).toEqual([]);</tspan></text>
+    <text x="82" y="425"><tspan class="muted" font-size="16" text-anchor="end">8</tspan><tspan x="103">home.<tspan class="api">resolve</tspan>(<tspan class="literal">true</tspan>);</tspan></text>
+    <text x="82" y="451"><tspan class="muted" font-size="16" text-anchor="end">9</tspan><tspan x="103"><tspan class="keyword">await</tspan> expect(navigation).resolves.toBe(<tspan class="literal">true</tspan>);</tspan></text>
+    <text x="82" y="477"><tspan class="muted" font-size="16" text-anchor="end">10</tspan><tspan x="103"><tspan class="api">expect</tspan>(events).toEqual([<tspan class="literal">'deeplink'</tspan>]);</tspan></text>
+  </g>
+  <path d="M695 261v176" stroke="#344649" stroke-width="2"/>
+  <rect x="716.5" y="228.5" width="336" height="76" rx="9" fill="#151e20" stroke="#293537"/>
+  <circle cx="695" cy="261" r="14" fill="#172125" stroke="#3b5557"/>
+  <g class="pending">
+    <rect x="716.5" y="228.5" width="336" height="76" rx="9" fill="#123331" stroke="#2dd4bf"/>
+    <circle cx="695" cy="261" r="14" fill="#2dd4bf"/>
+  </g>
+  <text x="695" y="266" text-anchor="middle" class="mono muted" font-size="15" font-weight="600">1</text>
+  <text x="695" y="266" text-anchor="middle" class="mono pending" font-size="15" font-weight="700" style="fill:#06231e">1</text>
+  <text x="734" y="257" font-size="21" font-weight="650">Проверка до завершения</text>
+  <text x="734" y="283" class="muted" font-size="17">Список событий пока пуст.</text>
+  <rect x="716.5" y="316.5" width="336" height="76" rx="9" fill="#151e20" stroke="#293537"/>
+  <circle cx="695" cy="349" r="14" fill="#172125" stroke="#3b5557"/>
+  <g class="resolve">
+    <rect x="716.5" y="316.5" width="336" height="76" rx="9" fill="#123331" stroke="#2dd4bf"/>
+    <circle cx="695" cy="349" r="14" fill="#2dd4bf"/>
+  </g>
+  <text x="695" y="354" text-anchor="middle" class="mono muted" font-size="15" font-weight="600">2</text>
+  <text x="695" y="354" text-anchor="middle" class="mono resolve" font-size="15" font-weight="700" style="fill:#06231e">2</text>
+  <text x="734" y="345" font-size="21" font-weight="650">Завершение промиса</text>
+  <text x="734" y="371" class="muted" font-size="17">Тест передаёт значение true.</text>
+  <rect x="716.5" y="404.5" width="336" height="76" rx="9" fill="#151e20" stroke="#293537"/>
+  <circle cx="695" cy="437" r="14" fill="#172125" stroke="#3b5557"/>
+  <g class="done">
+    <rect x="716.5" y="404.5" width="336" height="76" rx="9" fill="#123331" stroke="#2dd4bf"/>
+    <circle cx="695" cy="437" r="14" fill="#2dd4bf"/>
+  </g>
+  <text x="695" y="442" text-anchor="middle" class="mono muted" font-size="15" font-weight="600">3</text>
+  <text x="695" y="442" text-anchor="middle" class="mono done" font-size="15" font-weight="700" style="fill:#06231e">3</text>
+  <text x="734" y="433" font-size="21" font-weight="650">Проверка результата</text>
+  <text x="734" y="459" class="muted" font-size="17">В списке появилось событие deeplink.</text>
+  <g class="pending">
+    <path d="M70 520v8l5 3m4-4a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" fill="none" stroke="#5eead4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="91" y="533" class="signal" font-size="19" font-weight="600">Ждём завершения home.promise</text>
+    <text x="1052" y="533" text-anchor="end" class="mono muted" font-size="17">events = []</text>
+  </g>
+  <g class="resolve">
+    <path d="M71 517l-8 12h7l-1 8 8-12h-7z" fill="none" stroke="#5eead4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="91" y="533" class="signal" font-size="19" font-weight="600">Промис home.promise завершён со значением true</text>
+    <text x="1052" y="533" text-anchor="end" class="mono muted" font-size="17">resolve(true)</text>
+  </g>
+  <g class="done">
+    <path d="M62 527l5 5 10-10" fill="none" stroke="#5eead4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="91" y="533" class="signal" font-size="19" font-weight="600">Обе итоговые проверки прошли</text>
+    <text x="1052" y="533" text-anchor="end" class="mono muted" font-size="17">events = ['deeplink']</text>
+  </g>
+</svg>
