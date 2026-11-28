@@ -1,0 +1,307 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" lang="ru" xml:lang="ru" role="img" aria-labelledby="demo-title" aria-describedby="demo-description" aria-label="Анимация имитирует редактор и показывает, как Angular внедряет зависимость. provideAutoSpy регистрирует спая для UserService в TestBed. injectSpy возвращает типизированного спая, и тест настраивает load так, чтобы метод вернул Ada. Тест отрисовывает ProfileComponent, проверяет имя Ada и убеждается, что load вызван ровно один раз. В последнем кадре обе проверки проходят.">
+  <title id="demo-title">Angular TestBed: тест с типизированным спаем</title>
+  <desc id="demo-description">Анимация имитирует редактор и показывает, как Angular внедряет зависимость. provideAutoSpy регистрирует спая для UserService в TestBed. injectSpy возвращает типизированного спая, и тест настраивает load так, чтобы метод вернул Ada. Тест отрисовывает ProfileComponent, проверяет имя Ada и убеждается, что load вызван ровно один раз. В последнем кадре обе проверки проходят.</desc>
+  <defs>
+    <linearGradient id="canvas" x2="1" y2="1"><stop stop-color="#131a2e"/><stop offset="1" stop-color="#080c18"/></linearGradient>
+    <linearGradient id="accent"><stop stop-color="#7ee787"/><stop offset="1" stop-color="#4cc9f0"/></linearGradient>
+    <radialGradient id="aura"><stop stop-color="#4cc9f0" stop-opacity=".18"/><stop offset="1" stop-color="#4cc9f0" stop-opacity="0"/></radialGradient>
+    <radialGradient id="aura-green"><stop stop-color="#7ee787" stop-opacity=".11"/><stop offset="1" stop-color="#7ee787" stop-opacity="0"/></radialGradient>
+    <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#81a7cb" opacity=".15"/></pattern>
+    <filter id="shadow" x="-12%" y="-15%" width="124%" height="143%"><feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#030712" flood-opacity=".55"/></filter>
+    <clipPath id="canvas-clip"><rect width="1200" height="700" rx="24"/></clipPath>
+    <path id="tick" d="m0 5 4 4 8-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <style>
+      svg { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; fill: #e6edf3; }
+      .heading { font-size: 36px; font-weight: 750; letter-spacing: -.7px; }
+      .subtitle { font-size: 18px; fill: #a9bbd2; }
+      .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 1.6px; fill: #8fd8eb; }
+      .brand { font-size: 16px; font-weight: 700; }
+      .file, .code, .line-number, .type, .step-no, .entry { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .file, .entry, .step-no, .line-number, .small { font-size: 14px; }
+      .entry, .line-number { fill: #849bb7; }
+      .line-number { text-anchor: end; }
+      .code { font-size: 16px; fill: #e6edf3; }
+      .keyword { fill: #d7b5ff; }
+      .string { fill: #a4eaa9; }
+      .fn, .type { fill: #88dffa; }
+      .type { font-size: 17px; font-weight: 600; }
+      .small { fill: #a9bbd2; }
+      .tab, .run-label, .pass { font-size: 15px; font-weight: 650; }
+      .run-label { fill: #b8f4bb; }
+      .pass { fill: #a4eaa9; }
+      .name { font-size: 27px; font-weight: 740; }
+      .step { font-size: 16px; font-weight: 600; }
+      .step-no { text-anchor: middle; font-weight: 700; }
+      .chapter-one, .chapter-two, .chapter-three, .idle, .rendering, .route, .drop, .pointer, .ripple { opacity: 0; }
+      .ripple, .progress { transform-box: fill-box; }
+      .ripple { transform-origin: center; }
+      .progress { transform-origin: left; }
+      @media (prefers-reduced-motion: no-preference) {
+      @keyframes chapter-one {
+        0% { opacity: 1; }
+        20.556% { opacity: 1; }
+        21.667% { opacity: 0; }
+        98.333% { opacity: 0; }
+        100% { opacity: 1; }
+      }
+      .chapter-one { animation: chapter-one 18s linear infinite; }
+      @keyframes chapter-two {
+        0% { opacity: 0; }
+        21.667% { opacity: 0; }
+        22.889% { opacity: 1; }
+        43.333% { opacity: 1; }
+        44.444% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+      .chapter-two { animation: chapter-two 18s linear infinite; }
+      @keyframes chapter-three {
+        0% { opacity: 0; }
+        44.444% { opacity: 0; }
+        45.667% { opacity: 1; }
+        65.556% { opacity: 1; }
+        66.667% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+      .chapter-three { animation: chapter-three 18s linear infinite; }
+      @keyframes chapter-four {
+        0% { opacity: 0; }
+        66.667% { opacity: 0; }
+        68% { opacity: 1; }
+        95.111% { opacity: 1; }
+        97.778% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+      .chapter-four { animation: chapter-four 18s linear infinite; }
+      @keyframes provider {
+        0% { opacity: 0.28; }
+        3.056% { opacity: 0.28; }
+        5.167% { opacity: 1; }
+        96.111% { opacity: 1; }
+        99.222% { opacity: 0.28; }
+        100% { opacity: 0.28; }
+      }
+      .provider { animation: provider 18s linear infinite; }
+      @keyframes spy {
+        0% { opacity: 0.28; }
+        23.333% { opacity: 0.28; }
+        26.111% { opacity: 1; }
+        96.111% { opacity: 1; }
+        99.056% { opacity: 0.28; }
+        100% { opacity: 0.28; }
+      }
+      .spy { animation: spy 18s linear infinite; }
+      @keyframes act {
+        0% { opacity: 0.35; }
+        46.556% { opacity: 0.35; }
+        48.444% { opacity: 1; }
+        96.111% { opacity: 1; }
+        99.056% { opacity: 0.35; }
+        100% { opacity: 0.35; }
+      }
+      .act { animation: act 18s linear infinite; }
+      @keyframes checks {
+        0% { opacity: 0.35; }
+        65.556% { opacity: 0.35; }
+        67.889% { opacity: 1; }
+        96.111% { opacity: 1; }
+        99.056% { opacity: 0.35; }
+        100% { opacity: 0.35; }
+      }
+      .checks { animation: checks 18s linear infinite; }
+      @keyframes idle {
+        0% { opacity: 1; }
+        46.389% { opacity: 1; }
+        47.556% { opacity: 0; }
+        98% { opacity: 0; }
+        99.722% { opacity: 1; }
+        100% { opacity: 1; }
+      }
+      .idle { animation: idle 18s linear infinite; }
+      @keyframes rendering {
+        0% { opacity: 0; }
+        47.556% { opacity: 0; }
+        48.778% { opacity: 1; }
+        65.722% { opacity: 1; }
+        66.889% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+      .rendering { animation: rendering 18s linear infinite; }
+      @keyframes result {
+        0% { opacity: 0; transform: translateY(5px); }
+        66.889% { opacity: 0; transform: translateY(5px); }
+        69.056% { opacity: 1; transform: translateY(0); }
+        95.278% { opacity: 1; transform: translateY(0); }
+        98% { opacity: 0; transform: translateY(5px); }
+        100% { opacity: 0; transform: translateY(5px); }
+      }
+      .result { animation: result 18s linear infinite; }
+      @keyframes route {
+        0% { opacity: 0; transform: translateY(0); }
+        23.111% { opacity: 0; transform: translateY(0); }
+        23.444% { opacity: 1; transform: translateY(0); }
+        25.833% { opacity: 1; transform: translateY(27px); }
+        26.556% { opacity: 0; transform: translateY(30px); }
+        100% { opacity: 0; transform: translateY(30px); }
+      }
+      .route { animation: route 18s linear infinite; }
+      @keyframes drop {
+        0% { opacity: 0; transform: translateY(0); }
+        47.5% { opacity: 0; transform: translateY(0); }
+        47.944% { opacity: 1; transform: translateY(0); }
+        50.667% { opacity: 1; transform: translateY(23px); }
+        51.389% { opacity: 0; transform: translateY(27px); }
+        100% { opacity: 0; transform: translateY(27px); }
+      }
+      .drop { animation: drop 18s linear infinite; }
+      @keyframes pointer {
+        0% { opacity: 0; transform: translate(567px, 220px); }
+        41.944% { opacity: 0; transform: translate(567px, 220px); }
+        43.333% { opacity: 1; transform: translate(575px, 215px); animation-timing-function: ease-in-out; }
+        46.389% { opacity: 1; transform: translate(616px, 192px); }
+        48.167% { opacity: 1; transform: translate(616px, 192px); }
+        50.111% { opacity: 0; transform: translate(623px, 200px); }
+        100% { opacity: 0; transform: translate(623px, 200px); }
+      }
+      .pointer { animation: pointer 18s linear infinite; }
+      @keyframes ripple {
+        0% { opacity: 0; transform: scale(.3); }
+        46.333% { opacity: 0; transform: scale(.3); }
+        46.389% { opacity: .95; transform: scale(.3); }
+        48.944% { opacity: 0; transform: scale(1.5); }
+        100% { opacity: 0; transform: scale(1.5); }
+      }
+      .ripple { animation: ripple 18s linear infinite; }
+      @keyframes progress {
+        0% { transform: scaleX(0); }
+        47.556% { transform: scaleX(0); }
+        65.722% { transform: scaleX(1); }
+        100% { transform: scaleX(1); }
+      }
+      .progress { animation: progress 18s linear infinite; }
+      }
+    </style>
+  </defs>
+
+  <g clip-path="url(#canvas-clip)">
+    <rect width="1200" height="700" fill="url(#canvas)"/>
+    <ellipse cx="1005" cy="192" rx="450" ry="320" fill="url(#aura)"/>
+    <ellipse cx="332" cy="578" rx="510" ry="285" fill="url(#aura-green)"/>
+    <path d="M758 0h442v484H758z" fill="url(#dots)"/>
+    <rect x="44" width="1112" height="3" fill="url(#accent)" opacity=".74"/>
+  </g>
+  <text x="48" y="42" class="eyebrow">ANGULAR / TESTBED</text>
+  <text x="46" y="88" class="heading">Angular TestBed: тест с типизированным спаем</text>
+  <text x="48" y="121" class="subtitle">Подменяем сервис, задаём ответ и проверяем, что показал компонент.</text>
+  <g transform="translate(973 36)">
+    <rect width="181" height="38" rx="19" fill="#0b1424" stroke="#304660"/>
+    <circle cx="21" cy="17" r="7" fill="none" stroke="url(#accent)" stroke-width="2"/>
+    <path d="m26 22 5 5m-13-10h6m-3-3v6" fill="none" stroke="#a4eaa9" stroke-width="1.5" stroke-linecap="round"/>
+    <text x="42" y="24" class="brand">vitest-auto-spy</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="44" y="146" width="643" height="438" rx="15" fill="#101827" stroke="#31455e"/>
+    <rect x="707" y="146" width="449" height="438" rx="15" fill="#101827" stroke="#31455e"/>
+  </g>
+  <path d="M44 174h643m20 37h449M44 215h643" stroke="#2b3d56"/>
+  <circle cx="60" cy="160" r="3" fill="#fb8c8f"/><circle cx="72" cy="160" r="3" fill="#f0b777"/><circle cx="84" cy="160" r="3" fill="#7ee787"/>
+  <path d="M55 181h13l5 5v17H55z M68 181v5h5" fill="none" stroke="#88dffa" stroke-width="1.4" stroke-linejoin="round" transform="translate(5 2)"/>
+  <text x="87" y="199" class="file">profile.component.spec.ts</text>
+  <path d="M54 214h256" stroke="url(#accent)" stroke-width="2"/>
+  <rect x="512" y="180" width="150" height="28" rx="8" fill="#183326" stroke="#40664d"/>
+  <path d="m524 188 8 6-8 6z" fill="#9aeca2"/>
+  <text x="540" y="199" class="run-label">Запустить тест</text>
+
+  <g class="chapter-one"><rect x="54" y="247" width="622" height="88" rx="7" fill="#4cc9f0" fill-opacity=".09"/><path d="M55 253v76" stroke="url(#accent)" stroke-width="3" stroke-linecap="round"/></g>
+  <g class="chapter-two"><rect x="54" y="339" width="622" height="43" rx="7" fill="#4cc9f0" fill-opacity=".09"/><path d="M55 345v31" stroke="url(#accent)" stroke-width="3" stroke-linecap="round"/></g>
+  <g class="chapter-three"><rect x="54" y="408" width="622" height="43" rx="7" fill="#4cc9f0" fill-opacity=".09"/><path d="M55 414v31" stroke="url(#accent)" stroke-width="3" stroke-linecap="round"/></g>
+  <g class="chapter-four"><rect x="54" y="477" width="622" height="43" rx="7" fill="#4cc9f0" fill-opacity=".09"/><path d="M55 483v31" stroke="url(#accent)" stroke-width="3" stroke-linecap="round"/></g>
+      <text x="66" y="241" class="line-number">1</text><text x="84" y="241" class="code" xml:space="preserve">it(<tspan class="string">'shows the user name'</tspan>, <tspan class="keyword">async</tspan> () =&gt; {</text>
+  <g class="provider">
+      <text x="66" y="264" class="line-number">2</text><text x="84" y="264" class="code" xml:space="preserve">  TestBed.configureTestingModule({</text>
+      <text x="66" y="287" class="line-number">3</text><text x="84" y="287" class="code" xml:space="preserve">    imports: [ProfileComponent],</text>
+      <text x="66" y="310" class="line-number">4</text><text x="84" y="310" class="code" xml:space="preserve">    providers: [<tspan class="fn">provideAutoSpy</tspan>(UserService)],</text>
+      <text x="66" y="333" class="line-number">5</text><text x="84" y="333" class="code" xml:space="preserve">  });</text>
+  </g>
+  <g class="spy">
+      <text x="66" y="356" class="line-number">6</text><text x="84" y="356" class="code" xml:space="preserve">  <tspan class="keyword">const</tspan> users = <tspan class="fn">injectSpy</tspan>(UserService);</text>
+      <text x="66" y="379" class="line-number">7</text><text x="84" y="379" class="code" xml:space="preserve">  users.load.<tspan class="fn">mockReturnValue</tspan>(of({ id: 1, name: <tspan class="string">'Ada'</tspan> }));</text>
+      <text x="66" y="402" class="line-number">8</text>
+  </g>
+  <g class="act">
+      <text x="66" y="425" class="line-number">9</text><text x="84" y="425" class="code" xml:space="preserve">  <tspan class="keyword">const</tspan> fixture = TestBed.createComponent(ProfileComponent);</text>
+      <text x="66" y="448" class="line-number">10</text><text x="84" y="448" class="code" xml:space="preserve">  <tspan class="keyword">await</tspan> <tspan class="fn">stable</tspan>(fixture);</text>
+      <text x="66" y="471" class="line-number">11</text>
+  </g>
+  <g class="checks">
+      <text x="66" y="494" class="line-number">12</text><text x="84" y="494" class="code" xml:space="preserve">  <tspan class="fn">expect</tspan>(fixture.nativeElement.textContent).toContain(<tspan class="string">'Ada'</tspan>);</text>
+      <text x="66" y="517" class="line-number">13</text><text x="84" y="517" class="code" xml:space="preserve">  <tspan class="fn">expect</tspan>(users.load).toHaveBeenCalledTimes(1);</text>
+  </g>
+      <text x="66" y="540" class="line-number">14</text><text x="84" y="540" class="code" xml:space="preserve">});</text>
+  <text x="60" y="563" class="entry">vitest-auto-spy/angular</text>
+
+  <rect x="731" y="165" width="33" height="28" rx="7" fill="#18314a"/>
+  <path d="M741 176h13m-9 5h5m-8-10v13m11-13v13" fill="none" stroke="#88dffa" stroke-width="1.2" stroke-linecap="round"/>
+  <text x="774" y="184" class="tab">Внедрение зависимостей</text>
+  <g class="provider">
+    <rect x="731" y="226" width="401" height="62" rx="10" fill="#142437" stroke="#355772"/>
+    <text x="751" y="248" class="small">Провайдер в TestBed</text>
+    <text x="751" y="272" class="type">UserService</text>
+    <rect x="937" y="242" width="175" height="31" rx="15.5" fill="#193849" stroke="#376677"/>
+    <text x="951" y="262" class="file">provideAutoSpy()</text>
+  </g>
+  <g class="spy">
+    <path d="M932 288v27m-4-5 4 5 4-5" fill="none" stroke="#6abdce" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="731" y="317" width="401" height="62" rx="10" fill="#142437" stroke="#355772"/>
+    <text x="751" y="339" class="small">Типизированный спай</text>
+    <text x="751" y="363" class="type">Spy&lt;UserService&gt;</text>
+    <rect x="937" y="333" width="175" height="31" rx="15.5" fill="#193849" stroke="#376677"/>
+    <text x="967" y="353" class="file">injectSpy()</text>
+  </g>
+  <circle class="route" cx="932" cy="289" r="5" fill="#88dffa" stroke="#0d1727" stroke-width="2"/>
+  <g class="act"><path d="M932 379v24m-4-5 4 5 4-5" fill="none" stroke="#6abdce" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <circle class="drop" cx="932" cy="380" r="5" fill="#a4eaa9" stroke="#0d1727" stroke-width="2"/>
+
+  <rect x="731" y="406" width="401" height="154" rx="11" fill="#0d1523" stroke="#30465c"/>
+  <path d="M731 447h401" stroke="#30465c"/>
+  <text x="751" y="431" class="tab">Предпросмотр профиля</text>
+  <g class="idle">
+    <path d="M753 476h14v14h-14z m3 4h8m-8 4h6" fill="none" stroke="#7390ad" stroke-linecap="round"/>
+    <text x="779" y="488" class="small">Тест ещё не запущен</text>
+  </g>
+  <g class="rendering">
+    <text x="751" y="488" class="small">Компонент отрисовывается…</text>
+    <rect x="751" y="506" width="361" height="5" rx="2.5" fill="#253b51"/>
+    <rect class="progress" x="751" y="506" width="361" height="5" rx="2.5" fill="url(#accent)"/>
+  </g>
+  <g class="result" color="#a4eaa9">
+    <rect x="981" y="415" width="134" height="24" rx="12" fill="#19382c"/>
+    <use href="#tick" x="992" y="422"/>
+    <text x="1010" y="432" class="pass">Тест прошёл</text>
+    <rect x="751" y="463" width="46" height="46" rx="13" fill="#223b43"/>
+    <circle cx="774" cy="480" r="5.5" fill="none" stroke="#88dffa" stroke-width="1.8"/>
+    <path d="M764 497c1.5-5.5 5-8 10-8s8.5 2.5 10 8" fill="none" stroke="#88dffa" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="812" y="477" class="small">Имя в компоненте</text>
+    <text x="811" y="504" class="name">Ada</text>
+    <path d="M751 521h361" stroke="#263e51" stroke-dasharray="3 4"/>
+    <use href="#tick" x="753" y="533"/>
+    <text x="774" y="543" class="pass">load() вызван один раз</text>
+  </g>
+
+  <rect x="44" y="602" width="1112" height="43" rx="11" fill="#101c2c" stroke="#344b64"/>
+  <rect x="57" y="610" width="76" height="27" rx="7" fill="#1d3446"/>
+  <g class="chapter-one"><text x="95" y="628" class="step-no">01 / 04</text></g>
+  <g class="chapter-two"><text x="95" y="628" class="step-no">02 / 04</text></g>
+  <g class="chapter-three"><text x="95" y="628" class="step-no">03 / 04</text></g>
+  <g class="chapter-four"><text x="95" y="628" class="step-no">04 / 04</text></g>
+  <g class="chapter-one"><text x="149" y="628" class="step">Регистрируем спая вместо UserService в TestBed.</text></g>
+  <g class="chapter-two"><text x="149" y="628" class="step">Получаем того же спая и задаём ответ load(): Ada.</text></g>
+  <g class="chapter-three"><text x="149" y="628" class="step">Создаём компонент и ждём отрисовки.</text></g>
+  <g class="chapter-four"><text x="149" y="628" class="step">В профиле видно имя Ada, а load() вызван один раз.</text></g>
+  <rect x="1006" y="621" width="24" height="4" rx="2" fill="#324b64"/><rect class="chapter-one" x="1006" y="621" width="24" height="4" rx="2" fill="url(#accent)"/>
+  <rect x="1038" y="621" width="24" height="4" rx="2" fill="#324b64"/><rect class="chapter-two" x="1038" y="621" width="24" height="4" rx="2" fill="url(#accent)"/>
+  <rect x="1070" y="621" width="24" height="4" rx="2" fill="#324b64"/><rect class="chapter-three" x="1070" y="621" width="24" height="4" rx="2" fill="url(#accent)"/>
+  <rect x="1102" y="621" width="24" height="4" rx="2" fill="#324b64"/><rect class="chapter-four" x="1102" y="621" width="24" height="4" rx="2" fill="url(#accent)"/>
+  <circle class="ripple" cx="616" cy="192" r="15" fill="none" stroke="#b8f4bb" stroke-width="2"/>
+  <g class="pointer"><path d="M0 0v20l5-5 4 8 3-1.5-3.5-8H15Z" fill="#f0f6fc" stroke="#091321" stroke-width="1.5" stroke-linejoin="round"/></g>
+</svg>
